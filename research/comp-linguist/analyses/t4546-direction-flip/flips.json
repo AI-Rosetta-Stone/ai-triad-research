@@ -1,0 +1,12 @@
+{
+  "Id": "O15",
+  "Org": "org-002",
+  "Node": "saf-beliefs-109",
+  "Label": "N",
+  "OldType": "ADVOCATES_FOR",
+  "NewType": "OPPOSES",
+  "NliDirection": "opposes",
+  "NliMargin": 5.1754,
+  "NliMethod": "nli",
+  "DecidingRep": "Covered systems that reach High capability must have safeguards that sufficiently minimize the associated risk of severe harm before they are deployed."
+}

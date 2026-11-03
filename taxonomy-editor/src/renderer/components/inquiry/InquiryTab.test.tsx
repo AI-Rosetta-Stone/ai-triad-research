@@ -1,76 +1,170 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// Tests for the persistent Ask/My/Community tab strip (t/3678, AC1). The strip must be reachable
-// on every screen — not just a button inside the Ask screen — and must not silently abandon an
-// in-flight run.
+// t/4562: InquiryTab adopts the shared LibraryListPage (replacing the persistent Ask/My/
+// Community strip, t/3678). t/4666 phase 1: "New Question" opens a dialog over the list (not a
+// full-page Ask screen) — these tests pin that wiring: "+ New Question" and a getting-started
+// chip both open the dialog with the list still rendered behind it; Cancel/onStarted close it;
+// Running/Answer screens are still reachable once a job starts. LibraryListPage's own mechanics
+// are covered by its own test file.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 const mockReset = vi.fn();
-const mockOpenList = vi.fn();
+const mockSetQuestion = vi.fn();
+const mockOpenFromHistory = vi.fn();
+const mockOpenCommunityResult = vi.fn();
+const mockFetchHistory = vi.fn();
 const mockStopPolling = vi.fn();
-let mockScreen: 'ask' | 'running' | 'answer' | 'list' = 'ask';
+const mockOpenList = vi.fn();
+let mockScreen: 'running' | 'answer' | 'list' = 'list';
 
 vi.mock('../../hooks/useInquiryStore', () => ({
   useInquiryStore: (selector: (s: unknown) => unknown) => selector({
     screen: () => mockScreen,
     _stopPolling: mockStopPolling,
+    history: [],
+    historyLoading: false,
     reset: mockReset,
+    setQuestion: mockSetQuestion,
+    openFromHistory: mockOpenFromHistory,
+    openCommunityResult: mockOpenCommunityResult,
+    fetchHistory: mockFetchHistory,
     openList: mockOpenList,
   }),
 }));
 
-vi.mock('./InquiryAskPanel', () => ({ InquiryAskPanel: () => <div>ask-screen</div> }));
+const mockFetchInquiries = vi.fn();
+vi.mock('../../hooks/useCommunityStore', () => ({
+  useCommunityStore: (selector: (s: unknown) => unknown) => selector({
+    inquiries: [], loading: false, fetchInquiries: mockFetchInquiries, copyItem: vi.fn(),
+  }),
+}));
+
+vi.mock('@bridge', () => ({ api: {} }));
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
+
+let capturedOnClose: (() => void) | undefined;
+let capturedOnStarted: (() => void) | undefined;
+vi.mock('./InquiryAskPanel', () => ({
+  InquiryAskPanel: ({ onClose, onStarted }: { onClose: () => void; onStarted: () => void }) => {
+    capturedOnClose = onClose;
+    capturedOnStarted = onStarted;
+    return <div>ask-dialog</div>;
+  },
+}));
 vi.mock('./InquiryRunningPanel', () => ({ InquiryRunningPanel: () => <div>running-screen</div> }));
 vi.mock('./InquiryAnswerPanel', () => ({ InquiryAnswerPanel: () => <div>answer-screen</div> }));
-vi.mock('./InquiryListPanel', () => ({ InquiryListPanel: ({ listView }: { listView: string }) => <div>list-screen-{listView}</div> }));
+
+let capturedOnNew: (() => void) | undefined;
+vi.mock('../shared/LibraryListPage', () => ({
+  LibraryListPage: ({ config, intro }: { config: { onNew?: () => void }; intro?: React.ReactNode }) => {
+    capturedOnNew = config.onNew;
+    return <div>list-screen{intro}</div>;
+  },
+}));
+
+let capturedOnPickStarter: ((q: string) => void) | undefined;
+vi.mock('./InquiryGettingStarted', () => ({
+  InquiryGettingStarted: ({ onPickStarter }: { onPickStarter: (q: string) => void }) => {
+    capturedOnPickStarter = onPickStarter;
+    return <div>getting-started</div>;
+  },
+}));
 
 const { InquiryTab } = await import('./InquiryTab');
 
-describe('InquiryTab top-level tab strip (t/3678)', () => {
+describe('InquiryTab (t/4562, t/4666)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockScreen = 'ask';
-  });
-
-  it('renders Ask/My/Community as a persistent strip regardless of screen', () => {
-    render(<InquiryTab />);
-    expect(screen.getByRole('button', { name: 'Ask' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^My/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Community' })).toBeInTheDocument();
-  });
-
-  it('clicking My calls openList and renders the list screen in "my" view — no need to visit Ask first', () => {
-    render(<InquiryTab />);
-    fireEvent.click(screen.getByRole('button', { name: /^My/ }));
-    expect(mockOpenList).toHaveBeenCalled();
-  });
-
-  it('clicking Community calls openList and switches the list view to "community"', () => {
     mockScreen = 'list';
-    render(<InquiryTab />);
-    fireEvent.click(screen.getByRole('button', { name: 'Community' }));
-    expect(mockOpenList).toHaveBeenCalled();
-    expect(screen.getByText('list-screen-community')).toBeInTheDocument();
+    capturedOnNew = undefined;
+    capturedOnPickStarter = undefined;
+    capturedOnClose = undefined;
+    capturedOnStarted = undefined;
   });
 
-  it('Ask tab is disabled while a run is in progress, so it cannot silently abandon the poll', () => {
+  it('defaults to the library list screen, with the getting-started intro rendered inside it', () => {
+    render(<InquiryTab />);
+    expect(screen.getByText('list-screen')).toBeInTheDocument();
+    expect(screen.getByText('getting-started')).toBeInTheDocument();
+    expect(screen.queryByText('ask-dialog')).not.toBeInTheDocument();
+  });
+
+  it('"+ New Question" (LibraryListPage config.onNew) resets the store and opens the dialog over the list', () => {
+    render(<InquiryTab />);
+    capturedOnNew?.();
+    expect(mockReset).toHaveBeenCalled();
+  });
+
+  // p/29#178 fix 2: a previous draft question must not resurface on a fresh "+ New Question".
+  it('"+ New Question" clears any previous draft question', () => {
+    render(<InquiryTab />);
+    capturedOnNew?.();
+    expect(mockSetQuestion).toHaveBeenCalledWith('');
+  });
+
+  it('opening the dialog renders it over the list, not instead of it', () => {
+    const { rerender } = render(<InquiryTab />);
+    capturedOnNew?.();
+    rerender(<InquiryTab />);
+    expect(screen.getByText('list-screen')).toBeInTheDocument();
+    expect(screen.getByText('ask-dialog')).toBeInTheDocument();
+  });
+
+  it('a getting-started chip seeds the question, resets the store, and opens the dialog', () => {
+    const { rerender } = render(<InquiryTab />);
+    capturedOnPickStarter?.('Is AI hype outrunning the evidence?');
+    expect(mockSetQuestion).toHaveBeenCalledWith('Is AI hype outrunning the evidence?');
+    expect(mockReset).toHaveBeenCalled();
+    rerender(<InquiryTab />);
+    expect(screen.getByText('ask-dialog')).toBeInTheDocument();
+  });
+
+  it('the dialog\'s onClose returns to the list via openList and closes the dialog', () => {
+    const { rerender } = render(<InquiryTab />);
+    capturedOnNew?.();
+    rerender(<InquiryTab />);
+    capturedOnClose?.();
+    expect(mockOpenList).toHaveBeenCalled();
+    rerender(<InquiryTab />);
+    expect(screen.queryByText('ask-dialog')).not.toBeInTheDocument();
+  });
+
+  it('the dialog\'s onStarted closes it, letting the Running screen take over', () => {
+    const { rerender } = render(<InquiryTab />);
+    capturedOnNew?.();
+    rerender(<InquiryTab />);
+    capturedOnStarted?.();
+    mockScreen = 'running';
+    rerender(<InquiryTab />);
+    expect(screen.queryByText('ask-dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('running-screen')).toBeInTheDocument();
+  });
+
+  it('renders the Running screen when screen() is "running"', () => {
     mockScreen = 'running';
     render(<InquiryTab />);
-    const askButton = screen.getByRole('button', { name: 'Ask' });
-    expect(askButton).toBeDisabled();
-    fireEvent.click(askButton);
-    expect(mockReset).not.toHaveBeenCalled();
+    expect(screen.getByText('running-screen')).toBeInTheDocument();
   });
 
-  it('Ask tab is enabled and resets on the answer screen (existing "ask another question" behavior)', () => {
+  it('renders the Answer screen when screen() is "answer"', () => {
     mockScreen = 'answer';
     render(<InquiryTab />);
-    const askButton = screen.getByRole('button', { name: 'Ask' });
-    expect(askButton).not.toBeDisabled();
-    fireEvent.click(askButton);
-    expect(mockReset).toHaveBeenCalled();
+    expect(screen.getByText('answer-screen')).toBeInTheDocument();
+  });
+
+  it('fetches history and community inquiries on mount, regardless of which screen is active', () => {
+    mockScreen = 'running';
+    render(<InquiryTab />);
+    expect(mockFetchHistory).toHaveBeenCalled();
+    expect(mockFetchInquiries).toHaveBeenCalled();
+  });
+
+  it('unmount stops any in-flight poll', () => {
+    const { unmount } = render(<InquiryTab />);
+    unmount();
+    expect(mockStopPolling).toHaveBeenCalled();
   });
 });

@@ -18,7 +18,7 @@
     "[Yellow]   DRY RUN: FULL PROMPT PREVIEW",
     "[DarkGray] ────────────────────────────────────────────────────────────────────────",
     "[Cyan] \n[SYSTEM PROMPT]",
-    "[Gray] <<pov-summary-system>>\n{KP_MAX}=400\n{KP_MIN}=160\n{TOTAL_FLOOR}=320\n{UC_MAX}=100\n{UC_MIN}=40\n{WORD_COUNT}=80002",
+    "[Gray] <<pov-summary-system>>\n{KP_MAX}=400\n{UC_MAX}=100\n{WORD_COUNT}=80002",
     "[Cyan] \n[TAXONOMY CONTEXT — first 500 chars]",
     "[Gray] {\n  \"accelerationist.json\": {\n    \"nodes\": [\n      {\n        \"id\": \"acc-1\",\n        \"label\": \"A\"\n      }\n    ]\n  },\n  \"skeptic.json\": {\n    \"nodes\": [\n      {\n        \"id\": \"skp-1\"\n      }\n    ]\n  }\n}",
     "[DarkGray] ... (truncated for display)",
@@ -46,10 +46,7 @@
       "name": "pov-summary-system",
       "replacements": {
         "KP_MAX": 400,
-        "KP_MIN": 160,
-        "TOTAL_FLOOR": 320,
         "UC_MAX": 100,
-        "UC_MIN": 40,
         "WORD_COUNT": 80002
       }
     }

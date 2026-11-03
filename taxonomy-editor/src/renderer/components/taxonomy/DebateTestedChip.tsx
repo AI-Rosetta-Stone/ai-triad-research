@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import type { DebateTestedTier, DebateTestedRecord } from '../../bridge/types';
+import type { PovNode } from '../../types/taxonomy';
 import './DebateTestedChip.css';
 
 const TIER_COLORS: Record<DebateTestedTier, { bg: string; fg: string }> = {
@@ -64,5 +65,32 @@ export function DebateTestedChip({ record, description, onClick, compact }: Deba
   );
 }
 
-export { TIER_LABELS as DEBATE_TESTED_TIER_LABELS };
+export { TIER_LABELS as DEBATE_TESTED_TIER_LABELS, TIER_COLORS as DEBATE_TESTED_TIER_COLORS };
 export type { DebateTestedChipProps };
+
+/** NodeDetail meta-line status segment (t/4574 spec §2.1) — moved out of the Content/Analysis
+ *  tab. Omitted entirely when the node has no debate_tested record. */
+export function NodeStatusBadge({ node, onToggleDrilldown }: { node: PovNode; onToggleDrilldown: () => void }) {
+  const record = node.graph_attributes?.debate_tested;
+  if (!record) return null;
+  const tier: DebateTestedTier = record.tier ?? 'untested';
+  return (
+    <>
+      <span className="nd-meta-sep">/</span>
+      {/* Design, t/4574#24 item 2: TIER_COLORS.fg was chosen for the pastel chip backgrounds
+          (DebateTestedChip) and fails AA on the bare panel in dark/bkc. The meta line uses
+          data-tier + theme tokens instead — see NodeDetail.css. TIER_COLORS stays as-is for
+          the chip. */}
+      <button
+        type="button"
+        className="nd-header-status"
+        data-tier={tier}
+        onClick={onToggleDrilldown}
+      >
+        {/* Design, t/4574#15 nit: sentence case in the meta line, as in the mockup —
+            TIER_LABELS stays Title Case for its other (chip) consumers. */}
+        {tier === 'well_tested' ? '✓ Well tested' : TIER_LABELS[tier]}
+      </button>
+    </>
+  );
+}

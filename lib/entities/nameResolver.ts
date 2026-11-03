@@ -16,7 +16,7 @@
 import type { EntityRef } from './types.js';
 import { parseEntityRef } from './types.js';
 import { cosineSimilarity } from '../embeddings/similarity.js';
-import { nameVectorOf, type EntityVectorStored } from './entityVectors.js';
+import { nameVectorOf, computeEntityVectorSourceHash, type EntityVectorStored } from './entityVectors.js';
 
 /**
  * Resolution-seam cosine floor. Reuses the §7 entity-linking cosine (0.60, stipulated,
@@ -75,11 +75,17 @@ export interface NameQuery {
 
 /** Minimal view of an APPROVED entity the resolver needs. The caller is responsible for
  *  filtering to `status === 'approved'` and excluding `merged_into` tombstones — D1 never
- *  walks the merge chain (that is getEntity's job). `id` is a raw token (`ent-*` / `org-*`). */
+ *  walks the merge chain (that is getEntity's job). `id` is a raw token (`ent-*` / `org-*`).
+ *  `description` is REQUIRED, not optional (t/4458, CL design review t/4458#2 note 1): it
+ *  feeds the stale-vector fingerprint ({@link computeEntityVectorSourceHash}), and an omitted
+ *  description would hash every candidate's current text over `''`, so every non-empty
+ *  recorded `_src_hash` would mismatch and the tie-break would quietly become "always
+ *  ambiguous". Pass `''` for an entity with no description — never leave it out. */
 export interface ApprovedEntityView {
   id: string;
   name: string;
   aliases: string[];
+  description: string;
 }
 
 /**
@@ -107,17 +113,81 @@ function refsOf(entities: ApprovedEntityView[]): EntityRef[] {
 }
 
 /**
+ * The candidate's NAME vector for the tie-break, or `undefined` when there is none to trust —
+ * no vector recorded at all, no fingerprint recorded (`onStaleVectorSkipped(id, 'unhashed')`),
+ * or a fingerprint that no longer matches the candidate's current name/aliases/description
+ * (`onStaleVectorSkipped(id, 'stale')`). Factored out of {@link resolveEntityName} to keep its
+ * own complexity within lib's ratchet (t/4458) — see that function's docstring for the
+ * staleness contract and the accepted description-only over-skip.
+ */
+function usableNameVector(
+  e: ApprovedEntityView,
+  getVector: (id: string) => EntityVectorStored | undefined,
+  getSrcHash: (id: string) => string | undefined,
+  digest: (utf8Bytes: Uint8Array) => string,
+  // The whole opts bag, not just the callback: keeps the one `?.` dereference here, inside
+  // this small helper, rather than adding it to resolveEntityName's own complexity (t/4458).
+  opts?: { onStaleVectorSkipped?: (id: string, reason: 'stale' | 'unhashed') => void },
+): number[] | undefined {
+  const vec = nameVectorOf(getVector(e.id)); // v1 flat array or v2 name_vector (t/3121)
+  if (!vec) return undefined; // unchanged: no vector recorded at all
+
+  const recordedHash = getSrcHash(e.id);
+  if (recordedHash === undefined) {
+    opts?.onStaleVectorSkipped?.(e.id, 'unhashed');
+    return undefined;
+  }
+  const currentHash = computeEntityVectorSourceHash(e.name, e.aliases, e.description, digest);
+  if (recordedHash !== currentHash) {
+    opts?.onStaleVectorSkipped?.(e.id, 'stale');
+    return undefined;
+  }
+  return vec;
+}
+
+/**
  * Resolve a surface name to an {@link EntityRef}, or refuse. Pure. See file header for the
  * three-step contract. `getVector` maps an entity id to its stored vector value in
  * entity_embeddings.json — either v1 (a flat `number[]`) or v2 ({@link EntityVectorRecord}),
  * returning undefined when absent. The cosine tie-break uses the NAME vector, selected across
  * both schema versions via {@link nameVectorOf} (v1 array as-is, v2 `.name_vector`) — t/3121.
+ *
+ * **Staleness guard (t/4458, first branching reader of the envelope's `_src_hashes` map):**
+ * a candidate's vector still gets SKIPPED like a missing one (falls through to the existing
+ * "every colliding candidate must be scoreable" refusal below) when `getSrcHash(e.id)` is
+ * absent, or doesn't match {@link computeEntityVectorSourceHash} of the candidate's CURRENT
+ * name/aliases/description. That closes the class where a rename or edit leaves a stale
+ * vector in place until the next re-embed (t/4449's class) — the resolver would otherwise
+ * tie-break on text that no longer matches the record. `getSrcHash` and `digest` are
+ * mandatory, not optional-with-a-default: there is no existing call site to protect, and a
+ * silent default would recreate exactly the loophole this closes.
+ *
+ * **`getSrcHash`/`digest`/`onStaleVectorSkipped` are PURE-compatible, not I/O:** this
+ * function still does no logging itself. **Callers wiring a real caller against this MUST
+ * aggregate `onStaleVectorSkipped` across a resolution run and WARN once with the counts**
+ * (per reason) — that's the ticket's actual requirement, and the hook alone doesn't meet it
+ * on its own; carry it as an AC on whichever ticket wires the first real integration.
+ *
+ * **Known over-skip, accepted (CL t/4458#2 note 3):** the fingerprint hashes
+ * name+aliases+description, but `name_vector` only embeds name+aliases, so a
+ * description-only edit marks the name vector stale even though it still matches what's
+ * embedded. This fails CLOSED (an unnecessary refusal, never a wrong link) — a per-vector
+ * hash on the PowerShell side is the real fix, filed separately and optional (t/4568).
  */
 export function resolveEntityName(
   query: NameQuery,
   approved: ApprovedEntityView[],
   getVector: (id: string) => EntityVectorStored | undefined,
-  opts?: { minCosine?: number; margin?: number },
+  getSrcHash: (id: string) => string | undefined,
+  digest: (utf8Bytes: Uint8Array) => string,
+  opts?: {
+    minCosine?: number;
+    margin?: number;
+    /** Fires once per candidate whose vector was skipped for staleness ('stale': a recorded
+     *  hash that no longer matches) or absence of a fingerprint ('unhashed': no `_src_hashes`
+     *  entry at all) — distinct causes with distinct fixes (re-embed vs. backfill a hash). */
+    onStaleVectorSkipped?: (id: string, reason: 'stale' | 'unhashed') => void;
+  },
 ): NameResolution {
   const minCosine = opts?.minCosine ?? ENTITY_RESOLUTION_MIN_COSINE;
   const margin = opts?.margin ?? ENTITY_RESOLUTION_MARGIN;
@@ -159,7 +229,7 @@ export function resolveEntityName(
   const scored: { ref: EntityRef; score: number }[] = [];
   for (const e of matches) {
     const ref = parseEntityRef(e.id);
-    const vec = nameVectorOf(getVector(e.id)); // v1 flat array or v2 name_vector (t/3121)
+    const vec = usableNameVector(e, getVector, getSrcHash, digest, opts); // t/4458
     if (!ref || !vec) continue;
     scored.push({ ref, score: cosineSimilarity(cv, vec) });
   }

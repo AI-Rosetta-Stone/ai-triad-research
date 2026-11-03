@@ -16,7 +16,8 @@ import crypto from 'crypto';
 import { hasEasyAuthSessionCookie, expiredAuthCookies } from './security/accessControl.js';
 import { parseCookies } from './httpCookies.js';
 import {
-  INTRO_EYEBROW, INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
+  INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES, INTRO_CODA,
+  type IntroSegment,
 } from '../../../lib/electron-shared/introCopy.js';
 
 // t/4183: the hero copy is shared with the intro tour's first page; only the markup lives here.
@@ -166,16 +167,19 @@ export function buildLoginPage(showAnonymous: boolean): string {
   /* — Jacket (specimen) — */
   .jacket{flex:0 0 55%;display:flex;flex-direction:column;justify-content:center;
     padding:48px 56px;background:var(--jacket);color:#fff;}
-  .jacket-content{max-width:480px;}
-  .eyebrow{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;
-    color:rgba(255,255,255,0.55);margin-bottom:20px;
-    animation:fadeIn 150ms ease-out both;}
+  .jacket-content{max-width:640px;}
+  .hero-row{display:flex;align-items:center;gap:28px;flex-wrap:wrap;margin-bottom:32px;}
   .project-title{font-family:var(--font-serif);font-size:38px;font-weight:700;line-height:1.2;
-    color:#fff;margin-bottom:12px;
+    color:#fff;margin-bottom:0;
     animation:fadeIn 150ms ease-out both;}
+  .hero-row .project-title{margin-bottom:0;}
+  .hero-row .tagline{margin-bottom:0;}
   .tagline{font-family:var(--font-serif);font-size:19px;font-weight:400;line-height:1.4;
-    color:rgba(255,255,255,0.72);margin-bottom:32px;
+    color:rgba(255,255,255,0.72);margin-bottom:32px;padding-left:24px;border-left:1px solid rgba(255,255,255,0.2);
     animation:fadeIn 150ms ease-out both;}
+  .coda{font-family:var(--font-serif);font-style:italic;font-size:17px;color:rgba(255,255,255,0.92);
+    margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.2);
+    animation:fadeIn 150ms ease-out 730ms both;}
   .specimen-sep{width:48px;height:1px;background:rgba(255,255,255,0.2);margin-bottom:28px;
     animation:fadeIn 150ms ease-out 100ms both;}
   .question{font-family:var(--font-serif);font-style:italic;font-size:17px;
@@ -188,8 +192,6 @@ export function buildLoginPage(showAnonymous: boolean): string {
   .voice-acc{animation:fadeIn 150ms ease-out 370ms both;}
   .voice-saf{animation:fadeIn 150ms ease-out 490ms both;}
   .voice-skp{animation:fadeIn 150ms ease-out 610ms both;}
-  .jacket-footer{margin-top:40px;font-size:12px;color:rgba(255,255,255,0.35);
-    animation:fadeIn 150ms ease-out 610ms both;}
 
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
   @media(prefers-reduced-motion:reduce){
@@ -205,10 +207,9 @@ export function buildLoginPage(showAnonymous: boolean): string {
     .split{flex-direction:column-reverse;}
     .jacket{flex:none;padding:28px 24px;align-items:center;text-align:center;}
     .jacket-content{max-width:none;}
-    .specimen,.specimen-sep,.jacket-footer{display:none;}
+    .specimen,.specimen-sep{display:none;}
     .project-title{font-size:24px;}
     .tagline{display:none;}
-    .eyebrow{margin-bottom:12px;}
     .paper{flex:1;padding:32px 24px;}
   }
 </style>
@@ -236,14 +237,15 @@ export function buildLoginPage(showAnonymous: boolean): string {
   </section>
   <section class="jacket">
     <div class="jacket-content">
-      <div class="eyebrow">${escapeHtml(INTRO_EYEBROW)}</div>
-      <div class="project-title">${escapeHtml(INTRO_TITLE)}</div>
-      <div class="tagline">${INTRO_TAGLINE_LINES.map(escapeHtml).join('<br>')}</div>
+      <div class="hero-row">
+        <div class="project-title">${escapeHtml(INTRO_TITLE)}</div>
+        <div class="tagline">${INTRO_TAGLINE_LINES.map(segmentsHtml).join('<br>')}</div>
+      </div>
       <div class="specimen">
         <div class="specimen-sep"></div>
         <div class="question">&ldquo;${escapeHtml(INTRO_QUESTION)}&rdquo;</div>${heroVoicesHtml()}
+        <div class="coda">${segmentsHtml(INTRO_CODA)}</div>
       </div>
-      <div class="jacket-footer">A research instrument of the Berkman Klein Center, 2026</div>
     </div>
   </section>
 </div>
@@ -254,6 +256,11 @@ export function buildLoginPage(showAnonymous: boolean): string {
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// t/4739: escape each segment's text first, then wrap — never build HTML from unescaped copy.
+function segmentsHtml(segments: readonly IntroSegment[]): string {
+  return segments.map(seg => (seg.strong ? `<strong>${escapeHtml(seg.text)}</strong>` : escapeHtml(seg.text))).join('');
 }
 
 export const FORBIDDEN_PAGE = (name: string) => `<!DOCTYPE html>

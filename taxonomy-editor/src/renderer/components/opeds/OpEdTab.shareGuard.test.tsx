@@ -40,7 +40,6 @@ function renderReader(shareSource: 'my' | 'community' | null, communityId: strin
       readerLoading
       readerError={null}
       status={null}
-      onBack={() => {}}
       shareSource={shareSource}
       communityId={communityId}
     />,

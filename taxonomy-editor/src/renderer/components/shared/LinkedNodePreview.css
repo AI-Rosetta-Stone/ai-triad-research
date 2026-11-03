@@ -23,20 +23,20 @@
   font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--focus-ring);
+  color: var(--text-secondary);
   letter-spacing: 0.04em;
 }
 
 .linked-node-preview-category {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: capitalize;
 }
 
 .linked-node-preview-id {
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
   font-size: var(--text-2xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   margin-left: auto;
 }
 
@@ -79,5 +79,11 @@
 .linked-node-preview-more {
   color: var(--text-muted);
   font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .linked-node-preview-header {
+    flex-wrap: wrap;
+  }
 }
 

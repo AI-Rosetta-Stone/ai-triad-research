@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "no aliases",
+      "entity_name": "Yoshua Bengio",
+      "aliases": [],
+      "description": "A pioneer of deep learning.",
+      "expected_hash": "f71016240b8cff256079af39470f9d2f7b6a378401460e7d992589e0aa3d14e6"
+    },
+    {
+      "name": "one alias",
+      "entity_name": "Chris Olah",
+      "aliases": [
+        "Chris"
+      ],
+      "description": "",
+      "expected_hash": "e33bc9fd7d31d51eb6213e9ad4585d7757d30f932424ced913ade3dc4572a6ef"
+    },
+    {
+      "name": "several aliases, order preserved",
+      "entity_name": "Chris Olah",
+      "aliases": [
+        "Chris",
+        "Olah"
+      ],
+      "description": "Interpretability researcher.",
+      "expected_hash": "8a22e2283cd9245fd138eb129bb34f9ee85d6c8f2f37954faef33404674d0f25"
+    },
+    {
+      "name": "empty description",
+      "entity_name": "Anthropic",
+      "aliases": [
+        "Anthropic PBC"
+      ],
+      "description": "",
+      "expected_hash": "3778423cabc6c80f798f4651d07ec43031a657ccc491fc92aa1c4411cf6f2f62"
+    },
+    {
+      "name": "non-ASCII name, aliases and description (UTF-8 byte-exactness)",
+      "entity_name": "Noam Chomsky",
+      "aliases": [
+        "Chomsky émigré"
+      ],
+      "description": "Café résumé — naïve diacritics.",
+      "expected_hash": "5a2be1a3866b515a753f670f463b5986d82b14aff576320b93f58d4de2e35523"
+    },
+    {
+      "name": "a single empty-string alias is the same as no aliases (PS -join vs JS .join agree)",
+      "entity_name": "Edge Case Org",
+      "aliases": [
+        ""
+      ],
+      "description": "",
+      "expected_hash": "85280ea198c86db49a2abcc1342851ccc35e9d2355e87fce840bb0bb98b0b29b"
+    },
+    {
+      "name": "CRLF inside the description",
+      "entity_name": "Foo Corp",
+      "aliases": [
+        "Foo"
+      ],
+      "description": "Line one.\r\nLine two.",
+      "expected_hash": "b1328f6471a34075764b7a4760da36b74af1fa3954a496fd659d370d38528c2b"
+    },
+    {
+      "name": "a non-BMP emoji in the name and description (UTF-16 surrogate pair / UTF-8 byte-exactness)",
+      "entity_name": "Test Entity 🤖",
+      "aliases": [],
+      "description": "Supports emoji 🎉 in descriptions.",
+      "expected_hash": "da67a19be1b8f309369c9c30126793ce337e607b31dd57326bbfc12cdc613f72"
+    },
+    {
+      "name": "trailing whitespace in the name is NOT trimmed",
+      "entity_name": "Trailing Space Inc. ",
+      "aliases": [],
+      "description": "",
+      "expected_hash": "d09d326f4d20deb50ae5f1f67f5a8d5e8305f18c973fbbc7479297844a9318c0"
+    }
+  ]
+}

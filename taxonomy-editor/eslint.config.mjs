@@ -206,11 +206,21 @@ export default tseslint.config(
   // ── Block B: LOC budget for test source (syntactic parse; tests are outside the
   //    tsconfig project). Deliberately NOT the async/FR rules — un-ignoring tests only
   //    to enforce the ceiling, not to surface pre-existing test violations as gate noise. ──
+  // require-windows-hide IS un-ignored here (t/4442, SO residual from t/4238/t/4427 e/351#13):
+  // both ids at 'warn', the rule's starting severity before t/4238 promoted the non-test block
+  // to 'error'. Warn-only so pre-existing test-file hits land as visibility, not new gate noise;
+  // the disable-reason rule is deliberately NOT added here yet — see t/4442 ticket note.
   {
     files: TEST_GLOBS,
     extends: [tseslint.configs.base],
+    plugins: { local: { rules: {
+      'require-windows-hide': requireWindowsHide,
+      'require-windows-hide-unverifiable': requireWindowsHide,
+    } } },
     rules: {
       'max-lines': MAX_LINES_TEST,
+      'local/require-windows-hide': ['warn', { report: 'missing' }],
+      'local/require-windows-hide-unverifiable': ['warn', { report: 'unverifiable' }],
     },
   },
 

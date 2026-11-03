@@ -222,6 +222,10 @@ export interface InquiryStatusResponse {
   jobId: string;
   status: InquiryJobStatus;
   progressPct: number;
+  /** t/4710/t/4711/t/4713: fine-grained Debate-stage detail line (e.g. "Round 2 of 4 · Skeptic
+   *  responding"), derived from the debate engine's per-turn progress events. Present only
+   *  while status === 'debating'; absent for every other status. */
+  stageDetail?: string;
   terminationReason: string | null;
   resultId: string | null;
   error: string | null;
@@ -460,6 +464,11 @@ export interface AppAPI {
 
   // --- AI models & keys ---
   loadAIModels: () => Promise<unknown>;
+  /** t/4628: renderer-only anonymity signal for model/backend default selection. Web: reuses
+   *  /api/auth/me, fails closed to `false` (signed-in) on any error — the opposite fail-safe
+   *  from other anonymity checks, since treating a signed-in user as anonymous here would strip
+   *  their saved model. Electron: always `false` (no anonymous-session concept). */
+  checkAnonymousSession: () => Promise<boolean>;
   /** t/4031: `opts` asks for a dry run or accepts a proposal; omit it for a plain refresh. */
   refreshAIModels: (opts?: RefreshModelsRequest) => Promise<RefreshModelsResponse>;
   validateApiKey: (key: string, backend: string) => Promise<{ valid: boolean; error?: string }>;
@@ -601,6 +610,10 @@ export interface AppAPI {
    *  rejectOpEdIpc precedent — same web-only posture as op-ed sharing). */
   shareInquiry: (jobId: string) => Promise<{ shareId: string; url: string }>;
   unshareInquiry: (jobId: string) => Promise<{ ok: boolean }>;
+  /** t/4562: loads a full community inquiry result for the library page's Open/Export actions —
+   *  mirrors loadCommunityOpEd exactly. Web-only; community browsing itself is already web-only
+   *  (useCommunityStore.fetchInquiries short-circuits on Electron), so desktop rejects. */
+  loadCommunityInquiry: (id: string) => Promise<InquiryResult>;
 
   // --- Brief Export (t/2805, T7 — client of the T6 REST API; web-only v1, Electron parity tracked) ---
   createBriefExport: (debateId: string, body: BriefExportRequest) => Promise<{ jobId: string }>;
@@ -693,6 +706,11 @@ export interface AppAPI {
   // Submit to a remote community server. In Electron this is proxied through the main
   // process (net.fetch) so it is not blocked by browser CORS; baseUrl is the server origin.
   communitySubmit: (baseUrl: string, payload: { type: 'chat' | 'debate' | 'oped' | 'inquiry'; data: unknown; note?: string }) => Promise<{ submissionId: string }>;
+  // t/4746/t/4612: desktop Ask "Share to Community" — uploads the full InquiryResult to the
+  // unauthenticated draft endpoint (a desktop result has no server-side counterpart, t/4611).
+  // Distinct from communitySubmit above: separate endpoint, separate (stricter) payload schema,
+  // returns a draft link + id rather than a submissionId — never auto-published.
+  submitAskToCommunity: (baseUrl: string, result: InquiryResult, note: string) => Promise<{ draftId: string; link: string }>;
 
   // --- Support cases ---
   createSupportCase: (payload: SupportCaseCreatePayload) => Promise<{ id: string }>;
@@ -743,10 +761,19 @@ export interface AppAPI {
   getCalibrationLog: () => Promise<{ entries: unknown[]; validationReport: unknown }>;
 
   // --- Diagnostics ---
-  openDiagnosticsWindow: () => Promise<void>;
+  /** t/4648: reports which path was actually taken, so callers (configSlice's
+   *  toggleDiagnostics) can track whether a real popout is open without the
+   *  narrow-window drawer being conflated with it. */
+  openDiagnosticsWindow: () => Promise<'popout' | 'inline'>;
   openPovProgressionWindow: () => Promise<void>;
   closeDiagnosticsWindow: () => Promise<void>;
   sendDiagnosticsState: (state: unknown) => void;
+  /**
+   * t/4642: brings an already-open diagnostics surface to the front. 'inline' means diagnostics
+   * is shown in the narrow-window drawer (no separate window to focus, no notice needed);
+   * 'not-open' means no window reference / BrowserWindow exists to focus.
+   */
+  focusDiagnosticsWindow: () => Promise<'focused' | 'not-open' | 'inline'>;
 
   // --- Data file diff popout ---
   openDiffWindow: (filePath: string) => Promise<void>;

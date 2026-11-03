@@ -12,7 +12,8 @@ import { useAuthStatus } from '../../hooks/useAuthStatus';
 import { countDanglingReferences, formatDanglingWarning } from '../../utils/danglingReferences';
 import { useLongPressContextMenu } from '../../hooks/useLongPressContextMenu';
 import { DeleteConfirmDialog } from '../shared/DeleteConfirmDialog';
-import { DescriptionSection, type DescriptionMention } from './NodeDescriptionSection';
+import { DescriptionSection, AdvancedDescriptionToolbar, type DescriptionMention } from './NodeDescriptionSection';
+import { triggerPovNodeRegeneration } from '../../utils/regeneratePlainDescription';
 import { TypeaheadSelect } from '../shared/TypeaheadSelect';
 import { FieldHelp } from '../shared/FieldHelp';
 import { TheoryLink } from '../shared/TheoryLink';
@@ -31,6 +32,7 @@ import { ConflictsPanel, conflictsForNode } from '../conflict';
 import { NodeEditHistory } from './NodeEditHistory';
 import { PovTagEditor } from './PovTagEditor';
 import { useCanEditPovTags } from '../../hooks/useCanEditPovTags';
+import { useIsAdmin } from '../../hooks/useIsAdmin';
 import { PovMoveTagNotice } from './PovMoveTagNotice';
 import { nodeTypeFromId, nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { POV_KEYS } from '@lib/debate/types';
@@ -41,44 +43,14 @@ import { EditConflictBadge, type NodeConflict } from '../conflict/edit-conflicts
 import { useDescriptionMode, resolveDescription } from '../shared/DescriptionToggle';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { EmptyState } from '../shared/EmptyState';
-import { OverflowMenu, type OverflowMenuEntry } from '../shared/OverflowMenu';
-import { CopyLinkButton } from '../shared/CopyLinkButton';
+import { OverflowMenu } from '../shared/OverflowMenu';
+import { buildOverflowEntries, buildReadOnlyOverflowEntries, type MoveTarget, type RelocatedMenuItems } from './NodeDetailOverflowMenu';
 import { InlineEditTitle } from '../shared/InlineEditTitle';
-import { publicPovSharePath } from '../../utils/shareLinks';
-import { DebateTestedChip } from './DebateTestedChip';
+import { NodeStatusBadge } from './DebateTestedChip';
+import { EvidenceGraphSection } from './EvidenceGraphSection';
 import { DebateTestedDrilldown } from './DebateTestedDrilldown';
+import { CollapsibleSection } from './CollapsibleSection';
 import './NodeDetail.css';
-
-interface MoveTarget {
-  label: string;
-  action: () => void;
-  isTransfer?: boolean;
-}
-
-function buildOverflowEntries(moveTargets: MoveTarget[], onDelete: () => void, onAIAnalysis: () => void, onPin?: () => void): OverflowMenuEntry[] {
-  const entries: OverflowMenuEntry[] = [
-    { type: 'item', key: 'ai', label: 'AI Analysis', onClick: onAIAnalysis },
-  ];
-  if (onPin) entries.push({ type: 'item', key: 'pin', label: 'Pin for Comparison', onClick: onPin });
-
-  const categoryMoves = moveTargets.filter(t => !t.isTransfer);
-  const transfers = moveTargets.filter(t => t.isTransfer);
-
-  entries.push({ type: 'divider' });
-  for (const t of categoryMoves) {
-    entries.push({ type: 'item', key: `move-${t.label}`, label: `Move to ${t.label}`, onClick: t.action });
-  }
-  if (transfers.length > 0) {
-    entries.push({ type: 'divider' });
-    entries.push({ type: 'label', text: 'Transfer to' });
-    for (const t of transfers) {
-      entries.push({ type: 'item', key: `xfer-${t.label}`, label: t.label, onClick: t.action, className: 'overflow-menu-transfer' });
-    }
-  }
-  entries.push({ type: 'divider' });
-  entries.push({ type: 'item', key: 'delete', label: 'Delete', onClick: onDelete, danger: true });
-  return entries;
-}
 
 interface NodeDetailProps {
   pov: Pov;
@@ -114,6 +86,48 @@ const POV_LABELS: Record<Pov, string> = {
 
 type NodeDetailTabId = 'content' | 'related' | 'attributes' | 'conflicts' | 'phrases' | 'sources' | 'facts' | 'cruxes' | 'research' | 'history';
 
+interface NodeDetailAccentRowProps {
+  nodeDetailMode: 'simple' | 'advanced';
+  node: PovNode;
+  pov: Pov;
+  readOnly?: boolean;
+  descMode: 'formal' | 'plain';
+  setDescMode: (mode: 'formal' | 'plain') => void;
+  isEditing: boolean;
+  setIsEditing: (value: boolean | ((v: boolean) => boolean)) => void;
+  updatePovNode: (pov: Pov, id: string, updates: Partial<PovNode>) => void;
+}
+
+function NodeDetailAccentRow({ nodeDetailMode, node, pov, readOnly, descMode, setDescMode, isEditing, setIsEditing, updatePovNode }: NodeDetailAccentRowProps) {
+  return (
+    <div className="nd-accent-description-row">
+      <div className="nd-accent-rule" />
+      {nodeDetailMode === 'advanced' && (
+        <AdvancedDescriptionToolbar
+          descMode={descMode}
+          setDescMode={setDescMode}
+          hasPlainDescription={!!node.plain_description}
+          showEdit={!readOnly && (node.description ? true : false)}
+          isEditing={isEditing}
+          onToggleEdit={() => setIsEditing(v => !v)}
+          showRegenerate={!readOnly}
+          regenerateDisabled={node.plain_description === null}
+          onRegenerate={() => triggerPovNodeRegeneration(pov, node.id, node.description, updatePovNode)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Reset tab to Simple-view available tabs when mode changes. */
+function useSimpleViewTabReset(nodeDetailMode: string, activeTab: NodeDetailTabId, setActiveTab: (tab: NodeDetailTabId) => void) {
+  useEffect(() => {
+    if (nodeDetailMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
+      setActiveTab('content');
+    }
+  }, [nodeDetailMode, activeTab, setActiveTab]);
+}
+
 /** Edit-history entry count for the History tab badge (extracted so the optional-chain access doesn't add to NodeDetail's own complexity count). */
 function getEditHistoryLength(node: PovNode): number | undefined {
   return node._edit_history?.length;
@@ -125,8 +139,8 @@ function getEditHistoryLength(node: PovNode): number | undefined {
 // _edit_meta last-edited fields, falling back to the most-recent _edit_history
 // entry. Formatting mirrors NodeEditHistory but is kept local here to avoid a new
 // cross-module export (trivial-change scope).
-function NodeLastEditedLine({ node, viewMode }: { node: PovNode; viewMode: 'simple' | 'advanced' }) {
-  if (viewMode !== 'simple') return null; // Advanced view has the full History tab.
+function NodeLastEditedLine({ node }: { node: PovNode }) {
+  // t/4574 spec §2.6: shows in both Simple and Advanced now (History tab still has the full log).
   const latest = node._edit_history?.[node._edit_history.length - 1];
   const user = node._edit_meta?.last_edited_by ?? latest?.user;
   const when = node._edit_meta?.last_edited_at ?? latest?.timestamp;
@@ -145,18 +159,24 @@ function NodeLastEditedLine({ node, viewMode }: { node: PovNode; viewMode: 'simp
 export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRelated, onOpenSoulDoc, chipDepth = 0, conflict, resolveUrl }: NodeDetailProps) {
   const { updatePovNode, deletePovNode, movePovNodeCategory, movePovNode, validationErrors, getAllNodeIds, getAllConflictIds, runAttributeFilter, showAttributeInfo, navigateToLineage, setToolbarPanel, selectedEdge, relatedNodeId, loadEdges, edgesFile, setSelectedNodeId, getLabelForId, aggregatedCruxes, showCruxDetail, conflicts, accelerationist, safetyist, skeptic, situations } = useTaxonomyStore();
   const authInfo = useAuthStatus();
-  const viewMode = usePreferencesStore(state => state.viewMode);
-  const [descMode, setDescMode] = useDescriptionMode();
+  const isAdmin = useIsAdmin();
+  const setNodeDetailMode = usePreferencesStore(state => state.setNodeDetailMode);
+  // t/4736: through the getter, not a reimplemented fallback — the getter is what falls back to
+  // the global viewMode default once there's no per-node override (t/4574's reason for keeping
+  // NodeDetail off a *direct* global read still holds: this is per-node state via one function,
+  // not NodeDetail reaching into preferencesStore.viewMode itself).
+  const nodeDetailMode = usePreferencesStore(state => state.getNodeDetailMode(node.id));
+  const [descMode, setDescMode] = useDescriptionMode('formal'); // t/4574 spec §2.4: Advanced defaults to Formal
   const [showDelete, setShowDelete] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // t/4641: description edit state, lifted from DescriptionSection
   const [activeTab, setActiveTab] = useState<NodeDetailTabId>('content');
   const [expandedLineage, setExpandedLineage] = useState<string | null>(null);
+  // t/4532: both collapsed by default, and reset to collapsed whenever a different node opens
+  // (effect below, alongside the existing per-node setSelectedFact(null) reset).
+  const [steelmanExpanded, setSteelmanExpanded] = useState(false);
+  const [lineageExpanded, setLineageExpanded] = useState(false);
 
-  // Reset to a visible tab when switching to Simple (which hides most tabs).
-  useEffect(() => {
-    if (viewMode === 'simple' && activeTab !== 'content' && activeTab !== 'related' && activeTab !== 'attributes') {
-      setActiveTab('content');
-    }
-  }, [viewMode]);
+  useSimpleViewTabReset(nodeDetailMode, activeTab, setActiveTab);
   const [showDtDrilldown, setShowDtDrilldown] = useState(false);
   const [relatedSplitPct, setRelatedSplitPct] = useState(40);
   const splitContainerRef = useRef<HTMLDivElement>(null);
@@ -233,6 +253,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
 
   // Clear fact selection on node change
   useEffect(() => { setSelectedFact(null); }, [node.id]);
+  useEffect(() => { setSteelmanExpanded(false); setLineageExpanded(false); setIsEditing(false); }, [node.id]); // t/4532, t/4641
 
   const handleFactSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -382,41 +403,28 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
       <PovMoveTagNotice nodeId={node.id} />
       <div className="nd-header">
         <NodeDetailHeaderTop
-          pov={pov}
           node={node}
           readOnly={readOnly}
           err={err}
           update={update}
-          onSimilarSearch={onSimilarSearch}
-          onPin={viewMode === 'advanced' ? onPin : undefined}
-          moveTargets={moveTargets}
-          setShowDelete={setShowDelete}
           labelContent={labelContent}
         />
-        <div className="nd-header-meta">
-          <span className="nd-header-cat" data-cat={node.category}>
-            {node.category.toUpperCase()}
-            <FieldHelp text={BDI_GUIDANCE[node.category]} />
-          </span>
-          <span className="nd-header-id">{node.id}</span>
-          <TheoryLink
-            docPath="docs/taxonomy-ontology-guide.md"
-            label="Help: taxonomy ontology guide"
-            size={16}
-          />
-          <TheoryLink
-            docPath="research/comp-linguist/docs/soul-documents-analysis.md"
-            label="Soul documents analysis"
-            tooltip="Open Soul Documents Analysis in GitHub"
-            size={15}
-          />
-          {/* Soul-doc bookmark relocated here (t/2827), right of the soul-doc icon; Advanced-view
-              only (same bookmark-control gate as t/2826 — not an always-visible control). */}
-          {viewMode === 'advanced' && onOpenSoulDoc && (
-            <button className="nd-header-btn" onClick={() => onOpenSoulDoc(node.pov_tags)} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
-          )}
-          <EditConflictBadge conflict={conflict} resolveUrl={resolveUrl} />
-        </div>
+        <NodeDetailMetaLine
+          pov={pov}
+          node={node}
+          readOnly={readOnly}
+          isAdmin={isAdmin}
+          nodeDetailMode={nodeDetailMode}
+          setNodeDetailMode={setNodeDetailMode}
+          onToggleDrilldown={() => setShowDtDrilldown(v => !v)}
+          conflict={conflict}
+          resolveUrl={resolveUrl}
+          onOpenSoulDoc={onOpenSoulDoc}
+          onSimilarSearch={onSimilarSearch}
+          onPin={onPin}
+          moveTargets={moveTargets}
+          setShowDelete={setShowDelete}
+        />
 
         <NodeDetailAphorismSection
           node={node}
@@ -426,8 +434,15 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           setAphorismEditing={setAphorismEditing}
           aphorismDraft={aphorismDraft}
           setAphorismDraft={setAphorismDraft}
+          nodeDetailMode={nodeDetailMode}
         />
-        <NodeLastEditedLine node={node} viewMode={viewMode} />
+        {showDtDrilldown && node.graph_attributes?.debate_tested && (
+          <DebateTestedDrilldown
+            record={node.graph_attributes.debate_tested}
+            description={node.description}
+            onClose={() => setShowDtDrilldown(false)}
+          />
+        )}
       </div>
 
       {hasErrors && (
@@ -437,6 +452,36 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         </div>
       )}
 
+      <NodeDetailAccentRow
+        nodeDetailMode={nodeDetailMode}
+        node={node}
+        pov={pov}
+        readOnly={readOnly}
+        descMode={descMode}
+        setDescMode={setDescMode}
+        isEditing={isEditing}
+        setIsEditing={setIsEditing}
+        updatePovNode={updatePovNode}
+      />
+
+      {/* Description above tabs (t/4574) — shows in both Simple and Advanced views */}
+      <DescriptionSection
+        pov={pov}
+        node={node}
+        readOnly={readOnly}
+        err={err}
+        nodeDetailMode={nodeDetailMode}
+        descMode={descMode}
+        setDescMode={setDescMode}
+        update={update}
+        updatePovNode={updatePovNode}
+        descriptionMention={descriptionMention}
+        plainDescriptionMention={plainDescriptionMention}
+        hideToolbar={nodeDetailMode === 'advanced'}
+        isEditing={isEditing}
+        setIsEditing={setIsEditing}
+      />
+
       <NodeDetailTabBar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -444,7 +489,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         cruxCount={cruxCount}
         factCount={factCount}
         editHistoryLength={getEditHistoryLength(node)}
-        viewMode={viewMode}
+        viewMode={nodeDetailMode}
       />
 
       {/* Tab content */}
@@ -455,18 +500,15 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
             node={node}
             readOnly={readOnly}
             err={err}
-            descMode={descMode}
-            setDescMode={setDescMode}
             update={update}
-            updatePovNode={updatePovNode}
-            showDtDrilldown={showDtDrilldown}
-            setShowDtDrilldown={setShowDtDrilldown}
             expandedLineage={expandedLineage}
             setExpandedLineage={setExpandedLineage}
             showAttributeInfo={showAttributeInfo}
             hasGraphAttrs={hasGraphAttrs}
-            descriptionMention={descriptionMention}
-            plainDescriptionMention={plainDescriptionMention}
+            steelmanExpanded={steelmanExpanded}
+            setSteelmanExpanded={setSteelmanExpanded}
+            lineageExpanded={lineageExpanded}
+            setLineageExpanded={setLineageExpanded}
           />
         )}
 
@@ -541,6 +583,9 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         )}
       </div>
 
+      {/* Footer (t/4574 spec §2.6) — both modes, after tab content. */}
+      <NodeLastEditedLine node={node} />
+
       {showDelete && !readOnly && (() => {
         // t/3852: exhaustive, not sampled — computed fresh at dialog-open time so a stale
         // closure can't under-report after the user has been editing edges/situations.
@@ -573,20 +618,17 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
 // ── Node header: title + actions (extracted from NodeDetail for complexity) ──
 
 interface NodeDetailHeaderTopProps {
-  pov: Pov;
   node: PovNode;
   readOnly?: boolean;
   err: (field: string) => string | undefined;
   update: (updates: Partial<PovNode>) => void;
-  onSimilarSearch?: () => void;
-  onPin?: () => void;
-  moveTargets: MoveTarget[];
-  setShowDelete: (v: boolean) => void;
   /** Read-only label content (may carry linkified entity mentions, t/1898); falls back to node.label. */
   labelContent?: ReactNode;
 }
 
-function NodeDetailHeaderTop({ pov, node, readOnly, err, update, onSimilarSearch, onPin, moveTargets, setShowDelete, labelContent }: NodeDetailHeaderTopProps) {
+// t/4574: the admin "⋯" and the read-only Pin fallback moved to the single meta-line menu
+// (spec §2.2 — "exactly one ⋯, at top right"). This header row is now just the title.
+function NodeDetailHeaderTop({ node, readOnly, err, update, labelContent }: NodeDetailHeaderTopProps) {
   return (
     <div className="nd-header-top">
       <div className="nd-header-title">
@@ -602,37 +644,130 @@ function NodeDetailHeaderTop({ pov, node, readOnly, err, update, onSimilarSearch
           />
         )}
       </div>
-      <div className="nd-header-actions">
-        {/* doc-link book relocated to the detail panel top-right (collapse-row / phone header) in PovTab — t/2412 */}
-        {/* t/2813: Search entry point in the POV detail header — opens the search panel (previousView captured for Back). */}
-        <button className="nd-header-btn" onClick={() => useTaxonomyStore.getState().setToolbarPanel('search')} title="Search taxonomy" aria-label="Search taxonomy">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </button>
-        {/* t/3470: BDI grounding panel had no mount point anywhere in the app — surfaces
-            debate_grounding (t/3466) + concept/entity/logical-form links for this node. */}
-        <button className="nd-header-btn" onClick={() => useTaxonomyStore.getState().setToolbarPanel('bdiGrounding')} title="BDI grounding, concepts & entities" aria-label="BDI grounding, concepts & entities">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </button>
-        {nodeTypeFromId(node.id) === 'pov' && (
-          <CopyLinkButton hash={publicPovSharePath(node.id)} title="Copy public link" />
+    </div>
+  );
+}
+
+// ── Meta line: category/id/status + header icons + toggle + single "⋯" (t/4574 spec §2.1-2.2) ──
+// Extracted from NodeDetail for complexity (ticket's own instruction: extract rather than raise
+// the baseline).
+
+interface NodeDetailViewToggleProps {
+  nodeId: string;
+  nodeDetailMode: 'simple' | 'advanced';
+  setNodeDetailMode: (nodeId: string, mode: 'simple' | 'advanced') => Promise<void>;
+}
+
+function NodeDetailViewToggle({ nodeId, nodeDetailMode, setNodeDetailMode }: NodeDetailViewToggleProps) {
+  const other = nodeDetailMode === 'simple' ? 'advanced' : 'simple';
+  const moveFocus = (e: React.KeyboardEvent<HTMLButtonElement>, toNext: boolean) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    void setNodeDetailMode(nodeId, other);
+    const sibling = toNext ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+    (sibling as HTMLButtonElement | null)?.focus();
+  };
+  return (
+    <div className="nd-header-toggle" role="radiogroup" aria-label="Detail view">
+      <button
+        className={`nd-toggle-btn ${nodeDetailMode === 'simple' ? 'active' : ''}`}
+        role="radio"
+        aria-checked={nodeDetailMode === 'simple'}
+        tabIndex={nodeDetailMode === 'simple' ? 0 : -1}
+        onClick={() => void setNodeDetailMode(nodeId, 'simple')}
+        onKeyDown={(e) => moveFocus(e, true)}
+      >
+        Simple
+      </button>
+      <button
+        className={`nd-toggle-btn ${nodeDetailMode === 'advanced' ? 'active' : ''}`}
+        role="radio"
+        aria-checked={nodeDetailMode === 'advanced'}
+        tabIndex={nodeDetailMode === 'advanced' ? 0 : -1}
+        onClick={() => void setNodeDetailMode(nodeId, 'advanced')}
+        onKeyDown={(e) => moveFocus(e, false)}
+      >
+        Advanced
+      </button>
+    </div>
+  );
+}
+
+interface NodeDetailMetaLineProps {
+  pov: Pov;
+  node: PovNode;
+  readOnly?: boolean;
+  isAdmin: boolean;
+  nodeDetailMode: 'simple' | 'advanced';
+  setNodeDetailMode: (nodeId: string, mode: 'simple' | 'advanced') => Promise<void>;
+  onToggleDrilldown: () => void;
+  conflict?: NodeConflict;
+  resolveUrl?: string | null;
+  onOpenSoulDoc?: (nodeTags?: readonly string[]) => void;
+  onSimilarSearch?: () => void;
+  onPin?: () => void;
+  moveTargets: MoveTarget[];
+  setShowDelete: (v: boolean) => void;
+}
+
+function NodeDetailMetaLine({ pov, node, readOnly, isAdmin, nodeDetailMode, setNodeDetailMode, onToggleDrilldown, conflict, resolveUrl, onOpenSoulDoc, onSimilarSearch, onPin, moveTargets, setShowDelete }: NodeDetailMetaLineProps) {
+  const relocated: RelocatedMenuItems = {
+    onSimilarSearch,
+    onOpenSoulDoc: onOpenSoulDoc ? () => onOpenSoulDoc(node.pov_tags) : undefined,
+    nodeId: node.id,
+  };
+  const pinnedWhenAdvanced = nodeDetailMode === 'advanced' ? onPin : undefined;
+  return (
+    <div className="nd-header-meta">
+      <span className="nd-meta-left">
+        <span className="nd-header-cat" data-cat={node.category}>
+          <span className="nd-header-cat-dot" data-cat={node.category} />
+          {node.category.toUpperCase()}
+          <FieldHelp text={BDI_GUIDANCE[node.category]} />
+        </span>
+        <span className="nd-meta-sep">/</span>
+        <span className="nd-header-id">{node.id}</span>
+        <NodeStatusBadge node={node} onToggleDrilldown={onToggleDrilldown} />
+        <EditConflictBadge conflict={conflict} resolveUrl={resolveUrl} />
+      </span>
+
+      {/* Simple/Advanced toggle + header icons + single overflow menu (t/4574) — top right */}
+      <div className="nd-header-controls">
+        {nodeDetailMode === 'advanced' && (
+          <>
+            <span className="nd-header-icons">
+              {/* force: these are gated on the panel-local nodeDetailMode (the `&&` above),
+                  not the global viewMode TheoryLink itself checks (Design, t/4574#15 item 1 —
+                  the icons vanished because the global control defaults to Simple). */}
+              <TheoryLink docPath="docs/taxonomy-ontology-guide.md" label="Help: taxonomy ontology guide" size={16} force />
+              <TheoryLink
+                docPath="research/comp-linguist/docs/soul-documents-analysis.md"
+                label="Soul documents analysis"
+                tooltip="Open Soul Documents Analysis in GitHub"
+                size={15}
+                force
+              />
+              {onOpenSoulDoc && (
+                <button className="nd-header-btn" onClick={() => onOpenSoulDoc(node.pov_tags)} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
+              )}
+            </span>
+            <span className="nd-header-divider" />
+          </>
         )}
-        {onSimilarSearch && (
-          <button className="nd-header-btn" onClick={onSimilarSearch} title="Find similar taxonomy elements">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </button>
-        )}
-        {!readOnly && (
+        <NodeDetailViewToggle nodeId={node.id} nodeDetailMode={nodeDetailMode} setNodeDetailMode={setNodeDetailMode} />
+        {/* Single admin-gated overflow menu (t/4574 spec §2.2) — absorbs Search taxonomy,
+            BDI grounding, Copy link and Find similar ahead of the existing entries. */}
+        {isAdmin && !readOnly && (
           <OverflowMenu entries={buildOverflowEntries(
             moveTargets,
             () => setShowDelete(true),
             () => void useTaxonomyStore.getState().runNodeCritique(pov, node),
-            onPin,
+            pinnedWhenAdvanced,
+            relocated,
           )} />
         )}
-        {readOnly && onPin && (
-          <button className="nd-header-btn" onClick={onPin} title="Pin for comparison">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
-          </button>
+        {isAdmin && readOnly && (
+          <OverflowMenu entries={buildReadOnlyOverflowEntries(relocated, pinnedWhenAdvanced)} />
         )}
       </div>
     </div>
@@ -649,9 +784,10 @@ interface NodeDetailAphorismSectionProps {
   setAphorismEditing: (v: boolean) => void;
   aphorismDraft: string;
   setAphorismDraft: (v: string) => void;
+  nodeDetailMode?: 'simple' | 'advanced';
 }
 
-function NodeDetailAphorismSection({ node, readOnly, update, aphorismEditing, setAphorismEditing, aphorismDraft, setAphorismDraft }: NodeDetailAphorismSectionProps) {
+function NodeDetailAphorismSection({ node, readOnly, update, aphorismEditing, setAphorismEditing, aphorismDraft, setAphorismDraft, nodeDetailMode }: NodeDetailAphorismSectionProps) {
   return (
     <>
       {/* Aphorism display */}
@@ -708,31 +844,41 @@ interface NodeDetailTabBarProps {
   viewMode: 'simple' | 'advanced';
 }
 
+/** Count pill (t/4574 spec §2.5) — neutral grey, except Conflicts above 0, which is red-tinted. */
+function TabCountPill({ count, isConflicts }: { count: number; isConflicts?: boolean }) {
+  if (count <= 0) return null;
+  return <span className={`node-detail-tab-pill${isConflicts ? ' node-detail-tab-pill-danger' : ''}`}>{count}</span>;
+}
+
 function NodeDetailTabBar({ activeTab, setActiveTab, conflictCount, cruxCount, factCount, editHistoryLength, viewMode }: NodeDetailTabBarProps) {
-  // Content + Related + Attributes always show; the rest are Advanced-only (t/2120, t/3003).
-  const tabs: { id: NodeDetailTabId; label: string; advanced?: boolean }[] = [
-    { id: 'content', label: 'Content' },
+  // Content + Related always show; the rest, including Attributes, are Advanced-only
+  // (t/2120, t/3003 originally kept Attributes always-on; reversed at the PI's direction, t/4559).
+  const tabs: { id: NodeDetailTabId; label: string; advanced?: boolean; count?: number; danger?: boolean }[] = [
+    { id: 'content', label: 'Analysis' },
     { id: 'related', label: 'Related' },
-    { id: 'attributes', label: 'Attributes' },
-    { id: 'conflicts', label: `Conflicts${conflictCount > 0 ? ` (${conflictCount})` : ''}`, advanced: true },
-    { id: 'cruxes', label: `Cruxes${cruxCount > 0 ? ` (${cruxCount})` : ''}`, advanced: true },
+    { id: 'attributes', label: 'Attributes', advanced: true },
+    { id: 'conflicts', label: 'Conflicts', advanced: true, count: conflictCount, danger: true },
+    { id: 'cruxes', label: 'Cruxes', advanced: true, count: cruxCount },
     { id: 'phrases', label: 'Phrases', advanced: true },
     { id: 'sources', label: 'Sources', advanced: true },
-    { id: 'facts', label: `Facts${factCount > 0 ? ` (${factCount})` : ''}`, advanced: true },
+    { id: 'facts', label: 'Facts', advanced: true, count: factCount },
     { id: 'research', label: 'Research', advanced: true },
-    { id: 'history', label: `History${editHistoryLength ? ` (${editHistoryLength})` : ''}`, advanced: true },
+    { id: 'history', label: 'History', advanced: true, count: editHistoryLength },
   ];
   return (
-    <div className="node-detail-tabs">
+    <div className="node-detail-tabs" role="tablist">
       {tabs
         .filter(tab => !tab.advanced || viewMode === 'advanced')
         .map(tab => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
             className={`node-detail-tab ${activeTab === tab.id ? 'node-detail-tab-active' : ''}`}
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.label}
+            {tab.count !== undefined && <TabCountPill count={tab.count} isConflicts={tab.danger} />}
           </button>
         ))}
     </div>
@@ -748,33 +894,18 @@ function NodeDetailTabBar({ activeTab, setActiveTab, conflictCount, cruxCount, f
 
 interface NodeMetricsRowProps {
   node: PovNode;
-  showDtDrilldown: boolean;
-  setShowDtDrilldown: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-function NodeMetricsRow({ node, showDtDrilldown, setShowDtDrilldown }: NodeMetricsRowProps) {
+// t/4574 spec §2.1/§2.5: the Debate-Tested status moved to the meta line (NodeStatusBadge) —
+// it no longer shows here too (TL review, t/4574#8 point 7: "don't show it twice").
+function NodeMetricsRow({ node }: NodeMetricsRowProps) {
+  if (node.category !== 'Beliefs' || node.confidence == null) return null;
   return (
-    <>
-      <div className="nd-metrics-row">
-        {node.category === 'Beliefs' && node.confidence != null && (
-          <span className="nd-metric" title="Confidence score">
-            Confidence: <strong>{node.confidence.toFixed(2)}</strong>
-          </span>
-        )}
-        <DebateTestedChip
-          record={node.graph_attributes?.debate_tested}
-          description={node.description}
-          onClick={() => node.graph_attributes?.debate_tested && setShowDtDrilldown(v => !v)}
-        />
-      </div>
-      {showDtDrilldown && node.graph_attributes?.debate_tested && (
-        <DebateTestedDrilldown
-          record={node.graph_attributes.debate_tested}
-          description={node.description}
-          onClose={() => setShowDtDrilldown(false)}
-        />
-      )}
-    </>
+    <div className="nd-metrics-row">
+      <span className="nd-metric" title="Confidence score">
+        Confidence: <strong>{node.confidence.toFixed(2)}</strong>
+      </span>
+    </div>
   );
 }
 
@@ -786,12 +917,13 @@ interface SteelmanVulnerabilitySectionProps {
   node: PovNode;
   readOnly?: boolean;
   update: (updates: Partial<PovNode>) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }
 
-function SteelmanVulnerabilitySection({ node, readOnly, update }: SteelmanVulnerabilitySectionProps) {
+function SteelmanVulnerabilitySection({ node, readOnly, update, expanded, onToggle }: SteelmanVulnerabilitySectionProps) {
   return (
-    <div className="form-group">
-      <label>Steelman Vulnerability</label>
+    <CollapsibleSection title="Steelman Vulnerability" sectionId="steelman-vulnerability" expanded={expanded} onToggle={onToggle}>
       {typeof node.graph_attributes!.steelman_vulnerability === 'string' ? (
         readOnly ? (
           <div className="ga-promoted-text">{node.graph_attributes!.steelman_vulnerability}</div>
@@ -845,7 +977,7 @@ function SteelmanVulnerabilitySection({ node, readOnly, update }: SteelmanVulner
       ) : (
         <div className="ga-empty">&mdash;</div>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -856,6 +988,8 @@ interface IntellectualLineageSectionProps {
   expandedLineage: string | null;
   setExpandedLineage: (v: string | null) => void;
   showAttributeInfo: (field: string, value: string) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }
 
 // t/3382: touch devices never fire `contextmenu` on a long-press — extracted so
@@ -887,10 +1021,9 @@ function LineageChip({ label, selected, onSelect, onShowInfo }: {
   );
 }
 
-function IntellectualLineageSection({ node, expandedLineage, setExpandedLineage, showAttributeInfo }: IntellectualLineageSectionProps) {
+function IntellectualLineageSection({ node, expandedLineage, setExpandedLineage, showAttributeInfo, expanded, onToggle }: IntellectualLineageSectionProps) {
   return (
-    <div className="form-group">
-      <label>Intellectual Lineage</label>
+    <CollapsibleSection title="Intellectual Lineage" sectionId="intellectual-lineage" expanded={expanded} onToggle={onToggle}>
       <div className="ga-promoted-list">
         {[...node.graph_attributes!.intellectual_lineage!].map(v => typeof v === 'string' ? v : (v as { name?: string })?.name).filter((v): v is string => typeof v === 'string' && v.length > 0).sort((a, b) => a.localeCompare(b)).map((l, i) => (
           <LineageChip
@@ -943,7 +1076,7 @@ function IntellectualLineageSection({ node, expandedLineage, setExpandedLineage,
           </div>
         );
       })()}
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -954,28 +1087,25 @@ interface NodeDetailContentTabProps {
   node: PovNode;
   readOnly?: boolean;
   err: (field: string) => string | undefined;
-  descMode: 'formal' | 'plain';
-  setDescMode: (mode: 'formal' | 'plain') => void;
   update: (updates: Partial<PovNode>) => void;
-  updatePovNode: (pov: Pov, id: string, updates: Partial<PovNode>) => void;
-  showDtDrilldown: boolean;
-  setShowDtDrilldown: React.Dispatch<React.SetStateAction<boolean>>;
   expandedLineage: string | null;
   setExpandedLineage: (v: string | null) => void;
   showAttributeInfo: (field: string, value: string) => void;
   hasGraphAttrs: boolean;
-  /** Mention segments for the formal `description` HighlightedTextarea (t/1908). */
-  descriptionMention?: DescriptionMention;
-  /** t/2811: mention segments for the plain_description read-only highlight path. */
-  plainDescriptionMention?: DescriptionMention;
+  /** t/4532: Steelman Vulnerability / Intellectual Lineage collapse state, lifted to NodeDetail
+   *  so it resets to collapsed on every node switch (same lifting pattern as expandedLineage). */
+  steelmanExpanded: boolean;
+  setSteelmanExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  lineageExpanded: boolean;
+  setLineageExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode, update, updatePovNode, showDtDrilldown, setShowDtDrilldown, expandedLineage, setExpandedLineage, showAttributeInfo, hasGraphAttrs, descriptionMention, plainDescriptionMention }: NodeDetailContentTabProps) {
+function NodeDetailContentTab({ pov, node, readOnly, err, update, expandedLineage, setExpandedLineage, showAttributeInfo, hasGraphAttrs, steelmanExpanded, setSteelmanExpanded, lineageExpanded, setLineageExpanded }: NodeDetailContentTabProps) {
   const canEditPovTags = useCanEditPovTags();
   return (
     <>
       {/* t/3393: Debate Tested must show on every BDI category, not only Beliefs. */}
-      <NodeMetricsRow node={node} showDtDrilldown={showDtDrilldown} setShowDtDrilldown={setShowDtDrilldown} />
+      <NodeMetricsRow node={node} />
 
       {!readOnly && err('label') && (
         <div className="error-text">{err('label')}</div>
@@ -985,21 +1115,16 @@ function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode,
       {/* t/4167: tags are admin-only; the rest of the node stays editable. */}
       <PovTagEditor pov={pov} tags={node.pov_tags} readOnly={!!readOnly || !canEditPovTags} error={err('pov_tags')} onChange={(next) => update({ pov_tags: next })} />
 
-      <DescriptionSection
-        pov={pov}
-        node={node}
-        readOnly={readOnly}
-        err={err}
-        descMode={descMode}
-        setDescMode={setDescMode}
-        update={update}
-        updatePovNode={updatePovNode}
-        descriptionMention={descriptionMention}
-        plainDescriptionMention={plainDescriptionMention}
-      />
+      {/* Description moved above tabs (t/4574) */}
 
       {hasGraphAttrs && (
-        <SteelmanVulnerabilitySection node={node} readOnly={readOnly} update={update} />
+        <SteelmanVulnerabilitySection
+          node={node}
+          readOnly={readOnly}
+          update={update}
+          expanded={steelmanExpanded}
+          onToggle={() => setSteelmanExpanded(v => !v)}
+        />
       )}
 
       {node.graph_attributes?.intellectual_lineage && node.graph_attributes.intellectual_lineage.length > 0 && (
@@ -1008,6 +1133,8 @@ function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode,
           expandedLineage={expandedLineage}
           setExpandedLineage={setExpandedLineage}
           showAttributeInfo={showAttributeInfo}
+          expanded={lineageExpanded}
+          onToggle={() => setLineageExpanded(v => !v)}
         />
       )}
     </>
@@ -1164,7 +1291,7 @@ function NodeDetailResearchTab({ node, researchText, setResearchText, researchCo
         <span className="node-detail-research-desc">Research prompt for this position. Edit as needed, then copy to clipboard.</span>
         <button
           className={`btn btn-sm${researchCopied ? '' : ' btn-ghost'}`}
-          onClick={handleResearchCopy}
+          onClick={() => void handleResearchCopy()}
         >
           {researchCopied ? '✓ Copied' : 'Copy'}
         </button>
@@ -1342,93 +1469,12 @@ function SourceDocumentViewer({ doc, claimText }: { doc: SourceDocumentResolutio
   return <div className="facts-doc-empty">Unable to render this document type.</div>;
 }
 
-// ── Evidence QBAF Graph (shown in Research tab) ──
+// EvidenceGraphSection extracted to ./EvidenceGraphSection.tsx (t/4574 line-count baseline).
 
-interface EvidenceItem {
-  id: string;
-  source_doc_id: string;
-  text: string;
-  relation: 'support' | 'contradict';
-  similarity: number;
-}
 
-interface EvidenceGraphData {
-  evidence_items: EvidenceItem[];
-  computed_strength: number;
-  qbaf_iterations: number;
-}
 
-function EvidenceGraphSection({ nodeId }: { nodeId: string }) {
-  const activeDebate = useDebateStore(s => s.activeDebate);
 
-  const evidenceNodes = useMemo(() => {
-    const an = activeDebate?.argument_network;
-    if (!an) return [];
-    return an.nodes.filter(
-      n => n.taxonomy_refs?.includes(nodeId) && n.evidence_graph
-    );
-  }, [activeDebate, nodeId]);
 
-  if (evidenceNodes.length === 0) return null;
 
-  return (
-    <div className="evidence-graph">
-      <div className="evidence-graph-title">
-        Evidence Graph ({evidenceNodes.length} claim{evidenceNodes.length !== 1 ? 's' : ''})
-      </div>
-      {evidenceNodes.map(node => {
-        const eg = node.evidence_graph as EvidenceGraphData;
-        const sorted = [...eg.evidence_items].sort((a, b) => {
-          if (a.relation !== b.relation) return a.relation === 'contradict' ? -1 : 1;
-          return b.similarity - a.similarity;
-        });
-        const supports = sorted.filter(e => e.relation === 'support');
-        const contradicts = sorted.filter(e => e.relation === 'contradict');
-        const barPct = Math.round(eg.computed_strength * 100);
-        const barColor = eg.computed_strength >= 0.7 ? '#22c55e' : eg.computed_strength >= 0.4 ? '#f59e0b' : '#ef4444';
-        return (
-          <div key={node.id} className="evidence-claim-card">
-            <div className="evidence-claim-text">
-              {node.text}
-              {node.attribution_text_genus && <div className="claim-attribution-text"><span className="claim-attribution-label">Attribution:</span>{node.attribution_text_genus}</div>}
-            </div>
-            <div className="evidence-strength-row">
-              <div className="evidence-strength-track">
-                {/* eslint-disable-next-line local/no-inline-style -- width/background computed from this claim's evidence strength */}
-                <div className="evidence-strength-fill" style={{ width: `${barPct}%`, background: barColor }} />
-              </div>
-              {/* eslint-disable-next-line local/no-inline-style -- color computed from this claim's evidence strength */}
-              <span className="evidence-strength-value" style={{ color: barColor }}>
-                {(eg.computed_strength ?? 0).toFixed(2)}
-              </span>
-              <span className="evidence-strength-iter">
-                {eg.qbaf_iterations} iter
-              </span>
-            </div>
-            {sorted.map(item => (
-              <div key={item.id} className={`evidence-item ${item.relation === 'support' ? 'evidence-item-support' : 'evidence-item-contradict'}`}>
-                <div className="evidence-item-header">
-                  <span className={`evidence-item-badge ${item.relation === 'support' ? 'evidence-item-badge-support' : 'evidence-item-badge-contradict'}`}>
-                    {item.relation === 'support' ? 'SUPPORTS' : 'CONTRADICTS'}
-                  </span>
-                  <span className="evidence-item-sim">
-                    {(item.similarity * 100).toFixed(0)}% sim
-                  </span>
-                  <span className="evidence-item-source">
-                    {item.source_doc_id}
-                  </span>
-                </div>
-                <div className="evidence-item-text">
-                  {item.text}
-                </div>
-              </div>
-            ))}
-            <div className="evidence-summary">
-              {supports.length} supporting, {contradicts.length} contradicting
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+
+

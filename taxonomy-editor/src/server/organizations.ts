@@ -6,7 +6,7 @@
 // (Server Storage, t/1229); this module owns typed parsing, the in-memory cache,
 // the topic/policy reverse indexes, and the query helpers the REST routes call.
 
-import { readOrganizations, readOrganizationEdges } from './storage/fileIO.js';
+import { readOrganizations, readOrganizationEdges, getOrganizationsReadStatus } from './storage/fileIO.js';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 
@@ -72,24 +72,36 @@ function buildIndexes(orgs: Organization[], edges: OrganizationEdge[]): OrgIndex
  * Load organizations.json once and cache the parsed records + reverse indexes.
  * Degrades to an empty set when the file is absent (seeded later by t/1224) or
  * malformed — endpoints return [] rather than erroring. (t/1225)
+ *
+ * t/4584 (incident): a DEGRADED read (GitHub rate-limit exhaustion, circuit
+ * open, no creds — see `getOrganizationsReadStatus`) must never cache an
+ * empty result. Caching it here would make a transient GitHub failure
+ * permanent for the life of the process, long after GitHub recovers, since
+ * `if (cache) return cache` above would keep serving that empty set forever.
+ * Only a genuinely resolved read (success OR a confirmed absence) is cached.
  */
 async function load(): Promise<OrgIndexes> {
   if (cache) return cache;
   try {
     const raw = await readOrganizations();
+    const edgesRaw = await readOrganizationEdges();
+    const status = getOrganizationsReadStatus();
+    if (status.degraded) {
+      log.server.warn({ reason: status.reason }, 'organizations.load: degraded read, not caching — will retry next call');
+      return emptyIndexes();
+    }
     const list = (raw as { organizations?: unknown })?.organizations;
     const orgs = Array.isArray(list) ? (list as Organization[]).filter(o => o && typeof o.id === 'string') : [];
-    const edgesRaw = await readOrganizationEdges();
     const edges = Array.isArray(edgesRaw) ? edgesRaw.filter(e => e && typeof e.source === 'string') : [];
     cache = buildIndexes(orgs, edges);
   } catch (err) {
-    log.server.warn({ err }, 'Failed to load organizations.json; serving empty set');
+    log.server.warn({ err }, 'Failed to load organizations.json; serving empty set, will retry next call');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'organizations', level: 'error',
-      message: 'Failed to load organizations.json; serving empty set',
+      message: 'Failed to load organizations.json; serving empty set, will retry next call',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
-    cache = emptyIndexes();
+    return emptyIndexes(); // t/4584: not cached — a parse/index error may be transient too.
   }
   return cache;
 }

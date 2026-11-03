@@ -29,8 +29,10 @@ import { CampGlyph, povToCamp } from '../shared/CampGlyph';
 import { SpeakerIdentity } from '../shared/SpeakerIdentity';
 import { EmptyState } from '../shared/EmptyState';
 import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/ChatBubble';
+import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
+import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -78,81 +80,56 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
 
 function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; selected?: boolean; onClick?: () => void }) {
   const tab = nodeIdToTab(taxRef.node_id);
+  // t/4651 (Design's a11y pass, t/4651#3): was a <span onClick> — no role, no tabIndex, no key
+  // handler, so keyboard/screen-reader users couldn't open a ref's detail at all (WCAG 2.1.1),
+  // and closing the detail had no focusable trigger to return to (fell back to <body>). A real
+  // button fixes both for free — focus return is TaxNodeDetail's existing restore-to-opener
+  // logic (t/4651), which needs document.activeElement to be an actual element, not a span.
   return (
-    <span
+    <button
+      type="button"
       className={`taxonomy-pill tab-${tab}${selected ? ' selected' : ''}`}
       title={taxRef.relevance || taxRef.node_id}
       onClick={onClick}
+      aria-expanded={onClick ? selected === true : undefined}
       data-clickable={onClick ? '' : undefined}
     >
       {taxRef.node_id}
-    </span>
+    </button>
   );
 }
 
-function TaxonomyRefsSection({ refs, selectedRef, onSelectRef }: { refs: TaxonomyRef[]; selectedRef: EntityRef | null; onSelectRef: (ref: EntityRef | null) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(false);
+/**
+ * t/4627: always-visible per-reply BDI grounding list. Each item is clickable; clicking opens
+ * that node's detail inline below the list (one open per reply, click again to hide, clicking a
+ * different item switches). This state is local to the reply — separate from the chat-wide
+ * `selectedRef`/`onSelectRef` that still drives `ChatDetailPane` for in-text ref links
+ * (`makeRefLinkSpan`), which this component does not touch. pol-* and sit-* ids flow through the
+ * same `TaxNodeDetail` unchanged — it already resolves policy/situation PinnedData variants.
+ */
+export function TaxonomyRefsSection({ refs }: { refs: TaxonomyRef[] }) {
+  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
+  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
 
   if (!refs || refs.length === 0) return null;
 
-  if (!expanded) {
-    return (
-      <div className="chat-taxonomy-refs">
-        <button className="chat-refs-collapsed" onClick={() => setExpanded(true)}>
-          {refs.length} {refs.length === 1 ? 'reference' : 'references'}
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="chat-taxonomy-refs">
-      <div className="chat-taxonomy-pills">
-        {refs.map((r) => {
-          const ref = parseEntityRef(r.node_id);
-          const isSel = !!ref && ref.id === selectedRef?.id;
-          return (
+      <div className="chat-taxonomy-reasoning">
+        {refs.map((r) => (
+          <div key={r.node_id} className="chat-taxonomy-reasoning-item">
             <TaxonomyPill
-              key={r.node_id}
               taxRef={r}
-              selected={isSel}
-              onClick={() => onSelectRef(isSel ? null : ref)}
+              selected={selectedBdiNodeId === r.node_id}
+              onClick={() => toggleBdiNode(r.node_id)}
             />
-          );
-        })}
-        <button
-          className="chat-taxonomy-toggle"
-          onClick={() => setShowReasoning(!showReasoning)}
-        >
-          {showReasoning ? 'Hide reasoning' : 'Show reasoning'}
-        </button>
-        <button
-          className="chat-taxonomy-toggle"
-          onClick={() => { setExpanded(false); setShowReasoning(false); }}
-        >
-          Collapse
-        </button>
+            {r.label && <span className="chat-reasoning-label">{r.label}</span>}
+            {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
+          </div>
+        ))}
       </div>
-      {showReasoning && (
-        <div className="chat-taxonomy-reasoning">
-          {refs.map((r) => {
-            const ref = parseEntityRef(r.node_id);
-            const isSel = !!ref && ref.id === selectedRef?.id;
-            return (
-              <div key={r.node_id} className="chat-taxonomy-reasoning-item">
-                <span
-                  className={`taxonomy-pill tab-${nodeIdToTab(r.node_id)}${isSel ? ' selected' : ''}`}
-                  data-clickable=""
-                  onClick={() => onSelectRef(isSel ? null : ref)}
-                >
-                  {r.node_id}
-                </span>
-                <span className="chat-reasoning-text">{r.relevance}</span>
-              </div>
-            );
-          })}
-        </div>
+      {selectedBdiNodeId && (
+        <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />
       )}
     </div>
   );
@@ -160,31 +137,55 @@ function TaxonomyRefsSection({ refs, selectedRef, onSelectRef }: { refs: Taxonom
 
 // ── Chat message ─────────────────────────────────────────
 
-function ChatMessage({ entry, selectedRef, onSelectRef }: { entry: ChatEntry; selectedRef: EntityRef | null; onSelectRef: (ref: EntityRef | null) => void }) {
+/** t/4724: redesigned agent turns lead with SpeakerIdentity's own avatar+camp-name (one unit);
+ *  the pre-redesign glyph-only avatar is unchanged when the flag is off. User turns never show
+ *  an avatar here — "You" renders in the header instead, beside the dark bubble (CSS). Split out
+ *  of ChatMessage to keep its branching within the complexity budget. */
+function ChatMessageAvatar({ isUser, chatRedesign, speaker, camp }: {
+  isUser: boolean; chatRedesign: boolean; speaker: string; camp: ReturnType<typeof povToCamp>;
+}) {
+  if (isUser) return null;
+  if (chatRedesign) return <SpeakerIdentity variant="avatar" speaker={speaker} className="chat-message-avatar-identity" />;
+  if (!camp) return null;
+  return (
+    <div className={`chat-message-avatar camp-${camp}`}>
+      <CampGlyph camp={camp} size={14} />
+    </div>
+  );
+}
+
+/** The separate text label would duplicate SpeakerIdentity's own label once the redesign flag's
+ *  avatar is showing, so this renders nothing for a redesigned agent turn. */
+function ChatMessageHeader({ isUser, chatRedesign, speaker, camp }: {
+  isUser: boolean; chatRedesign: boolean; speaker: string; camp: ReturnType<typeof povToCamp>;
+}) {
+  if (isUser) return <div className="chat-message-header"><span className="chat-message-speaker">You</span></div>;
+  if (chatRedesign) return null;
+  return (
+    <div className="chat-message-header">
+      <span className={`chat-message-speaker${camp ? ` camp-speaker-${camp}` : ''}`}>{speakerLabel(speaker)}</span>
+    </div>
+  );
+}
+
+function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (ref: EntityRef | null) => void }) {
   const isUser = entry.speaker === 'user';
   const camp = povToCamp(entry.speaker);
-  const mdComponents = useMemo(() => ({ span: makeRefLinkSpan(onSelectRef) }), [onSelectRef]);
+  const mdComponents = useMemo(() => ({
+    span: makeRefLinkSpan(onSelectRef), ol: MarkdownOl, p: MarkdownP,
+    h1: MarkdownHeading, h2: MarkdownHeading, h3: MarkdownHeading, h4: MarkdownHeading, h5: MarkdownHeading, h6: MarkdownHeading,
+  }), [onSelectRef]);
   const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
 
   return (
     <div className={`chat-message chat-speaker-${entry.speaker}${isUser ? ' chat-message-user' : ''}`}>
-      {chatRedesign
-        ? <SpeakerIdentity variant="avatar" speaker={entry.speaker} />
-        : (camp && (
-          <div className={`chat-message-avatar camp-${camp}`}>
-            <CampGlyph camp={camp} size={14} />
-          </div>
-        ))}
+      <ChatMessageAvatar isUser={isUser} chatRedesign={chatRedesign} speaker={entry.speaker} camp={camp} />
       <div className="chat-message-body">
-        <div className="chat-message-header">
-          <span className={`chat-message-speaker${camp ? ` camp-speaker-${camp}` : ''}`}>
-            {speakerLabel(entry.speaker)}
-          </span>
-        </div>
+        <ChatMessageHeader isUser={isUser} chatRedesign={chatRedesign} speaker={entry.speaker} camp={camp} />
         <MessageBubble role={isUser ? 'user' : 'assistant'} className="chat-message-content markdown-body prose">
           <Markdown remarkPlugins={[remarkGfm, remarkColorizePov, remarkLinkifyRefs]} components={mdComponents}>{entry.content}</Markdown>
         </MessageBubble>
-        <TaxonomyRefsSection refs={entry.taxonomy_refs} selectedRef={selectedRef} onSelectRef={onSelectRef} />
+        <TaxonomyRefsSection refs={entry.taxonomy_refs} />
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
@@ -364,34 +365,97 @@ type ActiveChat = NonNullable<ReturnType<typeof useChatStore.getState>['activeCh
 type ShareState = 'idle' | 'sharing' | 'success' | 'error';
 type ResizePanel = ReturnType<typeof useResizableRightPanel>;
 
-function ChatHeader({ activeChat, changeMode, shareState, onShare }: {
+function ChatHeader({ activeChat, shareState, onShare }: {
   activeChat: ActiveChat;
-  changeMode: (m: ChatMode) => Promise<void>;
   shareState: ShareState;
   onShare: () => void;
 }) {
   const poverInfo = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO];
-  const headerCamp = povToCamp(activeChat.pover);
   return (
     <div className="chat-header">
-      <div className="chat-header-left">
-        <span className={`chat-header-pover${headerCamp ? ` camp-speaker-${headerCamp}` : ''}`}>
-          {poverInfo?.label ?? activeChat.pover}
+      {/* t/4690: the in-page back chevron is removed — the location bar (t/4640/t/4689) is now
+         the one way up to the collection, per Design (t/4690#11). */}
+      <div className="chat-header-titles">
+        <span className="chat-header-eyebrow">Individual Chat</span>
+        <h1 className="chat-header-title">{activeChat.title}</h1>
+      </div>
+      <div className="chat-header-right">
+        <SpeakerIdentity variant="avatar" speaker={activeChat.pover} className="chat-header-camp-chip" />
+        <span className="chat-header-mode-pill" title={CHAT_MODE_INFO[activeChat.mode].description}>
+          {CHAT_MODE_INFO[activeChat.mode].label.toUpperCase()}
         </span>
-        <ModeSelector mode={activeChat.mode} onChange={(m) => { getGlobalRecorder()?.record({ type: 'user.action', component: 'chat', level: 'info', message: 'chat.mode_switch', data: { chat_id: activeChat.id, from: activeChat.mode, to: m } }); void changeMode(m); }} />
+        <ExportButton chat={activeChat} />
+        <button
+          className="btn btn-sm chat-share-btn"
+          onClick={onShare}
+          disabled={shareState !== 'idle'}
+          title="Submit this chat for community review"
+        >
+          {shareState === 'sharing' ? 'Sharing...' : 'Share'}
+        </button>
       </div>
-      <div className="chat-header-topic" title={activeChat.topic}>
-        {activeChat.topic}
+    </div>
+  );
+}
+
+/** t/4724: "The Question" card — the opening topic in large serif. No tag row (TL ruling,
+ *  p/513#36): the mockup's one-word topic chips have no backing data, and inventing them from
+ *  taxonomy_refs would show long node labels instead, nothing like the mockup. */
+function QuestionCard({ topic }: { topic: string }) {
+  return (
+    <div className="chat-question-card">
+      <span className="chat-question-eyebrow">The Question</span>
+      <p className="chat-question-text">{topic}</p>
+    </div>
+  );
+}
+
+function ChatSessionPanel({ activeChat }: { activeChat: ActiveChat }) {
+  const poverInfo = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO];
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(activeChat.id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [activeChat.id]);
+
+  return (
+    <div className="chat-session-panel">
+      <h2 className="chat-session-panel-title">Session</h2>
+
+      <div className="chat-session-panel-section">
+        <span className="chat-session-panel-label">Talking to</span>
+        <SpeakerIdentity variant="avatar" speaker={activeChat.pover} />
+        <button
+          type="button"
+          className="chat-session-bdi-link"
+          onClick={() => useTaxonomyStore.getState().setActiveTab(activeChat.pover)}
+        >
+          Beliefs, desires &amp; intentions
+        </button>
       </div>
-      <ExportButton chat={activeChat} />
-      <button
-        className="btn btn-sm chat-share-btn"
-        onClick={onShare}
-        disabled={shareState !== 'idle'}
-        title="Submit this chat for community review"
-      >
-        {shareState === 'sharing' ? 'Sharing...' : 'Share'}
-      </button>
+
+      <div className="chat-session-panel-section">
+        <span className="chat-session-panel-label">
+          Mode
+          <span className="chat-session-info-dot" title={CHAT_MODE_INFO[activeChat.mode].description} aria-label={CHAT_MODE_INFO[activeChat.mode].description}>ⓘ</span>
+        </span>
+        <span className="chat-session-mode-value">{CHAT_MODE_INFO[activeChat.mode].label}</span>
+      </div>
+
+      <div className="chat-session-panel-section">
+        <span className="chat-session-panel-label">Session ID</span>
+        <div className="chat-session-id-row">
+          <span className="chat-session-id-value">{activeChat.id}</span>
+          <button type="button" className="chat-session-copy-btn" onClick={handleCopy} aria-label="Copy session ID" title="Copy session ID">
+            {copied ? '✓' : '⧉'}
+          </button>
+        </div>
+      </div>
+
+      {poverInfo == null && <span className="lib-empty-value">Unknown POVer</span>}
     </div>
   );
 }
@@ -424,11 +488,10 @@ function ShareResult({ shareState, shareError, onDismiss }: {
   );
 }
 
-function ChatTranscript({ activeChat, chatGenerating, chatActivity, selectedRef, onSelectRef, transcriptEndRef }: {
+function ChatTranscript({ activeChat, chatGenerating, chatActivity, onSelectRef, transcriptEndRef }: {
   activeChat: ActiveChat;
   chatGenerating: boolean;
   chatActivity: string | null;
-  selectedRef: EntityRef | null;
   onSelectRef: (ref: EntityRef | null) => void;
   transcriptEndRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -445,7 +508,7 @@ function ChatTranscript({ activeChat, chatGenerating, chatActivity, selectedRef,
       ) : (
         <>
           {activeChat.transcript.map((entry) => (
-            <ChatMessage key={entry.id} entry={entry} selectedRef={selectedRef} onSelectRef={onSelectRef} />
+            <ChatMessage key={entry.id} entry={entry} onSelectRef={onSelectRef} />
           ))}
           {chatStreamingText != null ? (
             <div className="chat-message">
@@ -463,31 +526,39 @@ function ChatTranscript({ activeChat, chatGenerating, chatActivity, selectedRef,
   );
 }
 
-function ChatInputBar({ input, onInputChange, onKeyDown, onSend, chatGenerating }: {
+function ChatInputBar({ input, onInputChange, onKeyDown, onSend, chatGenerating, mode, onModeChange, poverLabel }: {
   input: string;
   onInputChange: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onSend: () => void;
   chatGenerating: boolean;
+  mode: ChatMode;
+  onModeChange: (m: ChatMode) => void;
+  poverLabel: string;
 }) {
   return (
     <div className="chat-input-bar">
       <textarea
         className="chat-input"
-        placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+        placeholder={`Ask the ${poverLabel} a follow-up…`}
         value={input}
         onChange={(e) => onInputChange(e.target.value)}
         onKeyDown={onKeyDown}
         disabled={chatGenerating}
-        rows={2}
+        rows={1}
       />
-      <button
-        className="btn btn-primary chat-send-btn"
-        onClick={onSend}
-        disabled={!input.trim() || chatGenerating}
-      >
-        Send
-      </button>
+      <div className="chat-input-bar-controls">
+        <ModeSelector mode={mode} onChange={onModeChange} />
+        <button
+          className="chat-send-btn"
+          onClick={onSend}
+          disabled={!input.trim() || chatGenerating}
+          aria-label="Send"
+          title="Send"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" /></svg>
+        </button>
+      </div>
     </div>
   );
 }
@@ -627,38 +698,56 @@ export function ChatWorkspace() {
     );
   }
 
+  const activePoverLabel = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO]?.label ?? activeChat.pover;
+
   return (
     <div className={`chat-workspace${selectedRef ? ' has-detail-pane' : ''}`}>
       <div className="chat-main-column">
         {/* Header */}
-        <ChatHeader activeChat={activeChat} changeMode={changeMode} shareState={shareState} onShare={handleShare} />
+        <ChatHeader activeChat={activeChat} shareState={shareState} onShare={handleShare} />
 
-        {/* Share result banner */}
-        <ShareResult shareState={shareState} shareError={shareError} onDismiss={() => setShareState('idle')} />
+        <div className="chat-reading-row">
+          <div className="chat-reading-column">
+            {/* Share result banner */}
+            <ShareResult shareState={shareState} shareError={shareError} onDismiss={() => setShareState('idle')} />
 
-        {/* Error bar */}
-        {chatError && (
-          <div className="chat-error">{chatError}</div>
-        )}
+            {/* Error bar */}
+            {chatError && (
+              <div className="chat-error">{chatError}</div>
+            )}
 
-        {/* Transcript */}
-        <ChatTranscript
-          activeChat={activeChat}
-          chatGenerating={chatGenerating}
-          chatActivity={chatActivity}
-          selectedRef={selectedRef}
-          onSelectRef={setSelectedRef}
-          transcriptEndRef={transcriptEndRef}
-        />
+            {/* The Question */}
+            <QuestionCard topic={activeChat.topic} />
 
-        {/* Input bar */}
-        <ChatInputBar
-          input={input}
-          onInputChange={setInput}
-          onKeyDown={handleKeyDown}
-          onSend={handleSend}
-          chatGenerating={chatGenerating}
-        />
+            {/* Transcript */}
+            <ChatTranscript
+              activeChat={activeChat}
+              chatGenerating={chatGenerating}
+              chatActivity={chatActivity}
+              onSelectRef={setSelectedRef}
+              transcriptEndRef={transcriptEndRef}
+            />
+
+            {/* Input bar */}
+            <ChatInputBar
+              input={input}
+              onInputChange={setInput}
+              onKeyDown={handleKeyDown}
+              onSend={handleSend}
+              chatGenerating={chatGenerating}
+              mode={activeChat.mode}
+              poverLabel={activePoverLabel}
+              onModeChange={(m) => { getGlobalRecorder()?.record({ type: 'user.action', component: 'chat', level: 'info', message: 'chat.mode_switch', data: { chat_id: activeChat.id, from: activeChat.mode, to: m } }); void changeMode(m); }}
+            />
+          </div>
+
+          {/* t/4724: the Session panel is a second, always-present right column, independent of
+             the ref-link detail pane below (which only appears when a prose ref is clicked —
+             a deliberate deviation from the design posted on t/4724#1, which proposed folding
+             ref-detail into the reading column; keeping ChatDetailPane's existing mechanism
+             unchanged was the much lower-risk option and loses nothing). */}
+          <ChatSessionPanel activeChat={activeChat} />
+        </div>
       </div>
 
       <ChatDetailPane

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-AI Triad Research is a multi-perspective research platform for AI policy and safety literature. It organizes scholarly arguments into a structured taxonomy, detects conflicts between perspectives, and simulates structured debates between three AI-driven characters representing distinct viewpoints. The platform is developed at the Berkman Klein Center (2026).
+AI Triad Research is a multi-perspective research platform for AI policy and safety literature. It organizes scholarly arguments into a structured taxonomy, detects conflicts between perspectives, and simulates structured debates between three AI-driven characters representing distinct viewpoints.
 
 The system serves researchers, policy analysts, and scholars who need to understand the landscape of AI governance arguments — not just what people are saying, but how those arguments relate to, support, and contradict each other.
 

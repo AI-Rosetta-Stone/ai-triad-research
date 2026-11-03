@@ -1,0 +1,91 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+   Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* Library page theme tokens (t/4579) — extracted from styles.css to respect LOC ceiling */
+
+:root {
+  /* Library page tokens */
+  --lib-bg: var(--bg-primary);
+  --lib-text: var(--text-primary);
+  --lib-text-secondary: var(--text-secondary);
+  --lib-text-faded: var(--text-muted);
+  --lib-dash: var(--text-muted);
+  --lib-accent: var(--danger);
+  --lib-accent-hover: var(--danger);
+  --lib-border-header: var(--border-color);
+  --lib-border-row: var(--border-color);
+  --lib-border-control: var(--border-color);
+  --lib-active-bg: var(--accent-bg);
+  --lib-inactive-badge-bg: var(--bg-tertiary);
+  --lib-row-hover: var(--bg-hover);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Library page tokens */
+    --lib-bg: var(--bg-primary);
+    --lib-text: var(--text-primary);
+    --lib-text-secondary: var(--text-secondary);
+    --lib-text-faded: var(--text-muted);
+    --lib-dash: var(--text-muted);
+    --lib-accent: var(--danger);
+    --lib-accent-hover: var(--danger);
+    --lib-border-header: var(--border-color);
+    --lib-border-row: var(--border-color);
+    --lib-border-control: var(--border-color);
+    --lib-active-bg: var(--accent-bg);
+    --lib-inactive-badge-bg: var(--bg-tertiary);
+    --lib-row-hover: var(--bg-hover);
+  }
+}
+
+:root[data-theme="dark"] {
+  /* Library page tokens */
+  --lib-bg: var(--bg-primary);
+  --lib-text: var(--text-primary);
+  --lib-text-secondary: var(--text-secondary);
+  --lib-text-faded: var(--text-muted);
+  --lib-dash: var(--text-muted);
+  --lib-accent: var(--danger);
+  --lib-accent-hover: var(--danger);
+  --lib-border-header: var(--border-color);
+  --lib-border-row: var(--border-color);
+  --lib-border-control: var(--border-color);
+  --lib-active-bg: var(--accent-bg);
+  --lib-inactive-badge-bg: var(--bg-tertiary);
+  --lib-row-hover: var(--bg-hover);
+}
+
+[data-theme="bkc"] {
+  /* Library page tokens */
+  --lib-bg: var(--bg-primary);
+  --lib-text: var(--text-primary);
+  --lib-text-secondary: var(--text-secondary);
+  --lib-text-faded: var(--text-muted);
+  --lib-dash: var(--text-muted);
+  --lib-accent: var(--danger);
+  --lib-accent-hover: var(--danger);
+  --lib-border-header: var(--border-color);
+  --lib-border-row: var(--border-color);
+  --lib-border-control: var(--border-color);
+  --lib-active-bg: var(--accent-bg);
+  --lib-inactive-badge-bg: var(--bg-tertiary);
+  --lib-row-hover: var(--bg-hover);
+}
+
+[data-theme="harvard"] {
+  /* Library page tokens */
+  --lib-bg: #f4f0ea;
+  --lib-text: #2b2622;
+  --lib-text-secondary: #5d554f;
+  --lib-text-faded: #8a8079;
+  --lib-dash: #b3aaa2;
+  --lib-accent: #9e2236;
+  --lib-accent-hover: #861b2d;
+  --lib-border-header: #e0d8cd;
+  --lib-border-row: #e6dfd5;
+  --lib-border-control: #ddd5ca;
+  --lib-active-bg: #f3dde1;
+  --lib-inactive-badge-bg: #e8e1d7;
+  --lib-row-hover: #ece6dd;
+}

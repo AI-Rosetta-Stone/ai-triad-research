@@ -26,6 +26,10 @@ on:
         description: 'Gate-verification: inject a nonexistent workflow to prove the staleness/fail-loud alarm fires (t/3672)'
         type: boolean
         default: false
+      force_consecutive_failure:
+        description: 'Gate-verification (t/4340): simulate a 3-consecutive-failure heartbeat alarm without waiting for real failures, proving the issue-create/still-alarming/resolve path'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -216,6 +220,12 @@ jobs:
     # ABSENCE case (auto-disable after 60d repo inactivity, rename, broken YAML, disabled cron).
     runs-on: ubuntu-latest
     steps:
+      # t/4340 hotfix: this job never checked out the repo (it used to need only the GitHub API).
+      # #4421 added a dynamic `import()` of operations/devops/consecutive-failure.mjs below,
+      # which needs the file on disk -- every run since has crashed with ERR_MODULE_NOT_FOUND,
+      # silently breaking BOTH the simulated and the real consecutive-failure detection path.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
       - name: Heartbeat — assert tracked scheduled workflows ran within their window
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
@@ -300,6 +310,114 @@ jobs:
                   owner: context.repo.owner, repo: context.repo.repo,
                   issue_number: issue.number,
                   body: `Resolved at ${new Date().toISOString()} — all tracked scheduled workflows reporting fresh.`,
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, state: 'closed',
+                });
+              }
+            }
+
+      - name: Consecutive-failure heartbeat — a run that keeps firing but keeps failing
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          FORCE_CONSECUTIVE_FAILURE: ${{ inputs.force_consecutive_failure }}
+        with:
+          script: |
+            // t/4340 follow-up: the staleness check above catches SILENCE (a cron that stopped
+            // firing). It does NOT catch a workflow that fires on schedule every time and fails
+            // every time — exactly what health-monitor's own health-check job did for 3+ days
+            // (AADSTS700213 on every run). That failure never became a "health-alert" GitHub
+            // issue, because the in-job "Create issue on sustained failure" step's condition
+            // (`steps.health.outputs.healthy == 'false'`) only fires on the one code path that
+            // sets that output — a login failure never reached it. Checked at the JOB level
+            // (not workflow-run level) so an unrelated job in the same run (e.g.
+            // known-good-liveness) failing can't false-positive this check, and vice versa.
+            //
+            // Detection itself (runs -> job conclusions -> alarm or not) is a pure module, unit-
+            // tested in consecutive-failure.test.mjs (t/4340, TL p/331#2582) -- this step is only
+            // the impure shim that fetches runs/jobs and files the issue.
+            const { pathToFileURL } = require('url');
+            const { evaluateWatchList } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/consecutive-failure.mjs`).href);
+            const WATCH = [
+              { file: 'health-monitor.yml', job: 'health-check', n: 3 },
+            ];
+            let failAlarms;
+            // t/4340 (TL p/331#2580/#2582): simulate the ALERT path end-to-end -- issue create,
+            // "still alarming" comment on repeat runs, resolve-on-recovery -- without waiting for
+            // 3 real consecutive failures. This proves the alert path only; the DETECTION path
+            // (runs -> job conclusions -> alarm) is proven separately by consecutive-failure.test.mjs,
+            // which this short-circuit deliberately bypasses so it can never misreport a real
+            // tracked job's state.
+            if (process.env.FORCE_CONSECUTIVE_FAILURE === 'true') {
+              failAlarms = [
+                'SIMULATED (force_consecutive_failure gate-verification, t/4340): ' +
+                'health-monitor.yml / health-check: last 3 scheduled runs all failed (failure, failure, failure)',
+              ];
+            } else {
+              const queryErrors = [];
+              const runsByWatch = [];
+              for (const w of WATCH) {
+                try {
+                  const runsRes = await github.rest.actions.listWorkflowRuns({
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    workflow_id: w.file, event: 'schedule', status: 'completed', per_page: w.n,
+                  });
+                  const runs = (runsRes.data && runsRes.data.workflow_runs) || [];
+                  const jobsPerRun = [];
+                  for (const run of runs) {
+                    const jobsRes = await github.rest.actions.listJobsForWorkflowRun({
+                      owner: context.repo.owner, repo: context.repo.repo, run_id: run.id,
+                    });
+                    jobsPerRun.push({ jobs: (jobsRes.data.jobs || []).map(j => ({ name: j.name, conclusion: j.conclusion })) });
+                  }
+                  runsByWatch.push(jobsPerRun);
+                } catch (e) {
+                  // fail-loud, same as the staleness check: a query failure must ALARM, never read as healthy
+                  queryErrors.push(`${w.file} / ${w.job}: QUERY FAILED (${e.status || '?'} ${e.message}) — cannot confirm, treating as UNHEALTHY`);
+                  runsByWatch.push([]); // too few runs for the pure check to alarm on its own; queryErrors covers it
+                }
+              }
+              failAlarms = [...queryErrors, ...evaluateWatchList(WATCH, runsByWatch)];
+            }
+            const FAIL_LABEL = 'consecutive-run-failure';
+            const openFail = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: FAIL_LABEL, per_page: 5,
+            });
+            if (failAlarms.length > 0) {
+              const list = failAlarms.map(a => `- ${a}`).join('\n');
+              if (openFail.data.length > 0) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: openFail.data[0].number,
+                  body: `Still alarming at ${new Date().toISOString()}:\n\n${list}`,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  title: 'A scheduled job is running but failing on every run',
+                  body: [
+                    '## Consecutive-run-failure heartbeat alarm (t/4340 follow-up)',
+                    '',
+                    'A tracked scheduled job fired on its normal schedule, but failed, N times in a row:',
+                    '',
+                    list,
+                    '',
+                    `- **Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                    '',
+                    "This is distinct from schedule-staleness (a cron that stopped firing): the cron is firing fine, the job itself is broken on every attempt. Check the job's own alerting didn't also fire — if it didn't, that alerting path has a gap.",
+                  ].join('\n'),
+                  labels: [FAIL_LABEL, 'bug', 'alert-escalated'],
+                });
+              }
+              core.setFailed(failAlarms.join('; '));
+            } else {
+              for (const issue of openFail.data) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `Resolved at ${new Date().toISOString()} — tracked jobs are succeeding again.`,
                 });
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
@@ -490,6 +608,110 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: issue.number,
                 body: `Resolved at ${new Date().toISOString()} — staging is back to its small footprint.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed',
+              });
+            }
+
+  staging-prod-parity:
+    # t/4417 (t/4194 prevention item 3, incident-rule residual "name how the class could still
+    # occur"): Test-ProdStagingDigestParity.ps1 (t/4194/t/4399) only ran inside deploy-azure.yml,
+    # so a skew introduced BETWEEN prod deploys -- a left-on Set-StagingTestRevision canary, a
+    # manual `ingress traffic set`, a failed deploy-staging promotion -- stayed invisible until
+    # the next prod deploy. That's how the 10-12/10-13 skew sat unnoticed for days. This runs the
+    # same script here, well under daily (this workflow's own ~15min cadence). Warn-only: a skew
+    # is sometimes intentional, so this only opens/escalates a tracking issue, never fails the run.
+    runs-on: ubuntu-latest
+    # t/4340 step 2: same Reader-only monitoring identity as health-check -- read-only query.
+    environment: monitoring
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.MONITOR_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.MONITOR_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.MONITOR_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check prod/staging serving-digest parity
+        id: parity
+        shell: pwsh
+        run: |
+          . ./operations/devops/Test-ProdStagingDigestParity.ps1
+          $Verdict = Test-ProdStagingDigestParity -ProdApp $env:CONTAINER_APP_NAME -StagingApp "$($env:CONTAINER_APP_NAME)-staging" -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+          # Tri-state, same pattern as staging-load-test-size-drift: Determinable=false (az query
+          # failed, traffic split, etc.) must NOT read as "in parity" -- that would auto-close a
+          # genuinely open skew issue on a transient Azure error.
+          $State = if (-not $Verdict.Determinable) { 'unknown' } elseif ($Verdict.Match) { 'match' } else { 'mismatch' }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "state=$State"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "message=$($Verdict.Message)"
+
+      - name: Open or update the skew issue, escalate if it persists
+        if: steps.parity.outputs.state == 'mismatch'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const LABEL = 'staging-prod-parity-skew';
+            const ESCALATE_AFTER_HOURS = 24;  // skew is sometimes intentional (t/4417) -- give it a full day before escalating
+            const message = `${{ steps.parity.outputs.message }}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: LABEL, per_page: 1,
+            });
+            if (existing.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: 'Staging is not serving the same image as prod (t/4417)',
+                body: [
+                  '## Staging/prod serving-digest skew (t/4417)',
+                  '',
+                  `Detected at ${new Date().toISOString()}: ${message}`,
+                  '',
+                  'This can be intentional (staging mid-promotion, or deliberately holding back a risky change) -- no action needed if so. If not, this is the t/4194 class: staging silently stale.',
+                  '',
+                  `This issue stays open and is escalated (\`alert-escalated\`) if it persists past ${ESCALATE_AFTER_HOURS}h.`,
+                ].join('\n'),
+                labels: [LABEL],
+              });
+              return;
+            }
+            const issue = existing.data[0];
+            const ageHours = (Date.now() - new Date(issue.created_at).getTime()) / 3600000;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `Still skewed at ${new Date().toISOString()} (${ageHours.toFixed(1)}h since first detected): ${message}`,
+            });
+            const hasEscalated = (issue.labels || []).some((l) => (l.name || l) === 'alert-escalated');
+            if (ageHours > ESCALATE_AFTER_HOURS && !hasEscalated) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, labels: ['alert-escalated'],
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `🔺 **ESCALATED** — staging/prod have been skewed for over ${ESCALATE_AFTER_HOURS}h.`,
+              });
+            }
+
+      - name: Auto-close resolved skew issues
+        if: steps.parity.outputs.state == 'match'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'staging-prod-parity-skew', per_page: 5,
+            });
+            for (const issue of existing.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Resolved at ${new Date().toISOString()} — prod and staging are serving the same image again.`,
               });
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo,

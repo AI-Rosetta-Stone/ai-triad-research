@@ -363,6 +363,8 @@ function buildElectronApi() {
   openDiagnosticsWindow: (): Promise<void> => ipcRenderer.invoke('open-diagnostics-window'),
   openPovProgressionWindow: (): Promise<void> => ipcRenderer.invoke('open-pov-progression-window'),
   closeDiagnosticsWindow: (): Promise<void> => ipcRenderer.invoke('close-diagnostics-window'),
+  // t/4642/t/4663: bring an already-open diagnostics popout to the front on a repeat card click.
+  focusDiagnosticsWindow: (): Promise<'focused' | 'not-open'> => ipcRenderer.invoke('focus-diagnostics-window'),
 
   // Chat popout window
   openChatWindow: (chatId: string, source?: 'my' | 'community'): Promise<{ atCap: true } | void> => ipcRenderer.invoke('open-chat-window', chatId, source),
@@ -502,6 +504,12 @@ function buildElectronApi() {
 
   focusNodeInMainWindow: (nodeId: string): void => {
     ipcRenderer.send('focus-node-in-main', nodeId);
+  },
+
+  // t/4775/t/4761: pushed whenever the renderer's computed unload reason changes — main just
+  // stores the latest value, read by the will-prevent-unload close-confirm dialog.
+  setUnloadReason: (reason: 'edits' | 'debate' | 'both' | null): void => {
+    ipcRenderer.send('set-unload-reason', reason);
   },
 
   growWindow: (deltaWidth: number): Promise<void> =>
@@ -678,6 +686,16 @@ function buildElectronApi() {
   ): Promise<{ submissionId: string }> =>
     ipcRenderer.invoke('community-submit', baseUrl, payload),
 
+  // t/4746/t/4612: desktop Ask "Share to Community" — uploads the full InquiryResult to the
+  // unauthenticated draft endpoint. Distinct from communitySubmit above (separate endpoint,
+  // separate payload schema, returns a draft link + id rather than a submissionId).
+  submitAskToCommunity: (
+    baseUrl: string,
+    result: InquiryResult,
+    note: string,
+  ): Promise<{ draftId: string; link: string }> =>
+    ipcRenderer.invoke('submit-ask-to-community', baseUrl, result, note),
+
   // File picker
   pickDocumentFile: (): Promise<{ cancelled: boolean; filePath?: string; content?: string }> =>
     ipcRenderer.invoke('pick-document-file'),
@@ -825,6 +843,8 @@ function buildElectronApi() {
     jobId: string;
     status: 'queued' | 'grounding' | 'debating' | 'judging' | 'synthesizing' | 'done' | 'done_truncated' | 'failed';
     progressPct: number;
+    /** t/4710/t/4713: fine-grained Debate-stage detail line. Present only while debating. */
+    stageDetail?: string;
     terminationReason: string | null; resultId: string | null; error: string | null;
     result?: InquiryResult;
   } | null> =>

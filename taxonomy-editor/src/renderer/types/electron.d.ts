@@ -269,6 +269,8 @@ export interface ElectronAPI {
   openDiagnosticsWindow: () => Promise<void>;
   openPovProgressionWindow: () => Promise<void>;
   closeDiagnosticsWindow: () => Promise<void>;
+  /** t/4642/t/4663: bring an already-open diagnostics popout to the front. */
+  focusDiagnosticsWindow: () => Promise<'focused' | 'not-open'>;
   sendDiagnosticsState: (state: unknown) => void;
   onDiagnosticsStateUpdate: (callback: (state: unknown) => void) => () => void;
   onDiagnosticsPopoutClosed: (callback: () => void) => () => void;
@@ -330,10 +332,14 @@ export interface ElectronAPI {
   onReloadTaxonomy: (callback: () => void) => () => void;
   onFocusNode: (callback: (nodeId: string) => void) => () => void;
   focusNodeInMainWindow: (nodeId: string) => void;
+  /** t/4775/t/4761: pushed whenever the renderer's computed unload reason changes. */
+  setUnloadReason: (reason: 'edits' | 'debate' | 'both' | null) => void;
   captureScreenshot: (opts?: { width?: number; height?: number; defaultName?: string }) => Promise<{ cancelled: boolean; filePath?: string }>;
 
   // Community
   communitySubmit: (baseUrl: string, payload: { type: 'chat' | 'debate' | 'oped' | 'inquiry'; data: unknown; note?: string }) => Promise<{ submissionId: string }>;
+  /** t/4746/t/4612: desktop Ask "Share to Community" — uploads the full InquiryResult to the unauthenticated draft endpoint. */
+  submitAskToCommunity: (baseUrl: string, result: InquiryResult, note: string) => Promise<{ draftId: string; link: string }>;
 
   // Admin Review
   adminReviewConfigured: () => Promise<boolean>;

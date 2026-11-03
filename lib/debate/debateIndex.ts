@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { renameSyncWithRetry } from './persistence.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { normalizeDebateOrigin } from './types/session.js';
 
 export interface DebateSessionSummary {
   id: string;
@@ -21,6 +22,10 @@ export interface DebateSessionSummary {
   claims_forgotten_rate?: number | null;
   taxonomy_mapped_ratio?: number | null;
   repetition_rate?: number | null;
+  /** Set only for Ask a Question debates (t/4678) — drives the "Question" badge in My Debates. */
+  origin_mode?: 'inquiry';
+  /** inquiry-only: the inquiry job/result id, for the back-link to the question. */
+  inquiry_id?: string;
 }
 
 interface IndexEntry extends DebateSessionSummary {
@@ -33,6 +38,16 @@ interface DebateIndex {
 }
 
 const INDEX_FILE = 'debates-index.json';
+
+/** t/4679: only Ask a Question debates get origin_mode/inquiry_id — every other summary's shape
+ *  stays byte-identical to today. Extracted out of extractSummary to keep its complexity flat. */
+function extractInquiryFields(data: Record<string, unknown>): Pick<DebateSessionSummary, 'origin_mode' | 'inquiry_id'> {
+  const normalizedOrigin = normalizeDebateOrigin(data.origin, data.inquiryJobId);
+  if (normalizedOrigin?.mode !== 'inquiry') return {};
+  return normalizedOrigin.inquiry_id
+    ? { origin_mode: 'inquiry', inquiry_id: normalizedOrigin.inquiry_id }
+    : { origin_mode: 'inquiry' };
+}
 
 export function extractSummary(data: Record<string, unknown>): DebateSessionSummary {
   const transcript = Array.isArray(data.transcript) ? data.transcript : [];
@@ -99,6 +114,7 @@ export function extractSummary(data: Record<string, unknown>): DebateSessionSumm
     claims_forgotten_rate: claimsForgottenRate,
     taxonomy_mapped_ratio: taxonomyMappedRatio,
     repetition_rate: totalTurns > 0 ? repetitionWarnings / totalTurns : null,
+    ...extractInquiryFields(data),
   };
 }
 

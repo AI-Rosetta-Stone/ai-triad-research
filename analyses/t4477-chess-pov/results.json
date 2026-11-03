@@ -1,0 +1,390 @@
+[
+  {
+    "Id": "evaluating-ai-providers-frontier-safety-frameworks-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 142095,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "generative-ai-copyright-training-creation-regulation-2026",
+    "StoredPovTag": "skeptic",
+    "WordCount": 82185,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "artificial-intelligence-civil-liability-european-perspective-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 57898,
+    "RunA": [
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "ai-now-2023-landscape-confronting-tech-power-2026",
+    "StoredPovTag": "skeptic",
+    "WordCount": 49294,
+    "RunA": [
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": true,
+    "FlipBC": true,
+    "AB_Stable": true,
+    "Informative": true
+  },
+  {
+    "Id": "me-myself-ai-situational-awareness-dataset-sad-llms-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 48781,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "ai-as-normal-technology-2026",
+    "StoredPovTag": "skeptic",
+    "WordCount": 46258,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "tech-media-telecom-tmt-predictions-2026-2026",
+    "StoredPovTag": "accelerationist",
+    "WordCount": 43238,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "speech-certainty-algorithmic-speech-limits-first-amendment-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 39406,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "how-artificial-intelligence-could-reshape-four-essential-2026",
+    "StoredPovTag": "accelerationist",
+    "WordCount": 38200,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "superintelligent-agents-pose-catastrophic-risks-can-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 38028,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "article-survey-machine-learning-biases-mitigation-techniques-2026",
+    "StoredPovTag": "skeptic",
+    "WordCount": 37745,
+    "RunA": [
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "limitations-compute-thresholds-as-governance-strategy-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 37702,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "law-following-ai-designing-ai-agents-obey-human-laws-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 36509,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "beyond-linear-probes-dynamic-safety-monitoring-language-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 32345,
+    "RunA": [
+      "accelerationist",
+      "safetyist"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  },
+  {
+    "Id": "nonrivalry-economics-data-2026",
+    "StoredPovTag": "accelerationist",
+    "WordCount": 32011,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": true,
+    "FlipBC": true,
+    "AB_Stable": true,
+    "Informative": true
+  },
+  {
+    "Id": "monitoring-monitorability-2026",
+    "StoredPovTag": "safetyist",
+    "WordCount": 31721,
+    "RunA": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunB": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "RunC": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "FlipAB": false,
+    "FlipAC": false,
+    "FlipBC": false,
+    "AB_Stable": true,
+    "Informative": false
+  }
+]

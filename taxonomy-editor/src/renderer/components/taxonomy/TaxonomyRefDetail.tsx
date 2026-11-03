@@ -82,28 +82,141 @@ interface Props {
   policyReferencingNodes?: TaxRefPolicyReferencingNode[];
 }
 
+/* ── Pure helpers ─────────────────────────────────────── */
+
+function computeHasRelated(node: TaxRefNode, edges?: TaxRefEdge[]): boolean {
+  return !!(
+    node.children?.length ||
+    node.situation_refs?.length ||
+    node.conflict_ids?.length ||
+    node.debate_refs?.length ||
+    node.interpretations ||
+    edges?.length
+  );
+}
+
+function computeHasAttributes(ga: TaxRefNode['graph_attributes']): boolean {
+  return !!(
+    ga?.epistemic_type || ga?.rhetorical_strategy || ga?.falsifiability ||
+    ga?.audience || ga?.emotional_register || ga?.node_scope ||
+    ga?.assumes?.length || ga?.policy_actions?.length || ga?.possible_fallacies?.length
+  );
+}
+
+function computeHasGraphKV(ga: TaxRefNode['graph_attributes']): boolean {
+  return !!(
+    ga?.epistemic_type || ga?.rhetorical_strategy || ga?.falsifiability ||
+    ga?.audience || ga?.emotional_register || ga?.node_scope
+  );
+}
+
+function povColorForId(id: string): string {
+  if (id.startsWith('acc-')) return '#f97316';
+  if (id.startsWith('saf-')) return '#3b82f6';
+  if (id.startsWith('skp-')) return '#a855f7';
+  return 'var(--text-primary)';
+}
+
+/* ── Tab bar sub-components ───────────────────────────── */
+
+function SituationPovButtons({ tab, setTab, hasAccInterp, hasSafInterp, hasSkpInterp }: {
+  tab: TabId;
+  setTab: (t: TabId) => void;
+  hasAccInterp: boolean;
+  hasSafInterp: boolean;
+  hasSkpInterp: boolean;
+}) {
+  return (
+    <>
+      {hasAccInterp && (
+        <button
+          className={`node-detail-tab taxref-tab-acc ${tab === 'pov-acc' ? 'node-detail-tab-active' : ''}`}
+          onClick={() => setTab('pov-acc')}
+        >Accelerationist</button>
+      )}
+      {hasSafInterp && (
+        <button
+          className={`node-detail-tab taxref-tab-saf ${tab === 'pov-saf' ? 'node-detail-tab-active' : ''}`}
+          onClick={() => setTab('pov-saf')}
+        >Safetyist</button>
+      )}
+      {hasSkpInterp && (
+        <button
+          className={`node-detail-tab taxref-tab-skp ${tab === 'pov-skp' ? 'node-detail-tab-active' : ''}`}
+          onClick={() => setTab('pov-skp')}
+        >Skeptic</button>
+      )}
+    </>
+  );
+}
+
+function NodeTabBar({ tab, setTab, hasRelated, hasAttributes, isSituation, hasAccInterp, hasSafInterp, hasSkpInterp }: {
+  tab: TabId;
+  setTab: (t: TabId) => void;
+  hasRelated: boolean;
+  hasAttributes: boolean;
+  isSituation: boolean;
+  hasAccInterp: boolean;
+  hasSafInterp: boolean;
+  hasSkpInterp: boolean;
+}) {
+  return (
+    <div className="node-detail-tabs">
+      <button
+        className={`node-detail-tab ${tab === 'content' ? 'node-detail-tab-active' : ''}`}
+        onClick={() => setTab('content')}
+      >Content</button>
+      <button
+        className={`node-detail-tab ${tab === 'related' ? 'node-detail-tab-active' : ''}${hasRelated ? '' : ' taxref-tab-disabled'}`}
+        onClick={() => setTab('related')}
+        disabled={!hasRelated}
+      >Related</button>
+      <button
+        className={`node-detail-tab ${tab === 'attributes' ? 'node-detail-tab-active' : ''}${hasAttributes ? '' : ' taxref-tab-disabled'}`}
+        onClick={() => setTab('attributes')}
+        disabled={!hasAttributes}
+      >Attributes</button>
+      {isSituation && (
+        <SituationPovButtons
+          tab={tab}
+          setTab={setTab}
+          hasAccInterp={hasAccInterp}
+          hasSafInterp={hasSafInterp}
+          hasSkpInterp={hasSkpInterp}
+        />
+      )}
+    </div>
+  );
+}
+
+function NodeTabContent({ tab, node, nodeId, edges, interps }: {
+  tab: TabId;
+  node: TaxRefNode;
+  nodeId: string;
+  edges?: TaxRefEdge[];
+  interps?: TaxRefNode['interpretations'];
+}) {
+  return (
+    <div className="taxref-tab-content">
+      {tab === 'content' && <ContentTab node={node} isSituation={nodeId.startsWith('sit-')} />}
+      {tab === 'related' && <RelatedTab node={node} nodeId={nodeId} edges={edges} />}
+      {tab === 'attributes' && <AttributesTab node={node} />}
+      {tab === 'pov-acc' && <PovInterpretationTab interp={interps?.accelerationist} povLabel="Accelerationist" povColor="var(--color-acc, #f59e0b)" />}
+      {tab === 'pov-saf' && <PovInterpretationTab interp={interps?.safetyist} povLabel="Safetyist" povColor="var(--color-saf, #3b82f6)" />}
+      {tab === 'pov-skp' && <PovInterpretationTab interp={interps?.skeptic} povLabel="Skeptic" povColor="var(--color-skp, #a855f7)" />}
+    </div>
+  );
+}
+
+/* ── Main component ───────────────────────────────────── */
+
 export function TaxonomyRefDetail({ nodeId, node, pov, onClose, edges, policy, policyReferencingNodes }: Props) {
   const [tab, setTab] = useState<TabId>('content');
   const ga = node?.graph_attributes;
 
   const catUpper = node?.category?.toUpperCase();
-
-  const hasRelated = !!(
-    (node?.children && node.children.length > 0) ||
-    (node?.situation_refs && node.situation_refs.length > 0) ||
-    (node?.conflict_ids && node.conflict_ids.length > 0) ||
-    (node?.debate_refs && node.debate_refs.length > 0) ||
-    node?.interpretations ||
-    (edges && edges.length > 0)
-  );
-
-  const hasAttributes = !!(
-    ga?.epistemic_type || ga?.rhetorical_strategy || ga?.falsifiability ||
-    ga?.audience || ga?.emotional_register || ga?.node_scope ||
-    (ga?.assumes && ga.assumes.length > 0) ||
-    (ga?.policy_actions && ga.policy_actions.length > 0) ||
-    (ga?.possible_fallacies && ga.possible_fallacies.length > 0)
-  );
+  const hasRelated = node ? computeHasRelated(node, edges) : false;
+  const hasAttributes = computeHasAttributes(ga);
 
   const isSituation = nodeId.startsWith('sit-');
   const interps = node?.interpretations;
@@ -146,50 +259,23 @@ export function TaxonomyRefDetail({ nodeId, node, pov, onClose, edges, policy, p
         </div>
       ) : (
         <>
-          {/* Tabs */}
-          <div className="node-detail-tabs">
-            <button
-              className={`node-detail-tab ${tab === 'content' ? 'node-detail-tab-active' : ''}`}
-              onClick={() => setTab('content')}
-            >Content</button>
-            <button
-              className={`node-detail-tab ${tab === 'related' ? 'node-detail-tab-active' : ''}${hasRelated ? '' : ' taxref-tab-disabled'}`}
-              onClick={() => setTab('related')}
-              disabled={!hasRelated}
-            >Related</button>
-            <button
-              className={`node-detail-tab ${tab === 'attributes' ? 'node-detail-tab-active' : ''}${hasAttributes ? '' : ' taxref-tab-disabled'}`}
-              onClick={() => setTab('attributes')}
-              disabled={!hasAttributes}
-            >Attributes</button>
-            {isSituation && hasAccInterp && (
-              <button
-                className={`node-detail-tab taxref-tab-acc ${tab === 'pov-acc' ? 'node-detail-tab-active' : ''}`}
-                onClick={() => setTab('pov-acc')}
-              >Accelerationist</button>
-            )}
-            {isSituation && hasSafInterp && (
-              <button
-                className={`node-detail-tab taxref-tab-saf ${tab === 'pov-saf' ? 'node-detail-tab-active' : ''}`}
-                onClick={() => setTab('pov-saf')}
-              >Safetyist</button>
-            )}
-            {isSituation && hasSkpInterp && (
-              <button
-                className={`node-detail-tab taxref-tab-skp ${tab === 'pov-skp' ? 'node-detail-tab-active' : ''}`}
-                onClick={() => setTab('pov-skp')}
-              >Skeptic</button>
-            )}
-          </div>
-
-          <div className="taxref-tab-content">
-            {tab === 'content' && <ContentTab node={node} isSituation={isSituation} />}
-            {tab === 'related' && <RelatedTab node={node} nodeId={nodeId} edges={edges} />}
-            {tab === 'attributes' && <AttributesTab node={node} />}
-            {tab === 'pov-acc' && <PovInterpretationTab interp={interps?.accelerationist} povLabel="Accelerationist" povColor="var(--color-acc, #f59e0b)" />}
-            {tab === 'pov-saf' && <PovInterpretationTab interp={interps?.safetyist} povLabel="Safetyist" povColor="var(--color-saf, #3b82f6)" />}
-            {tab === 'pov-skp' && <PovInterpretationTab interp={interps?.skeptic} povLabel="Skeptic" povColor="var(--color-skp, #a855f7)" />}
-          </div>
+          <NodeTabBar
+            tab={tab}
+            setTab={setTab}
+            hasRelated={hasRelated}
+            hasAttributes={hasAttributes}
+            isSituation={isSituation}
+            hasAccInterp={hasAccInterp}
+            hasSafInterp={hasSafInterp}
+            hasSkpInterp={hasSkpInterp}
+          />
+          <NodeTabContent
+            tab={tab}
+            node={node}
+            nodeId={nodeId}
+            edges={edges}
+            interps={interps}
+          />
         </>
       )}
     </div>
@@ -240,108 +326,135 @@ function PolicyView({ policy, referencingNodes }: { policy: TaxRefPolicy; refere
   );
 }
 
+/* ── ContentTab section sub-components ───────────────── */
+
+function DescriptionSection({ descText }: { descText: string }) {
+  return (
+    <div>
+      <div className="taxref-section-header taxref-section-header-mt0">Description</div>
+      <div className="taxref-desc-box">{descText}</div>
+    </div>
+  );
+}
+
+function DivergenceSection({ div }: { div: number }) {
+  const divColor = div > 0.40 ? '#22c55e' : div >= 0.20 ? '#f59e0b' : '#ef4444';
+  const divLabel = div > 0.40 ? 'high' : div >= 0.20 ? 'moderate' : 'low';
+  const note = div > 0.40
+    ? ' High divergence indicates strong disagreement between perspectives.'
+    : div >= 0.20
+    ? ' Moderate divergence — perspectives partially overlap.'
+    : ' Low divergence suggests near-consensus across perspectives.';
+  return (
+    <div>
+      <div className="taxref-section-header">Interpretation Divergence</div>
+      <div className="taxref-info-box">
+        <div className="taxref-divergence-row">
+          {/* eslint-disable-next-line local/no-inline-style -- dynamic: color computed from divergence value */}
+          <span className="taxref-divergence-value" style={{ color: divColor }}>{div.toFixed(2)}</span>
+          {/* eslint-disable-next-line local/no-inline-style -- dynamic: color + background computed from divergence value */}
+          <span className="taxref-divergence-badge" style={{ color: divColor, background: `${divColor}18` }}>{divLabel}</span>
+          <div className="taxref-divergence-track">
+            {/* eslint-disable-next-line local/no-inline-style -- dynamic: width + background computed from divergence value */}
+            <div className="taxref-divergence-fill" style={{ width: `${Math.round(div * 100)}%`, background: divColor }} />
+          </div>
+        </div>
+        <div className="taxref-divergence-note">
+          Mean pairwise cosine distance across the three POV interpretation embeddings.{note}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HierarchySection({ node }: { node: TaxRefNode }) {
+  return (
+    <>
+      <div className="taxref-section-header">Hierarchy</div>
+      <div>
+        {node.parent_id && (
+          <span className="taxref-chip" title={node.parent_relationship || ''}>
+            ▲ {node.parent_id}
+          </span>
+        )}
+        {node.children && node.children.map(c => (
+          <span key={c} className="taxref-chip">▼ {c}</span>
+        ))}
+      </div>
+      {node.parent_rationale && (
+        <div className="taxref-hierarchy-note">
+          {node.parent_rationale}
+        </div>
+      )}
+    </>
+  );
+}
+
+function SteelmanSection({ steelman }: { steelman: NonNullable<NonNullable<TaxRefNode['graph_attributes']>['steelman_vulnerability']> }) {
+  return (
+    <>
+      <div className="taxref-section-header">Steelman Vulnerability</div>
+      {typeof steelman === 'string' ? (
+        <div className="taxref-steelman-quote">{steelman}</div>
+      ) : (
+        <div className="taxref-steelman-block">
+          {steelman.from_accelerationist && (
+            <div className="taxref-steelman-item">
+              <strong className="taxref-steelman-label">From Accelerationist:</strong>{' '}
+              <span className="taxref-italic">{steelman.from_accelerationist}</span>
+            </div>
+          )}
+          {steelman.from_safetyist && (
+            <div className="taxref-steelman-item">
+              <strong className="taxref-steelman-label">From Safetyist:</strong>{' '}
+              <span className="taxref-italic">{steelman.from_safetyist}</span>
+            </div>
+          )}
+          {steelman.from_skeptic && (
+            <div>
+              <strong className="taxref-steelman-label">From Skeptic:</strong>{' '}
+              <span className="taxref-italic">{steelman.from_skeptic}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function LineageSection({ lineage }: { lineage: unknown[] }) {
+  const labels = [...lineage]
+    .map(v => typeof v === 'string' ? v : (v as { name?: string })?.name)
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+  return (
+    <>
+      <div className="taxref-section-header">Intellectual Lineage</div>
+      <div>
+        {labels.map((l, i) => (
+          <span key={i} className="taxref-chip taxref-chip-strong">{l}</span>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* ── Tab Content ──────────────────────────────────────── */
 
 function ContentTab({ node, isSituation }: { node: TaxRefNode; isSituation?: boolean }) {
   const [descMode] = useDescriptionMode();
-  const ga = node.graph_attributes;
   const descText = resolveDescription(node, descMode).text;
   const div = isSituation ? node.interpretation_divergence : undefined;
-  const divColor = div != null ? (div > 0.40 ? '#22c55e' : div >= 0.20 ? '#f59e0b' : '#ef4444') : undefined;
-  const divLabel = div != null ? (div > 0.40 ? 'high' : div >= 0.20 ? 'moderate' : 'low') : undefined;
   return (
     <>
-      {descText && (
-        <div>
-          <div className="taxref-section-header taxref-section-header-mt0">Description</div>
-          <div className="taxref-desc-box">{descText}</div>
-        </div>
+      {descText && <DescriptionSection descText={descText} />}
+      {div != null && <DivergenceSection div={div} />}
+      {(node.parent_id || node.children?.length) && <HierarchySection node={node} />}
+      {node.graph_attributes?.steelman_vulnerability && (
+        <SteelmanSection steelman={node.graph_attributes.steelman_vulnerability} />
       )}
-
-      {div != null && (
-        <div>
-          <div className="taxref-section-header">Interpretation Divergence</div>
-          <div className="taxref-info-box">
-            <div className="taxref-divergence-row">
-              {/* eslint-disable-next-line local/no-inline-style -- dynamic: color computed from divergence value */}
-              <span className="taxref-divergence-value" style={{ color: divColor }}>{div.toFixed(2)}</span>
-              {/* eslint-disable-next-line local/no-inline-style -- dynamic: color + background computed from divergence value */}
-              <span className="taxref-divergence-badge" style={{ color: divColor, background: `${divColor}18` }}>{divLabel}</span>
-              <div className="taxref-divergence-track">
-                {/* eslint-disable-next-line local/no-inline-style -- dynamic: width + background computed from divergence value */}
-                <div className="taxref-divergence-fill" style={{ width: `${Math.round(div * 100)}%`, background: divColor }} />
-              </div>
-            </div>
-            <div className="taxref-divergence-note">
-              Mean pairwise cosine distance across the three POV interpretation embeddings.
-              {div > 0.40 ? ' High divergence indicates strong disagreement between perspectives.'
-                : div >= 0.20 ? ' Moderate divergence — perspectives partially overlap.'
-                : ' Low divergence suggests near-consensus across perspectives.'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(node.parent_id || (node.children && node.children.length > 0)) && (
-        <>
-          <div className="taxref-section-header">Hierarchy</div>
-          <div>
-            {node.parent_id && (
-              <span className="taxref-chip" title={node.parent_relationship || ''}>
-                ▲ {node.parent_id}
-              </span>
-            )}
-            {node.children && node.children.map(c => (
-              <span key={c} className="taxref-chip">▼ {c}</span>
-            ))}
-          </div>
-          {node.parent_rationale && (
-            <div className="taxref-hierarchy-note">
-              {node.parent_rationale}
-            </div>
-          )}
-        </>
-      )}
-
-      {ga?.steelman_vulnerability && (
-        <>
-          <div className="taxref-section-header">Steelman Vulnerability</div>
-          {typeof ga.steelman_vulnerability === 'string' ? (
-            <div className="taxref-steelman-quote">{ga.steelman_vulnerability}</div>
-          ) : (
-            <div className="taxref-steelman-block">
-              {ga.steelman_vulnerability.from_accelerationist && (
-                <div className="taxref-steelman-item">
-                  <strong className="taxref-steelman-label">From Accelerationist:</strong>{' '}
-                  <span className="taxref-italic">{ga.steelman_vulnerability.from_accelerationist}</span>
-                </div>
-              )}
-              {ga.steelman_vulnerability.from_safetyist && (
-                <div className="taxref-steelman-item">
-                  <strong className="taxref-steelman-label">From Safetyist:</strong>{' '}
-                  <span className="taxref-italic">{ga.steelman_vulnerability.from_safetyist}</span>
-                </div>
-              )}
-              {ga.steelman_vulnerability.from_skeptic && (
-                <div>
-                  <strong className="taxref-steelman-label">From Skeptic:</strong>{' '}
-                  <span className="taxref-italic">{ga.steelman_vulnerability.from_skeptic}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {ga?.intellectual_lineage && ga.intellectual_lineage.length > 0 && (
-        <>
-          <div className="taxref-section-header">Intellectual Lineage</div>
-          <div>
-            {[...ga.intellectual_lineage].map(v => typeof v === 'string' ? v : (v as { name?: string })?.name).filter((v): v is string => typeof v === 'string' && v.length > 0).sort((a, b) => a.localeCompare(b)).map((l, i) => (
-              <span key={i} className="taxref-chip taxref-chip-strong">{l}</span>
-            ))}
-          </div>
-        </>
+      {node.graph_attributes?.intellectual_lineage?.length && (
+        <LineageSection lineage={node.graph_attributes.intellectual_lineage} />
       )}
     </>
   );
@@ -405,6 +518,19 @@ function otherPovKey(edge: TaxRefEdge, nodeId: string): PovMetaKey | undefined {
   return povKeyFromNodeId(otherNodeId(edge, nodeId));
 }
 
+function sortEdgeGroups(groups: Map<string, TaxRefEdge[]>): Map<string, TaxRefEdge[]> {
+  for (const arr of groups.values()) arr.sort((a, b) => b.confidence - a.confidence);
+  const sorted = new Map<string, TaxRefEdge[]>();
+  for (const t of EDGE_TYPE_PRIORITY) {
+    const a = groups.get(t);
+    if (a) sorted.set(t, a);
+  }
+  for (const [t, a] of groups) {
+    if (!sorted.has(t)) sorted.set(t, a);
+  }
+  return sorted;
+}
+
 function TaxRefEdgeGroup({
   edgeType, edges, nodeId, selectedKey, onSelect, nodeLabels,
 }: {
@@ -418,14 +544,14 @@ function TaxRefEdgeGroup({
   return (
     <div className="related-edge-group">
       <div className="related-edge-group-header" onClick={() => setCollapsed(!collapsed)}>
-        <span className="related-edge-group-toggle">{collapsed ? '\u25B6' : '\u25BC'}</span>
+        <span className="related-edge-group-toggle">{collapsed ? '▶' : '▼'}</span>
         <span className="related-edge-type-name">{edgeType.replace(/_/g, ' ')}</span>
         <span className="related-edge-type-count">{edges.length}</span>
       </div>
       {!collapsed && edges.map((e, i) => {
         const other = otherNodeId(e, nodeId);
         const otherLabel = nodeLabels.get(other);
-        const direction = e.bidirectional ? '\u2194' : e.source === nodeId ? '\u2192' : '\u2190';
+        const direction = e.bidirectional ? '↔' : e.source === nodeId ? '→' : '←';
         const key = `${e.source}|${e.target}|${e.type}`;
         const isSelected = selectedKey === key;
         return (
@@ -452,13 +578,23 @@ function TaxRefEdgeGroup({
   );
 }
 
+function EdgeStatusBadge({ status }: { status: string }) {
+  if (status === 'approved') return <span className="taxref-edge-status-approved">✓ Approved</span>;
+  if (!status || status === 'approved') return null;
+  return (
+    <span className={status === 'rejected' ? 'taxref-edge-status-rejected' : 'taxref-edge-status-pending'}>
+      {status === 'rejected' ? '✗' : '●'} {status}
+    </span>
+  );
+}
+
 function EdgeDetailPanel({ edge, typeColor, srcLabel, tgtLabel, pct, onClose }: {
   edge: TaxRefEdge; typeColor: string; srcLabel: string; tgtLabel: string; pct: number; onClose: () => void;
 }) {
   const [rationaleExpanded, setRationaleExpanded] = useState(false);
   const RATIONALE_LIMIT = 200;
-  const srcPovColor = edge.source.startsWith('acc-') ? '#f97316' : edge.source.startsWith('saf-') ? '#3b82f6' : edge.source.startsWith('skp-') ? '#a855f7' : 'var(--text-primary)';
-  const tgtPovColor = edge.target.startsWith('acc-') ? '#f97316' : edge.target.startsWith('saf-') ? '#3b82f6' : edge.target.startsWith('skp-') ? '#a855f7' : 'var(--text-primary)';
+  const srcPovColor = povColorForId(edge.source);
+  const tgtPovColor = povColorForId(edge.target);
 
   return (
     <div className="taxref-edge-panel">
@@ -516,14 +652,42 @@ function EdgeDetailPanel({ edge, typeColor, srcLabel, tgtLabel, pct, onClose }: 
       <div className="taxref-edge-meta">
         <span>Confidence: <strong className="taxref-strong-primary">{pct}%</strong></span>
         {edge.strength && <span>Strength: <strong className="taxref-strong-primary">{edge.strength}</strong></span>}
-        {edge.status && edge.status !== 'approved' && (
-          <span className={edge.status === 'rejected' ? 'taxref-edge-status-rejected' : 'taxref-edge-status-pending'}>
-            {edge.status === 'rejected' ? '✗' : '●'} {edge.status}
-          </span>
-        )}
-        {edge.status === 'approved' && <span className="taxref-edge-status-approved">✓ Approved</span>}
+        <EdgeStatusBadge status={edge.status} />
       </div>
     </div>
+  );
+}
+
+/* ── Node relation chips (children / refs / conflicts) ── */
+
+function NodeRelationChips({ node, hasEdges }: { node: TaxRefNode; hasEdges: boolean }) {
+  return (
+    <>
+      {node.children && node.children.length > 0 && (
+        <>
+          <div className={`taxref-section-header${hasEdges ? '' : ' taxref-section-header-mt0'}`}>Children ({node.children.length})</div>
+          <div>{node.children.map(c => <span key={c} className="taxref-chip">{c}</span>)}</div>
+        </>
+      )}
+      {node.situation_refs && node.situation_refs.length > 0 && (
+        <>
+          <div className="taxref-section-header">Situation Refs ({node.situation_refs.length})</div>
+          <div>{node.situation_refs.map(s => <span key={s} className="taxref-chip">{s}</span>)}</div>
+        </>
+      )}
+      {node.conflict_ids && node.conflict_ids.length > 0 && (
+        <>
+          <div className="taxref-section-header">Conflicts ({node.conflict_ids.length})</div>
+          <div>{node.conflict_ids.map(c => <span key={c} className="taxref-chip">{c}</span>)}</div>
+        </>
+      )}
+      {node.debate_refs && node.debate_refs.length > 0 && (
+        <>
+          <div className="taxref-section-header">Debate Refs ({node.debate_refs.length})</div>
+          <div>{node.debate_refs.map(d => <span key={d} className="taxref-chip">{d}</span>)}</div>
+        </>
+      )}
+    </>
   );
 }
 
@@ -584,13 +748,7 @@ function RelatedTab({ node, nodeId, edges }: { node: TaxRefNode; nodeId: string;
       if (arr) arr.push(e); else groups.set(e.type, [e]);
       total++;
     }
-    // Sort within groups by confidence desc
-    for (const arr of groups.values()) arr.sort((a, b) => b.confidence - a.confidence);
-    // Sort groups by priority
-    const sorted = new Map<string, TaxRefEdge[]>();
-    for (const t of EDGE_TYPE_PRIORITY) { const a = groups.get(t); if (a) sorted.set(t, a); }
-    for (const [t, a] of groups) { if (!sorted.has(t)) sorted.set(t, a); }
-    return { groupedEdges: sorted, totalEdges: total };
+    return { groupedEdges: sortEdgeGroups(groups), totalEdges: total };
   }, [edges, nodeId, statusFilter, confidenceThreshold, hiddenPovs]);
 
   const displayPovs = (Object.keys(POV_META) as PovMetaKey[]).filter(k => povCounts[k] > 0);
@@ -656,53 +814,20 @@ function RelatedTab({ node, nodeId, edges }: { node: TaxRefNode; nodeId: string;
           )}
 
           {/* Edge Detail Panel */}
-          {selectedEdge && (() => {
-            const typeColor = EDGE_TYPE_COLORS[selectedEdge.type] || 'var(--text-secondary)';
-            const srcLabel = nodeLabels.get(selectedEdge.source) ?? selectedEdge.source;
-            const tgtLabel = nodeLabels.get(selectedEdge.target) ?? selectedEdge.target;
-            const pct = Math.round(selectedEdge.confidence * 100);
-            const RATIONALE_LIMIT = 200;
-            return (
-              <EdgeDetailPanel
-                edge={selectedEdge}
-                typeColor={typeColor}
-                srcLabel={srcLabel}
-                tgtLabel={tgtLabel}
-                pct={pct}
-                onClose={() => setSelectedEdgeKey(null)}
-              />
-            );
-          })()}
+          {selectedEdge && (
+            <EdgeDetailPanel
+              edge={selectedEdge}
+              typeColor={EDGE_TYPE_COLORS[selectedEdge.type] || 'var(--text-secondary)'}
+              srcLabel={nodeLabels.get(selectedEdge.source) ?? selectedEdge.source}
+              tgtLabel={nodeLabels.get(selectedEdge.target) ?? selectedEdge.target}
+              pct={Math.round(selectedEdge.confidence * 100)}
+              onClose={() => setSelectedEdgeKey(null)}
+            />
+          )}
         </>
       )}
 
-      {node.children && node.children.length > 0 && (
-        <>
-          <div className={`taxref-section-header${edges && edges.length > 0 ? '' : ' taxref-section-header-mt0'}`}>Children ({node.children.length})</div>
-          <div>{node.children.map(c => <span key={c} className="taxref-chip">{c}</span>)}</div>
-        </>
-      )}
-
-      {node.situation_refs && node.situation_refs.length > 0 && (
-        <>
-          <div className="taxref-section-header">Situation Refs ({node.situation_refs.length})</div>
-          <div>{node.situation_refs.map(s => <span key={s} className="taxref-chip">{s}</span>)}</div>
-        </>
-      )}
-
-      {node.conflict_ids && node.conflict_ids.length > 0 && (
-        <>
-          <div className="taxref-section-header">Conflicts ({node.conflict_ids.length})</div>
-          <div>{node.conflict_ids.map(c => <span key={c} className="taxref-chip">{c}</span>)}</div>
-        </>
-      )}
-
-      {node.debate_refs && node.debate_refs.length > 0 && (
-        <>
-          <div className="taxref-section-header">Debate Refs ({node.debate_refs.length})</div>
-          <div>{node.debate_refs.map(d => <span key={d} className="taxref-chip">{d}</span>)}</div>
-        </>
-      )}
+      <NodeRelationChips node={node} hasEdges={!!(edges && edges.length > 0)} />
 
       {node.interpretations && (
         <>
@@ -748,8 +873,7 @@ function AttributesTab({ node }: { node: TaxRefNode }) {
 
   return (
     <>
-      {(ga.epistemic_type || ga.rhetorical_strategy || ga.falsifiability ||
-        ga.audience || ga.emotional_register || ga.node_scope) && (
+      {computeHasGraphKV(ga) && (
         <>
           <div className="taxref-section-header taxref-section-header-mt0">Graph Attributes</div>
           {kv('Epistemic', ga.epistemic_type)}

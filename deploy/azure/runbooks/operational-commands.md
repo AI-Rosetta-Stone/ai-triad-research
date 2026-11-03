@@ -2,12 +2,22 @@
 
 **Owner:** DevOps. Quick-reference for common one-off operational commands against the
 production Container App. For the full deploy procedure see
-[`production-release.md`](production-release.md); for remote health verification see the
-Remote Diagnostics Cmdlets section in `operations/devops/AGENTS.md`.
+[`production-release.md`](production-release.md).
 
 **Live deployment identifiers** (source of truth: `operations/devops/AGENTS.md` "Live Deployment"):
 Resource Group `ai-triad`, Container App `taxonomy-editor`, image
 `ghcr.io/ai-rosetta-stone/taxonomy-editor:latest`, region East US.
+
+## Remote Diagnostics Cmdlets (t/4762)
+
+PowerShell cmdlets for verifying production health. Run `Import-Module ./scripts/AITriad/AITriad.psm1` first.
+
+- **After any deploy**: `Invoke-TaxEditorSmokeTest` — full end-to-end validation (runs health, endpoints, Azure, GitHub checks). Use `-Detailed` for per-category output.
+- **Investigating deployment failures**: `Test-TaxEditorHealth` (liveness/readiness), then `Test-TaxEditorEndpoints` (16 API endpoints across 6 categories)
+- **CI/CD issues**: `Test-GitHubHealth` — checks GitHub status, repo access, rate limits, CI workflow statuses, GHCR registry
+- **Infrastructure issues**: `Test-AzureHealth` — checks Azure status page, ACA health, TLS cert expiry
+
+All accept `-BaseUrl` to target staging or other instances.
 
 ## Container App
 

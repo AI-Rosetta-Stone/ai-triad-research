@@ -54,6 +54,9 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-23 — PowerShell (p/20#112): 6th recurrence — backtick-escaped PS variable (`` `$null ``) inside `pwsh -Command "…"` double quotes. Bash treated the backtick as command substitution → "unexpected EOF." Moved to a `.ps1` file written with a quoted heredoc, ran `pwsh -File`.
 - 2026-10-23 — PowerShell (p/20#114): 7th recurrence — markdown backticks inside `gh pr comment --body "…"` double quotes. Entire Bash line failed to parse before `gh` ran. Wrote comment to file, used `--body-file`. Confirmed no-op step was needed after fixing the command.
 - 2026-10-24 — PowerShell (p/20#126): 8th recurrence — inline `pwsh -NoProfile -Command '...'` from Bash with mixed `\'` single-quote escaping and embedded double-quoted JSON string literal → `syntax error near unexpected token ')'`. Shell's own quote parser broke before PowerShell ran. Resolved by writing to a scratchpad `.ps1` file and running `pwsh -File`.
+- 2026-10-28 — Computational Linguist (p/7#160): `git commit -m "..."` with embedded double-quotes (`"deberta can't discriminate poles"`) inside the outer double-quoted message closed the string early, breaking Bash parsing. Violated the Shell Quoting Rule by inline-authoring a long, quote-containing commit message instead of writing it to a file first. Fixed with `git commit -F <scratch-file>`.
+- 2026-10-28 — Refactorer (p/840#1): `gh pr create --body "$(cat <<'EOF'…)"` triggered a backtick command-substitution warning inside the heredoc. Switched to `--body-file` with a temp file, same ADR-004 class as the p/20#59/#114 `--body-file` instances.
+- 2026-11-02 — Rosetta Stone 3 (p/355#7): a Bash heredoc embedding a Python script with TSX source failed "unexpected EOF while looking for matching `'`." Correctly self-identified as an existing-rule recurrence, not a new lesson. Fixed by rewriting the file with the Write tool instead of the heredoc.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -372,10 +375,12 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-07-26 — Computational Linguist (**8th instance, same-session recurrence**, p/7#38): scratch script threw `AttributeError: 'str' has no .get` walking `situations.json` interpretations — **1,236 nodes have `interpretations.{pov}` as a dict, 23 have it as a plain string**. Cause: assumed uniform shape instead of type-checking at the read site. `isinstance`-guarding fixed it AND *was* the diagnosis — the string form is pre-BDI-decomposition (t/1805). Recurred within hours of #7 → CL argues recording isn't preventing recurrence (hookable check > doc entry); reversed Sage's earlier not-in-#82 call (see #82 tracker).
 - 2026-07-28 — Computational Linguist (**+4, p/7#47/#49**, now 12): **3 probe errors** (t/1826 — extraction-log `nodes`=list not dict, `aliases` nullable, `policy_actions` keys under `policies`/name=`action`) = #82 offender #5 (inspect-before-coding not applied). **+1 PRODUCTION defect (t/1830):** the extraction cmdlet **char-explodes bare-string `aliases`** (13/37 records — model emits string where schema says array, iterated unguarded). **It shipped in POWERSHELL (`Invoke-EntityExtraction`), NOT TS** (CL correction p/7#49) — so `tsc`/a TS union can't catch it; the PS-side prevention is **coerce-at-read (`if ($x -is [string]) { @($x) }`) at each AI-JSON boundary as ONE shared helper (Shared Utility Rule) + a bare-string Pester fixture**. Offender #5's real defense splits by surface: TS→union types, PS→shared coerce helper.
 - 2026-10-01 — Shared Lib (p/5#33, **new variant: directory path assumption**): `FileNotFoundError` reading `taxonomy/accelerationist.json` — the file does not exist at a flat path; the actual location is `taxonomy/Origin/accelerationist.json`. Root cause: assumed all per-POV taxonomy JSON files sit in the root of `taxonomy/` without verifying the directory structure. Fix: checked actual path with PowerShell first, discovered the `Origin/` subdirectory. Same root cause as JSON schema variant (assume flat, don't inspect first) applied to filesystem layout rather than JSON content.
+- 2026-10-28 — Tech Lead (p/335#212): `git show origin/main:sources/<doc>/metadata.json` in `ai-triad-sources` exited 128 — assumed a `sources/` prefix; that repo keeps doc dirs at its root. Fixed by using the path at the repo root. Same directory-layout-assumption variant as p/5#33, different repo.
 - 2026-10-06 — Computational Linguist (p/7#96, t/3271, **zero-result heuristic instance**): counted `claim_relations` at the summary's top level — got 0, but there are 43. They're nested inside each claim, not at the top level. Caught by reading the prompt schema before reporting. **New heuristic: a "0 found" result should trigger a schema check before reporting.** Zero is a valid count, but it is also the exact symptom of a nesting/path mismatch — they are indistinguishable without a schema check.
 - 2026-10-07 — Computational Linguist (p/7#102, **zero-result heuristic inst2 — embeddings field name**): embeddings comparison script crashed IndexError after reporting 0 vectors. Field assumed as `embedding`; actual field in `embeddings.json` is `vector`. The 0-vector count was the tell before the crash. Fixed by inspecting one entry and rerunning. Confirms zero result = schema-mismatch signal; crash is downstream of the 0 that preceded it.
 - 2026-10-06 — Computational Linguist (p/7#94, **new variant: own-artifact shape assumption**): a read-only inspection one-liner raised `KeyError 'node_id'` on t/3939's `frozen-ops.json`. t/3939's file keys ops by `id`; agent assumed `node_id` from their own t/3952 frozen list, which uses a different shape. Nothing was written. Fix: re-read the file shape before querying. The rule applies to **your own artifacts** as much as shared data — different tickets produce different schemas even when the content is related.
 - 2026-10-07 — Computational Linguist (p/7#110, t/4072): inline Python summary of `ai-models.json` crashed `AttributeError: 'str' has no .get` — assumed `debateTiers[tier]` values were dicts; they're strings. Facts already printed; no rerun needed. Same family as the `embedding`/`vector` slip.
+- 2026-10-28 — Second Opinion (p/691#22, reviewing t/4495): ad-hoc Python reader raised `AttributeError: 'list' object has no attribute 'items'` — assumed a frozen list's per-target `changes` was a dict; it's actually a `fields` list. Guessed the schema instead of inspecting it. Fixed by printing the keys first, then iterating `targets[].fields[]`. Self-identified as an instance of this exact rule, not a new lesson.
 
 **Root Cause:** Code written based on assumed structure without inspecting first. Covers both JSON field layout (nested vs flat within a document) and filesystem directory layout (subdirectory vs flat). Applies across all project data: taxonomy JSON, debate sessions, and tool/API returns. Field types and file paths both vary — never assume flat without checking.
 
@@ -405,6 +410,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-08-11 — ServerAPI (p/79#27): **3rd `jq` instance** — `gh pr view ... | jq` exited 127 ("jq: command not found") in the Bash tool. Fix: use `gh`'s built-in `--json <fields> --jq '<expr>'` flags — `gh` ships its own jq evaluator, no separate install needed.
 - 2026-08-11 — ServerAPI (p/79#29): **4th `jq` instance** — `gh pr checks | jq` exited 127 in the Bash tool; the same missing `jq` also silently broke a **Monitor CI-watch loop** (per-iteration jq failed with no output → loop emitted nothing → timed out at 15 min). **New amplifier: a missing tool inside a Monitor poll loop causes a silent 15-min timeout, not an immediate error.** Fix: use `gh pr checks --json ... --jq '...'` built-in.
 - 2026-08-15 — Shared Lib (p/5#27): **5th `jq` instance** — `gh pr checks N | jq` → exit 127 "jq: command not found" in the Bash tool. Risk: misread as a CI failure rather than a tooling gap. Fix: `gh pr checks N --json bucket --jq '...'` — `gh`'s built-in jq evaluator, no separate install needed.
+- 2026-10-27 — Server Storage (p/539#33): **6th `jq` instance, 2nd confirmation of the Monitor silent-failure amplifier** — a Monitor loop parsing `gh pr checks --json` through `jq` did nothing for 30 minutes (clean expiry, no events) because `jq` isn't on PATH on this Windows box; every iteration's `jq` call errored before the loop's own exit-check logic ran, and Monitor only surfaces stdout, so the error was invisible. Fix: checked `gh pr checks --json` directly without `jq`.
+- 2026-10-27 — PowerShell (p/20#128): **7th `jq` instance** — `gh pr checks --json ... | jq` exited 127 in the Bash tool; same session had earlier had `jq` available in a background Monitor-style poll loop, showing availability can differ even within one session depending on how the tool was invoked. Fix: `gh ... --jq '<filter>'` (gh's built-in jq).
 
 **Root Cause:** Dev environment may lack CLI tools (Azure CLI not installed, `jq` not on PATH) or required background services (Docker Desktop daemon not running). CI runners often have tools the dev shell doesn't, so a script that passes in CI fails locally. Both fail silently or with unhelpful exit codes.
 
@@ -442,20 +449,22 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 ---
 
-## [Build] Unix Paths in Node.js Fail on Windows
+## [Build] Unix Paths in Node.js (and Other Windows-Native Binaries) Fail on Windows
 
-**Pattern:** Node.js commands using Unix-specific paths like `/dev/stdin` fail on Windows because Node resolves them as Windows paths (e.g., `C:\dev\stdin` → ENOENT).
+**Pattern:** Commands using Unix-specific paths like `/dev/stdin` fail on Windows because the Windows-native binary resolves them as literal Windows paths (e.g., `C:\dev\stdin` → ENOENT), not as the Unix device they're meant to represent. Originally observed with Node.js; also hits other Windows-native binaries like `gh.exe`.
 
 **Instances:**
 - 2026-05-24 — Taxonomy Editor: `node -e` with `/dev/stdin` pipe failed on Windows. Node resolved `/dev/stdin` as `C:\dev\stdin` which doesn't exist. Fixed by writing a temp `.mjs` script file instead of piping (p/6#5).
+- 2026-10-28 — Server Storage (p/539#36): `gh pr comment --body-file /dev/stdin` with a heredoc failed: "open /proc/self/fd/0: The system cannot find the path specified." Windows Git Bash's `gh.exe` can't read `/dev/stdin` as a real file path the way it would on Linux/macOS. Fixed by writing the body to a real temp file via the Write tool and passing that path to `--body-file` instead.
 
-**Root Cause:** `/dev/stdin`, `/dev/stdout`, `/dev/null` and other Unix device paths don't exist on Windows. Node.js on Windows doesn't translate these — it treats them as literal file paths under the current drive root.
+**Root Cause:** `/dev/stdin`, `/dev/stdout`, `/dev/null`, `/proc/self/fd/*` and other Unix device/proc paths don't exist on Windows. Windows-native binaries (Node.js, `gh.exe`, and any other compiled-for-Windows executable) don't translate these — they treat them as literal file paths under the current drive root, regardless of whether they were launched from Git Bash.
 
 **Prevention:**
-1. Avoid `/dev/stdin` piping patterns — write temp script files (`.mjs` or `.js`) and execute them directly.
-2. Use platform-agnostic alternatives: `process.stdin` in Node.js code instead of `/dev/stdin` file paths.
+1. Avoid `/dev/stdin` piping patterns for ANY Windows-native binary, not just Node — write a temp file and pass its real path instead.
+2. Use platform-agnostic alternatives where available: `process.stdin` in Node.js code instead of `/dev/stdin` file paths.
 3. For stderr suppression: use `2>/dev/null` in the Bash tool (Git Bash/POSIX sh) — `2>nul` creates a literal file named `nul`. Use `2>$null` in PowerShell. `NUL` (the Windows null device) is cmd.exe-only.
-4. When writing Bash commands that run Node.js, remember the dev environment is Windows — test Unix-isms mentally before using them.
+4. When writing Bash commands that invoke a Windows-native binary (Node.js, `gh.exe`, etc.), remember the dev environment is Windows — test Unix-isms mentally before using them.
+5. **For `gh <command> --body-file`/similar flags that accept a path, always pass a real temp file written via the Write tool — never `/dev/stdin`, `/proc/self/fd/0`, or a heredoc redirect into the flag.**
 
 **Applies To:** All agents running Node.js commands on this Windows dev environment.
 
@@ -586,6 +595,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-06-25 — Conflict: `ogit add taxonomy-editor/.../conflict/AGENTS.md` failed ("paths are ignored by .gitignore") — same parent-dir exclusion issue as p/98#1, this time for a per-directory AGENTS.md under `taxonomy-editor/`. Fixed with `ogit add -f` (p/122#1).
 - 2026-07-06 — Orca Support: `git --git-dir=.orca-git --work-tree=. add -f ...` failed from `orca-support/` subdirectory — Bash tool cwd is the role's scope directory, not the repo root, so `.orca-git` wasn't found. Fixed by switching to PowerShell with explicit `cd` to repo root (p/13#10).
 - 2026-07-17 — Computational Linguist: `git --git-dir=.orca-git add research/comp-linguist/AGENTS.md` failed "paths ignored by .gitignore" even though the file was **already tracked AND already staged** (the `research/` exclusion still blocks a re-`add`). Resolved by **skipping `add` entirely and committing the staged pathspec directly** — `commit -- <path>`. Refines the rule: `-f` is for the *first* stage of a not-yet-tracked file; an already-tracked/staged overlay file needs no re-add at all (p/7#39).
+- 2026-10-29 — DevOps Lead (p/26#313, **clarifies the apparent contradiction with p/7#39**): `git --git-dir=.orca-git --work-tree=. add .orca/agent-instruction-budgets.json` (without `-f`) refused "ignored by one of your .gitignore files" when committing a routine update to an EXISTING, ALREADY-TRACKED overlay file. Resolved with `add -f` — committed clean. **This does not contradict p/7#39**: the distinguishing factor is whether the file is already STAGED (p/7#39's case — skip `add`, commit directly) versus needing to be RE-STAGED for new changes (this case — `-f` is required again, regardless of prior tracking history, because the gitignore check runs on every explicit `add` invocation).
 - 2026-08-01 — Orca Support (p/13#24, e2bfe23): **RECURRENCE of the run-from-subdir facet** — overlay `commit` from the `orca-support/` subdir failed (`.orca-git` not visible from subdirs; Bash cwd = role scope, not repo root); re-ran from the repo root → committed `e2bfe23`. Same agent, same facet ~1 month after p/13#10; rule + hook exist but it still bites from a role subdir. Loud + self-correcting, not escalating.
 - 2026-08-09 — DebateWorkspace (p/124#12): `ogit` returned "command not found" in the Bash tool — non-interactive shell, aliases not loaded. Switched to `git --git-dir=.orca-git --work-tree=.`; status/log/audit all succeeded.
 
@@ -735,6 +745,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-29 — PowerShell (p/20#43, **new axis: MSYS path passed into pwsh**): `Get-ChildItem -LiteralPath $SummariesDir` threw "Cannot find path 'C:\c\Users\...'" — a bash-style MSYS path (`/c/Users/...`) was passed as a PowerShell variable value from inside the Bash tool. Native `pwsh` prepended `C:\` to the leading `/c/`, producing a double-rooted `C:\c\Users\...`. Fix: always pass native Windows paths (`C:\Users\...`) to PowerShell — never MSYS `/c/...` form.
 - 2026-10-01 — Shared Lib (p/5#31, **new axis: MSYS path as python3 file argument**): `python3` (a native win32 binary) could not open a file passed as an MSYS `/c/Users/...` path argument — ENOENT, same root as node axis. Fix: pipe the content via stdin (`cat file | python3 -c "import sys; ..."`) instead of passing the path as an argument. *(t/3827)*
 - 2026-10-01 — Shared Lib (p/5#37, **new axis: `2>nul` creates a file named `nul` in Git Bash**): used `2>nul` to suppress stderr in a Bash tool command — Git Bash (POSIX sh) treated `nul` as a literal filename and created a file named `nul` in the working directory instead of discarding output. `NUL` is only valid in cmd.exe/PowerShell. Fix: use `2>/dev/null` in the Bash tool.
+- 2026-11-03 — DevOps Lead (p/26#404, **third-axis recurrence**): `ls` with a Windows backslash path in Bash silently ate all backslashes (`C:\Users\...` → `C:Usersjsnov...`), producing a bogus "No such file" even though the file exists. Resolved by reissuing with a POSIX-style `/c/Users/...` path.
+- 2026-11-03 — Computational Linguist (p/7#180, **third-axis variant — trailing backslash escapes the closing quote**): `ls "C:\...\"` (a double-quoted Windows path ending in a backslash right before the closing quote) misparsed — the trailing `\"` escaped the closing double-quote itself, producing "unexpected EOF" rather than just a mangled-but-complete string. Resolved by switching to a forward-slash `/c/...` path in single quotes. Distinct from the plain backslash-stripping case: here the shell's own quoting breaks, not just the path content.
 
 **Root Cause:** Agents have access to both Bash and PowerShell tools. PowerShell cmdlets (`Get-ChildItem`, `Get-Item`, `Invoke-Pester`, `Select-Object`, etc.), `$var = ...` assignment, `.Property` access, and `;`-chained statements only work in the PowerShell tool. Unix commands (`ls`, `grep`, `cat`, `stat -c%s`) only work in Bash (on Windows/Git Bash). **A second axis is path format:** git-bash presents `/c/Users/...` msys paths, but native win32 programs (`node`, and anything not msys-aware) resolve `C:\...` — an msys path handed to `node require`/`fs` fails as MODULE_NOT_FOUND / ENOENT. **A third axis:** Windows backslash paths (`C:\...`) given directly to Bash fail silently — Bash treats `\` as escape characters. **A fourth axis: Bash glob over `C:\...` paths** — MSYS mangles the backslashes during expansion, producing zero matches with no error. **A fifth axis: MSYS path passed to pwsh** — `/c/Users/...` handed to native PowerShell gets double-rooted (`C:\c\Users\...`) because pwsh prepends `C:\` to the leading `/c/`. **A seventh axis: `2>nul` in Git Bash** — `NUL` is a Windows device name valid only in cmd.exe/PowerShell; in POSIX sh, `nul` is a literal filename and `2>nul` creates a file named `nul`. Use `2>/dev/null` in the Bash tool.
 
@@ -748,6 +760,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 9. **(Seventh axis — `2>nul` in Git Bash creates a file):** Use `2>/dev/null` to suppress stderr in the Bash tool. `2>nul` (Windows cmd.exe syntax) creates a literal file named `nul` in your working directory — POSIX sh has no concept of the NUL device (p/5#37). `NUL` is only valid in cmd.exe or PowerShell.
 5. **Don't use Windows backslash paths (`C:\...`) directly in the Bash tool** — Bash (POSIX sh) treats `\` as escape characters and silently mangles the path. Use the PowerShell tool for any operation that needs a `C:\...` path, or convert to a git-bash `/c/...` form (only valid for msys-aware tools) (p/5#23).
 6. **For file discovery (finding files by name pattern), use the dedicated Glob tool** — it resolves Windows paths natively without MSYS translation. `find` or shell glob expressions with `C:\...` paths in the Bash tool are silently broken (p/335#1).
+10. **A Windows backslash path ending right before a closing double-quote (`"...\"`) escapes that quote itself** — the shell sees an unterminated string ("unexpected EOF"), not just a mangled path. This is a sharper failure than plain backslash-stripping elsewhere in the string. Use single quotes with a forward-slash `/c/...` path instead, which avoids both the backslash-stripping and the quote-escaping trap at once (p/7#180).
 
 **Applies To:** All agents on this Windows dev environment with dual shell access.
 
@@ -1227,6 +1240,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 2. To verify a worktree commit: run verify in the main tree and prove byte-identity via `git diff <worktree-sha> <main-sha>`.
 3. If isolation is essential: `npm ci` inside the worktree (clean install, no junction needed).
 4. If a junction is already in place: `git worktree remove --force` + `git worktree prune` cleans safely.
+5. **This is the exact hazard class behind #420's shared-state corruption incident (t/4815)** — #345 once prescribed junctioning `node_modules` INTO a fresh worktree (the reverse direction of this entry's symlink-main-tree case), which carries the same risk: anything that writes through the junction (a `pnpm install` triggered from inside the worktree) lands in whichever side of the junction is the real directory. #345 has been amended to match this entry's prevention — if either entry's guidance is cited, cite both together.
 
 **Status:** Active
 
@@ -1683,6 +1697,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-07 — Computational Linguist (p/7#106, **facet B + `grep -c`-on-empty-input amplifier**): `git show origin/main:<path>` in Git Bash returned "ambiguous argument 'origin\main;…'" (MSYS mangling). Grep counts read `0`, which looked like "no `REGEN_INPUTS` on main." Fix: `MSYS_NO_PATHCONV=1`; true count was 1 in each file. CL correctly treated the `0` as invalid because a fatal error preceded it — zero-result heuristic working as intended. **New amplifier: `grep -c` on empty piped input prints `0` — the MSYS error and the zero look like separate facts, but they are one event.** The fatal error caused the empty pipe; the empty pipe caused the zero; the zero is not independent evidence of absence. Prevention: when a fatal error precedes a `grep -c` count, treat the count as the echo of the error, not a real result.
 - 2026-08-03 — Azure (p/105#4, **facet B generalizes to a non-git tool + a leading-slash arg; 3rd agent**): `az deployment group create` failed `InvalidEnvironmentId` because MSYS mangled a **leading-slash Azure resource ID** (`/subscriptions/...`), prefixing it with the Git-bin install path (MSYS treats a leading-`/` arg as a Unix path to translate). Two broadenings: (a) the mangled arg is a **leading-slash resource ID, not a `<ref>:<path>` colon-revspec** — a 2nd MSYS trigger sharing facet B's root (args that *look like* Unix paths, already named in Root Cause); (b) it hit a **non-git tool (`az`)** and a **3rd agent** — facet B is not git-specific. Fix: pass Azure resource IDs via the **PowerShell tool** (no MSYS layer) or `MSYS_NO_PATHCONV=1`. Same env-dependent MSYS path-conversion class; ties to the win32 "prefer the PowerShell tool" habit.
 - 2026-10-20 — DevOps Lead (p/26#220, **2nd Azure leading-slash instance**): `az role assignment create --scope /subscriptions/.../resourceGroups/ai-triad` failed `MissingSubscription` / "did not have a subscription or valid tenant level resource provider." MSYS mangled the leading-slash `--scope` argument. Fix: `MSYS_NO_PATHCONV=1 az role assignment create ...`. Confirms the leading-slash Azure resource-ID mangling is reproducible across `az` subcommands (not only `az deployment group create`).
+- 2026-11-03 — DevOps Lead (p/26#394, **new Facet D — multi-glob zero-file-match, platform-agnostic**): `grep <pattern> deploy/azure/*.json <other-glob>` exited 2 because the `deploy/azure/*.json` glob matched zero files — the shell passed the literal unexpanded string to grep as a filename, which then reported "No such file or directory" for that one argument, even though the OTHER glob argument expanded fine and its matches were already in the output. Distinct from Facet A (grep exit 1 on zero LINE matches within matched files) — this is exit 2 from a zero-FILE-match unexpanded glob mixed with other, successfully-expanded globs in the same invocation. Not Windows/MSYS-specific; standard shell/grep behavior when `nullglob` isn't set. Resolved: ignored — the other pattern's matches were already correct in the output; the error was cosmetic given the actual need.
 
 **Root Cause:** (A) grep's exit code is a *match indicator*, not a *success indicator* — 0 = matched, 1 = no match, 2 = error. In an `&&` chain the shell treats exit 1 as failure and stops, so a legitimately-empty result (count `0`) aborts the chain. Standard POSIX grep behavior, not Windows-specific, but it bites hardest in Bash-tool one-liners that chain a count check into follow-up steps — and it recurs (2 agents in one day: a zero `.ts`-entry count and a zero-deletion diff count). Same "exit code ≠ what you think" family as the "Bash grep Features Fail Silently on Windows/Git Bash" pattern. (B) MSYS/Git-Bash *can* rewrite arguments that *look like* Unix paths (containing `/` or a leading drive-colon) into Windows paths before the program sees them. `git show`'s `<ref>:<path>` syntax collides with this — the `:` and `/`s get converted, corrupting the ref. **This is config-dependent** (`MSYS2_ARG_CONV_EXCL` / `MSYS_NO_PATHCONV` / how the Bash tool's MSYS is configured): it reproduced in DevOps's env and NOT in TL's, where every `git show <ref>:<path>` ran clean all session. So the harm is not "the command always breaks" — it's **misreading the false `unknown revision` as a genuinely-missing ref** (the exact wrong forensics conclusion the root Git-Forensics rule guards against). `MSYS_NO_PATHCONV=1` (or a leading `//`) disables the conversion for that command. Sibling of #67 (Git Bash eats shell operators before pwsh sees them) — same root: the Bash tool is Git Bash, and its shell/MSYS layer *may* transform your command before the target program runs.
 
@@ -1692,8 +1707,9 @@ Institutional memory for failure patterns across the AI Triad Research project.
 3. **So: a valid ref reporting "unknown revision" in the Bash tool is the tell** — suspect MSYS path-conversion before doubting the ref exists; confirm by re-running with `MSYS_NO_PATHCONV=1`, **OR run the same `git show` through the PowerShell tool** (no MSYS layer → no munging; DevOps p/26#29) — the cleanest cross-tool escape on win32.
 4. **`MSYS_NO_PATHCONV=1` is a global flag — once exported, use Windows-form paths everywhere.** Per-command prefix (`MSYS_NO_PATHCONV=1 git show …`) fixes the one colon-revspec without committing all subsequent path args to Windows form. If you export it for the session, every path you pass to any tool must be `C:/...`, not `/c/...` — MSYS no longer translates for you (TL t/3892, p/335#130).
 5. **`git show <ref>:<path>` resolves `<path>` from the REPO ROOT, not your cwd** (facet C, platform-agnostic) — from a subdirectory a cwd-relative path exits **128** and looks like the file is missing in the ref. Use a repo-root-relative path (or `git -C <repo-root> show <ref>:<path>`). Same "valid path, misleading git-show failure → don't conclude the content is absent" caution as facet B, different cause.
+6. **(Facet D) `grep` across multiple glob arguments exits 2 if ANY glob matches zero files, even when other globs in the same call matched and produced real output.** Don't treat exit 2 from a multi-glob `grep` as a hard failure before checking whether the actual-needed matches are already in the output — the "No such file or directory" line names which specific glob was empty, which is often harmless.
 
-**Status:** Active — sibling of #67 (Git-Bash-transforms-your-command family). **Facet A now has 4 instances (DevOps + ServerAPI + Taxonomy Editor 2026-07-17; ElectronMain 2026-07-29) — well past the escalation threshold.** Universal grep behavior (`grep`/`grep -c` exit 1 on zero match), recurring across agents and across chain positions (final OR upstream command). **Escalation — ACCEPTED (p/8#86):** TL folded facet A into the AGENTS.md batch as an extension to the existing root "Search Tooling Rule" section — *never put `grep`/`grep -c` in a `&&` chain (or as a Bash-tool command's last exit) where zero matches is a valid result; use `|| true` or capture-and-test.* Originally judged not *blockable* (a blocking guard would fire on every legitimate `grep && `) — **but now ADVISORY-guarded**: the workspace feedback rule **`exit-code-literacy-guard`** (2026-08-03, t/2081; `node -e` run-gate over the exit-code-literacy family #73A/#84/#90/#96/#121) emits a **context nudge** rather than blocking, so legitimate `grep &&` uses proceed. **Live-firing OBSERVED — 2 independent firings across 2 different guard branches (2026-08-03):** Sage on a `git show … | grep -c` (#73A grep branch) + TL on `gh pr checks 334` correctly flagging **exit-8 = pending** (not failed) during the PR #334 CodeQL wait (#121 branch, p/8#166). Non-blocking ⇒ no false-green risk of its own; systematic firing-verification still deferred per t/1625. The documented root rule stays the behavioral defense. Overlay/owner-gated, in TL's 4-item batch being surfaced to the owner. Facet B is **environment-dependent MSYS path conversion — varies by Git-for-Windows install** (TL p/8#79/#157): **3 instances / 2 agents reproduce (DevOps `git show`; Documentation `git cat-file`) + 1 clean counterexample (TL — colon-revspecs resolve fine, `MSYS_NO_PATHCONV` unset).** Generalizes to ANY git `<ref>:<path>` colon revspec. **Key insight (p/8#157): env-dependence STRENGTHENS the root trap-line** — a non-repro agent (TL) would otherwise dismiss a peer's report as user error; the shared failure-signature is what lets them trust it. **Root Git-Forensics Common-Trap line LANDING via PR #323** (env-dependent wording + valid-ref→`unknown revision` discriminator: retry `MSYS_NO_PATHCONV=1`, or use the PowerShell tool). Escalation resolved. **Facet B broadened (Azure p/105#4, 2026-08-03):** MSYS also mangles a **leading-slash arg to a NON-git CLI** (Azure resource ID `/subscriptions/...` → `az` `InvalidEnvironmentId`) — now **3 agents, git + non-git tools, two triggers (colon-revspec + leading-slash)**. Same env-dependent class, same fix (PowerShell tool / `MSYS_NO_PATHCONV=1`). **Facet B 4th instance (Computational Linguist p/7#149, 2026-10-26):** MSYS mangled a leading-slash **Windows CLI switch** (`/J`, for `mklink /J <link> <target>`) rather than a path or revspec — `cmd //c mklink /J <link> <target>` from Git Bash errored `Invalid switch - "<link>"` because MSYS rewrote `/J` into a path-like token. Resolved with `New-Item -ItemType Junction` from the PowerShell tool — same fix family (switch to PowerShell for Windows-native leading-slash syntax).
+**Status:** Active — sibling of #67 (Git-Bash-transforms-your-command family). **Facet A now has 4 instances (DevOps + ServerAPI + Taxonomy Editor 2026-07-17; ElectronMain 2026-07-29) — well past the escalation threshold.** Universal grep behavior (`grep`/`grep -c` exit 1 on zero match), recurring across agents and across chain positions (final OR upstream command). **Escalation — ACCEPTED (p/8#86):** TL folded facet A into the AGENTS.md batch as an extension to the existing root "Search Tooling Rule" section — *never put `grep`/`grep -c` in a `&&` chain (or as a Bash-tool command's last exit) where zero matches is a valid result; use `|| true` or capture-and-test.* Originally judged not *blockable* (a blocking guard would fire on every legitimate `grep && `) — **but now ADVISORY-guarded**: the workspace feedback rule **`exit-code-literacy-guard`** (2026-08-03, t/2081; `node -e` run-gate over the exit-code-literacy family #73A/#84/#90/#96/#121) emits a **context nudge** rather than blocking, so legitimate `grep &&` uses proceed. **Live-firing OBSERVED — 2 independent firings across 2 different guard branches (2026-08-03):** Sage on a `git show … | grep -c` (#73A grep branch) + TL on `gh pr checks 334` correctly flagging **exit-8 = pending** (not failed) during the PR #334 CodeQL wait (#121 branch, p/8#166). Non-blocking ⇒ no false-green risk of its own; systematic firing-verification still deferred per t/1625. The documented root rule stays the behavioral defense. Overlay/owner-gated, in TL's 4-item batch being surfaced to the owner. Facet B is **environment-dependent MSYS path conversion — varies by Git-for-Windows install** (TL p/8#79/#157): **3 instances / 2 agents reproduce (DevOps `git show`; Documentation `git cat-file`) + 1 clean counterexample (TL — colon-revspecs resolve fine, `MSYS_NO_PATHCONV` unset).** Generalizes to ANY git `<ref>:<path>` colon revspec. **Key insight (p/8#157): env-dependence STRENGTHENS the root trap-line** — a non-repro agent (TL) would otherwise dismiss a peer's report as user error; the shared failure-signature is what lets them trust it. **Root Git-Forensics Common-Trap line LANDING via PR #323** (env-dependent wording + valid-ref→`unknown revision` discriminator: retry `MSYS_NO_PATHCONV=1`, or use the PowerShell tool). Escalation resolved. **Facet B broadened (Azure p/105#4, 2026-08-03):** MSYS also mangles a **leading-slash arg to a NON-git CLI** (Azure resource ID `/subscriptions/...` → `az` `InvalidEnvironmentId`) — now **3 agents, git + non-git tools, two triggers (colon-revspec + leading-slash)**. Same env-dependent class, same fix (PowerShell tool / `MSYS_NO_PATHCONV=1`). **Facet B 4th instance (Computational Linguist p/7#149, 2026-10-26):** MSYS mangled a leading-slash **Windows CLI switch** (`/J`, for `mklink /J <link> <target>`) rather than a path or revspec — `cmd //c mklink /J <link> <target>` from Git Bash errored `Invalid switch - "<link>"` because MSYS rewrote `/J` into a path-like token. Resolved with `New-Item -ItemType Junction` from the PowerShell tool — same fix family (switch to PowerShell for Windows-native leading-slash syntax). **Facet B 5th instance (DebateTool p/70#82, 2026-10-26):** MSYS mangled a leading-slash **gh API endpoint path** — `gh api /repos/.../actions/jobs/<id>` errored "invalid API endpoint: C:/.../repos/..." because MSYS rewrote the leading `/` into a Windows filesystem path. Resolved by dropping the leading slash (`gh api repos/...` instead of `gh api /repos/...`) — worked immediately. New trigger variant: a REST API path, not a git revspec, Azure resource ID, or Windows CLI switch. **Facet B 6th instance (DevOps Lead p/26#326, 2026-10-30, recurrence of the original Azure-resource-ID trigger):** `az role assignment list --scope "$(az keyvault show ... --query id -o tsv)"` exited 3 "MissingSubscription" — MSYS auto-translated the leading `/subscriptions/...` ARM resource ID as a POSIX path before `az` saw it, the exact documented pattern from t/4390#5 that the agent failed to apply proactively this time. Resolved with `MSYS_NO_PATHCONV=1` prefixed, same fix as always. Reinforces: this is a KNOWN pattern that still bites when not applied proactively, not a new discovery each time.
 
 **Applies To:** All agents running git or grep through the Bash tool on Windows/Git Bash — especially object-level git forensics (`git show <ref>:<path>`) and count-guarded command chains.
 
@@ -1788,6 +1804,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-30 — DebateTool (p/70#43, **Facet A — untracked `package-lock.json`**): `git worktree remove ../wt-3811` failed because `npm install` (not `npm ci`) generated `package-lock.json` inside the worktree — untracked, not gitignored. `npm install` updates/creates the lockfile; `npm ci` reads it without modifying. Resolved with `--force` (branch already merged). Prevention: use `npm ci` in worktrees (per `/land-from-worktree` step 2), or add `package-lock.json` to `.gitignore` if it should not be committed.
 - 2026-10-01 — TL (p/335#105, **Facet B variant — direct `rm -rf` on stale `.worktrees/*` node_modules**): `rm -rf` across four stale `.worktrees/*` node_modules trees timed out at the 2-min Bash ceiling (exit 143, SIGTERM) — ~10 MB across four trees = tens of thousands of tiny files, each hitting AV/indexing on Windows. Recovery: checked actual state rather than retrying blind — files were already deleted, only empty dir skeletons remained; a second pass with a raised timeout cleared the skeletons in seconds. **Key lesson:** a SIGTERM timeout leaves PARTIAL state; the retry must be preceded by a state check, not a blind re-run (see Pattern #185).
 - 2026-10-01 — DebateTool (p/70#45, **Facet C variant — remote delete timeout starves chained worktree remove**): `git push origin --delete <branch> && git worktree remove ../wt-3813b` chained in one command; the remote branch delete took >2 min on a slow remote, exhausting the Bash tool's 2-min cap before `git worktree remove` ran. Directory was already gone (no `.git`), leaving only a stale ref. Resolved with `git worktree prune`. Lesson: don't chain `push --delete` with `git worktree remove` — run them as separate commands so a slow remote delete doesn't consume the timeout budget of the local cleanup.
+- 2026-10-26 — DevOps Worker (p/749#38, **Facet C**): `git worktree remove .worktrees/t4533-consult-hold-age-check --force` failed "cannot remove working tree: .git does not exist" — the directory was already gone by the time `remove` ran (likely an earlier `prune` or out-of-band removal). `git worktree list` showed no live entry; `git worktree prune -v` cleaned up the stale metadata, confirmed gone afterward.
+- 2026-11-02 — ElectronMain (p/781#6, **Facet C, inverse direction**): `git worktree remove .worktrees/t4746-ask-submission-ipc --force` failed "not a working tree." Unlike the usual Facet C shape (physical dir gone, stale ref remains), here the registered worktree's `.git` link had already been pruned by another agent's sweep-landed-worktrees job while the physical directory itself survived on disk. `git worktree prune` alone wasn't sufficient (nothing to prune, since the ref was already gone) — resolved by confirming no uncommitted work in the orphaned directory, then `rm -rf` it directly since it was no longer a registered worktree at all.
 
 **Root Cause:** (A) `git worktree remove` aborts on untracked files, and an in-worktree `npm ci` always leaves a large untracked `node_modules`. (B) `--force` clears the refusal but does the deletion **synchronously in the foreground**, and unlinking tens of thousands of small files is pathologically slow on Windows (each hits AV/indexing), blowing the 2-minute timeout. (C) Once the physical dir is already gone, `remove` fails ("`.git` does not exist") — only the stale ref remains, which `prune` clears. (E) The `.git` file in a linked worktree is a small plain-text pointer file (`gitdir: /path/to/.git/worktrees/...`) — unlike the main repo's `.git` directory, it's just one file that AV/OS cleanup processes may selectively delete while leaving larger content dirs (`lib/`, `node_modules/`) intact. When it's gone, the directory is no longer a git repository from any tool's perspective, but the content survives. The through-line: `remove` couples git-metadata detach (instant) with the physical delete (slow, or possibly already done); decouple them — `prune` owns the ref, a backgrounded `rm -rf` owns the files. Companion to #77 and the Windows Junction pattern.
 
@@ -1800,10 +1818,11 @@ Institutional memory for failure patterns across the AI Triad Research project.
 5. **Don't chain `git push origin --delete` with `git worktree remove` in a single command** — a slow remote delete can exhaust the 2-min Bash tool timeout, leaving the worktree remove never executed and a stale ref behind. Run them as separate commands; if the directory is already gone, `git worktree prune` alone clears the stale ref. (DebateTool p/70#45.)
 6. **(Facet A — CRLF intention mismatch, NOT a content diff)** `autocrlf=true` + `*.snap` falling through `* text=auto` means git thinks the file *should* be CRLF but it's LF — flagged as "LF will be replaced by CRLF." The file is **byte-identical to the index**; `git diff` is EMPTY. **`git restore` is NOT a reliable mitigation** — any rewrite re-triggers the flag by construction (git immediately re-marks it as about-to-convert). Workaround until t/3825 lands: **verify `git diff <file>` is EMPTY first** — empty diff + `M` in status = intention mismatch, `--force` is lossless. Non-empty diff = real changes, `--force` destroys them. Never force without confirming the diff is empty. Root fix: `.gitattributes` `*.snap text eol=lf` (t/3825, DevOps).
 5. **(Facet E) Verify the `.git` file exists before starting work in an existing worktree:** `Test-Path <wt>\.git` (PowerShell) or `ls <wt>/.git` — if absent, the worktree is dead; push from the main repo using the branch name, then `git worktree prune` to clear the stale ref.
+8. **(Facet C, inverse) If `git worktree prune` reports nothing to clean yet `remove`/other git worktree commands still fail "not a working tree," the registered ref is already gone but the physical directory survives** — likely from another agent's or process's cleanup sweep running ahead of yours. `prune` has nothing to do here (there's no stale ref left to clear). Confirm no uncommitted work in the orphaned directory first, then `rm -rf` it directly — it's no longer a registered worktree at all, so `git worktree remove` is the wrong tool for it. (ElectronMain p/781#6.)
 
 - 2026-09-29 — DebateTool 2 (p/234#12): `git worktree remove ../wt-3761` failed with **Permission denied** on Windows — file locked by AV/OS or another process. Unresolved; routed to user for manual cleanup. **(Facet F — Permission denied variant of the Windows locking root cause; same prune + background-rm fix applies.)**
 
-**Status:** Active — worktree-land cluster; `/land-from-worktree` step-8 guidance updated from "`remove --force`" to "**prune + `branch -D` + background rm**" for deps-installed worktrees (supersedes the earlier `--force` wording; both refusal + timeout covered). **Facet F added 2026-09-29 (DebateTool 2 p/234#12):** Permission denied on Windows — file locked by AV/OS; same prune + background-rm resolution applies. **Facet E added 2026-08-05 (DebateTool p/70#14):** `.git` pointer file silently deleted by OS/AV mid-session; worktree content survives but git is blind to it — push from main repo, then `git worktree prune`. **New instance 2026-10-01 (DebateTool p/70#45):** remote branch delete timeout starves a chained `git worktree remove` — Facet C variant; prevention #5 added. **Facet A 4th instance 2026-10-01 (Rosetta Stone p/6#71):** same CRLF snapshot noise on `routeTable.test.ts.snap` across three agents — TL pinged on `.gitattributes` fix. **Facet B variant 2026-10-01 (TL p/335#105):** direct `rm -rf` on four stale `.worktrees/*` node_modules trees timed out (exit 143); state check revealed partial completion; prevention #7 + Pattern #185 added.
+**Status:** Active — worktree-land cluster; `/land-from-worktree` step-8 guidance updated from "`remove --force`" to "**prune + `branch -D` + background rm**" for deps-installed worktrees (supersedes the earlier `--force` wording; both refusal + timeout covered). **Facet F added 2026-09-29 (DebateTool 2 p/234#12):** Permission denied on Windows — file locked by AV/OS; same prune + background-rm resolution applies. **Facet E added 2026-08-05 (DebateTool p/70#14):** `.git` pointer file silently deleted by OS/AV mid-session; worktree content survives but git is blind to it — push from main repo, then `git worktree prune`. **New instance 2026-10-01 (DebateTool p/70#45):** remote branch delete timeout starves a chained `git worktree remove` — Facet C variant; prevention #5 added. **Facet A 4th instance 2026-10-01 (Rosetta Stone p/6#71):** same CRLF snapshot noise on `routeTable.test.ts.snap` across three agents — TL pinged on `.gitattributes` fix. **Facet B variant 2026-10-01 (TL p/335#105):** direct `rm -rf` on four stale `.worktrees/*` node_modules trees timed out (exit 143); state check revealed partial completion; prevention #7 + Pattern #185 added. **Facet C inverse variant added 2026-11-02 (ElectronMain p/781#6):** registered ref pruned by another agent's sweep job while the physical directory survived — `prune` has nothing to clean, `rm -rf` directly is the fix; prevention #8 added.
 
 **Applies To:** All agents using the worktree landing procedure with an in-worktree `npm ci` — i.e. every deps-installing land.
 
@@ -2141,15 +2160,18 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 **Instances:**
 - 2026-07-28 — Technical Lead (p/8#113): foreground `git push` of **70 large data-repo files** (debate JSONL / flight-recorders) to `ai-triad-data` over SSH was **killed at 2 min (exit 143)** mid-upload — commit landed, push hadn't. Resolved via **`run_in_background`** (push is idempotent — a partial upload corrupts nothing; retry completed **exit 0**) and **`git ls-remote` verification of the ref on origin before any dependent prune/action**. No data lost; a timeout-kill ≠ a broken push (ties to the "data-repo push works, HTTP-408 era ended" correction).
+- 2026-11-02 — Rosetta Stone (p/6#132, **hook-latency variant**): a chained `git push -u origin <branch>` (after `git rev-parse` checks) ran as a background task and hit the 120s foreground timeout — but the slowness wasn't payload size, it was the mandatory pre-push hook (eslint + tsc ×2 + vitest-related, ~30s total) stacking onto a multi-command chain. An immediate `git rev-parse origin/...` check right after errored "unknown revision" (fetch hadn't happened yet); a premature manual retry then failed with **"cannot lock ref ... reference already exists."** The original backgrounded push had actually already succeeded — confirmed via task notification and a `git fetch` showing local/remote heads matched. **New diagnostic:** "cannot lock ref ... reference already exists" on a `git push` retry is the signature of retrying while an earlier (backgrounded) push attempt is still mid-flight or has just succeeded — don't retry again, go verify via `git fetch`/`git ls-remote` instead.
 
-**Root Cause:** The Bash tool's default 120s timeout is shorter than a large multi-file SSH push. SIGTERM at the boundary kills the client mid-transfer, but `git commit` already completed locally — leaving a **split state**: local commit present, origin ref absent. The kill looks like a hard error, so it's easy to (a) misdiagnose the remote as broken or (b) assume nothing landed and redo work — when the commit is fine and only the push needs re-running. Same **"foreground long git/fs op exceeds 120s → gets killed → background it"** genus as #78 (worktree-remove rm timeout); the push-side sibling.
+**Root Cause:** The Bash tool's default 120s timeout is shorter than a large multi-file SSH push, OR shorter than a chained multi-command call whose total wall-clock includes a slow mandatory pre-push hook (lint/typecheck/test). Either way, SIGTERM at the boundary kills the client mid-transfer, but `git commit` already completed locally — leaving a **split state**: local commit present, origin ref absent (or, once backgrounded, pending). The kill looks like a hard error, so it's easy to (a) misdiagnose the remote as broken, (b) assume nothing landed and redo work, or (c) retry prematurely while the original attempt is still completing — when the commit is fine and only verification is needed. Same **"foreground long git/fs op exceeds 120s → gets killed → background it"** genus as #78 (worktree-remove rm timeout); the push-side sibling.
 
 **Prevention:**
 1. **Push large data-repo file sets in the background** (`run_in_background`) or with an extended Bash `timeout` — never a plain foreground push. `git push` is idempotent, so a backgrounded retry after a killed foreground attempt is safe.
 2. **Verify the ref is on origin before any dependent action** — `git ls-remote origin <branch>` and confirm the pushed SHA is published BEFORE a prune / downstream job / announcing availability. "The push command returned (or was killed)" is bookkeeping; the ref on origin is the artifact (**bookkeeping ≠ artifact**).
 3. **A killed push (exit 143) is NOT a broken remote** — check `git ls-remote` first; don't file "data-repo push broken." The SSH data-repo push works, it's just slow for large sets.
+4. **A mandatory pre-push hook's latency counts against the same 120s budget as the transfer itself** — a chained multi-command call (`git rev-parse && ... && git push`) can exceed the timeout purely from hook overhead (lint/typecheck/test), even for a small push. Background any chained call that includes a `git push` behind a non-trivial pre-push hook.
+5. **"cannot lock ref ... reference already exists" on a `git push` retry means a prior push attempt is already in flight or just succeeded — don't retry again.** Verify via `git fetch` + comparing local/remote heads, or `git ls-remote`, before concluding there's a real conflict.
 
-**Status:** Active — push-side sibling of #78 in the **"foreground long git/fs op > 120s Bash default → background it"** genus, plus a bookkeeping≠artifact verify step (the killed push left a commit-landed / ref-absent split state).
+**Status:** Active — 2 instances (Technical Lead p/8#113 — large-payload variant; Rosetta Stone p/6#132 — pre-push-hook-latency variant, new "cannot lock ref" retry diagnostic added). Push-side sibling of #78 in the **"foreground long git/fs op > 120s Bash default → background it"** genus, plus a bookkeeping≠artifact verify step.
 
 **Applies To:** All agents pushing large or many-file changes — especially data-repo (`ai-triad-data`) debate JSONL / flight-recorder / embeddings batches over SSH.
 
@@ -3684,6 +3706,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-28 — DebateUI (p/689#1, **HEAD-switched variant**): branch already pushed, but another concurrent agent had switched shared HEAD to `main` between the push and `gh pr create`. CLI defaulted to `main`, errored "you must first push the current branch." Fix: `--head <my-branch>` explicitly.
 - 2026-10-02 — ServerAPI (p/504#16, **v1 repeat**): `gh pr create` without `--head` aborted — "94 uncommitted changes / must first push." The 94 files were other agents' untracked WIP on the shared tree, not the ServerAPI branch. Fix: pass `--head feat/branch --base main` explicitly.
 - 2026-10-24 — SummaryViewer (p/385#5): `gh pr create` run from repo root (not the worktree) — gh picked up the shared checkout's untracked files and aborted "you must first push the current branch." Fix: ran `gh pr create` from inside the worktree directory.
+- 2026-10-28 — Refactorer (p/840#1): `gh pr create` for `refactor/new-debate-dialog-cleanup` aborted exit 1 — main worktree had 8 uncommitted changes. Fix: added `--head refactor/new-debate-dialog-cleanup` explicitly; PR #4070 created successfully.
 
 **Root Cause:** `gh pr create` without `--head` infers the head branch from the current local state. In the shared checkout, two failure variants exist: **(v1)** other agents' uncommitted changes trigger the "uncommitted changes" abort; **(v2)** another agent's checkout switches HEAD mid-flight, so the CLI targets the wrong (now-current) branch entirely. Both are instantaneous local-state races invisible to the PR author.
 
@@ -3691,7 +3714,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 1. **Always pass `--head <branch> --base main` explicitly with `gh pr create` when running from the shared checkout** — never let the CLI infer from local state; it races shared-tree drift in both variants.
 2. Alternatively, run `gh pr create` from inside the worktree where the branch is checked out and clean.
 
-**Status:** Active — 3 instances / 3 agents; 2 variants. All fixed by `--head <branch> --base main`.
+**Status:** Active — 5 instances / 5 agents; 2 variants. All fixed by `--head <branch> --base main`.
 
 **Applies To:** All agents opening PRs from the shared checkout or any context where the working tree may be dirty.
 
@@ -4840,6 +4863,10 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-10-08 — Shared Lib (p/5#49): `gh … --jq 'test("…";"s")'` errored "unsupported regular expression flag: s". Fix: replaced with `contains()` checks.
 - 2026-10-12 — Tech Lead (p/335#139): `gh … -q 'test("Approved \(PI")'` — `\(` inside a jq string starts string interpolation, leaving the string unterminated. Fix: switched to `startswith("Approved")`.
+- 2026-10-26 — Azure (p/105#32): `jq 'test("CodeQL")'` (single-arg form, no explicit flags) errored on `gh pr view` output. Fix: rewrote without `test()`, using `contains()` instead.
+- 2026-11-03 — Chat (p/687#12): `test("Approved \(Design\)")` — jq parse error on the escaped parens (`\(` starts interpolation before jq ever sees it as an escaped literal paren). Fix: switched to `contains("Approved (Design)")`, no escaping needed.
+- 2026-11-03 — Tech Lead (p/335#268): `test("...\\(Design\\)...")` — `unexpected token "\\"`, same `\(` interpolation trap with a different escaping variant. Fix: `contains("(Design)")`.
+- 2026-11-03 — DevOps Lead (p/26#402, **manual join-string variant**): a jq filter manually interpolating `\",\"` as an escaped comma-join separator failed to parse — jq rejected the escaped backslash-quote inside the string. Fix: used the built-in `[.labels[].name] | join(",")` (or `@tsv` for array output) instead of hand-building the join string.
 
 **Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq. Separately, `\(` inside a jq string literal is the string interpolation syntax (`\(expr)`), not a literal backslash-paren — using it in a regex pattern produces an unterminated string error.
 
@@ -4850,7 +4877,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 4 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161).
+**Status:** Active — 9 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant; DevOps Lead p/26#402 — manual join-string variant, fixed with built-in `join()`).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -4903,21 +4930,27 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #232 [Build] `gh pr list --json` Exits 1 on Unknown Field Name — Check Valid Fields Before Use
+## #232 [Build] `gh <subcommand> --json` Exits 1 on Unknown Field Name — Check Valid Fields Before Use
 
-**Pattern:** `gh pr list --json field1,field2,...` exits 1 with `unknown JSON field: <name>` when any field name is invalid or misspelled. The command provides no partial output — all fields are rejected if one is wrong. Common confusion: `baseRepository` is not a valid field; `headRepository` is.
+**Pattern:** `gh <subcommand> --json field1,field2,...` exits 1 with `unknown JSON field: <name>` when any field name is invalid or misspelled. The command provides no partial output — all fields are rejected if one is wrong. Each `gh` subcommand has its own field set; a field valid for one (e.g. `gh pr view`) is not necessarily valid for another (e.g. `gh run list`). Common confusion: `baseRepository` is not a valid `gh pr list` field; `headRepository` is. `actor` is not a valid `gh run list` field; available fields include `databaseId`, `status`, `event`, `headSha`, `createdAt`.
 
 **Instances:**
 - 2026-10-08 — DebateUI (p/689#5): `gh pr list --json ...,baseRepository` exited 1 with "Unknown JSON field: baseRepository". Fix: dropped the invalid field and reran.
+- 2026-10-26 — Tech Lead (p/335#192): `gh run list --json actor` — `actor` isn't a valid field for `gh run list`. Fix: dropped the field, identified the dispatcher by run id instead.
+- 2026-10-28 — PowerShell (p/20#137) + Tech Lead (p/335#204), **same field, two agents within minutes**: `gh pr view --json isInMergeQueue` exited 1 — `isInMergeQueue` isn't a valid `gh pr view` field; `gh` doesn't expose merge-queue membership there at all. PowerShell confirmed queue membership via `gh api .../issues/N/timeline` (the `auto_merge_enabled` event) plus the "already queued to merge" message from a repeat `gh pr merge --auto` call. Tech Lead's cleaner discriminator: query `repository.mergeQueue(branch:"main").entries` via `gh api graphql` directly for actual queue state; use `autoMergeRequest` (via `gh pr view --json autoMergeRequest`) only to check arming status, not queue membership.
+- 2026-11-02 — DebateWorkspace (p/846#16): `gh pr view --json isInMergeQueue` — "Unknown JSON field," same gap, yet another agent. Resolved by dropping the field and re-querying `mergeCommit,state,mergedAt,mergeStateStatus`, confirming merge via non-empty `mergeCommit.oid`.
 
-**Root Cause:** `gh` validates all requested JSON fields before executing the query. A single invalid field name causes the entire command to fail with exit 1.
+**Root Cause:** `gh` validates all requested JSON fields before executing the query. A single invalid field name causes the entire command to fail with exit 1. **Merge-queue membership specifically has no `gh pr view --json` field at all** — it isn't a missing-from-this-list case, it's a capability gap in the CLI; the GraphQL API must be queried directly. **Clarification (DevOps Lead, p/26#301):** `isInMergeQueue` IS a valid field on the raw GraphQL `PullRequest` type — it's only unavailable through `gh pr view --json`'s curated field list. The gap is in gh's CLI surface, not in the underlying GraphQL schema; a direct `gh api graphql` query against `PullRequest.isInMergeQueue` (or the `mergeQueueEntry{position, state}` sub-object) works fine.
 
 **Prevention:**
-1. **Check valid field names before constructing a `--json` query:** `gh pr list --json help` prints all available fields.
-2. **`headRepository` is valid; `baseRepository` is not.** For base repo info, use `baseRefName` (branch name) or `baseRef` (object with more detail).
-3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first.
+1. **Check valid field names before constructing a `--json` query:** `gh <subcommand> --json help` prints all available fields for that specific subcommand.
+2. **`headRepository` is valid; `baseRepository` is not** (for `gh pr list`). For base repo info, use `baseRefName` (branch name) or `baseRef` (object with more detail). For `gh run list`, there is no `actor` field — identify the dispatcher by run id and `gh run view <id>` instead.
+3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first, and check it against THIS subcommand's field list — don't assume a field valid on one `gh` subcommand transfers to another.
+4. **To check actual merge-queue membership (not just arming), query GraphQL directly:** `gh api graphql -f query='query { repository(owner:"OWNER", name:"REPO") { mergeQueue(branch:"main") { entries(first:20) { nodes { pullRequest { number } state enqueuedAt jump } } } } }'`. There is no `gh pr view --json` equivalent — `autoMergeRequest` tells you arming status only, not whether/where the PR sits in the queue.
+5. **`autoMergeRequest` (and REST's `auto_merge` field) being `null` does NOT mean a PR was dropped from the merge queue** (DebateWorkspace, p/846#6) — those fields only reflect CLASSIC auto-merge-on-green, never merge-queue group entries. A PR can be genuinely queued (`AWAITING_CHECKS` or similar) while `autoMergeRequest` shows `null` the whole time. The authoritative check for queue state is GraphQL `pullRequest { isInMergeQueue, mergeQueueEntry { state position } }` — never infer queue status from the auto-merge fields in either direction.
+6. **Escalated to t/4660 (DevOps) at this recurrence** — this isn't just a point-of-use lesson anymore. PR triage's `approved-not-armed` classifier had the exact same blind spot (reading `autoMergeRequest` instead of actual merge-queue state); DevOps is fixing the classifier to read true merge-queue state directly. The fix closes the automated-tooling instance of this facet; agents should still apply preventions #4/#5 by hand until it lands.
 
-**Status:** Active — 1 instance (DebateUI p/689#5). Deterministic usage error.
+**Status:** Active — 15 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`; Tech Lead p/335#223/#224 — same `autoMergeRequest`-null false negative on PR #4156, self-corrected after Sage independently confirmed via GraphQL; DevOps Lead p/26#309 — `gh pr view --json isInMergeQueue` exit 1, same field-gap; DebateUI p/689#7 — `gh pr view --json ...,isInMergeQueue` exit 1, same field gap, yet another agent; Azure p/105#40 — `gh pr view --json ...,mergeQueueEntry` exit 1, sibling field to `isInMergeQueue`, same gap, broadening the facet to cover both merge-queue-related GraphQL fields; DebateWorkspace p/846#16 — `isInMergeQueue` exit 1 again, resolved via `mergeCommit.oid`; DevOps Lead p/26#355 — `gh pr view --json merged,mergedAt,mergeCommit` exit 1, `merged` isn't a valid field; use `state` with value `MERGED` instead; DevOps Lead p/26#365 — `isInMergeQueue` exit 1 yet again, resolved via `mergeStateStatus`; Tech Lead p/335#255 — `isInMergeQueue` exit 1 once more, resolved via `autoMergeRequest` and inline `--jq`; DevOps Lead p/26#379 — `gh pr list --json ...,isInMergeQueue` exit 1, same gap on `gh pr list` rather than `gh pr view`, broadening which subcommand it applies to; DevOps Lead p/26#388 — `gh pr view --json isInMergeQueue` exit 1 yet again, resolved via `autoMergeRequest`/`mergeStateStatus`). Deterministic usage error. **Prevention escalated to t/4660** (DevOps) — fixing the `approved-not-armed` PR-triage classifier's same blind spot.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -5033,6 +5066,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-12 — DevOps Lead (p/26#155): copied `merge-guard-predicate.mjs` to scratchpad; `import` failed `ERR_MODULE_NOT_FOUND gate-telemetry.mjs`. Resolved by `git worktree add --detach <sha>` and probing the module in place.
+- 2026-11-03 — Tech Lead (p/335#277): extracted `dependabot-enqueue-sweep.mjs` alone into a temp dir for a read-only live-fire run; failed `ERR_MODULE_NOT_FOUND` for its sibling `./enqueue-pr.mjs`. Resolved by extracting the sibling from the same branch alongside it, then rerunning. New prevention: grep a module's relative imports before isolating it, as a faster check than discovering missing siblings one at a time.
 
 **Root Cause:** ES modules resolve sibling imports relative to the file's location on disk. A lone copy in the scratchpad has no siblings — all relative imports fail at runtime. The file works only when loaded from a directory that contains its full dependency graph.
 
@@ -5040,8 +5074,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 1. **To probe or test a PR module, check out the PR head in a detached worktree:** `git worktree add --detach <path> <sha>`. The full module graph is present and relative imports resolve correctly.
 2. **Do not copy individual files to the scratchpad for import/require testing.** Copying is safe for static analysis (reading, grepping) but not for execution.
 3. **`ERR_MODULE_NOT_FOUND` on a sibling module** (not a package) is a diagnostic signal that the file was loaded outside its source tree.
+4. **Before isolating an ESM module for a dry run, grep its relative imports first** (`grep -n "^import.*from ['\"]\./" <file>`) — extract every sibling it names alongside it, rather than discovering missing ones one `ERR_MODULE_NOT_FOUND` at a time.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#155).
+**Status:** Active — 2 instances (DevOps Lead p/26#155; Tech Lead p/335#277).
 
 **Applies To:** All agents probing or testing ES modules from PRs or branches.
 
@@ -5196,24 +5231,26 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #245 [Runtime] jq String Operations Error on Null Input — Guard with `// ""` Before Any String Op
+## #245 [Runtime] jq String/Array Operations Error on Null Input — Guard with `// ""` or `// []` Before Any Op That Assumes Non-Null
 
-**Pattern:** An agent pipes a JSON field into a jq string operation (`gsub`, `ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase`, etc.). The field is null in some records. jq errors: `null (null) and string ("…") cannot be iterated over` or similar. The pipeline aborts or silently drops rows.
+**Pattern:** An agent pipes a JSON field into a jq string operation (`gsub`, `ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase`, etc.) or iterates it as an array (`.field[] | ...`). The field is null in some records (e.g. `comments` is null when a PR has none, rather than an empty array). jq errors: `null (null) and string ("…") cannot be iterated over`, `Cannot iterate over null (null)`, or similar. The pipeline aborts or silently drops rows.
 
 **Instances:**
 - 2026-10-12 — Tech Lead (p/335#141): `.body[0:150] | gsub("…"; "…")` — `.body` was null for some records; `gsub` errored on null. Resolved by guarding: `(.body // "")[0:150] | gsub(…)`.
+- 2026-10-30 — Tech Lead (p/335#233, **iterate-null facet**): `gh pr view --json comments,reviews --jq '...'` exited 1 "cannot iterate over: null" — `comments` was null (not an empty array) on that PR, and the jq expression iterated it without a guard. Resolved by dropping the `comments` half of the query; `reviews` data alone was sufficient.
 
-**Root Cause:** jq string functions expect a string on the left-hand side. A null input is not coerced to an empty string — it propagates the type error. JSON fields that are optional or not always populated can be null even when the schema implies string.
+**Root Cause:** jq string functions expect a string on the left-hand side, and `[]` iteration expects an array; neither coerces null — both propagate a type error. JSON fields that are optional or not always populated (an empty list rendered as `null` rather than `[]`) can be null even when the schema implies string or array.
 
 **Prevention:**
 1. **Guard every string field before a string op:** `(.field // "")` replaces null with empty string. E.g. `(.body // "")[0:150] | gsub(…)`.
-2. **Use `select(.field != null)` or `select(.field)` to filter records before string ops** when null rows should be dropped rather than defaulted.
-3. **`ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase` all have the same null-intolerance.** Apply the `// ""` guard consistently whenever the input field is optional.
-4. **A jq pipeline that works on a sample may silently fail on production data** where optional fields are null — always test against a full data slice or add a null guard defensively.
+2. **Guard every array field before iterating it:** `(.field // [])[] | ...` replaces null with an empty array before the `[]` iteration, so a null field produces zero iterations instead of a crash.
+3. **Use `select(.field != null)` or `select(.field)` to filter records before string ops** when null rows should be dropped rather than defaulted.
+4. **`ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase` all have the same null-intolerance** for strings; `[]` iteration has the same intolerance for arrays. Apply the `// ""` or `// []` guard consistently whenever the input field is optional.
+5. **A jq pipeline that works on a sample may silently fail on production data** where optional fields are null — always test against a full data slice or add a null guard defensively.
 
-**Status:** Active — 1 instance (Tech Lead p/335#141).
+**Status:** Active — 2 instances (Tech Lead p/335#141; Tech Lead p/335#233 — iterate-null facet, `comments` field).
 
-**Applies To:** All agents writing jq expressions against JSON fields that may be null or absent.
+**Applies To:** All agents writing jq expressions against JSON fields that may be null or absent, whether used as a string or iterated as an array.
 
 ---
 
@@ -5283,6 +5320,10 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Pattern:** An agent runs `gh pr merge <N> --squash --match-head-commit <short-sha>` using an abbreviated commit SHA (7–8 hex chars). The call is rejected with a GraphQL coercion error. `--match-head-commit` passes the value directly to GitHub's GraphQL API, which expects a full 40-character OID. An abbreviated SHA is not a valid OID and fails schema validation before the merge is attempted.
 
+**Facet — a full-length but WRONG SHA fails differently:** instead of an abbreviated SHA, the agent hand-copies or reconstructs a full 40-char-looking SHA that is actually mis-copied or truncated-and-refilled, sharing only a short prefix with the real head. Because the value passes GraphQL's format validation (it's syntactically a valid OID), the error is NOT a coercion error — it's "Head branch was modified. Review and try the merge again," GitHub's generic head-mismatch message. The underlying cause and fix are identical (never hand-type or reconstruct the OID; always read it fresh), but the diagnostic signature differs from the abbreviated-SHA case.
+
+**Facet — a CORRECT SHA rejected because GitHub's API hasn't caught up with the push yet:** the agent does everything right — pushes, then reads the fresh `headRefOid`, then arms with `--match-head-commit`. The call is STILL rejected: "expected head oid does not match the current head oid." The push genuinely succeeded; GitHub's API/GraphQL layer just hasn't propagated the new head yet at the moment of the merge call, a few seconds of lag. Retrying the identical command a few seconds later succeeds with no other change. This facet has no user error at all — it's pure propagation latency.
+
 **Instances:**
 - 2026-10-15 — ServerAPI (p/504#21): `gh pr merge 3301 --squash --match-head-commit aa938981` (8 chars) rejected with GraphQL coercion error. Resolved by re-running with `$(gh pr view 3301 --json headRefOid -q .headRefOid)`.
 
@@ -5292,8 +5333,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 1. **Always supply the full 40-char SHA to `--match-head-commit`:** use `$(gh pr view <N> --json headRefOid -q .headRefOid)` — never use a short SHA from `git log --oneline` or `git show --stat HEAD`.
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
+4. **"Expected head oid does not match the current head oid" immediately after a push, with a freshly-read SHA, is propagation lag, not a mistake** — wait a few seconds and retry the identical command before investigating anything else.
 
-**Status:** Active — 11 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 18 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`; Azure p/105#37 — short SHA `c69a0754` passed to PR #3923's merge, same GraphQL coercion failure, same fix; DevOps Worker p/749#41 — **Facet instance**: full-length but mis-copied SHA on PR #3949 (shared only an 8-char prefix with the real head) → "Head branch was modified. Review and try the merge again," not a coercion error; fixed by re-fetching `headRefOid` fresh; DevOps Lead p/26#294 — short SHA `bebce638` passed to `--match-head-commit`, same coercion error, same fix; Tech Lead p/335#201 — **Propagation-lag facet**: correct, freshly-read SHA rejected with "expected head oid does not match the current head oid" immediately after push; retried a few seconds later, succeeded with no other change; PowerShell p/20#134 — hand-typed 8-char SHA rejected with GraphQL coercion error, fixed by fetching full SHA via `gh pr view --json headRefOid --jq .headRefOid`; Computational Linguist p/7#165 — short SHA `8ed24263` typed instead of read, same coercion error, same fix; DebateWorkspace p/846#3 — short SHA `7e2a31ad` typed from a ping instead of resolved, same coercion error, same fix; Rosetta Stone p/6#108 — short SHA `1e209383` hand-typed, same coercion error, same fix). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5570,6 +5612,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-17 — Tech Lead (p/335#156, PR #3196): `--auto` rejected on a draft PR. Resolved: ran `gh pr ready <N>` to mark it ready for review, then re-armed successfully.
+- 2026-10-31 — DevOps Lead (p/26#328, PR #4237): `gh pr merge --auto --squash --match-head-commit <sha>` returned exit 1 "Pull request is a draft (enablePullRequestAutoMerge)." Same mechanism — tried to arm before marking ready. Resolved: `gh pr ready <N>` first, then re-ran the merge-arm command successfully.
 
 **Root Cause:** GitHub enforces that draft PRs cannot be merged (auto or manual). The root AGENTS.md already states "Never arm consult-hold, joint-gv or draft PRs" — the failure was not checking draft state before arming.
 
@@ -5578,7 +5621,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The root AGENTS.md rule is authoritative:** "Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`." Check all four conditions before arming.
 3. **`gh pr merge --auto` rejecting immediately** (not after CI) is a reliable diagnostic that the PR state itself is the blocker — check draft, base branch, and hold labels.
 
-**Status:** Active — 1 instance (Tech Lead p/335#156, PR #3196).
+**Status:** Active — 2 instances (Tech Lead p/335#156, PR #3196; DevOps Lead p/26#328, PR #4237).
 
 **Applies To:** All agents arming auto-merge; always check `isDraft`, base branch, and hold labels before calling `gh pr merge --auto`.
 
@@ -5658,7 +5701,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 5 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool).
+**Status:** Active — 13 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call; DevOps Lead p/26#304 — `pwsh -File ... | Out-String -Width 300` from Bash, same "command not found"; fixed by re-running via the PowerShell tool with `Format-List` instead; DevOps Lead p/26#316 — `pwsh -File ... | Out-String` from Bash, same mechanism, same day as the previous instance; fixed by dropping the pipe since the script already writes formatted output straight to stdout; DevOps Lead p/26#319 — `Format-List` piped across bash `|`, same "command not found"; fixed by moving the pipe inside one `pwsh -Command "... | Format-List"` invocation; DevOps Lead p/26#323 — `pwsh -NoProfile -File ... | ConvertTo-Json -Depth 6` from Bash, same mechanism; fixed with a single `pwsh -NoProfile -Command "& '...' -Repo ... | ConvertTo-Json -Depth 6"` invocation; DevOps Lead p/26#331 — `pwsh -File ... | ConvertTo-Json` from Bash exits 127, same mechanism; fixed by wrapping the whole call+pipe in one `pwsh -NoProfile -Command "& '<script>' -Repo ... | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#348 — `pwsh.exe ... | Out-String` from Bash, exit 127 "Out-String: command not found," same mechanism; fixed by moving the whole pipeline inside one `pwsh -Command` invocation; DevOps Lead p/26#389 — `pwsh -NoProfile -File script.ps1 ... | Format-List` from Bash, same "Format-List: command not found," same mechanism; fixed by wrapping the whole pipeline inside one `pwsh -NoProfile -Command "..."` invocation).
 
 **Applies To:** All agents running `pwsh -Command "..."` or `pwsh -File` from the Bash tool with PowerShell cmdlets in the pipeline; switch to the PowerShell tool when the full command needs PS cmdlets.
 
@@ -5793,6 +5836,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-19 — Tech Lead (p/335#161): `.name|startswith()` errored on a `statusCheckRollup` entry whose `.name` was null. The entry was a status context (`.context` was present). Resolved: used `(.name // .context // "") as $n` before string ops.
+- 2026-11-02 — Tech Lead (p/335#265): `test()` on `.name` errored again on the same null-`.name` shape; didn't need that output after all, read the lint step in `ci.yml` directly instead. Confirms the guard `(.name // .context // "")` as the fix when the output IS needed.
 
 **Root Cause:** GitHub's PR check rollup contains two kinds of entries: check runs (GitHub Actions, expose `.name`) and status contexts (external CI systems, expose `.context`). Neither field is always present; a consumer that reads only `.name` will see null on status context entries.
 
@@ -5801,7 +5845,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Check both fields when filtering or matching:** a check run has `.name`; a status context has `.context`. Neither is guaranteed on every entry.
 3. **`.name` null on a rollup entry** is a reliable diagnostic for a status context entry — check whether `.context` is the intended field.
 
-**Status:** Active — 1 instance (Tech Lead p/335#161).
+**Status:** Active — 2 instances (Tech Lead p/335#161; Tech Lead p/335#265).
 
 **Applies To:** All agents processing `gh pr view --json statusCheckRollup` entries with string operations on the name field.
 
@@ -5901,8 +5945,10 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 1. **Before querying the GHCR packages API, check whether the deploy workflow failure log already answers the question.** It typically surfaces missing `sha-<commit>` tags directly — no API call needed.
 2. **If a packages API call is necessary, confirm the token has `read:packages` scope first** (`gh auth status` shows current scopes). A 403 here is a scope problem, not a permissions or visibility problem.
 3. **URL-encode the package name carefully** — slashes and colons in container image names must be percent-encoded; "package not found" on a known package is a reliable diagnostic for encoding error.
+4. **If blocked, skip the check and dispatch the image build directly for the needed SHA** (`container.yml` with push=true) rather than trying harder to confirm existence first — this unblocks the deploy without waiting on scope fixes.
+5. **At 4 instances, this needs a mechanism, not just a lesson — tracked on t/4597** (DevOps): `deploy-azure.yml` should build the image when it's missing, or a one-command deploy helper should handle this automatically.
 
-**Status:** Active — 3 instances (DevOps Lead p/26#188; DevOps Lead p/26#218 — `gh api orgs/.../packages/container/taxonomy-editor/versions` 403; confirmed build success via `gh run view --json conclusion` instead; DevOps Lead p/26#276 — same endpoint 403'd; confirmed via `gh run view --json jobs` on the `container.yml` run, "Verify per-SHA tag exists in GHCR after push" + "Build and push" both `success`).
+**Status:** Active — 6 instances (DevOps Lead p/26#188; DevOps Lead p/26#218 — `gh api orgs/.../packages/container/taxonomy-editor/versions` 403; confirmed build success via `gh run view --json conclusion` instead; DevOps Lead p/26#276 — same endpoint 403'd; confirmed via `gh run view --json jobs` on the `container.yml` run, "Verify per-SHA tag exists in GHCR after push" + "Build and push" both `success`; Tech Lead p/335#195 — same 403; skipped the check and dispatched `container.yml` push=true for the SHA directly, then deployed; DevOps Lead p/26#334 — same 403; not a blocker, the build's own "Verify per-SHA tag exists in GHCR after push (t/4129)" step had already passed in CI, so skipped the redundant local check and proceeded to deploy; DevOps Lead p/26#376 — same 403; non-blocking, proceeded with the deploy workflow dispatch which verifies the digest itself and aborts fail-closed if missing). **Escalated to t/4597 (DevOps)** at 4 instances — a mechanism (auto-build on missing image, or a one-command deploy helper) rather than a repeated point-of-use workaround.
 
 **Applies To:** All agents diagnosing container image or tag availability; always check the deploy workflow log before reaching for the packages API.
 
@@ -6236,15 +6282,16 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 - 2026-10-20 — DevOps Worker (p/749#26): `writeFileSync('/tmp/acc-origin.json')` inside a Node one-liner in the Bash tool resolved to `C:\tmp\...` — which did not exist. The Bash tool had written to Git Bash's `/tmp` (which is `%TEMP%`). Resolved by moving the logic into a script that calls `git show` itself via `execFileSync`, eliminating the temp file.
 - 2026-10-20 — Diagnostics (p/9#86): Bash wrote `git show` output to `/tmp/acc-origin.json`; Node script returned ENOENT `C:\tmp\acc-origin.json`. Same root cause. Resolved by calling `git show` directly from Node via `execFileSync`.
 
-**Root Cause:** Git Bash applies MSYS path translations (`/tmp` → `%TEMP%`, `/c/` → `C:\`) to its own process and child processes that understand MSYS. Windows-native executables (Node.js, python3, etc.) are launched as ordinary Windows processes — they receive paths as literal strings and apply no MSYS translation. A `/c/Users/...` path handed to python3 or node.exe is not a valid Windows path.
+**Root Cause:** Git Bash applies MSYS path translations (`/tmp` → `%TEMP%`, `/c/` → `C:\`) to its own process and child processes that understand MSYS. Windows-native executables (Node.js, python3, etc.) are launched as ordinary Windows processes — they receive paths as literal strings and apply no MSYS translation. A `/c/Users/...` path handed to python3 or node.exe is not a valid Windows path. **This specifically applies to command-line argument tokens** — MSYS translates paths it recognizes as argv tokens, not literal strings embedded inside a quoted script body (e.g. Python source text passed via `-c`). A `/c/Users/...` string written INSIDE Python code text is never translated even once, regardless of how it's quoted — the fix must change the string itself (`C:/Users/...`), not the quoting around it.
 
 **Prevention:**
 1. **When invoking any Windows-native tool (Node.js, python3, etc.) from Bash, always use native Windows paths (`C:\...`), not MSYS paths (`/c/...` or `/tmp/...`).** The translation is Bash-only.
 2. **Never write to `/tmp` in Bash and then read it from a Windows-native tool.** Git Bash's `/tmp` maps to `%TEMP%`; the native tool sees `C:\tmp`, which typically does not exist.
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
+5. **A `/c/...` path written literally inside `-c` script text is never MSYS-translated, no matter the quoting** — translation only applies to recognized argv path tokens. Write `C:/...` directly in the embedded code, not just in the surrounding shell command.
 
-**Status:** Active — 8 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path).
+**Status:** Active — 14 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first; DevOps Lead p/26#289 — `python3 -c` FileNotFoundError reading Bash-written `/tmp/job_conclusions.tsv`; fixed by copying to the session's real Windows scratchpad path first; Tech Lead p/335#220 — `open('/c/Users/...')` in Python code FileNotFoundError; clarified mechanism: MSYS translates argv tokens, not strings embedded inside `-c` code; fixed with `C:/Users/...` form in the code itself; Computational Linguist p/7#172/#174 — `os.chdir('/c/...')` from a Python subprocess failed silently (empty stdout downstream, not a loud error); initially misattributed to a `git -C` interaction (#390), self-corrected to this entry; fixed by using `C:/...` paths throughout instead of mixing POSIX paths into Python; Shared Lib p/5#61 — `open('/c/Users/...')` FileNotFoundError despite the file existing; fixed with Windows-style `C:\Users\...` path string; Tech Lead p/335#255 — `node require('/tmp/x.json')` MODULE_NOT_FOUND, same `/tmp`-mount mechanism; fixed with inline `--jq` instead of a Node-read temp file).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -6608,7 +6655,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **`PathNotFoundError` from `az monitor log-analytics query`** is the diagnostic for passing a workspace name instead of its GUID.
 3. **The GUID is stable** — it can be cached in `deploy/azure/runbooks/deployment-facts.md` alongside other workspace identifiers to avoid a lookup on every query session.
 
-**Status:** Active — 2 instances (DevOps Lead p/26#231; DevOps Lead p/26#250 — `log-aitriad-kvwl3nywge4iw` by name; fix: `az monitor log-analytics workspace show --query customerId` first).
+**Status:** Active — 3 instances (DevOps Lead p/26#231; DevOps Lead p/26#250 — `log-aitriad-kvwl3nywge4iw` by name; fix: `az monitor log-analytics workspace show --query customerId` first; DevOps Lead p/26#341 — same workspace-name-instead-of-GUID mistake, same fix).
 
 **Applies To:** All agents querying Azure Log Analytics; `-w` requires the workspace `customerId` GUID, not the workspace name.
 
@@ -6846,6 +6893,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-20 — DebateTool (p/70#77): `sha=$(gh pr view ...) && gh pr merge ... "$sha"` refused by a hook that couldn't verify the compound wasn't a destructive git command. Resolved by splitting into two calls.
+- 2026-10-26 — DebateTool (p/70#80): `gh pr merge 3903 --auto --squash --match-head-commit "$HEAD"` with `$HEAD` set via `$(gh pr view ... -q .headRefOid)` in the same command — refused for the same reason. Resolved identically: separate `gh pr view --json headRefOid` call to get the SHA as a literal, then a plain `gh pr merge --match-head-commit <literal-sha>` call.
 
 **Root Cause:** Hooks often pattern-match command strings. A compound command containing both a `$(...)` subshell and `gh pr merge` may trigger a git-command guard. Splitting makes each call independently evaluable.
 
@@ -6854,7 +6902,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **This is the documented two-command form** (AGENTS.md Self-Merge Protocol); prefer the PowerShell tool for this sequence — less likely to trigger git-command hooks.
 3. **Two calls make the SHA explicit and reviewable** — always the safer form.
 
-**Status:** Active — 1 instance (DebateTool p/70#77).
+**Status:** Active — 2 instances (DebateTool p/70#77; DebateTool p/70#80 — same mechanism, same agent, 6 days apart).
 
 **Applies To:** All agents running `gh pr merge --match-head-commit` via Bash; split SHA capture and merge into two tool calls to avoid hook false positives.
 
@@ -7001,29 +7049,28 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #345 [Build] Fresh Worktree Has No `node_modules` — `mklink /J` Fails in Git Bash; Use PowerShell `New-Item -ItemType Junction`
+## #345 [Build] Fresh Worktree Has No `node_modules` — AMENDED: Never Junction It to the Shared Checkout; Run `pnpm install` in the Worktree Instead
 
-**Pattern:** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). Fix: create `node_modules` junctions from PowerShell and run tools from there.
+**AMENDMENT (2026-11-03, Tech Lead p/335#282, t/4815):** This entry's ORIGINAL prevention — junction a fresh worktree's `node_modules` to the shared checkout's via PowerShell `New-Item -ItemType Junction` — is the exact hazard that caused #420's shared-state corruption incident. On pnpm 11, `pnpm exec` (which the pre-push hook calls) auto-installs the whole workspace and writes new links straight through the junction into the shared directory. Three other worktrees had followed this entry's original advice and were unlinked as part of the incident cleanup. **The corrected guidance is: run `pnpm install` inside the worktree — never junction `node_modules` to the shared checkout in either direction.** See #420 (the incident this entry's original advice caused) and the Windows Junction Trap entry (the sibling hazard in the reverse direction — junctioning a worktree's `node_modules` FROM the shared tree instead of TO it). The original pattern/root-cause text below is kept for history; follow the amended prevention, not the original.
+
+**Pattern (as originally observed, now superseded by the amendment above):** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). The ORIGINAL fix — create `node_modules` junctions from PowerShell and run tools from there — is now known to be unsafe; see the amendment above.
 
 **Instances:**
 - 2026-10-21 — Tech Lead (p/335#180): fresh worktree, `ls eslint.config.*` exited 2; `cmd //c mklink /J` from Git Bash → "Invalid switch". Resolved by creating junctions with `New-Item -ItemType Junction` (repo root, `lib/`, `taxonomy-editor/`) in PowerShell, then running eslint, tsc and vitest.
+- 2026-11-03 — Tech Lead (p/335#271, **rmdir counterpart, chain-cut consequence**): removing a temporary `node_modules` junction via `cmd //c rmdir poviewer\\node_modules` from Git Bash failed "The system cannot find the file specified" — MSYS mangled the backslash path passed to `cmd //c`. Because it was the first link of an `&&` chain, the following commit and push never ran (same chain-cut genus as #96). Resolved by removing the junction from PowerShell (guarded by `Test-Path`), then committing and pushing as a separate command.
 
-**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating Windows junctions from Git Bash fails because Git Bash rewrites `//c` path prefixes (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` is not subject to MSYS translation.
+**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating OR removing Windows junctions from Git Bash fails because Git Bash rewrites `//c` prefixes and backslash paths (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` and junction removal are not subject to MSYS translation.
 
-**Prevention:**
-1. **In a fresh worktree, create `node_modules` junctions before running any JS/TS tools:**
-   ```powershell
-   $wt = "C:\Users\jsnov\repos\ai-triad-research\.worktrees\<name>"
-   New-Item -ItemType Junction "$wt\node_modules" -Target "$root\node_modules"
-   New-Item -ItemType Junction "$wt\lib\node_modules" -Target "$root\lib\node_modules"
-   New-Item -ItemType Junction "$wt\taxonomy-editor\node_modules" -Target "$root\taxonomy-editor\node_modules"
-   ```
-2. **Never use `cmd //c mklink` from Git Bash** — MSYS rewrites the path. Use PowerShell `New-Item -ItemType Junction` instead.
-3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file.
+**Prevention (AMENDED — follow this, not the original junction-based advice):**
+1. **In a fresh worktree, run `pnpm install` (or `npm ci`) inside the worktree itself.** This is slower than a junction but is the only safe option — a junctioned `node_modules` lets anything that installs inside the worktree (including an auto-install triggered by `pnpm exec` from a pre-push hook) write through the junction into the shared checkout's `node_modules`, corrupting it for every other agent. See #420 for the full incident this caused.
+2. **Never create a `node_modules` junction between a worktree and the shared checkout, in EITHER direction** — not worktree-to-shared (this entry's original, now-retracted advice) and not shared-to-worktree (the Windows Junction Trap entry's case). Both directions let a write on one side corrupt the other.
+3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file — the fix is `pnpm install` in the worktree, not a junction.
+4. **(Historical, still valid for any OTHER junction use, not `node_modules`) Never use `cmd //c mklink` OR `cmd //c rmdir` from Git Bash on a junction path** — MSYS rewrites the path either direction. Use PowerShell `New-Item -ItemType Junction` to create, and PowerShell `rmdir`/`Remove-Item` (guarded by `Test-Path`) to remove, for any junction that isn't `node_modules`.
+5. **Never chain a junction create/remove with a commit/push in one `&&` call** — if the junction operation fails (as it will from Git Bash), the chain cuts before the commit/push ever runs, same as #96. Run the junction operation and the git operations as separate commands.
 
-**Status:** Active — 1 instance (Tech Lead p/335#180).
+**Status:** Amended (2026-11-03, t/4815) — original junction-based prevention retracted as actively harmful; 2 instances of the original pattern remain on record (Tech Lead p/335#180; Tech Lead p/335#271 — rmdir counterpart), plus the incident that prompted this amendment (#420, Tech Lead p/335#273/#282).
 
-**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; create `node_modules` junctions via PowerShell before running any JS/TS toolchain.
+**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; run `pnpm install`/`npm ci` inside the worktree — never junction `node_modules` to or from the shared checkout.
 
 ---
 
@@ -7510,3 +7557,1068 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (ServerAPI p/504#31, PR #3812).
 
 **Applies To:** All agents rebasing feature branches with multiple intermediate commits past a fast-moving `origin/main`; diff branch-tip content against main before resolving rebase conflicts.
+
+---
+
+## #370 [Process] `install-if-stale.sh` Hardcodes `npm ci` Regardless of Detected Lockfile — Fails EUSAGE in pnpm Subprojects
+
+**Pattern:** `sh .githooks/install-if-stale.sh` runs on a fresh worktree. The script's lockfile-detection logic correctly finds `pnpm-lock.yaml` to hash for staleness-checking, but then unconditionally shells out to `npm ci` regardless of which lockfile it found. In a pnpm-managed subproject (e.g. `taxonomy-editor/`), this fails with `EUSAGE` ("no package-lock.json") every time — the script can never succeed there.
+
+**Instances:**
+- 2026-10-26 — ServerAPI (p/504#37): `sh .githooks/install-if-stale.sh` on a fresh worktree errored EUSAGE. Resolved by running `pnpm install --frozen-lockfile` directly in `taxonomy-editor/`, bypassing the script. Ticket filed: t/4526 (DevOps).
+
+**Root Cause:** The script's lockfile-detection path and its install-execution path are decoupled — detection correctly branches on which lockfile exists, but execution does not; it always calls `npm ci`. This is a genuine bug in the shared hook script, not a usage error — every pnpm-managed subproject hits it on every fresh worktree.
+
+**Prevention:**
+1. **The actual fix is tracked on t/4526 (DevOps)** — the script needs to branch its install command on the same lockfile detection it already does for staleness-hashing.
+2. **Until fixed, skip the script for pnpm subprojects:** run `pnpm install --frozen-lockfile` directly in the subproject directory instead of relying on `install-if-stale.sh`.
+3. **`EUSAGE: no package-lock.json` from a script that detected a different lockfile type** is the diagnostic — the script's detection and execution paths have diverged.
+
+**Status:** Active — 1 instance (ServerAPI p/504#37). Fix tracked on t/4526.
+
+**Applies To:** All agents running `install-if-stale.sh` in a pnpm-managed subproject's fresh worktree; use `pnpm install --frozen-lockfile` directly until t/4526 lands.
+
+---
+
+## #371 [Process] "CI Green" Is Not "Deployable" — a Container Build Is a Separate Dispatch From CI
+
+**Pattern:** CI (tests, lint, type-check) runs and concludes green on a commit SHA. Both the agent attempting a prod deploy and a second agent reviewing the plan treat "CI green" as sufficient evidence the SHA is deployable. In fact, the container image for that SHA is built by a separate, independently-triggered dispatch (`container.yml` or equivalent) — CI passing says nothing about whether that image build ran, or succeeded, or even started. A prod deploy preflight check catches the gap (no GHCR image exists for the SHA) before any damage, but only because preflight checks for the image explicitly; nothing upstream of preflight does.
+
+**Instances:**
+- 2026-10-26 — Tech Lead (p/335#192): prod deploy run 40418133997 failed at preflight — no GHCR image existed for the SHA. Both the TL and DevOps had treated "CI green" as "deployable." The container build is dispatched separately from CI. Prod was untouched; preflight did its job.
+
+**Root Cause:** CI and the container build are two independent GitHub Actions workflows triggered by (possibly) the same push event, but with no ordering or dependency guarantee between them from an external observer's point of view — "CI succeeded" carries no information about the container workflow's state. Two different agents independently made the same incorrect inference, suggesting the conflation is not an individual mistake but a structural gap in what "ready to deploy" visibly means.
+
+**Prevention:**
+1. **Before any prod deploy, verify the GHCR image for the exact SHA actually exists** — don't infer it from CI's conclusion. Use the deploy preflight check's own method (or `gh run view` on the container workflow, or the per-SHA tag verification step — see #287/#368) rather than assuming.
+2. **Consider whether CI itself should gate on image existence**, not just test/lint/type-check success, so "CI green" and "deployable" converge into one signal — this is a process-design question for DevOps/TL, not something an individual agent can fix at point of use.
+3. **The preflight check worked as designed** — this entry exists to flag the upstream conflation (agents inferring deployability from the wrong signal), not to criticize preflight. Credit preflight; fix the inference.
+
+**Status:** Active — 1 instance (Tech Lead p/335#192). Two independent agents (TL, DevOps) made the same incorrect inference — worth flagging to DevOps as a candidate process-design gap, not just a point-of-use lesson.
+
+**Applies To:** All agents planning or reviewing a prod deploy; verify the container image exists for the exact SHA, never infer deployability from CI's conclusion alone.
+
+---
+
+## #372 [Build] `pnpm install --ignore-scripts` (or `--frozen-lockfile --prefer-offline`) Worktree Has No Electron Binary — Postinstall Download Skipped
+
+**Pattern:** An agent installs a fresh worktree's dependencies with `pnpm install --ignore-scripts`, or separately with `--frozen-lockfile --prefer-offline` (e.g. to speed up a partial setup, or to avoid an unrelated postinstall side effect). Electron's own postinstall step — which downloads the platform binary into `node_modules/electron/dist/` — is skipped along with every other package's postinstall (or simply isn't triggered by an offline/frozen install). Launching the Electron app from that worktree fails because `node_modules/electron/dist/electron.exe` doesn't exist, even though the `electron` package directory itself is present.
+
+**Instances:**
+- 2026-10-26 — Design (p/472#10): `ls node_modules/electron/dist/electron.exe` in a PR worktree exited 2 (not found). The worktree had been installed with `pnpm install --ignore-scripts`. Resolved by launching the worktree app with the main checkout's `electron.exe` instead.
+- 2026-11-02 — Rosetta Stone 3 (p/355#10): same missing-binary symptom, different trigger flags — `pnpm install --frozen-lockfile --prefer-offline` in a fresh worktree also skips Electron's binary download. Same workaround: launched the main checkout's `electron.exe` with the worktree's app directory as its argument (same Electron version).
+
+**Root Cause:** `--ignore-scripts` disables ALL packages' lifecycle scripts, including Electron's own postinstall binary downloader — there is no scoped way to skip other packages' scripts while keeping Electron's. Separately, `--frozen-lockfile --prefer-offline` installs don't trigger Electron's postinstall binary fetch either (whether because the download step itself needs network access that `--prefer-offline` suppresses, or for a related reason) — the package metadata and JS are present, but `dist/` is empty. Both flag combinations land in the same end state: the package exists, the platform binary doesn't.
+
+**Prevention:**
+1. **Don't use `pnpm install --ignore-scripts`, or `--frozen-lockfile --prefer-offline`, in a worktree that needs to launch the Electron app.** If scripts must be skipped or a fast/offline install is needed for another reason, either run `node node_modules/electron/install.js` manually afterward, or just use a full `pnpm install`.
+2. **If the binary truly isn't needed in that worktree** (e.g. only running `tsc`/`vitest`, not launching the app), launching with the main checkout's `electron.exe` (as a cross-worktree binary reference, pointed at the worktree's app directory) is a valid workaround — the binary itself doesn't depend on the worktree's source changes, as long as the Electron version matches.
+3. **`ls node_modules/electron/dist/electron.exe` exiting 2 (not found)** after any install that isn't a full default `pnpm install` is the diagnostic — check the install flags used before assuming a build or packaging bug.
+
+**Status:** Active — 2 instances (Design p/472#10 — `--ignore-scripts`; Rosetta Stone 3 p/355#10 — `--frozen-lockfile --prefer-offline`, broadening the trigger).
+
+**Applies To:** All agents installing dependencies with `--ignore-scripts` in a worktree that will run the Electron app (taxonomy-editor/, poviewer/, summary-viewer/).
+
+---
+
+## #373 [Process] Silencing `git worktree add`'s Output Masks Exit 128 — `cd` Into the Failed Target Resolves Upward to the Shared Checkout Root
+
+**Pattern:** An agent runs `git worktree add` with its output silenced (e.g. redirected or suppressed). The command fails with exit 128 because a leftover `.worktrees/<name>` directory already exists at the target path (see root cause below). Silencing the output means the agent never sees the failure; it proceeds to `cd` into that path. Because the directory is a plain leftover (not a real worktree — `git worktree add` never completed), `cd` succeeds into an ordinary directory, and subsequent git/pnpm commands that expect worktree context instead resolve upward to the nearest real git root: the shared checkout. An install command intended for the worktree (`pnpm install --ignore-scripts`) then runs at the shared checkout's root, reinstalling packages and overwriting files there — including wiping `taxonomy-editor/node_modules/electron/dist/electron.exe`.
+
+**Instances:**
+- 2026-10-26 — Design (p/472#12, p/472#14): `git worktree add` failed exit 128 (leftover `.worktrees/<name>` directory from an earlier `git worktree remove --force` that exited 0 but left the directory behind with ignored files like `node_modules` still inside — see root cause). Output was silenced, so the failure went unnoticed; `cd` into the leftover directory, then `pnpm install --ignore-scripts` ran at the shared checkout root, reinstalling 45 packages and wiping `electron.exe`. Resolved: re-ran Electron's `install.js` in the shared tree to restore `electron.exe` 45.0.0; native prebuilts (node-pty, onnxruntime) were intact; confirmed no tracked files changed. Recreated the worktree after verifying `git rev-parse --show-toplevel` equals the intended worktree path. Reproduced the trigger again on request, confirming the root cause.
+
+**Root Cause:** `git worktree remove --force` can exit 0 while leaving the `.worktrees/<name>` directory itself behind on disk, still holding ignored files (`node_modules`, build output) that aren't tracked by git and so aren't cleaned up by the remove operation. That surviving directory is exactly what makes a SUBSEQUENT `git worktree add` at the same path fail with exit 128 ("already exists"). If that failure's output is silenced, the agent has no signal that `add` never happened — `cd` into the leftover plain directory succeeds (it's a real directory, just not a git worktree), and any git or package-manager command run there that resolves context by walking up the directory tree finds the shared checkout's `.git`/`package.json` instead, operating there unintentionally.
+
+**Prevention:**
+1. **Never silence `git worktree add`'s output.** A failure here (typically exit 128, "already exists") is a critical signal — treat non-zero exit as a hard stop, not something to route around silently.
+2. **Before running ANY install or write command in what you believe is a worktree, assert it:** `git rev-parse --show-toplevel` must equal the exact worktree path you intended. If it resolves to the shared checkout root (or any other unexpected path), stop immediately — do not proceed with the install.
+3. **After `git worktree remove --force`, verify the directory is actually gone**, not just that git no longer tracks it as a worktree: check the path with `Test-Path`/`ls`. If it's unregistered but still present on disk, delete it explicitly before the next `git worktree add` at that path.
+4. **If a shared-checkout write is suspected, confirm scope with `git status --short` at the shared checkout root** before assuming damage — this incident had zero tracked-file impact (only the gitignored Electron binary and reinstalled node_modules were affected), which is why it resolved cleanly.
+
+**Status:** Active — 1 instance (Design p/472#12/#14), reproduced on request. Protect-Working-Builds near-miss; resolved with zero tracked-file loss.
+
+**Applies To:** All agents creating or removing worktrees; always check `git worktree add`'s exit code, and always verify `--show-toplevel` before installing or writing in what you believe is a worktree.
+
+---
+
+## #374 [Process] A WARN-FIRST `continue-on-error` Check Can Stay Permanently Red With No One Noticing
+
+**Pattern:** A CI step runs with `continue-on-error: true` (WARN-FIRST design) so its failure never blocks the workflow. A later, deliberate design decision changes a value that the step's own validation disagrees with — the step then fails on EVERY run, silently, forever, because nothing surfaces an ongoing red WARN-FIRST state to anyone. The condition is discovered only incidentally, by an agent running the local test suite for an unrelated reason.
+
+**Instances:**
+- 2026-10-26 — Azure (p/105#35): while touching `health-monitor.yml` for an unrelated ticket (t/4417), found `node --test operations/devops/scheduled-workflow-health.test.mjs` failing locally — `health-monitor.yml: maxSilentHours must be >= 12`, but the entry is `10` per t/4501's deliberate ruling (2x measured p95 ≈ 4.8h, intentionally below the lint's `>= 12` floor). Confirmed pre-existing on `origin/main` HEAD `4b0d3f96`, unrelated to the current change. CI never surfaces it because the step carries `continue-on-error: true` (WARN-FIRST per t/4058) — silently red every run. Not actioned (not the discovering agent's ticket); flagged for tracking.
+
+**Root Cause:** `continue-on-error: true` is designed to let a check warn without blocking — but it has no companion mechanism to ensure a persistently-red warn-first check is ever looked at. A one-time deliberate exception (t/4501's `maxSilentHours: 10` vs. the lint's general `>= 12` floor) created a permanent disagreement between a documented design decision and an automated check that was never updated to match. Nobody monitors the warn-first lane for standing red state; it is only found by accident.
+
+**Prevention:**
+1. **When a deliberate design decision conflicts with an existing automated check's rule, update the check** (relax the lint floor, add an explicit exception/allowlist) at the time the decision is made — don't leave the check red indefinitely.
+2. **A WARN-FIRST (`continue-on-error: true`) check that has been red for a long time is itself a signal worth surfacing** — consider a periodic digest or dashboard of warn-first failures so they don't persist unnoticed (candidate for whoever owns the t/4058 WARN-FIRST pattern).
+3. **If you discover a pre-existing red check unrelated to your current ticket, confirm it predates your change (`git log`/`gh api` on the base commit) and flag it rather than fixing it inline** — scope discipline, same as Claim Before Implement.
+
+**Status:** Active — 1 instance (Azure p/105#35). Design-tension class: a deliberate exception that was never reconciled with its own check's rule. Candidate process-design gap for whoever owns t/4501/t/4058.
+
+**Applies To:** All agents who discover a persistently-red `continue-on-error` check; flag rather than silently ignore, and consider whether the owning design decision needs reconciling with its check.
+
+---
+
+## #375 [Build] Worktree Path Guard Only Accepts the Relative `.worktrees/<name>` Form, Not an Absolute Path
+
+**Pattern:** An agent runs `git worktree add <absolute-path>/.worktrees/<name> -b <branch> origin/main`, constructing the full absolute path (e.g. `/c/Users/.../repos/ai-triad-research/.worktrees/<name>`). The worktree-isolation path guard blocks the command. The guard appears to only recognize the relative `.worktrees/<name>` form, issued from the repo root — an absolute path to the same location is treated differently even though it resolves to the identical directory.
+
+**Instances:**
+- 2026-10-26 — Computational Linguist (p/7#151, t/4473): `git worktree add` to an absolute `/c/...` path under `.worktrees/` was blocked by the path guard. Resolved by running the command from the repo root using the relative `.worktrees/<name>` form instead.
+
+**Root Cause:** The guard most likely pattern-matches the literal command string for the relative `.worktrees/` prefix rather than resolving the argument to a canonical path before checking it — an absolute path that resolves to the same location doesn't match the expected string pattern.
+
+**Prevention:**
+1. **Always use the relative `.worktrees/<name>` form for `git worktree add`**, run from the repo root: `git worktree add -b <branch> .worktrees/<name> origin/main`. Don't construct an absolute path even if you know it resolves correctly.
+2. **If a `git worktree add` with an absolute path is blocked by a guard, retry with the relative form from the repo root** before investigating further — this is the known workaround, not a sign of a broken path.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#151, t/4473).
+
+**Applies To:** All agents creating worktrees; always issue `git worktree add` with the relative `.worktrees/<name>` path from the repo root.
+
+---
+
+## #376 [Research] Hand-Typed Positional Label List Drifts From the Source — Use an Id-Keyed List With a Length Assert
+
+**Pattern:** An agent manually transcribes a list of labels (e.g. for a measurement sheet) as a positional list — values in order, no keys. The transcribed list has a different length than the source (86 vs. 84 in the observed case), and nothing catches the mismatch until downstream code indexes into the list and gets misaligned or out-of-range values. Positional transcription has no structural check against drift from the source.
+
+**Instances:**
+- 2026-10-26 — Computational Linguist (p/7#151, t/4473): a hand-typed positional label list was the wrong length (86 against 84) due to positional entry. Resolved by rewriting it as an id-keyed list with an assert on length.
+
+**Root Cause:** A positional list (plain array, order-dependent) has no inherent correctness check — adding, dropping, or miscounting an entry during manual transcription produces a list that is silently the wrong length or silently misaligned (same length, wrong order) with no error until something downstream notices. An id-keyed structure (dict/map keyed by a stable identifier) makes drift visible immediately: a missing or extra key is a structural difference, not a silent index shift.
+
+**Prevention:**
+1. **Never hand-transcribe a positional list from a source sheet/document when an id-keyed alternative is possible.** Key each entry by its stable id (not its position) so a transcription slip produces a visible missing/extra key rather than silent misalignment.
+2. **Always assert the expected length/count immediately after constructing a manually-transcribed list or dict**, before using it: `assert len(labels) == 84, f"expected 84, got {len(labels)}"`. This catches the exact failure mode observed here at construction time, not at first use.
+3. **A length mismatch between a transcribed list and its source is a transcription error, not a data problem** — recount the source and the transcription side by side rather than assuming the source changed.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#151, t/4473).
+
+**Applies To:** All agents manually transcribing ordered lists (label sets, option lists, lookup tables) from an external source; prefer id-keyed structures with a length assert over positional lists.
+
+---
+
+## #377 [Process] Referencing a Sibling Agent's Worktree Content Fails Once They Remove It — Don't Build on Borrowed, Transient State
+
+**Pattern:** An agent's script or command chain references content inside another agent's active worktree (e.g. a `sed`/`grep` lookup against a file path in a peer's `.worktrees/<their-ticket>` directory). The reference works while that worktree is alive. The moment the owning agent lands their work and removes the worktree (a normal, expected cleanup step), the referencing command breaks — the path no longer exists, with no advance warning to the agent depending on it.
+
+**Instances:**
+- 2026-10-27 — Computational Linguist (p/7#154, t/4556): a `sed -n … ; grep` chain exited 2 because it referenced the t/4471 code worktree, which had already been removed by its owner. Fixed by re-implementing the usage hook in the agent's own scratch code worktree instead of depending on the sibling's.
+
+**Root Cause:** A worktree's lifetime is controlled entirely by its owning agent's workflow (created, used, removed on land) — it is not a stable shared resource. Any cross-agent dependency on a specific worktree's content is implicitly coupled to that worktree still existing, with no mechanism to detect or warn when it's about to disappear.
+
+**Prevention:**
+1. **Never build a script or command chain that depends on another agent's active worktree path.** If you need the same logic or data, re-implement it in your own worktree/scratch space rather than referencing someone else's transient directory.
+2. **If you must reference a peer's in-progress work, read it from `origin/<their-branch>` (their pushed state) rather than their local worktree path** — a pushed branch persists independently of worktree cleanup.
+3. **`sed`/`grep`/file-read errors referencing a path under `.worktrees/`** that isn't your own are a signal to check whether that worktree still exists (`git worktree list`) before assuming the content itself is wrong.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#154, t/4556).
+
+**Applies To:** All agents writing scripts or lookups that reference file paths; never couple to a sibling agent's worktree lifetime.
+
+---
+
+## #378 [Build] Concurrent Review Sessions Collide on Electron's Hard-Coded `localhost:5173` — Never Kill an Unowned Dev Server
+
+**Pattern:** An agent's review/verification script launches (or expects) a Vite dev server, guarded by a check that aborts if port 5173 is already listening. Another session's Vite dev server has been running on that port since earlier — the Electron main process hard-codes `localhost:5173` as its dev-server URL, so any two concurrent sessions reviewing the Electron app collide on the same fixed port.
+
+**Instances:**
+- 2026-10-27 — Design: review script's guard aborted because port 5173 was already listening — another session's Vite dev server had been running there since 06:12. Resolved: left the other session's server alone, ran a second Vite instance on port 5191, and pointed the Electron window at it with electron-mcp `navigate` (p/472#17).
+
+**Root Cause:** The Electron main process reads a fixed `localhost:5173` dev-server URL rather than an env-var-configurable port. Two agents independently reviewing/testing the Electron app at the same time each try to bind the same port; whichever one runs second collides.
+
+**Prevention:**
+1. **Before launching a dev server for review, check if port 5173 is already in use.** If it is, don't assume it's stale — another session may own it.
+2. **Never kill a dev server you didn't start**, even if it's "in your way." Killing another agent's active server interrupts their session without warning.
+3. **Run your own Vite instance on a different port** (e.g. 5191) and point Electron's `navigate` (via electron-mcp or manual URL entry) at your port instead of the hard-coded default.
+4. **Consider whether Electron's dev-server URL should be configurable via env var** rather than hard-coded — a process-design candidate for whoever owns the Electron main process, to avoid this collision class entirely.
+
+**Status:** Active — 1 instance (Design p/472#17).
+
+**Applies To:** All agents running the Electron app's dev server for review or testing; check the port first, never kill an unowned server, use an alternate port + explicit navigate when 5173 is taken.
+
+---
+
+## #379 [Build] Vite's Served Root Is `src/renderer` — Served Paths Drop That Prefix, Causing False-Negative Fix-Verification Probes
+
+**Pattern:** An agent verifies a CSS/JS fix is actually being served by probing a URL path that mirrors the source file's repo-relative path (e.g. `/src/renderer/components/ExplainPanel.css`). Vite's configured root for this project is `src/renderer`, so served paths are relative to THAT root, not the repo root — the real served path drops the `src/renderer` prefix (e.g. just `/components/ExplainPanel.css` or similar). The mirrored-source-path probe 404s or doesn't match, producing a false negative: the agent concludes the fix isn't being served when it actually is.
+
+**Instances:**
+- 2026-10-27 — Design (p/472#17): a "does it serve the fix?" probe against a repo-relative-looking path gave a false negative for a correctly-serving dev server, because Vite's root (`src/renderer`) drops that prefix from served paths. Resolved after realizing the root-relative mismatch and probing the correct served path.
+
+**Root Cause:** Vite's `root` config option changes what "relative" means for served static assets — paths are served relative to the configured root, not the project/repo root. An agent that constructs a probe URL from the source file's repo-relative path (natural habit, since that's how you'd reference it in most other contexts) gets a path that doesn't exist in Vite's URL space.
+
+**Prevention:**
+1. **Check the Vite config's `root` option before constructing a probe URL** — the served path is relative to that root, not the repo root.
+2. **When a "does it serve the fix?" probe 404s or returns stale content, verify the URL path against Vite's actual root-relative convention before concluding the server isn't serving the fix.** A 404 here is as likely to be a path-construction error as a real serving problem.
+3. **Prefer probing via the browser/Electron window itself (render and visually or via DOM inspection confirm the fix) over raw URL path guessing**, when precision about Vite's root-relative path mapping isn't already known.
+
+**Status:** Active — 1 instance (Design p/472#17).
+
+**Applies To:** All agents probing a Vite dev server to verify a fix is served; account for the configured `root` when constructing probe URLs, don't assume repo-relative paths.
+
+---
+
+## #380 [Build] Command Substitution Expanding Hundreds of Paths Into argv Hits the Windows/MSYS Argument Limit
+
+**Pattern:** An agent builds a `git archive` (or similar) command by expanding a path list via command substitution: `git archive origin/main $(git ls-tree ... | grep <pattern>)`. The substitution produces hundreds of individual path arguments (863 in the observed case). The combined command line exceeds the Windows/MSYS argv length limit. The failure is "Argument list too long," but if that error isn't surfaced clearly to the downstream consumer, the pipe just produces an empty stream — looking like "no matching files" rather than a command-construction failure.
+
+**Instances:**
+- 2026-10-27 — Computational Linguist (p/7#157, t/4495): `git archive origin/main $(git ls-tree … | grep metadata.json)` failed "Argument list too long" (863 paths); the downstream tar reader got an empty stream. Fixed by archiving the whole tree (`git archive origin/main --format=tar | python …`) and filtering members in the reader instead of on the command line.
+
+**Root Cause:** Command substitution with a dynamically-sized result (one path per matched file) has no built-in cap — as the matched-file count grows, the expanded argv grows unbounded. Windows/MSYS enforces a lower argv length limit than native Linux, so a command that might work fine on a Linux CI runner can fail locally on Windows purely from argument count/length.
+
+**Prevention:**
+1. **Never pass a large, dynamically-sized path list as command-line arguments.** If the list could be more than a few dozen entries, don't build it via command substitution into argv.
+2. **Archive or process the whole tree/set, then filter downstream** — e.g. `git archive <ref> --format=tar | python -c "...filter by name inside the reader..."` instead of restricting the archive command itself to a path list.
+3. **"Argument list too long" (or a suspicious empty result from a long command substitution)** on Windows is a reliable diagnostic that the expanded path count exceeded the argv limit — move the filtering downstream.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#157, t/4495).
+
+**Applies To:** All agents constructing shell commands that expand a file/path list via command substitution; filter downstream instead of building a long argv on Windows.
+
+---
+
+## #381 [Build] pnpm's `hoisted` Linker Still Installs Per-Package `node_modules`, It Does Not Flatten the Whole Workspace
+
+**Pattern:** An agent checks for a dependency's presence by looking in a workspace package's `node_modules` (e.g. `lib/debate/node_modules/vite`), assuming that `nodeLinker=hoisted` means all workspace packages share one flattened dependency tree. The file isn't there, even though the package is listed as a dependency elsewhere in the monorepo and `hoisted` mode is configured. `hoisted` hoists dependencies WITHIN each workspace package's own `node_modules`, not into one shared root tree across all workspace packages.
+
+**Instances:**
+- 2026-10-27 — DebateTool (p/70#85): `ls node_modules/vite/package.json` returned "No such file or directory" after confirming `nodeLinker=hoisted`. Root cause: `vite`/`vitest` only existed inside `taxonomy-editor/`, `poviewer/`, `summary-viewer/`, `workflow-app/`'s own `node_modules` — not in `lib/`, `lib/debate/`, or the repo root. Confirmed via `find . -iname vitest -path "*.bin*"`. Resolved by adding `vite` as `lib/debate`'s own explicit devDependency rather than relying on hoisting to provide it.
+
+**Root Cause:** pnpm's `hoisted` linker mode flattens a SINGLE package's dependency tree into its own `node_modules` (eliminating nested duplicate copies within that package), but each workspace member in a pnpm monorepo still gets its own separate `node_modules` directory. A dependency declared only in one workspace package's `package.json` is not automatically visible from a sibling workspace package, regardless of linker mode.
+
+**Prevention:**
+1. **Don't assume `hoisted` mode means workspace-wide dependency sharing.** Each `package.json` in `pnpm-workspace.yaml` still needs its own explicit dependency declaration for anything it imports.
+2. **Before assuming a tool/library is available via hoisting, check that specific workspace package's own `node_modules`** (`ls <package-dir>/node_modules/<pkg>`), not just "somewhere in the monorepo."
+3. **If a tool is needed in a package that doesn't declare it, add it as that package's own `devDependency`** rather than relying on cross-package hoisting — this is the correct, durable fix (companion to #366: `npx tsx` MODULE_NOT_FOUND despite being in the pnpm store).
+
+**Status:** Active — 1 instance (DebateTool p/70#85).
+
+**Applies To:** All agents checking for a dependency's availability in a pnpm workspace; `hoisted` mode does not share dependencies across workspace packages.
+
+---
+
+## #382 [Process] `Import-Module` With a Repo-Relative Path From the Wrong cwd Silently Resolves Nothing, Producing a Bogus Session That Masquerades as a Slow/Broken API
+
+**Pattern:** An agent runs a PowerShell harness that dot-sources or `Import-Module`s a repo-relative path (`scripts/AITriad/...`) from a cwd other than the repo root (e.g. `operations/devops`). PowerShell doesn't error — it silently resolves nothing, leaving whatever session/auth object the script was building in a bogus, half-initialized state. Downstream, a GET request made with that bogus session hits an unauthenticated response (Easy Auth's HTML interstitial) instead of the real API — slow (7150ms) and wrong-shaped (HTML, not JSON). The symptom looks like a slow or broken API endpoint; the actual cause is three layers upstream, in the cwd.
+
+**Instances:**
+- 2026-10-27 — DevOps Lead (p/26#286, t/4499#9): ran a warm-path harness with repo-relative paths from `operations/devops` instead of repo root. `Import-Module`/dot-source silently resolved nothing from the wrong cwd, producing a bogus session object; the GET hit Easy Auth's unauthenticated HTML interstitial (7150ms, non-JSON) instead of the real API. Resolved by rerunning with explicit `./scripts/...` paths from repo root — clean 91ms result.
+
+**Root Cause:** `Import-Module`/dot-sourcing with a relative path resolves against the CURRENT cwd, and PowerShell does not error loudly when the resolved path doesn't exist in all cases — depending on how the script handles the failure, it can silently no-op and leave downstream state (like a session/auth object) in a bogus default state rather than throwing. The bogus session then produces a technically-successful-looking (if slow, wrong-shaped) HTTP response rather than an immediate, obvious auth error — masking the real cause behind a misleading performance/shape symptom.
+
+**Prevention:**
+1. **Always run PowerShell harnesses with repo-relative paths from the repo root**, or use absolute paths constructed from a known root (`$PSScriptRoot`-derived or similar) rather than assuming a particular cwd.
+2. **A surprisingly slow (multi-second) response that returns HTML instead of JSON is a signature of hitting an unauthenticated interstitial, not a real API performance issue** — check whether the session/auth setup actually succeeded before investigating "slowness."
+3. **If a harness depends on `Import-Module`/dot-sourcing a relative path, add an explicit existence check (`Test-Path`) immediately after**, and fail loudly if the module didn't actually load — don't let a silent no-op propagate into a bogus downstream state.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#286, t/4499#9).
+
+**Applies To:** All agents running PowerShell harnesses that import modules via relative paths; verify cwd and module load success explicitly rather than trusting silent resolution.
+
+---
+
+## #383 [Research] UTF-8 BOM in Corpus JSON Files Raises JSONDecodeError; a Silent `try`/`except` Masks the Undercounting
+
+**Pattern:** A corpus-scan loop opens JSON files with `json.load(open(f, encoding='utf-8'))`. Some files carry a UTF-8 byte-order mark (BOM). `encoding='utf-8'` does not strip the BOM, so `json.load` raises `JSONDecodeError: Unexpected UTF-8 BOM`. The loop's `try`/`except` catches this and silently skips the file, continuing the scan — so the final count is understated with no visible error, no warning, nothing flagging that files were dropped.
+
+**Instances:**
+- 2026-10-27 — PowerShell (p/20#131): `json.load(open(f, encoding='utf-8'))` threw `JSONDecodeError: Unexpected UTF-8 BOM` on some `qbaf-conflicts/*.json` files; a `try`/`except` in the corpus-scan loop silently skipped those files, understating counts. Fixed the encoding issue with `encoding='utf-8-sig'`; the compounding problem (silent skip) was caught only because the agent noticed the count looked low and investigated.
+
+**Root Cause:** Two independent issues compound: (1) some corpus JSON files were saved with a UTF-8 BOM (common from certain Windows tools/editors), and plain `utf-8` decoding doesn't strip it — `utf-8-sig` does, treating a BOM as optional and removing it if present. (2) A bare `try`/`except` around the per-file parse, written to make the scan resilient to bad files, instead makes data loss invisible — there's no log line, no counter, no signal that anything was skipped.
+
+**Prevention:**
+1. **Use `encoding='utf-8-sig'` when reading JSON files that might carry a BOM** — it transparently handles both BOM-prefixed and plain UTF-8 content, so it's a safe default for corpus JSON reads.
+2. **Never use a bare `try`/`except: continue` (or `pass`) in a scan loop without logging what was skipped and why.** At minimum, increment a skip counter and print/log the skipped file's name and the exception — a scan's summary should report "N files scanned, M skipped (reasons: ...)" rather than just the successful count.
+3. **A corpus scan's output count should always be checked against the expected file count** (`len(glob(...))` vs. files actually parsed) — a silent gap between the two is the signature of this exact failure mode.
+
+**Status:** Active — 1 instance (PowerShell p/20#131).
+
+**Applies To:** All agents writing corpus-scan loops over JSON files; use `utf-8-sig` for the encoding, and never let a `try`/`except` silently swallow a per-file parse failure without logging it.
+
+---
+
+## #384 [Build] Piping an Already-Deserialized PSCustomObject Into `ConvertFrom-Json` Chokes on PowerShell's Own Object-Literal Syntax
+
+**Pattern:** An agent pipes a PowerShell script's output through `ConvertFrom-Json`: `& script.ps1 | ConvertFrom-Json`. The script already returns a `PSCustomObject` (a deserialized .NET object), not a JSON string. `ConvertFrom-Json` expects a JSON string as input; when it receives an object instead, PowerShell's pipeline converts the object to its string representation first (PowerShell's own object-literal syntax, starting with `@`), and `ConvertFrom-Json` then fails trying to parse THAT as JSON — producing a confusing error that mentions `@` rather than anything about the real mismatch.
+
+**Instances:**
+- 2026-10-27 — DevOps Lead (p/26#291): `& script.ps1 | ConvertFrom-Json` failed because the script already returns a `PSCustomObject`. The error referenced "@" (PowerShell's object-literal syntax) rather than anything obviously related to a type mismatch. Resolved by dropping `ConvertFrom-Json` and using the object directly.
+
+**Root Cause:** `ConvertFrom-Json` is a string→object deserializer. When its pipeline input is already an object (not a string), PowerShell's own type coercion stringifies the object before handing it to the cmdlet, and that stringified form (PowerShell's `@{...}` hashtable/object literal syntax) is not valid JSON — so the parse fails on `@`, an error message that gives no hint the real problem is "this was already an object."
+
+**Prevention:**
+1. **Before piping a script's output into `ConvertFrom-Json`, check what the script actually returns.** If it already returns a PowerShell object (common for `.ps1` scripts that build and `return` a custom object/hashtable), skip `ConvertFrom-Json` entirely and use the object as-is.
+2. **`ConvertFrom-Json` is only needed when the upstream genuinely emits a JSON STRING** — typically from `Invoke-RestMethod -UseBasicParsing`, `curl`/`Invoke-WebRequest` content, or an external tool's JSON stdout. A `.ps1` script you control should just `return` an object if that's what's needed downstream.
+3. **A `ConvertFrom-Json` parse error mentioning `@` or PowerShell-style property syntax is the diagnostic** — it means the pipeline input was already an object, not a JSON string.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#291).
+
+**Applies To:** All agents piping PowerShell script output through `ConvertFrom-Json`; verify the upstream actually emits a JSON string before reaching for the cmdlet.
+
+---
+
+## #385 [Process] `Invoke-AsAgentApp -ScriptBlock` Runs Silently on Success — No Terminal Output Does Not Mean Failure
+
+**Pattern:** An agent runs `Invoke-AsAgentApp -Role reviewer -ScriptBlock {...}` in a PowerShell tool block. The command completes with no visible output and no error in the terminal — easily mistaken for a hang, a silent failure, or a no-op. In fact the call succeeded and had its intended effect (the review was posted); the function just doesn't echo anything on the success path.
+
+**Instances:**
+- 2026-10-27 — Quality/Tech Lead (p/447#32): `Invoke-AsAgentApp -Role reviewer -ScriptBlock {...}` ran with zero terminal output. Confirmed the review was actually posted via `gh pr view --json reviews` after the silent run.
+- 2026-10-27 — Quality/Tech Lead (p/447#35, t/4572, **realized cost**): the predicted damage materialized — PR #4002 received THREE duplicate `APPROVED` reviews from `ai-triad-reviewer-jpsnover[bot]` on the same commit. A cwd issue caused the first two `Invoke-AsAgentApp` calls to show no stdout (silent success, not failure), prompting a third retry attempt that also succeeded, posting a third review. Root mechanism: `pwsh -NonInteractive -Command "..."` run via the Bash tool doesn't surface PowerShell stdout without explicit `2>&1` and `Write-Host` inside a try/catch, compounding the silent-success problem with a silent-stdout problem.
+
+**Root Cause:** `Invoke-AsAgentApp` (and its wrapped `ScriptBlock`) doesn't print a confirmation or return value to the PowerShell host on the success path — the function's job is to execute the review action under the App's identity, not to report status. An agent used to commands that echo something on success may misread silence as a problem. **Compounding factor confirmed by the 2nd instance:** when invoked via `pwsh -NonInteractive -Command "..."` through the Bash tool, PowerShell's own stdout doesn't reach the Bash tool's output without explicit `2>&1` redirection and `Write-Host` calls inside a try/catch — so even a call that WOULD echo something on success can still appear silent purely from the Bash→pwsh invocation path, not from `Invoke-AsAgentApp` itself.
+
+**Prevention:**
+1. **After any `Invoke-AsAgentApp` call, verify the actual effect, not the terminal output.** For a review action: `gh pr view <N> --json reviews` and check the new review is present.
+2. **Treat "no output, no error" from `Invoke-AsAgentApp` as inconclusive, not as success or failure** — it tells you nothing either way. Always check the side effect.
+3. **Don't retry or re-run `Invoke-AsAgentApp` just because the terminal was silent** — a retry after a successful-but-silent first call could post a duplicate review/comment. Check first. **This is not hypothetical — it produced 3 duplicate approvals on PR #4002.**
+4. **When invoking `Invoke-AsAgentApp` via `pwsh -NonInteractive -Command "..."` through the Bash tool, always wrap the call in try/catch with explicit `Write-Host 'SUCCESS'` / `Write-Host "ERROR: $_"` and redirect `2>&1`** — this makes the Bash tool actually show PowerShell's output instead of appearing silent regardless of what `Invoke-AsAgentApp` itself does.
+
+**Status:** Active — 2 instances (Quality/Tech Lead p/447#32; Quality/Tech Lead p/447#35, t/4572 — realized cost: 3 duplicate approvals on PR #4002, with the Bash→pwsh stdout-capture gap as a compounding factor).
+
+**Applies To:** All agents calling `Invoke-AsAgentApp` for reviewer-App actions; always verify the side effect via `gh pr view`, never trust terminal silence as a signal.
+
+---
+
+## #386 [Process] GitHub Merge Queue and `gh pr merge --auto` Are Mutually Exclusive — Use `enqueuePullRequest` GraphQL Directly When a Queue Is Configured
+
+**Pattern:** An agent runs `gh pr merge --auto --squash` on a repo where a GitHub merge queue has been enabled for the target branch. The call fails with "Auto merge is not allowed for this repository" or "merge strategy for main is set by the merge queue." `gh`'s `--auto` flag arms classic server-side auto-merge, a mechanism distinct from and incompatible with merge-queue enqueueing — once a queue is configured for a branch, the classic auto-merge path is disabled for it.
+
+**Instances:**
+- 2026-10-27 — DevOps Lead (p/26#296, confirmed p/26#298): `gh pr merge --auto --squash` failed on `AI-Rosetta-Stone/app-scratch` (NOT `ai-triad-research`) with the merge-queue rejection. `app-scratch` is a designated scratch venue for t/4567's merge-queue live-fire proof; this repo's branch protection was deliberately configured with a merge queue earlier the same day. `ai-triad-research`'s own branch protection is untouched — confirmed by Sage's own PRs merging cleanly there in the same session. Resolved by calling the `enqueuePullRequest` GraphQL mutation directly with `expectedHeadOid` instead of `gh pr merge`.
+
+**Root Cause:** GitHub exposes two separate, mutually-exclusive merge-automation mechanisms per branch: classic auto-merge (what `gh pr merge --auto` arms) and the merge queue (an org-level feature, enqueued via the `enqueuePullRequest` GraphQL mutation). Configuring a merge queue for a branch disables classic auto-merge for that branch; `gh`'s CLI has no `--enqueue` flag, so a queue-enabled repo requires calling the GraphQL mutation directly.
+
+**Prevention:**
+1. **Before assuming `gh pr merge --auto` will work on an unfamiliar repo, check whether branch protection has a merge queue configured** (`gh api repos/{owner}/{repo}/branches/{branch}/protection` — look for merge-queue-related fields) — don't assume every repo behaves like the one you usually work in.
+2. **If a merge queue is configured, enqueue via the `enqueuePullRequest` GraphQL mutation** with `pullRequestId` and `expectedHeadOid` (the pinned-head equivalent of `--match-head-commit`) instead of `gh pr merge --auto`.
+3. **"Auto merge is not allowed for this repository" / "merge strategy ... is set by the merge queue"** is the diagnostic for this exact mismatch — it is not a permissions or auth problem.
+4. **Correction (2026-10-28):** `ai-triad-research` has since ADOPTED a merge queue on `main` itself (t/4567, C4 landed as t/4580, PR #4017) — the root AGENTS.md Pre-Self-Merge Verification section now documents enqueueing via `gh pr merge <N> --auto --squash --match-head-commit <headRefOid>` (the CLI flag still works for enqueueing, unlike the `app-scratch` case where it was fully rejected). This repo's situation and `app-scratch`'s are NOT the same: `app-scratch` rejected `--auto` outright (GraphQL `enqueuePullRequest` required directly); `ai-triad-research`'s queue accepts the familiar `gh pr merge --auto` call as its enqueue mechanism. Don't assume every merge-queue repo behaves identically — check whether `--auto` is accepted as the enqueue call or rejected outright.
+5. **This is still repo-scoped behavior, not a universal rule** — confirm which repo you're on, and which merge-queue integration style it uses (CLI-compatible enqueue vs. GraphQL-only), before assuming either path works.
+6. **Precision correction (Second Opinion, p/691#19):** when `gh pr merge --auto` succeeds against a merge-queue-enabled repo, record only that **enqueue** was confirmed — not that "the merge queue works." Enqueueing and actually merging are separate steps; a queue can accept an enqueue call and still stall before merging (observed on `ai-triad-research` itself after adopting its own queue — see #388 for a diagnosis-discipline lesson from that same rollout's teething issues). Don't let a successful enqueue stand in for proof the whole pipeline functions.
+7. **`gh pr merge --auto`'s stderr warning on a queue-enabled repo ("! The merge strategy for main is set by the merge queue") reads like a failure but the enqueue still succeeds** (DevOps Lead, p/26#301). Don't treat this stderr line as an error on its own — verify actual queue state (`gh pr view --json autoMergeRequest`, or query `mergeQueueEntry`/`isInMergeQueue` via GraphQL) before concluding the call failed or retrying the `enqueuePullRequest` mutation, which will itself fail with `UNPROCESSABLE: Pull request is already in the queue` if the first call already succeeded.
+
+**Status:** Active — 3 instances (DevOps Lead p/26#296/#298, originally scoped to `app-scratch` only; DevOps Lead p/26#301 — stderr warning on `ai-triad-research`'s own queue misread as a failure, confirmed enqueue had already succeeded via GraphQL; Rosetta Stone p/6#119/#121 — same misread on PR #4295, retracted an "-- `--squash` is rejected" claim after admitting the exit code/GraphQL state was never actually checked after the first attempt; likely both attempts succeeded, the second was redundant). **Note:** `ai-triad-research` separately adopted a (CLI-compatible) merge queue on 2026-10-28 (t/4567/t/4580) — see prevention #4 for the distinction between the two queue integration styles, and #388 for a related diagnosis-discipline lesson from that rollout.
+
+**Applies To:** All agents self-merging on any repo other than `ai-triad-research`, or on `ai-triad-research` if its branch protection is ever changed to add a merge queue; check for a queue before assuming `--auto` works.
+
+---
+
+## #387 [Build] Extracting a Single Bicep File Loses Relative Module References — Archive the Whole Tree to Build
+
+**Pattern:** An agent extracts a single Bicep file from a specific commit (`git show <ref>:deploy/main.bicep > tempfile`) to build/validate it in isolation — e.g. during a PR review, to compile just the changed file without checking out the whole branch. `az bicep build` on the extracted file fails with `BCP091`/`BCP062` ("Could not find ... runner/runner.bicep") because the file's relative module reference (`./runner/runner.bicep`) can't resolve — the sibling file it points to was never extracted alongside it.
+
+**Instances:**
+- 2026-10-27 — Second Opinion (p/691#16, reviewing #4029): `az bicep build` on an extracted `main.bicep` exited 1 with BCP091/BCP062 — the relative module reference `./runner/runner.bicep` didn't resolve because only `main.bicep` had been extracted via `git show`. Resolved by `git archive`-ing the whole `deploy/` tree and building from there — exit 0.
+
+**Root Cause:** Bicep module references (`module foo './runner/runner.bicep' = {...}`) are resolved relative to the referencing file's location on disk at build time. Extracting one file via `git show <ref>:<path> > tempfile` places it in an arbitrary location with none of its sibling files — any relative reference inside it is now dangling. Same genus as #380 (never isolate a single file from a multi-file structure that depends on relative/relational references) applied specifically to Bicep's module system.
+
+**Prevention:**
+1. **To build or validate a PR head's Bicep, archive the whole relevant directory tree, never extract a single file.** `git archive <ref> -- deploy/ | tar -x -C <tempdir>` (or equivalent), then `az bicep build` from inside that extracted tree, preserves all relative module references.
+2. **BCP091/BCP062 ("Could not find <relative-path>")** on a Bicep build is the diagnostic that a module reference didn't resolve — check whether the file was extracted in isolation from its referenced siblings before assuming the Bicep source itself is broken.
+3. **This generalizes beyond Bicep** — any multi-file format with relative cross-references (imports, includes, relative module paths) requires archiving the whole directory, not extracting one file, when building/validating from a specific git ref.
+
+**Status:** Active — 1 instance (Second Opinion p/691#16, reviewing #4029).
+
+**Applies To:** All agents validating or building Bicep (or other relative-reference multi-file formats) from a specific git ref/commit; archive the tree, never extract a single file.
+
+---
+
+## #388 [Process] A Stalled Merge Queue's Cause Needs Evidence, Not a Guess — Count Running Jobs Across the Org Before Naming a Cause
+
+**Pattern:** `ai-triad-research`'s merge queue stalls — multiple PRs sit in `AWAITING_CHECKS` far longer than normal. Three independent agents guess at the cause from their own prior context rather than checking the actual evidence: one blames the GitHub Free plan's 20-concurrent-job cap, two others (including Sage) blame the known CodeQL-on-merge_group gap from t/4567 (a real, recently-fixed issue, so a plausible first guess). All three guesses are wrong. The actual cause, found only by checking job counts directly: an org-wide GitHub Actions outage — zero jobs running across the org's repos (including `app-scratch`) starting ~17:47Z, unrelated to any of our gates or plan limits.
+
+**Instances:**
+- 2026-10-28 — Tech Lead, PowerShell, Sage (p/335#204–#209, t/4567#74): merge queue stalled in `AWAITING_CHECKS`. Tech Lead first guessed the Free plan's 20-job cap; PowerShell and Sage (independently, via p/20#142 and p/335#206) both guessed a recurrence of the CodeQL-on-merge_group gap, since that was the most recent known incident in the same area. TL's actual diagnosis: zero Actions jobs running org-wide from ~17:47Z, recovering by 18:07 with 20 running again — a platform outage, not a gate or plan-limit problem. All three initial guesses were whole-cloth cause attribution without checking the one piece of evidence that would have settled it immediately.
+
+**Root Cause:** A merge-queue stall in `AWAITING_CHECKS` has several plausible causes (a broken required check, a plan/quota limit, a platform outage) that produce an outwardly identical symptom — PRs sit in `AWAITING_CHECKS` and don't progress. Agents reached for the most recently-known-relevant explanation (the CodeQL gap, since it was the last incident in this exact area) rather than checking the one discriminating signal: how many jobs are actually running right now.
+
+**Prevention:**
+1. **When the merge queue stalls in `AWAITING_CHECKS`, before naming a cause, count the jobs actually running across the org's repos (including other repos like `app-scratch`), not just the stalled PR's own checks.** `gh api orgs/{org}/actions/runs` or equivalent, or simply check a few different repos' recent Actions runs for "queued" vs. "in_progress" states.
+2. **Few or zero jobs running, with runs genuinely queued (not failed), means runner allocation / platform capacity — not our gates, checks, or plan limits.** This is a distinct signature from "a specific required check keeps failing" (which would show that check's run attempting and erroring) or "plan limit hit" (which GitHub surfaces explicitly in the UI/API, not as silent non-starting).
+3. **Don't reach for the most recently-fixed related incident as your first explanation just because it's fresh in mind.** A recently-resolved issue in the same area is a plausible hypothesis, not a default — check the evidence before naming it as the cause, especially before telling others "this is a known issue" (as Sage did here, incorrectly).
+4. **This is a diagnosis-process lesson, not a one-off** — pointed at t/4567#74 as the incident record. Three independent agents got it wrong the same way on the same day, which is itself the signal that this needs to be a standing habit (count jobs first), not a coincidence.
+
+**Status:** Active — 1 instance (Tech Lead, PowerShell, Sage; p/335#204–#209, t/4567#74). Notable: Sage itself was one of the agents who diagnosed incorrectly before the TL's correction.
+
+**Applies To:** All agents diagnosing a stalled merge queue or stuck CI; count actual running jobs across the org before attributing the cause to a specific gate, check, or plan limit.
+
+---
+
+## #389 [Data] `autocrlf` Working-Tree Bytes Don't Match a Frozen List's LF-Based sha256 — Hash the Blob or a CRLF-Normalized Copy, Not the Raw Working-Tree File
+
+**Pattern:** An agent runs an integrity/frozen-list check that compares a file's sha256 hash against a recorded value. The check reports a mismatch even though the file's content hasn't meaningfully changed. The local checkout (e.g. `ai-triad-sources`) has `autocrlf` enabled; the recorded hash was computed from LF-normalized bytes (the git blob / committed form), but the working-tree file on disk has been converted to CRLF by git's checkout-time normalization. Hashing the on-disk file hashes different bytes than the ones the frozen list recorded.
+
+**Instances:**
+- 2026-10-28 — Tech Lead (p/335#212, #214): flagged while investigating a path issue in `ai-triad-sources` — the local checkout is `autocrlf`, so working-tree bytes don't match the LF blob hashes used by frozen-list checks. **Correction applied (p/335#214):** the remedy is NOT `git hash-object` on the working-tree file — that returns git's own blob ID (a SHA-1 of a header plus content), which can never equal a frozen list's sha256 of raw file bytes. The correct remedy is sha256 of `git show <ref>:<path>` (the LF-normalized committed content), or sha256 of the working-tree bytes after explicitly normalizing CRLF to LF first.
+
+**Root Cause:** `autocrlf=true` converts LF to CRLF on checkout (and back on commit) for text files, so the bytes on disk differ from the bytes git actually stores and diffs. A sha256-based frozen-list check that reads the working-tree file directly is hashing the CRLF-converted form, not the LF form the list was built from — a spurious mismatch with no real content change. `git hash-object` is the wrong escape hatch here: it computes git's own object ID format (`sha1("blob " + length + "\0" + content)`), not a bare sha256 of the content, so it can never match a frozen list recorded as plain sha256.
+
+**Prevention:**
+1. **For a frozen-list sha256 check on a repo with `autocrlf` enabled, hash `git show <ref>:<path>` (or equivalent — the committed, LF-normalized content), not the raw working-tree file bytes.**
+2. **Alternatively, explicitly normalize CRLF→LF on the working-tree bytes before hashing**, if you must read from disk rather than from git.
+3. **Do not reach for `git hash-object` as a fix for a sha256 mismatch** — it produces git's own blob-ID hash format, unrelated to a bare content sha256. It solves a different problem (verifying git object identity), not this one.
+4. **A spurious hash mismatch with no visible content diff, on a repo you know uses `autocrlf`, is the diagnostic for this exact issue** — check `git diff <file>` is empty before assuming the file's content actually changed.
+
+**Status:** Active — 1 instance (Tech Lead p/335#212/#214).
+
+**Applies To:** All agents running frozen-list or integrity sha256 checks against files in `autocrlf`-enabled repos (notably `ai-triad-sources`); hash the git blob content, not raw working-tree bytes.
+
+---
+
+## #390 [Build] `MSYS_NO_PATHCONV=1` Breaks `git -C <path>`, Not Just the Colon Revspec It's Meant to Fix
+
+**Pattern:** An agent runs `git -C /c/.../ai-triad-data show origin/main:path` prefixed with `MSYS_NO_PATHCONV=1` — the standard fix for colon-revspec mangling (the `<ref>:<path>` argument). The command fails with "fatal: not a git repository" even though `/c/.../ai-triad-data` is a valid repo path. `MSYS_NO_PATHCONV=1` disables MSYS path mangling for the ENTIRE command, which also changes how `-C <path>`'s own argument is handled — not just the colon-revspec the env var is normally invoked to protect.
+
+**Instances:**
+- 2026-10-28 — Computational Linguist (p/7#163): `git -C /c/.../ai-triad-data show origin/main:path` under `MSYS_NO_PATHCONV=1` gave "fatal: not a git repository" despite a valid repo path. Resolved by `cd`-ing into the repo directory first, then running `git show` without `-C` at all.
+
+**Root Cause:** `MSYS_NO_PATHCONV=1` is a blanket switch — it disables MSYS's automatic path-mangling for every path-like argument in the command, not selectively for the colon-revspec. When `-C <path>` is also present, its argument's translation behavior changes too, and the combination can produce a path `-C` doesn't recognize as a git repository (either because it needed mangling and didn't get it, or vice versa, depending on the exact MSYS/Git-for-Windows build).
+
+**Prevention:**
+1. **Don't combine `-C <path>` with `MSYS_NO_PATHCONV=1` and a colon-revspec in the same command.** `cd` into the target repo directory first (a separate command/step), then run `git show <ref>:<path>` without `-C` — this avoids the interaction entirely.
+2. **If you must use `-C` alongside a colon-revspec on Windows, test both with and without `MSYS_NO_PATHCONV=1`** before trusting either — the correct combination is environment/Git-for-Windows-version-dependent (per the root `-C`-sibling colon-revspec entry's existing "env-dependent" framing).
+3. **"fatal: not a git repository" on a path you've confirmed is a valid repo, right after adding `MSYS_NO_PATHCONV=1` to fix an unrelated colon-revspec error, is the diagnostic** — the env var fix for one argument broke a different argument in the same command.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#163).
+
+**Applies To:** All agents using `git -C <path>` together with a colon-revspec on Windows; prefer `cd` + plain `git show` over combining `-C` with `MSYS_NO_PATHCONV=1`.
+
+---
+
+## #391 [Build] Windows/MSYS `ps` Is a Stripped-Down Build — Custom `-o` Format Flags Aren't Supported
+
+**Pattern:** An agent runs `ps -o pid,%cpu,etime,cmd -p <pid>` (or similar custom `-o` field-selection syntax) in the Bash tool on Windows. The command exits 1. The bundled MSYS `procps` build is a stripped-down implementation that doesn't support the full Linux `ps -o` field-selection flag set, unlike a native Linux `ps`.
+
+**Instances:**
+- 2026-10-29 — PowerShell (p/20#146): `ps -o pid,%cpu,etime,cmd -p <pid>` exited 1 on Windows/MSYS bash — that flag set isn't supported on this platform's `ps`. Resolved by dropping the custom format flags and using plain `ps aux` to confirm the process was still alive.
+
+**Root Cause:** Git for Windows bundles a minimal MSYS `procps` implementation, not a full-featured Linux `ps`. It covers the common case (`ps aux`, `ps -ef`) but not the custom `-o`/`-p` field-selection combinations that Linux's `ps` supports.
+
+**Prevention:**
+1. **On Windows/MSYS, use plain `ps aux` (or `ps -ef`) and filter/grep the output**, rather than relying on `-o` custom field selection or `-p <pid>` targeting — these flags may not be implemented.
+2. **Exit 1 from `ps` with a custom `-o`/`-p` flag combination, with no other diagnostic, is a signature of unsupported flags on this platform** — fall back to the plain form before assuming the process itself is the problem.
+3. **If specific fields (CPU%, elapsed time) are genuinely needed, parse them out of plain `ps aux` output** rather than relying on `-o` to select them directly.
+
+**Status:** Active — 1 instance (PowerShell p/20#146).
+
+**Applies To:** All agents running `ps` with custom format flags in the Bash tool on Windows; prefer plain `ps aux`/`ps -ef` and filter the output.
+
+---
+
+## #392 [Process] An In-App Test Stubbed the Wrong Module — the Component's Import Path, Not the Alias Name, Determines What Gets Stubbed, and a Real Side Effect Fired on the PI's Machine
+
+**Pattern:** An agent writes an in-app timing test that stubs `api.clipboardWriteText` and `api.openExternal` to prevent real side effects during the test. The test stubs `/bridge/electron-bridge.ts`, assuming that's where the component's `@bridge` alias resolves. The component actually imports `api` from `/bridge/index.ts` — a distinct module object. The stub has no effect on the component under test. The test then triggers the action being timed, and the REAL clipboard write and external URL open both fire — on a human's machine, not a sandboxed test environment.
+
+**Instances:**
+- 2026-10-29 — Design (p/472#20): a timing test stubbed `/bridge/electron-bridge.ts` for `api.clipboardWriteText`/`api.openExternal`. The component imports `api` from `/bridge/index.ts`, a distinct object, so the stub never took effect. The real clipboard write and external URL open ran once on the PI's machine before the issue was caught. Resolved by reading the served module's actual import path (`curl`-ing the component source) to confirm the real import target, stubbing `/bridge/index.ts` instead, and asserting the stub was live BEFORE triggering the action.
+
+**Root Cause:** The agent assumed the `@bridge` alias resolved to `electron-bridge.ts` based on naming convention, without checking where the component under test actually imports `api` from. A module alias can have multiple files behind it (a re-export barrel, an index file, a direct implementation file) — stubbing the wrong one silently no-ops; nothing errors, because the stub itself works fine, it's just stubbing an object the component never touches. Compounding factor: the test triggered the side-effecting action before verifying the stub had taken effect, so there was no checkpoint to catch the mismatch before the real action fired.
+
+**Prevention:**
+1. **Before writing a stub for an in-app test, read the component's actual import statement** (via its served source, e.g. `curl` the dev-server-served file, or read the source file directly) to confirm exactly which module path it imports from — don't infer it from the alias name or directory convention.
+2. **Assert the stub is actually live before triggering any side-effecting action.** Call the stubbed function directly (or check a call-count/spy) and confirm it responds as the stub, not the real implementation, BEFORE the test proceeds to trigger the real user action.
+3. **For side-effecting APIs (clipboard, external URL open, file system writes, network calls) in an in-app test, treat a successful stub assertion as a hard gate** — don't proceed past it on the assumption the stub "should" work.
+4. **This is a Protect-Working-Builds-adjacent incident** — a real, user-visible side effect fired on a human's machine from a test. Treat any in-app test involving side-effecting APIs with the same caution as a production write: verify before trusting.
+
+**Status:** Active — 1 instance (Design p/472#20). Realized cost: one real clipboard write + one real external URL open on the PI's machine.
+
+**Applies To:** All agents writing in-app tests that stub side-effecting APIs (clipboard, external open, file writes, network); verify the actual import path and assert the stub is live before triggering any action under test.
+
+---
+
+## #393 [Research] Grep-Matching a Prompt Artifact by Keyword Isn't the Same as Tracing the Actual Call Site That Invokes It
+
+**Pattern:** An agent greps the codebase for keywords related to a classification rule (e.g. `"pov_tags|CHESS"`) and finds a file that looks like the right prompt — a `.prompt` file with matching themes. The agent assumes this IS the prompt that governs the specific classifier under discussion and adjudicates against it. The actual classifier invokes a DIFFERENT prompt entirely (an inline PowerShell string inside a cmdlet, not a `.prompt` file) — with the opposite inclusion rule. Verdicts reached by comparing against the wrong prompt are wrong.
+
+**Instances:**
+- 2026-10-29 — Computational Linguist (p/7#177, t/4477): grepped `"pov_tags|CHESS"`, found `scripts/AITriad/Prompts/metadata-extraction.prompt`, assumed it was CHESS's classification prompt, and adjudicated two measurement flips against it. PowerShell traced the actual call site (t/4652#3) and found CHESS is a separate classifier (`Get-DocumentPovClassification`, an inline PS prompt string, not a `.prompt` file) with the opposite rule — deliberately over-inclusive ("critiques...or is relevant to", "if uncertain, INCLUDE"). Both verdicts flipped once checked against the real prompt (t/4477#13).
+
+**Root Cause:** Keyword matching finds artifacts that are thematically related, not necessarily the one a specific code path actually invokes. When multiple similarly-named or similarly-themed artifacts exist for related-but-distinct purposes (a standalone `.prompt` file used by one classifier, an inline prompt string embedded in a different cmdlet used by another), grep cannot distinguish "this file mentions the right keywords" from "this file IS what the code under discussion calls." Only tracing the actual call site — reading the cmdlet/function that invokes the classifier and following its prompt construction — answers that question.
+
+**Prevention:**
+1. **Before adjudicating a verdict against "the prompt," trace the actual call site of the specific classifier/code path in question** — read the function/cmdlet that invokes it, not just a grep hit that mentions related keywords.
+2. **When two similarly-themed artifacts exist (a `.prompt` file and an inline prompt string, or two differently-named classifiers with overlapping purposes), explicitly confirm which one the code path under discussion actually calls** before treating either as authoritative.
+3. **A grep match is a lead to investigate, not a citation to adjudicate against.** Follow it to the actual invocation before using its content as the basis for a verdict.
+4. **If a verdict flips after tracing the real call site, treat that flip as confirmation the lesson applies** — don't just fix the one instance; re-check any other recent verdicts reached the same way (via keyword match rather than call-site trace).
+
+**Status:** Active — 1 instance (Computational Linguist p/7#177, t/4477). Realized cost: 2 measurement verdicts flipped.
+
+**Applies To:** All agents adjudicating verdicts against a prompt or rule artifact found via keyword search; trace the actual call site before treating a grep hit as authoritative.
+
+---
+
+## #394 [Build] `Get-AIMetadata` Not Re-Exported by `AITriad.psd1` — Import `AIEnrich.psm1` Directly
+
+**Pattern:** An agent imports `AITriad.psd1` (the main module manifest) and calls `Get-AIMetadata`. PowerShell reports the cmdlet not found. `Get-AIMetadata` lives in `AIEnrich.psm1`, a separate module that the main AITriad manifest does not re-export — importing the manifest alone doesn't make its cmdlets available.
+
+**Instances:**
+- 2026-10-29 — PowerShell (p/20#149): `Get-AIMetadata` called after only importing `AITriad.psd1` — not found. `Get-AIMetadata` lives in `AIEnrich.psm1`, not re-exported by AITriad. Resolved by also importing `scripts/AIEnrich.psm1` directly in the script.
+
+**Root Cause:** Same genus as #337 (`Invoke-AsAgentApp`/`AgentAppToken.psm1`) — a cmdlet lives in a secondary module that the main module manifest (`AITriad.psd1`) doesn't re-export. Importing the main manifest only makes the main module's own exported functions available; secondary/auxiliary modules (`AIEnrich.psm1`, `AgentAppToken.psm1`, `DocConverters.psm1`) must each be imported explicitly if their cmdlets are needed.
+
+**Prevention:**
+1. **Before calling `Get-AIMetadata` (or any AI-enrichment cmdlet), explicitly import `scripts/AIEnrich.psm1`** — importing `AITriad.psd1` alone is not sufficient.
+2. **"Command not found" for any cmdlet after importing only `AITriad.psd1`** is a reliable diagnostic that the cmdlet lives in a secondary module — check `scripts/AGENTS.md` or grep the cmdlet's definition to find which `.psm1` file to import.
+3. **This is a recurring class, not a one-off** — `AgentAppToken.psm1` (#337) and `AIEnrich.psm1` (this entry) are both secondary modules with cmdlets not re-exported by the main manifest. Expect the same for other auxiliary modules (`DocConverters.psm1`) until/unless the manifest is updated to re-export them.
+
+**Status:** Active — 1 instance (PowerShell p/20#149).
+
+**Applies To:** All agents calling AI-enrichment cmdlets (`Get-AIMetadata` and siblings); always import `AIEnrich.psm1` explicitly alongside `AITriad.psd1`.
+
+---
+
+## #395 [Build] PowerShell Array Literal Syntax (`@('a','b','c')`) Is Not Valid Bash — Only `pwsh` Can Parse It
+
+**Pattern:** An agent runs a command like `pwsh ... -Path @('a','b','c') ...` from the Bash tool. Bash parses the entire command line before any part of it reaches `pwsh`, and `@('a','b','c')` — PowerShell's array literal syntax — is not valid Bash syntax. Bash chokes on it (unexpected token, syntax error, or silent mangling, depending on exactly how it's written).
+
+**Instances:**
+- 2026-10-29 — PowerShell (p/20#152): `pwsh ... -Path @('a','b','c') ...` from the Bash tool — Bash choked on the PowerShell array literal. Resolved by invoking each path separately via the PowerShell tool / `pwsh -Command`, rather than relying on Bash to pass a PS array literal as a bare argument.
+
+**Root Cause:** Same family as #271/#67 — any PowerShell-specific syntax (array literals `@(...)`, hashtables `@{...}`, here-strings `@'...'@`) that appears OUTSIDE a `-Command "..."` string (or outside the PowerShell tool entirely) is parsed by Bash first, not PowerShell. Bash has no concept of PowerShell array syntax and either errors or mangles it.
+
+**Prevention:**
+1. **Never pass PowerShell-specific syntax (array literals, hashtables, here-strings) as a bare argument on a Bash command line.** Either wrap the entire invocation inside a `-Command "..."` string, or use the PowerShell tool directly so pwsh parses the whole line.
+2. **For multi-value parameters, prefer invoking the script once per value** (a loop in the PowerShell tool, or separate calls) over constructing a PS array literal that has to survive Bash's parser.
+3. **A Bash syntax error or unexpected mangling around `@(` or `@{` is the diagnostic** — the construct is PowerShell-only and was handed to the wrong shell.
+
+**Status:** Active — 1 instance (PowerShell p/20#152).
+
+**Applies To:** All agents invoking `pwsh` from the Bash tool with PowerShell-specific syntax in the arguments; keep PS-only syntax entirely inside `-Command` or use the PowerShell tool instead.
+
+---
+
+## #396 [Process] `git worktree add` Exit 128 ("Branch Already Checked Out") Is a Signal Another Agent Already Claimed the Branch, Not Just a Git Mechanics Fact
+
+**Pattern:** An agent runs `git worktree add <path> <branch>` for a ticket's branch. The command exits 128: "branch already checked out" — git enforces one-checkout-per-branch across all worktrees. The branch is already checked out in a worktree that belongs to a DIFFERENT agent who is actively working the same ticket/branch. Treating this purely as a git limitation to work around (rather than a coordination signal) risks two agents independently duplicating work on the same branch.
+
+**Instances:**
+- 2026-10-29 — DevOps Lead (p/26#307): `git worktree add .worktrees/t4641-fix t/4641-node-detail-header` exited 128 — the branch was already checked out in an existing worktree at `taxonomy-editor/.worktrees/t4641` (Rosetta Stone's own worktree for the same PR). Resolved by reusing the existing worktree instead of creating a competing one.
+- 2026-10-31 — Tech Lead (p/335#236): `git worktree add -B feat/t4677-budget-boot` failed — ServerAPI's worktree `.worktrees/t4677` already had the branch checked out. Resolved differently: made a separate local branch from the remote head and pushed with `HEAD:feat/t4677-budget-boot`, rather than reusing the existing worktree (a valid alternative when coordinating with the other worktree's owner isn't practical in the moment).
+
+**Root Cause:** Git allows only one worktree per branch at a time — this is enforced git mechanics, not a bug. But the REASON the branch is already checked out, in a multi-agent fleet, is almost always that another agent got there first and is actively working it. This connects directly to the root AGENTS.md "Claim Before Implement" rule: the branch's existence elsewhere is itself evidence of a prior claim, even if no explicit claim comment was posted.
+
+**Prevention:**
+1. **Before creating a worktree for a ticket's branch, check `git worktree list` first** — if the branch already has a worktree, that's your "claim check" (per root AGENTS.md's Claim Before Implement rule), not just an obstacle to route around.
+2. **On exit 128 "branch already checked out," don't just find a workaround (like a differently-named branch) — identify and reuse the existing worktree**, or coordinate with whoever owns it, rather than creating parallel work on the same ticket.
+3. **This is a cheap, free signal that Claim Before Implement's check ("first check for a peer's claim... or a PR on any base") was skipped** — treat the exit 128 itself as the check you should have done proactively.
+4. **If reusing the existing worktree isn't practical, a valid alternative is a separate local branch from the remote head, pushed via `HEAD:<branch>`** — this avoids colliding with the other worktree's checkout while still landing the same target branch; coordinate with the other worktree's owner afterward if both touched the same branch.
+
+**Status:** Active — 2 instances (DevOps Lead p/26#307; Tech Lead p/335#236).
+
+**Applies To:** All agents creating worktrees for ticket branches; check `git worktree list` before creating, and treat "already checked out" as a coordination signal, not just a git mechanics obstacle.
+
+---
+
+## #397 [Process] The "WORKTREE PATH GUARD" PreToolUse Hook Substring-Matches the Phrase Anywhere in a Bash Command, Including Inside Quoted Heredoc Prose
+
+**Pattern:** An agent runs `git commit -m "$(cat <<'EOF' ... EOF)"` where the heredoc body is ordinary commit-message prose that happens to quote or describe a LessonsLearned entry title containing the phrase "git worktree add" (e.g. documenting a lesson about `git worktree add` exit 128). The PreToolUse "WORKTREE PATH GUARD" hook (t/3154/t/3254) fires and blocks the command, treating it as an actual `git worktree add <path>` invocation whose target doesn't resolve under the repo-root `.worktrees/` — even though the real command is `git commit`, not `git worktree add`, and the matched phrase is inert quoted text.
+
+**Instances:**
+- 2026-10-29 — Sage (self-observed, no ping — recorded directly): a `git commit -m "$(cat <<'EOF' ...)"` call whose heredoc body quoted a LessonsLearned entry titled "`git worktree add` Exit 128 ('Branch Already Checked Out')..." was blocked by the WORKTREE PATH GUARD hook. The hook's error referenced "This `git worktree add` target does NOT resolve under repo-root `.worktrees/`" — diagnosing a worktree-creation path problem that didn't exist, because no `git worktree add` command was actually being run. Worked around by rephrasing the commit message to avoid the literal contiguous phrase "git worktree add".
+
+**Root Cause:** The hook's matcher appears to scan the ENTIRE raw Bash command string for the literal substring "git worktree add" (or a similar pattern) rather than parsing the command to confirm an actual `git worktree add` subcommand invocation is present. Quoted heredoc content, commit message prose, or any other inert text containing that phrase triggers the same block as a real invocation.
+
+**Prevention:**
+1. **If a commit message or other heredoc-embedded text needs to describe or quote a lesson/entry about `git worktree add`, avoid writing the literal contiguous phrase** — rephrase (e.g. "the worktree-creation command" instead of "git worktree add") to avoid false-triggering the hook, until the matcher is fixed to parse actual command structure.
+2. **If a Bash command is blocked by a hook whose stated diagnosis doesn't match what the command actually does** (e.g. "worktree path" guard firing on a `git commit`), suspect a substring-match false positive in the hook rather than assuming the command itself is wrong — check whether the flagged phrase exists only inside quoted/heredoc text.
+3. **Report this to whoever owns the hook's definition (likely DevOps)** — the fix is for the matcher to parse the actual subcommand being invoked (first non-flag token after `git`), not scan the whole raw string for a substring.
+
+**Status:** Active — 1 instance (Sage, self-observed, 2026-10-29). Flagged to DevOps (p/26#312) for a possible hook-matcher fix.
+
+**Applies To:** All agents writing commit messages, PR bodies, or other heredoc-embedded text that discusses or quotes commands like `git worktree add`; be aware the WORKTREE PATH GUARD hook may substring-match inert prose.
+
+---
+
+## #398 [Process] Pushing to a Branch With an Active Merge-Queue Entry Is Rejected Outright (GH006) — `--disable-auto` Doesn't Reliably Dequeue It
+
+**Pattern:** An agent needs to push additional commits to a PR branch that is already enqueued in the merge queue. The push is rejected by protected-branch rules: `GH006: ...added to a merge queue`. The agent tries `gh pr merge --disable-auto` to dequeue the PR first, but this doesn't reliably clear the active queue entry, and the push remains rejected.
+
+**Instances:**
+- 2026-10-30 — Rosetta Stone (p/6#105, t/4668): `git push` to PR #4191's branch (`fix/grounding-to-why-t4668`) was rejected (`GH006: ...added to a merge queue`) because the PR was already enqueued. `gh pr merge --disable-auto` didn't reliably dequeue it. Resolved by leaving PR #4191 untouched and shipping the extra scope (`PublicGroundingSection.tsx`) as an independent PR (#4192) off a fresh branch instead.
+- 2026-10-31 — DevOps Lead (p/26#339, **confirms the "dequeue, push, re-enqueue" procedure and adds mutation detail**): pushed to `devops/alert-free-pool-headroom-t4677` while its PR was queued → `GH006` rejection, confirming `--disable-auto` doesn't dequeue (per this entry's own note). Resolved via the documented procedure: dequeued with the `dequeuePullRequest` GraphQL mutation, pushed, then re-enqueued pinned. **Sub-failure encountered along the way:** the first dequeue attempt passed `mergeQueueEntry.id` as the mutation's `id` argument → "Could not resolve to PullRequest node." `dequeuePullRequest` wants the PR's own node id (`pullRequest.id`), not the merge-queue-entry id. Re-ran with `pullRequest.id` and it succeeded.
+- 2026-11-02 — Rosetta Stone 3 (p/355#13): `gh pr merge --disable-auto` on PR #4394 errored "already queued to merge" and `gh pr view --json isInMergeQueue` errored invalid field (also #232). Resolved by using the `dequeuePullRequest` GraphQL mutation correctly (PR's own node id), then confirming `isInMergeQueue: false` via a follow-up GraphQL query. Third instance confirming the documented procedure.
+- 2026-11-02 — Chat (p/687#9): `gh pr merge 4410 --disable-auto` refused "already queued to merge" once the PR had genuinely entered the native merge queue (`mergeQueueEntry` present, not just `autoMergeRequest` armed). Resolved identically: `dequeuePullRequest` GraphQL mutation with the PR's own node id (not `mergeQueueEntry.id`, which the mutation rejects as NOT_FOUND), confirmed dequeued via a follow-up query (`mergeQueueEntry` back to null). Fourth instance confirming the documented procedure.
+
+**Root Cause:** This appears to conflict with root AGENTS.md's current documented assumption for the merge queue ("a push after enqueue drops the entry, so re-arm on the new head") — that language describes classic auto-merge behavior, but for the actual merge-QUEUE mechanism on this repo, a push to an enqueued branch's PR is rejected by GitHub's protected-branch enforcement outright, not silently accepted with the entry dropped. `--disable-auto` targets classic auto-merge's arming state, which may not be the same mechanism that controls merge-queue membership — hence it doesn't reliably clear the queue entry either. Pending confirmation from the TL on whether root AGENTS.md's language needs correcting (flagged p/335#230).
+
+**Prevention:**
+1. **Don't push additional commits to a PR branch that is already enqueued in the merge queue.** If you need to add scope while a PR is queued, ship the additional changes as a SEPARATE PR off a fresh branch instead of pushing to the enqueued one.
+2. **`gh pr merge --disable-auto` is not a reliable way to dequeue a PR from the merge queue** — it may only affect classic auto-merge arming, not actual merge-queue membership. If you must remove a PR from the queue, verify via GraphQL (`isInMergeQueue`/`mergeQueueEntry`) that it's actually been dequeued before retrying a push.
+3. **`GH006: ...added to a merge queue` on a push is the diagnostic** — the target PR is actively queued; either wait for it to clear the queue (merge or get dequeued) before pushing more, or redirect the new changes to a separate PR.
+4. **Confirmed and fixed (Tech Lead, p/335#231, root AGENTS.md updated via PR #4194):** root AGENTS.md now reads — **"Never push to a queued PR: GitHub may reject it (`GH006`), and `--disable-auto` doesn't dequeue. Use a separate PR, or dequeue, push and re-enqueue pinned."** This is the current documented rule; follow it directly rather than treating this entry's workaround as the only option — dequeuing first (confirm via GraphQL `isInMergeQueue`/`mergeQueueEntry` that it actually cleared) then pushing then re-enqueuing pinned is also valid.
+5. **To actually dequeue, use the `dequeuePullRequest` GraphQL mutation** — `gh api graphql -f query='mutation { dequeuePullRequest(input: {id: "<PULL-REQUEST-NODE-ID>"}) { clientMutationId } }'`. **The `id` argument must be the PR's own node id (`pullRequest.id`), NOT the merge-queue-entry id (`mergeQueueEntry.id`).** Passing the wrong id produces "Could not resolve to PullRequest node." Get the correct id via `gh pr view <N> --json id -q .id` (this returns the PR's GraphQL node id, despite the field being named plainly `id`).
+
+**Root Cause (confirmed, TL p/335#231):** GitHub rejects a push to a PR's head branch while that PR sits in the merge queue (observed at position 1, `AWAITING_CHECKS`) — this is deliberate GitHub behavior, not a bug or edge case. `--disable-auto` only disarms the classic auto-merge-on-green bit; it does not dequeue. The ORIGINAL root AGENTS.md wording ("a push after enqueue drops the entry, so re-arm on the new head") was itself a documented behavior from an earlier PR (#4017) that was never verified against this failing case — a direct instance of the root AGENTS.md "Verify Against the Authoritative Source" rule being skipped when the merge-queue section was first written.
+
+**Status:** Active — 4 instances (Rosetta Stone p/6#105, t/4668; DevOps Lead p/26#339 — confirms the documented procedure works, adds the `dequeuePullRequest` node-id gotcha; Rosetta Stone 3 p/355#13 — confirms the documented procedure again; Chat p/687#9 — confirms again on PR #4410). **Resolved at the documentation level** — root AGENTS.md corrected via PR #4194 (TL, p/335#231) with the "never push to a queued PR" rule. This entry stays as the incident record, root-cause note, and now the reference for the actual dequeue mutation mechanics.
+
+**Applies To:** All agents needing to add scope to a PR that's already enqueued in the merge queue; follow root AGENTS.md's "never push to a queued PR" rule — use a separate PR, or dequeue + push + re-enqueue pinned.
+
+---
+
+## #399 [Process] The Worktree-Isolation Guard Has False-Positive Breadth — It Blocks Read-Only Ops on Sibling Repos and Misclassifies Inline Commands as "Too Complex to Verify" (Unresolved)
+
+**Pattern:** An agent's session is pinned to a worktree by the worktree-isolation guard. The guard refuses two classes of commands beyond its core job (preventing actual git writes outside the worktree): (Facet A) ANY `cd` outside the worktree before a git op, even a harmless READ-ONLY `git status` on an unrelated sibling repo; (Facet B) an inline command (e.g. a Python one-liner) that contains environment-variable path substitution, flagged as "too complex to verify" it's not a disguised git op, even when the command has nothing to do with git at all.
+
+**Instances:**
+- 2026-10-30 — DebateTool (p/70#91, **Facet A**): `cd ../ai-triad-data && git status` from a worktree-isolated session was refused — the guard blocks any `cd` outside the worktree before a git op, including read-only `git status` on the sibling data repo. Unresolved from within the session — deferred to a non-worktree session or the relevant owning role.
+- 2026-10-30 — DebateTool (p/70#93, **Facet B**): `python3 -c "... open(r'$AI_TRIAD_DATA_ROOT/...')..."` (read-only, no git involved) was refused — the guard flagged the env-var path substitution inside the inline Python string as "too complex to verify" it wasn't a disguised git op. Resolved by rewriting as a plain `.py` script file with no inline env-var substitution, then running `python3 script.py`.
+
+**Root Cause:** The guard's job is preventing actual git writes from a pinned worktree session reaching outside that worktree — a legitimate and important safety property. But its classifier appears to be overly broad: Facet A treats ANY `cd`-then-git-command pattern as a risk regardless of whether the git command is read-only (`git status` carries no write risk); Facet B treats inline env-var substitution as inherently suspicious regardless of whether the command touches git at all. Both facets block legitimate, safe operations that have nothing to do with the guard's actual purpose.
+
+**Prevention:**
+1. **Facet A — no agent-side fix exists.** If you need a read-only check on a sibling repo from within a worktree-isolated session, defer to a non-worktree session or the role that owns that repo. Don't try to work around the guard.
+2. **Facet B — rewrite the inline command as a plain script file with no inline env-var substitution**, then run the script. This avoids the "too complex to verify" classification entirely, since the guard's static analysis has less to second-guess.
+3. **Flag both facets to whoever owns the guard's design** (likely DevOps) — a reasonable fix would carve out exceptions for (a) read-only git subcommands (`status`, `log`, `diff` with no write flags) on any repo, and (b) non-git commands that don't contain the string `git` at all, regardless of inline substitution complexity.
+4. **This entry stays Unresolved/Open** — it documents a real capability gap in the guard, not a fixable point-of-use mistake. Report further instances here to build the case for a guard-level fix.
+
+**Status:** Unresolved — 2 facets, 1 instance each (DebateTool p/70#91, p/70#93). No agent-side fix for Facet A; Facet B has a practical workaround (plain script file).
+
+**Applies To:** All agents in a worktree-isolated session needing read-only cross-repo checks or inline commands with env-var substitution; expect the guard to over-block both, and use the documented workarounds or defer to a non-isolated session.
+
+---
+
+## #400 [Build] A Known-Baseline Error Count Masks a New Real Error Hiding in the Same Count — Diff the Specific Errors, Not Just the Ceiling
+
+**Pattern:** An agent's local verification environment has a known, consistent set of phantom/unrelated errors (e.g. from a non-standard `node_modules` setup like Windows directory junctions in place of symlinks, used when admin rights for real symlinks aren't available). The agent learns to expect exactly N phantom errors every run and treats "the run still shows N errors" as a clean-verification signal. A NEW, real error (in a file the agent actually touched) appears alongside the N phantom ones, keeping the total at N+1 or even still N if the agent only skims the count — the agent doesn't diff the actual error identities against the known baseline, just eyeballs the count/ceiling line, and the real error slips through to CI.
+
+**Instances:**
+- 2026-10-30 — Rosetta Stone (p/6#111, PR #4214): `renderer-tsc` CI check failed (TS7006 implicit-any) after local verification had reported "clean." The agent's worktree `node_modules` is set up via Windows directory junctions (no admin rights for symlinks), producing 3 consistent phantom module-resolution errors (lib/brief, lib/sanitize) on every local run. The agent had learned to expect exactly those 3 and treated any run showing only "3 errors" as clean — a 4th real error (in a file actually touched) slipped through because the agent wasn't diffing the error list, just checking the count/ceiling hadn't moved. Resolved by pushing a follow-up fixing the real TS error; going forward, diffing specific error lines against the known-3 baseline instead of just checking the ceiling.
+
+**Root Cause:** A known, stable baseline of noise (phantom errors from an environment quirk) trains an agent to pattern-match on a SUMMARY STATISTIC (the count) rather than the actual CONTENT (which specific errors). Once the count itself becomes the verification signal, any new error that doesn't change the count — or that the agent doesn't scrutinize closely enough to notice the count DID change — passes unnoticed. This is a general verification-discipline failure mode: whenever a known baseline of expected noise exists, the correct verification is "diff the specific items against the baseline," not "check the aggregate count/ceiling."
+
+**Prevention:**
+1. **When a local verification environment has a known baseline of phantom/unrelated errors, always diff the SPECIFIC error identities (file + line + rule) against the known baseline list** — never just check whether the count matches an expected number.
+2. **Maintain the known-baseline error list explicitly** (file paths + rule codes), and compare the current run's error list against it programmatically (or by careful manual diff) rather than relying on memory of "it's usually N."
+3. **Any run that shows MORE than the known baseline count is unambiguously a new issue** — but a run showing the SAME count is not proof of cleanliness either, since a new error could coincidentally keep the count unchanged if something else resolved, or simply not be noticed if the agent isn't actually reading each line.
+4. **If a non-standard local environment (junctions instead of symlinks, a shimmed dependency, etc.) causes phantom errors, consider fixing the environment setup** rather than building a mental baseline to work around it — a baseline-based workaround is inherently fragile to exactly this failure mode.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#111, PR #4214).
+
+**Applies To:** All agents with a non-standard local dev environment that produces consistent phantom errors; diff specific error identities against the known baseline, never just check the aggregate count.
+
+---
+
+## #401 [Build] Never Guess the GitHub Repo Owner From Git-Committer Identity — Check `gh repo view --json nameWithOwner` First
+
+**Pattern:** An agent constructs a `gh api graphql` (or other `gh api`) call and assumes the repo owner is the same as the git-committer identity (the fleet's shared GitHub account, `jpsnover`/`jsnover15`). The actual repo owner is a different entity — the `AI-Rosetta-Stone` organization. The call returns `NOT_FOUND` because it's querying a repo path that doesn't exist (`jsnover15/ai-triad-research` instead of `AI-Rosetta-Stone/ai-triad-research`).
+
+**Instances:**
+- 2026-10-30 — DevOps Lead (p/26#321): `gh api graphql` guessed the repo owner as `jsnover15` instead of the actual org `AI-Rosetta-Stone`, causing `NOT_FOUND`. Resolved by running `gh repo view --json nameWithOwner` first to get the correct owner, then retrying successfully.
+
+**Root Cause:** The fleet commits and pushes under one shared GitHub user identity (`jpsnover`, aliased as `jsnover15` in some session contexts), but the repository itself is owned by a GitHub ORGANIZATION (`AI-Rosetta-Stone`), a distinct entity from the committer's personal account. Constructing a repo path by assuming `<committer-username>/<repo-name>` produces a path that simply doesn't exist.
+
+**Prevention:**
+1. **Before constructing any `gh api` call that needs an explicit owner/repo path, run `gh repo view --json nameWithOwner` first** to get the authoritative `owner/repo` string — don't assume it from the git-committer identity or from memory.
+2. **This repo's owner is `AI-Rosetta-Stone`, not a personal account** — per root AGENTS.md's permanent rule, all `gh` commands should explicitly target `-R AI-Rosetta-Stone/ai-triad-research`. If you're constructing a raw `gh api graphql`/`gh api` call without the `-R` convenience flag, this is exactly the gap that produces the wrong owner.
+3. **`NOT_FOUND` on a `gh api` call referencing an owner/repo path is a reliable diagnostic to check the owner first** — before assuming auth, permissions, or a typo in the query itself.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#321).
+
+**Applies To:** All agents constructing raw `gh api`/`gh api graphql` calls with an explicit owner/repo path; verify via `gh repo view --json nameWithOwner` rather than assuming from committer identity.
+
+---
+
+## #402 [Process] Reusing a File Path From a Previous PR Head Breaks When the File Was Renamed — Re-List Artifact Paths on Every New Head
+
+**Pattern:** An agent reviews a PR across multiple head updates (pushes). On an earlier head, a specific file path (e.g. `frozen_list.json`) was valid and the agent read it via `git show <PR-ref>:<path>`. On a LATER head, the file has been renamed (e.g. to `frozen_metadata_fixes.json`). The agent, reviewing the new head, reuses the OLD path from memory rather than re-listing the tree — `git show` reports "path does not exist," and if the error isn't caught cleanly, downstream code (e.g. a JSON parser) can crash on the resulting empty input.
+
+**Instances:**
+- 2026-10-31 — Second Opinion (p/691#25, re-reviewing t/4658): `git show <PR>:.../frozen_list.json` reported "path does not exist," and the JSON load then crashed on empty input. The new PR head had renamed the file to `frozen_metadata_fixes.json`; the agent reused the old path from the previous head without re-listing. Resolved by running `git ls-tree` on the new head and using the new path.
+
+**Root Cause:** A PR's file paths are not stable across pushes — files can be renamed, moved, split, or removed between review passes. An agent that caches a path from an earlier review pass and reuses it on a later head is implicitly assuming the tree hasn't changed shape, which is exactly the kind of assumption root AGENTS.md's "Verify Against the Authoritative Source" principle warns against — the earlier head's listing is not evidence of the current head's structure.
+
+**Prevention:**
+1. **On every new head (re-review after a push), re-list the artifact paths you need** (`git ls-tree -r <ref>` or targeted `git ls-tree <ref> -- <dir>`) before reading any specific file — don't reuse a path cached from an earlier pass.
+2. **Treat "path does not exist" from `git show <ref>:<path>` as a signal to re-list the tree**, not just a sign the path was always wrong — the file may have existed at an earlier head and moved since.
+3. **Guard JSON/data loads against empty input from a failed `git show`** — crashing downstream on an empty string obscures the real cause (stale path) behind a secondary parse error. Check the `git show` exit code / output before parsing.
+4. **This is a specific instance of "verify at the exact head"** — the same discipline root AGENTS.md already prescribes for merged state generally, applied here to per-file artifact paths across a PR's push history.
+
+**Status:** Active — 1 instance (Second Opinion p/691#25, t/4658).
+
+**Applies To:** All agents reviewing a PR across multiple head updates; re-list artifact paths on every new head rather than reusing a path cached from an earlier review pass.
+
+---
+
+## #403 [Build] vitest/Node in a Junctioned-`node_modules` Worktree Couldn't Resolve a Dependency — Cause Unverified
+
+**Pattern:** An agent runs vitest (or plain Node/Vite module resolution) in a fresh worktree whose `node_modules` is set up via a Windows directory junction (`mklink /J`, used when admin rights for real symlinks aren't available). Module resolution fails with `Cannot find package` / `MODULE_NOT_FOUND` for a dependency that is present and correctly listed in `package.json`. The mechanism behind the failure was not conclusively established, though a specific candidate (pnpm's relative symlinks resolving against the junction's apparent path rather than its real target) was proposed on the second occurrence.
+
+**Instances:**
+- 2026-10-31 — Tech Lead (p/335#236, corrected p/335#238): vitest in a fresh worktree with a junctioned `taxonomy-editor/node_modules` reported "Cannot find package '@azure/storage-blob'." An initial hypothesis ("pnpm's nested symlinks don't resolve through a Windows junction") was offered but **retracted on review** — `@azure/storage-blob` is a direct dependency, so "direct deps work, nested ones break" doesn't fit the evidence, and no root cause was actually established. Resolved pragmatically: relied on CI for the test run instead of debugging further in that worktree.
+- 2026-11-02 — Rosetta Stone (p/6#114): same shape, different package (`zustand`) and a different harness (`git worktree add --detach` scratch worktree, junctioned via `mklink /J`). `ls`/bash traversed pnpm's relative symlinks fine through the junction, but Node's CJS/Vite resolver failed with `MODULE_NOT_FOUND` — **proposed mechanism (not confirmed):** the resolver may resolve the relative symlink target against the junction's apparent path rather than its real target. This also resolves the earlier "direct vs nested" confusion from the first instance — pnpm's direct dependencies are themselves symlinks into the `.pnpm` store, so that was never the right axis; the junction/symlink interaction is. Resolved pragmatically again: syntax-checked with `ts.transpileModule`, ran the one dependency-free test file directly, handed the rest to the ticket's actual owner (with a working worktree) to execute.
+
+**Root Cause:** **Still not confirmed**, but a credible candidate now exists: an NTFS junction and a pnpm relative symlink inside it may not compose the way Node's module resolver expects — the resolver could be resolving the symlink's `../..`-style relative target against the junction's apparent (virtual) path instead of the junction's real target directory. This is consistent with both instances (regardless of whether the failing package is direct or transitive, since all pnpm `node_modules/<pkg>` entries are symlinks either way). **Do not treat this as settled** — no agent has yet traced the actual resolution failure to confirm it.
+
+**Prevention:**
+1. **If vitest/Node in a junctioned-`node_modules` worktree can't resolve a dependency, don't assume a specific mechanism without checking** — the leading candidate is junction+relative-symlink interaction, but verify with actual resolution tracing before citing it as confirmed.
+2. **Practical workaround (confirmed effective, used twice now):** rely on CI for the test run, run `pnpm install` directly inside the worktree to rebuild `node_modules` as real directories, or hand execution to an agent with a working (non-junctioned) worktree. A dependency-free file can be syntax-checked locally with `ts.transpileModule` as a partial substitute when no working test runner is available.
+3. **If this recurs, investigate the actual resolution failure** (e.g. `node --experimental-vm-modules` resolution tracing, or inspecting what path Node's resolver actually probes for the symlink target) before upgrading the candidate mechanism to a confirmed root cause.
+
+**Status:** Active — 2 instances (Tech Lead p/335#236/#238; Rosetta Stone p/6#114). Root cause still unverified; a candidate mechanism (junction + relative-symlink interaction) is now consistent with both instances but not traced/confirmed.
+
+**Applies To:** All agents running vitest/Node in a junctioned-`node_modules` worktree who hit an unresolved-dependency error; use the CI/`pnpm install`/hand-off workaround, and investigate rather than assume the cause before upgrading this entry's status.
+
+---
+
+## #404 [Process] A `grep -qv <sentinel>` Poll Loop False-Positives on Any Output Not Containing the Sentinel — Including Transient Garbage, Not Just a Real Value
+
+**Pattern:** An agent writes a poll loop to wait for a field to become non-null (e.g. waiting for a PR's `mergedAt` timestamp to appear): `until <command> | grep -qv null; do sleep ...; done`. The loop exits — reporting success — as soon as the piped output doesn't literally contain the string "null." But a transient or empty result from an in-flight API call (e.g. a jq parse of a partial/empty response) ALSO doesn't contain "null" — it satisfies the grep check just as well as a real value would, causing the loop to report success (e.g. "PR MERGED") while the actual condition (the PR is still OPEN) hasn't been met.
+
+**Instances:**
+- 2026-10-31 — DevOps Lead (p/26#336): a poll loop `until ... | grep -qv null; do sleep; done` for "PR merged" printed MERGED when the PR was still OPEN. `grep -qv null` exits 0 on ANY line not literally containing "null" — a transient/empty jq output (not "null", but also not a real merge timestamp) satisfied that just as well as a real date would. Resolved by polling `.state != "OPEN"` directly and verifying against a second `gh pr view` call before trusting it.
+
+**Root Cause:** `grep -qv <sentinel>` tests only "is the sentinel string absent," not "is the expected positive value present." Any output that happens not to contain the sentinel — including empty strings, parse errors rendered as blank output, or genuinely different-but-still-wrong values — passes the same check as a correct result. This is a specific instance of the broader exit-code-literacy family (#73A and siblings): the test checks the ABSENCE of a negative signal, not the PRESENCE of a positive one, and those are not equivalent.
+
+**Prevention:**
+1. **Never use `grep -qv <sentinel>` (or similar "doesn't match the bad value" checks) as a proxy for "the good value is present."** Check for the EXPECTED positive value directly: `.state == "MERGED"` or `.mergedAt != null` evaluated as an actual boolean/jq comparison, not a string-absence grep.
+2. **For poll loops waiting on a state transition, compare against the specific expected terminal state(s)** (`.state != "OPEN"`, or explicitly `.state == "MERGED" or .state == "CLOSED"`) rather than testing the absence of the initial/null state's string representation.
+3. **Verify a poll loop's reported success with a second, independent confirming call** before trusting it and proceeding — this catches exactly this class of false positive, as it did here.
+4. **This generalizes beyond merge-state polling** — any `grep -qv <marker>` loop waiting for a field to "become set" has the same hazard. Prefer structured comparisons (jq booleans, explicit field equality) over string-presence/absence tests whenever the loop's exit gates a subsequent irreversible or consequential action.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#336).
+
+**Applies To:** All agents writing poll loops that wait for a field to transition away from null/an initial value; use positive structured comparisons, not negative string-absence grep tests.
+
+## #405 [Process] A `gh pr view --jq .mergedAt` Poll Compared Against the String `"null"` in Bash Is Unreliable — Mechanism Unverified, Distinct From #404
+
+**Pattern:** An agent polls `gh pr view --jq .mergedAt` in a loop, comparing the result against the literal string `"null"` in a bash conditional, to detect when a PR has merged. The poll is unreliable, but on inspection the command was NOT the `grep -qv <sentinel>` pattern of #404 — the `!= "null"` comparison happens in bash against the `--jq` output directly, not inside a jq filter, and there is no jq string-vs-null type mismatch to blame. The actual mechanism behind the unreliability was not established.
+
+**Instances:**
+- 2026-10-31 — DebateWorkspace (p/846#9–#14): reported a `mergedAt`-based merge poll as unreliable. An initial hypothesis from Sage (a jq null-vs-`"null"`-string type mismatch) was offered, then retracted after DebateWorkspace checked their actual command — it was plain `gh pr view --jq .mergedAt` with the `!= "null"` check done in bash, not a jq-side comparison, so that specific theory doesn't fit. Root cause left open; DebateWorkspace's own recommendation: don't poll `mergedAt` directly, treat `mergeCommit.oid` non-empty as the more reliable positive signal.
+
+**Root Cause:** **Unverified.** Do not treat this as the same mechanism as #404 (grep-on-sentinel-absence) — the command shape is different and the specific failure mode was never pinned down. Record only what's confirmed: polling `.mergedAt` directly is unreliable; do not prescribe why.
+
+**Prevention:**
+1. Prefer polling `.state == "MERGED"` or a non-empty `.mergeCommit.oid` as the positive signal over `.mergedAt`, per DebateWorkspace's own fix.
+2. If this recurs, capture the exact raw (unprocessed) output of the `gh pr view` call at the moment of a false read, before attributing a cause — don't guess a mechanism from the command shape alone (same discipline as #403).
+3. Keep this entry separate from #404 — they look similar (both are merge-poll false positives) but #404 has a confirmed mechanism (grep sentinel-absence) and this one does not.
+
+**Status:** Active — 1 instance (DebateWorkspace p/846#9–#14). Root cause unverified — do not prescribe a mechanism until confirmed.
+
+**Applies To:** Any agent polling PR merge state via `gh pr view`; prefer `.state`/`.mergeCommit.oid` over `.mergedAt` as the positive signal.
+
+## #406 [Environment] PowerShell 7 Dropped Off the Bash PATH (and in One Case the PowerShell Tool Itself) Mid-Session, Correlated With an Account/Login Switch — PI-Only Fix
+
+**Pattern:** Mid-session, `pwsh` (PowerShell 7) stops resolving — either from the Bash tool's PATH (`which pwsh` / `command -v pwsh` finds nothing, only legacy `powershell.exe` 5.1 remains) or, in one case, the PowerShell tool itself breaks with a WindowsApps alias error. The PowerShell 7 binary is NOT missing — it's still installed at `C:\Program Files\PowerShell\7\pwsh.exe` — only the PATH entry pointing to it has dropped out of the environment the agent sessions inherited. This correlates with an account/login switch noted in session context (`userEmail` changing mid-session). Falling back to `powershell.exe` 5.1 is a trap, not a fix: PS 5.1's legacy codepage mangles any UTF-8 non-ASCII character (e.g. an em-dash) in a script's string literals into garbage bytes, causing cascading parse errors in otherwise-correct scripts.
+
+**Instances:**
+- 2026-10-31/2026-11-01 — DevOps Lead (p/26#344, p/26#346): `pwsh` missing from Bash PATH; fallback to `powershell.exe` 5.1 failed to parse `check-shared-drift.ps1` on a UTF-8 em-dash. Found the PowerShell TOOL itself also broken in the same session (WindowsApps alias error, not just the Bash PATH). Working fallback: full path `"/c/Program Files/PowerShell/7/pwsh.exe"` via Bash.
+- 2026-11-01 — Sage (self, main.operations-sage): confirmed `pwsh` also missing from this session's Bash PATH, but the PowerShell TOOL itself worked fine (PS 7.6.9) — establishing this is per-session, not uniform across all agents.
+- 2026-11-01 — Tech Lead (p/335#244): same PATH gap in the TL's Bash session. Root-caused it: Bash's PATH carried `WindowsPowerShell/v1.0` (PS 5.1) but not `PowerShell/7` — the install is intact, the PATH entry for PS7 dropped off the environment the session inherited, fitting the login-switch correlation.
+- 2026-11-02 — DevOps Worker (p/749#44): `Get-StuckPRAlerts.ps1` blocked because `pwsh` wasn't found, blocking a scheduled stuck-PR triage reminder (t/4115). Same gap; 4th independent agent.
+
+**Root Cause:** The machine's PATH (user or system level) lost its `C:\Program Files\PowerShell\7` entry — or agent sessions stopped inheriting it — coinciding with an account/login switch. Confirmed by four independent agents hitting variants of the same gap in the same window. Not a per-agent or per-script problem; falling back to PS 5.1 and patching scripts for its codepage is treating the symptom (and introduces the separate UTF-8-mangling failure).
+
+**Prevention:**
+1. **Do not patch around this by rewriting scripts for PS 5.1 compatibility** (e.g. stripping em-dashes or other non-ASCII characters) — that's masking an environment gap, not fixing it, and it degrades scripts for everyone once PS7 is restored.
+2. **Interim workaround:** call `pwsh` by its full path (`"/c/Program Files/PowerShell/7/pwsh.exe"`) from Bash, or use the PowerShell tool directly — both sidestep the PATH gap (the PowerShell tool is unaffected in most observed sessions).
+3. **The actual fix is PI-only:** add `C:\Program Files\PowerShell\7` back to the user or system PATH on the PI's machine, then restart affected agent sessions so they inherit the corrected environment. Agents should not and cannot change the machine's environment themselves.
+4. If this recurs after a future login/account switch, check `echo $PATH` (Bash) or `$env:PATH` (PowerShell tool) for the `PowerShell\7` entry before assuming a deeper tooling failure.
+
+**Status:** Active — 4 agents independently confirmed (DevOps Lead p/26#344/#346, Sage self, Tech Lead p/335#244, DevOps Worker p/749#44). Root cause confirmed. Fix is PI-only; escalated.
+
+**Applies To:** All agents; especially relevant after any account/login context switch. PI action required to close.
+
+## #407 [Build] Chaining Two Separate `pwsh -Command` Invocations Across Bash's `|` Misparses the Second Command's Leading Pipe
+
+**Pattern:** An agent runs two separate `pwsh` processes chained through Bash's own pipe operator — `pwsh -Command "<script>" | pwsh -Command "$input | Format-List"` — intending the second PowerShell process to receive and format the first's output. This fails: Bash's `|` already connects the first process's stdout to the second's stdin at the OS level, but the second `-Command` string itself ALSO opens with `$input |`, so PowerShell parses a bare leading `|` in its own command text and errors on an empty pipe element. This is distinct from #271 (a cmdlet leaking outside `-Command` into bash) — here both sides of the Bash pipe ARE `pwsh`, and the failure is in how the second process's own command text is written, not in bash misparsing a PowerShell cmdlet.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#352): `pwsh -Command "<script>" | pwsh -Command "$input | Format-List"` errored on an empty pipe element. Resolved by combining both steps into one `pwsh -Command` invocation (`& script.ps1 ... | Format-List`) instead of splitting the pipeline across two separate `pwsh` processes via a Bash pipe.
+- 2026-11-02 — DevOps Lead (p/26#367): same shape again — `pwsh.exe -Command` piped into a second `pwsh.exe -Command "$input | Format-List"` via Bash, same "An empty pipe element is not allowed" error. Resolved the same way: both commands combined into one `pwsh.exe -Command "... | Format-List"` invocation.
+- 2026-11-03 — DevOps Lead (p/26#399): `pwsh -NoProfile -File ... | pwsh -NoProfile -Command "$input | Format-List"` errored the same way. Resolved identically: ran it as one `pwsh -Command '... | Format-List'` call instead of two nested processes.
+
+**Root Cause:** Splitting a single logical PowerShell pipeline across two separate `pwsh` processes connected by Bash's `|` creates two independent pipe layers — the OS-level Bash pipe AND whatever pipe syntax appears inside the second process's own `-Command` string. When the second `-Command` string is written assuming it receives piped input via a leading `$input |`, that leading `|` has no left-hand operand from PowerShell's own parser's perspective (the OS-level connection is invisible to it), so it misparses.
+
+**Prevention:**
+1. **Never split one logical PowerShell pipeline across two separate `pwsh -Command` invocations joined by Bash's `|`.** Combine the entire pipeline into a single `-Command` string: `pwsh -Command "& script.ps1 ... | Format-List"`.
+2. **If a `-Command` string needs to start with a pipe-dependent construct like `$input |`, that's a signal the pipeline should be unified into one invocation instead** — `$input` inside `-Command` does not connect to an external Bash-level pipe the way a normal PowerShell pipeline stage does.
+3. **Use the PowerShell tool for any multi-stage PowerShell pipeline** — it runs the whole pipeline natively in one process, avoiding both this failure and #271's cmdlet-leak failure.
+
+**Status:** Active — 3 instances (DevOps Lead p/26#352; DevOps Lead p/26#367 — same mechanism, same day; DevOps Lead p/26#399 — same mechanism again, next day).
+
+**Applies To:** All agents invoking `pwsh` from the Bash tool with multi-stage pipelines; keep the entire pipeline inside one `-Command` string or use the PowerShell tool.
+
+## #408 [Process] `gh pr merge --auto --squash --match-head-commit` on a Merge-Queue-Protected Branch Doesn't Reliably Confirm Its Own Enqueue — Verify via GraphQL, Don't Trust the CLI's Apparent Effect
+
+**Pattern:** An agent runs `gh pr merge --auto --squash --match-head-commit <sha>` to enqueue a PR, intending the standard queue-enqueue call (which normally prints `! The merge strategy for main is set by the merge queue` to stderr and succeeds anyway). On at least one occasion, repeated CLI attempts (3 retries over several seconds, with delays) left the PR NOT actually enqueued, with no clear signal distinguishing this from the normal successful case. Attempts to establish "it worked here, it didn't work there" as a reproducible trigger condition failed on review — the reporting agent's own "confirmed working" cases turned out, on re-examination, to be PRs that were already queued by some other mechanism before the CLI call ran (misattributed), leaving only a confirmed FAILURE case and no confirmed SUCCESS case for the CLI form.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#355, corrected p/26#357): for PR #4262, 3 retries of the CLI enqueue call over several seconds (with delays) left it un-enqueued; the GraphQL `enablePullRequestAutoMerge` mutation (with `mergeMethod: SQUASH`) changed state immediately and verifiably. Initial claims that the CLI form had separately "worked" for #4282/#4286 were **retracted on re-examination**: #4282's actual CLI output was "already queued to merge" — meaning something else (possibly the queue's periodic/batched admission sweep, config `min_entries_to_merge_wait_minutes: 15`) had already enqueued it, not the CLI call; #4286's merge likely followed the same pattern after repeated failed CLI attempts. **No confirmed instance of the CLI form itself causing a successful enqueue exists** — only a confirmed instance of it failing to.
+
+**Root Cause:** **Unverified as a cause in either direction.** The CLI form's effect on merge-queue membership (as opposed to classic auto-merge arming) cannot currently be trusted as a reliable signal — not because it's known to be "intermittent," but because no agent has yet obtained a confirmed case of the CLI call itself producing a successful enqueue. Do not record or treat this as "intermittent" (a stronger-sounding claim than the evidence supports); record it as "effect unconfirmed, verify independently."
+
+**Prevention:**
+1. **After any `gh pr merge --auto` enqueue attempt on a merge-queue-protected branch, verify independently via GraphQL** (`repository.mergeQueue(branch:"main").entries` or `pullRequest.isInMergeQueue`/`mergeQueueEntry`) within a few seconds — don't trust the CLI's stderr message or exit code as confirmation either way.
+2. **If the CLI's effect isn't independently confirmed within a few seconds, use the GraphQL `enablePullRequestAutoMerge` mutation directly as the deterministic fallback:** `gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "<node-id>", mergeMethod: SQUASH}) { pullRequest { autoMergeRequest { enabledAt } } } }'` — confirmed to fix a stuck enqueue when the CLI form had already failed (t/4731#1).
+3. **Don't attribute an apparent CLI "success" without checking for an alternative cause first** — a PR that's already queued by a prior attempt, a periodic admission sweep, or another agent's action can make a CLI call LOOK like it worked when it did nothing. Check the PR's enqueue timestamp/history before crediting a specific command.
+4. **Don't retry the same CLI command 3+ times hoping for a different result** — if the first attempt's effect isn't confirmed via GraphQL within a few seconds, switch to the GraphQL mutation immediately rather than retrying the unconfirmed CLI path.
+5. **Automated fix landed (t/4740, PR #4301):** an `enqueue-pr` wrapper now verifies the merge-queue entry after calling the CLI form and falls back to the GraphQL mutation automatically if unconfirmed. Prefer this wrapper over the manual CLI-then-verify dance above once available; the manual steps remain the fallback if the wrapper itself isn't accessible.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#355, corrected p/26#357). Cause unverified in either direction; GraphQL mutation is the confirmed deterministic fallback. **Automated fix landed:** t/4740 (`enqueue-pr` wrapper, PR #4301).
+
+**Applies To:** All agents enqueuing PRs via `gh pr merge --auto` on a merge-queue-protected branch; verify independently via GraphQL rather than trusting the CLI's apparent effect, and use the GraphQL mutation directly when unconfirmed.
+
+## #409 [Build] `git branch -d` Refuses a Squash-Merged Branch as "Not Fully Merged" Even Though Its Content Landed
+
+**Pattern:** An agent tries to delete a feature branch after its PR merged via squash with `git branch -d <branch>`, and git refuses with "not fully merged," even though the branch's content is verifiably present on `main`. Squash merges create a brand-new commit on the target branch with different tree history — the feature branch's own tip commit is never a literal ancestor of `main`, even though its content is. `git branch -d` only checks direct commit ancestry, not squash-equivalent content.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#358): `git branch -d fix-codeql-4260` refused with "not fully merged" after PR #4260 (squash merge) landed. Verified the branch's file content matched `origin/main` via `git show origin/main:<path>` first, then used `git branch -D` to force-delete.
+
+**Root Cause:** Git's `-d` safety check only recognizes direct ancestry (`merge-base --is-ancestor <branch> main`). A squash merge intentionally discards the feature branch's commit history in favor of one new commit on the target branch, so the ancestry check always fails for a squash-merged branch — regardless of whether the content genuinely landed.
+
+**Prevention:**
+1. **A squash-merged branch will ALWAYS fail `git branch -d`'s ancestry check — this is expected, not a sign of a problem.** Don't investigate it as if it were evidence the merge didn't actually happen.
+2. **Before force-deleting, verify the branch's content is actually on the target** (`git show origin/main:<path>` for the relevant files, or confirm the originating PR's `state == MERGED`) — this is what makes `-D` safe here, not just convenient.
+3. **Once confirmed, `git branch -D <branch>` is the correct and safe tool** for cleaning up a squash-merged branch — there's no gentler alternative that will succeed, because the ancestry check this repo uses for squash merges is structurally unsatisfiable.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#358).
+
+**Applies To:** All agents cleaning up local/remote branches after a squash-merged PR; expect `-d` to fail and use `-D` after confirming content landed, not as a blind substitute.
+
+## #410 [Build] `gh pr diff` Does Not Accept a Pathspec Argument — Unlike `git diff`
+
+**Pattern:** An agent runs `gh pr diff <N> -- <path>`, expecting it to behave like `git diff <ref> -- <path>` and filter the diff to one file. `gh pr diff` errors `accepts at most 1 arg(s)` — it takes only the PR number (or none, for the current branch's PR) and has no pathspec filtering of its own.
+
+**Instances:**
+- 2026-11-02 — Shared Lib (p/5#64): `gh pr diff 4295 -- lib/electron-shared/introCopy.ts` errored "accepts at most 1 arg(s)." Resolved by running `gh pr diff 4295` with no path filter and extracting the relevant file's hunk manually.
+
+**Root Cause:** `gh pr diff`'s argument parser only accepts a single positional argument (the PR number); it was never designed to accept `git diff`-style pathspec filtering, unlike the underlying `git diff` command it wraps.
+
+**Prevention:**
+1. **`gh pr diff <N>` takes no pathspec.** To view a single file's diff from a PR, run it unfiltered and extract the relevant section manually (e.g. split on `diff --git` markers, or `grep -A/-B` around the target path).
+2. **If filtering by path is essential**, fetch the PR's head ref locally and use `git diff <base>...<head> -- <path>` instead, which does support pathspecs.
+
+**Status:** Active — 1 instance (Shared Lib p/5#64).
+
+**Applies To:** All agents inspecting PR diffs via `gh pr diff`; don't pass a path filter, extract manually or fall back to `git diff` with a pathspec.
+
+## #411 [Environment] `git push` Hangs on `git-credential-manager` Mid-Session — Cause Unverified, Requires Manual User Intervention
+
+**Pattern:** `git push` to origin hangs indefinitely on a spawned `git-credential-manager` process — no error, no timeout, just a non-resolving process. The only observed resolution is flagging it to the human user, who clears something unspecified on their end, after which an immediate retry of the same push succeeds. Recurred 3 times within one session for the same agent, with no root cause established.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone (p/6#117): `git push` hung on `git-credential-manager` 3 times in one session; each time, flagged to the user, who cleared something (unspecified), and the retried push then succeeded immediately. Possibly a stale/expired cached credential requiring repeated manual re-authentication, but not confirmed.
+
+**Root Cause:** **Unverified.** A stale/expired cached credential forcing a re-auth prompt that the headless agent session can't itself interact with is the leading guess, but no agent has confirmed what the user actually clears, or why it recurs within a single session rather than being resolved once.
+
+**Prevention:**
+1. **If `git push` hangs indefinitely on a `git-credential-manager` process with no error, don't assume it will self-resolve** — flag it to the human user promptly rather than waiting or retrying blindly; the only confirmed resolution so far requires their manual intervention.
+2. **After the user signals it's cleared, retry the exact same push** — it has succeeded immediately every time so far.
+3. **If this recurs for other agents, escalate to DevOps/Orca Support for a root-cause investigation** — 3-for-3 in one session suggests an environment-level credential-caching issue, not a one-off fluke, but the specific mechanism is still unknown.
+
+**Status:** Active — 1 instance, 3 recurrences within it (Rosetta Stone p/6#117). Cause unverified; a possibly-related GitHub auth-popup fix by Orca Support was flagged for investigation but not yet confirmed connected.
+
+**Applies To:** All agents pushing to origin; if `git push` hangs on credential-manager, flag the human promptly rather than waiting, and retry once cleared.
+
+## #412 [Build] A Node Script That `mktemp`s an Extensionless Temp File and Then `import`s It as ESM Crashes With `ERR_UNKNOWN_FILE_EXTENSION`
+
+**Pattern:** A CI script writes generated/extracted content to a temp file via plain `mktemp` (no suffix, producing a path like `/tmp/tmp.XXXXXXXXXX`) and then dynamically `import()`s that file as an ES module. Node 20's ESM loader determines module format from the file extension; an extensionless path has no recognized format, so the import throws `ERR_UNKNOWN_FILE_EXTENSION` regardless of whether the file's actual content is valid ESM. The failure is deterministic — it reproduces on any extensionless temp file with ESM content, not an intermittent CI flake.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#363, root-caused via direct repro): the new stray-file-guard CI script (t/4665, PR #4260) wrote an extensionless temp file (`mktemp` with no `--suffix`) and imported it as ESM, crashing every run with `ERR_UNKNOWN_FILE_EXTENSION` on Node 20 regardless of PR content (confirmed on a docs-only PR, #4304). Fixed with `mktemp --suffix=.mjs` (PR #4305, head `79c9949a`). The check was non-required (not in the four enforced contexts: `ci-gate`, `CodeQL`, `joint-gv-guard`, `consult-hold-guard`), so it didn't block merges, but it would have failed on every PR going forward had it not been caught promptly.
+- **Related test-coverage gap (same report):** the stray-file-guard script's existing unit test used a CommonJS-shaped stub for the extracted content, which could never have caught an ESM-specific loader failure. Strengthened to use real ESM syntax in the same fix.
+
+**Root Cause:** Node's ESM loader resolves module format from the file's extension (`.mjs`, `.js` with `"type": "module"`, etc.), not from sniffing the content. `mktemp`'s default output has no extension, so any script that creates a temp file for later `import()` as ESM must explicitly request one.
+
+**Prevention:**
+1. **Always pass `--suffix=.mjs` (or `.js` with appropriate `package.json` context) to `mktemp` when the resulting file will be dynamically `import()`ed as an ES module.** An extensionless temp file is structurally incompatible with ESM's extension-based format detection.
+2. **A test stub standing in for dynamically-loaded content must match the actual module format being tested** — a CommonJS-shaped stub cannot catch an ESM-specific failure (or vice versa). If the production code path uses `import()`, the test must exercise a file that's actually `import()`ed, not just a string comparison against expected output.
+3. **A CI check failing with the same error on every PR regardless of content is a script bug, not a PR problem** — before assuming your own change caused a new check to fail, check whether the failure is content-independent (e.g. reproduces on a trivial/unrelated diff) and flag it to the check's owner promptly.
+4. **Check whether a newly-failing check is actually in the required-contexts list before treating it as blocking** — this one wasn't (`gh api repos/{owner}/{repo}/branches/{branch}/protection`, or ask the TL/DevOps directly), so the PR could and did proceed on the four contexts that matter.
+
+**Status:** Resolved — 1 instance (DevOps Lead p/26#363), fixed via PR #4305 (t/4665 follow-up).
+
+**Applies To:** All agents writing scripts that create temp files for later dynamic `import()`; always specify `.mjs`/`.js` via `mktemp --suffix`, and ensure test stubs match the real module format being exercised.
+
+## #413 [Build] A GraphQL Inline Fragment Can't Be Spread Directly on a List/Connection Field — It Must Go Through `.nodes { ... on Type }`
+
+**Pattern:** An agent writes a `gh api graphql` query with an inline fragment (`... on CheckRun { ... }`) spread directly inside the selection set of a field like `statusCheckRollup`, expecting it to behave like a union type. The query errors with a GraphQL schema validation error — `statusCheckRollup` (and similar fields) are list/connection types, not unions, at that position in the schema. An inline type fragment can only be spread on a field whose type is itself a union or interface; applying one to a plain list field is a schema mismatch, not a syntax error in the usual sense.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone (p/6#124): `gh api graphql` query with `... on CheckRun { ... }` spread directly inside `statusCheckRollup`'s selection set failed GraphQL schema validation. Resolved by dropping the raw GraphQL query entirely and using `gh pr view --json statusCheckRollup -q '...'` instead, which already handles the underlying union/connection shape correctly on the CLI's curated side.
+
+**Root Cause:** GraphQL inline fragments (`... on Type`) are only valid where the enclosing field's type is a union or interface — the fragment tells the query "if this particular item turns out to be this concrete type, select these fields." A field that's already a concrete list/connection type (like `statusCheckRollup`'s underlying connection) doesn't support that construct directly; the union/interface members (e.g. `CheckRun` vs. a status context) live one level deeper, inside `.nodes { ... on CheckRun { ... } ... on StatusContext { ... } }` or equivalent.
+
+**Prevention:**
+1. **Before spreading an inline fragment (`... on Type`) in a raw GraphQL query, confirm the enclosing field is actually a union or interface type** — check the schema (e.g. via `gh api graphql` introspection, or GitHub's public GraphQL schema docs) rather than assuming based on how the CLI's `--json` flattens the same data.
+2. **If a field has both list/connection semantics AND a union of member types, the fragment goes on the connection's `.nodes` entries, not the connection field itself.**
+3. **When unsure whether a field needs this treatment, prefer `gh <subcommand> --json <field>` over raw GraphQL** — the CLI's curated JSON output already resolves these union/list distinctions for the common cases, avoiding the schema-shape question entirely.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#124).
+
+**Applies To:** All agents writing raw `gh api graphql` queries involving `statusCheckRollup` or similar union-bearing connection fields; prefer the CLI's `--json` form unless the raw query is specifically needed.
+
+## #414 [Build] `az ad app` Commands' `--id` Flag Expects a GUID or Identifier URI, Not a Bare Display Name
+
+**Pattern:** An agent runs `az ad app federated-credential list --id <display-name>` (or a similar `az ad app` subcommand) using the application's human-readable display name directly as `--id`. The call fails with "Application with identifier URI '<display-name>' doesn't exist" — `--id` accepts the app's object/client GUID or a registered identifier URI, never a bare display name, even though the error message's phrasing ("identifier URI") can read as if the tool just needs a different kind of name rather than a different kind of value entirely.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#370): `az ad app federated-credential list --id github-ai-triad-deploy` errored "doesn't exist" using the app's display name as `--id`. Resolved by first looking up the app via `az ad app list --display-name github-ai-triad-deploy` to get its `appId`, then re-querying federated credentials with that GUID.
+
+**Root Cause:** Azure AD app registrations have multiple identifying values — object ID, application (client) ID, and optionally one or more identifier URIs — but no identifier based on display name, since display names aren't guaranteed unique. `az ad app`'s `--id` parameter is documented to accept the GUID or an identifier URI, but a bare display name silently fails the same lookup path rather than being rejected as an invalid parameter type up front.
+
+**Prevention:**
+1. **Never pass a bare display name to `az ad app ... --id`.** Resolve it to the `appId` (or object ID) first: `az ad app list --display-name <name> --query "[0].appId" -o tsv`.
+2. **The error "Application with identifier URI '<name>' doesn't exist" is a strong signal you passed a display name as `--id`** — it is not telling you the app doesn't exist, it's telling you no app is registered under that string as an identifier URI.
+3. **Chain the lookup and the real command in one step when scripting:** `az ad app federated-credential list --id $(az ad app list --display-name <name> --query "[0].appId" -o tsv)`.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#370).
+
+**Applies To:** All agents using `az ad app` subcommands with `--id`; resolve display names to `appId` first.
+
+## #415 [Build] `enqueue-pr.mjs` False-Failed When Armed Correctly but Checks Were Still Pending — Fixed
+
+**Pattern:** The newly-mandated `enqueue-pr.mjs` wrapper (t/4740, the required way to arm/enqueue PRs per root AGENTS.md) exits 1 with "not enqueued after the GraphQL fallback" on a brand-new PR whose required checks haven't finished yet. GraphQL confirms `autoMergeRequest.enabledAt` is actually set (armed correctly), and `isInMergeQueue: false` simply reflects that GitHub hasn't moved the PR into the queue yet, since that only happens once all required checks clear — not a real failure. The wrapper's "not enqueued" check fired before giving checks time to complete, making a normal, healthy, in-progress state look identical to a genuine enqueue failure.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone (p/6#129): `enqueue-pr.mjs` exited 1 twice (immediate + after a 15s retry) on PR #4353 with 9 required checks still pending (0 failing, 31 already green). Verified via `gh pr view --json statusCheckRollup` that nothing had actually failed; concluded this was a timing false-negative in the wrapper itself, same underlying benign-warning class as the earlier `gh pr merge --auto` stderr misreads (#386), now surfacing through the new wrapper's stricter post-check instead. Left the PR armed to enqueue on its own once CI finished.
+
+**Root Cause:** The wrapper checked for queue membership too soon after arming, without accounting for the normal delay between "classic auto-merge armed" and "GitHub actually moves the PR into the merge queue," which only happens once required checks resolve. A PR with `autoMergeRequest.enabledAt` set and all checks still pending (no failures) is in a correct, self-resolving state, not an error state.
+
+**Prevention:**
+1. **If `enqueue-pr.mjs` exits 1 ("not enqueued after fallback"), check `autoMergeRequest.enabledAt` via GraphQL before assuming something's broken** — if it's set and no required check has actually failed (`gh pr view --json statusCheckRollup`), the PR is correctly armed and will self-enqueue once checks clear; no intervention needed.
+2. **Don't retry the arm command repeatedly on this false-negative** — retrying doesn't change anything if the real blocker is just checks-still-running; it will resolve on its own.
+3. **Fixed at the source (t/4768, PR #4359):** `enqueue-pr.mjs` no longer false-fails when armed but checks are pending. Agents hitting exit 1 after this fix should treat it as a genuine signal again, not reflexively check for this specific false-negative — but the diagnostic habit (check `autoMergeRequest.enabledAt` and real check failures before assuming the worst) remains good practice for any future wrapper behavior changes.
+
+**Status:** Resolved — 1 instance (Rosetta Stone p/6#129), fixed via PR #4359 (t/4768).
+
+**Applies To:** All agents using `enqueue-pr.mjs`; the specific false-negative is fixed, but the underlying diagnostic habit (verify via GraphQL before assuming a tool failure) generalizes.
+
+## #416 [Build] `git -C <dir> worktree add <relative-name>` Resolves the New Worktree's Path Against `-C`'s Target, Not the Caller's cwd
+
+**Pattern:** An agent runs `git -C <some-dir> worktree add <relative-name>` (e.g. `git -C .. worktree add tl-main-check`), intending the new worktree to land relative to their own working directory or under a conventional subdirectory like `.worktrees/`. Because `-C <dir>` changes git's effective working directory for the whole command, the relative path argument is resolved against THAT directory, not the caller's actual cwd — so the new worktree lands at `<some-dir>/<relative-name>`, which may be the repo root rather than the intended `.worktrees/<relative-name>` location.
+
+**Instances:**
+- 2026-11-02 — Tech Lead (p/335#258): `git -C .. worktree add tl-main-check` landed the new worktree at the repo root instead of `.worktrees/tl-main-check`, because the relative path `tl-main-check` was resolved against `-C .."`s target directory. Resolved by removing the stray worktree.
+
+**Root Cause:** `git -C <dir> <command>` is equivalent to `cd <dir> && git <command>` for path-resolution purposes — every relative path argument in the command, including a `worktree add` target, resolves against `<dir>`, not the shell's actual cwd at invocation time. This is easy to miss because `-C` is usually reached for specifically to AVOID a separate `cd`, which makes it feel like the command should behave as if run from the original location.
+
+**Prevention:**
+1. **When using `git -C <dir> worktree add <path>`, always give `<path>` as an absolute path, or explicitly prefix it with the intended relative location from `<dir>`'s perspective** (e.g. `git -C .. worktree add ai-triad-research/.worktrees/tl-main-check` if `-C ..` points one level above the repo) — never a bare relative name assuming it resolves from your own cwd.
+2. **Simpler alternative: avoid `-C` for `worktree add` entirely** — `cd` into the repo root first (in the same command, since cwd resets between tool calls) and use a plain relative `.worktrees/<name>` path, which is the convention this repo's tooling expects.
+3. **If a worktree turns up in an unexpected location (e.g. the repo root instead of `.worktrees/`) right after a `git -C` invocation, check the `-C` target before assuming a tooling bug** — this is the first thing to suspect.
+
+**Status:** Active — 1 instance (Tech Lead p/335#258).
+
+**Applies To:** All agents using `git -C <dir> worktree add` with a relative path; prefer avoiding `-C` for this command, or use an absolute path.
+
+## #417 [Build] `gh pr create` Returning HTTP 502 Doesn't Mean the PR Wasn't Created — Check Before Retrying
+
+**Pattern:** `gh pr create` fails with `pull request create failed: HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)`. Retrying the identical command then fails with "a pull request for branch ... into branch ... already exists," revealing that the FIRST call actually succeeded server-side — the 502 was returned on the response leg (or a retry/timeout at GitHub's edge), not because the mutation failed to execute. The client-visible error and the actual server-side outcome disagreed.
+
+**Instances:**
+- 2026-11-02 — Sage (self, main.operations-sage): `gh pr create` for a LessonsLearned batch PR returned HTTP 502. An identical retry failed with "already exists," confirmed the first call had created PR #4396 successfully. Proceeded with the already-created PR rather than creating a duplicate.
+
+**Root Cause:** A 502 from `api.github.com/graphql` indicates a gateway-level failure, which can occur either before the mutation executes OR after it executes but before the success response is delivered back to the client. `gh pr create` has no way to distinguish these cases from the error alone — the call is not safely idempotent-and-retryable by assumption, because a blind retry on an already-succeeded first attempt produces a conflicting "already exists" error rather than silently deduplicating.
+
+**Prevention:**
+1. **On `gh pr create` returning a 502 (or other 5xx) from the GraphQL API, don't assume the call failed — check first.** Run `gh pr list --head <branch> --json number,url` (or similar) to see if a PR for that branch already exists before retrying the create.
+2. **If a retry itself fails with "already exists," that confirms the first attempt succeeded** — use the existing PR (verify its head/base match what was intended) rather than treating the retry's failure as a new problem.
+3. **This generalizes to any `gh` mutation command (not just `pr create`) that hits a 502/5xx** — a server-side error on the response doesn't rule out a server-side success on the request. Check for the expected side effect before retrying a mutating call.
+
+**Status:** Active — 1 instance (Sage, self-observed).
+
+**Applies To:** All agents calling `gh pr create` or other `gh` mutation commands; verify the actual outcome before retrying after a 5xx error.
+
+## #418 [Process] A Claim Made During an Orca Outage Can't See an Existing Owner's Claim — Don't Start New Work While Orca Is Unreachable
+
+**Pattern:** An agent starts and enqueues new work (claiming a ticket, opening a PR) while the Orca platform is unreachable. Because the claim-checking mechanism itself depends on Orca, the agent can't see that another agent already holds a claim on the same ticket — `resolve_owner` and similar checks are unavailable during the outage, so the claim proceeds unchecked. Once Orca recovers, two conflicting claims/PRs for the same ticket exist and must be manually reconciled.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone 3 (p/355#13, confirmed by Tech Lead p/335#262): claimed and enqueued t/4748 while Orca was down, unable to see the existing owner's claim, skipping `resolve_owner` as a direct consequence of the outage. Tech Lead confirmed this is a real gap and provided guidance (below); Rosetta Stone 3 and the ticket's actual owner had to reconcile so only one PR survives.
+
+**Root Cause:** The claim-check mechanism (`resolve_owner` and Orca's ticket-claim state) is itself an Orca-dependent service. When Orca is unreachable, the check doesn't fail loudly — it's simply unavailable, and an agent that doesn't specifically account for this can proceed as if no claim exists, when in fact one does but just can't be seen right now.
+
+**Prevention:**
+1. **When Orca is unreachable, don't start new claims.** Finish only work you'd already claimed before the outage began.
+2. **If you must check claim status during an outage, use the GitHub fallbacks the root rule already lists:** `gh pr list --search "t/KEY"` on any base, plus `git log origin/main --grep t/KEY` — these don't depend on Orca being reachable.
+3. **Post the claim to Orca the moment it's back**, even for work you started "blind" during the outage, so the record catches up as soon as possible.
+4. **Never enqueue newly-started work during an outage** — even if checks are green, wait until Orca is reachable again and the claim can be properly recorded/verified.
+5. **First occurrence — no new prose rule yet per Change Tiers.** If this recurs, the prevention becomes automated: `enqueue-pr.mjs` refusing to enqueue when the PR's ticket assignee isn't the author's role. Flag a recurrence to the TL.
+
+**Status:** Active — 1 instance (Rosetta Stone 3 p/355#13, TL-confirmed p/335#262). First occurrence; no new AGENTS.md rule yet per Change Tiers — guidance recorded here, escalates to an automated check on recurrence.
+
+**Applies To:** All agents, specifically during any window where Orca itself is unreachable; defer new claims and enqueues until it recovers.
+
+## #419 [Process] The r/11 Shared-Drift `SyncBlocked` Predicate Is Tracked-Files-Only — It Reads False Even While `git merge --ff-only` Is Genuinely Refused
+
+**Pattern:** An agent runs `git merge --ff-only origin/main` on the shared checkout and it's refused with "untracked working tree files would be overwritten" — an untracked local file collides with an incoming ADD of the same path. The r/11 shared-drift monitoring reminder's `SyncBlocked` predicate reads `false` (no block reported) at the same time, because that predicate only checks TRACKED-file divergence — it has no visibility into untracked-file collisions, which is a real and independent way `--ff-only` can fail.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#392): `git merge --ff-only origin/main` refused for `taxonomy-editor/src/server/storage/communityContainer.ts` — an untracked local copy collided with an incoming ADD of the same path. r/11's `SyncBlocked` read `false` throughout, since its predicate is tracked-files-only. Resolved by diffing the untracked copy against origin's incoming version (byte-identical), removing the untracked copy, and re-running `--ff-only` successfully.
+
+**Root Cause:** The `SyncBlocked` predicate used by the r/11 shared-drift monitoring reminder only evaluates tracked-file divergence between the shared checkout and `origin/main`. `git merge --ff-only`'s actual refusal conditions are broader — it also refuses when an untracked file would be overwritten by an incoming tracked-file change at the same path. The predicate and the real git behavior it's meant to approximate have diverged: a genuine ff-only refusal can occur while the predicate still reports no block.
+
+**Prevention:**
+1. **Don't trust `SyncBlocked == false` as proof that `git merge --ff-only` will succeed** — it only rules out tracked-file divergence, not untracked-file path collisions. If `--ff-only` itself refuses, that's the authoritative signal, not the predicate.
+2. **On "untracked working tree files would be overwritten," diff the untracked copy against the incoming version first** (`diff <untracked-file> <(git show origin/main:<path>)` or equivalent) — if byte-identical, it's safe to remove the untracked copy and retry; if not, the untracked copy may be real uncommitted work that needs preserving first.
+3. **Consider widening `SyncBlocked`'s check to include untracked-file collisions**, or at minimum, document the predicate's tracked-files-only scope so agents don't over-trust it as a complete pre-check for `--ff-only` safety.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#392).
+
+**Applies To:** All agents relying on r/11's `SyncBlocked` predicate before a shared-checkout `--ff-only` sync; verify against git's actual refusal, not just the predicate.
+
+## #420 [Build] Junctioning a Worktree's `node_modules` to the Shared Checkout's Lets a `pnpm install` Inside the Worktree Corrupt the Shared Directory — Anchor t/4815
+
+**Pattern:** An agent, wanting to run tests in a worktree without a full `pnpm install`, junctions the worktree's `taxonomy-editor/node_modules` to the SHARED checkout's `node_modules`. **Correction (2026-11-03, Tech Lead p/335#282): this is not distinct from #345 — #345's original advice (junction a fresh worktree's `node_modules` via PowerShell) IS this exact hazard, confirmed by reproduction, and #345 has been amended to retract it.** If anything later runs `pnpm install` INSIDE that worktree (confirmed on pnpm 11: `pnpm exec`, which the pre-push hook calls, auto-installs the whole workspace), pnpm writes its new links straight through the junction into the SHARED directory — corrupting it with dozens of links pointing into `.worktrees/<name>/node_modules/.pnpm`. Once that worktree is removed, every OTHER agent using the shared checkout hits `MODULE_NOT_FOUND` from vitest/eslint, because the shared `node_modules` now contains links into a directory that no longer exists. **Confirmed spread: 3 other worktrees had independently followed #345's original advice and were unlinked as part of this incident's cleanup.**
+
+**Instances:**
+- 2026-11-03 — Tech Lead (p/335#273, t/4815): junctioned a worktree's `taxonomy-editor/node_modules` to the shared checkout's to run tests without installing. A `pnpm install` inside the worktree wrote 57 links through the junction into the shared directory. After the worktree was removed, Chat (p/513) hit `MODULE_NOT_FOUND` from vitest/eslint on the shared checkout. `pnpm install --frozen-lockfile` (with or without `--force`) reported "Already up to date" and did NOT relink or fix the corruption — the actual fix was moving `taxonomy-editor/node_modules` aside entirely, then running `pnpm install --frozen-lockfile --prefer-offline` fresh. Verified vitest and eslint working afterward.
+- 2026-11-03 — Tech Lead (p/335#282, **mechanism confirmed, spread identified**): confirmed on pnpm 11 that `pnpm exec` — called by the pre-push hook — is what auto-installs the whole workspace and writes through the junction. Found and unlinked 3 other worktrees that had independently followed #345's original (now-retracted) junction advice.
+
+**Root Cause:** A junction makes a worktree's `node_modules` path resolve to the SAME physical directory as the shared checkout's — there is no isolation between them. `pnpm install` running inside the worktree has no way to know it's writing through a junction into shared state; it writes exactly as if the worktree had its own real `node_modules`. The resulting links point into `.worktrees/<name>/node_modules/.pnpm`, a path that only exists while that specific worktree does — once removed, the shared `node_modules` is left holding dangling references. `pnpm install --frozen-lockfile` doesn't detect or repair this because it sees an already-populated `node_modules` tree and considers its job done ("Already up to date"), never inspecting whether the existing links point somewhere that still exists or somewhere worktree-scoped.
+
+**Prevention:**
+1. **Never junction a worktree's `node_modules` to the shared checkout's `node_modules`.** Run `pnpm install` inside the worktree itself (real directories, no junction) — slower but isolated and safe. (This is the opposite direction from #345's junction, which points a worktree AT an existing shared/root copy and is fine as long as nothing writes through it from inside the worktree — but even that carries the same risk if anything later installs inside the worktree.)
+2. **If `node_modules` ever needs sharing across a worktree boundary, treat it as read-only from the worktree's side** — confirm nothing (pre-push hooks, postinstall scripts, CI steps) will run `pnpm install`/`npm install` inside the worktree while the junction is in place.
+3. **`pnpm install --frozen-lockfile` is NOT a repair tool for this corruption** — it reports "Already up to date" and leaves dangling worktree-scoped links in place. The actual fix is moving the corrupted `node_modules` aside and reinstalling fresh (`pnpm install --frozen-lockfile --prefer-offline` into a clean directory).
+4. **If vitest/eslint suddenly report `MODULE_NOT_FOUND` on the shared checkout with no corresponding local change, suspect this corruption** — check whether `node_modules/.pnpm` contains any links resolving into a `.worktrees/` path that no longer exists.
+5. **Follow-ups opened (t/4815 anchor, DevOps Lead):** t/4816 — prevention: make pnpm refuse to run inside a worktree whose `node_modules` links out of the worktree. t/4817 — observability: a detector for shared `node_modules` links that point into `.worktrees/`. t/4815 stays open until both land.
+
+**Status:** Active — 1 instance (Tech Lead p/335#273, affecting Chat p/513). Anchor ticket t/4815; prevention (t/4816) and observability (t/4817) follow-ups filed, both with DevOps Lead.
+
+**Applies To:** All agents working in worktrees who are tempted to junction `node_modules` for speed; never junction a worktree's `node_modules` to the shared checkout's — install fresh inside the worktree instead.
+
+## #421 [Process] A Test Built on a Hand-Written Fixture Can Pass Against a Shape Production Never Actually Returns — Only a Live-API Run Catches It
+
+**Pattern:** A selector/parser is tested against a hand-written fixture meant to represent the real API's response shape. The test passes, but the fixture's shape diverges from what the production API actually returns (e.g. a literal string the fixture hardcodes as `dependabot[bot]` when the real field is named or formatted differently, or a fixture using `typename` when the real GraphQL response uses `__typename`). The selector works perfectly against the fixture and fails against reality — a test that provides false confidence precisely because it was authored independently of the real response shape rather than derived from it.
+
+**Instances:**
+- 2026-11-03 — Tech Lead (t/4779): twice in the same ticket, a selector passed tests built on a hand-written fixture in a shape production never returns — first a literal-string mismatch (`dependabot[bot]`), then a field-name mismatch (`typename` vs the real `__typename`). Only a run against the live API caught both; the hand-written fixtures gave no signal either time.
+
+**Root Cause:** A hand-written fixture encodes the test author's assumption about the API's shape, not a captured sample of the API's actual shape. When those two diverge — a renamed field, a double-underscore GraphQL convention, a slightly different literal — the test still passes, because it's only checking internal consistency between the fixture and the selector, not consistency between the selector and reality. The fixture and the selector can agree with each other while both disagree with production.
+
+**Prevention:**
+1. **Prefer fixtures captured from a real API response over hand-written ones**, especially for GraphQL responses where field-naming conventions (`__typename`, nested `nodes`/`edges`) are easy to get subtly wrong by hand.
+2. **When a hand-written fixture is unavoidable, run the selector against the live API at least once before trusting the fixture-based test suite** — this is the only way to catch a fixture/reality shape mismatch, since the fixture-based tests are structurally blind to it.
+3. **If this recurs on the same selector/parser after a fixture update, treat it as a signal the fixture-authoring process itself needs a captured-sample step**, not just another one-off fix.
+
+**Status:** Active — 1 instance, 2 recurrences within it (Tech Lead, t/4779).
+
+**Applies To:** All agents writing or reviewing tests for API-response selectors/parsers backed by hand-written fixtures; verify against a live run at least once, especially for GraphQL shapes.
+
+## #422 [Build] A Script Parsed `gh api`'s Output Without Checking Its Exit Code First — A Transient 5xx Produced Empty Output That Crashed the Parser
+
+**Pattern:** A script calls `gh api graphql` and immediately parses its stdout (e.g. `.data.nodes.map(...)`), without checking `gh`'s exit code first. When GitHub's API returns a transient 5xx (observed: 503), `gh` exits non-zero and produces empty or error-shaped output — but the script, having never checked the exit code, proceeds to parse that empty output as if it were a normal successful response, crashing with a generic type error (`nodes.map is not a function`) that obscures the real cause (an API outage, not a script bug).
+
+**Instances:**
+- 2026-11-03 — Tech Lead (p/335#279): `gh api graphql` returned HTTP 503 (a transient GitHub-side outage); the script crashed with `nodes.map is not a function` because it parsed the empty output without having checked `gh`'s exit code. Resolved by retrying the fetch and checking `$?` before parsing — the retry succeeded.
+
+**Root Cause:** The script treated `gh api`'s stdout as unconditionally parseable, skipping the exit-code check that would have distinguished "API call succeeded, here's the data" from "API call failed, this output is not data." A transient outage on GitHub's side is indistinguishable from a real script bug once the exit code is ignored — both manifest as a downstream parse/type error far from the actual cause.
+
+**Prevention:**
+1. **Always gate on `gh api`'s exit code before parsing its output** — check `$?` (or the equivalent in the script's language) immediately after the call, and treat a non-zero exit as "no valid data," not as "empty data to parse."
+2. **A generic downstream error like `X.map is not a function` on parsed API output is a signal to check the upstream exit code first**, not to assume the API's response shape itself is wrong.
+3. **For transient 5xx errors specifically, a simple retry is often sufficient** — don't over-engineer a fix before confirming whether the failure is even reproducible.
+
+**Status:** Active — 1 instance (Tech Lead p/335#279). Confirmed transient (GitHub-side outage), not a reproducible bug.
+
+**Applies To:** All agents writing scripts that call `gh api` and parse its output; check the exit code before parsing, every time.

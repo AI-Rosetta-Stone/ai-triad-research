@@ -16,9 +16,10 @@ import { computeCoverageMap, computeStrengthWeightedCoverage } from '@lib/debate
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import {
   speakerLabel, speakerColor, nodeIdToTab, focusMainWindowNode, countOccurrences, renderedOffsetOf,
-  META_TIERS, TIER_LABELS,
+  TIER_LABELS, modeOfTier, type DisplayMode, copyPromptForGemini,
 } from './utils';
 import type { AdaptivePhase } from './utils';
+import { TOAST_DURATION_FEEDBACK } from '../../constants';
 import { CommentCreationPopover } from '../chat/CommentCreationPopover';
 import type { CommentPopoverState } from '../chat/CommentCreationPopover';
 import { CommentSidebar } from '../chat/CommentSidebar';
@@ -32,6 +33,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { initDebatePopoutCloseHandler, isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
 import { RemoteDriverOverlay } from './RemoteDriverOverlay';
 import { requestExplainForSelection } from './explainRequestBus';
+import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { useCommunityStore } from '../../hooks/useCommunityStore';
 import { useUserProfile } from '../../hooks/useAuthStatus';
 import { CommunityShareBanner } from '../shared/CommunityShareBanner';
@@ -281,11 +283,13 @@ function DebateContextMenu({
   onClose,
   onSimilarPovSearch,
   onComment,
+  onGeminiFallback,
 }: {
   menu: ContextMenuState;
   onClose: () => void;
   onSimilarPovSearch: (query: string) => void;
   onComment: () => void;
+  onGeminiFallback: (prompt: string) => void;
 }) {
   const { factCheckSelection, debateGenerating } = useDebateStore(
     useShallow(s => ({ factCheckSelection: s.factCheckSelection, debateGenerating: s.debateGenerating }))
@@ -352,10 +356,11 @@ function DebateContextMenu({
       <button className="debate-context-menu-item" onClick={() => {
         // t/4514: open the same inline in-app panel the card's "Explain" button uses, scoped to
         // this selection, via the entry's registered handler. No handler registered (panel not
-        // mounted for this entry) falls back to the old clipboard+browser escape hatch.
+        // mounted for this entry) falls back to the same copy-confirm-open flow as ExplainPanel's
+        // "Copy prompt & open Gemini" button (t/4645) — via onGeminiFallback, which outlives this
+        // menu (it closes immediately below) so the confirmation can still render.
         if (!requestExplainForSelection(menu.entryId, menu.selectedText)) {
-          void api.clipboardWriteText(`EXPLAIN: ${menu.selectedText}`);
-          void api.openExternal('https://gemini.google.com/app');
+          onGeminiFallback(`EXPLAIN: ${menu.selectedText}`);
         }
         onClose();
       }}>
@@ -393,18 +398,21 @@ type GlobalTextTier = 'brief' | 'medium' | 'detailed';
 type GlobalAnalysisTier = 'reasoning' | 'claims' | 'convergence';
 const GLOBAL_TEXT_TIERS: GlobalTextTier[] = ['brief', 'medium', 'detailed'];
 const GLOBAL_ANALYSIS_TIERS: GlobalAnalysisTier[] = ['reasoning', 'claims', 'convergence'];
+const GLOBAL_WHY_TIERS = ['why'] as const;
 const GLOBAL_TIER_TITLES: Record<string, string> = {
   brief: 'Set all turns to brief (2–3 sentences)', medium: 'Set all turns to medium (key points)',
   detailed: 'Set all turns to full content', reasoning: 'Show brief, plan & BDI (replaces text)',
   claims: 'Show argument network claims', convergence: 'Show convergence diagnostics',
+  why: "Show every turn's BDI grounding",
 };
-const GLOBAL_MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'analysis', label: 'Analysis' }] as const;
+// t/4625: Text | Why | How. `analysis` id unchanged (label-only rename: Analysis → How).
+const GLOBAL_MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'why', label: 'Why' }, { id: 'analysis', label: 'How' }] as const;
 
 function GlobalModeControl({ defaultTier, setDefaultTier }: {
   defaultTier: DWStore['defaultDisplayTier'];
   setDefaultTier: DWStore['setDefaultDisplayTier'];
 }) {
-  const activeMode = META_TIERS.has(defaultTier) ? 'analysis' : 'text';
+  const activeMode = modeOfTier(defaultTier);
   const [lastText, setLastText] = useState<GlobalTextTier>(
     activeMode === 'text' ? (defaultTier as GlobalTextTier) : 'detailed'
   );
@@ -413,30 +421,33 @@ function GlobalModeControl({ defaultTier, setDefaultTier }: {
   );
 
   useEffect(() => {
-    if (META_TIERS.has(defaultTier)) setLastAnalysis(defaultTier as GlobalAnalysisTier);
-    else setLastText(defaultTier as GlobalTextTier);
+    const mode = modeOfTier(defaultTier);
+    if (mode === 'analysis') setLastAnalysis(defaultTier as GlobalAnalysisTier);
+    else if (mode === 'text') setLastText(defaultTier as GlobalTextTier);
   }, [defaultTier]);
 
-  const subTiers = activeMode === 'text' ? GLOBAL_TEXT_TIERS : GLOBAL_ANALYSIS_TIERS;
+  const subTiers: readonly string[] = activeMode === 'text' ? GLOBAL_TEXT_TIERS : activeMode === 'why' ? GLOBAL_WHY_TIERS : GLOBAL_ANALYSIS_TIERS;
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const handleModeSelect = useCallback((mode: 'text' | 'analysis') => {
+  const handleModeSelect = useCallback((mode: DisplayMode) => {
     if (mode === activeMode) return;
-    setDefaultTier(mode === 'text' ? lastText : lastAnalysis);
+    if (mode === 'text') setDefaultTier(lastText);
+    else if (mode === 'analysis') setDefaultTier(lastAnalysis);
+    else setDefaultTier('why');
   }, [activeMode, lastText, lastAnalysis, setDefaultTier]);
 
   const handleSubSelect = useCallback((tier: string) => {
-    setDefaultTier(tier as GlobalTextTier | GlobalAnalysisTier);
+    setDefaultTier(tier as GlobalTextTier | GlobalAnalysisTier | 'why');
     if (activeMode === 'text') setLastText(tier as GlobalTextTier);
-    else setLastAnalysis(tier as GlobalAnalysisTier);
+    else if (activeMode === 'analysis') setLastAnalysis(tier as GlobalAnalysisTier);
   }, [activeMode, setDefaultTier]);
 
   const handleModeKey = useCallback((e: { key: string; preventDefault(): void }, idx: number) => {
     let next = idx;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % 2;
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + 2) % 2;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % GLOBAL_MODE_IDS.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + GLOBAL_MODE_IDS.length) % GLOBAL_MODE_IDS.length;
     else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = 1;
+    else if (e.key === 'End') next = GLOBAL_MODE_IDS.length - 1;
     else return;
     e.preventDefault();
     handleModeSelect(GLOBAL_MODE_IDS[next].id);
@@ -466,7 +477,7 @@ function GlobalModeControl({ defaultTier, setDefaultTier }: {
           no per-statement override, so no dot / match-global item here. */}
       <select
         className="debate-detail-dropdown debate-value-dropdown"
-        aria-label={activeMode === 'text' ? 'Text detail level' : 'Analysis view'}
+        aria-label={activeMode === 'text' ? 'Text detail level' : activeMode === 'why' ? 'Why view' : 'How view'}
         value={defaultTier}
         title={GLOBAL_TIER_TITLES[defaultTier]}
         onChange={(e) => handleSubSelect(e.target.value)}
@@ -572,6 +583,11 @@ function DebatePhaseHeader({ activeDebate, isDebatePhase, isOpeningPhase }: {
   );
 }
 
+/** Transcript entry types with no reading-view card (t/4749: adds 'system' to the pre-existing 'clarification' carve-out). */
+function isHiddenTranscriptType(type: string): boolean {
+  return type === 'clarification' || type === 'system';
+}
+
 function isOpeningStart(type: string, prevType: string | null): boolean {
   return type === 'opening' && prevType !== 'opening';
 }
@@ -588,7 +604,7 @@ function isSynthesisStart(type: string, prevType: string | null): boolean {
 function computeTranscriptHairline(entry: ActiveTranscriptEntry, idx: number, transcript: ActiveTranscriptEntry[]): React.ReactNode {
   let prevVisibleIdx = -1;
   for (let i = idx - 1; i >= 0; i--) {
-    if (transcript[i].type !== 'clarification') { prevVisibleIdx = i; break; }
+    if (!isHiddenTranscriptType(transcript[i].type)) { prevVisibleIdx = i; break; }
   }
   const prevType: string | null = prevVisibleIdx >= 0 ? transcript[prevVisibleIdx].type : null;
   const type = entry.type as string;
@@ -606,7 +622,7 @@ function computeTranscriptHairline(entry: ActiveTranscriptEntry, idx: number, tr
 
 function TranscriptEntryRow({
   entry, idx, activeDebate, findOffsets, findQuery, findCurrentIndex,
-  diagnosticsEnabled, selectedDiagEntry, selectDiagEntry,
+  diagnosticsEnabled, selectedDiagEntry,
 }: {
   entry: ActiveTranscriptEntry;
   idx: number;
@@ -616,16 +632,21 @@ function TranscriptEntryRow({
   findCurrentIndex: number;
   diagnosticsEnabled: boolean;
   selectedDiagEntry: DWStore['selectedDiagEntry'];
-  selectDiagEntry: DWStore['selectDiagEntry'];
 }) {
+  // t/4642: same diagnose-and-focus behavior as StatementCard's Diagnose button — clicking
+  // a row while diagnostics is already on must also bring the open tab/window to the front,
+  // not just broadcast the selection.
+  const { diagnose, notice } = useDiagnoseEntry();
   const matchOffset = findOffsets.get(entry.id) ?? 0;
   // Statement ID — stable human-readable label for this transcript position.
   // Matches ClaimExtractionTrace.round (transcript index + 1) so cross-panel
   // references line up (e.g. Extraction Timeline "S12" == this card's "S12").
   const statementId = `S${idx + 1}`;
-  // Skip the clarification transcript card — the interactive ClarificationActions panel
-  // below the transcript already shows the questions as clickable pills.
-  if (entry.type === 'clarification') return null;
+  // Skip the clarification transcript card (the interactive ClarificationActions panel
+  // below the transcript already shows the questions as clickable pills) and system
+  // housekeeping turns (phase transitions, adaptive termination notes, provider-level
+  // retry bookkeeping — not meaningful to someone reading the debate; t/4749).
+  if (isHiddenTranscriptType(entry.type)) return null;
 
   const hairline = computeTranscriptHairline(entry, idx, activeDebate.transcript);
 
@@ -676,18 +697,19 @@ function TranscriptEntryRow({
       <div
         id={`debate-entry-${entry.id}`}
         className={`debate-entry-wrapper${diagnosticsEnabled && selectedDiagEntry === entry.id ? ' diag-selected' : ''}`}
-        onClick={diagnosticsEnabled ? () => selectDiagEntry(entry.id) : undefined}
+        onClick={diagnosticsEnabled ? () => diagnose(entry.id) : undefined}
       >
         {card}
         {!isStatement && <EntryDeleteControls entry={entry} totalEntries={activeDebate.transcript.length} entryIndex={idx} />}
       </div>
+      {notice}
     </Fragment>
   );
 }
 
 function DebateTranscriptColumn({
   activeDebate, debateGenerating, findOffsets, findQuery, findCurrentIndex,
-  diagnosticsEnabled, selectedDiagEntry, selectDiagEntry, transcriptEndRef,
+  diagnosticsEnabled, selectedDiagEntry, transcriptEndRef,
 }: {
   activeDebate: ActiveDebateSession;
   debateGenerating: DWStore['debateGenerating'];
@@ -696,7 +718,6 @@ function DebateTranscriptColumn({
   findCurrentIndex: number;
   diagnosticsEnabled: boolean;
   selectedDiagEntry: DWStore['selectedDiagEntry'];
-  selectDiagEntry: DWStore['selectDiagEntry'];
   transcriptEndRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -720,7 +741,6 @@ function DebateTranscriptColumn({
           findCurrentIndex={findCurrentIndex}
           diagnosticsEnabled={diagnosticsEnabled}
           selectedDiagEntry={selectedDiagEntry}
-          selectDiagEntry={selectDiagEntry}
         />
       ))}
       </div>
@@ -857,7 +877,7 @@ function DebateActionRegion({
 
 function DebateModals({
   contextMenu, setContextMenu, commentPopover, setCommentPopover,
-  onSimilarPovSearch, commentSidebarOpen, commentsFile,
+  onSimilarPovSearch, commentSidebarOpen, commentsFile, geminiToast, onGeminiFallback,
 }: {
   contextMenu: ContextMenuState | null;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
@@ -866,6 +886,8 @@ function DebateModals({
   onSimilarPovSearch: (query: string) => void;
   commentSidebarOpen: boolean;
   commentsFile: CommentStoreState['commentsFile'];
+  geminiToast: string | null;
+  onGeminiFallback: (prompt: string) => void;
 }) {
   return (
     <>
@@ -875,6 +897,7 @@ function DebateModals({
           menu={contextMenu}
           onClose={() => setContextMenu(null)}
           onSimilarPovSearch={onSimilarPovSearch}
+          onGeminiFallback={onGeminiFallback}
           onComment={() => {
             setCommentPopover({
               x: contextMenu.x,
@@ -889,6 +912,19 @@ function DebateModals({
           }}
         />
       )}
+
+      {/* t/4645: visible confirmation for the right-click "Explain…" Gemini fallback — the
+          context menu above closes immediately on click, so this lives in DebateModals (which
+          stays mounted) rather than in the menu itself, mirroring ExplainPanel's confirmation.
+          The region itself stays mounted always (only its text and visible styling toggle) —
+          NVDA/JAWS often don't announce text in a live region that's inserted already filled. */}
+      <div
+        className={geminiToast ? 'debate-gemini-fallback-toast' : 'sr-only'}
+        role="status"
+        aria-live="polite"
+      >
+        {geminiToast}
+      </div>
 
       {/* Comment creation popover */}
       {commentPopover && (
@@ -1197,6 +1233,31 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [commentPopover, setCommentPopover] = useState<CommentPopoverState | null>(null);
 
+  // t/4645: the right-click "Explain…" Gemini fallback — same copy→confirm→open sequence as
+  // ExplainPanel's "Copy prompt & open Gemini" button. Lives here (outlives the context menu,
+  // which closes immediately on click) so the confirmation still has somewhere to render.
+  const [geminiToast, setGeminiToast] = useState<string | null>(null);
+  const geminiToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (geminiToastTimerRef.current) clearTimeout(geminiToastTimerRef.current); }, []);
+
+  const requestGeminiFallback = useCallback((prompt: string) => {
+    // t/4645 (Design a11y re-check): a double trigger within the window must not open Gemini
+    // twice — clear any pending timer from an earlier call before scheduling a new one.
+    if (geminiToastTimerRef.current) clearTimeout(geminiToastTimerRef.current);
+    void copyPromptForGemini(prompt).then((ok) => {
+      if (!ok) {
+        setGeminiToast("Couldn't copy the prompt to your clipboard — Gemini not opened.");
+        geminiToastTimerRef.current = setTimeout(() => setGeminiToast(null), TOAST_DURATION_FEEDBACK);
+        return;
+      }
+      setGeminiToast('Prompt copied. Paste it into Gemini.');
+      geminiToastTimerRef.current = setTimeout(() => {
+        void api.openExternal('https://gemini.google.com/app');
+        setGeminiToast(null);
+      }, TOAST_DURATION_FEEDBACK);
+    });
+  }, []);
+
   const buildMenuState = useCallback((container: EventTarget | null, x: number, y: number): ContextMenuState | null => {
     const selection = window.getSelection();
     const selectedText = selection?.toString().trim() || '';
@@ -1225,7 +1286,10 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
   const { onContextMenu: handleContextMenu, onTouchEnd: handleTouchEnd } =
     useLongPressSelectionMenu(buildMenuState, setContextMenu);
 
-  return { contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd };
+  return {
+    contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd,
+    geminiToast, requestGeminiFallback,
+  };
 }
 
 // ── Main component ───────────────────────────────────────
@@ -1237,7 +1301,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
   const {
     activeDebate, debateLoading, debateError, debateGenerating,
     runClarification, runOpeningStatements, saveDebate, compressOldTranscript,
-    diagnosticsEnabled, toggleDiagnostics, selectedDiagEntry, selectDiagEntry,
+    diagnosticsEnabled, toggleDiagnostics, selectedDiagEntry,
     diagPopoutOpen, setDiagPopoutOpen, defaultTier, setDefaultTier,
     driverIsRemote,
     selectedRef, setSelectedRef,
@@ -1247,7 +1311,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
     useShallow(s => ({
       activeDebate: s.activeDebate, debateLoading: s.debateLoading, debateError: s.debateError, debateGenerating: s.debateGenerating,
       runClarification: s.runClarification, runOpeningStatements: s.runOpeningStatements, saveDebate: s.saveDebate, compressOldTranscript: s.compressOldTranscript,
-      diagnosticsEnabled: s.diagnosticsEnabled, toggleDiagnostics: s.toggleDiagnostics, selectedDiagEntry: s.selectedDiagEntry, selectDiagEntry: s.selectDiagEntry,
+      diagnosticsEnabled: s.diagnosticsEnabled, toggleDiagnostics: s.toggleDiagnostics, selectedDiagEntry: s.selectedDiagEntry,
       diagPopoutOpen: s.diagPopoutOpen, setDiagPopoutOpen: s.setDiagPopoutOpen,
       // Header Text/Analysis control + statement display fallback bind to the
       // display tier (defaultDisplayTier, default Medium), NOT responseLength
@@ -1290,7 +1354,10 @@ export function DebateWorkspace({ onExport, exportStatus }: {
 
   const { findVisible, findQuery, setFindQuery, findCurrentIndex, findTotal, findOffsets, findNext, findPrev, closeFind } = useDebateFind(activeDebate);
   const { coverageMap, strengthWeighted } = useDebateCoverage(activeDebate);
-  const { contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd } = useDebateSelectionMenu(activeDebate, defaultTier);
+  const {
+    contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd,
+    geminiToast, requestGeminiFallback,
+  } = useDebateSelectionMenu(activeDebate, defaultTier);
 
   // useFlag is a hook — hoist above the early returns below (rules-of-hooks, t/2299).
   const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
@@ -1372,7 +1439,6 @@ export function DebateWorkspace({ onExport, exportStatus }: {
           findCurrentIndex={findCurrentIndex}
           diagnosticsEnabled={diagnosticsEnabled}
           selectedDiagEntry={selectedDiagEntry}
-          selectDiagEntry={selectDiagEntry}
           transcriptEndRef={transcriptEndRef}
         />
         <DebateScrollPanels
@@ -1409,6 +1475,8 @@ export function DebateWorkspace({ onExport, exportStatus }: {
         onSimilarPovSearch={handleSimilarPovSearch}
         commentSidebarOpen={commentSidebarOpen}
         commentsFile={commentsFile}
+        geminiToast={geminiToast}
+        onGeminiFallback={requestGeminiFallback}
       />
     </div>
     <DebateSideRail

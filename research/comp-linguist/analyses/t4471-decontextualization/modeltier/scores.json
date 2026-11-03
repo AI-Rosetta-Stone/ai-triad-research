@@ -1,0 +1,22 @@
+{
+ "r2_all11": {
+  "fc_outward": "2/44",
+  "fc_artifact": "1/44",
+  "anchors_precision": "14/35"
+ },
+ "r2_excl3": {
+  "fc_outward": "1/30",
+  "fc_artifact": "1/30",
+  "anchors_precision": "8/25"
+ },
+ "pro_all11": {
+  "fc_outward": "0/46",
+  "fc_artifact": "4/46",
+  "anchors_precision": "10/14"
+ },
+ "pro_excl3": {
+  "fc_outward": "0/33",
+  "fc_artifact": "3/33",
+  "anchors_precision": "8/12"
+ }
+}

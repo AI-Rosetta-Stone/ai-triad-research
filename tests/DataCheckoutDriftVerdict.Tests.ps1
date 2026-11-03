@@ -50,6 +50,17 @@ Describe 'Get-DataCheckoutDriftVerdict (t/4005)' -Tag 'devops' {
         $v.Reasons -join ' ' | Should -Match 'ages vary'
     }
 
+    It 'ALARM: reports the real total uncommitted count, not the 20-file display cap (t/4493 follow-up)' {
+        # The displayed file-name list is capped at 20 for readability, but the reported COUNT
+        # must be the true total -- found live: a 56-file checkout reported "20 total uncommitted".
+        $untracked = @(1..30 | ForEach-Object { "batch/file-$_.json" })
+        $v = Get-DataCheckoutDriftVerdict -Name 'ai-triad-sources' -Untracked $untracked `
+            -OldestUncommittedMtime ($script:Now.AddHours(-97)) -OldestUncommittedPath $untracked[0] `
+            -Now $script:Now
+        $v.Reasons -join ' ' | Should -Match '30 total uncommitted'
+        $v.Reasons -join ' ' | Should -Not -Match '20 total uncommitted'
+    }
+
     It 'ALARM: falls back to the old wording when OldestUncommittedPath is not supplied (back-compat)' {
         $v = Get-DataCheckoutDriftVerdict -Name 'ai-triad-data' -Untracked @('stale-source.json') `
             -OldestUncommittedMtime ($script:Now.AddHours(-25)) -Now $script:Now

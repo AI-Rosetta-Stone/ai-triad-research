@@ -214,10 +214,18 @@ def _check_permissions_allowlist(path, content):
 #       LIMIT (SO e/209#2): R3 asserts `types ⊇ declaration` — CONSISTENCY, not
 #       COMPLETENESS. A declaration that is itself incomplete (author's blind spot)
 #       passes. Catching an incomplete declaration against the code is t/3663.
-#   R4  no `concurrency: cancel-in-progress:` set to anything but the literal `false`.
-#       The old `: true` literal match missed the expression idiom
-#       `${{ github.ref != 'refs/heads/main' }}`, which evaluates true on exactly the PRs
-#       a required context protects (SO/TL e/209). Flag any value that is not `false`.
+#   R4  a `concurrency:` block on a required-context workflow must key its `group:` on
+#       `github.run_id`. Originally this rule checked `cancel-in-progress:` for anything
+#       but the literal `false` (the old `: true` literal match missed the expression
+#       idiom `${{ github.ref != 'refs/heads/main' }}`, true on exactly the PRs a required
+#       context protects, SO/TL e/209), plus a narrow merge-queue exemption (t/4567 SO/TL
+#       e/392#5). Both are GONE: the SO's N1 residual-vector finding (e/399#2) showed
+#       `cancel-in-progress: false` with a constant group is ALSO unsafe — GitHub keeps at
+#       most one PENDING run per group and cancels the older one when a new run queues
+#       into that SAME group, regardless of `cancel-in-progress`. So the value of
+#       `cancel-in-progress` is no longer the discriminator; the GROUP's uniqueness is. A
+#       group keyed on `github.run_id` can never collide with another run, so it is safe
+#       no matter what `cancel-in-progress` says (or whether it's set at all).
 #   R5  a reporting job with `if: always()` runs regardless of whether its `needs:` passed,
 #       so it is a false-green unless it (a) asserts over `needs.*.result` AND (b) carries a
 #       co-located `# lint:skipped-tolerated: yes|no <why>` declaration that AGREES with the
@@ -247,7 +255,6 @@ TOLERATED_SKIP_RE = re.compile(r'#\s*lint:tolerated-skip:\s*(\S+)\s+(t/\d+|\d{4}
 # Loose form: detect a present-but-malformed marker (missing the ref/date) so it is FLAGGED, not
 # silently ignored — a tolerated-skip with no audit anchor must fail the rule (TL cond 3).
 TOLERATED_SKIP_ANY_RE = re.compile(r'#\s*lint:tolerated-skip:\s*(.*)$')
-
 
 def _strip_comment(line):
     """t/3663 (TL cond 1): drop a `#` comment (whole-line or trailing) before scanning a job body,
@@ -409,12 +416,41 @@ def check_required_context(path, content, context_name, posts=None):
                 if missing:
                     errs.append(f'{path}: R3 required context "{context_name}" — pull_request.types is missing declared gated-event(s) {missing} (declared: {gated_decl}, types: {types_list})')
 
-    # R4: `cancel-in-progress:` must be the literal `false` (or omitted). The old `: true` match
-    # missed `${{ github.ref != 'refs/heads/main' }}` — true on exactly the protected PRs (e/209).
-    for i, ln in enumerate(lines):
-        m = re.match(r'^\s*cancel-in-progress\s*:\s*(.+?)\s*$', ln)
-        if m and m.group(1).strip().strip('\'"') != 'false':
-            errs.append(f'{path}:{i + 1}: R4 required context "{context_name}" — `cancel-in-progress: {m.group(1).strip()}` is not the literal `false`; a cancelled run does not satisfy a required check (the expression form evaluates true on exactly the PRs this protects). Use `cancel-in-progress: false` or omit it.')
+    # R4: every `concurrency:` key -- top-level AND job-level (SO e/400#2: GitHub honours a
+    # job-level `concurrency:` on the reporting job exactly the same way, so the N1 mechanism
+    # applies there too; checking only the top-level key reopened that case) -- must key its
+    # group UNCONDITIONALLY on `github.run_id`. `cancel-in-progress`'s value is not the
+    # discriminator: a constant/partially-constant `group:` is unsafe even with the literal
+    # `false`, because GitHub itself cancels a PENDING run sharing that group when a new run
+    # queues into it (SO e/399#2, N1 residual vector). Covers both the block form
+    # (`concurrency:` header with a nested `group:`) and the scalar form
+    # (`concurrency: <value>` on one line, where the value itself IS the group key).
+    for concurrency_idx, ln in enumerate(lines):
+        cm = re.match(r'^(\s*)concurrency\s*:\s*(.*?)\s*$', ln)
+        if not cm:
+            continue
+        indent, inline_value = len(cm.group(1)), cm.group(2)
+        if inline_value:
+            group_line = ln  # scalar form: the value after `concurrency:` IS the group
+        else:
+            block_end = _block_end(lines, concurrency_idx, indent)
+            group_line = None
+            for k in range(concurrency_idx + 1, block_end):
+                if re.match(r'^\s*group\s*:', lines[k]):
+                    group_line = lines[k]
+                    break
+        # Require the group's `${{ ... }}` payload to be UNCONDITIONALLY `github.run_id` --
+        # exactly one substitution, trimmed content exactly that token. A substring match
+        # would wrongly pass a ternary like `${{ github.event_name == 'merge_group' &&
+        # 'batch' || github.run_id }}` (the former exemption shape): the literal text
+        # "github.run_id" appears in it, but the group is still CONSTANT for merge_group
+        # runs -- exactly unsafe.
+        group_is_run_id = False
+        if group_line is not None:
+            subs = re.findall(r'\$\{\{(.*?)\}\}', group_line)
+            group_is_run_id = len(subs) == 1 and subs[0].strip() == 'github.run_id'
+        if not group_is_run_id:
+            errs.append(f'{path}:{concurrency_idx + 1}: R4 required context "{context_name}" — this `concurrency:` key is not unconditionally keyed on `github.run_id`. A constant, or conditionally-constant (e.g. a ternary that falls back to a literal for some events), group lets GitHub cancel a PENDING run sharing that group when a new one queues into it, regardless of `cancel-in-progress` (the N1 pending-run-replacement vector, e/399#2/e/400#2 -- live-fire evidence on t/4567). Key the group on `github.run_id` alone, unconditionally.')
 
     # R2 + R5: the reporting job (id == context_name).
     jobs_idx = _find_key(lines, 'jobs', 0)
@@ -998,6 +1034,55 @@ jobs:
         failures.append('R4 MISSED cancel-in-progress expression form (not literal false)')
     else:
         print('  PASS: R4 flags the cancel-in-progress ${{ }} expression form')
+
+    # t/4567 (SO e/399#2, N1 residual vector): the former merge-group exemption shape is
+    # now a NEGATIVE test -- it must be flagged, not allowed. Its group key is a ternary
+    # (`merge_group` -> constant 'batch', everything else -> github.run_id), so for a
+    # merge_group run it shares a CONSTANT group with every other merge_group run,
+    # exactly the shape that stalled the queue live-fire on app-scratch (e/392#10).
+    R4_FORMER_EXEMPT_BLOCK = (
+        "concurrency:\n"
+        "  group: ci-${{ github.event_name == 'merge_group' && 'batch' || github.run_id }}\n"
+        "  cancel-in-progress: ${{ github.event_name == 'merge_group' }}\n"
+        "on:\n"
+    )
+    rc_r4formerExempt = rc_ok.replace('on:\n', R4_FORMER_EXEMPT_BLOCK)
+    if not any('R4' in e for e in check_required_context('rc_r4formerExempt', rc_r4formerExempt, 'ci-gate')):
+        failures.append('R4 FAILED TO FLAG the former merge-group exemption shape -- its group is only run_id-keyed for non-merge_group events, constant for merge_group (the N1 mechanism, e/399#2)')
+    else:
+        print('  PASS: R4 flags the former merge-group exemption shape (N1 residual vector)')
+
+    rc_r4constantSafe = rc_ok.replace('on:\n', 'concurrency:\n  group: g\n  cancel-in-progress: false\non:\n')
+    if not any('R4' in e for e in check_required_context('rc_r4constantSafe', rc_r4constantSafe, 'ci-gate')):
+        failures.append('R4 FAILED TO FLAG a constant group even with the literal cancel-in-progress: false -- GitHub cancels a pending run sharing that group regardless (e/399#2)')
+    else:
+        print('  PASS: R4 flags a constant group even with cancel-in-progress: false')
+
+    rc_r4runId = rc_ok.replace('on:\n', "concurrency:\n  group: ci-${{ github.run_id }}\non:\n")
+    if any('R4' in e for e in check_required_context('rc_r4runId', rc_r4runId, 'ci-gate')):
+        failures.append('R4 FALSE-FLAGGED a group keyed unconditionally on github.run_id (unique per run, always safe)')
+    else:
+        print('  PASS: R4 allows a group keyed unconditionally on github.run_id')
+
+    # SO e/400#2: job-level `concurrency:` is honoured by GitHub on the reporting job
+    # exactly like the top-level key -- the N1 mechanism applies there too.
+    rc_r4jobLevel = rc_ok.replace(
+        'jobs:\n  ci-gate:\n    if: always()\n',
+        'jobs:\n  ci-gate:\n    if: always()\n    concurrency:\n      group: g\n      cancel-in-progress: true\n',
+    )
+    if not any('R4' in e for e in check_required_context('rc_r4jobLevel', rc_r4jobLevel, 'ci-gate')):
+        failures.append('R4 FAILED TO FLAG a job-level constant-group concurrency block (checked only the top-level key, missing the same N1 vector at job level, e/400#2)')
+    else:
+        print('  PASS: R4 flags a job-level constant-group concurrency block')
+
+    rc_r4jobLevelRunId = rc_ok.replace(
+        'jobs:\n  ci-gate:\n    if: always()\n',
+        'jobs:\n  ci-gate:\n    if: always()\n    concurrency:\n      group: g-${{ github.run_id }}\n',
+    )
+    if any('R4' in e for e in check_required_context('rc_r4jobLevelRunId', rc_r4jobLevelRunId, 'ci-gate')):
+        failures.append('R4 FALSE-FLAGGED a job-level group keyed unconditionally on github.run_id')
+    else:
+        print('  PASS: R4 allows a job-level group keyed unconditionally on github.run_id')
 
     rc_r5a = rc_ok.replace("        if: contains(needs.*.result, 'failure')\n", '')
     if not any('R5' in e for e in check_required_context('rc_r5a', rc_r5a, 'ci-gate')):

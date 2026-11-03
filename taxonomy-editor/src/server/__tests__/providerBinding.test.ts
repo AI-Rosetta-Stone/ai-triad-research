@@ -7,6 +7,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import type { IncomingMessage } from 'http';
+import { normalizePrincipalNameHeader, getIdentityMapKey, _resetPrincipalNameForTest } from '../principalName.js';
+
+function encodePrincipal(claims: Array<[string, string]>): string {
+  return Buffer.from(JSON.stringify({ auth_typ: 'aad', claims: claims.map(([typ, val]) => ({ typ, val })) }), 'utf8').toString('base64');
+}
 
 describe('providerBinding', () => {
   let tmpDir: string;
@@ -158,5 +164,73 @@ describe('providerBinding', () => {
     // The forbidden entry was dropped on load; Object.prototype is untouched.
     expect(({} as Record<string, unknown>).evil).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(Object.prototype, 'evil')).toBe(false);
+  });
+
+  // ── t/4540: IDENTITY_MAP-asserted cross-provider sign-ins override the binding ──
+
+  it('AC1: a mismatched idp with an identityMapKey is accepted', () => {
+    checkProviderBinding('jpsnover', 'github');
+    _resetBindingsCache();
+    const result = checkProviderBinding('jpsnover', 'aad', 'aad:tenant-1-obj-1');
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('AC2 (regression): a mismatched idp with NO identityMapKey is still rejected', () => {
+    checkProviderBinding('jpsnover', 'github');
+    _resetBindingsCache();
+    const result = checkProviderBinding('jpsnover', 'aad');
+    expect(result).toEqual({ ok: false, boundTo: 'github' });
+  });
+
+  // AC3 ("a map entry for a different stable id doesn't unlock this one") is NOT this
+  // function's job to enforce — it has no concept of "the whole map," only the one key its
+  // caller hands it. That guarantee lives entirely in principalName.ts's WeakMap, which only
+  // ever holds THIS request's own lookup result (covered in principalName.test.ts, t/4540).
+  // Documenting the trust boundary here: this function trusts its caller's key verbatim.
+  it('trusts the caller\'s identityMapKey verbatim — the per-request scoping lives upstream', () => {
+    checkProviderBinding('jpsnover', 'github');
+    _resetBindingsCache();
+    const result = checkProviderBinding('jpsnover', 'aad', 'aad:some-other-tenant-obj');
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('AC "a client header shaped like the signal does nothing": a forged x-identity-map-key header on an unmapped AAD request still gets provider_mismatch', () => {
+    checkProviderBinding('aad-tenant-9-obj-9', 'github'); // pre-existing github binding, same storageUserId an AAD sign-in for tenant-9/obj-9 would derive
+    _resetBindingsCache();
+    _resetPrincipalNameForTest();
+    delete process.env.IDENTITY_MAP; // no real map entry for tenant-9/obj-9
+
+    const req = {
+      headers: {
+        'x-ms-client-principal': encodePrincipal([
+          ['http://schemas.microsoft.com/identity/claims/tenantid', 'tenant-9'],
+          ['http://schemas.microsoft.com/identity/claims/objectidentifier', 'obj-9'],
+        ]),
+        'x-ms-client-principal-idp': 'aad',
+        'x-ms-client-principal-name': 'anything',
+        'x-identity-map-key': 'aad:tenant-9-obj-9', // forged: no code path reads this
+      },
+    } as unknown as IncomingMessage;
+
+    normalizePrincipalNameHeader(req, true);
+    expect(getIdentityMapKey(req)).toBeUndefined(); // the forged header was never consulted
+
+    const result = checkProviderBinding('aad-tenant-9-obj-9', 'aad', getIdentityMapKey(req));
+    expect(result).toEqual({ ok: false, boundTo: 'github' });
+  });
+
+  it('C3: an accepted mapped cross-provider sign-in leaves provider_bindings.json byte-identical (no rebind)', () => {
+    checkProviderBinding('jpsnover', 'github');
+    _resetBindingsCache();
+    const before = fs.readFileSync(path.join(adminDir, 'provider_bindings.json'), 'utf-8');
+    const beforeMtime = fs.statSync(path.join(adminDir, 'provider_bindings.json')).mtimeMs;
+
+    checkProviderBinding('jpsnover', 'aad', 'aad:tenant-1-obj-1');
+
+    const after = fs.readFileSync(path.join(adminDir, 'provider_bindings.json'), 'utf-8');
+    const afterMtime = fs.statSync(path.join(adminDir, 'provider_bindings.json')).mtimeMs;
+    expect(after).toBe(before);
+    expect(afterMtime).toBe(beforeMtime);
+    expect(JSON.parse(after)['jpsnover']).toBe('github'); // still bound to the original idp
   });
 });

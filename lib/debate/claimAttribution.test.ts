@@ -446,3 +446,69 @@ describe('computeClaimTaxonomyAttribution — V3 direction_mismatch gate', () =>
     expect(result.decisions[0].primary_ref).toBe('acc-B-001');
   });
 });
+
+// ── Grounding statement (t/4692) ──────────────────────
+
+describe('computeClaimTaxonomyAttribution — grounding_statement', () => {
+  it('stores the best-matching synthetic statement on a successful attribution', () => {
+    const claimEmb = makeEmbedding(0);
+    const nodes = [makeNode('AN-1', 'accelerationist', claimEmb)];
+    const embeddings: Record<string, { pov: string; vector: number[]; vectors?: number[][] }> = {
+      'acc-B-001': { pov: 'accelerationist', vector: makeEmbedding(0) },
+    };
+    const nodeStatements = { 'acc-B-001': ['statement A', 'statement B'] };
+
+    const result = computeClaimTaxonomyAttribution(nodes, 'accelerationist', embeddings, BELIEF_IDS, 3, nodeStatements);
+
+    expect(result.attributed).toBe(1);
+    expect(nodes[0].claim_taxonomy_attribution!.primary_ref).toBe('acc-B-001');
+    // Single-vector attribution (no `vectors` on the node embedding) falls back to
+    // bestMatchingSyntheticStatement's own vectors/statements mismatch guard — no vectors
+    // means no grounding, which is the common case until a node has synthetic embeddings.
+    expect(nodes[0].claim_taxonomy_attribution!.grounding_statement).toBeUndefined();
+  });
+
+  it('stores the grounding statement when the attributed node has synthetic vectors', () => {
+    const claimEmb = makeEmbedding(0);
+    const nodes = [makeNode('AN-1', 'accelerationist', claimEmb)];
+    const embeddings: Record<string, { pov: string; vector: number[]; vectors?: number[][] }> = {
+      'acc-B-001': { pov: 'accelerationist', vector: makeEmbedding(0), vectors: [makeEmbedding(0), makeEmbedding(1)] },
+    };
+    const nodeStatements = { 'acc-B-001': ['statement A (matches claim)', 'statement B (orthogonal)'] };
+
+    const result = computeClaimTaxonomyAttribution(nodes, 'accelerationist', embeddings, BELIEF_IDS, 3, nodeStatements);
+
+    expect(result.attributed).toBe(1);
+    expect(nodes[0].claim_taxonomy_attribution!.primary_ref).toBe('acc-B-001');
+    expect(nodes[0].claim_taxonomy_attribution!.grounding_statement).toBe('statement A (matches claim)');
+  });
+
+  it('omits grounding_statement when the attributed node has no synthetic corpus', () => {
+    const claimEmb = makeEmbedding(0);
+    const nodes = [makeNode('AN-1', 'accelerationist', claimEmb)];
+    const embeddings: Record<string, { pov: string; vector: number[]; vectors?: number[][] }> = {
+      'acc-B-001': { pov: 'accelerationist', vector: makeEmbedding(0), vectors: [makeEmbedding(0)] },
+    };
+    // No nodeStatements passed at all (defaults to {}).
+
+    const result = computeClaimTaxonomyAttribution(nodes, 'accelerationist', embeddings, BELIEF_IDS);
+
+    expect(result.attributed).toBe(1);
+    expect('grounding_statement' in nodes[0].claim_taxonomy_attribution!).toBe(false);
+  });
+
+  it('never sets grounding_statement on an unattributed claim', () => {
+    const claimEmb = makeEmbedding(50); // far from every candidate
+    const nodes = [makeNode('AN-1', 'accelerationist', claimEmb)];
+    const embeddings: Record<string, { pov: string; vector: number[]; vectors?: number[][] }> = {
+      'acc-B-001': { pov: 'accelerationist', vector: makeEmbedding(0), vectors: [makeEmbedding(0)] },
+    };
+    const nodeStatements = { 'acc-B-001': ['statement A'] };
+
+    const result = computeClaimTaxonomyAttribution(nodes, 'accelerationist', embeddings, BELIEF_IDS, 3, nodeStatements);
+
+    expect(result.unattributed).toBe(1);
+    expect(nodes[0].claim_taxonomy_attribution!.primary_ref).toBe('');
+    expect('grounding_statement' in nodes[0].claim_taxonomy_attribution!).toBe(false);
+  });
+});

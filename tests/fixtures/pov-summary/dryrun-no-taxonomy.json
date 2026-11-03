@@ -17,7 +17,7 @@
     "[Yellow]   DRY RUN: FULL PROMPT PREVIEW",
     "[DarkGray] ────────────────────────────────────────────────────────────────────────",
     "[Cyan] \n[SYSTEM PROMPT]",
-    "[Gray] <<pov-summary-system>>\n{KP_MAX}=8\n{KP_MIN}=3\n{TOTAL_FLOOR}=6\n{UC_MAX}=5\n{UC_MIN}=2\n{WORD_COUNT}=14",
+    "[Gray] <<pov-summary-system>>\n{KP_MAX}=8\n{UC_MAX}=5\n{WORD_COUNT}=14",
     "[Cyan] \n[TAXONOMY CONTEXT — first 500 chars]",
     "[Gray] {}",
     "[DarkGray] ... (truncated for display)",
@@ -45,10 +45,7 @@
       "name": "pov-summary-system",
       "replacements": {
         "KP_MAX": 8,
-        "KP_MIN": 3,
-        "TOTAL_FLOOR": 6,
         "UC_MAX": 5,
-        "UC_MIN": 2,
         "WORD_COUNT": 14
       }
     }

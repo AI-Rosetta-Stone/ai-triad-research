@@ -36,10 +36,18 @@ on:
     # Weekly scan — catches new CVE patterns even without code changes
     - cron: '0 6 * * 1'
   workflow_dispatch:
+  # t/4567: CodeQL must report on the merge-group commit too, same required-context
+  # name, matched by GitHub on check-run name regardless of triggering event.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
   security-events: write
+
+# t/4567 K1/N1 (SO/TL e/392#5, #10, #11): the merge_group concurrency-cancel block was
+# tried and reverted -- see ci.yml's comment for the live-fire stall evidence (N1) and
+# the TL's ruling to drop it rather than key the group by head_sha.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -81,7 +89,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4
         with:
           languages: javascript-typescript
           # queries (security-extended) + the test/archive paths-ignore live in the
@@ -89,10 +97,10 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4
+        uses: github/codeql-action/autobuild@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4
         with:
           category: '/language:javascript-typescript'
           # SARIF uploaded to GitHub Security tab automatically

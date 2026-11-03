@@ -152,6 +152,7 @@
         'Test-TaxEditorHealth'
         'Test-TaxEditorInquiry'
         'Test-EmbeddingHealth'
+        'Test-TaxEditorMountReadiness'
         'Test-TaxEditorEndpoints'
         'Test-AnonymousDebateFlow'
         'Test-PersonaEndpoints'

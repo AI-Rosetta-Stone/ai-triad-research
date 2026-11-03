@@ -11,7 +11,7 @@ function Invoke-POVSummary {
             1. Validates inputs and resolves paths
             2. Loads taxonomy version
             3. Delegates extraction to Invoke-SummaryPipeline (CHESS, RAG,
-               AutoFire, FIRE/single-shot, density retry, unmapped resolution)
+               AutoFire, FIRE/single-shot, tagged-camp-empty WARN, unmapped resolution)
             4. Writes summaries/<doc-id>.json
             5. Updates sources/<doc-id>/metadata.json (summary_status, summary_version)
             6. Runs basic conflict detection

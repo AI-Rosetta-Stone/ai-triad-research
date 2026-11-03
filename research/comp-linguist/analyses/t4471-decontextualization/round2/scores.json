@@ -1,0 +1,27 @@
+{
+ "r1_all11": {
+  "fc_outward": "6/45",
+  "fc_artifact": "3/45",
+  "anchors_precision": "15/29"
+ },
+ "r1_excl3": {
+  "fc_outward": "2/33",
+  "fc_artifact": "3/33",
+  "anchors_precision": "15/26"
+ },
+ "r2_all11": {
+  "fc_outward": "2/44",
+  "fc_artifact": "1/44",
+  "anchors_precision": "14/35"
+ },
+ "r2_excl3": {
+  "fc_outward": "1/30",
+  "fc_artifact": "1/30",
+  "anchors_precision": "8/25"
+ },
+ "org_r2": {
+  "the_organization_subjects": "0/44",
+  "hits": [],
+  "pairs": 8
+ }
+}

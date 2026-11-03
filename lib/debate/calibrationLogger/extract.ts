@@ -74,7 +74,13 @@ export function deriveTerminationReason(session: DebateSession): TerminationReas
   if (hitApiCeiling) return 'api_ceiling';
   if (lastAsdPhase !== undefined && lastAsdPhase.force_active !== undefined) {
     return lastAsdPhase.force_active
-      ? (/Max total rounds/i.test(lastAsdPhase.exit_reason) ? 'max_iterations' : 'situation_cap')
+      // t/4753: was /Max total rounds/i — missed the three per-phase hard-cap exits
+      // ("Max thesis turns…", "Max exploration turns…", "Max synthesis turns…",
+      // phaseTransitions.ts:692/750/816), which fell through to situation_cap. Every
+      // genuine iteration/round-cap exit_reason starts with "Max "; no other
+      // force_active reason string does (health collapse, network cap, soft budget,
+      // fatigue, stall) — anchored prefix match has no overlap either direction.
+      ? (/^Max /i.test(lastAsdPhase.exit_reason) ? 'max_iterations' : 'situation_cap')
       : 'natural_conclusion';
   }
   if (rounds <= 1) return 'first_round_exit';

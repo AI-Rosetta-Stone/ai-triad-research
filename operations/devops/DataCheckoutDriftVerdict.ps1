@@ -162,6 +162,11 @@ function Get-DataCheckoutDriftVerdict {
     }
     if ($staleAlarm) {
         $oldest = @(@($tracked + $untracked) | Select-Object -First 20)
+        # t/4493 follow-up: $oldest is capped at 20 for display, but the "total uncommitted" count
+        # must be the REAL total (tracked.Count + untracked.Count), not the capped list's length --
+        # otherwise any checkout with >20 dirty files silently under-reports its own total (found
+        # live: ai-triad-sources had 56 dirty files, reported as "20 total").
+        $totalUncommitted = $tracked.Count + $untracked.Count
         $ageDesc = if ([double]::IsPositiveInfinity($ageHours)) { 'unknown (mtime unreadable — treated as stale)' } else { "$([Math]::Round($ageHours, 1))h" }
         if ($OldestUncommittedPath) {
             # t/4005 real-incident fix: name the ONE file this age actually belongs to, separately
@@ -169,7 +174,7 @@ function Get-DataCheckoutDriftVerdict {
             # The old wording attached one file's age to the whole list, reading as if every listed
             # file shared it (p/210#152: a 96.7h-old cache file's age got misread onto taxonomy files
             # that were really ~3h old).
-            $reasons.Add("uncommitted work older than ${AgeThresholdHours}h -- oldest: $OldestUncommittedPath ($ageDesc); $($oldest.Count) total uncommitted file(s), ages vary: $([string]::Join(', ', $oldest))")
+            $reasons.Add("uncommitted work older than ${AgeThresholdHours}h -- oldest: $OldestUncommittedPath ($ageDesc); $totalUncommitted total uncommitted file(s), ages vary: $([string]::Join(', ', $oldest))")
         } else {
             $reasons.Add("uncommitted work older than ${AgeThresholdHours}h (oldest age: $ageDesc): $([string]::Join(', ', $oldest))")
         }

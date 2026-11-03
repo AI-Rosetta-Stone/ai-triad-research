@@ -12,9 +12,10 @@
  *  - js/insecure-temporary-file (anonymousSessionStore: private mkdtemp base dir)
  *  - js/insecure-temporary-file (githubAPIBackend: randomised .tmp suffix)
  *
- * LOCAL-ONLY FAILURE MODE (t/2281): GitHubAPIBackend tests fail with "undici major-version skew"
- * when local Node is outside the required range (package.json engines: ">=22 <23"). CI uses
- * node:22.23.2 (Dockerfile) which bundles undici 6.x matching the userland pin. Fix: use Node 22.x.
+ * LOCAL-ONLY FAILURE MODE (t/2281, t/1990): GitHubAPIBackend tests fail with "undici major-version
+ * skew" when local Node is outside the required range (package.json engines: ">=26 <27"). CI's
+ * test runner (actions/setup-node) pins Node 26, which bundles undici 8.x matching the userland
+ * pin. Fix: use Node 26.x.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -162,7 +163,7 @@ import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
 
 // t/3444: constructing GitHubAPIBackend throws via assertUndiciMajorInvariant when the
 // local Node's bundled undici major skews from the userland pin — gate so this doesn't
-// mask real local failures on non-Node-22 dev machines. CI (node:22.23.2) always runs it.
+// mask real local failures on non-Node-26 dev machines (t/1990). CI's test runner always runs it.
 describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend temp file names (t/2020: js/insecure-temporary-file)', () => {
   let backend: GitHubAPIBackend;
 

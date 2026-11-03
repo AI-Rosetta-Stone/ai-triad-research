@@ -1,7 +1,6 @@
 # AI Triad Research: Market Positioning
 
 Geoffrey Moore positioning statements grounded in actual product capabilities.
-Berkman Klein Center, Harvard University, 2026.
 
 ---
 

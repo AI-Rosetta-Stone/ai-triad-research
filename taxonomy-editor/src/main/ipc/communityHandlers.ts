@@ -19,6 +19,7 @@ import {
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { communitySubmitPayloadSchema } from './communitySubmitSchema.js';
+import { inquiryPayloadSchema } from '../../../../lib/inquiry/index.js';
 
 export function registerCommunityHandlers(): void {
   // Submit a debate/chat to the remote Community Library.
@@ -57,6 +58,49 @@ export function registerCommunityHandlers(): void {
           component: 'ipc-handlers',
           level: 'error',
           message: 'Community submit failed',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        throw err;
+      }
+    },
+  );
+
+  // t/4746/t/4612: desktop Ask "Share to Community" — uploads the FULL InquiryResult to the
+  // unauthenticated draft endpoint (a desktop result has no server-side counterpart to load,
+  // t/4611), for human moderation. Distinct from 'community-submit' above: separate endpoint,
+  // separate (stricter) payload schema, no submissionId — a draft link + id instead.
+  // Same main-process net.fetch CORS-bypass rationale as 'community-submit'.
+  ipcMain.handle(
+    'submit-ask-to-community',
+    async (_event, baseUrl: unknown, result: unknown, note: unknown) => {
+      // Validate untrusted IPC input at the boundary (TS types are erased at runtime).
+      const base = z.string().url().parse(baseUrl).replace(/\/+$/, '');
+      // S-SSRF: only allow http/https to prevent file:// and internal protocols.
+      if (!/^https?:\/\//i.test(base)) {
+        throw new Error('Community server URL must be an http(s) URL. Set it in Settings to share debates.');
+      }
+      // t/4743: strict Zod parse at the client boundary too — not just server-side — so a
+      // malformed payload (or an oversized note) never reaches the network call at all.
+      const payload = inquiryPayloadSchema.parse({ result, note });
+      const url = `${base}/api/community/submit/draft`;
+      try {
+        const res = await net.fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        return (await res.json()) as { draftId: string; link: string };
+      } catch (err) {
+        // Every failure must surface to the renderer (t/4611) — never swallowed here.
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'ipc-handlers',
+          level: 'error',
+          message: 'Ask-to-community draft submission failed',
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
         throw err;

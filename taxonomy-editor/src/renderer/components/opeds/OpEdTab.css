@@ -3,10 +3,15 @@
    LibraryListPage.css when Op-Ed Studies adopted the shared list-page component. What remains is
    reader-view-only (still rendered from `two-column oped-tab-table-mode`) plus the status flash. */
 
-/* Status flash */
+/* Status flash. t/4715: truncates instead of growing .oped-reader-bar's row (Design review
+   p/29#204 fix 2, option (a) — the bar now has a fixed height). */
 .oped-status {
   font-size: 0.75rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .oped-status-inline {
@@ -21,6 +26,12 @@
   min-height: 0;
   overflow: auto;
   width: 100%;
+  /* t/4715: shared with OpEdReader.css's .oped-tabstrip, so the two pinned blocks (this bar,
+     then the camp tab strip) stack without overlapping, without either file needing to know
+     the other's exact box model. Declared here (not on .oped-reader-bar, Design review p/29#204
+     fix 2) — .oped-tabstrip lives outside the bar, and a custom property only inherits down
+     through its own descendants, so a value set on the bar never reached the tab strip. */
+  --oped-reader-bar-h: 41px;
 }
 
 .oped-reader-bar {
@@ -31,28 +42,26 @@
   border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
+  /* Design review (p/29#204 fix 2, option (a)): an explicit height + nowrap, not min-height,
+     so a bar that grows (zoom, a wrapped "Get public link") can't silently open a gap between
+     it and the tab strip below — .oped-status truncates instead of growing the row. */
+  height: var(--oped-reader-bar-h);
+  flex-wrap: nowrap;
+  box-sizing: border-box;
   background: var(--bg-primary, var(--bg-secondary));
-  z-index: 1;
+  z-index: 2;
 }
 
-.oped-reader-back {
-  background: none;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8125rem;
-  padding: 0.25rem 0.7rem;
-}
-
-.oped-reader-back:hover {
-  background: var(--bg-hover);
-}
-
-.oped-reader-back:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+/* t/4715 phone (≤767px): compact the bar so the pinned block (bar + tab strip) stays well
+   under ~25% of a typical phone viewport. */
+@media (max-width: 767px) {
+  .oped-reader-shell {
+    --oped-reader-bar-h: 33px;
+  }
+  .oped-reader-bar {
+    gap: 0.4rem;
+    padding: 0.35rem 0.5rem;
+  }
 }
 
 /* ── Public share control (web-only; t/2728) ── */

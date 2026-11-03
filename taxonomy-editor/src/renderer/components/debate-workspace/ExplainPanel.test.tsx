@@ -2,7 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // t/4514: the inline Explain panel — loading/result/error states, Copy/Regenerate/Collapse,
-// model attribution, cancel-via-Esc/button, and the "Open in Gemini" escape hatch.
+// model attribution, cancel-via-Esc/button, and the "Copy prompt & open Gemini" escape hatch
+// (t/4645: copy → confirm → open, never opens on a failed copy).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
@@ -30,9 +31,10 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
   getStoredModel: () => 'fallback-model',
 }));
 
+const { copyPromptForGemini } = vi.hoisted(() => ({ copyPromptForGemini: vi.fn() }));
 vi.mock('./utils', () => ({
   fixMarkdownLinks: (s: string) => s,
-  openPromptInGemini: (prompt: string) => { clipboardWriteText(prompt); openExternal('https://gemini.google.com/app'); },
+  copyPromptForGemini,
 }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -140,12 +142,33 @@ describe('ExplainPanel', () => {
     vi.useRealTimers();
   });
 
-  it('"Open in Gemini" copies the prompt (not the answer) and opens Gemini — available even while loading', () => {
+  it('"Copy prompt & open Gemini" copies the prompt, shows a confirmation, then opens Gemini — available even while loading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    copyPromptForGemini.mockResolvedValue(true);
     generateText.mockReturnValue(new Promise(() => {}));
     render(<ExplainPanel prompt="the original prompt" scopeLabel="this exchange" onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Open in Gemini' }));
-    expect(clipboardWriteText).toHaveBeenCalledWith('the original prompt');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt & open Gemini' }));
+    await vi.waitFor(() => expect(copyPromptForGemini).toHaveBeenCalledWith('the original prompt'));
+    expect(openExternal).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(screen.getByText('Prompt copied. Paste it into Gemini.')).toBeInTheDocument());
+    expect(screen.getByText('Prompt copied. Paste it into Gemini.').closest('[aria-live="polite"]')).toBeTruthy();
+    expect(openExternal).not.toHaveBeenCalled();
+
+    act(() => { vi.advanceTimersByTime(3000); });
     expect(openExternal).toHaveBeenCalledWith('https://gemini.google.com/app');
+    vi.useRealTimers();
+  });
+
+  it('never opens Gemini when the clipboard write fails, and shows the prompt to copy manually', async () => {
+    copyPromptForGemini.mockResolvedValue(false);
+    generateText.mockReturnValue(new Promise(() => {}));
+    render(<ExplainPanel prompt="the original prompt" scopeLabel="this exchange" onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt & open Gemini' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByText('the original prompt')).toBeInTheDocument();
+    expect(openExternal).not.toHaveBeenCalled();
   });
 
   it('Regenerate re-fetches and replaces the shown answer', async () => {

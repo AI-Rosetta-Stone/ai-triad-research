@@ -10,6 +10,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useAuthStatus } from '../../hooks/useAuthStatus';
+import { useIsAdmin } from '../../hooks/useIsAdmin';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace } from '../../navigation/openInWindow';
+import { getLastVariant, setLastVariant } from '../../navigation/lastVariant';
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -31,6 +35,35 @@ function nextDir(dir: SortDir): SortDir {
 function ariaSortFor(state: SortState, key: string): 'ascending' | 'descending' | 'none' {
   if (state.key !== key || state.dir === 'none') return 'none';
   return state.dir === 'asc' ? 'ascending' : 'descending';
+}
+
+/** t/4561 (t/4689: + remembered): extracted so the branching lives in its own function, not
+ *  LibraryListPage's — kept the main component's complexity unchanged rather than bumping it
+ *  over threshold. `hideMyTab` still wins over a remembered 'my' — an anonymous session with no
+ *  My content can't honor a memory of a tab it no longer has. */
+function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isWeb: boolean, remembered?: LibraryVariant): LibraryVariant {
+  if (hideMyTab) return 'community';
+  if (remembered) return remembered;
+  if (defaultCommunityOnWeb && isWeb) return 'community';
+  return 'my';
+}
+
+// t/4643: Edit is admin-only on the Community tab. Pulled out of LibraryListPage's body (rather
+// than inlined as a boolean expression) to keep that function's cyclomatic complexity under the
+// repo's per-file budget — see eslint.config.mjs's local/complexity-budget rule.
+function canShowEditFor(showEdit: boolean, listView: LibraryVariant, isAdmin: boolean): boolean {
+  return showEdit && (listView !== 'community' || isAdmin);
+}
+
+// t/4689: the row's ⧉ place, or null when the page has no window-opening story for this row
+// (no `config.itemPlace`) or the current build/tool combination can't open one
+// (`canOpenInNewWindow`, e.g. Electron + opeds/inquiry). One check, reused by the ⧉ button and
+// the row's Ctrl/Cmd/middle-click handling, so they can never disagree about availability.
+function openablePlace<TMy extends { id: string }, TCommunity extends { id: string }>(
+  config: LibraryListPageProps<TMy, TCommunity>['config'], row: TMy | TCommunity, variant: LibraryVariant,
+): ItemPlace | null {
+  const place = config.itemPlace?.(row, variant) ?? null;
+  return place && canOpenInNewWindow(place) ? place : null;
 }
 
 function warnMissingComparator(columnKey: string): void {
@@ -102,18 +135,23 @@ function TitleCell<TMy extends { id: string }, TCommunity extends { id: string }
     );
   }
 
+  const badge = config.titleBadge?.(row, variant);
+
   return (
     <>
-      {isWebAddress ? (
-        <span className="lib-title-webaddr" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
-          <span className="lib-title-site">{stripWebAddress(title).site}</span>
-          <span className="lib-title-rest">{stripWebAddress(title).rest}</span>
-        </span>
-      ) : (
-        <div className="lib-title-text" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
-          {title}
-        </div>
-      )}
+      <div className="lib-title-line">
+        {isWebAddress ? (
+          <span className="lib-title-webaddr" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
+            <span className="lib-title-site">{stripWebAddress(title).site}</span>
+            <span className="lib-title-rest">{stripWebAddress(title).rest}</span>
+          </span>
+        ) : (
+          <div className="lib-title-text" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
+            {title}
+          </div>
+        )}
+        {badge && <span className="lib-title-badge-slot">{badge}</span>}
+      </div>
       {secondary && <div className="lib-title-secondary">{secondary}</div>}
     </>
   );
@@ -217,28 +255,42 @@ function RowEditActions({ actions }: { actions: LibraryRowEditAction[] }) {
   );
 }
 
-// ── Actions cell (shared, non-negotiable per t/3703 ruling) ──
+// ── ⧉ open-in-new-window button (t/4689) — extracted to keep ActionsCell under budget ──
 
-function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, variant, config, toast, editModeActive,
+function OpenInWindowButton({ place, title }: { place: ItemPlace; title: string }) {
+  return (
+    <button
+      type="button"
+      className="lib-action-btn lib-action-open-window"
+      title="Open in new window"
+      aria-label={`Open ${title} in a new window`}
+      onClick={() => openPlaceInNewWindow(place)}
+    >
+      ⧉
+    </button>
+  );
+}
+
+// ── Actions cell: the non-edit-mode button row (t/4689: extracted from ActionsCell to keep
+//    it under the per-file complexity budget — adding the ⧉ button's branch pushed the
+//    combined function over threshold) ──
+
+function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, variant, config, toast, menuOpen, setMenuOpen,
 }: {
   row: TMy | TCommunity;
   variant: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   toast: (msg: string) => void;
-  editModeActive: boolean;
+  menuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  if (editModeActive) {
-    const rowActions = variant === 'my' ? config.editMode?.rowActions?.(row as TMy) ?? [] : [];
-    return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
-  }
-
   const showCopy = variant === 'community' ? (config.showCopy ? config.showCopy(row as TCommunity) : true) : false;
+  const place = openablePlace(config, row, variant);
 
   return (
     <div className={`lib-actions${menuOpen ? ' lib-menu-open' : ''}`} onClick={e => e.stopPropagation()}>
+      {place && <OpenInWindowButton place={place} title={config.getTitle(row, variant)} />}
       <ExportMenu
         formats={config.exportFormats}
         onOpenChange={setMenuOpen}
@@ -261,6 +313,27 @@ function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string
       )}
     </div>
   );
+}
+
+// ── Actions cell (shared, non-negotiable per t/3703 ruling) ──
+
+function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, variant, config, toast, editModeActive,
+}: {
+  row: TMy | TCommunity;
+  variant: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  toast: (msg: string) => void;
+  editModeActive: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  if (editModeActive) {
+    const rowActions = variant === 'my' ? config.editMode?.rowActions?.(row as TMy) ?? [] : [];
+    return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
+  }
+
+  return <ActionsCellButtons row={row} variant={variant} config={config} toast={toast} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />;
 }
 
 // ── Sortable header cell ──
@@ -304,19 +377,22 @@ function HeaderCell({
 // ── Header row 1: title + Edit/bulk-actions + New (extracted to keep the shell's complexity down) ──
 
 function HeaderRow1<TMy extends { id: string }, TCommunity extends { id: string }>({
-  config, editModeActive,
+  config, editModeActive, canShowEdit,
 }: {
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   editModeActive: boolean;
+  /** t/4643: config.showEdit narrowed by (listView !== 'community' || isAdmin) — computed by
+   *  the parent, since this component doesn't know the active tab or admin status itself. */
+  canShowEdit: boolean;
 }) {
   return (
     <div className="lib-header-row1">
       <h2 className="lib-title">{config.title}</h2>
       <div className="lib-header-actions">
-        {config.showEdit && !editModeActive && (
+        {canShowEdit && !editModeActive && (
           <button type="button" className="lib-btn-secondary" onClick={config.editMode?.onEnter}>Edit</button>
         )}
-        {config.showEdit && editModeActive && config.editMode && (
+        {canShowEdit && editModeActive && config.editMode && (
           <div className="lib-editmode-actions">
             {config.editMode.actions.map(a => (
               <button
@@ -335,6 +411,29 @@ function HeaderRow1<TMy extends { id: string }, TCommunity extends { id: string 
           <button type="button" className="lib-btn-primary" onClick={config.onNew}>{config.newLabel}</button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Header row 1.5: sort select (phone only, t/4571) ──
+
+function PhoneSortBar({
+  sort, onSort, config,
+}: {
+  sort: SortState;
+  onSort: (key: string) => void;
+  config: LibraryListPageProps<any, any>['config'];
+}) {
+  return (
+    <div className="lib-phone-sort-bar">
+      <label htmlFor="lib-phone-sort-select" className="lib-phone-sort-label">Sort:</label>
+      <SortSelect
+        sortKey={sort.key}
+        sortDir={sort.dir}
+        onSort={onSort}
+        columns={config.columns}
+        titleSortable={config.titleSortable}
+      />
     </div>
   );
 }
@@ -412,12 +511,31 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
   openRow: (id: string) => void;
   showToast: (msg: string) => void;
 }) {
+  // t/4689: Ctrl/Cmd-click or middle-click opens the row in a new window/tab instead of
+  // navigating in place — same gate (`openablePlace`) as the ⧉ button, so the two never
+  // disagree. Middle-click fires onAuxClick (button 1), never onClick, in every browser.
+  const openInWindowIfModified = (e: { ctrlKey: boolean; metaKey: boolean }): boolean => {
+    if (editModeActive || !(e.ctrlKey || e.metaKey)) return false;
+    const place = openablePlace(config, row, listView);
+    if (!place) return false;
+    openPlaceInNewWindow(place);
+    return true;
+  };
+
   return (
     <div
       className="lib-row lib-body-row"
       role="row"
       tabIndex={0}
-      onClick={() => { if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id); }}
+      onClick={e => {
+        if (openInWindowIfModified(e)) return;
+        if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id);
+      }}
+      onAuxClick={e => {
+        if (e.button !== 1 || editModeActive) return;
+        const place = openablePlace(config, row, listView);
+        if (place) { e.preventDefault(); openPlaceInNewWindow(place); }
+      }}
       onKeyDown={e => {
         if (e.key !== 'Enter' || editModeActive) return;
         e.preventDefault();
@@ -467,6 +585,278 @@ function EmptyStateRow({
   return null;
 }
 
+// ── Phone layout: sort select (t/4571) ──
+
+function SortSelect({
+  sortKey, sortDir, onSort, columns, titleSortable,
+}: {
+  sortKey: string | null;
+  sortDir: SortDir;
+  onSort: (key: string) => void;
+  columns: LibraryColumn<any, any>[];
+  titleSortable?: boolean;
+}) {
+  const options = [
+    { key: TITLE_SORT_KEY, label: 'Title' },
+    ...columns.map(c => ({ key: c.key, label: c.header })),
+  ].filter(o => (o.key === TITLE_SORT_KEY ? titleSortable : columns.find(c => c.key === o.key)?.sortable));
+
+  if (options.length === 0) return null;
+
+  // Unsorted shows a "Default order" placeholder instead of pretending Title is selected —
+  // otherwise choosing Title first fires no change event, so Title could never be picked.
+  const value = sortKey && sortDir !== 'none' ? sortKey : '';
+  const dirGlyph = sortDir === 'asc' ? '▴' : '▾';
+
+  return (
+    <div className="lib-phone-sort-controls">
+      <select
+        id="lib-phone-sort-select"
+        className="lib-phone-sort"
+        value={value}
+        onChange={e => { if (e.target.value) onSort(e.target.value); }}
+      >
+        <option value="" disabled>Default order</option>
+        {options.map(opt => (
+          <option key={opt.key} value={opt.key}>{opt.label}</option>
+        ))}
+      </select>
+      {sortKey && sortDir !== 'none' && (
+        <button
+          type="button"
+          className="lib-phone-sort-direction"
+          title={sortDir === 'asc' ? 'Switch to descending' : 'Switch to ascending'}
+          aria-label={sortDir === 'asc' ? 'Switch to descending' : 'Switch to ascending'}
+          onClick={() => { if (sortKey) onSort(sortKey); }}
+        >
+          {dirGlyph}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Phone layout: trailing actions menu (t/4571, spec item 2) ──
+
+function PhoneActionsMenu<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, listView, config, editModeActive, showToast,
+}: {
+  row: TMy | TCommunity;
+  listView: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  editModeActive: boolean;
+  showToast: (msg: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => setMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    const onDocClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) close();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDocClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDocClick);
+    };
+  }, [menuOpen, close]);
+
+  const title = config.getTitle(row, listView);
+
+  if (editModeActive) {
+    const rowActions = listView === 'my' ? config.editMode?.rowActions?.(row as TMy) ?? [] : [];
+    return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
+  }
+
+  const showCopy = listView === 'community' ? (config.showCopy ? config.showCopy(row as TCommunity) : true) : false;
+  const place = openablePlace(config, row, listView);
+
+  return (
+    <div className="lib-phone-actions-menu-wrap" ref={wrapRef} onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        className="lib-phone-actions-btn"
+        aria-label={`Actions for ${title}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen(!menuOpen)}
+      >
+        ⋯
+      </button>
+      {menuOpen && (
+        <div role="menu" className="lib-phone-actions-menu">
+          {place && (
+            <button
+              type="button"
+              role="menuitem"
+              className="lib-phone-menu-item"
+              onClick={() => { close(); openPlaceInNewWindow(place); }}
+            >
+              Open in new window
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            className="lib-phone-menu-item"
+            onClick={() => {
+              close();
+              const fmt = config.exportFormats[0]?.key;
+              if (fmt) {
+                if (listView === 'my') config.onExportMy(row as TMy, fmt);
+                else config.onExportCommunity(row as TCommunity, fmt);
+                showToast(`Exporting as ${config.exportFormats[0]?.label}`);
+              }
+            }}
+          >
+            Export
+          </button>
+          {listView === 'my' && (
+            <button
+              type="button"
+              role="menuitem"
+              className="lib-phone-menu-item"
+              onClick={() => {
+                close();
+                config.onShare(row as TMy);
+                showToast('Share link copied');
+              }}
+            >
+              Share
+            </button>
+          )}
+          {listView === 'community' && showCopy && (
+            <button
+              type="button"
+              role="menuitem"
+              className="lib-phone-menu-item"
+              onClick={() => {
+                close();
+                config.onCopy(row as TCommunity);
+                showToast(`Copied to My ${config.title}`);
+              }}
+            >
+              Copy
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Phone layout: list item (t/4571) ──
+
+function PhoneListRow<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, listView, config, editModeActive, openRow, showToast,
+}: {
+  row: TMy | TCommunity;
+  listView: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  editModeActive: boolean;
+  openRow: (id: string) => void;
+  showToast: (msg: string) => void;
+}) {
+  const metaColumns = config.columns.filter(c => c.phone === 'meta');
+  const metaParts = metaColumns.map(c => c.render(row, listView));
+
+  return (
+    <div
+      className="lib-phone-item"
+      role="listitem"
+      tabIndex={0}
+      onClick={() => { if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id); }}
+      onKeyDown={e => {
+        if (e.key !== 'Enter' || editModeActive) return;
+        e.preventDefault();
+        openRow(row.id);
+      }}
+    >
+      {editModeActive && (
+        <input
+          type="checkbox"
+          className="lib-phone-checkbox"
+          aria-label={`Select ${config.getTitle(row, listView)}`}
+          checked={config.editMode!.selectedIds.has(row.id)}
+          onChange={() => config.editMode!.onToggleSelect(row.id)}
+          onClick={e => e.stopPropagation()}
+        />
+      )}
+      <div className="lib-phone-title-row">
+        <span className="lib-phone-title">
+          <TitleCell row={row} variant={listView} config={config} />
+        </span>
+      </div>
+      {metaParts.length > 0 && (
+        <div className="lib-phone-meta-row">
+          {metaParts.map((part, i) => (
+            <span key={i} className={`lib-phone-meta-part${i < metaParts.length - 1 ? ' lib-phone-meta-sep' : ''}`}>
+              {part}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="lib-phone-actions">
+        <PhoneActionsMenu row={row} listView={listView} config={config} editModeActive={editModeActive} showToast={showToast} />
+      </div>
+    </div>
+  );
+}
+
+// ── Phone layout: list wrapper (t/4571) ──
+
+function PhoneListView<TMy extends { id: string }, TCommunity extends { id: string }>({
+  sortedRows, listView, config, editModeActive, openRow, showToast, loading, hasRows, hasQuery,
+}: {
+  sortedRows: (TMy | TCommunity)[];
+  listView: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  editModeActive: boolean;
+  openRow: (id: string) => void;
+  showToast: (msg: string) => void;
+  loading: boolean;
+  hasRows: boolean;
+  hasQuery: boolean;
+}) {
+  const emptyLabel = listView === 'my' ? config.searchPlaceholderMy.replace(/^Search /, '').replace(/…$/, '') : config.title.toLowerCase();
+  const hasSortedRows = sortedRows.length > 0;
+
+  return (
+    <div className="lib-phone-list" role="list">
+      <EmptyStateRow
+        loading={loading}
+        hasSortedRows={hasSortedRows}
+        hasRows={hasRows}
+        hasQuery={!!hasQuery}
+        query=""
+        emptyLabel={emptyLabel}
+      />
+      {sortedRows.map(row => (
+        <PhoneListRow
+          key={row.id}
+          row={row}
+          listView={listView}
+          config={config}
+          editModeActive={editModeActive}
+          openRow={openRow}
+          showToast={showToast}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Phone layout at ≤767px — the same cut-off as LibraryListPage.css's phone media query. */
+function useIsPhoneLayout(): boolean {
+  const bp = useBreakpoint();
+  return bp === 'phone' || bp === 'phone-lg';
+}
+
 // ── Component ──
 
 export function LibraryListPage<TMy extends { id: string }, TCommunity extends { id: string }>(
@@ -474,7 +864,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 ) {
   const {
     config, myRows, myLoading, communityRows, communityLoading, onOpenMy, onOpenCommunity,
-    actionVisibility = 'hover',
+    actionVisibility = 'hover', intro, defaultCommunityOnWeb = false, restoreKey,
   } = props;
 
   // t/3703#8: My-tab visibility is auth-driven, read here rather than taken as a prop — the
@@ -485,16 +875,34 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   // optional, so a page can't silently inherit a wrong default either.
   const auth = useAuthStatus();
   const hideMyTab = !!auth?.anonymous && !config.anonymousHasMyContent;
+  // t/4643: Edit is admin-only on the Community tab (UX, not security — the server-side guard
+  // is the actual enforcement). useIsAdmin() already fails closed to false while admin status
+  // is loading and is unconditionally true in Electron, so there's no separate "loading" state
+  // to plumb through here (AC4).
+  const isAdmin = useIsAdmin();
 
-  const [listView, setListView] = useState<LibraryVariant>(hideMyTab ? 'community' : 'my');
+  // t/4561: web-only initial-view default, opt-in per page via defaultCommunityOnWeb.
+  // VITE_TARGET is a build-time constant (same convention as HelpDialog.tsx/App.tsx), so this
+  // never changes after mount — no re-render risk from reading it in useState's initializer.
+  const isWeb = import.meta.env.VITE_TARGET === 'web';
+  const [listView, setListView] = useState<LibraryVariant>(
+    () => initialListView(hideMyTab, defaultCommunityOnWeb, isWeb, restoreKey ? getLastVariant(restoreKey) : undefined),
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'none' });
+  // t/4571: exactly one layout is in the DOM — rendering both and hiding one with CSS doubled
+  // every row (duplicate text and controls for tests and assistive tech).
+  const isPhone = useIsPhoneLayout();
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  // t/4689: remember the tab across this page's unmount/remount (rail tab switch, or the
+  // up-crumb). Only writes when restoreKey is set — omitting it keeps a page's behavior
+  // byte-for-byte unchanged from before this feature existed.
   const switchTab = useCallback((v: LibraryVariant) => {
     setListView(v);
     setSearchQuery('');
-  }, []);
+    if (restoreKey) setLastVariant(restoreKey, v);
+  }, [restoreKey]);
 
   // hideMyTab can flip true after mount (e.g. auth resolves anonymous after an optimistic 'my'
   // default) — force off 'my' rather than leave the view stuck on a tab whose button just
@@ -502,6 +910,15 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   useEffect(() => {
     if (hideMyTab && listView === 'my') setListView('community');
   }, [hideMyTab, listView]);
+
+  // t/4643 AC3: a non-admin who switches to Community while in edit mode must not be left with
+  // a stranded bulk-action bar — exit edit mode. Guarded on .active so it never fires onExit()
+  // spuriously (e.g. on every admin-status refresh while already on Community, not editing).
+  useEffect(() => {
+    if (listView === 'community' && !isAdmin && config.editMode?.active) {
+      config.editMode.onExit();
+    }
+  }, [listView, isAdmin, config.editMode?.active]);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -531,6 +948,9 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   }, [config.columns]);
 
   const editModeActive = !!config.editMode?.active;
+  // t/4643: Edit is admin-only on Community. "The shell gates this once" per the ticket — any
+  // tool that turns on config.showEdit later inherits the rule automatically.
+  const canShowEdit = canShowEditFor(!!config.showEdit, listView, isAdmin);
   const gridCols = [
     editModeActive ? CHECKBOX_COL_WIDTH : null,
     '1fr',
@@ -543,7 +963,9 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 
   return (
     <div className="library-list-page" data-action-visibility={actionVisibility}>
-      <HeaderRow1 config={config} editModeActive={editModeActive} />
+      <HeaderRow1 config={config} editModeActive={editModeActive} canShowEdit={canShowEdit} />
+
+      {intro}
 
       <HeaderRow2
         listView={listView}
@@ -557,6 +979,22 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
         hideMyTab={hideMyTab}
       />
 
+      {isPhone ? (
+        <>
+          <PhoneSortBar sort={sort} onSort={onSort} config={config} />
+          <PhoneListView
+            sortedRows={sortedRows}
+            listView={listView}
+            config={config}
+            editModeActive={editModeActive}
+            openRow={openRow}
+            showToast={showToast}
+            loading={loading}
+            hasRows={rows.length > 0}
+            hasQuery={!!q}
+          />
+        </>
+      ) : (
       <div className="lib-table-wrap">
         {/* eslint-disable-next-line local/no-inline-style -- per-page grid-template-columns, not a static class */}
         <div className="lib-grid" role="table" aria-label={`${config.title} ${listView === 'my' ? 'My' : 'Community'} table`} style={{ '--lib-cols': gridCols } as React.CSSProperties}>
@@ -569,6 +1007,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
           ))}
         </div>
       </div>
+      )}
 
       {toastMsg && <div className="lib-toast" role="status">{toastMsg}</div>}
     </div>

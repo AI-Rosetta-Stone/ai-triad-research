@@ -5,6 +5,8 @@
  "approval_status": "APPROVED by the PI first-hand in the CL session 2026-10-26: \"spending approved\" (t/4507#1), cap \"approve $25 spending cap\" (t/4507#2).",
  "hard_stop_usd": 25.0,
  "hard_stop_ref": "PI cap $25 (t/4507#2)",
+ "count_cap_on": "completed",
+ "count_cap_note": "2026-10-26 (t/4507#6): only completed debates count toward the 50-debate cap. Failed attempts spend money, so they still count toward the $25 hard stop, but they must not use up planned slots (3 failed attempts would otherwise stop the run at 43 of 50, the t/3963 stage-2 trap). Not a design change: PREREG fixes 50 debates and the $25 cap, both unchanged.",
  "_comment": "Pre-registered in PREREG.md before any run. Fixed 5 rounds, frozen code 00aff3a6 (includes t/4438 seat-tag selection). 10 motions x 5 arms (A1-A4 + A1r replicate), motion-major order. First-debate cost gate: if 50 x first-debate cost > $23, switch to rounds=4 for ALL debates before the second runs.",
  "base_config": {
   "model": "gemini-3.5-flash-lite",

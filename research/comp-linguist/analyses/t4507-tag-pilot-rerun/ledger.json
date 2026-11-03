@@ -1,0 +1,862 @@
+{
+  "budget": 25.0,
+  "max_debates": 50,
+  "debates": [
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a1",
+      "usd": 0.2873,
+      "calls": 109,
+      "in": 515579,
+      "out": 53284,
+      "secs": 676,
+      "rc": 0,
+      "at": "2026-10-26T11:20:50+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a2",
+      "usd": 0.3039,
+      "calls": 109,
+      "in": 555976,
+      "out": 55136,
+      "secs": 556,
+      "rc": 0,
+      "at": "2026-10-26T11:32:37+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a3",
+      "usd": 0.2705,
+      "calls": 96,
+      "in": 496609,
+      "out": 48937,
+      "secs": 527,
+      "rc": 0,
+      "at": "2026-10-26T11:41:26+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a4",
+      "usd": 0.2896,
+      "calls": 103,
+      "in": 529728,
+      "out": 52732,
+      "secs": 514,
+      "rc": 0,
+      "at": "2026-10-26T11:50:00+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a1r",
+      "usd": 0.6,
+      "calls": 0,
+      "in": 0,
+      "out": 0,
+      "secs": 651,
+      "rc": 1,
+      "at": "2026-10-26T12:00:52+00:00",
+      "note": "no flight recorder; partial total_ai_calls=53, total_input_tokens=62798, transcript turns=12",
+      "status": "failed"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a1r",
+      "usd": 0.6,
+      "calls": 0,
+      "in": 0,
+      "out": 0,
+      "secs": 6463,
+      "rc": "timeout",
+      "at": "2026-10-26T13:48:36+00:00",
+      "note": "no flight recorder; partial total_ai_calls=0, total_input_tokens=0, transcript turns=0",
+      "status": "failed",
+      "usd_booked_originally": 0.0,
+      "correction": "2026-10-26 CL: re-booked at the $0.60 reserve. The original $0 rested on a stale 0/0/0 partial from an earlier attempt (no flight recorder); spend was not proven zero, and the output of the rc=1 attempt shows paid [usage] calls. Runner fixed in cl/runner-spend-evidence."
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a1r",
+      "usd": 0.6,
+      "calls": 0,
+      "in": 0,
+      "out": 0,
+      "secs": 351,
+      "rc": 1,
+      "at": "2026-10-26T13:54:32+00:00",
+      "note": "no flight recorder; partial total_ai_calls=0, total_input_tokens=0, transcript turns=0",
+      "status": "failed",
+      "usd_booked_originally": 0.0,
+      "correction": "2026-10-26 CL: re-booked at the $0.60 reserve. The original $0 rested on a stale 0/0/0 partial from an earlier attempt (no flight recorder); spend was not proven zero, and the output of the rc=1 attempt shows paid [usage] calls. Runner fixed in cl/runner-spend-evidence."
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m01-a1r",
+      "usd": 0.2948,
+      "calls": 106,
+      "in": 553521,
+      "out": 51928,
+      "secs": 563,
+      "rc": 0,
+      "at": "2026-10-27T00:31:35+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m02-a1",
+      "usd": 0.2923,
+      "calls": 108,
+      "in": 538142,
+      "out": 52705,
+      "secs": 472,
+      "rc": 0,
+      "at": "2026-10-27T00:39:28+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m02-a2",
+      "usd": 0.2882,
+      "calls": 108,
+      "in": 529797,
+      "out": 52128,
+      "secs": 474,
+      "rc": 0,
+      "at": "2026-10-27T00:47:23+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m02-a3",
+      "usd": 0.2756,
+      "calls": 107,
+      "in": 499898,
+      "out": 50671,
+      "secs": 411,
+      "rc": 0,
+      "at": "2026-10-27T00:54:14+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m02-a4",
+      "usd": 0.2815,
+      "calls": 98,
+      "in": 506216,
+      "out": 52175,
+      "secs": 402,
+      "rc": 0,
+      "at": "2026-10-27T01:00:57+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m02-a1r",
+      "usd": 0.2879,
+      "calls": 102,
+      "in": 523395,
+      "out": 52664,
+      "secs": 461,
+      "rc": 0,
+      "at": "2026-10-27T01:08:38+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m03-a1",
+      "usd": 0.2708,
+      "calls": 97,
+      "in": 483414,
+      "out": 50542,
+      "secs": 646,
+      "rc": 0,
+      "at": "2026-10-27T01:19:26+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m03-a2",
+      "usd": 0.268,
+      "calls": 109,
+      "in": 498517,
+      "out": 47800,
+      "secs": 637,
+      "rc": 0,
+      "at": "2026-10-27T01:30:03+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m03-a3",
+      "usd": 0.2739,
+      "calls": 101,
+      "in": 499791,
+      "out": 49899,
+      "secs": 482,
+      "rc": 0,
+      "at": "2026-10-27T01:38:08+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m03-a4",
+      "usd": 0.2574,
+      "calls": 93,
+      "in": 474834,
+      "out": 46292,
+      "secs": 401,
+      "rc": 0,
+      "at": "2026-10-27T01:44:51+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m03-a1r",
+      "usd": 0.2854,
+      "calls": 100,
+      "in": 508248,
+      "out": 53422,
+      "secs": 407,
+      "rc": 0,
+      "at": "2026-10-27T01:51:38+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m04-a1",
+      "usd": 0.2962,
+      "calls": 107,
+      "in": 543804,
+      "out": 53587,
+      "secs": 414,
+      "rc": 0,
+      "at": "2026-10-27T01:58:33+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m04-a2",
+      "usd": 0.2642,
+      "calls": 98,
+      "in": 477167,
+      "out": 48735,
+      "secs": 409,
+      "rc": 0,
+      "at": "2026-10-27T02:05:24+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m04-a3",
+      "usd": 0.6,
+      "calls": 30,
+      "in": 134476,
+      "out": 16418,
+      "secs": 169,
+      "rc": 1,
+      "at": "2026-10-27T02:08:14+00:00",
+      "note": "no flight recorder; [usage] lines=30 ($0.0814); partial this attempt: total_ai_calls=29, total_input_tokens=0, transcript turns=8",
+      "status": "failed"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m04-a3",
+      "usd": 0.2792,
+      "calls": 105,
+      "in": 508030,
+      "out": 51044,
+      "secs": 426,
+      "rc": 0,
+      "at": "2026-10-27T02:15:22+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m04-a4",
+      "usd": 0.2718,
+      "calls": 98,
+      "in": 501843,
+      "out": 48819,
+      "secs": 385,
+      "rc": 0,
+      "at": "2026-10-27T02:21:49+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m04-a1r",
+      "usd": 0.2742,
+      "calls": 106,
+      "in": 511006,
+      "out": 48689,
+      "secs": 404,
+      "rc": 0,
+      "at": "2026-10-27T02:28:33+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m05-a1",
+      "usd": 0.2758,
+      "calls": 102,
+      "in": 518138,
+      "out": 48495,
+      "secs": 398,
+      "rc": 0,
+      "at": "2026-10-27T02:35:11+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m05-a2",
+      "usd": 0.2584,
+      "calls": 99,
+      "in": 461220,
+      "out": 48246,
+      "secs": 390,
+      "rc": 0,
+      "at": "2026-10-27T02:41:43+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m05-a3",
+      "usd": 0.2678,
+      "calls": 101,
+      "in": 496307,
+      "out": 47801,
+      "secs": 398,
+      "rc": 0,
+      "at": "2026-10-27T02:48:23+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m05-a4",
+      "usd": 0.2727,
+      "calls": 105,
+      "in": 497010,
+      "out": 49710,
+      "secs": 392,
+      "rc": 0,
+      "at": "2026-10-27T02:54:57+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m05-a1r",
+      "usd": 0.2704,
+      "calls": 105,
+      "in": 489027,
+      "out": 49824,
+      "secs": 398,
+      "rc": 0,
+      "at": "2026-10-27T03:01:36+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m06-a1",
+      "usd": 0.2593,
+      "calls": 93,
+      "in": 471169,
+      "out": 47418,
+      "secs": 378,
+      "rc": 0,
+      "at": "2026-10-27T03:07:54+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m06-a2",
+      "usd": 0.2533,
+      "calls": 96,
+      "in": 465283,
+      "out": 45831,
+      "secs": 376,
+      "rc": 0,
+      "at": "2026-10-27T03:14:12+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m06-a3",
+      "usd": 0.2532,
+      "calls": 97,
+      "in": 455097,
+      "out": 47015,
+      "secs": 375,
+      "rc": 0,
+      "at": "2026-10-27T03:20:29+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m06-a4",
+      "usd": 0.2707,
+      "calls": 104,
+      "in": 501124,
+      "out": 48524,
+      "secs": 396,
+      "rc": 0,
+      "at": "2026-10-27T03:27:05+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m06-a1r",
+      "usd": 0.2695,
+      "calls": 101,
+      "in": 484428,
+      "out": 50049,
+      "secs": 394,
+      "rc": 0,
+      "at": "2026-10-27T03:33:39+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m07-a1",
+      "usd": 0.286,
+      "calls": 107,
+      "in": 519278,
+      "out": 52383,
+      "secs": 407,
+      "rc": 0,
+      "at": "2026-10-27T03:40:26+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m07-a2",
+      "usd": 0.2546,
+      "calls": 96,
+      "in": 475406,
+      "out": 45134,
+      "secs": 386,
+      "rc": 0,
+      "at": "2026-10-27T03:46:53+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m07-a3",
+      "usd": 0.2762,
+      "calls": 106,
+      "in": 500873,
+      "out": 50779,
+      "secs": 412,
+      "rc": 0,
+      "at": "2026-10-27T03:53:47+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m07-a4",
+      "usd": 0.2782,
+      "calls": 105,
+      "in": 495844,
+      "out": 52126,
+      "secs": 405,
+      "rc": 0,
+      "at": "2026-10-27T04:00:34+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m07-a1r",
+      "usd": 0.27,
+      "calls": 102,
+      "in": 498992,
+      "out": 48521,
+      "secs": 411,
+      "rc": 0,
+      "at": "2026-10-27T04:07:26+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m08-a1",
+      "usd": 0.2699,
+      "calls": 104,
+      "in": 480336,
+      "out": 50682,
+      "secs": 410,
+      "rc": 0,
+      "at": "2026-10-27T04:14:16+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m08-a2",
+      "usd": 0.2605,
+      "calls": 103,
+      "in": 469985,
+      "out": 48130,
+      "secs": 400,
+      "rc": 0,
+      "at": "2026-10-27T04:20:58+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m08-a3",
+      "usd": 0.2516,
+      "calls": 99,
+      "in": 452709,
+      "out": 46609,
+      "secs": 396,
+      "rc": 0,
+      "at": "2026-10-27T04:27:36+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m08-a4",
+      "usd": 0.2609,
+      "calls": 99,
+      "in": 471847,
+      "out": 48027,
+      "secs": 387,
+      "rc": 0,
+      "at": "2026-10-27T04:34:04+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m08-a1r",
+      "usd": 0.276,
+      "calls": 110,
+      "in": 511429,
+      "out": 49407,
+      "secs": 416,
+      "rc": 0,
+      "at": "2026-10-27T04:41:02+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m09-a1",
+      "usd": 0.2688,
+      "calls": 99,
+      "in": 480081,
+      "out": 50234,
+      "secs": 407,
+      "rc": 0,
+      "at": "2026-10-27T04:47:50+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m09-a2",
+      "usd": 0.2665,
+      "calls": 106,
+      "in": 488272,
+      "out": 48401,
+      "secs": 408,
+      "rc": 0,
+      "at": "2026-10-27T04:54:39+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m09-a3",
+      "usd": 0.298,
+      "calls": 115,
+      "in": 551162,
+      "out": 53387,
+      "secs": 429,
+      "rc": 0,
+      "at": "2026-10-27T05:01:48+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m09-a4",
+      "usd": 0.2514,
+      "calls": 103,
+      "in": 442300,
+      "out": 47836,
+      "secs": 403,
+      "rc": 0,
+      "at": "2026-10-27T05:08:32+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m09-a1r",
+      "usd": 0.2841,
+      "calls": 107,
+      "in": 507034,
+      "out": 53202,
+      "secs": 427,
+      "rc": 0,
+      "at": "2026-10-27T05:15:39+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m10-a1",
+      "usd": 0.2876,
+      "calls": 105,
+      "in": 509770,
+      "out": 54227,
+      "secs": 419,
+      "rc": 0,
+      "at": "2026-10-27T05:22:39+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m10-a2",
+      "usd": 0.289,
+      "calls": 109,
+      "in": 515505,
+      "out": 54148,
+      "secs": 427,
+      "rc": 0,
+      "at": "2026-10-27T05:29:48+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m10-a3",
+      "usd": 0.2858,
+      "calls": 106,
+      "in": 533583,
+      "out": 50703,
+      "secs": 405,
+      "rc": 0,
+      "at": "2026-10-27T05:36:34+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m10-a4",
+      "usd": 0.2864,
+      "calls": 104,
+      "in": 509456,
+      "out": 53730,
+      "secs": 416,
+      "rc": 0,
+      "at": "2026-10-27T05:43:30+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t4507-tag-pilot-rerun",
+      "slug": "t4507-m10-a1r",
+      "usd": 0.2832,
+      "calls": 102,
+      "in": 513521,
+      "out": 51955,
+      "secs": 412,
+      "rc": 0,
+      "at": "2026-10-27T05:50:24+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    }
+  ]
+}

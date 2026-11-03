@@ -69,6 +69,59 @@ describe('extractSummary', () => {
     expect(result.title).toBe('Untitled');
   });
 
+  it('sets origin_mode and inquiry_id for a legacy inquiry-string origin (t/4679)', () => {
+    const result = extractSummary({
+      id: 'd6',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-02',
+      phase: 'completed',
+      transcript: [],
+      origin: 'inquiry',
+      inquiryJobId: 'job-123',
+    });
+    expect(result.origin_mode).toBe('inquiry');
+    expect(result.inquiry_id).toBe('job-123');
+  });
+
+  it('sets origin_mode without inquiry_id when the legacy inquiry job id is absent', () => {
+    const result = extractSummary({
+      id: 'd7',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-02',
+      phase: 'completed',
+      transcript: [],
+      origin: 'inquiry',
+    });
+    expect(result.origin_mode).toBe('inquiry');
+    expect(result.inquiry_id).toBeUndefined();
+    expect('inquiry_id' in result).toBe(false);
+  });
+
+  it('omits origin_mode/inquiry_id entirely for a cli/gui origin', () => {
+    const result = extractSummary({
+      id: 'd8',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-02',
+      phase: 'completed',
+      transcript: [],
+      origin: { mode: 'gui' },
+    });
+    expect('origin_mode' in result).toBe(false);
+    expect('inquiry_id' in result).toBe(false);
+  });
+
+  it('omits origin_mode/inquiry_id for a pre-origin debate with no origin field', () => {
+    const result = extractSummary({
+      id: 'd9',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-02',
+      phase: 'completed',
+      transcript: [],
+    });
+    expect('origin_mode' in result).toBe(false);
+    expect('inquiry_id' in result).toBe(false);
+  });
+
   it('does not produce [object Object] when topic is an object and title is missing', () => {
     const result = extractSummary({
       id: 'd6',

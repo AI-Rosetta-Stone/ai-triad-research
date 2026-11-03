@@ -10,7 +10,7 @@ import {
   classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits, ARM_EVENT_RE,
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
-  MERGE_EQUIVALENT_WINDOW_SECONDS,
+  MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS, MERGE_QUEUE_STUCK_MINUTES,
 } from './stuck-pr-classifier.mjs';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -38,6 +38,20 @@ function basePr(overrides = {}) {
   };
 }
 
+// ── draft (t/4599) ──
+test('draft: isDraft true short-circuits before any other classification, even one that would otherwise fire', () => {
+  const pr = basePr({ isDraft: true, isConflicting: true, labels: ['consult-hold'] });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+test('draft: a real required-check failure is NOT classified while isDraft is true', () => {
+  const pr = basePr({ isDraft: true, runs: allGreenRuns({ 'ci-gate': { status: 'completed', conclusion: 'failure' } }) });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+test('draft: false (or absent) does not change any existing classification', () => {
+  const pr = basePr({ isDraft: false, isConflicting: true });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'merge-conflict');
+});
+
 // ── held ──
 test('held: consult-hold label never escalates, reports age only', () => {
   const pr = basePr({ labels: ['consult-hold'], isConflicting: true /* would otherwise be merge-conflict */ });
@@ -47,6 +61,60 @@ test('held: consult-hold label never escalates, reports age only', () => {
 });
 test('held: joint-gv label also never escalates', () => {
   const pr = basePr({ labels: ['joint-gv'] });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+// ── consult-hold-aged (t/4533) ──
+test('consult-hold-aged: consult-hold past SO_TIMEBOX_HOURS with no SO reply detected escalates', () => {
+  const pr = basePr({
+    labels: ['consult-hold'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 1),
+    soClearanceDetected: false,
+  });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'consult-hold-aged');
+  assert.ok(v.detail.holdAgeHours > SO_TIMEBOX_HOURS);
+  assert.equal(escalationLevel(v.class, 0), 'owner'); // escalates immediately, not after another OWNER_SLA_HOURS
+});
+
+test('consult-hold-aged: NOT fired when under the time-box (ordinary held)', () => {
+  const pr = basePr({
+    labels: ['consult-hold'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS - 0.5),
+    soClearanceDetected: false,
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: NOT fired when an SO has already replied, even well past the time-box (ordinary held, waiting on PI/TL)', () => {
+  const pr = basePr({
+    labels: ['consult-hold'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 10),
+    soClearanceDetected: true,
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: NOT fired without a known consultHoldAppliedAt -- never guessed, stays ordinary held', () => {
+  const pr = basePr({ labels: ['consult-hold'], soClearanceDetected: false });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: joint-gv-held PRs are exempt (no SO time-box applies to them)', () => {
+  const pr = basePr({
+    labels: ['joint-gv'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 5),
+    soClearanceDetected: false,
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: a PR with BOTH consult-hold and joint-gv is exempt from aging (still just held)', () => {
+  const pr = basePr({
+    labels: ['consult-hold', 'joint-gv'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 5),
+    soClearanceDetected: false,
+  });
   assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
 });
 
@@ -170,6 +238,99 @@ test('t/4096 arm 1: FIRE ARM -- stale-then-clean sequence does NOT escalate (fir
 test('t/4096 arm 1: a recheck the caller never performed (undefined) does NOT escalate on a single blocked read', () => {
   const pr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked' });
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
+});
+
+// ── approved-not-armed (t/4557) ──
+test('approved-not-armed: approved, every required context green, NOT armed -> fires, escalates to owner immediately', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5) /* would otherwise be idle */ });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'approved-not-armed');
+  assert.equal(escalationLevel(v.class, 0), 'owner');
+});
+test('NOT approved-not-armed: approved and green, but ALREADY armed -> falls through (not this class)', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: true, lastActivityAt: minsAgo(5) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('NOT approved-not-armed: a T1/T2 PR not yet approved, even though green and unarmed -> correctly NOT ready yet (falls through to idle/null)', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, lastActivityAt: minsAgo(5), body: 'Tier: T1\n...' });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+test('approved-not-armed: a T0 PR with NO review at all still fires -- T0 needs no approval (real shape, PR #3926)', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...' });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+// t/4566 (TL, p/702#97): PR #3926 was nudged to arm and merged before the CL's required
+// re-review cleared. The T0-no-review path must caveat "check the ticket's ACs first", unlike
+// the has-a-real-approval path (that review already settled the question).
+test('approved-not-armed remedy: T0-no-review path caveats "check the linked ticket" before arming', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...' });
+  const v = classifyBlocker(pr, NOW);
+  assert.match(v.detail.remedy, /ticket/i);
+  assert.match(v.detail.remedy, /unless/i);
+});
+test('approved-not-armed remedy: the has-a-real-approval path does NOT need the ticket caveat', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, body: 'Tier: T1\n...' });
+  const v = classifyBlocker(pr, NOW);
+  assert.doesNotMatch(v.detail.remedy, /ticket/i);
+});
+test('NOT approved-not-armed: approved and unarmed, but a required context is NOT green -> falls through (a real failure/in-flight class takes priority)', () => {
+  const pr = basePr({
+    hasApproval: true, autoMergeEnabled: false,
+    runs: allGreenRuns({ 'ci-gate': { status: 'completed', conclusion: 'failure' } }),
+  });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+// ── merge-queue awareness (t/4660): a directly-enqueued PR has autoMergeEnabled === false/null
+//    even though it's already armed. ──
+test('NOT approved-not-armed: unarmed by REST but already in the merge queue -> falls through (it IS armed)', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, inMergeQueue: true, lastActivityAt: hoursAgo(5) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('approved-not-armed still fires: unarmed by REST and NOT in the queue -> unchanged, existing arm keeps firing', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, inMergeQueue: false, lastActivityAt: hoursAgo(5) });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('queued-stuck: in the merge queue past MERGE_QUEUE_STUCK_MINUTES -> fires, names the queue state, never "arm it"', () => {
+  const pr = basePr({ autoMergeEnabled: false, inMergeQueue: true, mergeQueueEnqueuedAt: minsAgo(MERGE_QUEUE_STUCK_MINUTES + 1) });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'queued-stuck');
+  assert.match(v.detail.remedy, /queue/i);
+  assert.doesNotMatch(v.detail.remedy, /^arm it/i);
+});
+test('NOT queued-stuck: in the queue but under the threshold -> falls through (normal batch wait)', () => {
+  const pr = basePr({ autoMergeEnabled: false, inMergeQueue: true, mergeQueueEnqueuedAt: minsAgo(MERGE_QUEUE_STUCK_MINUTES - 1) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'queued-stuck');
+});
+test('NOT queued-stuck: inMergeQueue true but no enqueuedAt (mergeQueueEntry null) -> never ages into this class (Quality review, p/432#58: missing evidence is not evidence of stuck)', () => {
+  const pr = basePr({ autoMergeEnabled: false, inMergeQueue: true, mergeQueueEnqueuedAt: null, lastActivityAt: hoursAgo(5) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'queued-stuck');
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed'); // still armed via inMergeQueue alone
+});
+test('armed-but-blocked still reachable via inMergeQueue (not just autoMergeEnabled)', () => {
+  const pr = basePr({
+    autoMergeEnabled: false, inMergeQueue: true,
+    mergeableState: 'blocked', mergeableStateRecheck: 'blocked',
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
+});
+
+// ── CI still in flight is NOT stuck (t/4557, the #3934 false-alarm shape) ──
+test('CI in flight: a required context queued or in_progress, under its own stuck threshold, with stale lastActivityAt -> null, NOT idle', () => {
+  const pr = basePr({
+    lastActivityAt: hoursAgo(2), // would otherwise trip idle
+    runs: allGreenRuns({ 'ci-gate': { status: 'in_progress', conclusion: null, startedAt: minsAgo(5) } }),
+  });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+test('CI in flight guard does NOT mask a run that IS past its stuck threshold (stuck-required-run still fires)', () => {
+  const pr = basePr({
+    lastActivityAt: hoursAgo(2),
+    runs: allGreenRuns({ 'ci-gate': { status: 'in_progress', conclusion: null, startedAt: hoursAgo(1) } }),
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'stuck-required-run');
 });
 
 // ── idle ──

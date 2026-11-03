@@ -158,7 +158,7 @@ $frozen = [ordered]@{
     entities = $entries
 }
 $json = $frozen | ConvertTo-Json -Depth 8
-[IO.File]::WriteAllText($FrozenPath, ($json -replace "`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($FrozenPath, ($json -replace "`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))  # sink-guard-allow: writes the frozen list into scripts/data-mutations/t4404/ in this repo, not a data-of-record file; the data write is Invoke-T4404SourceRefsWrite.mjs (t/4452)
 $norm = [IO.File]::ReadAllText($FrozenPath) -replace "`r`n", "`n"
 "frozen list: $FrozenPath sha256=$(Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($norm)))"
 $frozen.summary | ConvertTo-Json -Depth 4

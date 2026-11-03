@@ -188,16 +188,43 @@ function Test-TaxEditorEndpoints {
         # or a different body → no title match → still fails (gate-signal integrity).
         # The dash between "Sign In" and "AITriad" varies by platform encoding
         # (hyphen / en-dash / em-dash); match any so the anchor tokens carry the signal.
+        #
+        # t/4631 — for Category='Data' this reclassify must NOT produce a silent
+        # PASS: PASS on a Data row means "data was verified," not "auth gating
+        # worked." The interstitial means no body was ever checked. If $Session
+        # is set (established above) and the request still hit the interstitial,
+        # or no session was established at all, the row is a FAIL with a reason
+        # — never indistinguishable from a real, verified data PASS. Non-Data
+        # AuthGated categories (Metadata/Models/Auth/Static/Frontend) keep the
+        # original PASS-on-interstitial semantics unchanged: gating-works IS the
+        # right signal there, since they carry no data-verification contract.
         if (-not $Check.Success -and $Ep.ContainsKey('AuthGated') -and $Ep.AuthGated -and
             $Check.RawBody -match 'Sign In\s*[-–—]\s*AITriad Taxonomy Editor') {
-            $Check = [PSCustomObject]@{
-                Success     = $true
-                StatusCode  = $Check.StatusCode
-                ResponseMs  = $Check.ResponseMs
-                Body        = $null
-                ContentType = $Check.ContentType
-                RawBody     = $Check.RawBody
-                Error       = $null
+            if ($Ep.Cat -eq 'Data') {
+                $Reason = if ($Session) {
+                    "Data endpoint returned the Easy Auth Sign-In interstitial despite an established anonymous session; no data verified (t/4631)."
+                } else {
+                    "Data endpoint is auth-gated and no anonymous session was established (pass -AnonymousSession or -UserType Anonymous); no data verified (t/4631)."
+                }
+                $Check = [PSCustomObject]@{
+                    Success     = $false
+                    StatusCode  = $Check.StatusCode
+                    ResponseMs  = $Check.ResponseMs
+                    Body        = $null
+                    ContentType = $Check.ContentType
+                    RawBody     = $Check.RawBody
+                    Error       = $Reason
+                }
+            } else {
+                $Check = [PSCustomObject]@{
+                    Success     = $true
+                    StatusCode  = $Check.StatusCode
+                    ResponseMs  = $Check.ResponseMs
+                    Body        = $null
+                    ContentType = $Check.ContentType
+                    RawBody     = $Check.RawBody
+                    Error       = $null
+                }
             }
         }
 

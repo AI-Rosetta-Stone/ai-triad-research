@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -25,8 +25,9 @@ import { PROMPT_CATALOG } from '../../data/promptCatalog';
 import { ToolbarPaneRenderer, isFullWidthPanel, PhoneToolClose } from '../shared/ToolbarPaneRenderer';
 import { TheoryLink } from '../shared/TheoryLink';
 import { LineageDetailView } from '../shared/LineageDetailView';
-import type { DebateSession } from '../../types/debate';
-import { POVER_INFO } from '@lib/debate/types';
+import type { DebateSession, SpeakerId } from '../../types/debate';
+import { DebateGettingStarted } from './DebateGettingStarted';
+import { POVER_INFO, normalizeDebateOrigin } from '@lib/debate/types';
 import { ParameterHistoryPanel } from '../analysis/ParameterHistoryPanel';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api, isElectronMode } from '@bridge';
@@ -39,6 +40,7 @@ import type { SessionRowData } from './debateSessionTypes';
 import { LibraryListPage } from '../shared/LibraryListPage';
 import type { LibraryEditModeAction, LibraryRowEditAction } from '../shared/LibraryListPage.types';
 import { buildDebateLibraryConfig, debateSafeTitle } from './debateLibraryConfig';
+import { DebateInPlaceHint } from './DebateInPlaceHint';
 import './DebateTab.css';
 
 // Prop-type aliases derived from the hooks/stores so the extracted presentational
@@ -62,6 +64,7 @@ interface DebateLibraryPanelProps {
   communityLoading: boolean;
   onOpenMy: (id: string) => void;
   onOpenCommunity: (id: string) => void;
+  intro: ReactNode;
 }
 
 // Shared prop bag for the right (detail) pane subtree.
@@ -87,6 +90,14 @@ interface DebateRightPaneProps {
   handleExport: (format?: string) => void;
   exportStatus: string | null;
   handleNewDebate: () => Promise<void>;
+}
+
+// t/4678/t/4683: `inquiryJobId` is a legacy sibling of `origin`, not nested under it (persisted by
+// the web host's old persistInquiryDebateSession as `{ ...session, origin: 'inquiry', inquiryJobId: jobId }`)
+// — normalizeDebateOrigin (t/4679) needs both to recover `inquiry_id` from an old string-origin
+// session. New sessions already carry the typed object and ignore the second argument.
+function debateOrigin(debate: DebateSession): ReturnType<typeof normalizeDebateOrigin> {
+  return normalizeDebateOrigin(debate.origin, (debate as unknown as { inquiryJobId?: unknown }).inquiryJobId);
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -162,6 +173,8 @@ export function DebateTab() {
   const isTablet = breakpoint === 'tablet' || breakpoint === 'tablet-lg';
   const nav = useMobileNav();
   const [showNewDialog, setShowNewDialog] = useState(false);
+  // t/4563: starter-chip prefill for NewDebateDialog — null means today's unprefilled open.
+  const [debatePrefill, setDebatePrefill] = useState<{ topic: string; povers?: readonly SpeakerId[] } | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -178,18 +191,37 @@ export function DebateTab() {
   const [selectedCommunityDebate, setSelectedCommunityDebate] = useState<CommunityDebate | null>(null);
   const auth = useAuthStatus();
 
-  const handleNewDebate = useCallback(async () => {
+  // t/4563: shared by the unprefilled "+ New Debate" path and the getting-started chips, so the
+  // quota pre-check lives once. Returns whether the caller may proceed to open the dialog.
+  const checkDebateQuota = useCallback(async (): Promise<boolean> => {
     setQuotaError(null);
     try {
       const quota = await api.getDebateQuotaStatus();
       if (!quota.allowed) {
         setQuotaError(`Debate limit reached (${quota.current}/${quota.limit}). Delete existing debates to free up quota.`);
-        return;
+        return false;
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'warn', message: 'Quota pre-check failed — opening dialog anyway', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
+    return true;
+  }, []);
+
+  const handleNewDebate = useCallback(async () => {
+    if (!(await checkDebateQuota())) return;
+    setDebatePrefill(null);
     setShowNewDialog(true);
+  }, [checkDebateQuota]);
+
+  const handlePickDebateStarter = useCallback(async (topic: string, povers?: readonly SpeakerId[]) => {
+    if (!(await checkDebateQuota())) return;
+    setDebatePrefill({ topic, povers });
+    setShowNewDialog(true);
+  }, [checkDebateQuota]);
+
+  const closeNewDebateDialog = useCallback(() => {
+    setShowNewDialog(false);
+    setDebatePrefill(null);
   }, []);
 
   // Custom sort order (persisted to localStorage)
@@ -255,6 +287,23 @@ export function DebateTab() {
     void fetchCommunityDebates();
   }, [loadSessions, fetchCommunityDebates]);
 
+  // t/4800: clear in-place selection state when navigating back to /debate (no ID).
+  // When history pops from /debate/:id back to /debate, the store's activeDebate is cleared
+  // by DEBATE_ROUTE.restore(), but this component's local state (selectedCommunityDebate,
+  // lastOpenedVariant) must also be cleared so the library view renders.
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      const hasDebateId = /^#.*\/debate\//.test(hash);
+      if (!hasDebateId && (selectedCommunityDebate || lastOpenedVariant === 'community')) {
+        setSelectedCommunityDebate(null);
+        setLastOpenedVariant('my');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [selectedCommunityDebate, lastOpenedVariant]);
+
   // Condition 2 (t/2305): runExport accepts explicit `session` so table rows can pass
   // their own data directly — `activeDebate` from the store is not loaded on row click,
   // so falling back to it would produce a no-op for per-row Export/Share actions.
@@ -302,42 +351,6 @@ export function DebateTab() {
   };
 
   // ── Table row handlers (t/2305) ──────────────────────────────────────────────
-
-  // Condition 3 (t/2305 web path): openDebateWindow already has a working web-bridge
-  // impl (openAppWindow(`debate-window?id=…`)) — no stub to fix, confirmed in web-bridge.ts.
-  const handleRowOpen = useCallback((id: string) => {
-    api.openDebateWindow(id).then((result) => {
-      if (result && result.atCap) {
-        setQuotaError('Close a debate window — max 5 open');
-      }
-    }).catch((err: Error) => {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'debate-tab',
-        level: 'warn',
-        message: 'Failed to open debate popout window',
-        error: { name: err.name ?? 'Error', message: String(err), stack: err.stack },
-      });
-    });
-  }, []);
-
-  // Community debates must propagate source=community so the popout's runLoad routes
-  // to loadCommunityDebateSession instead of the personal endpoint (t/2399).
-  const handleCommunityRowOpen = useCallback((id: string) => {
-    api.openDebateWindow(id, 'community').then((result) => {
-      if (result && result.atCap) {
-        setQuotaError('Close a debate window — max 5 open');
-      }
-    }).catch((err: Error) => {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'debate-tab',
-        level: 'warn',
-        message: 'Failed to open community debate popout window',
-        error: { name: err.name ?? 'Error', message: String(err), stack: err.stack },
-      });
-    });
-  }, []);
 
   // Per-row export — loads full session on demand so the main process has transcript
   // data for markdown/pdf formatters (summary alone is insufficient for rich formats).
@@ -395,28 +408,23 @@ export function DebateTab() {
 
   const rowBrief = useRowBriefExport(isElectronMode());
 
-  // Row-open — branches on phone vs desktop inside the handler DebateTab owns (t/3702#5 gap 2
-  // ruling: no shared per-device contract needed, this is page-side logic behind one callback).
+  // t/4691: row click opens in place (a t/4640 place, /debate/:id via placeOf()'s existing
+  // `debate` resolver reading `activeDebate`) instead of a popout window — ⧉/Ctrl-click still go
+  // through the shell's openPlaceInNewWindow via debateLibraryConfig's itemPlace (#4319),
+  // unaffected by this. Phone additionally pushes its own nav-stack entry (pre-existing, unrelated
+  // to t/4640 — Debate's phone layer uses useMobileNav, not the shell's history).
   const handleOpenMy = useCallback((id: string) => {
-    if (isPhone) {
-      if (id !== activeDebateId) void loadDebate(id);
-      setLastOpenedVariant('my');
-      nav.push({ view: 'debate', id });
-      return;
-    }
-    handleRowOpen(id);
-  }, [isPhone, activeDebateId, loadDebate, nav, handleRowOpen]);
+    if (id !== activeDebateId) void loadDebate(id);
+    setLastOpenedVariant('my');
+    if (isPhone) nav.push({ view: 'debate', id });
+  }, [isPhone, activeDebateId, loadDebate, nav]);
 
   const handleOpenCommunity = useCallback((id: string) => {
-    if (isPhone) {
-      const cd = communityDebates.find(c => c.id === id) ?? null;
-      setSelectedCommunityDebate(cd);
-      setLastOpenedVariant('community');
-      if (cd) nav.push({ view: 'detail', id });
-      return;
-    }
-    handleCommunityRowOpen(id);
-  }, [isPhone, communityDebates, nav, handleCommunityRowOpen]);
+    const cd = communityDebates.find(c => c.id === id) ?? null;
+    setSelectedCommunityDebate(cd);
+    setLastOpenedVariant('community');
+    if (isPhone && cd) nav.push({ view: 'detail', id });
+  }, [isPhone, communityDebates, nav]);
 
   const handleCopyCommunity = useCallback(async (cd: CommunityDebate): Promise<void> => {
     setCopyingId(cd.id);
@@ -528,17 +536,20 @@ export function DebateTab() {
           <span className="pane-collapsed-label">Debates</span>
         </div>
       ) : (
-        <DebateLibraryPanel
-          width={width}
-          fullWidth={isTableMode}
-          setListCollapsed={setListCollapsed}
-          config={libraryConfig}
-          myRows={orderedSessions}
-          myLoading={sessionsLoading}
-          communityRows={communityDebates}
-          communityLoading={communityLoading}
-          onOpenMy={handleOpenMy}
-          onOpenCommunity={handleOpenCommunity}
+        <DebateTableMode
+          isTableMode={isTableMode}
+          activeDebate={activeDebate}
+          selectedCommunityDebate={selectedCommunityDebate}
+          lastOpenedVariant={lastOpenedVariant}
+          handleExport={handleExport}
+          exportStatus={exportStatus}
+          libraryPanelProps={{
+            width, fullWidth: isTableMode, setListCollapsed, config: libraryConfig,
+            myRows: orderedSessions, myLoading: sessionsLoading,
+            communityRows: communityDebates, communityLoading: communityLoading,
+            onOpenMy: handleOpenMy, onOpenCommunity: handleOpenCommunity,
+            intro: <DebateGettingStarted hasNoDebates={orderedSessions.length === 0} onPickStarter={handlePickDebateStarter} />,
+          }}
         />
       )}
 
@@ -552,8 +563,9 @@ export function DebateTab() {
         </div>
       )}
       {showNewDialog && (
-        <NewDebateDialog
-          onClose={() => setShowNewDialog(false)}
+        <NewDebateDialogHost
+          prefill={debatePrefill}
+          onClose={closeNewDebateDialog}
           onAtCap={() => setQuotaError('Close a debate window — max 5 open')}
         />
       )}
@@ -567,8 +579,9 @@ export function DebateTab() {
             setPendingExportFormat(null);
             setPendingExportSession(null);
             if (rowSession) {
-              // Table row export — load full session then export.
-              // (activeDebate is not set in table mode; Condition 2)
+              // Table row export — load full session then export (Condition 2). Keyed off
+              // pendingExportSession, set unconditionally by handleRowExport/handleRowCommunityExport
+              // regardless of mode — not off activeDebate, which t/4691 can now also set in table mode.
               resolveExportLoader(rowSession, api.loadDebateSession, api.loadCommunityDebateSession).then(full => {
                 void runExport(fmt, opts, full);
               }).catch((err: Error) => {
@@ -644,10 +657,73 @@ function ToolbarLeftPanel({
 // shared component's EmptyStateRow has no per-variant custom-message hook, so Electron users see
 // the generic "No community debates yet." here instead. Flagging for whoever reviews this file
 // rather than working around it by suppressing the Community tab (a bigger behavior change).
+// Thin host so the debatePrefill?.topic / debatePrefill?.povers optional-chains live in their
+// own function scope, not DebateTab's own complexity count (local/complexity-budget) — mirrors
+// ChatTab's NewChatDialogHost.
+function NewDebateDialogHost({ prefill, onClose, onAtCap }: {
+  prefill: { topic: string; povers?: readonly SpeakerId[] } | null;
+  onClose: () => void;
+  onAtCap: () => void;
+}) {
+  return <NewDebateDialog onClose={onClose} onAtCap={onAtCap} initialTopic={prefill?.topic} initialPovers={prefill?.povers} />;
+}
+
+// t/4691: the left pane's own branching (toolbar-panel/collapsed handled by the caller; this
+// covers table mode's library-vs-in-place-detail choice, plus the phone library fallback),
+// pulled out of DebateTab so DebateTab's own complexity doesn't absorb it (local/complexity-
+// budget) — same reasoning as NewDebateDialogHost above, mirrors Chat's ChatTableMode (t/4690).
+function DebateTableMode({
+  isTableMode, activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus, libraryPanelProps,
+}: {
+  isTableMode: boolean;
+  activeDebate: DebateSession | null;
+  selectedCommunityDebate: CommunityDebate | null;
+  lastOpenedVariant: 'my' | 'community';
+  handleExport: (format?: string) => void;
+  exportStatus: string | null;
+  libraryPanelProps: DebateLibraryPanelProps;
+}) {
+  return isTableMode && (activeDebate || selectedCommunityDebate) ? (
+    <DebateTableDetail
+      activeDebate={activeDebate}
+      selectedCommunityDebate={selectedCommunityDebate}
+      lastOpenedVariant={lastOpenedVariant}
+      handleExport={handleExport}
+      exportStatus={exportStatus}
+    />
+  ) : (
+    <DebateLibraryPanel {...libraryPanelProps} />
+  );
+}
+
+// t/4691: table mode's in-place detail — shown full-width in the library's slot once a row opens
+// an item, plus the first-open hint above it. For My debates, render the active workspace (matching
+// phone behavior, t/4799). For Community debates, show the detail card (not yet loaded as workspace).
+function DebateTableDetail({
+  activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus,
+}: {
+  activeDebate: DebateSession | null;
+  selectedCommunityDebate: CommunityDebate | null;
+  lastOpenedVariant: 'my' | 'community';
+  handleExport: (format?: string) => void;
+  exportStatus: string | null;
+}) {
+  return (
+    <div className="debate-tab-table-detail">
+      <DebateInPlaceHint />
+      {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
+        <CommunityDebateDetail debate={selectedCommunityDebate} />
+      ) : activeDebate ? (
+        <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} />
+      ) : null}
+    </div>
+  );
+}
+
 function DebateLibraryPanel(props: DebateLibraryPanelProps) {
   const {
     width, fullWidth, setListCollapsed, config, myRows, myLoading, communityRows, communityLoading,
-    onOpenMy, onOpenCommunity,
+    onOpenMy, onOpenCommunity, intro,
   } = props;
   return (
     // eslint-disable-next-line local/no-inline-style -- dynamic: resizable panel width, omitted in fullWidth/table mode
@@ -666,6 +742,9 @@ function DebateLibraryPanel(props: DebateLibraryPanelProps) {
         communityLoading={communityLoading}
         onOpenMy={onOpenMy}
         onOpenCommunity={onOpenCommunity}
+        intro={intro}
+        defaultCommunityOnWeb
+        restoreKey="debate"
       />
     </div>
   );
@@ -715,20 +794,13 @@ function DebateRightPane(props: DebateRightPaneProps) {
 function DebateDetailPane(props: DebateRightPaneProps) {
   const {
     onMouseDown, onTouchStart, isPhone, activeDebate, selectedCommunityDebate,
-    lastOpenedVariant, nav, handleExport, exportStatus, handleNewDebate,
+    lastOpenedVariant, handleExport, exportStatus, handleNewDebate,
   } = props;
   const debateAuth = useAuthStatus();
   return (
     <>
       <div className="resize-handle" onMouseDown={onMouseDown} onTouchStart={onTouchStart} />
       <div className="detail-panel">
-        {isPhone && (activeDebate || selectedCommunityDebate) && (
-          <div className="phone-detail-header">
-            <button className="phone-detail-back" onClick={() => nav.pop()}>
-              &larr; Debates
-            </button>
-          </div>
-        )}
         {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
           <CommunityDebateDetail debate={selectedCommunityDebate} />
         ) : activeDebate ? (
@@ -1002,15 +1074,22 @@ function DebateSourceSection({ debate }: { debate: DebateSession }) {
   );
 }
 
+const ORIGIN_MODE_LABELS: Record<string, string> = {
+  cli: 'CLI (headless runner)',
+  gui: 'GUI (Electron app)',
+  inquiry: 'Ask a Question', // t/4678/t/4683: the tool's name (Design review t/4683#6), was mislabeled "GUI" for the legacy string origin
+};
+
 export function DebateConfigSection({ debate }: { debate: DebateSession }) {
   if (!(debate.audience || debate.debate_model || debate.protocol_id || debate.origin)) return null;
+  const origin = debateOrigin(debate);
   return (
     <div className="debate-detail-section">
       <h3>Configuration</h3>
-      {debate.origin && (
+      {origin && (
         <div className="debate-detail-meta-row">
           <span className="debate-detail-label">Created via:</span>
-          <span>{debate.origin.mode === 'cli' ? 'CLI (headless runner)' : 'GUI (Electron app)'}</span>
+          <span>{ORIGIN_MODE_LABELS[origin.mode] ?? origin.mode}</span>
         </div>
       )}
       {debate.origin?.command && (
@@ -1074,6 +1153,13 @@ export function DebateConfigSection({ debate }: { debate: DebateSession }) {
 
 // ── Community Debate Detail ──
 
+// t/1520/t/4672: iPad/iOS Safari drops auth cookies when window.open'ing a new tab, so on
+// mobile navigate in-place via the hash router instead. Mirrors web-bridge.ts isMobilePlatform().
+function isMobilePlatform(): boolean {
+  return /iPad|iPhone|iPod|Android/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
+}
+
 function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
   const [full, setFull] = useState<DebateSession | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1110,16 +1196,22 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
   const handleOpenWindow = useCallback(() => {
     // iPad/iOS Safari drops auth cookies when window.open'ing a new tab (t/1520),
     // so on mobile navigate in-place via the hash router instead of a new window.
-    // Detection mirrors web-bridge.ts isMobilePlatform() — see dedup TODO in t/1520.
     const hash = `debate-window?id=${encodeURIComponent(debate.id)}&source=community`;
-    const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent)
-      || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
-    if (isMobile) {
+    if (isMobilePlatform()) {
       window.location.hash = hash;
     } else {
       window.open(`${location.origin}/#${hash}`, '_blank');
     }
   }, [debate.id]);
+
+  // t/4672 (PI): on mobile, tapping a community debate should land directly in the debate
+  // view, not an interstitial requiring a manual "Open in Window" tap — mirrors the My-debates
+  // path, which already renders DebateWorkspace directly on phone (DebateDetailPane). Desktop
+  // keeps the manual button (opening an un-requested new tab without a user gesture would be a
+  // behavior change there, and is commonly popup-blocked anyway).
+  useEffect(() => {
+    if (isMobilePlatform()) handleOpenWindow();
+  }, [handleOpenWindow]);
 
   const topic = full?.topic ? (full.topic.final || full.topic.refined || full.topic.original) : null;
 

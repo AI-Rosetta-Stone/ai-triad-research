@@ -8,9 +8,11 @@
 // component fed the literal same PublicInquiryShare object — the drift risk TL flagged
 // (t/3654#1) is closed structurally, not just by a data-shape test.
 
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { PublicInquiryShare } from '@lib/inquiry';
 import { CAMP_LABELS, FIDELITY_LABELS, trustVerdictLabel } from './inquiry/inquiryDisplay';
 import { InquiryTagScope } from './InquiryTagScope';
+import { PublicGroundingSection } from './inquiry/PublicGroundingSection';
 import './PublicInquiryView.css';
 
 /** ADR-001 graceful-empty: a terminal share with no substantive content needs its own
@@ -18,6 +20,23 @@ import './PublicInquiryView.css';
  *  isZeroResult, adapted to the narrower public projection). */
 function isZeroShare(doc: PublicInquiryShare): boolean {
   return doc.campVerdicts.length === 0 && doc.convergences.length === 0 && doc.evidenceLayers.length === 0;
+}
+
+/** t/4591: shares minted before `grounding` existed on this schema predate the field at runtime
+ *  even though the type says it's required (`JSON.parse … as T` on the read side) — hide rather
+ *  than crash, and WARN so the gap is diagnosable. */
+function PublicInquiryGrounding({ grounding }: { grounding: PublicInquiryShare['grounding'] }) {
+  if (!grounding) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'PublicInquiryShareContent',
+      level: 'warn',
+      message: 'Public share has no grounding field — hiding Grounding section',
+      error: { name: 'MissingField', message: 'doc.grounding is undefined', stack: '' },
+    });
+    return null;
+  }
+  return <PublicGroundingSection grounding={grounding} />;
 }
 
 export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) {
@@ -97,25 +116,25 @@ export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) 
             </section>
           )}
 
+          {/* t/4591 removes only the Calibration badge CARDS (metric name, value, pill) — the
+           *  trust reason itself is a must-include per SO review (t/3628#2) and stays on the
+           *  page in this minimal form (TL triage, p/336#701). */}
           {doc.calibration.length > 0 && (
             <section className="pov-inquiry-sect">
-              <span className="pov-inquiry-eyebrow">Calibration — every badge generated from the run</span>
-              <div className="pov-inquiry-metrics">
+              <div className="pov-inquiry-trust-notes">
                 {doc.calibration.map((entry, i) => (
-                  <div className="pov-inquiry-metric" data-t={entry.trust.verdict === 'censored' ? 'bad' : 'ok'} key={i}>
-                    <div className="pov-inquiry-mt">
-                      <span className="pov-inquiry-mn mono">{entry.metric}</span>
-                      <span className={`pov-inquiry-pill ${entry.trust.verdict === 'censored' ? 'bad' : 'ok'}`}>{trustVerdictLabel(entry.trust.verdict)}</span>
-                    </div>
-                    <div className="pov-inquiry-mv mono">{entry.displayValue ?? entry.value}</div>
-                    {/* Renders TrustState.reason verbatim — must-include per SO review (t/3628#2),
-                        never re-derives whether a metric is trustworthy. */}
-                    <div className="pov-inquiry-mr">{entry.trust.reason}</div>
-                  </div>
+                  <p className="pov-inquiry-trust-note" key={i}>
+                    <span className="pov-inquiry-trust-verdict">{trustVerdictLabel(entry.trust.verdict)}</span>
+                    {' — '}<span className="pov-inquiry-trust-reason">{entry.trust.reason}</span>
+                  </p>
                 ))}
               </div>
             </section>
           )}
+
+          {/* t/4591: Grounding replaces Calibration's badge-card UI on this page — calibration
+           *  data itself stays in the result, this only removes the cards from the page. */}
+          <PublicInquiryGrounding grounding={doc.grounding} />
         </>
       )}
 

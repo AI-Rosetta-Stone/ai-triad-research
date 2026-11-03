@@ -1,6 +1,6 @@
 # Computational Linguist — Owned Files
 
-**Last updated:** 2026-10-15 (t/4151: directory rows for prompt folders, tag-aware reflection, and five metric files that were missing. The machine-readable path sets for the advisory checks are in `cl-path-sets.json`.)
+**Last updated:** 2026-10-27 (t/4523: `org-endorsement-gate.prompt`, the LLM endorsement-confirmation gate for org claim matching.)
 **Author:** Computational Linguist (Orca)
 
 Files the Computational Linguist holds **mandatory review authority** over. Changes to any of these block merge until CL review (see `research/comp-linguist/AGENTS.md` → *When to Engage*). This list is updated in any PR that adds new prompt-bearing or metric-bearing code — see the Maintenance rule at the bottom.
@@ -9,6 +9,8 @@ Files the Computational Linguist holds **mandatory review authority** over. Chan
 |---|---|---|
 | **Prompt templates** | | |
 | `scripts/AITriad/Prompts/*.prompt` | PS prompt templates | Mandatory |
+| `scripts/AITriad/Prompts/org-endorsement-gate.prompt` | Endorsement-confirmation gate for org claim matching (t/4475 7b, t/4523) — distinguishes an org position that asserts a node's proposition from one that only shares its topic | Mandatory |
+| `scripts/AITriad/Private/Test-OrgEndorsement.ps1` | PS wrapper over the endorsement gate's AI call (t/4523) | Mandatory |
 | `scripts/AITriad/Private/Get-Prompt.ps1` | PS prompt loader | Mandatory |
 | `lib/debate/prompts/**` | TS debate prompts. The former `prompts.ts` is now a folder (opening, turn, turn-pipeline, moderator, synthesis, reflection, `reflectionTagCheck` custodian judge, and others) | Mandatory |
 | `lib/debate/soul-docs/**` | POV and tag soul documents plus `pov-tags.json`; they feed every persona and the custodian judge (t/3975, t/4211) | Mandatory |

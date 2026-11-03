@@ -12,7 +12,6 @@
           "excerpt_context": "<e.g. Section 2, paragraph 3>",
           "extraction_confidence": "<0.0-1.0: how faithfully this point represents the source document>",
           "canonical_proposition": "<one sentence, ≤30 words, in the modal register matching BDI type: Beliefs=indicative, Desires=deontic, Intentions=instrumental. Must be SELF-CONTAINED (no pronouns/deictics pointing outside the sentence, names resolved, dates carry a year).>",
-          "anchors": ["<the names (instruments, jurisdictions, organizations or dates), as given in the source, that the claim would lose its meaning without, e.g. 'EU AI Act Article 62'. Use [] for a general claim. Names that only illustrate the claim, or that are where a figure or quotation came from, are not anchors. FORENSIC/ADDITIVE (t/4482): NO consumer branches on this field yet. THE EXEMPTION LAPSES the moment any code path reads anchors to make a decision (display, matching, filtering) — at that point a Second Opinion is required for the change that introduces the read. See lib/ai-client/types.ts for the model of this note.>"],
           "attribution_text": "<genus-differentia rewrite mirroring taxonomy node description format: 'A [Belief|Desire|Intention] within [POV] discourse that [differentia]. Encompasses: [2-3 specific concepts from the claim].' 40-80 words, BDI modal register, domain vocabulary, no rhetoric/hedging.>",
           "vocabulary_terms": ["<standardized term canonical forms relevant to this point, e.g. 'governance_adaptive', 'capabilities_scaling'. Omit if none apply.>"]
         },

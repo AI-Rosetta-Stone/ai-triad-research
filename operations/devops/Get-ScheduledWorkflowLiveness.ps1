@@ -57,7 +57,9 @@ $live = foreach ($w in $declared) {
     $timestamps = @()
     if ($runsJson) {
         $parsed = $runsJson | ConvertFrom-Json
-        $timestamps = @($parsed.workflow_runs | ForEach-Object { [datetime]::Parse($_.created_at).ToUniversalTime() })
+        # t/4822-sibling: NOT [datetime]::Parse(...).ToUniversalTime() -- see ConvertTo-UtcTimestamp's
+        # doc comment for why that double-applies the host's UTC offset.
+        $timestamps = @($parsed.workflow_runs | ForEach-Object { ConvertTo-UtcTimestamp $_.created_at })
     }
     [pscustomobject]@{ file = $w.file; scheduleRunTimestamps = $timestamps }
 }

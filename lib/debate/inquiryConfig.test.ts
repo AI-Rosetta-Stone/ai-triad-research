@@ -3,6 +3,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { deriveDebateConfig } from './inquiryConfig.js';
+import { DebateEngine } from './debateEngine.js';
+import { createMockAdapter, createMinimalTaxonomy } from './debateEngine.testHelpers.js';
+import { loadProvisionalWeights } from './phaseTransitions.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { InquiryRequest } from '../inquiry/index.js';
 import { ActionableError } from './errors.js';
@@ -68,6 +71,81 @@ describe('deriveDebateConfig — fidelity profiles', () => {
     expect(config.useAdaptiveStaging).toBe(true);
     expect(derivation.callBudget).toBe(300);  // 20 × 15
     expect(derivation.fidelity).toBe('deep');
+  });
+});
+
+// ── Displayed budget vs. enforced ceiling (t/4598) ───────────────────────────
+// The PI reported a run truncated at 150 calls while the Ask form showed a 240 budget for
+// Standard. Design traced it to the hypothesis that maxTotalRounds derived here might not be
+// reaching the engine that actually enforces the ceiling (phaseTransitions.ts). The tests above
+// only check deriveDebateConfig's own output in isolation — they'd stay green even if the
+// multiplier or the wiring drifted, because 120/240/300 are hardcoded expectations computed the
+// same way the production constant was. These tests instead build a REAL DebateEngine from
+// deriveDebateConfig's output and read the actual ceiling phaseTransitions.ts would enforce
+// (config.maxTotalRounds * the SAME calibration-config.json multiplier it reads), for every
+// fidelity — closing the loop end to end rather than comparing two copies of the same arithmetic.
+describe('deriveDebateConfig — displayed budget equals the enforced ceiling, end to end (t/4598)', () => {
+  it.each([
+    ['quick', 8] as const,
+    ['standard', 16] as const,
+    ['deep', 20] as const,
+  ])('%s: derivation.callBudget equals the ceiling the real engine enforces (maxTotalRounds=%d)', (fidelity, expectedMaxTotalRounds) => {
+    const { config, derivation } = deriveDebateConfig(makeRequest({ fidelity }), makeRegistry());
+    expect(config.maxTotalRounds).toBe(expectedMaxTotalRounds);
+
+    // Build the real engine the inquiry pipeline would run against (lib/debate/headlessRunner.ts),
+    // and read the maxTotalRounds phaseTransitions.ts actually reads at runtime
+    // (engine._adaptiveConfig, not engine.config — see debateEngine.ts's useAdaptiveStaging init).
+    const engine = new DebateEngine(config, createMockAdapter(), createMinimalTaxonomy());
+    (engine as unknown as { initSession: () => void }).initSession();
+    const enforcedMaxTotalRounds = config.useAdaptiveStaging
+      ? (engine as unknown as { _adaptiveConfig: { maxTotalRounds: number } })._adaptiveConfig.maxTotalRounds
+      : (engine as unknown as { config: { maxTotalRounds: number } }).config.maxTotalRounds;
+    const enforcedCeiling = enforcedMaxTotalRounds * loadProvisionalWeights().budget.hard_multiplier;
+
+    expect(enforcedCeiling).toBe(derivation.callBudget);
+  });
+});
+
+// ── Phase-bound overrides (t/4753) ───────────────────────────────────────────
+// PI report: Standard/Deep Ask a Question debates always force-exit on the shared
+// calibration-config.json's phase_bounds (confrontation/argumentation/concluding max =
+// 2/2/1) before convergence ever fires, because argumentation's min EQUALS its max there
+// (phaseTransitions.ts:566 clamps the effective min to min(sharedMin, effectiveMax), so
+// min==max==2 leaves no window at all). TL-approved values, t/4753#2.
+describe('deriveDebateConfig — phase-bound overrides (t/4753)', () => {
+  it('quick carries no phaseBoundsOverride — unchanged from the shared default', () => {
+    const { config } = deriveDebateConfig(makeRequest({ fidelity: 'quick' }), makeRegistry());
+    expect(config.phaseBoundsOverride).toBeUndefined();
+  });
+
+  it('standard overrides to 2/6/2', () => {
+    const { config } = deriveDebateConfig(makeRequest({ fidelity: 'standard' }), makeRegistry());
+    expect(config.phaseBoundsOverride).toEqual({
+      maxConfrontationRounds: 2, maxArgumentationRounds: 6, maxConcludingRounds: 2,
+    });
+  });
+
+  it('deep overrides to 3/10/2', () => {
+    const { config } = deriveDebateConfig(makeRequest({ fidelity: 'deep' }), makeRegistry());
+    expect(config.phaseBoundsOverride).toEqual({
+      maxConfrontationRounds: 3, maxArgumentationRounds: 10, maxConcludingRounds: 2,
+    });
+  });
+
+  it.each([['standard'] as const, ['deep'] as const])(
+    '%s: argumentation max exceeds the shared min, opening a real convergence window',
+    (fidelity) => {
+      const { config } = deriveDebateConfig(makeRequest({ fidelity }), makeRegistry());
+      const sharedMin = loadProvisionalWeights().phase_bounds.min_argumentation_rounds;
+      expect(config.phaseBoundsOverride!.maxArgumentationRounds).toBeGreaterThan(sharedMin);
+    },
+  );
+
+  it('maxTotalRounds and callBudget are unaffected by the phase-bound override', () => {
+    const { config, derivation } = deriveDebateConfig(makeRequest({ fidelity: 'standard' }), makeRegistry());
+    expect(config.maxTotalRounds).toBe(16);
+    expect(derivation.callBudget).toBe(240);
   });
 });
 

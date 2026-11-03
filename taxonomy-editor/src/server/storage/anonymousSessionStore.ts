@@ -317,6 +317,17 @@ export class AnonymousSessionStore {
 
   // ── Debate CRUD ──
 
+  /**
+   * t/4680 parity note: debateStore.ts's `inquiry-debate-*` filename convention
+   * (quota-exempt AND listed, as of t/4680) has no analog here on purpose. This
+   * store already lists every file under `<session>/debates/` with no filename
+   * split (one flat namespace, no prefix-based quota check anywhere in this
+   * class), and `saveDebateSession`'s anonymous branch in debateStore.ts never
+   * reads `opts.excludeFromQuota`/`opts.listedButExempt` at all. So an anonymous
+   * "Ask a Question" debate is already quota-exempt (no quota check exists for
+   * anon) and already listed (every saved debate is) — the t/4678/t/4680
+   * "listed, quota-exempt" invariant holds here with zero code change.
+   */
   async listDebates(sessionId: string): Promise<unknown[]> {
     const debates = await this.listKind(sessionId, 'debates');
     return debates.map(d => {

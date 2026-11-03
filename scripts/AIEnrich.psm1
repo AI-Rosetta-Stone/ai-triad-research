@@ -1746,11 +1746,151 @@ function Invoke-AIApi {
 # ─────────────────────────────────────────────────────────────────────────────
 # Get-AIMetadata — generalized metadata enrichment
 #
-# Sends the first ~6,000 words of the document to an AI backend and asks it
-# to extract structured metadata.  Returns a hashtable with:
+# Sends up to ~6,000 words of the document -- sampled across the whole document
+# for a document longer than that, not just its opening (t/4655) -- to an AI
+# backend and asks it to extract structured metadata. Returns a hashtable with:
 #   title, authors, date_published, pov_tags, topic_tags, one_liner
 # On any failure returns $null.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# t/4655: local copies of AITriad's Split-RagQueryWindows (t/4468) and
+# Get-PovClassificationSample (t/4477), so Get-AIMetadata can sample across the whole
+# document instead of a flat word-count prefix. Duplicated rather than imported: both are
+# Private, module-session-scoped functions in AITriad and not visible via Get-Command from
+# another module, and AIEnrich.psm1 is the lower-level module AITriad depends on, not the
+# reverse -- exporting them from AITriad just for this caller would invert that dependency.
+# Keep these two in sync with their AITriad originals if either changes.
+$script:AIEnrichRagBackMatterHeading = '^\s{0,3}#{1,6}\s*(references|bibliography|works cited|literature cited|acknowledge?ments?)\b'
+
+function Split-RagQueryWindowsLocal {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [AllowEmptyString()][string]$Text,
+        [ValidateRange(200, 4000)][int]$MaxChars = 900,
+        [switch]$KeepBackMatter
+    )
+    Set-StrictMode -Version Latest
+    $result = { param([string[]]$w, [int]$s) [pscustomobject]@{ Windows = [string[]]$w; SkippedSections = $s } }
+    if ([string]::IsNullOrWhiteSpace($Text)) { return (& $result @() 0) }
+    $norm = $Text -replace "`r`n", "`n"
+
+    $sections = [System.Collections.Generic.List[string]]::new()
+    $cur = [System.Text.StringBuilder]::new()
+    foreach ($line in $norm -split "`n") {
+        if ($line -match '^\s{0,3}#{1,6}\s' -and $cur.Length -gt 0) { $sections.Add($cur.ToString()); [void]$cur.Clear() }
+        [void]$cur.Append($line).Append("`n")
+    }
+    if ($cur.Length -gt 0) { $sections.Add($cur.ToString()) }
+
+    $skipped = 0
+    if (-not $KeepBackMatter) {
+        $kept = [System.Collections.Generic.List[string]]::new()
+        foreach ($sec in $sections) {
+            $first = ($sec -split "`n", 2)[0]
+            if ($first -match $script:AIEnrichRagBackMatterHeading) { $skipped++ } else { $kept.Add($sec) }
+        }
+        $sections = $kept
+    }
+
+    $pieces = [System.Collections.Generic.List[string]]::new()
+    $addPiece = {
+        param([string]$s)
+        $t = $s.Trim()
+        if (-not $t) { return }
+        if ($t.Length -le $MaxChars) { $pieces.Add($t); return }
+        $sentences = [regex]::Split($t, '(?<=[.!?])\s+')
+        $buf = [System.Text.StringBuilder]::new()
+        foreach ($sn in $sentences) {
+            if (-not $sn) { continue }
+            if ($sn.Length -gt $MaxChars) {
+                if ($buf.Length -gt 0) { $pieces.Add($buf.ToString().Trim()); [void]$buf.Clear() }
+                for ($o = 0; $o -lt $sn.Length; $o += $MaxChars) { $pieces.Add($sn.Substring($o, [Math]::Min($MaxChars, $sn.Length - $o)).Trim()) }
+                continue
+            }
+            if ($buf.Length -gt 0 -and ($buf.Length + 1 + $sn.Length) -gt $MaxChars) { $pieces.Add($buf.ToString().Trim()); [void]$buf.Clear() }
+            if ($buf.Length -gt 0) { [void]$buf.Append(' ') }
+            [void]$buf.Append($sn)
+        }
+        if ($buf.Length -gt 0) { $pieces.Add($buf.ToString().Trim()) }
+    }
+    foreach ($sec in $sections) {
+        if ($sec.Trim().Length -le $MaxChars) { & $addPiece $sec; continue }
+        foreach ($para in [regex]::Split($sec, "\n\s*\n")) { & $addPiece $para }
+    }
+
+    $windows = [System.Collections.Generic.List[string]]::new()
+    $pack = [System.Text.StringBuilder]::new()
+    foreach ($p in $pieces) {
+        if (-not $p) { continue }
+        if ($pack.Length -gt 0 -and ($pack.Length + 2 + $p.Length) -gt $MaxChars) { $windows.Add($pack.ToString()); [void]$pack.Clear() }
+        if ($pack.Length -gt 0) { [void]$pack.Append("`n`n") }
+        [void]$pack.Append($p)
+    }
+    if ($pack.Length -gt 0) { $windows.Add($pack.ToString()) }
+    & $result $windows.ToArray() $skipped
+}
+
+function Get-PovClassificationSampleLocal {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Windows,
+        [ValidateRange(50, 6000)][int]$WordBudget = 500,
+        [ValidateRange(1, 200)][int]$MaxWindowsSampled = 40
+    )
+    Set-StrictMode -Version Latest
+    if (@($Windows).Count -eq 0) { return '' }
+
+    function script:Get-AIEnrichEvenIndices([int]$N, [int]$K) {
+        if ($K -ge $N) { return @(0..($N - 1)) }
+        if ($K -le 1) { return @(0) }
+        $Idx = [System.Collections.Generic.List[int]]::new()
+        for ($Step = 0; $Step -lt $K; $Step++) {
+            $i = [int][Math]::Floor($Step * ($N - 1) / ($K - 1))
+            if (-not $Idx.Contains($i)) { [void]$Idx.Add($i) }
+        }
+        $Idx
+    }
+
+    $TotalWindows = @($Windows).Count
+    $CandidateCount = [Math]::Min($TotalWindows, $MaxWindowsSampled)
+    $CandidateIndices = Get-AIEnrichEvenIndices $TotalWindows $CandidateCount
+
+    $SentencePattern = '.*?[.!?](?:\s|$)'
+    $Pieces = [System.Collections.Generic.List[string]]::new()
+    foreach ($Idx in $CandidateIndices) {
+        $W = $Windows[$Idx]
+        $Matches = @([regex]::Matches($W, $SentencePattern) | Select-Object -First 2 | ForEach-Object Value)
+        $Piece = if ($Matches.Count -gt 0) { ($Matches -join ' ').Trim() } else { $W.Trim() }
+        if ($Piece) { $Pieces.Add($Piece) }
+    }
+    if ($Pieces.Count -eq 0) { return '' }
+
+    $WordCounts = @($Pieces | ForEach-Object { @($_ -split '\s+').Count })
+    $TotalPieceWords = ($WordCounts | Measure-Object -Sum).Sum
+    if ($TotalPieceWords -le $WordBudget) {
+        $Selected = $Pieces
+    }
+    else {
+        $AvgWords = [Math]::Max(1.0, ($WordCounts | Measure-Object -Average).Average)
+        $FitCount = [Math]::Max(1, [Math]::Min($Pieces.Count, [int][Math]::Floor($WordBudget / $AvgWords)))
+        $SelIndices = Get-AIEnrichEvenIndices $Pieces.Count $FitCount
+        $Selected = @($SelIndices | ForEach-Object { $Pieces[$_] })
+    }
+
+    $Words = 0
+    $Out = [System.Collections.Generic.List[string]]::new()
+    foreach ($P in $Selected) {
+        $PWords = @($P -split '\s+').Count
+        if ($Out.Count -gt 0 -and ($Words + $PWords) -gt $WordBudget) { break }
+        $Out.Add($P)
+        $Words += $PWords
+    }
+
+    $Out -join ' '
+}
+
 <#
 .SYNOPSIS
     Extracts structured metadata from a document using AI.
@@ -1804,10 +1944,24 @@ function Get-AIMetadata {
 
     Write-Host "`n▶  Calling AI for metadata enrichment ($BackendLabel)" -ForegroundColor Cyan
 
-    # Truncate to ~6,000 words to keep token cost low
-    $Words   = $MarkdownText -split '\s+'
+    # t/4655: see the whole document for classification, not just its opening (same class as
+    # t/4468/t/4477) -- a document whose relevant content (e.g. the policy recommendation that
+    # decides its accelerationist tag) falls past a flat word-count prefix was classified without
+    # ever seeing it. Windows the document and takes an evenly-spaced, representative sample up to
+    # the same ~6000-word budget, instead of a flat prefix. AITriad's Split-RagQueryWindows/
+    # Get-PovClassificationSample are Private (module-session-scoped, not visible via Get-Command
+    # from another module), so this uses local, duplicated copies -- see
+    # AIEnrich-InvokeOutOfBand-RagWindowSample below -- rather than exporting internal AITriad
+    # helpers just to satisfy this one caller.
+    $Words = $MarkdownText -split '\s+'
     if ($Words.Count -gt 6000) {
-        $Excerpt = ($Words[0..5999] -join ' ') + "`n`n[... truncated for metadata extraction ...]"
+        $DocSplit = Split-RagQueryWindowsLocal -Text $MarkdownText
+        $Excerpt = if (@($DocSplit.Windows).Count -gt 0) { Get-PovClassificationSampleLocal -Windows $DocSplit.Windows -WordBudget 6000 -MaxWindowsSampled 150 } else { '' }
+        if (-not $Excerpt) { $Excerpt = ($Words[0..5999] -join ' ') + "`n`n[... truncated for metadata extraction ...]" }
+        else {
+            $SampleWords = @($Excerpt -split '\s+').Count
+            Write-Warning "Get-AIMetadata: sampled $SampleWords words from a $($Words.Count)-word document across $(@($DocSplit.Windows).Count) windows for classification input (t/4655)."
+        }
     } else {
         $Excerpt = $MarkdownText
     }

@@ -66,8 +66,9 @@ function Remove-DuplicateClaims {
     $AllIds   = [System.Collections.Generic.List[string]]::new()
 
     $Camps = @('accelerationist', 'safetyist', 'skeptic')
+    $PovSums = Get-SummaryField $SummaryObject 'pov_summaries'
     foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
+        $CampData = Get-SummaryField $PovSums $Camp
         if (-not $CampData -or -not $CampData.PSObject.Properties['key_points'] -or -not $CampData.key_points) { continue }
         $Points = @($CampData.key_points)
         for ($i = 0; $i -lt $Points.Count; $i++) {
@@ -90,7 +91,7 @@ function Remove-DuplicateClaims {
 
     # Count items before any dedup
     foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
+        $CampData = Get-SummaryField $PovSums $Camp
         if ($CampData -and $CampData.PSObject.Properties['key_points'] -and $CampData.key_points) {
             $Metrics.points_before += @($CampData.key_points).Count
         }
@@ -119,7 +120,7 @@ function Remove-DuplicateClaims {
 
     # ── Dedup key_points per camp ────────────────────────────────────────────
     foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
+        $CampData = Get-SummaryField $PovSums $Camp
         if (-not $CampData -or -not $CampData.PSObject.Properties['key_points'] -or -not $CampData.key_points) { continue }
         $Points = @($CampData.key_points)
 

@@ -43,16 +43,16 @@ This project will develop the conceptual infrastructure necessary to sustain pro
 ## III. Intended Outputs and Impact
 
 Primary output: a living whitepaper titled 'Bridging the AI Triad: A Diagnostic Map for Risk,
-Opportunity, and Conflict,' hosted by the Berkman Klein Center.
+Opportunity, and Conflict,' published as an open resource.
 
 ## IV. Institutional Alignment
 
-This work requires a demilitarized zone for ideas. The Berkman Klein Center is uniquely positioned
+This work requires a demilitarized zone for ideas. A neutral academic setting is uniquely positioned
 to serve as this trusted forum.
 
 ## V. Unique Qualifications
 
-Track record includes: Google SRE Risk Taxonomy, BKC paper 'Failure Modes in Machine Learning
+Track record includes: Google SRE Risk Taxonomy, the paper 'Failure Modes in Machine Learning
 Systems,' and the PowerShell/Monad Manifesto at Microsoft.`;
 
 // Helper: find char offsets in SNAPSHOT_TEXT for a given substring
@@ -86,12 +86,12 @@ const o7 = offset('This project will develop the conceptual infrastructure neces
 const o8 = offset('Phase 1: Survey the Landscape');
 const o9 = offset('Phase 3: Stress Test (Chaos Monkey Approach)');
 const o10 = offset('Phase 4: The Definitive Standard (December 2026)');
-const o11 = offset("Primary output: a living whitepaper titled 'Bridging the AI Triad: A Diagnostic Map for Risk,\nOpportunity, and Conflict,' hosted by the Berkman Klein Center.");
+const o11 = offset("Primary output: a living whitepaper titled 'Bridging the AI Triad: A Diagnostic Map for Risk,\nOpportunity, and Conflict,' published as an open resource.");
 const o12 = offset('This work requires a demilitarized zone for ideas.');
-const o13 = offset('The Berkman Klein Center is uniquely positioned\nto serve as this trusted forum.');
+const o13 = offset('A neutral academic setting is uniquely positioned\nto serve as this trusted forum.');
 const o14 = offset('Google SRE Risk Taxonomy');
 const o15 = offset('While the technology accelerates, the public and policy conversation has fractured into three siloed\ncommunities, each with points to make but talking past one another.');
-const o16 = offset("BKC paper 'Failure Modes in Machine Learning\nSystems,'");
+const o16 = offset("the paper 'Failure Modes in Machine Learning\nSystems,'");
 const o17 = offset('Phase 2: Synthesize the Unified Framework');
 const o18 = offset('PowerShell/Monad Manifesto at Microsoft.');
 

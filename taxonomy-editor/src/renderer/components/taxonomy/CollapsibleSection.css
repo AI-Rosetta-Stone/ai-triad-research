@@ -1,0 +1,26 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* t/4532 — shared collapsible section header. Mirrors .related-cruxes-header/-chevron's look
+   (NodeDetail.css), as a real <button> instead of a div, for keyboard + aria-expanded support. */
+
+.collapsible-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 4px;
+  background: none;
+  border: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.collapsible-section-chevron {
+  display: inline-block;
+  width: 14px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}

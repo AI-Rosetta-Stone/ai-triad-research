@@ -5,11 +5,43 @@
   "origin_ticket": "t/2737",
   "author": "Computational Linguist",
   "created": "2026-08-17",
-  "purpose": "Shared ground-truth fixture for the stance-polarity-inversion bundle (epic t/2743). Consumed by the summary-pipeline gate (t/2739), the shared directional-agreement gate (t/2744), and the V-surface remediations (V1/V2 t/2745, V3/V4/V5 t/2746). Pins the observed origin inversion, the empirically-confirmed correct disposition (unmap + taxonomy gap), and the node_prop-richness requirement on the NLI gate (see nli_probe — the gate's recall depends on a contrastive label+Core node_prop, NOT on POV framing). Do NOT fork per-consumer copies — extend this file.",
+  "purpose": "Shared ground-truth fixture for the stance-polarity-inversion bundle (epic t/2743). Consumed by the summary-pipeline gate (t/2739), the shared directional-agreement gate (t/2744), and the V-surface remediations (V1/V2 t/2745, V3/V4/V5 t/2746). Pins the observed origin inversion, the empirically-confirmed correct disposition (unmap + taxonomy gap), and the node_prop-richness requirement on the NLI gate (see nli_probe — the gate's recall depends on a contrastive label+Core node_prop, NOT on POV framing). Do NOT fork per-consumer copies — extend this file. **See `t4593_nli_label_rotation_correction` below (2026-10-28): the NLI engine's column-label mapping was rotated (t/4572) from this fixture's creation until that fix landed. The nli_probe values in empirical_findings, and the observed_deberta values in case_4/case_5, were recorded under the ROTATED (wrong) labels. Re-run under the corrected engine, several directions FLIP — most notably case_1's node-richness finding REVERSES (bare now catches, rich now misses — the opposite of this file's own `requirement` field below). Old values are kept for history, not deleted; do not read them as current.**",
 
   "defect_class": "A key point (or claim) that asserts the NEGATION of a taxonomy node's proposition embeds NEAR that node (cosine of a proposition and its negation is HIGH — shared content words), is selected by similarity, and is assigned/assumed 'aligned' with no direction (assert-P vs assert-not-P) check. All similarity-based gates false-green it.",
 
   "contrast_with_saf_167_repro": "saf-167-repro/case_1 was a LOW-retrieval-confidence miss: the wrong node was ABSENT from the key_point's bi-encoder top-80, so the t/2288 confidence gate FLAGS it. This case is the opposite and harder: the wrong node is the TOP topical match at HIGH confidence (0.7133 >> 0.45 gate) precisely BECAUSE it is the negation — topically near-identical. The confidence gate, the M5 top-3 pass, and the excludes-veto ALL pass it. Only a directional (NLI/entailment) signal catches it. That is why this bundle needs a new gate (t/2744), not a threshold tweak.",
+
+  "t4593_nli_label_rotation_correction": {
+    "ticket": "t/4593",
+    "date": "2026-10-28",
+    "root_cause": "t/4572 — scripts/embed_taxonomy.py's _classify_pairs_nli assumed raw NLI column order [entailment, neutral, contradiction]; the real cross-encoder/nli-deberta-v3-small checkpoint's config.id2label order is [contradiction, entailment, neutral]. Fixed (cb1eb8c5) to read the order from config.id2label, never assume it. Margin values (best-minus-second raw score) are unaffected by the bug -- only which semantic label was attached to the winning column was wrong. Rotation: old-reported 'entailment' -> true 'contradiction'; old-reported 'neutral' -> true 'entailment'; old-reported 'contradiction' -> true 'neutral'.",
+    "method": "Re-ran the SAME stored fixture texts (not paraphrases) through the now-fixed scripts/embed_taxonomy.py._classify_pairs_nli, via _load_nli_model (reads the real model's config.id2label, no hand-rotation). research/comp-linguist/analyses/t4593-nli-rotation/rerun_cases.py.",
+    "case_1_controlled_2x2_CORRECTED": {
+      "rich_framed":     { "label": "neutral",       "margin": 3.8178 },
+      "rich_no_framing": { "label": "neutral",       "margin": 4.2992 },
+      "bare_framed":     { "label": "contradiction", "margin": 4.7523 },
+      "bare_no_framing": { "label": "contradiction", "margin": 4.85 },
+      "conclusion": "Framing is still INERT (framed ~= no_framing on both arms, confirming the original framing-inertness finding survives the rotation). The RICHNESS finding REVERSES: under the OLD (buggy) labels, rich->contradiction(opposes, catches) and bare->entailment(agrees, misses) -- this file's own `requirement` field below, and the LIVE `nliDirectionGate.ts` node_prop construction (grep-confirmed 'label — Core', 2026-10-28), both encode that OLD direction. Under CORRECTED labels, it is now bare->contradiction(opposes, CATCHES) and rich->neutral(unrelated, MISSES) -- the opposite of what the shipped gate currently builds.",
+      "caveat": "This is n=1 (one claim, one node pair) both before and after the fix -- the ORIGINAL 'richness' requirement was already a single-example-derived MUST-use rule baked into V1-V5 node_prop construction (CL caution, t/4572#5: 'on n=1 it now looks counterproductive'). Do NOT flip production node_prop construction on this single reversed data point either -- same n=1 problem, opposite direction. This re-test puts the reversal on record (t/4572#5's ask); a proper small multi-example study is the right next step before touching `nliDirectionGate.ts` / V1 PS / the t/2746 requirement. Flagged to TL/PowerShell on t/4593, not actioned here."
+    },
+    "case_4_CORRECTED": {
+      "saf_beliefs_017_verbatim_framed_label_plus_core": { "label": "neutral", "margin": 7.4435 },
+      "finding": "The OLD fixture recorded this pair as opposes@7.51 (the t/2896 production false-demote). Under corrected labels it reads NEUTRAL (~7.44, same raw margin as before -- only the label changed) -- i.e. the gate would NOT have falsely fired on this pair under the corrected engine. The t/2896 false-demote bug and the t/4572 label-rotation bug were very likely the SAME bug: this specific false-positive resolves as a side effect of the t/4572 fix, independent of any judge-stage mitigation. Matches `correct_stance: aligned` / `MUST_NOT_FLIP` -- deberta alone now gets this arm right."
+    },
+    "case_5_CORRECTED": {
+      "acc_127_matching_pole": {
+        "canonical": { "label": "neutral", "margin": 2.7406 },
+        "verbatim":  { "label": "neutral", "margin": 1.5722 },
+        "finding": "OLD fixture recorded opposes@1.61 (false positive) on this pole. Under corrected labels, BOTH reps read neutral -- no false fire. Matches `correct_stance: aligned` / `MUST_NOT_FLIP`."
+      },
+      "acc_047_opposite_pole": {
+        "canonical": { "label": "contradiction", "margin": 7.1098 },
+        "verbatim":  { "label": "neutral", "margin": 3.5282 },
+        "finding": "OLD fixture recorded the inversion firing via VERBATIM@4.91 (opposes) with canonical reading agrees@5.08 (missed). Under corrected labels this SWAPS: canonical now fires (contradiction@7.11, well clear of tau_contra=1.0) and verbatim now reads neutral (misses). The true inversion is still caught overall -- but only because the gate is opposes-if-any across {verbatim, canonical, attribution_text} (t/2744#10). If the engine only ran verbatim, it would now MISS this inversion it used to catch. The multi-rep contract is MORE load-bearing post-fix, not less."
+      },
+      "key_finding_CORRECTED": "The original t/2900 'deberta cannot discriminate poles' finding (fires opposes on BOTH poles) does NOT hold under corrected labels: the matching pole (acc-127) reads neutral on every rep (no false fire at all), and the opposite pole (acc-047) correctly reads contradiction via canonical. Deberta alone -- no LLM-judge stage needed -- gets both arms of THIS pair right post-fix. This does not retire the LLM-judge stage in general (t/2900's judge-architecture serves other cases too, and this is still n=1), but the specific 'pole confusion' example that motivated it is resolved by the label fix, consistent with t/4572#5's prior note ('t/2900 can't-discriminate-poles finding also inverted')."
+    }
+  },
 
   "empirical_findings": {
     "observed_source": "summaries/ai-doesnt-rewrite-privacy-law-it-changes-where-compliance-2026.json — pov_summaries.accelerationist.key_points[] entry with taxonomy_node_id 'acc-intentions-047'. Real pipeline assignment, human-inspectable.",
@@ -42,6 +74,7 @@
         "cross_case": "Opposite of t/2745 #1184 org-stance case (there attribution caught it, canonical missed). Hence the contract runs ALL fields, opposes-if-any.",
         "contract": "Run the gate over {verbatim, canonical_proposition, attribution_text}, emit opposes if ANY returns contradiction (t/2744#10). Implemented in t/2757 (PowerShell)."
       },
+      "requirement_SUPERSEDED_NOTE": "SEE t4593_nli_label_rotation_correction.case_1_controlled_2x2_CORRECTED (2026-10-28) — the controlled 2x2 this requirement rests on REVERSES under corrected labels (bare now catches, rich now misses). The requirement text below is kept as the historical/currently-still-shipped behavior (nliDirectionGate.ts grep-confirmed 'label — Core' as of 2026-10-28) — it is NOT re-validated by this fixture anymore, and may now be backwards. Do not treat it as current evidence; see the correction block's caveat before changing production code.",
       "requirement": "judgeDirection node_prop MUST be 'label — Core' (description with the Encompasses:/Excludes: tail stripped; label-only fallback), IDENTICAL across PS (V1/V2) and TS (V3/V4/V5) so every surface feeds the engine the same text (TL cross-surface ruling). The POV-framing wrapper is retained but is NOT the safeguard. Passing label-only or a terse/bare node_prop causes MISSED inversions.",
       "recall_limitation": "SUPERSEDED (CL t/2756#1): the origin miss is NOT terse node text — acc-047's stored label+Core already fires opposes (verbatim margin 5.22, canonical 1.42). The recall lever is CLAIM-FIELD choice: attribution_text false-ENTAILS here while verbatim/canonical catch it (opposite of #1184). DO NOT enrich node descriptions to raise recall — tested counterproductive: a longer, more-explicit acc-047 Core NEUTRALIZED the working canonical contradiction (verbose text dilutes the NLI signal). Correct lever: run the gate over multiple claim fields, opposes-if-any (t/2744#10, implemented t/2757). Every failure mode here is false-ENTAIL (kept), never false-oppose — safe under opposes-only."
     }
@@ -173,7 +206,7 @@
       },
       "correct_stance": "aligned",
       "correct_disposition": { "type": "no_flip", "note": "The claim agrees with saf-017's proposition; must NOT be demoted." },
-      "observed_deberta": { "direction": "opposes", "margin": 7.51, "note": "FALSE positive on CURRENT node text via the gate-exact node_prop (Get-NodePropText: label — Core) — reads agency/capability language as contradicting the loss-of-control proposition (cannot infer AI-gains-agency ⊨ humans-lose-oversight); τ_contra cannot fix. No node drift (a869fb48 only ADDED plain_description; gate reads description). Margin reproduces the ORIGINAL t/2896 value on the real stored verbatim (CL t/2900#17)." },
+      "observed_deberta": { "direction": "opposes", "margin": 7.51, "note": "SUPERSEDED (t/4593, see t4593_nli_label_rotation_correction.case_4_CORRECTED) — recorded under the t/4572 rotated label bug. Re-run under corrected labels reads NEUTRAL @ ~7.44, not opposes. Historical text retained below, do not treat as current.", "_stale_note": "FALSE positive on CURRENT node text via the gate-exact node_prop (Get-NodePropText: label — Core) — reads agency/capability language as contradicting the loss-of-control proposition (cannot infer AI-gains-agency ⊨ humans-lose-oversight); τ_contra cannot fix. No node drift (a869fb48 only ADDED plain_description; gate reads description). Margin reproduces the ORIGINAL t/2896 value on the real stored verbatim (CL t/2900#17)." },
       "expected_judge": { "direction": "unrelated", "flip": false, "note": "LLM-judge must NOT confirm the flip → KEEP." },
       "error_type": ["stance_polarity_false_demote", "agency_to_loss_pattern"],
       "exercises": ["t/2900"]
@@ -195,7 +228,7 @@
           "pole": "matching (existing laws already govern AI)",
           "arm": "MUST_NOT_FLIP",
           "correct_stance": "aligned",
-          "observed_deberta": { "direction": "opposes", "margin": 1.61, "note": "FALSE positive on CURRENT node text (gate-exact node_prop, opposes-if-any over the rep set). Margin reproduces the ORIGINAL t/2896 value on the real stored verbatim (CL t/2900#17)." },
+          "observed_deberta": { "direction": "opposes", "margin": 1.61, "note": "SUPERSEDED (t/4593, see t4593_nli_label_rotation_correction.case_5_CORRECTED.acc_127_matching_pole) — recorded under the rotated label bug; corrected re-run reads NEUTRAL on both reps. Historical text below, do not treat as current.", "_stale_note": "FALSE positive on CURRENT node text (gate-exact node_prop, opposes-if-any over the rep set). Margin reproduces the ORIGINAL t/2896 value on the real stored verbatim (CL t/2900#17)." },
           "expected_judge": { "direction": "agrees", "flip": false }
         },
         {
@@ -203,10 +236,11 @@
           "pole": "opposite (AI requires entirely new laws)",
           "arm": "MUST_FLIP",
           "correct_stance": "strongly_opposed",
-          "observed_deberta": { "direction": "opposes", "margin": 4.91, "trigger_rep": "verbatim", "note": "Genuine inversion. opposes via VERBATIM@4.91; canonical→agrees@5.08 — the gate is opposes-if-any, so the candidate fires on verbatim. Confirmed t/2900#14." },
+          "observed_deberta": { "direction": "opposes", "margin": 4.91, "trigger_rep": "verbatim", "note": "SUPERSEDED (t/4593, see t4593_nli_label_rotation_correction.case_5_CORRECTED.acc_047_opposite_pole) — recorded under the rotated label bug. Corrected re-run SWAPS which rep fires: canonical now opposes@7.11 (not verbatim; verbatim now reads neutral@3.53). Still a genuine inversion overall, still caught, via a different field. Historical text below, do not treat as current.", "_stale_note": "Genuine inversion. opposes via VERBATIM@4.91; canonical→agrees@5.08 — the gate is opposes-if-any, so the candidate fires on verbatim. Confirmed t/2900#14." },
           "expected_judge": { "direction": "opposes", "flip": true }
         }
       ],
+      "key_finding_SUPERSEDED": "SEE t4593_nli_label_rotation_correction.case_5_CORRECTED.key_finding_CORRECTED (2026-10-28) — this finding does NOT hold under the t/4572-corrected labels. Historical text retained below.",
       "key_finding": "deberta returns opposes for BOTH poles of the same claim (matching acc-127 AND opposite acc-047) — it cannot tell agreement from opposition when the poles are topically near-identical. No τ_contra separates the class (the matching-pole false positive sits near/above genuine inversions); discrimination must be semantic. The LLM-judge separates all four arms (16/16 stable t/2900#3; re-verified live 4/4 by TL t/2900#9). Multi-rep note: deberta is run opposes-if-any over {verbatim, canonical} — acc-047 flags only on verbatim (canonical→agrees), so the acceptance harness asserts the candidate fires over the full rep set and fails loudly if none do (CL t/2900#16).",
       "error_type": ["pole_confusion"],
       "exercises": ["t/2900"]

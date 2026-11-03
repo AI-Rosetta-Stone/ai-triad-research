@@ -463,10 +463,10 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $prompt = 'x' * $len
             $est = [Math]::Ceiling($len / 3.2)
             script:Set-RestSequence @((script:New-OkEnvelope 'deepseek'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = $prompt; Model = 'deepseek-deepseek-flash'; ApiKey = $script:TestKey; FallbackModels = @() }
-            $out.Warnings -join "`n" | Should -BeExactly "deepseek-deepseek-flash: prompt is ~$est tokens (est.), which exceeds 80% of the $limit-token context window. Consider chunking or using a model with a larger context."
+            $out = script:Invoke-CharacterizedCall @{ Prompt = $prompt; Model = 'deepseek-deepseek-v4.1-flash'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out.Warnings -join "`n" | Should -BeExactly "deepseek-deepseek-v4.1-flash: prompt is ~$est tokens (est.), which exceeds 80% of the $limit-token context window. Consider chunking or using a model with a larger context."
             $out.Result.Text | Should -BeExactly 'hello' -Because 'the check only warns'
-            $out = script:Invoke-CharacterizedCall @{ Prompt = $prompt; Model = 'deepseek-deepseek-flash'; ApiKey = $script:TestKey; FallbackModels = @(); SkipTokenCheck = $true }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = $prompt; Model = 'deepseek-deepseek-v4.1-flash'; ApiKey = $script:TestKey; FallbackModels = @(); SkipTokenCheck = $true }
             $out.Warnings | Should -BeNullOrEmpty
         }
 

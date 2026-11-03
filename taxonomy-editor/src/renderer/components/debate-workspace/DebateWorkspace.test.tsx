@@ -2,10 +2,11 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, within, act, waitFor } from '@testing-library/react';
 import { DebateWorkspace } from './DebateWorkspace';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api } from '@bridge';
+import { isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
 
 // ── Store mocks ───────────────────────────────────────────────
 
@@ -26,6 +27,8 @@ const mockStore: Record<string, any> = {
   setDiagPopoutOpen: vi.fn(),
   responseLength: 'detailed',
   setResponseLength: vi.fn(),
+  defaultDisplayTier: undefined,
+  setDefaultDisplayTier: vi.fn(),
   factCheckSelection: vi.fn(),
   reExtractClaims: vi.fn(),
   driverIsRemote: false,
@@ -53,13 +56,27 @@ const mockTaxStore: Record<string, any> = {
   semanticResults: [],
   getLabelForId: vi.fn(() => 'label'),
   communityServerUrl: '',
+  setActiveTab: vi.fn(),
 };
 
-// useTaxonomyStore is called both with and without a selector in this component.
+// useTaxonomyStore is called both with and without a selector in this component, and via its
+// static .getState() in DebateHeader's back-link (t/4693).
 // MODELS_BY_BACKEND is pulled in transitively via DetailPane → NodeDetail → …/PromptInspector (t/1776).
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: (selector?: any) => selector ? selector(mockTaxStore) : mockTaxStore,
+  useTaxonomyStore: Object.assign(
+    (selector?: any) => selector ? selector(mockTaxStore) : mockTaxStore,
+    { getState: () => mockTaxStore },
+  ),
   MODELS_BY_BACKEND: {},
+}));
+
+const mockInquiryStore: Record<string, any> = {
+  openFromHistory: vi.fn(),
+};
+
+// t/4693: DebateHeader's back-link reads useInquiryStore via its static .getState() only.
+vi.mock('../../hooks/useInquiryStore', () => ({
+  useInquiryStore: { getState: () => mockInquiryStore },
 }));
 
 const mockCommentStore: Record<string, any> = {
@@ -313,19 +330,21 @@ describe('toolbar', () => {
     expect(screen.getByText('Comments (0)')).toBeInTheDocument();
   });
 
-  it('renders two-mode control with Text/Analysis mode group and text sub-options', () => {
+  it('renders the three-mode control: Text | Why | How (t/4625)', () => {
     render(<DebateWorkspace />);
     expect(screen.getByText('Text')).toBeInTheDocument();
-    expect(screen.getByText('Analysis')).toBeInTheDocument();
+    expect(screen.getByText('Why')).toBeInTheDocument();
+    expect(screen.getByText('How')).toBeInTheDocument();
+    expect(screen.queryByText('Analysis')).not.toBeInTheDocument();
     expect(screen.getByText('Brief')).toBeInTheDocument();
     expect(screen.getByText('Medium')).toBeInTheDocument();
     expect(screen.getByText('Detailed')).toBeInTheDocument();
   });
 
-  it('renders 2 mode segments + a value dropdown with the text-tier options (t/2274 §13)', () => {
+  it('renders 3 mode segments + a value dropdown with the text-tier options (t/2274 §13, t/4625)', () => {
     const { container } = render(<DebateWorkspace />);
-    // Mode toggle = 2 neutral segments; value selector is now a <select>, not pills.
-    expect(container.querySelectorAll('.debate-mode-seg').length).toBe(2);
+    // Mode toggle = 3 neutral segments; value selector is now a <select>, not pills.
+    expect(container.querySelectorAll('.debate-mode-seg').length).toBe(3);
     const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
     expect(select).toBeTruthy();
     const opts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
@@ -341,6 +360,32 @@ describe('toolbar', () => {
     expect(activeSegs[0].textContent).toBe('Text');
     const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
     expect(select.value).toBe('brief');
+  });
+
+  // t/4625: global Why mode.
+  it('clicking Why sets the global default tier to why', () => {
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByText('Why'));
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenCalledWith('why');
+  });
+
+  it('marks Why mode active and shows its single-option dropdown when defaultDisplayTier is why', () => {
+    mockStore.defaultDisplayTier = 'why';
+    const { container } = render(<DebateWorkspace />);
+    const activeSegs = container.querySelectorAll('.debate-mode-seg-active');
+    expect(activeSegs.length).toBe(1);
+    expect(activeSegs[0].textContent).toBe('Why');
+    const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
+    expect(select.value).toBe('why');
+    const opts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(opts).toEqual(['Why']);
+    mockStore.defaultDisplayTier = undefined; // don't leak into later tests in this block
+  });
+
+  it('clicking How (the renamed Analysis mode) still sets the reasoning tier', () => {
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByText('How'));
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenCalledWith('reasoning');
   });
 
   it('does not render Export button when onExport prop is not provided', () => {
@@ -570,6 +615,79 @@ describe('phase routing', () => {
   });
 });
 
+// ── Back-link to the originating question (t/4693) ────────────
+
+describe('back-link to the originating question', () => {
+  beforeEach(() => {
+    mockStore.debateLoading = false;
+    mockStore.debateGenerating = null;
+    mockInquiryStore.openFromHistory.mockClear();
+    mockTaxStore.setActiveTab.mockClear();
+  });
+  afterEach(() => { vi.mocked(isDebatePopoutWindow).mockReturnValue(false); });
+
+  it('renders nothing for a non-inquiry-origin debate', () => {
+    mockStore.activeDebate = makeDebate({ origin: { mode: 'gui' } });
+    render(<DebateWorkspace />);
+    expect(screen.queryByText(/From a question/)).toBeNull();
+  });
+
+  it('renders nothing for an inquiry-origin debate missing inquiry_id', () => {
+    mockStore.activeDebate = makeDebate({ origin: { mode: 'inquiry' } });
+    render(<DebateWorkspace />);
+    expect(screen.queryByText(/From a question/)).toBeNull();
+  });
+
+  it('in the main window: renders a short "View the answer" link naming the question in its accessible name', () => {
+    mockStore.activeDebate = makeDebate({
+      origin: { mode: 'inquiry', inquiry_id: 'job-42' },
+      topic: { original: 'orig', refined: 'refined', final: 'Should AI be regulated?' },
+    });
+    const { container } = render(<DebateWorkspace />);
+    const link = screen.getByRole('button', { name: 'View the answer to: Should AI be regulated?' });
+    expect(link).toBeInTheDocument();
+    expect(link.textContent).toBe('View the answer');
+    expect(container.querySelector('.debate-hdr-from-question')?.textContent).toBe('From a question · View the answer');
+    fireEvent.click(link);
+    expect(mockTaxStore.setActiveTab).toHaveBeenCalledWith('inquiry');
+    expect(mockInquiryStore.openFromHistory).toHaveBeenCalledWith('job-42');
+  });
+
+  it("falls back through topic.refined then topic.original for the link's accessible name when topic.final is empty", () => {
+    mockStore.activeDebate = makeDebate({
+      origin: { mode: 'inquiry', inquiry_id: 'job-42' },
+      topic: { original: 'the original question', refined: null, final: '' },
+    });
+    render(<DebateWorkspace />);
+    expect(screen.getByRole('button', { name: 'View the answer to: the original question' })).toBeInTheDocument();
+  });
+
+  it('in a pop-out window: renders plain text naming Ask a Question, not a button, and never calls the nav actions', () => {
+    vi.mocked(isDebatePopoutWindow).mockReturnValue(true);
+    mockStore.activeDebate = makeDebate({
+      origin: { mode: 'inquiry', inquiry_id: 'job-42' },
+      topic: { original: 'orig', refined: null, final: 'Should AI be regulated?' },
+    });
+    const { container } = render(<DebateWorkspace />);
+    const fromQuestion = container.querySelector('.debate-hdr-from-question');
+    expect(fromQuestion?.textContent).toBe('From a question in Ask a Question');
+    expect(fromQuestion?.querySelector('em')).toBeNull();
+    expect(fromQuestion?.querySelector('button')).toBeNull();
+  });
+
+  it('recovers the legacy flat inquiryJobId shape via normalizeDebateOrigin', () => {
+    mockStore.activeDebate = makeDebate({
+      origin: 'inquiry',
+      inquiryJobId: 'legacy-job-7',
+      topic: { original: 'orig', refined: null, final: 'Legacy inquiry question' },
+    });
+    render(<DebateWorkspace />);
+    const link = screen.getByRole('button', { name: 'View the answer to: Legacy inquiry question' });
+    fireEvent.click(link);
+    expect(mockInquiryStore.openFromHistory).toHaveBeenCalledWith('legacy-job-7');
+  });
+});
+
 // ── Transcript rendering ──────────────────────────────────────
 
 describe('transcript rendering', () => {
@@ -635,6 +753,18 @@ describe('transcript rendering', () => {
     expect(screen.getByTestId('probing-e2')).toBeInTheDocument();
     expect(screen.getByTestId('factcheck-e3')).toBeInTheDocument();
     expect(screen.queryByTestId('statement-e4')).toBeNull();
+  });
+
+  it('skips system-type entries (housekeeping/phase-transition turns) — renders no card and no content (t/4749)', () => {
+    mockStore.activeDebate = makeDebate({
+      phase: 'debate',
+      transcript: [
+        { id: 'e5', type: 'system', content: '[Phase transition] confrontation → argumentation', speaker: 'system' },
+      ],
+    });
+    render(<DebateWorkspace />);
+    expect(screen.queryByTestId('statement-e5')).toBeNull();
+    expect(screen.queryByText('[Phase transition] confrontation → argumentation')).toBeNull();
   });
 
   it('shows generating indicator with speaker label and "thinking..." when debateGenerating is set', () => {
@@ -866,7 +996,8 @@ describe('selection context menu', () => {
       expect(container.querySelector('.debate-context-menu')).toBeNull(); // menu closes either way
     });
 
-    it('falls back to the Gemini escape hatch when no inline panel is registered for the entry', () => {
+    it('falls back to the Gemini escape hatch — copies, shows a visible confirmation, then opens Gemini', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       mockRequestExplainForSelection.mockReturnValue(false);
       mockSelection('hello world');
       const { container } = render(<DebateWorkspace />);
@@ -875,7 +1006,73 @@ describe('selection context menu', () => {
 
       expect(mockRequestExplainForSelection).toHaveBeenCalledWith('', 'hello world');
       expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
+
+      // t/4645: routed through copyPromptForGemini, same sequence as ExplainPanel's button —
+      // a visible, aria-live confirmation appears before Gemini opens, not immediately on copy.
+      await vi.waitFor(() => expect(screen.getByText('Prompt copied. Paste it into Gemini.')).toBeInTheDocument());
+      expect(screen.getByText('Prompt copied. Paste it into Gemini.').closest('[aria-live="polite"]')).toBeTruthy();
+      expect(api.openExternal).not.toHaveBeenCalled();
+
+      act(() => { vi.advanceTimersByTime(3000); });
       expect(api.openExternal).toHaveBeenCalledWith('https://gemini.google.com/app');
+      vi.useRealTimers();
+    });
+
+    it('does not open Gemini when the clipboard write fails in the fallback path', async () => {
+      mockRequestExplainForSelection.mockReturnValue(false);
+      (api.clipboardWriteText as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('denied'));
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+
+      expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      expect(screen.getByRole('status').textContent).toMatch(/couldn't copy/i);
+      expect(api.openExternal).not.toHaveBeenCalled();
+    });
+
+    it('keeps the fallback status region mounted across the toast appearing and clearing (t/4645 a11y)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      mockRequestExplainForSelection.mockReturnValue(false);
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+
+      // Present before the fallback ever runs — SR tools need the region to already exist,
+      // not appear already filled, or they often miss the announcement.
+      const region = screen.getByRole('status');
+      expect(region).toBeInTheDocument();
+      expect(region.textContent).toBe('');
+
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+      await vi.waitFor(() => expect(screen.getByRole('status').textContent).toBe('Prompt copied. Paste it into Gemini.'));
+      expect(screen.getByRole('status')).toBe(region); // same node — only text/class toggled
+
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(screen.getByRole('status')).toBe(region);
+      expect(screen.getByRole('status').textContent).toBe('');
+      vi.useRealTimers();
+    });
+
+    it('a double trigger within the confirmation window opens Gemini only once (t/4645)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      mockRequestExplainForSelection.mockReturnValue(false);
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+      await vi.waitFor(() => expect(api.clipboardWriteText).toHaveBeenCalledTimes(1));
+
+      act(() => { vi.advanceTimersByTime(1000); }); // still within the confirmation window
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+      await vi.waitFor(() => expect(api.clipboardWriteText).toHaveBeenCalledTimes(2));
+
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(api.openExternal).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
     });
   });
 });

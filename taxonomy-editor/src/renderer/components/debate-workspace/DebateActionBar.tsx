@@ -305,9 +305,13 @@ export function DebaterToggles() {
             style={active ? { borderColor: info.color, color: info.color } : undefined}
             onClick={() => togglePover(p)}
             disabled={disabled}
-            title={active ? `Remove ${info.label} from debate` : `Add ${info.label} to debate`}
+            aria-pressed={active}
+            title={active
+              ? `Remove ${info.label} from the next rounds. Their turns so far stay in the transcript.`
+              : `Add ${info.label} back to the next rounds.`}
           >
             {info.label}{turnCount > 0 ? ` (${turnCount})` : ''}
+            {!active && <span className="debate-debater-pill-status"> · sitting out</span>}
           </button>
         );
       })}

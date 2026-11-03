@@ -157,9 +157,9 @@ function createInquiryAdapter(): AIAdapter {
  * one result, same as it always has — logged, not silently swallowed.
  */
 async function persistInquiryDebateSession(session: unknown, jobId: string): Promise<void> {
-  const marked = { ...(session as object), origin: 'inquiry', inquiryJobId: jobId };
+  const marked = { ...(session as object), origin: { mode: 'inquiry', inquiry_id: jobId } };
   try {
-    await saveDebateSession(marked, 'inquiry', { mustNotExist: true, excludeFromQuota: true });
+    await saveDebateSession(marked, 'inquiry', { mustNotExist: true, listedButExempt: true });
   } catch (err) {
     log.server.warn({ err, jobId }, 'Failed to persist inquiry debate session — "View raw run" will 404 for this result (t/4338)');
     getGlobalRecorder()?.record({

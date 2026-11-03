@@ -1,0 +1,58 @@
+{
+  "n_items": 3480,
+  "skipped": {
+    "no_node": 2104,
+    "node_excluded_or_missing": 76,
+    "no_attribution_text": 8166
+  },
+  "sanity_check": {
+    "n_with_stored_confidence": 1544,
+    "n_matching_within_0.01": 1454
+  },
+  "rank_bands": [
+    "1",
+    "2-5",
+    "6-30",
+    ">30"
+  ],
+  "strata_population": {
+    "acc|beliefs|1": 110,
+    "acc|beliefs|2-5": 34,
+    "acc|beliefs|6-30": 79,
+    "acc|beliefs|>30": 81,
+    "acc|desires|1": 36,
+    "acc|desires|2-5": 13,
+    "acc|desires|6-30": 23,
+    "acc|desires|>30": 17,
+    "acc|intentions|1": 154,
+    "acc|intentions|2-5": 93,
+    "acc|intentions|6-30": 92,
+    "acc|intentions|>30": 91,
+    "saf|beliefs|1": 210,
+    "saf|beliefs|2-5": 129,
+    "saf|beliefs|6-30": 130,
+    "saf|beliefs|>30": 192,
+    "saf|desires|1": 46,
+    "saf|desires|2-5": 14,
+    "saf|desires|6-30": 16,
+    "saf|desires|>30": 21,
+    "saf|intentions|1": 255,
+    "saf|intentions|2-5": 96,
+    "saf|intentions|6-30": 153,
+    "saf|intentions|>30": 192,
+    "sit|?|6-30": 1,
+    "sit|?|>30": 3,
+    "skp|beliefs|1": 301,
+    "skp|beliefs|2-5": 167,
+    "skp|beliefs|6-30": 193,
+    "skp|beliefs|>30": 224,
+    "skp|desires|1": 26,
+    "skp|desires|2-5": 11,
+    "skp|desires|6-30": 19,
+    "skp|desires|>30": 21,
+    "skp|intentions|1": 70,
+    "skp|intentions|2-5": 32,
+    "skp|intentions|6-30": 68,
+    "skp|intentions|>30": 67
+  }
+}

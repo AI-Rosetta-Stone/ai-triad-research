@@ -236,6 +236,93 @@ Describe 'Invoke-OrgStanceExtraction (t/1553 Stage 1)' -Tag 'taxonomy' {
             @($w | Where-Object { "$_" -match 'not a verbatim span' }).Count | Should -Be 2
         }
     }
+
+    It 'text_verbatim is checked against the mojibake-repaired snapshot, not raw bytes (t/4608)' {
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            # cp1252-as-cp437 mojibake (t/4394): a snapshot written as cp1252 then misread as cp437.
+            # This is the function's own documented example -- U+2019 round-trips to U+00C6.
+            $mojiDir = Join-Path ([System.IO.Path]::GetTempPath()) "orgstance-t4608-src-$(Get-Random)"
+            $srcDir = Join-Path $mojiDir 'src-moji'
+            $null = New-Item -ItemType Directory -Path $srcDir -Force
+            $clean = 'The government' + [char]0x2019 + 's ability to act is described here.'
+            $cp1252 = [System.Text.Encoding]::GetEncoding(1252)
+            $cp437 = [System.Text.Encoding]::GetEncoding(437)
+            $corrupted = $cp437.GetString($cp1252.GetBytes($clean))
+            [System.IO.File]::WriteAllText((Join-Path $srcDir 'snapshot.md'), $corrupted, [System.Text.UTF8Encoding]::new($false))
+
+            try {
+                Mock Get-SourcesDir -MockWith ({ $mojiDir }.GetNewClosure())
+                Mock Get-OrganizationEdgesStore -MockWith {
+                    [PSCustomObject]@{ edges = @([PSCustomObject]@{ source = 'org-014'; target = 'src-moji'; type = 'PUBLISHED'; status = 'approved' }) }
+                }
+                Mock Invoke-AIByUsage -MockWith {
+                    [PSCustomObject]@{
+                        Text = ('{{"claims":[{{"text":"{0}","canonical_proposition":"X ought Y","polarity":"asserts","extraction_confidence":0.9}}]}}' -f "government's ability to act is described here")
+                        Model = 'stub'
+                    }
+                }
+                $r = Invoke-OrgStanceExtraction -Concurrency 1 -OutputPath $ClaimsPath -Confirm:$false -WarningVariable w 6>$null 3>$null
+                $r.ClaimsWritten | Should -Be 1
+                $stored = @((Get-Content $ClaimsPath -Raw | ConvertFrom-Json).claims)
+                @($stored | Where-Object { $_.text -like "government's*" })[0].text_verbatim |
+                    Should -Be $true -Because 'the model''s clean output must compare against the repaired snapshot, not the raw mojibake bytes'
+                @($w | Where-Object { "$_" -match 'repaired cp1252-as-cp437 mojibake' }).Count | Should -BeGreaterThan 0
+            }
+            finally {
+                Remove-Item -Recurse -Force $mojiDir -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    It 'under -Concurrency 3, every queued item is accounted for in Failed/ClaimsWritten -- none silently vanish (t/4702)' {
+        # t/4702: found in a real -Concurrency 3 -Force run, one queued (org, source) pair made zero AI
+        # calls and appeared in neither Extracted nor Failed. The dedup/merge logic was proven clean by
+        # direct repro against the real corpus data; the remaining gap was that Import-Module calls in
+        # the parallel runspace ran unguarded, ahead of the per-item try/catch, so a setup-time exception
+        # there would vanish before $FailBag could ever be reached. Fixed by wrapping those imports in
+        # their own try/catch that attributes the failure like any other.
+        #
+        # ForEach-Object -Parallel reimports fresh modules per runspace (t/1550 aphorism lesson), which
+        # bypasses Pester's Mock entirely -- so this test can't mock Invoke-AIByUsage for Concurrency > 1.
+        # Instead it forces a REAL, fast, offline failure (no configured API key anywhere) across several
+        # concurrent sources, and asserts every single one lands in FailedItems. That's the general
+        # invariant this bug violated: under concurrency, a queued item must never disappear.
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            $multiDir = Join-Path ([System.IO.Path]::GetTempPath()) "orgstance-t4702-multi-$(Get-Random)"
+            $ids = 'multi-a', 'multi-b', 'multi-c', 'multi-d'
+            foreach ($id in $ids) {
+                $dir = Join-Path $multiDir $id
+                $null = New-Item -ItemType Directory -Path $dir -Force
+                "Body of $id -- plausible policy paragraph with enough words for this fixture." |
+                    Set-Content -Path (Join-Path $dir 'snapshot.md') -Encoding utf8NoBOM
+            }
+            $edges = @(foreach ($id in $ids) { [PSCustomObject]@{ source = 'org-014'; target = $id; type = 'PUBLISHED'; status = 'approved' } })
+
+            $savedKeys = @{}
+            foreach ($var in 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'GROQ_API_KEY', 'AI_API_KEY') {
+                $savedKeys[$var] = [System.Environment]::GetEnvironmentVariable($var)
+                [System.Environment]::SetEnvironmentVariable($var, $null)
+            }
+            try {
+                Mock Get-SourcesDir -MockWith ({ $multiDir }.GetNewClosure())
+                Mock Get-OrganizationEdgesStore -MockWith ({ [PSCustomObject]@{ edges = $edges } }.GetNewClosure())
+
+                $r = Invoke-OrgStanceExtraction -Concurrency 3 -OutputPath $ClaimsPath -Force -Confirm:$false -ErrorAction Continue 3>$null 6>$null
+
+                $r.Failed | Should -Be $ids.Count -Because 'every queued item must be attributed, never silently dropped, under real concurrency'
+                @($r.FailedItems).Count | Should -Be $ids.Count
+                foreach ($id in $ids) {
+                    (@($r.FailedItems) -join '|') | Should -Match ([regex]::Escape("org-014::$id"))
+                }
+            }
+            finally {
+                foreach ($var in $savedKeys.Keys) { [System.Environment]::SetEnvironmentVariable($var, $savedKeys[$var]) }
+                Remove-Item -Recurse -Force $multiDir -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }
 
 Describe 'Test-StanceTextVerbatim (t/4382)' -Tag 'taxonomy' {
@@ -247,6 +334,12 @@ Describe 'Test-StanceTextVerbatim (t/4382)' -Tag 'taxonomy' {
         @{ Name = 'differs only in markdown emphasis';  Text = 'the "**Act**" isn''t _enough_';         Expected = $true }
         @{ Name = 'paraphrase';                         Text = 'the law is insufficient';               Expected = $false }
         @{ Name = 'empty text';                         Text = '';                                      Expected = $false }
+        @{ Name = 'markdown link anchor text matches (t/4610)'; Text = '[policy paragraph](https://example.com) says'; Expected = $true }
+        @{ Name = 'markdown link anchor text does not match the source (t/4610)'; Text = '[fabricated phrase](https://example.com) says'; Expected = $false }
+        @{ Name = 'elision joins two genuinely-present segments in order (t/4609)'; Text = 'policy paragraph ... isn''t enough'; Expected = $true }
+        @{ Name = 'elision cannot paper over segments out of source order (t/4609)'; Text = 'isn''t enough ... policy paragraph'; Expected = $false }
+        @{ Name = 'elision with a segment not present in the source (t/4609)'; Text = 'policy paragraph ... totally invented'; Expected = $false }
+        @{ Name = 'bare ellipsis with no real content (t/4609)';  Text = '...';                          Expected = $false }
     ) {
         InModuleScope AITriad -Parameters @{ T = $Text; E = $Expected } {
             param($T, $E)

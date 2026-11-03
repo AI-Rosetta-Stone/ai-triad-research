@@ -47,7 +47,10 @@ function fakeRes() {
 
 function registerAndGetHealthHandler(): Handler {
   const r = makeRouter();
-  registerMetaRoutes(r.router as never, {} as unknown as ServerCtx);
+  // t/4584/t/4586: /health's unauth branch now also reads the GitHub rate
+  // limit for an unauthenticated monitor to watch — a minimal filesystem-mode
+  // ctx (no GitHub backend) reports null for those fields.
+  registerMetaRoutes(r.router as never, { getGithubBackend: () => null } as unknown as ServerCtx);
   return r.handlers['GET /health'];
 }
 

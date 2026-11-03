@@ -14,6 +14,8 @@
 // this even though only Op-Eds/Chats exercise them respectively.
 
 import type { ReactNode } from 'react';
+import type { ItemPlace } from '../../navigation/openInWindow';
+import type { LibraryVariantKey } from '../../navigation/lastVariant';
 
 export type LibraryVariant = 'my' | 'community';
 
@@ -26,6 +28,11 @@ export interface LibraryColumn<TMy, TCommunity> {
    *  always `minmax(0,1fr)`, and rendered by LibraryListPage itself (see getTitle below). */
   width: string;
   align?: 'left' | 'right';
+  /** Phone layout visibility (t/4571): whether to show this column on phone (<768px).
+   *  'title' = display on phone's title row; 'meta' = display on phone's meta row;
+   *  'hidden' = omit on phone. Default is 'hidden' for non-title columns. No branching
+   *  outside phone layout path — all pages render desktop grid unchanged. */
+  phone?: 'title' | 'meta' | 'hidden';
   /** Collapsed per TL ruling (t/3703#3): one function branching on variant, not renderMy/
    *  renderCommunity — two functions per column meant Model/Date/Mode got the same reference
    *  passed twice, a copy-paste that drifts the moment one side is edited without the other. */
@@ -124,6 +131,13 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
    *  web-address detection than the default regex. */
   isWebAddressTitle?: (row: TMy | TCommunity, variant: LibraryVariant) => boolean;
 
+  /** Optional content beside the title text, same line, on both the desktop and phone layouts
+   *  (t/4720, Chat's first consumer at t/4718 — a camp chip). Omit it and nothing renders; every
+   *  page predating this field is unchanged. The title keeps its own clamping/wrapping; this
+   *  content doesn't shrink and wraps onto its own line under the title at narrow widths rather
+   *  than forcing an overflow — see `.lib-title-line`/`.lib-title-badge-slot` in the CSS. */
+  titleBadge?: (row: TMy | TCommunity, variant: LibraryVariant) => ReactNode;
+
   /** Inline rename via the shared title cell (double-click to start, Enter/blur to commit, Esc
    *  to cancel, stopPropagation on click) — shared per the same "spec states it once generically"
    *  rule; Op-Eds (edit mode) and Chats (list, no edit mode) both need it. Omit `onRename` and the
@@ -162,6 +176,15 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
    *  that's the one deliberate exception — see `anonymousHasMyContent`; it still has no general
    *  auth-driven per-row logic of its own, which is what this predicate is for.) */
   showCopy?: (row: TCommunity) => boolean;
+  /**
+   * t/4689: the row's open-in-new-window place, for the shared ⧉ button and Ctrl/Cmd/middle-click
+   * on the row. Omit entirely for a page with no window-opening story yet. `canOpenInNewWindow`
+   * (from `navigation/openInWindow`) is what actually gates visibility per tool/build — this just
+   * supplies the place to check it against; LibraryListPage owns the button/click-modifier
+   * mechanics, same split as every other actions-column affordance in this file. Return null for
+   * a row this doesn't apply to (there shouldn't be one, but the escape hatch costs nothing).
+   */
+  itemPlace?: (row: TMy | TCommunity, variant: LibraryVariant) => ItemPlace | null;
 }
 
 export interface LibraryListPageProps<TMy extends { id: string }, TCommunity extends { id: string }> {
@@ -183,4 +206,26 @@ export interface LibraryListPageProps<TMy extends { id: string }, TCommunity ext
    * for the settings-store wiring before either happens.
    */
   actionVisibility?: 'always' | 'hover'; // default 'hover'
+  /**
+   * t/4536: an optional block rendered between the header row and the My/Community tabs — e.g.
+   * Chat's getting-started card. Additive: Debates and Op-Eds pass nothing and are unchanged.
+   */
+  intro?: ReactNode;
+  /**
+   * t/4561: on the web build only, default the initial view to Community instead of My, on
+   * every mount. Electron is unchanged regardless of this prop. Additive and omit-safe — Chat
+   * does not set it and keeps today's 'my' default; Op-Eds, Ask a Question and Debates
+   * (t/4562/t/4563) opt in. `hideMyTab` still wins: an anonymous session with no My content
+   * never lands on a tab it can't see, same as before this prop existed.
+   */
+  defaultCommunityOnWeb?: boolean;
+  /**
+   * t/4689: remembers which My/Community tab this page was last on, so the location-bar's
+   * up-crumb (which unmounts this component and remounts it on return — App.tsx's
+   * `{activeTab === 'chat' && <ChatTab/>}` pattern) restores it instead of always landing back
+   * on the `defaultCommunityOnWeb`/My default. One key per tool (`navigation/lastVariant.ts`'s
+   * `LibraryVariantKey`). Omit it and behavior is unchanged — `hideMyTab` and
+   * `defaultCommunityOnWeb` still apply exactly as before this prop existed.
+   */
+  restoreKey?: LibraryVariantKey;
 }

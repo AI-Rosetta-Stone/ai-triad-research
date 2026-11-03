@@ -142,14 +142,17 @@ describe('BlobFreePoolBudget (Azurite)', () => {
   });
 
   it('AC4: an unreleased reservation expires after its TTL and returns its budget', async () => {
-    const budget = makeBudget(prefix, { callsCap: 5, reservationTtlMs: 50 });
+    // t/4777: widened from 50ms TTL to 1000ms with 1200ms sleep for ~700ms slack,
+    // same as renew() test (lines 158-163). CI flake on loaded runners: Azurite round
+    // trips can consume >50ms, leaving the refused check with < timeout margin.
+    const budget = makeBudget(prefix, { callsCap: 5, reservationTtlMs: 1000 });
     const r1 = await budget.reserve({ calls: 5, tokens: 0, key: 'short-lived' }); // fills the cap
     expect(r1.ok).toBe(true);
 
     const refused = await budget.reserve({ calls: 1, tokens: 0, key: 'blocked' });
     expect(refused.ok).toBe(false);
 
-    await new Promise((resolve) => setTimeout(resolve, 150)); // past the 50ms TTL
+    await new Promise((resolve) => setTimeout(resolve, 1200)); // past the 1000ms TTL, with 200ms slack
 
     const afterExpiry = await budget.reserve({ calls: 1, tokens: 0, key: 'now-fits' });
     expect(afterExpiry.ok).toBe(true); // the expired reservation's budget returned
@@ -200,6 +203,25 @@ describe('BlobFreePoolBudget (Azurite)', () => {
     await expect(budget.release(fakeId)).resolves.toBeUndefined();
     const h = await budget.headroom();
     expect(h.callsUsed).toBe(0);
+  });
+
+  it('t/4733: a day doc created with cap 5 does not limit a store configured for 1500 (cap comes from the process)', async () => {
+    // Staging (cap 5) creates the day's blob first and fills it; prod (cap 1500) shares the blob.
+    const staging = makeBudget(prefix, { callsCap: 5 });
+    for (let i = 0; i < 5; i++) {
+      const r = await staging.reserve({ calls: 1, tokens: 10, key: `s-${i}` });
+      expect(r.ok).toBe(true);
+      if (r.ok) await staging.commit(r.reservationId, { calls: 1, tokens: 10 });
+    }
+    expect((await staging.reserve({ calls: 1, tokens: 10, key: 's-over' })).ok).toBe(false); // staging's own cap holds
+
+    const prod = makeBudget(prefix, { callsCap: 1500 });
+    const p = await prod.reserve({ calls: 1, tokens: 10, key: 'p-1' });
+    expect(p.ok).toBe(true); // the doc's frozen cap of 5 must not refuse prod
+    const pk = await prod.reserveForKey({ calls: 1, tokens: 10, key: 'debate:p:1' });
+    expect(pk.ok).toBe(true);
+    const h = await prod.headroom();
+    expect(h.callsCap).toBe(1500); // headroom reports the process's cap, not the doc's
   });
 
   // These two run last and kill the real Azurite process to simulate "storage

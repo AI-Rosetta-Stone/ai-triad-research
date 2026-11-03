@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// Tests for the deep-link boot/popstate hook (t/3486). Locks: restore runs once at
-// mount, runs again on popstate, and the whole thing no-ops in Electron (no address
-// bar there for a restore to make sense against).
+// Tests for the deep-link boot hook (t/3486, t/4640). Locks: a routed URL restores once at
+// mount (path + query), `/` and unrouted paths don't, Electron no-ops, and popstate is NOT
+// handled here — the nav subscriber restores history moves, so a listener here would restore
+// twice.
 
 // @vitest-environment jsdom
 
@@ -13,9 +14,14 @@ import { renderHook } from '@testing-library/react';
 const mockIsElectronMode = vi.fn(() => false);
 vi.mock('@bridge', () => ({ isElectronMode: () => mockIsElectronMode() }));
 
-const mockRestore = vi.fn();
+const mockRestorePath = vi.fn();
+vi.mock('../navigation/restore', () => ({ restorePath: (p: string) => mockRestorePath(p) }));
+
+const mockRecordNav = vi.fn();
+vi.mock('../navigation/navRecord', () => ({ recordNav: (...a: unknown[]) => mockRecordNav(...a) }));
+
 vi.mock('./appRoutes', () => ({
-  findRoute: (pathname: string) => (pathname === '/opeds/set-1' ? { route: { restore: mockRestore }, params: { setId: 'set-1' } } : null),
+  findRoute: (pathname: string) => (pathname === '/chat/c-1' ? { route: {}, params: { chatId: 'c-1' } } : null),
 }));
 
 const { useAppRoute } = await import('./useAppRoute');
@@ -31,35 +37,47 @@ describe('useAppRoute', () => {
   });
   afterEach(() => { goTo('/'); });
 
-  it('restores from the current location once at mount', () => {
-    goTo('/opeds/set-1', '?pov=acc');
+  it('restores a routed URL once at mount, with its query', () => {
+    goTo('/chat/c-1', '?x=1');
     renderHook(() => useAppRoute());
-    expect(mockRestore).toHaveBeenCalledTimes(1);
-    const [params, query] = mockRestore.mock.calls[0];
-    expect(params).toEqual({ setId: 'set-1' });
-    expect(query.get('pov')).toBe('acc');
+    expect(mockRestorePath).toHaveBeenCalledTimes(1);
+    expect(mockRestorePath).toHaveBeenCalledWith('/chat/c-1?x=1');
   });
 
-  it('does nothing at mount when the path matches no route', () => {
+  it('does nothing at mount on / or a path no route owns', () => {
     goTo('/');
     renderHook(() => useAppRoute());
-    expect(mockRestore).not.toHaveBeenCalled();
+    goTo('/share/pov/1');
+    renderHook(() => useAppRoute());
+    expect(mockRestorePath).not.toHaveBeenCalled();
   });
 
-  it('re-restores on popstate (back/forward)', () => {
+  it('records its boot decision for each case (t/4769)', () => {
+    goTo('/chat/c-1', '?x=1');
+    renderHook(() => useAppRoute());
     goTo('/');
     renderHook(() => useAppRoute());
-    expect(mockRestore).not.toHaveBeenCalled();
+    goTo('/share/pov/1');
+    renderHook(() => useAppRoute());
+    expect(mockRecordNav.mock.calls).toEqual([
+      ['nav.boot', { path: '/chat/c-1?x=1', decision: 'matched' }],
+      ['nav.boot', { path: '/', decision: 'skipped-root' }],
+      ['nav.boot', { path: '/share/pov/1', decision: 'skipped-no-route' }],
+    ]);
+  });
 
-    goTo('/opeds/set-1');
+  it('does not handle popstate — the nav subscriber owns history moves', () => {
+    goTo('/');
+    renderHook(() => useAppRoute());
+    goTo('/chat/c-1');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(mockRestore).toHaveBeenCalledTimes(1);
+    expect(mockRestorePath).not.toHaveBeenCalled();
   });
 
   it('no-ops entirely in Electron — no address bar for a restore to react to', () => {
     mockIsElectronMode.mockReturnValue(true);
-    goTo('/opeds/set-1');
+    goTo('/chat/c-1');
     renderHook(() => useAppRoute());
-    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockRestorePath).not.toHaveBeenCalled();
   });
 });

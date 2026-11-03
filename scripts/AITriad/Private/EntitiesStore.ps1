@@ -68,7 +68,13 @@ function New-EmptyEntityEmbeddingsStore {
     # { name_vector, description_vector? } — see lib/entities/entityVectors.ts. `_src_hashes`
     # is a PS-owned envelope map { <id>: sha256(name+aliases\ndescription) } used by the
     # writer + Update-EntityEmbeddings to skip unchanged records (staleness guard, t/3085
-    # class). It is deliberately NOT part of the EntityVectorRecord type — readers ignore it.
+    # class). It is deliberately NOT part of the EntityVectorRecord type.
+    # EXEMPTION LAPSED (t/4458, PR #3962): lib/entities/nameResolver.ts is the first branching
+    # reader — it skips a candidate's vector in the cosine tie-break when _src_hashes[id] is
+    # absent or doesn't match the candidate's current fingerprint, falling through to the
+    # existing "every candidate must be scoreable" refusal. T1 (first branching reader of a
+    # previously-exempt field), reviewed by the CL (t/4458#2). A future reader for a NEW
+    # decision is its own T1/T2 call, not covered by this one.
     return [PSCustomObject]@{
         _schema_version = '2.0.0'
         _doc            = 'Entity vectors for linking and dedup ONLY. Never an input to debate relevance.'

@@ -1,0 +1,118 @@
+{
+  "measure": "crux overlap A1 vs A3 (exploratory)",
+  "motions_wings_below_floor": 4,
+  "complete_motions": 10,
+  "skipped_motions": [],
+  "rows": [
+    {
+      "motion": "m01",
+      "O_wings": 0.5009,
+      "O_floor": 0.3893,
+      "wings_below_floor": false,
+      "n_cruxes": {
+        "a1": 10,
+        "a3": 7,
+        "a1r": 4
+      }
+    },
+    {
+      "motion": "m02",
+      "O_wings": 0.4939,
+      "O_floor": 0.475,
+      "wings_below_floor": false,
+      "n_cruxes": {
+        "a1": 10,
+        "a3": 6,
+        "a1r": 7
+      }
+    },
+    {
+      "motion": "m03",
+      "O_wings": 0.4206,
+      "O_floor": 0.316,
+      "wings_below_floor": false,
+      "n_cruxes": {
+        "a1": 3,
+        "a3": 6,
+        "a1r": 7
+      }
+    },
+    {
+      "motion": "m04",
+      "O_wings": 0.4384,
+      "O_floor": 0.445,
+      "wings_below_floor": true,
+      "n_cruxes": {
+        "a1": 11,
+        "a3": 8,
+        "a1r": 9
+      }
+    },
+    {
+      "motion": "m05",
+      "O_wings": 0.4797,
+      "O_floor": 0.4776,
+      "wings_below_floor": false,
+      "n_cruxes": {
+        "a1": 8,
+        "a3": 11,
+        "a1r": 9
+      }
+    },
+    {
+      "motion": "m06",
+      "O_wings": 0.4302,
+      "O_floor": 0.4371,
+      "wings_below_floor": true,
+      "n_cruxes": {
+        "a1": 8,
+        "a3": 8,
+        "a1r": 7
+      }
+    },
+    {
+      "motion": "m07",
+      "O_wings": 0.4741,
+      "O_floor": 0.434,
+      "wings_below_floor": false,
+      "n_cruxes": {
+        "a1": 8,
+        "a3": 9,
+        "a1r": 8
+      }
+    },
+    {
+      "motion": "m08",
+      "O_wings": 0.4118,
+      "O_floor": 0.481,
+      "wings_below_floor": true,
+      "n_cruxes": {
+        "a1": 7,
+        "a3": 9,
+        "a1r": 8
+      }
+    },
+    {
+      "motion": "m09",
+      "O_wings": 0.4409,
+      "O_floor": 0.3909,
+      "wings_below_floor": false,
+      "n_cruxes": {
+        "a1": 8,
+        "a3": 5,
+        "a1r": 4
+      }
+    },
+    {
+      "motion": "m10",
+      "O_wings": 0.3149,
+      "O_floor": 0.3751,
+      "wings_below_floor": true,
+      "n_cruxes": {
+        "a1": 8,
+        "a3": 8,
+        "a1r": 8
+      }
+    }
+  ]
+}

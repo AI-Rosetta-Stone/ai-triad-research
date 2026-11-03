@@ -7,13 +7,34 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import { CAMP_LABELS, trustVerdictLabel, isZeroResult } from './inquiryDisplay';
+import { CAMP_LABELS, isZeroResult } from './inquiryDisplay';
 import { InquiryExportDropdown } from './InquiryExportDropdown';
 import { InquiryShareControl } from './InquiryShareControl';
+import { GroundingSection } from './GroundingSection';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './InquiryTab.css';
 
 type ExportFormat = 'pdf' | 'json' | 'markdown';
+
+/** t/4753 part B: the TRUNCATED banner's cause clause. Previously always said "hit its
+ *  N-call budget" regardless of terminationReason — wrong whenever a run was actually cut
+ *  off by a turn cap, not the budget. Named per the TL's ruling (t/4753): `api_ceiling` is
+ *  the budget; `max_iterations` is a turn cap ("round limit"); anything else states the
+ *  reason verbatim rather than defaulting to "budget". */
+function truncationCause(terminationReason: string | null, callBudget: number): { phrase: string; emphasis: string } {
+  if (terminationReason === 'api_ceiling') {
+    return { phrase: 'hit its', emphasis: `${callBudget}-call budget` };
+  }
+  if (terminationReason === 'max_iterations') {
+    return { phrase: 'hit its', emphasis: 'round limit' };
+  }
+  if (terminationReason) {
+    return { phrase: 'was stopped early', emphasis: `(${terminationReason})` };
+  }
+  // terminationReason absent on an otherwise-truncated run: fall back to the budget wording
+  // (the historical default) rather than claim a cause we don't have.
+  return { phrase: 'hit its', emphasis: `${callBudget}-call budget` };
+}
 
 /** Extracted from the component (ESLint complexity) — pure request/result, no component state. */
 async function runExport(result: import('../../bridge/types').InquiryResult, format: ExportFormat): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -49,16 +70,89 @@ async function runSubmitToCommunity(jobId: string): Promise<{ ok: true; submissi
   }
 }
 
+/** "View raw run" not-found detection (t/4684): web and Electron signal a missing debate
+ *  differently, so both shapes are checked.
+ *  - Web: web-bridge's get() throws an ActionableError with .httpStatus = 404 (throwHttpError),
+ *    the same pattern useInquiryStore.ts uses for inquiry-job 404s.
+ *  - Electron: debateIO.loadDebateSession throws a plain Error('Debate session not found: <id>').
+ *    ipcRenderer.invoke strips structured error types crossing the main/renderer boundary — only
+ *    the message string survives as a generic Error — so detect it by message instead.
+ */
+function isDebateNotFoundError(err: unknown): boolean {
+  const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
+  if (httpStatus === 404) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /not found/i.test(message);
+}
+
+/** Extracted from the component (ESLint complexity) — probes existence before "View raw run"
+ *  switches to the Debate tab (t/4684): the shared loadDebate (sessionSlice.ts) swallows load
+ *  failures into debateError rather than rethrowing, so a deleted debate would otherwise navigate
+ *  away with no session and no clear notice here. Non-404 errors (network, etc.) are reported as
+ *  'ok' so the caller falls through to loadDebate's own debateError handling, unchanged. */
+async function probeRawRunDebate(debateId: string): Promise<'ok' | 'deleted'> {
+  try {
+    await api.loadDebateSession(debateId);
+    return 'ok';
+  } catch (err) {
+    if (!isDebateNotFoundError(err)) return 'ok';
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'InquiryAnswerPanel',
+      level: 'warn',
+      message: 'View raw run: debate not found (likely deleted from My Debates)',
+      error: { name: err instanceof Error ? err.name : 'Error', message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined },
+    });
+    return 'deleted';
+  }
+}
+
+/** Extracted from the component (ESLint complexity) — the deleted-vs-open branch for "View raw
+ *  run" (t/4684) lives outside InquiryAnswerPanel's own complexity count, same rationale as
+ *  probeRawRunDebate above. */
+async function runViewRawRun(debateId: string, loadDebate: (id: string) => Promise<void>, setActiveTab: (tab: 'debate') => void): Promise<{ deleted: boolean }> {
+  const outcome = await probeRawRunDebate(debateId);
+  if (outcome === 'deleted') return { deleted: true };
+  await loadDebate(debateId);
+  setActiveTab('debate');
+  return { deleted: false };
+}
+
+/** Extracted so the two render sites (zero-result and main) don't each add a branch to
+ *  InquiryAnswerPanel's own complexity count (t/4684) — same rationale as InquiryGrounding below. */
+function RawRunDeletedNotice({ deleted }: { deleted: boolean }) {
+  if (!deleted) return null;
+  return <p className="inquiry-error" role="alert">The debate behind this answer was deleted.</p>;
+}
+
+/** Extracted for ESLint complexity (t/4591 TL triage) — old results predate `grounding`; hide
+ *  rather than crash, and WARN so the gap is diagnosable rather than silently absent. */
+function InquiryGrounding({ grounding }: { grounding: import('../../bridge/types').InquiryResult['grounding'] }) {
+  if (!grounding) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'InquiryAnswerPanel',
+      level: 'warn',
+      message: 'Inquiry result has no grounding field — hiding Grounding section',
+      error: { name: 'MissingField', message: 'result.grounding is undefined', stack: '' },
+    });
+    return null;
+  }
+  return <GroundingSection grounding={grounding} />;
+}
+
 export function InquiryAnswerPanel() {
   const { status, result, error, terminationReason, jobId, reset } = useInquiryStore();
   const [exportError, setExportError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [rawRunDeleted, setRawRunDeleted] = useState(false);
   const loadDebate = useDebateStore(s => s.loadDebate);
   const setActiveTab = useTaxonomyStore(s => s.setActiveTab);
 
   const handleViewRawRun = async (debateId: string) => {
-    await loadDebate(debateId);
-    setActiveTab('debate');
+    setRawRunDeleted(false);
+    const { deleted } = await runViewRawRun(debateId, loadDebate, setActiveTab);
+    setRawRunDeleted(deleted);
   };
 
   const handleExport = async (format: ExportFormat) => {
@@ -69,7 +163,18 @@ export function InquiryAnswerPanel() {
   };
 
   const handleSubmitToCommunity = async () => {
-    if (!jobId) return;
+    if (!jobId) {
+      setShareStatus('Failed: Missing inquiry job ID');
+      setTimeout(() => setShareStatus(null), 4000);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'InquiryAnswerPanel',
+        level: 'warn',
+        message: 'submitToCommunity called without jobId',
+        error: { name: 'ValidationError', message: 'jobId is required for share', stack: '' },
+      });
+      return;
+    }
     setShareStatus('Submitting...');
     const outcome = await runSubmitToCommunity(jobId);
     setShareStatus(outcome.ok ? `Shared! (${outcome.submissionId.slice(0, 8)})` : `Failed: ${outcome.message}`);
@@ -114,6 +219,7 @@ export function InquiryAnswerPanel() {
         </div>
         {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
         {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}
+        <RawRunDeletedNotice deleted={rawRunDeleted} />
       </div>
     );
   }
@@ -134,15 +240,18 @@ export function InquiryAnswerPanel() {
       {/* Gated on the terminal STATUS, not terminationReason — terminationReason is set on every
        *  completed debate ('unknown' is a valid member, TL t/3599), so gating on its presence would
        *  fire on every run (TL t/3583#4 point 1). */}
-      {isTruncated && (
-        <div className="inquiry-banner inquiry-banner-truncated">
-          <span className="inquiry-bi">TRUNCATED</span>
-          <p>This run hit its <b>{result.derivation.callBudget}-call budget</b>{terminationReason ? ` (${terminationReason})` : ''} and
-            was cut off, rather than stopping at a decision point. The substance below still stands, but
-            metrics marked <b>incomplete</b> measure how far the debate got — a budget wall leaves them
-            unreadable, not merely low.</p>
-        </div>
-      )}
+      {isTruncated && (() => {
+        const cause = truncationCause(terminationReason, result.derivation.callBudget);
+        return (
+          <div className="inquiry-banner inquiry-banner-truncated">
+            <span className="inquiry-bi">TRUNCATED</span>
+            <p>This run {cause.phrase} <b>{cause.emphasis}</b> and
+              was cut off, rather than stopping at a decision point. The substance below still stands, but
+              metrics marked <b>incomplete</b> measure how far the debate got — a cutoff leaves them
+              unreadable, not merely low.</p>
+          </div>
+        );
+      })()}
 
       {result.campVerdicts.length > 0 && (
         <div className="inquiry-sect">
@@ -196,25 +305,9 @@ export function InquiryAnswerPanel() {
         </div>
       )}
 
-      {result.calibration.length > 0 && (
-        <div className="inquiry-sect">
-          <span className="inquiry-eyebrow">Calibration — every badge generated from the run</span>
-          <div className="inquiry-metrics">
-            {result.calibration.map((entry, i) => (
-              <div className="inquiry-metric" data-t={entry.trust.verdict === 'censored' ? 'bad' : 'ok'} key={i}>
-                <div className="inquiry-mt">
-                  <span className="inquiry-mn mono">{entry.metric}</span>
-                  <span className={`inquiry-pill ${entry.trust.verdict === 'censored' ? 'bad' : 'ok'}`}>{trustVerdictLabel(entry.trust.verdict)}</span>
-                </div>
-                <div className="inquiry-mv mono">{entry.displayValue ?? entry.value}</div>
-                {/* Renders TrustState.reason verbatim, never re-derives whether a metric is
-                 *  trustworthy (TL t/3583#1/#2). */}
-                <div className="inquiry-mr">{entry.trust.reason}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* t/4591: Grounding replaces Calibration on this page — calibration data itself stays in
+       *  the result and the export, this only removes it from the page. */}
+      <InquiryGrounding grounding={result.grounding} />
 
       {/* Adjacency-by-construction (t/3734, SO condition via t/3667#6): the headline is the most
        *  quotable element of the answer, and singleRunCaveat is what keeps it from reading as a
@@ -234,6 +327,7 @@ export function InquiryAnswerPanel() {
       </div>
       {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
       {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}
+      <RawRunDeletedNotice deleted={rawRunDeleted} />
     </div>
   );
 }

@@ -37,7 +37,7 @@ function Measure-NodeMappingQuality {
 
     foreach ($Sum in $Summaries.Values) {
         foreach ($Camp in $Camps) {
-            $CampData = $Sum.pov_summaries.$Camp
+            $CampData = Get-SummaryField $Sum.pov_summaries $Camp
             if (-not $CampData -or -not $CampData.PSObject.Properties['key_points'] -or -not $CampData.key_points) { continue }
             foreach ($KP in @($CampData.key_points)) {
                 $TotalKP++

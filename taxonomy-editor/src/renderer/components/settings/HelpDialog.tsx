@@ -61,10 +61,9 @@ function getRuntime(): string {
 
 const isWeb = import.meta.env.VITE_TARGET === 'web';
 
-export type HelpTab = 'tour' | 'about' | 'overview' | 'documentation' | 'methods' | 'shortcuts' | 'sbom' | 'licenses' | 'changelog' | 'my-cases';
+export type HelpTab = 'about' | 'overview' | 'documentation' | 'methods' | 'shortcuts' | 'sbom' | 'licenses' | 'changelog' | 'my-cases';
 
 const TABS: { id: HelpTab; label: string }[] = [
-  { id: 'tour', label: 'Welcome Tour' },
   { id: 'about', label: 'About' },
   { id: 'changelog', label: "What's New" },
   { id: 'overview', label: 'Overview' },
@@ -356,7 +355,7 @@ interface HelpDialogProps {
 }
 
 export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
-  const [activeTab, setActiveTab] = useState<HelpTab>(initialTab ?? 'tour');
+  const [activeTab, setActiveTab] = useState<HelpTab>(initialTab ?? 'about');
   const [showSupportForm, setShowSupportForm] = useState(false);
   const { unreadCount, fetchCases: fetchSupportCases } = useSupportStore();
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -473,24 +472,6 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             </button>
           </div>
           <div className="helpdialog-content">
-
-        {activeTab === 'tour' && (
-          <div className="help-section helpdialog-prose">
-            <p>
-              New to AI Rosetta Stone? The Welcome Tour walks you through the main features — browsing the taxonomy, running AI debates, chatting with perspectives, and setting up your API key.
-            </p>
-            <button
-              className="btn btn-primary helpdialog-launch-tour-btn"
-              onClick={() => {
-                try { localStorage.removeItem('taxonomy-editor-onboarding-dismissed'); } catch { /* telemetry — silent by design */ }
-                window.dispatchEvent(new Event('show-onboarding-tour'));
-                onClose();
-              }}
-            >
-              Launch Welcome Tour
-            </button>
-          </div>
-        )}
 
         {activeTab === 'about' && (
           <div className="help-section help-about">

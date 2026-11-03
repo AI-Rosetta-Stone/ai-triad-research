@@ -8,7 +8,12 @@
     "max_tokens": 32768,
     "extraction_mode": "single_shot",
     "taxonomy_filter": "compact",
-    "taxonomy_nodes": 6
+    "taxonomy_nodes": 6,
+    "json_repaired": false,
+    "finish_reason": "stop",
+    "output_tokens": null,
+    "density_retries": 0,
+    "camp_bridge_dropped": 0
   },
   "context_rot": {
     "schema_version": 1,
@@ -161,6 +166,7 @@
       "reason": "Hallucinated node ID 'saf-beliefs-999' not found in taxonomy — moved from safetyist key_points"
     }
   ],
+  "empty_cells": [],
   "warnings": [
     "Hallucinated node ID: safetyist/saf-beliefs-999",
     "Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001"

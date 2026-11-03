@@ -17,4 +17,9 @@ export interface SessionRowData {
   turn_count?: number;
   /** True when this row represents a community debate — drives onConfirm to call loadCommunityDebateSession (t/2400). */
   community?: boolean;
+  /** t/4678/t/4679: set when this debate came from Ask a Question — mirrors debateIndex.ts's
+   *  DebateSessionSummary. Deliberately narrower than the full origin union: the list only needs
+   *  to flag inquiry debates for the "Question" badge, not distinguish cli/gui. */
+  origin_mode?: 'inquiry';
+  inquiry_id?: string;
 }

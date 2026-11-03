@@ -51,7 +51,12 @@
       "    \"max_tokens\": 32768,",
       "    \"extraction_mode\": \"single_shot\",",
       "    \"taxonomy_filter\": \"rag\",",
-      "    \"taxonomy_nodes\": 3",
+      "    \"taxonomy_nodes\": 3,",
+      "    \"json_repaired\": false,",
+      "    \"finish_reason\": null,",
+      "    \"output_tokens\": null,",
+      "    \"density_retries\": 0,",
+      "    \"camp_bridge_dropped\": 0",
       "  },",
       "  \"context_rot\": null,",
       "  \"pov_summaries\": {",
@@ -82,7 +87,8 @@
       "      \"concept\": \"Stays as is.\",",
       "      \"reason\": \"novel\"",
       "    }",
-      "  ]",
+      "  ],",
+      "  \"empty_cells\": []",
       "}",
       ""
     ]

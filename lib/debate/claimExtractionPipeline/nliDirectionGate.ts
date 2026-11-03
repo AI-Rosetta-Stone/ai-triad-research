@@ -3,10 +3,16 @@
 
 // ── V4 NLI direction gate (t/2746, t/2744#10) ────────────
 
-import { spawnSync } from 'child_process';
+import { spawnSync, type SpawnSyncReturns } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
+import { getGlobalRecorder } from '../../flight-recorder/index.js';
 import type { ArgumentNetworkNode } from '../types.js';
+
+function warn(message: string): void {
+  getGlobalRecorder()?.record({ type: 'system.error', component: 'nli-direction-gate', level: 'warn', message });
+}
 
 /**
  * Build the rich node proposition for NLI input (t/2744#7, TL ruling t/2746).
@@ -20,9 +26,119 @@ export function buildNliNodeProp(label: string, description: string): string {
 }
 
 const __filename = fileURLToPath(import.meta.url);
-// claimExtractionPipeline -> lib/debate -> lib -> repo root
-const REPO_ROOT = path.resolve(path.dirname(__filename), '../../..');
-const NLI_SCRIPT = path.join(REPO_ROOT, 'scripts', 'nli_classify.py');
+const __dirname = path.dirname(__filename);
+
+/**
+ * Locate scripts/nli_classify.py by walking up from `startDir` to the filesystem root,
+ * checking for the script's own presence at each level — never a fixed `../../..` depth
+ * (t/4596, 2nd occurrence of the t/1721 class). This is depth-agnostic by construction, so
+ * it's correct from source (lib/debate/claimExtractionPipeline), Electron's compiled
+ * `dist/main`, and the server's compiled `dist/server` without knowing any of their exact
+ * nesting. Returns undefined if the walk reaches the filesystem root without finding it —
+ * e.g. a packaged Electron build, which never bundles `scripts/` at all (electron-builder.yml
+ * `files` has no entry for it, so this isn't a resolution bug there, just real absence).
+ */
+export function resolveNliScriptPath(startDir: string): string | undefined {
+  let dir = path.resolve(startDir);
+  while (dir !== path.dirname(dir)) {
+    const candidate = path.join(dir, 'scripts', 'nli_classify.py');
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  return undefined;
+}
+
+/**
+ * Candidate interpreter names, in priority order (TL ruling t/4596#2, after Diagnostics found
+ * the hosted gate ENOENT'ing on a hardcoded `'python'` — the container only has `python3`):
+ * an explicit ops override (`NLI_PYTHON_INTERPRETER`) first, then `python3`, then `python`.
+ * Never a platform-based guess — a fixed name is exactly the class of bug this ticket fixes.
+ */
+function resolvePythonCandidates(): string[] {
+  const configured = process.env.NLI_PYTHON_INTERPRETER?.trim();
+  return configured ? [configured] : ['python3', 'python'];
+}
+
+/** Try each interpreter candidate in order, only advancing past one that ENOENTs — any other
+ *  outcome (success, or a real failure like bad deps) stops the loop so it isn't masked. */
+function spawnNliClassifier(
+  scriptPath: string,
+  cwd: string,
+  batch: NliInput[],
+): { proc: SpawnSyncReturns<string>; tried: string[] } {
+  const tried: string[] = [];
+  let proc: SpawnSyncReturns<string> | undefined;
+  for (const interpreter of resolvePythonCandidates()) {
+    tried.push(interpreter);
+    proc = spawnSync(interpreter, [scriptPath], {
+      input: JSON.stringify(batch),
+      encoding: 'utf8',
+      cwd,
+      maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const notFound = (proc.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+    if (!notFound) break;
+  }
+  return { proc: proc!, tried };
+}
+
+/**
+ * Resolve the script path to actually use for this call: an explicit ops override
+ * (`NLI_CLASSIFY_SCRIPT`) wins — set to a path to point elsewhere, or to an empty string to
+ * explicitly disable the gate with a logged reason (t/4596 item 2 — pending the DevOps/CL
+ * decision on whether it should run in hosted prod at all). Otherwise, walk the source tree.
+ * Not cached at module load: resolution is cheap (a handful of `fs.existsSync` calls against
+ * one subprocess spawn) and re-running it per call keeps this testable without import-time
+ * filesystem coupling.
+ */
+function resolveActiveNliScriptPath(): { path: string | undefined; reason?: string } {
+  const override = process.env.NLI_CLASSIFY_SCRIPT;
+  if (override !== undefined) {
+    if (override.trim() === '') {
+      // Ops sets NLI_CLASSIFY_SCRIPT="" to disable explicitly (CL ruling t/4596#6: hosted stays
+      // off pending recalibration). NLI_CLASSIFY_SCRIPT_DISABLED_REASON lets them name why in the
+      // deployed env config, so the WARN reads as a decision, not a resolution failure.
+      const reason = process.env.NLI_CLASSIFY_SCRIPT_DISABLED_REASON?.trim()
+        || 'explicitly disabled via NLI_CLASSIFY_SCRIPT (ops decision, not a failure)';
+      return { path: undefined, reason };
+    }
+    return { path: override };
+  }
+  const found = resolveNliScriptPath(__dirname);
+  if (found === undefined) {
+    return { path: undefined, reason: `not found walking up from ${__dirname} (packaged build without scripts/, or a layout change)` };
+  }
+  return { path: found };
+}
+
+/** Resolve the script path for this call, or WARN and signal "skip" (t/4596#5: keeping this
+ *  decision+log out of runNliDirectionGate's own branch count). */
+function resolveScriptOrSkip(): string | undefined {
+  const { path: scriptPath, reason } = resolveActiveNliScriptPath();
+  if (scriptPath === undefined) warn(`nli-direction-gate: gate skipped — script unavailable (${reason})`);
+  return scriptPath;
+}
+
+/** Run the subprocess and parse its output, or WARN and signal "skip" (same reasoning as
+ *  resolveScriptOrSkip — consolidates what were three separate branches in the caller into one). */
+function runNliSubprocessOrSkip(scriptPath: string, cwd: string, batch: NliInput[]): NliOutput[] | undefined {
+  const { proc, tried } = spawnNliClassifier(scriptPath, cwd, batch);
+  if (proc.error || proc.status !== 0) {
+    warn(
+      `nli-direction-gate: gate skipped — subprocess failed (script=${scriptPath}, interpreters tried=${tried.join(',')}, status=${proc.status}): ` +
+      (proc.stderr?.slice(0, 300) ?? proc.error?.message ?? 'unknown'),
+    );
+    return undefined;
+  }
+  try {
+    const outputs = JSON.parse(proc.stdout);
+    return Array.isArray(outputs) ? outputs : undefined;
+  } catch {
+    warn(`nli-direction-gate: gate skipped — failed to parse subprocess output (script=${scriptPath})`);
+    return undefined;
+  }
+}
 
 interface NliInput {
   id: string;
@@ -113,30 +229,15 @@ export function runNliDirectionGate(
   }
   if (batch.length === 0) return empty;
 
-  const proc = spawnSync('python', [NLI_SCRIPT], {
-    input: JSON.stringify(batch),
-    encoding: 'utf8',
-    cwd: REPO_ROOT,
-    maxBuffer: 10 * 1024 * 1024,
-    windowsHide: true,
-  });
+  const scriptPath = resolveScriptOrSkip();
+  if (scriptPath === undefined) return empty;
 
-  if (proc.error || proc.status !== 0) {
-    console.warn(
-      `[nli-direction-gate] subprocess failed (status=${proc.status}): ` +
-      (proc.stderr?.slice(0, 300) ?? proc.error?.message ?? 'unknown'),
-    );
-    return empty;
-  }
-
-  let outputs: NliOutput[];
-  try {
-    outputs = JSON.parse(proc.stdout);
-  } catch {
-    console.warn('[nli-direction-gate] failed to parse subprocess output');
-    return empty;
-  }
-  if (!Array.isArray(outputs)) return empty;
+  // The script's own directory, not necessarily the repo root — nli_classify.py has no
+  // cwd-relative file access (checked: no os.getcwd()/relative open() calls), and Python adds
+  // a script's own directory to sys.path automatically, so this is sufficient for its sibling
+  // import of embed_taxonomy.py regardless of how NLI_CLASSIFY_SCRIPT was resolved.
+  const outputs = runNliSubprocessOrSkip(scriptPath, path.dirname(scriptPath), batch);
+  if (outputs === undefined) return empty;
 
   // Group slot outputs by claim ID, then apply OR rule at claim level.
   const slotsByClaimId = new Map<string, NliOutput[]>();

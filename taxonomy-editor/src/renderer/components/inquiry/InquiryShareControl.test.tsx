@@ -38,10 +38,11 @@ describe('InquiryShareControl (t/3654)', () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
 
-  it('renders nothing on Electron — hides rather than shipping a control that always errors', () => {
+  it('shows a disabled web-only control on Electron rather than hiding silently (t/4611)', () => {
     isElectronModeMock.mockReturnValue(true);
-    const { container } = render(<InquiryShareControl jobId="job-1" result={SAMPLE_RESULT} />);
-    expect(container).toBeEmptyDOMElement();
+    render(<InquiryShareControl jobId="job-1" result={SAMPLE_RESULT} />);
+    const button = screen.getByRole('button', { name: 'Share (web only)' });
+    expect(button).toBeDisabled();
     expect(mockApi.shareInquiry).not.toHaveBeenCalled();
   });
 

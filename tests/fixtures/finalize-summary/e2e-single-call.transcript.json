@@ -4,7 +4,7 @@
     "[Gray]   │  pov: accelerationist, safetyist  |  model: gemini-3.5-flash-lite",
     "[Gray]   │  snapshot: 600 chars (~150 tokens est.)",
     "[Gray]   │  Running extraction pipeline...",
-    "[Gray]   │  ~83 words → key_points 3-8/camp (target), total floor 6, unmapped 2-5",
+    "[Gray]   │  ~83 words → key_points up to 8/camp, unmapped up to 5 (guidance, not floors)",
     "[warning] Invoke-SummaryPipeline: skipped 1 null unmapped_concepts entry/entries for 'e2e-doc' before unmapped resolution (t/4168)",
     "[Green]   │  ✓ Pipeline complete (mock-backend): 0s",
     "[warning] Finalize-Summary: dropped 1 null unmapped_concepts entry/entries (t/3907, model=gemini-3.5-flash-lite)",

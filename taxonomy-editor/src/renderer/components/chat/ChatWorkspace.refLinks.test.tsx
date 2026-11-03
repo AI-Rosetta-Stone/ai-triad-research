@@ -17,6 +17,17 @@ vi.mock('../shared/DetailPane', () => ({
   ),
 }));
 
+// t/4654: ChatWorkspace also renders TaxonomyRefsSection (per-reply grounding, unmocked here),
+// whose TaxNodeDetail now statically imports NodeDetail/SituationDetail — which pull more named
+// exports (e.g. MODELS_BY_BACKEND) from useTaxonomyStore than this file's mock provides, crashing
+// at module-load time regardless of which test runs. Mock both directly.
+vi.mock('../taxonomy/NodeDetail', () => ({
+  NodeDetail: ({ node }: { node: { id: string; label?: string } }) => <div data-testid="node-detail">{node.label ?? node.id}</div>,
+}));
+vi.mock('../debate/SituationDetail', () => ({
+  SituationDetail: ({ node }: { node: { id: string; label?: string } }) => <div data-testid="situation-detail">{node.label ?? node.id}</div>,
+}));
+
 let mockChatStoreState: Record<string, unknown> = {};
 vi.mock('../../hooks/useChatStore', () => ({
   useChatStore: (selector?: (s: Record<string, unknown>) => unknown) => {
@@ -30,10 +41,12 @@ vi.mock('../../hooks/useChatStore', () => ({
   },
 }));
 
+const lookupPinnedData = vi.fn((id: string) => ({
+  type: 'situations' as const,
+  node: { id, label: `Label for ${id}` },
+}));
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: () => ({
-    accelerationist: { nodes: [] }, safetyist: { nodes: [] }, skeptic: { nodes: [] }, situations: { nodes: [] },
-  }),
+  useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
 }));
 vi.mock('../../hooks/useAuthStatus', () => ({ useUserProfile: () => null }));
 vi.mock('@bridge', () => ({ api: { submitToCommunity: vi.fn(), exportChatToFile: vi.fn() } }));
@@ -96,11 +109,16 @@ describe('ChatWorkspace — inline ID-ref links (t/1777)', () => {
     expect(screen.queryByRole('button', { name: /beliefs/ })).toBeNull();
   });
 
-  it('a taxonomy-ref pill drives the same shared DetailPane (converged pane, AC#2)', () => {
+  // t/4627: a BDI ref pill now opens an inline detail under the reply instead of the side
+  // DetailPane — the side pane stays reserved for in-text ref links (above), pending the PI's
+  // answer on whether to keep both paths. Full open/toggle/switch/independence coverage lives
+  // in TaxonomyRefsSection.test.tsx; this just confirms the pill no longer drives the shared pane.
+  it('a taxonomy-ref pill opens inline detail, not the shared DetailPane (t/4627)', () => {
     mockChatStoreState = { activeChat: makeChat({ transcript: [messageWith('Hello', [{ node_id: 'sit-5', relevance: 'r' }])] }) };
     render(<ChatWorkspace />);
-    fireEvent.click(screen.getByRole('button', { name: /reference/ })); // expand collapsed refs
-    fireEvent.click(screen.getByText('sit-5'));
-    expect(screen.getByTestId('chat-detail-pane')).toHaveTextContent('situation:sit-5');
+    const pill = screen.getByText('sit-5'); // single match before the detail (which also shows the id) opens
+    fireEvent.click(pill);
+    expect(screen.queryByTestId('chat-detail-pane')).toBeNull();
+    expect(screen.getByText('Label for sit-5')).toBeInTheDocument();
   });
 });

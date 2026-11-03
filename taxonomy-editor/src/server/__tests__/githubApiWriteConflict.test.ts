@@ -72,6 +72,11 @@ const MAIN_SHA = 'abc123def456789000000000000000000000dead';
 const TREE_SHA = 'tree-sha-000000000000000000000000000dead';
 
 function handleDefaultGithubApi(url: string, method: string): Response {
+  // t/4585: force raw.githubusercontent.com to fall back to REST — this file
+  // exercises Contents-API-specific scenarios (409 handling, cache eviction).
+  if (url.startsWith('https://raw.githubusercontent.com/')) {
+    return mockFetchResponse(500, { message: 'raw not mocked in this test file' });
+  }
   const path = url.replace('https://api.github.com', '');
   if (method === 'GET' && path.includes('/commits/main')) return mockFetchResponse(200, { sha: MAIN_SHA });
   if (method === 'GET' && path.match(/\/git\/commits\/[a-f0-9]/)) return mockFetchResponse(200, { sha: MAIN_SHA, tree: { sha: TREE_SHA } });

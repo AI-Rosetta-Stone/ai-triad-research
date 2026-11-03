@@ -14,6 +14,9 @@
 #   test-electron  Required scripts present + TypeScript check (renderer) (t/3897; 8-day warn
 #                  cycle 2026-10-04 to 2026-10-12, zero failure annotations; --if-present also
 #                  dropped from Lint/Test in the same PR, plus the new matrix-membership job)
+#   merge-queue-f4-shim-test  F4 count==position fail-closed self-check (t/4567 SO N2,
+#                  e/380#2): blocking from the start, no warn cycle -- a self-check for a
+#                  fail-closed safety script must never be skippable or advisory-only.
 # FLIP-PENDING (remove continue-on-error to enforce):
 #   doc-accuracy  doc-claims + REPO_MAP steps (t/1324)
 #   schema-drift  warn-only until Phase-2 blocking flip (t/3447, t/3469)
@@ -75,12 +78,34 @@ on:
   schedule:
     - cron: '23 7 * * *'
   workflow_dispatch:
+  # t/4567: the merge queue runs the full suite once per batch on the merge-group
+  # commit, rather than once per PR plus again on push to main (step 5 of the design).
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
+# t/4567 K1/N1 (SO/TL e/392#5, #10, #11): a merge_group concurrency-cancel block with a
+# CONSTANT group key was tried and reverted. It passed workflow-lint's narrow R4
+# exemption and arms (a)/(d), but the SO's N1 finding (e/392#10) proved out live-fire
+# (app-scratch, 2026-10-28 ~20:16-20:27 UTC): the group key is the same for every
+# merge_group run, so a HEADGREEN bisection round's probe run gets cancelled by the NEXT
+# bisection round sharing that same key -- and that cancellation can leave the queue with
+# no further run queued at all. Arm (c) (consult-hold mid-queue) reproduced a genuine
+# stall: zero new merge_group runs for 10+ minutes after the cancellation, not resolved
+# even after the hold was removed; manual dequeue was required to clear it. Per the TL's
+# ruling (e/392#11): drop the cancel entirely rather than key the group by
+# `merge_group.head_sha` (a no-op cancel, since every merge_group commit already has a
+# distinct head_sha). HEADGREEN alone (ruleset grouping_strategy, already live) already
+# tests each batch once on the head group's result; runner capacity under the Team plan
+# covers the extra concurrent runs this leaves on non-head entries.
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # t/4548: pinned so both Install Pester sites (and their cache keys) agree on exactly
+  # which version is installed/restored. Bump deliberately, not opportunistically.
+  PESTER_VERSION: '5.7.1'
 
 jobs:
   # ── record-base-ref (t/3687): retarget stale-green guard sink ──────────────
@@ -144,6 +169,7 @@ jobs:
       lockfile-sync: ${{ steps.filter.outputs.lockfile-sync }}
       bicep-env: ${{ steps.filter.outputs.bicep-env }}
       bicep-resources: ${{ steps.filter.outputs.bicep-resources }}
+      env-bicep-wiring: ${{ steps.filter.outputs.env-bicep-wiring }}
       schema-drift: ${{ steps.filter.outputs.schema-drift }}
       verify-config: ${{ steps.filter.outputs.verify-config }}
       citation-link-ci: ${{ steps.filter.outputs.citation-link-ci }}
@@ -322,6 +348,18 @@ jobs:
               - 'deploy/azure/main.bicep'
               - 'operations/devops/Test-BicepAcaResourcePairs.ps1'
               - '.github/workflows/ci.yml'
+            # 'env-bicep-wiring' gates env-bicep-wiring (t/4506, Class 5 prevention).
+            # Triggers on a server-code change (new process.env read), main.bicep
+            # change (new/removed Bicep wiring), the scanner script, or the allowlist
+            # (Quality note 3, t/4506#2: an allowlist edit alone must still re-check
+            # against current server code, or a removed entry's regression goes unseen).
+            env-bicep-wiring:
+              - 'taxonomy-editor/src/server/**'
+              - 'deploy/azure/main.bicep'
+              - 'operations/devops/Get-BicepBaseEnv.ps1'
+              - 'operations/devops/Test-EnvBicepWiring.ps1'
+              - 'operations/devops/env-var-allowlist.json'
+              - '.github/workflows/ci.yml'
             # 'schema-drift' gates the warn-only drift gate (t/3469, t/3447 Phase-1).
             # Triggers on schema-of-record changes, Zod validator changes, or the runner
             # script. Skip = OK (warn-only; not in ci-gate). NEVER-FILTER on data-repo
@@ -380,7 +418,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.powershell == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.powershell == 'true')
     # Outer hang-bound for the whole job (replaces GitHub's 360-min default — a hung suite
     # otherwise burns 6h of CI). Set 5 min above the step-level Pester timeout below so the STEP
     # timeout fires first on the common case (the Pester run), yielding the clear "has timed out"
@@ -429,9 +467,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -448,9 +486,46 @@ jobs:
             fi
           done
 
-      - name: Install Pester
+      # t/4548: at least 6 open PRs plus main (71ee6b7e) went red for one reason on
+      # 2026-10-26/27 -- Install-Module Pester hit a PowerShell Gallery flake
+      # ("Package 'Pester' failed to download" / "No match was found ... module name
+      # 'Pester'"), and each of the 6 test-powershell shards installed independently
+      # from the Gallery, unpinned and uncached, so one Gallery hiccup reds the whole
+      # matrix. Pin + cache closes that: a warm cache never calls the Gallery at all.
+      - name: Cache Pester module
+        id: pester-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/powershell/Modules/Pester
+          key: pester-${{ env.PESTER_VERSION }}-${{ runner.os }}
+
+      # Retry shape mirrors the pnpm install retry above (t/2975) -- same bounded
+      # 3-attempt, linear-backoff pattern, so a transient Gallery flake on a COLD cache
+      # (first run after a version bump, or a cache eviction) doesn't immediately red
+      # the job. A persistently-unreachable Gallery still fails closed after 3 tries --
+      # retries buy resilience against a flake, never mask a real outage as green.
+      - name: Install Pester (pinned, retried on a cache miss)
+        if: steps.pester-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: Install-Module Pester -Force -Scope CurrentUser
+        run: |
+          $attempt = 0
+          $installed = $false
+          while ($attempt -lt 3 -and -not $installed) {
+            $attempt++
+            try {
+              Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Force -Scope CurrentUser -ErrorAction Stop
+              $installed = $true
+            } catch {
+              if ($attempt -lt 3) {
+                $backoff = $attempt * 15
+                Write-Host "::warning::Install-Module Pester attempt $attempt failed ($($_.Exception.Message)); retrying in ${backoff}s"
+                Start-Sleep -Seconds $backoff
+              } else {
+                Write-Host "::error::Install-Module Pester failed after $attempt attempts: $($_.Exception.Message)"
+                exit 1
+              }
+            }
+          }
 
       - name: Run Pester tests with coverage
         id: pester
@@ -690,7 +765,7 @@ jobs:
       - name: Upload test-powershell self-heal records (t/4085)
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: flake-heals-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/flake-heals/flake-heals-shard-${{ matrix.shard }}.jsonl
@@ -708,19 +783,54 @@ jobs:
         # Pester step's own ::error:: verdict speaks. This step is diagnostic only — it never fails
         # the job (the Pester step already drove red). Caveat: a kill that takes the RUNNER itself
         # away leaves no runner to execute this step; it covers signalled cancels + step timeouts.
-        if: ${{ always() && steps.pester.outcome != 'success' }}
+        #
+        # t/4548 arm 3 (TL design call, t/4548#2): ALSO writes a structured JSON verdict file,
+        # using the SAME pure classifier (Get-TestPowerShellAbnormalEndVerdict.ps1) this step's
+        # own log line uses, so the two can never silently drift apart. A log-grep classifier was
+        # explicitly rejected ("a grep on the ::error:: wording silently disables the rerun the
+        # first time someone edits the message, and nothing would notice") -- job outputs aren't
+        # readable from a separate workflow_run handler either (confirmed: GitHub's Jobs API has
+        # no outputs field; job-level `outputs:` only flow to needs-declared jobs in the SAME run).
+        # An uploaded artifact is the documented cross-workflow mechanism, so the next step
+        # uploads this JSON for ci-infra-rerun.yml to read.
+        if: ${{ always() }}
+        id: classify
         shell: pwsh
         env:
           PESTER_OUTCOME: ${{ steps.pester.outcome }}
+          SHARD: ${{ matrix.shard }}
         run: |
-          # Marker present => the suite ran to completion (pass or fail); nothing to explain here.
-          if (Test-Path "$env:RUNNER_TEMP/pester-suite-ran.marker") { exit 0 }
-          switch ($env:PESTER_OUTCOME) {
-            'failure'   { Write-Host "::error::test-powershell: TIMED OUT after 25 minutes — not a test failure. The Pester suite was killed by timeout-minutes before finishing; durable fix is trimming/parallelizing the suite (t/3665, PowerShell scope)." }
-            'cancelled' { Write-Host "::error::test-powershell: CANCELLED mid-run (runner preemption or external cancel) — not a test failure. Rerun the job; if it recurs it is infra, not the suite (t/3665 lowers exposure by shortening the run)." }
-            default     { Write-Host "::error::test-powershell: ended abnormally (outcome=$($env:PESTER_OUTCOME)) with the suite unfinished — not a test failure. Rerun; investigate if it recurs." }
+          . ./operations/devops/Get-TestPowerShellAbnormalEndVerdict.ps1
+          $markerPresent = Test-Path "$env:RUNNER_TEMP/pester-suite-ran.marker"
+          $verdict = Get-TestPowerShellAbnormalEndVerdict -MarkerPresent $markerPresent -PesterOutcome $env:PESTER_OUTCOME
+
+          $classifyDir = Join-Path $env:RUNNER_TEMP 'pester-classify'
+          New-Item -ItemType Directory -Force -Path $classifyDir | Out-Null
+          [PSCustomObject]@{
+            shard       = [int]$env:SHARD
+            jobName     = "test-powershell ($env:SHARD)"
+            pesterOutcome = $env:PESTER_OUTCOME
+            abnormalEnd = $verdict.AbnormalEnd
+            reason      = $verdict.Reason
+          } | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $classifyDir "shard-$($env:SHARD).json")
+
+          if (-not $verdict.AbnormalEnd) { exit 0 }
+          switch ($verdict.Reason) {
+            'timed-out-after-25-minutes' { Write-Host "::error::test-powershell: TIMED OUT after 25 minutes — not a test failure. The Pester suite was killed by timeout-minutes before finishing; durable fix is trimming/parallelizing the suite (t/3665, PowerShell scope)." }
+            'cancelled-mid-run'          { Write-Host "::error::test-powershell: CANCELLED mid-run (runner preemption or external cancel) — not a test failure. Rerun the job; if it recurs it is infra, not the suite (t/3665 lowers exposure by shortening the run)." }
+            default                      { Write-Host "::error::test-powershell: ended abnormally (outcome=$($env:PESTER_OUTCOME)) with the suite unfinished — not a test failure. Rerun; investigate if it recurs." }
           }
           exit 0
+
+      - name: Upload test-powershell abnormal-end classification (t/4548 arm 3)
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: pester-classify-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/pester-classify/shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: In-memory job store scale guard (real files)
         # Runs the gate against the ACTUAL main.bicep + briefExportJobs.ts — distinct
@@ -741,7 +851,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -766,9 +876,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -852,7 +962,7 @@ jobs:
       - name: Upload complexity-budget violations
         if: failure() && steps.lint.outcome == 'failure'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: complexity-violations-${{ matrix.app }}
           path: ${{ runner.temp }}/complexity-reports/
@@ -885,56 +995,10 @@ jobs:
         working-directory: ${{ matrix.app }}
         run: pnpm run test
 
-      - name: Test with coverage
-        if: matrix.app == 'taxonomy-editor'
-        working-directory: ${{ matrix.app }}
-        # Tee'd to a log for the DATA-ROOT-TEST-WRITE summary step below (t/4454 Phase 1 parity
-        # with test-powershell) -- PIPESTATUS[0] preserves vitest's own exit code through the
-        # pipe (bash's $? after a pipeline is the LAST command's, i.e. tee's, which always
-        # succeeds; without this, a real vitest failure would silently pass the step).
-        run: |
-          set -o pipefail
-          pnpm exec vitest run --coverage 2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
-
-      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
-        # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
-        # never fails the job. dataRootGuard.ts (lib/test-support) only instruments
-        # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
-        # vite.config.ts's `root: 'src/renderer'`), so this only runs for that matrix leg.
-        #
-        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
-        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
-        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
-        #     own runtime signal, not a static grep of config/setup files -- robust to whichever
-        #     setup file or vitest project structure actually wires it in).
-        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
-        #   - hits -> list them, same as before.
-        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
-        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
-        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
-        if: always() && matrix.app == 'taxonomy-editor'
-        continue-on-error: true
-        shell: bash
-        run: |
-          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
-          if [ -f "$LOG" ]; then
-            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
-            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
-          else
-            HITS=()
-            GUARD_INSTALLED=false
-          fi
-          if [ "${#HITS[@]}" -gt 0 ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
-            for line in "${HITS[@]}"; do
-              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
-              echo "::warning::$line"
-            done
-          elif [ "$GUARD_INSTALLED" = true ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): 0 hits" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
-          fi
+      # taxonomy-editor's vitest suite (with coverage thresholds and the DATA-ROOT-TEST-WRITE
+      # report) moved OUT of this job into `test-electron-vitest` (3 parallel shards) +
+      # `test-electron-coverage` (merge + thresholds), below. As a single step here it was ~10 of
+      # this job's ~13 minutes and the CI critical path.
 
       - name: Build
         if: matrix.app == 'taxonomy-editor'
@@ -965,6 +1029,182 @@ jobs:
           $r = Test-PreloadHealth -CheckSyntax
           if (-not $r.Healthy) { $r.Checks | Where-Object { -not $_.Pass } | ForEach-Object { Write-Error $_.Detail }; exit 1 }
 
+  # ── test-electron-vitest: taxonomy-editor's vitest suite in 3 parallel shards ──
+  # This suite was one ~10-minute step inside test-electron and set the CI critical path
+  # (test-electron took ~13 min; every other job finishes in <=8). Each shard runs 1/3 of the
+  # test files with coverage collected but thresholds OFF (a third of the suite can't meet a
+  # whole-suite threshold) and writes a vitest blob report; test-electron-coverage merges the
+  # blobs and enforces the vite.config.ts thresholds on the whole. Same trigger condition as
+  # test-electron. Both jobs are in ci-gate's needs, so a failed shard or merge blocks.
+  test-electron-vitest:
+    needs: [changes]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Checkout data repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        continue-on-error: true
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-data
+          path: ai-triad-data
+          fetch-depth: 1
+
+      - name: Symlink data repo to expected location
+        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
+        continue-on-error: true
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        run: |
+          for i in 1 2 3; do
+            pnpm install --frozen-lockfile --side-effects-cache && break
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
+
+      - name: Test shard ${{ matrix.shard }}/3 (coverage collected; thresholds enforced after the merge)
+        working-directory: taxonomy-editor
+        # Tee'd to a log for the DATA-ROOT-TEST-WRITE summary step below (t/4454 Phase 1 parity
+        # with test-powershell). pipefail preserves vitest's own exit code through the pipe
+        # (without it the step would report tee's always-zero status and hide a real failure).
+        # The default reporter keeps the console output (and the DATA-ROOT tokens) in the log;
+        # the blob reporter writes the file test-electron-coverage merges.
+        run: |
+          set -o pipefail
+          pnpm exec vitest run --shard=${{ matrix.shard }}/3 \
+            --reporter=default --reporter=blob \
+            --outputFile.blob="$RUNNER_TEMP/vitest-blobs/blob-${{ matrix.shard }}.json" \
+            --coverage \
+            --coverage.thresholds.statements=0 --coverage.thresholds.branches=0 \
+            --coverage.thresholds.functions=0 --coverage.thresholds.lines=0 \
+            2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
+
+      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
+        # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
+        # never fails the job. dataRootGuard.ts (lib/test-support) only instruments
+        # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
+        # vite.config.ts's `root: 'src/renderer'`). Reported per shard.
+        #
+        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
+        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
+        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
+        #     own runtime signal, not a static grep of config/setup files).
+        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
+        #   - hits -> list them.
+        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
+        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
+        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
+          if [ -f "$LOG" ]; then
+            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
+            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
+          else
+            HITS=()
+            GUARD_INSTALLED=false
+          fi
+          if [ "${#HITS[@]}" -gt 0 ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
+            for line in "${HITS[@]}"; do
+              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::$line"
+            done
+          elif [ "$GUARD_INSTALLED" = true ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): 0 hits" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload shard blob report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: ${{ runner.temp }}/vitest-blobs/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── test-electron-coverage: merge the vitest shards, enforce coverage thresholds ──
+  # Merges test-electron-vitest's blob reports (test results + coverage) and applies
+  # vite.config.ts's coverage thresholds to the whole suite, exactly as the old single
+  # `vitest run --coverage` step did. Refuses to merge unless all 3 shard blobs arrived: a
+  # missing shard would quietly lower coverage and drop its tests from the merged result.
+  test-electron-coverage:
+    needs: [changes, test-electron-vitest]
+    if: >-
+      always() && !cancelled() && needs.test-electron-vitest.result != 'skipped' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        run: |
+          for i in 1 2 3; do
+            pnpm install --frozen-lockfile --side-effects-cache && break
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
+
+      - name: Download shard blob reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: vitest-blob-*
+          path: ${{ runner.temp }}/vitest-blobs
+          merge-multiple: true
+
+      - name: Merge shard reports and enforce coverage thresholds
+        working-directory: taxonomy-editor
+        run: |
+          COUNT=$(find "$RUNNER_TEMP/vitest-blobs" -maxdepth 1 -name 'blob-*.json' | wc -l)
+          if [ "$COUNT" -ne 3 ]; then
+            echo "::error::test-electron-coverage: expected 3 vitest shard blobs, found $COUNT -- a shard failed to produce its report, so merged coverage would be incomplete. See test-electron-vitest."
+            exit 1
+          fi
+          pnpm exec vitest run --merge-reports="$RUNNER_TEMP/vitest-blobs" --coverage
+
   # ── render-smoke: "surface renders styled" gate (t/3026 / t/3059) ──
   # Catches the failure class "a component's CSS lives in a lazy tab-chunk that is NOT
   # loaded on the surface that uses the classes → the surface renders UNSTYLED with no
@@ -982,11 +1222,14 @@ jobs:
   # PASS. If this ever flakes it now blocks electron PRs — DEMOTE first (pull from ci-gate needs),
   # then fix, per gate-signal integrity (a flaky blocking gate is the next incident).
   #
-  # NODE 22 PIN IS LOAD-BEARING (t/3026#10 cond3 / t/3059 Part3): the @playwright/test
-  # runner hangs on Node ≥24.16.0 (yauzl stream-destruction regression; 24.15.0 is the only
-  # non-hanging 24). Pinned @playwright/test 1.60.0 vendors the fix (microsoft/playwright#40747),
-  # and Node 22 is belt-and-suspenders. Do NOT bump this job to Node 24 unless 1.60.0+ is
-  # re-verified green on the runner — a silent hang would wedge a by-then-blocking gate.
+  # NODE PIN HISTORY (t/3026#10 cond3 / t/3059 Part3): the @playwright/test runner hung on
+  # Node ≥24.16.0 (yauzl stream-destruction regression; 24.15.0 was the only non-hanging 24).
+  # Pinned @playwright/test 1.60.0 vendors the fix (microsoft/playwright#40747). t/1990
+  # (2026-10-28) bumps this job to Node 26 alongside the rest of ci.yml, matching the prod
+  # runtime -- this job's own green CI run on this bump IS the re-verification the prior
+  # note called for; if render-smoke hangs/times out here, that is this exact regression
+  # resurfacing on a new major and the bump should be reverted on THIS job specifically
+  # (ci-gate needs it, so a silent hang would wedge a blocking gate).
   #
   # Playwright browser caching (~/.cache/ms-playwright) is now wired (below) via the repo's first
   # SHA-pinned actions/cache — trims the ~1min chromium download now that the gate blocks. (t/3059.)
@@ -994,7 +1237,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1015,9 +1258,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'   # PIN — load-bearing; see header (Playwright runner hangs on Node 24)
+          node-version: '26'   # PIN — load-bearing; see header (Playwright runner hangs on Node 24)
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1095,7 +1338,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1104,9 +1347,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1137,7 +1380,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.verify-config == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.verify-config == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1162,9 +1405,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1181,9 +1424,46 @@ jobs:
             fi
           done
 
-      - name: Install Pester
+      # t/4548: at least 6 open PRs plus main (71ee6b7e) went red for one reason on
+      # 2026-10-26/27 -- Install-Module Pester hit a PowerShell Gallery flake
+      # ("Package 'Pester' failed to download" / "No match was found ... module name
+      # 'Pester'"), and each of the 6 test-powershell shards installed independently
+      # from the Gallery, unpinned and uncached, so one Gallery hiccup reds the whole
+      # matrix. Pin + cache closes that: a warm cache never calls the Gallery at all.
+      - name: Cache Pester module
+        id: pester-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/powershell/Modules/Pester
+          key: pester-${{ env.PESTER_VERSION }}-${{ runner.os }}
+
+      # Retry shape mirrors the pnpm install retry above (t/2975) -- same bounded
+      # 3-attempt, linear-backoff pattern, so a transient Gallery flake on a COLD cache
+      # (first run after a version bump, or a cache eviction) doesn't immediately red
+      # the job. A persistently-unreachable Gallery still fails closed after 3 tries --
+      # retries buy resilience against a flake, never mask a real outage as green.
+      - name: Install Pester (pinned, retried on a cache miss)
+        if: steps.pester-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: Install-Module Pester -Force -Scope CurrentUser
+        run: |
+          $attempt = 0
+          $installed = $false
+          while ($attempt -lt 3 -and -not $installed) {
+            $attempt++
+            try {
+              Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Force -Scope CurrentUser -ErrorAction Stop
+              $installed = $true
+            } catch {
+              if ($attempt -lt 3) {
+                $backoff = $attempt * 15
+                Write-Host "::warning::Install-Module Pester attempt $attempt failed ($($_.Exception.Message)); retrying in ${backoff}s"
+                Start-Sleep -Seconds $backoff
+              } else {
+                Write-Host "::error::Install-Module Pester failed after $attempt attempts: $($_.Exception.Message)"
+                exit 1
+              }
+            }
+          }
 
       # WARN-FIRST (t/4150): continue-on-error sits on the STEP, as on every other warn gate in
       # this file. A red run shows as a failure-level annotation and step outcome=failure while
@@ -1207,7 +1487,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1215,9 +1495,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Static token-contrast check
         run: bash taxonomy-editor/scripts/check-contrast.sh
@@ -1279,7 +1559,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1300,9 +1580,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1352,7 +1632,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1361,9 +1641,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1394,7 +1674,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1403,9 +1683,9 @@ jobs:
         with:
           fetch-depth: 0  # required: script runs `git show origin/<base>:<file>` (t/2808 GV)
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Schema version-bump check — block mode (t/2808)
         run: node lib/brief/schemas/check-version-bump.mjs --mode=block
@@ -1428,6 +1708,30 @@ jobs:
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         run: bash scripts/check-commit-hygiene.sh
+
+  # ── Gate self-health: tier-check / t1-approval-guard predicate suites (t/4266) ──
+  # Moved out of tier-check.yml/t1-approval-guard.yml's own `pull_request_target` jobs: those
+  # jobs now evaluate only main's trusted predicate copy and never execute PR-authored code
+  # under a credentialed token (t/4266, TL p/331#2585). The self-test suites still need to run
+  # on every PR -- they test the PR's OWN predicate changes -- so they run here instead, under
+  # plain `pull_request` with no secrets and no elevated permissions: a PR that breaks its own
+  # predicate's tests fails this job loudly, but never with write access to anything.
+  gate-self-health:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '26'
+
+      - name: tier-check predicate + workflow-extraction suites
+        run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
+
+      - name: t1-approval-guard predicate + workflow-extraction suites
+        run: node --test operations/devops/t1-approval-guard-predicate.test.mjs operations/devops/t1-approval-guard-workflow.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -1454,9 +1758,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1486,7 +1790,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.debate == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.debate == 'true')
     runs-on: ubuntu-latest
     env:
       GEMINI_API_KEY: ${{ secrets.FREE_TIER_GEMINI_KEY }}
@@ -1499,10 +1803,10 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         continue-on-error: true
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Run structural evals (Tier 1)
         continue-on-error: true
@@ -1529,7 +1833,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1552,10 +1856,10 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         continue-on-error: true
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Install dependencies (ajv)
         # Never-flip job — every step must carry continue-on-error (t/1329 lesson).
@@ -1577,7 +1881,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema-drift == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema-drift == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1598,9 +1902,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1649,7 +1953,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.container == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1774,13 +2078,13 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
     env:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -1846,7 +2150,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
     # PYTHONUTF8=1: PEP 540 UTF-8 Mode — forces UTF-8 for stdio AND open() on win32.
     # Recurring 7× on the win32 fleet for non-ASCII (em-dashes, arrows, etc.) — t/2046.
@@ -1855,7 +2159,7 @@ jobs:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -1909,13 +2213,13 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.lockfile-sync == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lockfile-sync == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
       - name: Check lockfile overrides in sync
         run: node .github/scripts/check-lockfile-overrides.mjs
 
@@ -1933,15 +2237,15 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' ||
        needs.changes.outputs.container == 'true' ||
        needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
       - name: Build-path dependency coverage check
         run: node scripts/ci-audit-build-paths.mjs
 
@@ -1958,7 +2262,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.container == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1967,9 +2271,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2042,7 +2346,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.embeddings == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.embeddings == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2051,9 +2355,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2121,6 +2425,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Lint workflow YAML files
         run: python3 .github/ci/workflow-lint.py
+      # t/4567 TL e/392#11: workflow-lint.py's own self-test (the R4 narrow-exemption
+      # cases included) existed but was never invoked here, so it never gated anything.
+      # No `|| true`, no pipe — a non-zero exit from --self-test fails this step directly
+      # (SO e/392#12 caution).
+      - name: Self-test workflow-lint.py
+        run: python3 .github/ci/workflow-lint.py --self-test
       - name: Fault tests for test-electron-matrix-membership.mjs (t/4236)
         run: node --test .github/scripts/test-electron-matrix-membership.test.mjs
 
@@ -2176,9 +2486,9 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2250,7 +2560,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.bicep-env == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-env == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2258,6 +2568,57 @@ jobs:
       - name: Bicep baseEnv ↔ ExpectedEnvVars drift check
         shell: pwsh
         run: ./operations/devops/Test-BicepEnvDrift.ps1
+
+  # ── env-bicep-wiring: every server process.env read is Bicep-wired or allowlisted
+  # (t/4506, Class 5 prevention) ──
+  # bicep-env-drift (above) compares DEPLOYED Bicep vs ExpectedEnvVars; it says
+  # nothing about whether the SERVER CODE reads a var Bicep never provides at all.
+  # That's the t/4504 failure class: #3691 added a process.env.IDENTITY_MAP read,
+  # the Bicep wiring landed separately in #3744, and a deploy shipped the first
+  # without the second. Warn-only (T1) first; promotion to blocking is a separate
+  # T2 with Gate Verification (t/4506's own AC).
+  env-bicep-wiring:
+    needs: [changes]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.env-bicep-wiring == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Server process.env reads wired in Bicep or allowlisted
+        shell: pwsh
+        run: ./operations/devops/Test-EnvBicepWiring.ps1
+
+  # ── code-root-allowlist: code/test files must sit under a root that exists on main
+  # (t/4665 prevention) ──
+  # #4167 added 8 TS files under a stray top-level `src/` that no vite/vitest config,
+  # tsconfig or CI job reads -- nothing built or tested them, and CI still went green.
+  # Unconditional (not path-filtered via `changes`): a file landing under ANY unexpected
+  # top-level name is exactly the shape this catches, so it isn't scoped to one file-type
+  # filter group. Warn-only (T1) first; promotion to blocking is a separate T2 step, per
+  # the ticket's own tier note. fetch-depth:0 -- the check needs origin/main's full tree
+  # (git ls-tree) and a diff against it, not just the PR's own shallow history.
+  code-root-allowlist:
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0
+
+      - name: code-root-allowlist unit tests (t/4665)
+        run: node --test operations/devops/code-root-allowlist-predicate.test.mjs
+
+      - name: Code/test files sit under a root that exists on main (WARN-ONLY, t/4665)
+        env:
+          # Anti-self-narrowing posture (same as tier-check/cl-path-check/ci-shared-input-
+          # coverage): on a pull_request event, pin to the PR's OWN recorded base SHA rather
+          # than re-resolving origin/main live, so a PR can't widen its own allowlist by
+          # racing a concurrent merge to main. Other events (push/merge_group/schedule/
+          # dispatch) leave BASE_SHA unset; the script resolves a fresh origin/main itself.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: node operations/devops/check-code-root-allowlist.mjs
 
   # ── bicep-aca-resources: ACA cpu:memory allowed-pair validation (t/3212) ──
   # Parses cpu:memory pairs from deploy/azure/main.bicep and validates each
@@ -2269,7 +2630,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.bicep-resources == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-resources == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2290,7 +2651,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.citation-link-ci == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.citation-link-ci == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2338,7 +2699,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.powershell == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.powershell == 'true')
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -2410,16 +2771,16 @@ jobs:
       - name: Upload PowerShell budget violations
         if: steps.ps-budget-scripts.outcome == 'failure' || steps.ps-budget-operations.outcome == 'failure'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: complexity-violations-powershell
           path: ${{ runner.temp }}/complexity-reports/
           if-no-files-found: ignore
           retention-days: 3
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Merge-guard predicate tests (WARN-FIRST — t/3871)
         # t/3871: operations/devops/merge-guard-predicate.test.mjs ran in NO workflow, so its tests
@@ -2450,13 +2811,14 @@ jobs:
         continue-on-error: true
         run: node --test operations/devops/precommit-hint-guard-parity.test.mjs
 
-      - name: Scheduled-workflow health verdict + list lint (WARN-FIRST — t/4058)
+      - name: Scheduled-workflow health verdict + list lint (BLOCKING — t/4780, promoted from t/4058)
         # Pure verdict for main-ci-monitor's scheduled-workflow check, plus the LINT that every workflow
         # with `schedule:` is in operations/devops/scheduled-workflows.json (an unlisted one would be
-        # silently unmonitored — the class behind 4 workflows failing unnoticed for up to 6 weeks).
+        # silently unmonitored — the class behind 4 workflows failing unnoticed for up to 6 weeks, and
+        # the exact gap enqueue-sweep.yml fell into, t/4779).
         # The suite carries a population floor (>=15 scheduled workflows) so a broken detector cannot
-        # pass it vacuously. WARN-FIRST: flip by removing continue-on-error (SO + TL GV).
-        continue-on-error: true
+        # pass it vacuously. Promoted to blocking (SO cleared e/413#2, TL GV t/4780) after the warn-only
+        # period from t/4058 and fixing the detector's on:-mapping-parsing gap (t/4780 C2, #4408).
         run: node --test operations/devops/scheduled-workflow-health.test.mjs
 
       - name: Flake-heal tripwire unit suites (WARN-FIRST — t/4085)
@@ -2500,7 +2862,12 @@ jobs:
       (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # t/4796: the serial per-file gh issue file/comment loop ran 64 ops in 5m before this
+    # job was cancelled by the old 5-minute budget — cancellation (not the intentionally
+    # advisory step failure) was what made the overall run conclusion 'cancelled' and broke
+    # Invoke-ContainerBuild.ps1's green-CI check on every recent main push. 15m gives headroom;
+    # batching the loop itself is a follow-up, not this fix.
+    timeout-minutes: 15
     permissions:
       contents: read
       issues: write
@@ -2509,15 +2876,15 @@ jobs:
 
       - name: Download complexity-budget violations
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           pattern: complexity-violations-*
           path: complexity-reports
           merge-multiple: true
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: File or update refactor issues
         continue-on-error: true
@@ -2577,9 +2944,33 @@ jobs:
   # worker↔in-thread equivalence; path-filtered to embeddings changes + the ORT
   # manifest/lockfile, skip = OK. Promoted advisory→required per TL GV t/3240#5 +
   # Second Opinion e/143#2.
+  # ── merge-queue-f4-shim-test (t/4567 SO M3/N2/P2, e/378#2/e/380#2/e/381#2): both the F4
+  # count==position check and the C5 liveness check's lookup-failure path can't be forced
+  # through the real GraphQL/REST APIs live-fire, so they're proven only via shim tests.
+  # Blocking from the start (N2: no continue-on-error, joins ci-gate's needs) -- a
+  # self-check for a fail-closed safety script must never be skippable OR merely advisory.
+  merge-queue-f4-shim-test:
+    needs: [changes]
+    if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Run F4 shim test
+        run: |
+          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh
+          operations/devops/test-get-merge-group-prs-f4.sh
+      - name: Run C5 liveness lookup-failure shim test (SO P2)
+        run: |
+          chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
+          operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
+      - name: Run C5 liveness HEADGREEN head-entry-only shim test (t/4567 arm e, SO/TL)
+        run: |
+          chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-headgreen.sh
+          operations/devops/test-check-merge-queue-liveness-headgreen.sh
+
   ci-gate:
     name: ci-gate
-    needs: [changes, test-powershell, test-electron, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget]
+    needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test, gate-self-health]
     if: always()
     # lint:skipped-tolerated: yes — path-filtered gated jobs gate on needs.changes.outputs.* and
     #   skip by design on PRs that don't touch their subsystem; a skipped need is expected, not a
@@ -2741,3 +3132,73 @@ jobs:
               // tier-check.yml's own clean path.
               await postComment('_ci-shared-input-coverage: clean — no advisory findings._', { createIfAbsent: false });
             } // end run()
+
+  # ── t/4567 C1/C2: merge_group-scoped label guards ──────────────────────────
+  # These jobs report under the SAME required-context names (consult-hold-guard,
+  # joint-gv-guard) that consult-hold-guard.yml/joint-gv-guard.yml report under on
+  # pull_request events. Branch protection matches required contexts by check-run
+  # NAME, not by originating workflow file, so no new required-context entry is
+  # needed -- a merge_group event only triggers THIS workflow's jobs (the standalone
+  # files are pull_request-only), and a pull_request event only triggers the
+  # standalone files. No double-reporting, no collision.
+  #
+  # needs: [ci-gate] is what satisfies the SO's C1 condition (e/374#2 risk 1): on
+  # merge_group, evaluating the label state up front (like the PR-tier guards do)
+  # leaves a ~25min window where a consult-hold applied mid-wait would merge anyway,
+  # because the guard already reported success before the hold existed. Gating on
+  # ci-gate shrinks that window to the few seconds between ci-gate finishing and the
+  # queue's own merge decision.
+  consult-hold-guard:
+    name: consult-hold-guard
+    if: github.event_name == 'merge_group'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Enumerate the group and refuse if any PR carries consult-hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x operations/devops/get-merge-group-prs.sh
+          PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
+            "${{ github.repository }}" \
+            "${{ github.ref }}")
+          echo "group PRs and labels: $PRS_JSON"
+          HELD=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("consult-hold"))] | map(.number) | join(",")')
+          if [ -n "$HELD" ]; then
+            echo "::error::consult-hold-guard (merge_group): PR(s) #${HELD} in this batch carry 'consult-hold' — the batch cannot merge while any member is held. FAILING CLOSED."
+            exit 1
+          fi
+          echo "guard OK — no consult-hold label on any PR in this group."
+
+  joint-gv-guard:
+    name: joint-gv-guard
+    if: github.event_name == 'merge_group'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Enumerate the group and refuse if any PR carries joint-gv
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x operations/devops/get-merge-group-prs.sh
+          PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
+            "${{ github.repository }}" \
+            "${{ github.ref }}")
+          echo "group PRs and labels: $PRS_JSON"
+          # t/4580: joint-gv PRs never enter the queue at all (merged manually after the joint
+          # review) -- so ANY joint-gv label on ANY PR in a group is a fail, unconditionally,
+          # unlike the PR-tier guard which only fails when auto-merge is ALSO armed.
+          JOINT_GV=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("joint-gv"))] | map(.number) | join(",")')
+          if [ -n "$JOINT_GV" ]; then
+            echo "::error::joint-gv-guard (merge_group): PR(s) #${JOINT_GV} in this batch carry 'joint-gv' — joint-gv PRs are merged manually after their joint review, never through the queue. FAILING CLOSED."
+            exit 1
+          fi
+          echo "guard OK — no joint-gv label on any PR in this group."

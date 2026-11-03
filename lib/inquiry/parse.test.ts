@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { parseInquiryResult } from './parse.js';
 import { INQUIRY_SCHEMA_VERSION } from './schema.js';
 import { ActionableError } from '../debate/errors.js';
-import { makeValidResult } from './schema.test.js';
+import { makeValidResult } from './__fixtures__/validResult.js';
 import * as barrel from './index.js';
 
 describe('lib/inquiry barrel (index.ts) — the contract surface five consumers import', () => {

@@ -674,16 +674,25 @@ function OpEdCreateForm(p: CreateFormProps) {
 
 // ── Main dialog ────────────────────────────────────────────────────────────────
 
-export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true }: {
+export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true, initialTopic }: {
   open: boolean;
   onClose: () => void;
   onCreated: (setId: string) => void;
   /** Offer the URL/source create path. Default true (desktop); false on web — v1 topic-only. */
   allowUrlSource?: boolean;
+  /** t/4562: seeds the topic field when a getting-started chip opens this dialog. Only applied
+   *  on open (not on every keystroke) — the dialog stays mounted across opens, so a plain
+   *  `useState` initializer alone wouldn't re-seed on a second open with a different chip. */
+  initialTopic?: string;
 }) {
   // Screen A
   const [fromWebPage, setFromWebPage] = useState(false);
   const [topic, setTopic] = useState('');
+
+  useEffect(() => {
+    if (open && initialTopic) setTopic(initialTopic);
+  }, [open, initialTopic]);
+
   const [url, setUrl] = useState('');
   // Default to all three camps selected (t/2849) — a study is normally the full triad.
   const [voices, setVoices] = useState<Set<PovKey>>(new Set(['accelerationist', 'safetyist', 'skeptic']));

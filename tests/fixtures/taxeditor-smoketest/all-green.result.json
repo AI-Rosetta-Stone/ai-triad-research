@@ -28,12 +28,7 @@
     },
     {
       "Category": "Community",
-      "Pass": 1,
-      "Fail": 0
-    },
-    {
-      "Category": "Core",
-      "Pass": 1,
+      "Pass": 2,
       "Fail": 0
     },
     {

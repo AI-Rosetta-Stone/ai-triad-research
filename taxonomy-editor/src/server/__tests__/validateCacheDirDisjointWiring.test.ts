@@ -22,7 +22,8 @@ describe('t/4300 — server.ts calls validateCacheDirDisjoint() at boot', () => 
   });
 
   it('calls fileIO.validateCacheDirDisjoint() at boot, after validateDataRoot', () => {
-    const validateDataRootIdx = serverSrc.indexOf('await fileIO.validateDataRoot()');
+    // t/4760: validateDataRoot is started (not awaited) before listen, so match the call, not `await`.
+    const validateDataRootIdx = serverSrc.indexOf('fileIO.validateDataRoot()');
     const disjointIdx = serverSrc.indexOf('fileIO.validateCacheDirDisjoint()');
     expect(validateDataRootIdx).toBeGreaterThan(-1);
     expect(disjointIdx).toBeGreaterThan(validateDataRootIdx);

@@ -53,9 +53,17 @@ function Invoke-SmokeHealthPhase {
 
 function Invoke-SmokeEndpointPhase {
     # ── Phase 2: Endpoint smoke tests ────────────────────────────────────
+    # t/4631 regression (deploy-azure.yml run 40985858021, 2026-10-30): this sweep ran with
+    # no session at all, so every Category='Data' row correctly FAILED closed instead of the
+    # old silent PASS-on-interstitial -- but nothing here ever established a session to let
+    # them actually verify data either. -UserType Anonymous matches what CI actually has
+    # (no stored admin/authenticated credentials) and is the same persona the DataPresence
+    # phase already uses to verify this exact data. Other categories' interstitial-PASS
+    # semantics are documented as session-presence-agnostic (Test-TaxEditorEndpoints.ps1,
+    # t/4631 comment), so this does not change their outcomes.
     param([string]$BaseUrl, [int]$TimeoutSec)
     Write-Host '=== Endpoint Tests ===' -ForegroundColor Cyan
-    $Endpoints = @(Test-TaxEditorEndpoints -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec)
+    $Endpoints = @(Test-TaxEditorEndpoints -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec -UserType Anonymous)
     foreach ($Ep in $Endpoints) {
         $Extra = if ($Ep.NodeCount) { " ($($Ep.NodeCount) nodes)" } else { '' }
         Write-SmokeCheckLine -Pass $Ep.Pass -Text "$($Ep.Endpoint) — $($Ep.Status) $($Ep.Ms)ms$Extra" `

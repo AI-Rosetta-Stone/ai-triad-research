@@ -77,7 +77,14 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('operations/
   const repo = process.argv[2] || process.env.GITHUB_REPOSITORY;
   const windowDays = Number(process.argv[3] || 7);
   const gh = (args) => execFileSync('gh', args, { windowsHide: true, encoding: 'utf8', timeout: 60000 });
-  const ghJson = (path) => JSON.parse(gh(['api', path]));
+  const ghJson = (path) => {
+    const response = gh(['api', path]);
+    try {
+      return JSON.parse(response);
+    } catch (e) {
+      throw new Error(`Failed to parse JSON from gh api ${path}: ${e.message} (response: ${response.slice(0, 100)})`);
+    }
+  };
 
   let out;
   try {

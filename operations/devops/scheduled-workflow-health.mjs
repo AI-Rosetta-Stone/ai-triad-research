@@ -68,7 +68,53 @@ export function problemFingerprint(verdicts) {
 
 /** Workflow files whose YAML declares a `schedule:` trigger. `files` = [{name, text}]. */
 export function scheduledWorkflowFiles(files) {
-  return files.filter(f => /^\s*schedule:\s*$/m.test(f.text)).map(f => f.name).sort();
+  return files.filter(f => hasScheduleTrigger(f.text)).map(f => f.name).sort();
+}
+
+/**
+ * t/4780 (SO condition C2): the prior check was `/^\s*schedule:\s*$/m` over the WHOLE file text --
+ * a false positive on any bare `schedule:` line anywhere (e.g. a `workflow_dispatch` input named
+ * `schedule`), and a false negative on flow-style (`schedule: [{cron: "..."}]`, no bare `schedule:`
+ * line at all) -- exactly the silent-miss shape this gate exists to catch. This instead finds the
+ * top-level `on:` key and only matches a `schedule` key that is a DIRECT CHILD of it (same
+ * indentation as `on:`'s other first-level children), in either block or flow-value form.
+ *
+ * t/4784 (SO follow-up to t/4780): also match a quoted key (`"on":` / `'on':`) -- valid YAML some
+ * editors produce, and the exact silent-miss shape this gate exists to catch if left unmatched.
+ */
+const ON_KEY_LINE_RE = /^(?:"on"|'on'|on):(.*)$/;
+
+function hasScheduleTrigger(text) {
+  const lines = text.split(/\r?\n/);
+  const onIdx = lines.findIndex(l => ON_KEY_LINE_RE.test(l));
+  if (onIdx === -1) return false;
+
+  const afterColon = lines[onIdx].match(ON_KEY_LINE_RE)[1].trim();
+  if (afterColon.startsWith('{')) {
+    // Single-line flow mapping: on: { schedule: [...], workflow_dispatch: {} }
+    return /(^|[,{]\s*)schedule\s*:/.test(afterColon);
+  }
+  if (afterColon && !afterColon.startsWith('#')) {
+    // A single bare trigger name (`on: pull_request`) -- cannot contain a schedule key.
+    return false;
+  }
+
+  // Block mapping: the first non-blank, non-comment line after `on:` sets the direct-child
+  // indentation; only a `schedule:` at exactly that indentation counts (a deeper one belongs to
+  // some other key's nested value, e.g. workflow_dispatch.inputs.schedule).
+  let childIndent = null;
+  for (let i = onIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const indent = line.match(/^[ \t]*/)[0].length;
+    if (childIndent === null) {
+      if (indent === 0) return false; // `on:` had no children at all
+      childIndent = indent;
+    }
+    if (indent < childIndent) break; // back out past `on:`'s own block -- done
+    if (indent === childIndent && /^schedule\s*:/.test(line.slice(indent))) return true;
+  }
+  return false;
 }
 
 /**
@@ -77,22 +123,28 @@ export function scheduledWorkflowFiles(files) {
  * every workflow file's triggers on every push regardless of whether that file declares a
  * `push:` trigger itself (environment-branch-policy-check.yml had none, yet got exactly this
  * kind of run). Distinct from a JOB inside the workflow failing, which has jobCount > 0.
- * `runs` = push-event run summaries {conclusion, jobCount, runId}, NEWEST FIRST. PURE: no I/O.
+ * `runs` = run summaries {conclusion, jobCount, runId, event?}, NEWEST FIRST, ANY trigger type
+ * (t/4508: was push-event only -- a workflow whose normal trigger is schedule/workflow_dispatch
+ * can go months without a fresh push-event run, so filtering to push alone kept citing a single
+ * ancient failure as current forever; GitHub rejects a structurally-invalid file identically
+ * regardless of what triggered the run, so the newest run of any kind is equally valid evidence).
+ * PURE: no I/O.
  * @param {object} p
  * @param {string} p.file
- * @param {Array<{conclusion: string|null, jobCount: number, runId?: number}>} p.runs
+ * @param {Array<{conclusion: string|null, jobCount: number, runId?: number, event?: string}>} p.runs
  * @returns {{file: string, invalid: boolean, reason: string, runId?: number}}
  */
 export function invalidWorkflowFileVerdict({ file, runs = [] }) {
   if (!runs.length) {
-    return { file, invalid: false, reason: 'no push-event run on record' };
+    return { file, invalid: false, reason: 'no run on record' };
   }
   const newest = runs[0];
   if (newest.conclusion === 'failure' && newest.jobCount === 0) {
+    const trigger = newest.event ? `${newest.event}-event` : 'a';
     return {
       file,
       invalid: true,
-      reason: `push-event run has 0 jobs and conclusion failure -- GitHub rejected the file structurally, not a job failure`,
+      reason: `${trigger} run has 0 jobs and conclusion failure -- GitHub rejected the file structurally, not a job failure`,
       runId: newest.runId,
     };
   }

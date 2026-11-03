@@ -77,6 +77,20 @@ export function extractTier(body) {
   return m ? `T${m[1]}` : null;
 }
 
+/**
+ * Found via PR #4395: diagnostic only, NEVER used for R1-R4's pass/fail -- those stay strict
+ * to the first-line requirement (root AGENTS.md). Finds a `Tier:` line anywhere in the body,
+ * so the advisory comment can distinguish "no tier declared at all" from "tier declared, just
+ * not on the first line" -- the exact confusion that left a real T1 PR reading as "declared
+ * tier: (none)" with no clue why.
+ */
+const TIER_LINE_ANYWHERE_RE = /^Tier:\s*T([012])\b/m;
+export function extractTierAnywhere(body) {
+  if (!body) return null;
+  const m = TIER_LINE_ANYWHERE_RE.exec(body);
+  return m ? `T${m[1]}` : null;
+}
+
 export function extractSchemaChange(body) {
   if (!body) return null;
   const m = SCHEMA_CHANGE_RE.exec(body);
@@ -240,12 +254,82 @@ export function checkR5(tier, labels) {
   return !(labels ?? []).includes('consult-hold');
 }
 
+// `Approved (PI):` as a COMMENT remains a valid alternative approval path (the PI sometimes
+// approves by comment, t/4266#3) -- but, like t1-approval-guard's own identity limit, this
+// predicate can prove the marker's presence, never who actually wrote it (every agent posts
+// under one shared identity until t/4096's per-agent rollout finishes).
+const PI_COMMENT_APPROVAL_RE = /^Approved \(PI\):/m;
+const SO_DID_NOT_REVIEW_RE = /\bSO did not review\b/i;
+// The SO's real marker (t/4412, t/4266#13 TL review): "**SO clearing comment ..., head `<sha>`.**"
+// -- matched generically (any text before "head", not a fixed ticket/e-mail reference) and
+// REQUIRES the literal current headSha in the body, binding the evidence to the head itself
+// rather than to a timestamp (closes the push-after-clearing gap without relying on clocks).
+const SO_CLEARING_PREFIX_RE = /\bSO clearing comment\b/i;
+
+/**
+ * P2 / R6 (t/4266, TL t/4266#2-4, fixed per t/4266#13): a PR that declares `Tier: T2` or
+ * touches an R1 path needs EITHER the `consult-hold` label OR head-bound clearing evidence --
+ * the gap that let #3380 merge T1-declared on an R1 path with no hold at all. Evidence is
+ * bound to `headSha`, not to time (t/4266#13 fix 2+3: a stale approval edited after a push, or
+ * a loose time window, must not count):
+ *   - a reviewer-App review, `state === 'APPROVED'`, `commitId === headSha`, body starting
+ *     `Approved (Tech Lead):` or `Approved (PI):`, from `reviewerAppLogin` (t/4096#58: T2
+ *     approvals are TL reviewer-App reviews, same identity t1-approval-guard already trusts)
+ *     -- OR a comment starting `Approved (PI):` (no head-binding available for a comment, so
+ *     this alternative alone still needs the SO half below to be head-bound);
+ *   AND
+ *   - a comment containing the SO's own "SO clearing comment" marker with the literal
+ *     `headSha` inside it, OR a comment matching "SO did not review" (createdAt only --
+ *     t/4266#13 fix 3: never `updatedAt`, which would let editing an old comment fake freshness).
+ * Advisory only for now (ships T1, warn-only cycle first, per Gate Promotion Discipline);
+ * folded into `comments` the same way R5 is, never into `pass`, until promoted.
+ * t/4266#15 (TL regression catch): dropping all timestamps broke the TWO comment-based paths
+ * that have no head-binding of their own (`Approved (PI):` and "SO did not review" are plain
+ * prose, not SHA-stamped) -- without a freshness check, any old one of these comments would
+ * clear every future head forever. `lastPushAt` freshness (`created_at >= lastPushAt`) is
+ * restored for exactly those two; the App review (`commitId === headSha`) and the SO clearing
+ * marker (`body.includes(headSha)`) stay head-bound and need no timestamp at all.
+ * @param {boolean} tierOrR1 whether the PR declares Tier: T2 or has an R1 hit
+ * @param {string[]} labels
+ * @param {Array<{body: string, createdAt: string}>} comments issues.listComments shape (created_at only)
+ * @param {Array<{state: string, commitId: string, login: string, body: string}>} reviews pulls.listReviews shape
+ * @param {string} headSha
+ * @param {string} reviewerAppLogin
+ * @param {string|Date} lastPushAt
+ */
+export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAppLogin, lastPushAt) {
+  if (!tierOrR1) return false;
+  if ((labels ?? []).includes('consult-hold')) return false;
+
+  const pushMs = new Date(lastPushAt).getTime();
+  const isFresh = (c) => {
+    const t = new Date(c.createdAt).getTime();
+    return Number.isFinite(t) && Number.isFinite(pushMs) && t >= pushMs;
+  };
+
+  const appApproved = (reviews ?? []).some((r) =>
+    r.state === 'APPROVED' &&
+    r.commitId === headSha &&
+    r.login === reviewerAppLogin &&
+    /^Approved \((Tech Lead|PI)\):/.test(String(r.body ?? '').trim()));
+  const piCommentApproved = (comments ?? []).some((c) => PI_COMMENT_APPROVAL_RE.test(c.body ?? '') && isFresh(c));
+  const approved = appApproved || piCommentApproved;
+
+  const soCleared = (comments ?? []).some((c) => {
+    const body = c.body ?? '';
+    if (SO_DID_NOT_REVIEW_RE.test(body)) return isFresh(c);
+    return SO_CLEARING_PREFIX_RE.test(body) && body.includes(headSha);
+  });
+
+  return !(approved && soCleared);
+}
+
 /**
  * Combine R1-R5 into one verdict. `pass` reflects R1-R4 only (R5 is advisory and never fails
  * the check). `comments` lists human-readable advisory text for any hit, including R5.
  */
 export function evaluateTierCheck(input) {
-  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds } = input;
+  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds, approvalComments, reviews, headSha, reviewerAppLogin, lastPushAt } = input;
   const tier = extractTier(body);
   const schemaChange = extractSchemaChange(body);
   const dependabot = isDependabot(headRefName);
@@ -257,6 +341,12 @@ export function evaluateTierCheck(input) {
   const r3 = checkR3(paths, schemaChange, tier, config);
   const r4 = checkR4(tier, dependabot, prCreatedAt, graceCutoff);
   const r5 = checkR5(tier, labels);
+  // R6 only evaluates when the caller supplies headSha -- callers that don't track PR
+  // comments/reviews/head (e.g. offline replay) simply don't get this advisory, same as R5
+  // being skipped by omitting labels.
+  const r6 = headSha !== undefined
+    ? checkR6(tier === 'T2' || Boolean(r1), labels, approvalComments ?? [], reviews ?? [], headSha, reviewerAppLogin, lastPushAt)
+    : false;
 
   const failures = [];
   if (r1 && tier !== 'T2') failures.push({ rule: 'R1', detail: `touches ${r1}, must declare Tier: T2` });
@@ -265,10 +355,16 @@ export function evaluateTierCheck(input) {
   if (r2c && tier !== 'T2') failures.push({ rule: 'R2c', detail: `raises lint severity to error (${r2c.map((h) => h.path).join(', ')}), must declare Tier: T2` });
   if (r3?.kind === 'missing_line') failures.push({ rule: 'R3', detail: `touches ${r3.path}, needs a Schema-change: additive|breaking line` });
   if (r3?.kind === 'breaking_no_t2') failures.push({ rule: 'R3', detail: `Schema-change: breaking in ${r3.path} must declare Tier: T2` });
-  if (r4) failures.push({ rule: 'R4', detail: 'no Tier: T0|T1|T2 line in the PR body' });
+  if (r4) {
+    const misplaced = extractTierAnywhere(body);
+    failures.push(misplaced
+      ? { rule: 'R4', detail: `Tier: ${misplaced} is declared in the body but not on the first line (required by root AGENTS.md) -- tooling can't find it there; move it to line 1` }
+      : { rule: 'R4', detail: 'no Tier: T0|T1|T2 line in the PR body' });
+  }
 
   const comments = failures.map((f) => `${f.rule}: ${f.detail}`);
   if (r5) comments.push('R5 (advisory): declared Tier: T2 but the consult-hold label is missing');
+  if (r6) comments.push('R6 (advisory, t/4266): T2/R1 change with no consult-hold and no fresh SO+PI clearing evidence for this head');
 
-  return { tier, pass: failures.length === 0, failures, r5Advisory: r5, comments };
+  return { tier, pass: failures.length === 0, failures, r5Advisory: r5, r6Advisory: r6, comments };
 }

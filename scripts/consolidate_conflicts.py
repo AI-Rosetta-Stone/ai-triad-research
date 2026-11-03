@@ -38,6 +38,8 @@ from data_tree_guard import assert_clean_data_tree  # t/2902
 
 import numpy as np
 
+import embed_taxonomy
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _SCRIPT_DIR.parent
 
@@ -348,7 +350,9 @@ def classify_attack_types(consolidated, nli_model):
 
     # NLI classification
     scores = nli_model.predict(pairs)
-    NLI_LABELS = ["entailment", "neutral", "contradiction"]
+    label_order = getattr(nli_model, "_nli_label_order", None)
+    if not label_order:
+        raise ValueError("NLI model missing cached _nli_label_order; was config not read at load time?")
 
     # Undercut heuristics
     UNDERCUT_TERMS = {
@@ -364,7 +368,7 @@ def classify_attack_types(consolidated, nli_model):
 
         row = scores[idx]
         sorted_idx = np.argsort(row)[::-1]
-        best_label = NLI_LABELS[int(sorted_idx[0])]
+        best_label = label_order[int(sorted_idx[0])]
         margin = float(row[sorted_idx[0]]) - float(row[sorted_idx[1]])
 
         # Check for undercut heuristics
@@ -547,9 +551,8 @@ def main():
 
     # Classify attack types
     if not args.skip_nli:
-        from sentence_transformers import CrossEncoder
         _log("  Loading NLI model...")
-        nli_model = CrossEncoder(NLI_MODEL_NAME)
+        nli_model = embed_taxonomy._load_nli_model()
         consolidated = classify_attack_types(consolidated, nli_model)
     else:
         _log("  Skipping NLI (--skip-nli)")

@@ -2,12 +2,15 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { ReactElement } from 'react';
 import {
   debatePhaseToStatusToken,
   debateSafeTitle,
   debateSecondaryLine,
   filterDebateRows,
   formatDebateDate,
+  renderDebateStatus,
   DEBATE_COLUMNS,
 } from './debateLibraryConfig';
 import type { SessionRowData } from './debateSessionTypes';
@@ -63,9 +66,14 @@ describe('filterDebateRows', () => {
 });
 
 describe('debateSecondaryLine', () => {
-  it('returns null on the My tab (no second-line rule for Debates)', () => {
+  it('returns null on the My tab for an ordinary (non-inquiry) row', () => {
     const row = { id: '1', title: 't', created_at: '', updated_at: '', phase: 'closed' } as SessionRowData;
     expect(debateSecondaryLine(row, 'my')).toBeNull();
+  });
+
+  it('returns "From Ask a Question" on the My tab for an inquiry row (t/4678/t/4683)', () => {
+    const row = { id: '1', title: 't', created_at: '', updated_at: '', phase: 'closed', origin_mode: 'inquiry' } as SessionRowData;
+    expect(debateSecondaryLine(row, 'my')).toBe('From Ask a Question');
   });
 
   it('returns "by <author>" on the Community tab when metadata is present', () => {
@@ -79,6 +87,29 @@ describe('debateSecondaryLine', () => {
   it('returns null on Community when metadata is absent', () => {
     const cd = { id: '1', title: 't', created_at: '', updated_at: '' } as CommunityDebate;
     expect(debateSecondaryLine(cd, 'community')).toBeNull();
+  });
+});
+
+describe('renderDebateStatus', () => {
+  it('includes the "Question" pill for an inquiry row, before the status pill (t/4683)', () => {
+    const row = { id: '1', title: 't', created_at: '', updated_at: '', phase: 'closed', origin_mode: 'inquiry' } as SessionRowData;
+    const markup = renderToStaticMarkup(renderDebateStatus(row) as ReactElement);
+    expect(markup).toContain('debate-lib-question-badge');
+    expect(markup).toContain('Question');
+    expect(markup.indexOf('debate-lib-question-badge')).toBeLessThan(markup.indexOf('debate-lib-status--closed'));
+  });
+
+  it('omits the pill for an ordinary row', () => {
+    const row = { id: '1', title: 't', created_at: '', updated_at: '', phase: 'closed' } as SessionRowData;
+    const markup = renderToStaticMarkup(renderDebateStatus(row) as ReactElement);
+    expect(markup).not.toContain('debate-lib-question-badge');
+  });
+
+  it('still shows the pill when phase is unmapped (no status token)', () => {
+    const row = { id: '1', title: 't', created_at: '', updated_at: '', phase: 'some-future-phase', origin_mode: 'inquiry' } as SessionRowData;
+    const markup = renderToStaticMarkup(renderDebateStatus(row) as ReactElement);
+    expect(markup).toContain('debate-lib-question-badge');
+    expect(markup).toContain('lib-empty-value');
   });
 });
 

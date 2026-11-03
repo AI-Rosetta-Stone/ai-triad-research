@@ -2,7 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { computeCanonicalDocIds, normalizeTitleForCanonicalId, normalizeUrlForCanonicalId } from './types.js';
+import {
+  computeCanonicalDocIds, normalizeTitleForCanonicalId, normalizeUrlForCanonicalId,
+  resolveRefsThroughDuplicateOf, type ScopedDocLookup,
+} from './types.js';
 
 // t/4344 superseded the full canonical-grouping algorithm (content hash,
 // parentDocId/sameAs links, confidence-gated URL trust, the conditional
@@ -118,5 +121,109 @@ describe('normalizeUrlForCanonicalId', () => {
       .not.toBe(normalizeUrlForCanonicalId('https://youtube.com/watch?v=abcdef'));
     expect(normalizeUrlForCanonicalId('https://YouTube.com/watch?v=AbCdEf'))
       .toBe(normalizeUrlForCanonicalId('https://youtube.com/watch?v=AbCdEf'));
+  });
+});
+
+// t/4527: scoped one-hop duplicate_of resolution over a caller-supplied ref
+// list (ServerAPI's entity source_refs, ElectronMain's desktop equivalent),
+// not the whole corpus grouping groupSourceIdentities does. Reuses the exact
+// spec 6.1 checks 1-3 (self/missing_target/chain) classifyMarks implements —
+// several cases below are the same documents as duplicate_of_cases in
+// sourceIdentityFixture.test.ts (section 6.1-6.3 only; `conflict`, check 4,
+// needs group-level canonical knowledge this scoped function doesn't have).
+describe('resolveRefsThroughDuplicateOf (t/4527)', () => {
+  it('a valid mark resolves to its target', () => {
+    const corpus: Record<string, ScopedDocLookup> = {
+      'zeta-copy-2026': { duplicate_of: 'zeta-report-2026' },
+      'zeta-report-2026': {},
+    };
+    const lookup = (id: string) => corpus[id];
+    expect(resolveRefsThroughDuplicateOf(['zeta-copy-2026'], lookup)).toEqual(['zeta-report-2026']);
+  });
+
+  it('an unmarked ref resolves to itself', () => {
+    const corpus: Record<string, ScopedDocLookup> = { 'chi-2026-2': {} };
+    expect(resolveRefsThroughDuplicateOf(['chi-2026-2'], (id) => corpus[id])).toEqual(['chi-2026-2']);
+  });
+
+  it('a self mark is invalid: left as-is, not thrown', () => {
+    const corpus: Record<string, ScopedDocLookup> = { 'narcissus-2026': { duplicate_of: 'narcissus-2026' } };
+    expect(resolveRefsThroughDuplicateOf(['narcissus-2026'], (id) => corpus[id])).toEqual(['narcissus-2026']);
+  });
+
+  it('an empty-string mark is the same as absent', () => {
+    const corpus: Record<string, ScopedDocLookup> = { 'blank-mark-2026': { duplicate_of: '' } };
+    expect(resolveRefsThroughDuplicateOf(['blank-mark-2026'], (id) => corpus[id])).toEqual(['blank-mark-2026']);
+  });
+
+  it('a target genuinely absent from the whole corpus is missing_target: left as-is', () => {
+    const corpus: Record<string, ScopedDocLookup> = { 'lone-copy-2026': { duplicate_of: 'not-in-set' } };
+    expect(resolveRefsThroughDuplicateOf(['lone-copy-2026'], (id) => corpus[id])).toEqual(['lone-copy-2026']);
+  });
+
+  it('a chain (target itself marked) is not followed — one hop only, left as-is', () => {
+    const corpus: Record<string, ScopedDocLookup> = {
+      'chain-a-2026': { duplicate_of: 'chain-b-2026' },
+      'chain-b-2026': { duplicate_of: 'chain-c-2026' },
+      'chain-c-2026': {},
+    };
+    const lookup = (id: string) => corpus[id];
+    expect(resolveRefsThroughDuplicateOf(['chain-a-2026'], lookup)).toEqual(['chain-a-2026']);
+    // the one-hop target itself still resolves correctly when asked for directly
+    expect(resolveRefsThroughDuplicateOf(['chain-b-2026'], lookup)).toEqual(['chain-c-2026']);
+  });
+
+  it('a two-document cycle: both sides are chain errors, both left as-is', () => {
+    const corpus: Record<string, ScopedDocLookup> = {
+      'loop-a-2026': { duplicate_of: 'loop-b-2026' },
+      'loop-b-2026': { duplicate_of: 'loop-a-2026' },
+    };
+    const lookup = (id: string) => corpus[id];
+    expect(resolveRefsThroughDuplicateOf(['loop-a-2026', 'loop-b-2026'], lookup)).toEqual(['loop-a-2026', 'loop-b-2026']);
+  });
+
+  it("the nodeSourceIndex.ts pitfall: a valid target OUTSIDE the caller's own ref list still resolves — lookup, not refs, defines \"known\"", () => {
+    // 'zeta-report-2026' is never in `refs`; only `lookup` (standing in for the full corpus) knows it.
+    const corpus: Record<string, ScopedDocLookup> = {
+      'zeta-copy-2026': { duplicate_of: 'zeta-report-2026' },
+      'zeta-report-2026': {},
+    };
+    const refs = ['zeta-copy-2026']; // the entity's own source_refs — does NOT include the target
+    expect(resolveRefsThroughDuplicateOf(refs, (id) => corpus[id])).toEqual(['zeta-report-2026']);
+  });
+
+  it('a lookup scoped only to the ref list (the mistake this function exists to prevent) would wrongly flag missing_target', () => {
+    const corpus: Record<string, ScopedDocLookup> = {
+      'zeta-copy-2026': { duplicate_of: 'zeta-report-2026' },
+      'zeta-report-2026': {},
+    };
+    const refs = ['zeta-copy-2026'];
+    const refsOnlyLookup = (id: string) => (refs.includes(id) ? corpus[id] : undefined); // the WRONG way
+    expect(resolveRefsThroughDuplicateOf(refs, refsOnlyLookup)).toEqual(['zeta-copy-2026']); // misclassified
+  });
+
+  it('dedupes a canonical and its copy in the same ref list down to one entry, preserving first-seen order', () => {
+    const corpus: Record<string, ScopedDocLookup> = {
+      'omega-2026': {},
+      'aaa-mirror-2026': { duplicate_of: 'omega-2026' },
+    };
+    const lookup = (id: string) => corpus[id];
+    expect(resolveRefsThroughDuplicateOf(['aaa-mirror-2026', 'omega-2026'], lookup)).toEqual(['omega-2026']);
+    expect(resolveRefsThroughDuplicateOf(['omega-2026', 'aaa-mirror-2026'], lookup)).toEqual(['omega-2026']);
+  });
+
+  it('preserves input order for refs that resolve to distinct ids, and dedupes repeats anywhere in the list', () => {
+    const corpus: Record<string, ScopedDocLookup> = {
+      'b-2026': {},
+      'a-copy-2026': { duplicate_of: 'a-2026' },
+      'a-2026': {},
+    };
+    const lookup = (id: string) => corpus[id];
+    expect(resolveRefsThroughDuplicateOf(['b-2026', 'a-copy-2026', 'b-2026', 'a-2026'], lookup))
+      .toEqual(['b-2026', 'a-2026']);
+  });
+
+  it('an empty ref list resolves to an empty list', () => {
+    expect(resolveRefsThroughDuplicateOf([], () => undefined)).toEqual([]);
   });
 });

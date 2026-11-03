@@ -29,7 +29,18 @@
 
 /* ─── Tab Content ──────────────────────────────────────── */
 
+/* t/4640: stacks the LocationBar over .tab-content; takes .tab-content's old place in .app-body. */
+.tab-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tab-column > .location-bar-host { flex-shrink: 0; }
+
 .tab-content {
+  min-height: 0;
   flex: 1;
   overflow: hidden;
   display: flex;

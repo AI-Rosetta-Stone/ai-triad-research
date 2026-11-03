@@ -93,9 +93,11 @@ function Update-Snapshot {
             }
             { $_ -in '.htm', '.html' } {
                 $MidMd = ConvertFrom-MarkItDown -FilePath $FilePath
-                if ($MidMd) { return $MidMd }
+                # markitdown renders blog-chrome widgets as plain markdown instead of dropping
+                # them (ConvertFrom-Html's own tag-level strip only fires on real HTML), t/4564.
+                if ($MidMd) { return (Remove-BlogChromeTail -Markdown $MidMd) }
                 $Raw = Get-Content $FilePath -Raw -Encoding UTF8
-                return ConvertFrom-Html -Html $Raw
+                return (Remove-BlogChromeTail -Markdown (ConvertFrom-Html -Html $Raw))
             }
             { $_ -in '.pptx', '.ppt', '.xlsx', '.xls', '.csv', '.epub' } {
                 return ConvertFrom-Office -FilePath $FilePath

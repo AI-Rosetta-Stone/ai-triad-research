@@ -197,6 +197,50 @@ function ConvertFrom-Html {
     return $Md
 }
 
+<#
+.SYNOPSIS
+    Truncates converted markdown at the first blog-footer-widget marker (t/4564).
+.DESCRIPTION
+    ConvertFrom-Html's tag-level strip (<aside>/<nav>/<footer>/<figure>) only works
+    when the chrome is still real HTML. markitdown (ConvertFrom-MarkItDown, used for
+    local .html ingestion) renders unknown blocks -- share buttons, a related-posts
+    widget, comment forms, "Subscribe"/"Search" sidebar widgets, embedded-video
+    galleries -- as plain markdown instead of dropping them, so they survive into
+    snapshot.md and get read as article content (t/4564: 4 sidebar-caption/
+    archive-link key_points extracted from one blog post).
+    Fix is a markdown-level cut, not another HTML-level strip: once the article body
+    ends, Jetpack-style WordPress themes emit a fixed, highly regular footer sequence
+    ("Share this:" -> like/related/post-nav/comments/sidebar widgets) with no reliable
+    way to tell "legitimate Related Work section" from "WordPress related-posts widget"
+    except that the widget sequence always starts at one of these markers. Everything
+    from the EARLIEST matching marker onward is cut; text before it is untouched.
+    Markers are matched case-insensitively anywhere in the text (not anchored to line
+    start -- markitdown's own indentation of these headings is irregular), so this is
+    deliberately conservative: a false negative (chrome survives) costs what t/4564
+    already costs; a false positive (real content cut) would be worse, so the marker
+    list stays narrow to phrases that are WordPress plugin boilerplate, never
+    legitimate article prose.
+#>
+function Remove-BlogChromeTail {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Markdown)
+    # Jetpack Sharedaddy ("Share this:"), its "Post navigation" / "Leave a Reply"
+    # footer, and the Jetpack subscribe-by-email widget heading -- in practice the
+    # earliest of these always precedes every other widget (related posts, search,
+    # archive/recent-posts lists, tag clouds, embedded-video sidebars) on the same page.
+    $Markers = 'Share this:', 'Post navigation', 'Leave a Reply', 'Subscribe to Blog Notice'
+    $CutAt = -1
+    foreach ($Marker in $Markers) {
+        $Idx = $Markdown.IndexOf($Marker, [System.StringComparison]::OrdinalIgnoreCase)
+        if ($Idx -ge 0 -and ($CutAt -lt 0 -or $Idx -lt $CutAt)) { $CutAt = $Idx }
+    }
+    if ($CutAt -lt 0) { return $Markdown }
+    # Back up to the start of the marker's own line, so a heading's leading '#'s
+    # (and the bullet/indent markitdown sometimes wraps it in) are cut too, not left
+    # dangling as an empty heading.
+    $LineStart = $Markdown.LastIndexOf("`n", [Math]::Max($CutAt - 1, 0)) + 1
+    return $Markdown.Substring(0, $LineStart).TrimEnd()
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Extract the <title> and a best-effort author from raw HTML
 # ─────────────────────────────────────────────────────────────────────────────
@@ -464,4 +508,4 @@ function ConvertFrom-Office {
     return "# CONVERSION FAILED`n`nSource: $FilePath`n`nInstall markitdown ('pip install markitdown[all]') and re-run Import-AITriadDocument -File '$FilePath'."
 }
 
-Export-ModuleMember -Function ConvertFrom-Html, Get-HtmlMeta, ConvertFrom-Pdf, ConvertFrom-Docx, ConvertFrom-Office, ConvertFrom-MarkItDown, Test-ExternalTool
+Export-ModuleMember -Function ConvertFrom-Html, Get-HtmlMeta, ConvertFrom-Pdf, ConvertFrom-Docx, ConvertFrom-Office, ConvertFrom-MarkItDown, Test-ExternalTool, Remove-BlogChromeTail

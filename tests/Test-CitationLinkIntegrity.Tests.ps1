@@ -79,8 +79,14 @@ BeforeAll {
         script:WriteJson (Join-Path $src 'src-gamma-2026-1/metadata.json')   @{ id='src-gamma-2026-1';   title='Gamma (chunk dir exists)' } # doc_id src-gamma-2026-1 resolves as-is
 
         # Build the real source_index so the header inputHash is correct for leg (c).
+        # -SourcesDir MUST be the fixture's isolated $src, never omitted: without it,
+        # Build-NodeSourceIndex falls back to Get-SourcesDir (the real ai-triad-sources
+        # checkout), so marksHash gets computed against whatever duplicate_of marks the
+        # LIVE production corpus happens to carry (184 today) instead of this fixture's
+        # zero marks — a real, non-deterministic mismatch against leg (c)'s recomputed
+        # hash, not a bug in Get-SourceMarksHash itself (t/4503).
         $idxPath = Join-Path $tax 'source_index.json'
-        Build-NodeSourceIndex -SummariesDir $sum -TaxonomyDir $tax -OutputPath $idxPath | Out-Null
+        Build-NodeSourceIndex -SummariesDir $sum -TaxonomyDir $tax -SourcesDir $src -OutputPath $idxPath | Out-Null
 
         [pscustomobject]@{ Fx=$fx; Tax=$tax; Sum=$sum; Src=$src; Index=$idxPath }
     }

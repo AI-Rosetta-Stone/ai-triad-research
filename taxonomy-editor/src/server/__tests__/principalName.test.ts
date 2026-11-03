@@ -12,7 +12,7 @@ vi.mock('../logger.js', async (importOriginal) => {
   return { ...orig, log: { ...orig.log, security: { ...orig.log.security, warn: warnMock } } };
 });
 
-import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, _resetPrincipalNameForTest } from '../principalName.js';
+import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, getIdentityMapKey, getRequestStableId, _resetPrincipalNameForTest } from '../principalName.js';
 import { deriveStorageUserId } from '../security/userContext.js';
 import { isAdmin } from '../community/community.js';
 
@@ -65,18 +65,35 @@ function aadReq(opts: { tid?: string; oid?: string; name?: string; email?: strin
 
 let prevMap: string | undefined;
 let prevAdmins: string | undefined;
+let prevContainerAppName: string | undefined;
+let prevAiTriadEnv: string | undefined;
+let prevClaimShapeDiagEmail: string | undefined;
 beforeEach(() => {
   prevMap = process.env.IDENTITY_MAP;
   prevAdmins = process.env.ADMIN_USERS;
+  prevContainerAppName = process.env.CONTAINER_APP_NAME;
+  prevAiTriadEnv = process.env.AI_TRIAD_ENV;
+  prevClaimShapeDiagEmail = process.env.CLAIM_SHAPE_DIAG_EMAIL;
   process.env.ADMIN_USERS = 'jpsnover,jsnover13-at-gmail-com';
   delete process.env.IDENTITY_MAP;
+  delete process.env.CONTAINER_APP_NAME;
+  delete process.env.AI_TRIAD_ENV;
+  delete process.env.CLAIM_SHAPE_DIAG_EMAIL;
   warnMock.mockClear();
   _resetPrincipalNameForTest();
 });
 afterEach(() => {
   if (prevMap === undefined) delete process.env.IDENTITY_MAP; else process.env.IDENTITY_MAP = prevMap;
   if (prevAdmins === undefined) delete process.env.ADMIN_USERS; else process.env.ADMIN_USERS = prevAdmins;
+  if (prevContainerAppName === undefined) delete process.env.CONTAINER_APP_NAME; else process.env.CONTAINER_APP_NAME = prevContainerAppName;
+  if (prevAiTriadEnv === undefined) delete process.env.AI_TRIAD_ENV; else process.env.AI_TRIAD_ENV = prevAiTriadEnv;
+  if (prevClaimShapeDiagEmail === undefined) delete process.env.CLAIM_SHAPE_DIAG_EMAIL; else process.env.CLAIM_SHAPE_DIAG_EMAIL = prevClaimShapeDiagEmail;
 });
+
+/** Sets the two env vars that make isStagingIdentity() true, for the diagnostic's gate tests. */
+function enableStaging(): void {
+  process.env.CONTAINER_APP_NAME = 'taxonomy-editor-staging';
+}
 
 describe('GitHub identity keys on the stable provider id', () => {
   it.each([
@@ -266,6 +283,43 @@ describe('canProducePrincipal (t/4505): round-trips with what normalizePrincipal
   });
 });
 
+describe('getIdentityMapKey (t/4540): the per-request IDENTITY_MAP hit, for checkProviderBinding', () => {
+  it('AC1: set to the exact map key when this request\'s own (idp, stable id) resolved via IDENTITY_MAP', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jpsnover';
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getIdentityMapKey(r)).toBe('aad:tenant-1-obj-1');
+  });
+
+  it('unset for a self-produced name (no map entry) — AC2 regression path', () => {
+    const r = aadReq({ tid: 'tenant-2', oid: 'obj-2', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getIdentityMapKey(r)).toBeUndefined();
+  });
+
+  it('AC3: a DIFFERENT stable id\'s map entry never leaks into this request\'s key, even with both present in IDENTITY_MAP', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jpsnover, github:999=someone-else';
+    const mapped = aadReq({ tid: 'tenant-1', oid: 'obj-1', nameHeader: 'x' });
+    const unmapped = aadReq({ tid: 'tenant-9', oid: 'obj-9', nameHeader: 'x' }); // no entry for this id
+    normalizePrincipalNameHeader(mapped, true);
+    normalizePrincipalNameHeader(unmapped, true);
+    expect(getIdentityMapKey(mapped)).toBe('aad:tenant-1-obj-1');
+    expect(getIdentityMapKey(unmapped)).toBeUndefined(); // the OTHER entries don't unlock this request
+  });
+
+  it('C1: azureAuthEnabled=false — a forged x-ms-client-principal*/-idp pair that WOULD map produces no key', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jpsnover';
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', nameHeader: 'forged' });
+    normalizePrincipalNameHeader(r, false); // Easy Auth disabled — the whole function no-ops
+    expect(getIdentityMapKey(r)).toBeUndefined();
+  });
+
+  it('no key for a request that never went through canonicalization at all (fresh object)', () => {
+    const r = { headers: {} } as unknown as IncomingMessage;
+    expect(getIdentityMapKey(r)).toBeUndefined();
+  });
+});
+
 describe('other idps and no-ops', () => {
   it('Google: the provider-verified name is kept unchanged', () => {
     const r = { headers: {
@@ -330,5 +384,204 @@ describe('unreviewed idp WARN (t/4326 follow-up, p/822#3)', () => {
     const r = { headers: { 'x-ms-client-principal-idp': 'okta', 'x-ms-client-principal-name': 'x' } } as unknown as IncomingMessage;
     normalizePrincipalNameHeader(r, true);
     expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback' && (fields as Record<string, unknown>).idp === 'okta')).toBe(true);
+  });
+});
+
+function googleDiagReq(claims: Array<[string, string]>, name = 'user@gmail.com'): IncomingMessage {
+  return { headers: {
+    'x-ms-client-principal-name': name, 'x-ms-client-principal-idp': 'google',
+    'x-ms-client-principal': principal(claims, 'google'),
+  } } as unknown as IncomingMessage;
+}
+
+function diagCall(): [Record<string, unknown>, string] | undefined {
+  return warnMock.mock.calls.find(([fields]) => 'hasStableIdClaim' in (fields as Record<string, unknown>)) as [Record<string, unknown>, string] | undefined;
+}
+
+describe('Google claim-shape diagnostic (TEMPORARY, staging-only, single-account-gated — t/4436)', () => {
+  const TEST_EMAIL = 'jsnover2025@gmail.com';
+
+  it('off by default, even on staging: no diagnostic WARN for any sign-in', () => {
+    enableStaging();
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('off on prod even with the gate email set — isStagingIdentity() is the hard gate', () => {
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    // deliberately NOT calling enableStaging() — this simulates prod with the var mistakenly set
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('on staging, gated email set: a DIFFERENT user\'s sign-in is completely untouched', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-999'], [EMAIL, 'someone-else@gmail.com']], 'someone-else@gmail.com'), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('on staging, the gated account signs in: captures claim types, presence, hasStableIdClaim, stableIdDistinctFromEmail — never values', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123-distinct'], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    const call = diagCall();
+    expect(call).toBeDefined();
+    const [fields, message] = call!;
+    expect(fields).toMatchObject({
+      idp: 'google', claimTypes: [EMAIL, NAMEID].sort(), decodedOk: true,
+      hasStableIdClaim: true, stableIdDistinctFromEmail: true,
+    });
+    // The core requirement (TL p/602#31 cond. 2, p/832#3): no claim value — including the
+    // gate email itself — ever appears in the log line.
+    const serialized = JSON.stringify(fields) + message;
+    expect(serialized).not.toContain('sub-123-distinct');
+    expect(serialized).not.toContain(TEST_EMAIL);
+  });
+
+  it('stableIdDistinctFromEmail is false when the nameidentifier claim IS the email (not a real stable id)', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, TEST_EMAIL], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()?.[0]).toMatchObject({ hasStableIdClaim: true, stableIdDistinctFromEmail: false });
+  });
+
+  it('hasStableIdClaim (and stableIdDistinctFromEmail) are false with no nameidentifier claim at all', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()?.[0]).toMatchObject({ hasStableIdClaim: false, stableIdDistinctFromEmail: false });
+  });
+
+  it('matches case-insensitively (email headers are not guaranteed to preserve case)', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL.toUpperCase();
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()).toBeDefined();
+  });
+
+  it('fires once per process even across multiple sign-ins by the gated account', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(warnMock.mock.calls.filter(([fields]) => 'hasStableIdClaim' in (fields as Record<string, unknown>)).length).toBe(1);
+  });
+
+  it('never fires for non-google idps', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(githubReq({ id: '1', nameHeader: 'x' }), true);
+    expect(diagCall()).toBeUndefined();
+  });
+});
+
+describe('getRequestStableId: t/4706', () => {
+  it('GitHub: extracts stable id from the nameidentifier claim', () => {
+    const r = githubReq({ id: '12345' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345');
+  });
+
+  it('GitHub: falls back to x-ms-client-principal-id when no nameidentifier claim', () => {
+    const r = githubReq({ headerId: '67890', displayName: 'octocat' }); // no id claim
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:67890');
+  });
+
+  it('GitHub: claim takes precedence over header when both present', () => {
+    const r = githubReq({ id: '12345', headerId: '67890' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345');
+  });
+
+  it('GitHub: lowercase the stable id', () => {
+    const r = githubReq({ id: 'MIXED_Case_123' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:mixed_case_123');
+  });
+
+  it('GitHub: undefined when no stable id at all (anonymous)', () => {
+    const r = githubReq({ displayName: 'octocat', nameHeader: 'x' }); // no id or headerId
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('AAD: extracts stable id from tid+oid claims', () => {
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('aad:tenant-1-obj-1');
+  });
+
+  it('AAD: undefined when tid is missing', () => {
+    const r = aadReq({ oid: 'obj-1', email: 'user@example.com' }); // no tid
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('AAD: undefined when oid is missing', () => {
+    const r = aadReq({ tid: 'tenant-1', email: 'user@example.com' }); // no oid
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('AAD: lowercase the stable id', () => {
+    const r = aadReq({ tid: 'TENANT-1', oid: 'OBJ-1' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('aad:tenant-1-obj-1');
+  });
+
+  it('AAD: invalid charset → undefined', () => {
+    const r = aadReq({ tid: 'tenant\x00', oid: 'obj-1' }); // null byte fails charset check
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('Google (non-GitHub/non-AAD): undefined (no canonicalizeGoogle yet)', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'user@gmail.com', 'x-ms-client-principal-idp': 'google',
+      'x-ms-client-principal': principal([[NAMEID, 'g-1']], 'google'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('other unknown idp: undefined', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'user@example.com', 'x-ms-client-principal-idp': 'okta',
+      'x-ms-client-principal': principal([[EMAIL, 'user@example.com']], 'okta'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('anonymous request: undefined', () => {
+    const r = { headers: {} } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('matches IDENTITY_MAP key when mapped', () => {
+    process.env.IDENTITY_MAP = 'github:12345=jpsnover';
+    const r = githubReq({ id: '12345' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345');
+    expect(getIdentityMapKey(r)).toBe('github:12345'); // both refer to the same key
+  });
+
+  it('recorded even when IDENTITY_MAP has no entry for this id', () => {
+    process.env.IDENTITY_MAP = 'github:999=someone-else';
+    const r = githubReq({ id: '12345' }); // no entry for 12345
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345'); // still recorded
+    expect(getIdentityMapKey(r)).toBeUndefined(); // but no map entry
+  });
+
+  it('forged x-ms-client-principal-name (or -id) header does not change stableId', () => {
+    // Attacker forges the name header to a different value while keeping the claim unchanged.
+    // stableId must come from the claim, not the header, so the forge has no effect.
+    const r = githubReq({ id: '12345', nameHeader: 'forged-name' }); // claim id=12345, forged name header
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345'); // stableId is from claim, not forged header
   });
 });

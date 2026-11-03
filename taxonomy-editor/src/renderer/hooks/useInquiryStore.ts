@@ -24,6 +24,10 @@ const POLL_CEILING_MS = 60 * 60_000; // 1 hour — comfortably above Deep fideli
 
 export type InquiryScreen = 'ask' | 'running' | 'answer' | 'list';
 
+/** t/4667 (Design, p/29#187): the store's own default, so the Options change-badge compares
+ *  against this instead of a hard-coded guess. */
+export const DEFAULT_FIDELITY: Fidelity = 'standard';
+
 interface InquiryStoreState {
   question: string;
   fidelity: Fidelity;
@@ -37,6 +41,9 @@ interface InquiryStoreState {
   jobId: string | null;
   status: InquiryJobStatus | null;
   progressPct: number;
+  /** t/4714: a short human line for the currently-running stage (e.g. "Round 2 of 4 · Skeptic
+   *  responding"). Null when the server/Electron build omits it, or the stage has none. */
+  stageDetail: string | null;
   terminationReason: string | null;
   /** Job-level failure (status === 'failed') — distinct from pollError (TL point 3: poll-error ≠
    *  job-failed). A transient network blip while polling must not read as "the inquiry failed". */
@@ -75,6 +82,11 @@ interface InquiryStoreState {
   fetchHistory: () => Promise<void>;
   /** Opens a past question from history directly onto the Answer screen (t/3620). */
   openFromHistory: (jobId: string) => Promise<void>;
+  /** t/4562: opens a community question directly onto the Answer screen — mirrors
+   *  openFromHistory, but loads the full result from the community store rather than the
+   *  caller's own history. jobId stays null (not the caller's own run), which naturally hides
+   *  the Share-link control (My-only) without a separate "community source" flag. */
+  openCommunityResult: (id: string) => Promise<void>;
 
   /** Internal — exposed for the unmount-cleanup effect in InquiryTab.tsx. */
   _stopPolling: () => void;
@@ -97,6 +109,19 @@ function computeBackoffDelay(failures: number): number {
   return failures === 0
     ? POLL_INTERVAL_MS
     : Math.min(POLL_INTERVAL_MS * 2 ** failures, MAX_POLL_BACKOFF_MS);
+}
+
+/** The store fields a status response sets — shared by poll() and openFromHistory(). An absent
+ *  `stageDetail` (an older server/Electron build) reads as null (t/4714 AC4). */
+function statusFields(view: InquiryStatusResponse) {
+  return {
+    status: view.status,
+    progressPct: view.progressPct,
+    stageDetail: view.stageDetail ?? null,
+    terminationReason: view.terminationReason,
+    error: view.status === 'failed' ? view.error : null,
+    result: view.result ?? null,
+  };
 }
 
 export const useInquiryStore = create<InquiryStoreState>((set, get) => {
@@ -169,11 +194,11 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
     consecutivePollFailures = 0;
     set({
-      status: view.status,
-      progressPct: view.progressPct,
-      terminationReason: view.terminationReason,
-      error: view.status === 'failed' ? view.error : null,
-      result: view.result ?? null,
+      ...statusFields(view),
+      // t/4714: defensive clamp — the lib-side mapping is monotonic by contract, but an
+      // out-of-order poll response (retry landing after a newer one) must never visually move
+      // the bar backwards.
+      progressPct: Math.max(get().progressPct, view.progressPct),
       pollError: null,
     });
 
@@ -186,19 +211,24 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
   return {
     question: '',
-    fidelity: 'standard',
+    fidelity: DEFAULT_FIDELITY,
     debaterModel: undefined,
     evaluatorModel: undefined,
     tagSelection: undefined,
     jobId: null,
     status: null,
     progressPct: 0,
+    stageDetail: null,
     terminationReason: null,
     error: null,
     pollError: null,
     result: null,
 
-    viewingList: false,
+    // t/4562: the library page (My/Community) is now the tab's default landing view, matching
+    // Op-Eds/Chats/Debates — true rather than false. A fresh startInquiry()/openFromHistory()
+    // flips this to false explicitly; reset() returns here too ("Ask another question"/"+ New
+    // Question" from any screen).
+    viewingList: true,
     history: [],
     historyLoading: false,
     historyError: null,
@@ -228,7 +258,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
     startInquiry: async () => {
       const { question, fidelity, debaterModel, evaluatorModel, tagSelection } = get();
-      set({ error: null, pollError: null, result: null, status: 'queued', progressPct: 0, terminationReason: null });
+      set({ error: null, pollError: null, result: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const { jobId } = await api.startInquiry({
           question,
@@ -261,8 +291,8 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
       clearPollTimer();
       consecutivePollFailures = 0;
       set({
-        jobId: null, status: null, progressPct: 0, terminationReason: null,
-        error: null, pollError: null, result: null,
+        jobId: null, status: null, progressPct: 0, stageDetail: null, terminationReason: null,
+        error: null, pollError: null, result: null, viewingList: false,
       });
     },
 
@@ -293,22 +323,35 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     openFromHistory: async (jobId: string) => {
       clearPollTimer();
       consecutivePollFailures = 0;
-      set({ viewingList: false, error: null, pollError: null, result: null, jobId, status: 'queued', progressPct: 0, terminationReason: null });
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const view = await api.getInquiry(jobId);
-        set({
-          status: view.status,
-          progressPct: view.progressPct,
-          terminationReason: view.terminationReason,
-          error: view.status === 'failed' ? view.error : null,
-          result: view.result ?? null,
-        });
+        set(statusFields(view));
       } catch (err) {
         getGlobalRecorder()?.record({
           type: 'system.error',
           component: 'inquiry-store',
           level: 'error',
           message: `openFromHistory failed for ${jobId}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        set({ status: 'failed', error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+
+    openCommunityResult: async (id: string) => {
+      clearPollTimer();
+      consecutivePollFailures = 0;
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      try {
+        const result = await api.loadCommunityInquiry(id);
+        set({ status: 'done', progressPct: 100, result });
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'inquiry-store',
+          level: 'error',
+          message: `openCommunityResult failed for ${id}`,
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
         set({ status: 'failed', error: err instanceof Error ? err.message : String(err) });

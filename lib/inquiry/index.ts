@@ -22,3 +22,9 @@ export type { Surface, Disposition, FieldPath } from './fieldClassification.js';
 // Public no-login share projection (t/3648 part 2) — separate schema + constructive projector.
 export { PublicInquiryShareSchema, PublicInquiryShareReadSchema, PUBLIC_INQUIRY_SHARE_VERSION, toPublicInquiryShare } from './publicShare.js';
 export type { PublicInquiryShare, PublicInquiryShareRead } from './publicShare.js';
+// Inquiry duration estimation (t/4751) — p50/p90 wall-clock estimate by fidelity + debater model.
+export { estimateInquiryDuration } from './durationEstimate.js';
+export type { InquiryFidelity, DurationEstimate } from './durationEstimate.js';
+// Desktop Ask upload payload schema (t/4743) — single-source contract for server/IPC/desktop.
+export { inquiryPayloadSchema, HttpUrlSchema } from './inquiryPayloadSchema.js';
+export type { InquiryPayload } from './inquiryPayloadSchema.js';

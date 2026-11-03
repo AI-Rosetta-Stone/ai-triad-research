@@ -207,7 +207,18 @@ function ensureActiveDebateWatcher(): void {
   });
 }
 
-const _beforeUnloadHandler = () => releaseDebateDriver();
+const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+  releaseDebateDriver();
+
+  // A running debate asks before the page unloads (t/4640 AC6). Unsaved taxonomy edits are
+  // guarded separately by navigation/unloadGuard.ts.
+  const debateState = useDebateStore.getState();
+  if (debateState.activeDebateId && debateState.debateGenerating) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+};
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _driverChannel?.close();

@@ -14,6 +14,9 @@
  * reads as "expected" even though an older green suite for the same workflow exists and is
  * visible everywhere else. That blind spot is exactly what stuck-required-run exists to catch.
  */
+import { SO_CLEARED_RE } from './fleet-delivery-metrics.mjs';
+import { extractTier } from './tier-check-predicate.mjs';
+
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL', 'joint-gv-guard', 'consult-hold-guard'];
 
 // MUST-fix (Lead review, PR #3141): `actions/runs`' `name` field is the WORKFLOW name
@@ -52,6 +55,11 @@ export const IN_PROGRESS_STUCK_MINUTES = {
   'consult-hold-guard': 10,
 };
 
+// t/4533 (TL, t/4091#44): the SO's own 2h time-box (root AGENTS.md Change Tiers) isn't enforced
+// today -- a consult-hold PR with no SO reply past this mark silently sits, instead of routing
+// to the approver marked "SO did not review" per the documented fallback.
+export const SO_TIMEBOX_HOURS = 2;
+
 export const IDLE_DETECT_HOURS = 1;    // no PR activity for this long, with no other named blocker, names "idle".
 export const OWNER_SLA_HOURS = 2;      // blocker episode age at which the owning role is pinged.
 export const TL_SLA_HOURS = 6;         // blocker episode age at which the TL is pinged (never the PI).
@@ -65,10 +73,19 @@ export const SWEEP_BURST_SECONDS = 120;  // 2+ PRs showing the signature within 
 // longer than an arm-event write.
 export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
 
+// t/4660: twice the max observed merge-queue batch time (15-30min, t/4567) -- a queue entry
+// older than this is genuinely stuck, not just waiting its normal turn.
+export const MERGE_QUEUE_STUCK_MINUTES = 60;
+
 /**
  * PURE. Classifies one open, non-draft PR's blocker, or null if it has none.
  *
  * @param {object} pr
+ * @param {boolean} [pr.isDraft] - t/4599: a draft PR is never a blocker, regardless of any
+ *   other field -- checked FIRST, before even `held`. Defense in depth: the impure caller
+ *   (pr-triage.yml) already excludes drafts from its PR list, but this guard makes the pure
+ *   function itself safe against a caller that forgets to, same reasoning as every other
+ *   Gate Co-Location check in this file.
  * @param {string} pr.mergeableState - GitHub's mergeable_state, e.g. 'behind'|'clean'|'dirty'|'blocked'|'unknown'.
  * @param {string|undefined} pr.mergeableStateRecheck - a SECOND, later re-fetch of mergeableState,
  *   done by the caller only for a PR that already looks armed-but-blocked (allGreen + 'blocked'),
@@ -89,10 +106,34 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  *   comment/review (MUST exclude the alert's OWN comments and label writes, and other bot
  *   activity — PR #3141 review: using raw `updated_at` let the alert's own writes reset the
  *   idle/held-age clock every time it ran).
+ * @param {string|null} [pr.consultHoldAppliedAt] - ISO timestamp the `consult-hold` label was
+ *   FIRST applied (t/4533) -- only meaningful/needed when `labels` includes 'consult-hold'.
+ *   Omit or null if unknown; a PR with the label but no known apply-time is treated as `held`
+ *   (never escalated), never guessed into `consult-hold-aged`.
+ * @param {boolean} [pr.soClearanceDetected] - true if any comment on the PR matches
+ *   SO_CLEARED_RE (t/4533, reusing fleet-delivery-metrics.mjs's own detector) -- an SO has
+ *   replied (cleared, or explicitly "did not review"), so the time-box question is already
+ *   answered and this is ordinary `held` (waiting on PI/TL), never `consult-hold-aged`.
+ * @param {boolean} [pr.inMergeQueue] - true if the PR is currently in the merge queue
+ *   (GraphQL `isInMergeQueue`, t/4660). A queued PR has `auto_merge` (REST)/`autoMergeEnabled`
+ *   null even though it is, in every sense that matters here, already armed -- treated as
+ *   `autoMergeEnabled` for the `armed-but-blocked`/`approved-not-armed` checks below.
+ * @param {string|null} [pr.mergeQueueEnqueuedAt] - ISO timestamp the PR entered the queue
+ *   (GraphQL `mergeQueueEntry.enqueuedAt`, t/4660). Only meaningful when `inMergeQueue` is true;
+ *   null/missing (e.g. `mergeQueueEntry` itself null) never ages into `queued-stuck` -- no
+ *   timestamp means no evidence of how long it's been stuck, not evidence that it's fine.
+ * @param {boolean} [pr.hasApproval] - true if any PR review is in APPROVED state (t/4557).
+ *   Combined with every required context green and NOT autoMergeEnabled, this is
+ *   `approved-not-armed`, not generic `idle` -- a ready-to-merge PR nobody armed yet.
+ * @param {string} [pr.body] - the PR body (t/4557); extractTier(pr.body) === 'T0' also counts
+ *   as "ready" for `approved-not-armed` even with no review at all, since T0 needs none.
  * @param {number} nowMs
  * @returns {{class:string, detail:object}|null}
  */
 export function classifyBlocker(pr, nowMs) {
+  // 0. draft (t/4599) -- never a blocker, checked before even `held`.
+  if (pr.isDraft) return null;
+
   const labels = pr.labels ?? [];
   const runs = pr.runs ?? [];
   const byPath = new Map(runs.map((r) => [r.path, r]));
@@ -101,6 +142,27 @@ export function classifyBlocker(pr, nowMs) {
 
   // 1. held — checked FIRST and reported alone: a hold is deliberate, so a PR carrying one
   //    is never escalated even if it also matches another class underneath.
+  //
+  //    EXCEPTION (t/4533): a `consult-hold` (not `joint-gv`, which has no SO time-box) past
+  //    SO_TIMEBOX_HOURS since the label was applied, with NO SO reply detected at all, is not
+  //    a deliberate hold anymore -- it's the 2h time-box rule going unenforced. This escalates
+  //    as `consult-hold-aged`, distinct from ordinary `held`. A hold under the time-box, OR one
+  //    where an SO has already replied (cleared, or explicitly "did not review") and it's now
+  //    just waiting on PI/TL sign-off, is still ordinary `held` and never escalates -- only the
+  //    specific "nobody has enforced the time-box" gap is new here.
+  if (labels.includes('consult-hold') && !labels.includes('joint-gv') && !pr.soClearanceDetected && pr.consultHoldAppliedAt) {
+    const holdAgeHours = (nowMs - Date.parse(pr.consultHoldAppliedAt)) / 3600000;
+    if (holdAgeHours > SO_TIMEBOX_HOURS) {
+      return {
+        class: 'consult-hold-aged',
+        detail: {
+          holdAgeHours: Math.round(holdAgeHours * 10) / 10,
+          consultHoldAppliedAt: pr.consultHoldAppliedAt,
+          remedy: 'No SO reply past the 2h time-box -- route to the approver marked "SO did not review" (root AGENTS.md Change Tiers fallback).',
+        },
+      };
+    }
+  }
   if (labels.includes('consult-hold') || labels.includes('joint-gv')) {
     const ageHours = pr.lastActivityAt ? (nowMs - Date.parse(pr.lastActivityAt)) / 3600000 : null;
     return { class: 'held', detail: { labels: labels.filter((l) => l === 'consult-hold' || l === 'joint-gv'), ageHours } };
@@ -164,7 +226,11 @@ export function classifyBlocker(pr, nowMs) {
   // or a recheck the caller never performed (undefined), does NOT escalate this pass -- the next
   // scheduled run re-observes it, so a genuinely stuck PR is still caught, just not on a transient
   // single read.
-  if (pr.autoMergeEnabled) {
+  // t/4660: a directly-enqueued (or auto-merge-enqueued) PR has autoMergeEnabled === null/false
+  // even though it is already armed in every sense this check cares about -- treat inMergeQueue
+  // as equally "armed" so a queued PR isn't mistaken for armed-but-blocked's opposite case either.
+  const isArmed = pr.autoMergeEnabled || pr.inMergeQueue;
+  if (isArmed) {
     const allGreen = REQUIRED_CONTEXTS.every((name) => {
       const run = runFor(name);
       return run && run.status === 'completed' && run.conclusion === 'success';
@@ -174,7 +240,76 @@ export function classifyBlocker(pr, nowMs) {
     }
   }
 
-  // 6. idle
+  // 5.5 queued-stuck (t/4660): in the merge queue past its own stuck threshold. Checked here,
+  // between armed-but-blocked and approved-not-armed, so a genuinely stuck queue entry gets this
+  // class instead of falling through to approved-not-armed (now suppressed for queued PRs) or
+  // generic idle. No mergeQueueEnqueuedAt (e.g. mergeQueueEntry itself null) never ages into this
+  // -- missing evidence of how long it's been queued is not evidence it's stuck (Quality review,
+  // p/432#58: this is a deliberate no-alert fall-through, not a gap).
+  if (pr.inMergeQueue && pr.mergeQueueEnqueuedAt) {
+    const queueAgeMin = (nowMs - Date.parse(pr.mergeQueueEnqueuedAt)) / 60000;
+    if (queueAgeMin > MERGE_QUEUE_STUCK_MINUTES) {
+      return {
+        class: 'queued-stuck',
+        detail: {
+          queueAgeMinutes: Math.round(queueAgeMin),
+          remedy: 'PR has been in the merge queue past the normal batch window -- check the queue state (gh api .../merge-group or the Merge Queue UI); it is already armed, do not re-arm it.',
+        },
+      };
+    }
+  }
+
+  // 6. approved-not-armed (t/4557, TL p/702#93/#95) -- checked BEFORE idle so a PR that is
+  //    genuinely ready to merge but simply never got armed is never mistaken for generic
+  //    staleness. Distinct from (and lower-severity than) a real blocker: escalates to the
+  //    owner immediately (see escalationLevel), since the PI decided NOT to make
+  //    t1-approval-guard a required context (t/4091), so this sweep is now the primary
+  //    mechanism that catches "ready but not armed" at all.
+  //    "Ready" means every required context green, AND EITHER a real APPROVED review exists
+  //    OR the PR's own declared tier is T0 -- a T0 PR needs no approval at all per Change
+  //    Tiers (root AGENTS.md), so requiring hasApproval alone would miss it (confirmed live on
+  //    PR #3926, a green T0 doc PR with zero reviews that the TL still flagged as this exact
+  //    shape). A T1/T2 PR that's green but genuinely still awaiting approval does NOT fire
+  //    here -- it correctly isn't "ready" yet.
+  if (!isArmed) {
+    const allGreen = REQUIRED_CONTEXTS.every((name) => {
+      const run = runFor(name);
+      return run && run.status === 'completed' && run.conclusion === 'success';
+    });
+    const tier = extractTier(pr.body);
+    if (allGreen && pr.hasApproval) {
+      // A real APPROVED review already happened -- that review IS the named-review question
+      // settled, so no caveat is needed here.
+      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and the PR has an approved review, but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.' } };
+    }
+    if (allGreen && tier === 'T0') {
+      // t/4566 (TL, p/702#97): PR #3926 was nudged to arm and merged before the CL's required
+      // re-review cleared -- a T0 needs no GitHub review by default (root AGENTS.md Change
+      // Tiers), but a SPECIFIC ticket's own ACs can still name a required reviewer (t/4092#8),
+      // and this check has no visibility into that ticket's ACs at all. Caveat the remedy
+      // rather than asserting it's unconditionally safe to arm -- puts the judgment call back
+      // on the human/owner. Deliberately NOT attempting to parse the linked ticket's ACs for
+      // named-reviewer language here (TL: "a follow-up T0 is fine") -- freeform-text parsing
+      // for "names a reviewer" risks a false negative that looks identical to no requirement
+      // at all, which would be worse than this caveat alone.
+      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and this is a T0 PR with no outstanding GitHub review required by default -- arm it, UNLESS the linked ticket\'s own acceptance criteria name a required review (e.g. CL, Quality, PI copy review) that has not yet cleared. Check the ticket before arming.' } };
+    }
+  }
+
+  // 7. CI still in flight -- NOT stuck (t/4557, TL p/702#93: "CI running isn't stuck at all").
+  //    A required context that is queued/in_progress but has NOT yet crossed its own
+  //    stuck-required-run threshold (case 3 above) is legitimately still working. Without this
+  //    guard, a PR whose latest push predates IDLE_DETECT_HOURS but whose CI run simply hasn't
+  //    finished yet would fall through to `idle` below and alert on normal, unremarkable
+  //    in-progress CI -- exactly the #3934 false alarm the TL found. Checked before idle, after
+  //    every genuinely-stuck class above has already had its chance to fire.
+  const ciInFlight = REQUIRED_CONTEXTS.some((name) => {
+    const run = runFor(name);
+    return run && (run.status === 'queued' || run.status === 'in_progress');
+  });
+  if (ciInFlight) return null;
+
+  // 8. idle
   if (pr.lastActivityAt) {
     const idleHours = (nowMs - Date.parse(pr.lastActivityAt)) / 3600000;
     if (idleHours > IDLE_DETECT_HOURS) {
@@ -188,11 +323,20 @@ export function classifyBlocker(pr, nowMs) {
 /**
  * PURE. Given a named blocker and how long its episode has been open, decides who to ping.
  * 'held' never escalates, regardless of age — holds are deliberate (t/4115 design).
+ * 'consult-hold-aged' (t/4533) and 'approved-not-armed' (t/4557) escalate to the owner
+ * IMMEDIATELY on the episode's first scan (episodeAgeHours can be ~0 here) -- both only exist
+ * once their own condition is already true (the 2h SO time-box lapsed; every required context
+ * is already green and approved), so there is nothing left to wait on before notifying the
+ * owner. Both still escalate to the TL at the normal TL_SLA_HOURS if the owner ping itself goes
+ * unaddressed -- 'approved-not-armed' is now the PRIMARY mechanism for this class of miss since
+ * the PI decided not to make t1-approval-guard a required context (t/4091), so it must not go
+ * silent past its own owner ping.
  * @returns {'none'|'owner'|'tl'}
  */
 export function escalationLevel(blockerClass, episodeAgeHours) {
   if (blockerClass === 'held') return 'none';
   if (episodeAgeHours >= TL_SLA_HOURS) return 'tl';
+  if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed') return 'owner';
   if (episodeAgeHours >= OWNER_SLA_HOURS) return 'owner';
   return 'none';
 }

@@ -77,3 +77,44 @@
   overflow-y: auto;
   padding: 16px;
 }
+
+/* t/4690 — the detail content shared by RightPane (already a flex column) and table mode's
+   plain-block shell. A flex column of its own so the optional hint banner above it doesn't
+   push ChatWorkspace/CommunityChatDetail's height:100% past the available space. */
+.chat-detail-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* t/4690 — one-time first-open hint, non-modal, above the in-place chat/community detail. */
+.chat-in-place-hint {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 8px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* t/4802 (Design): the × read 3.19-3.33 contrast as text; btn-ghost's --text-secondary (shared
+   class, OverflowMenu.css) clears 4.5:1 and matches DebateInPlaceHint's "Got it" button. */
+.chat-in-place-hint-dismiss {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  padding: 2px 8px;
+}
+
+/* t/4802 (Design): inline at 1em, nudged to sit on the text baseline. */
+.chat-in-place-hint-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}

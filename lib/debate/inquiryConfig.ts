@@ -5,14 +5,20 @@
 // Pure function: no I/O. The caller loads ai-models.json and passes the registry in.
 
 import type { DebateConfig } from './debateEngine/internals.js';
+import type { PhaseBoundsOverride } from './types/phase.js';
 import type { SoulResolverFn } from './soulDocSchema.js';
 import type { InquiryRequest, ResolvedDerivation, Fidelity } from '../inquiry/index.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import { ActionableError } from './errors.js';
+import { loadProvisionalWeights } from './phaseTransitions.js';
 
-// Matches phaseTransitions.ts budget.hard_multiplier — the multiplier that converts
-// maxTotalRounds into the API hard ceiling the engine enforces.
-const HARD_MULTIPLIER = 15;
+// t/4598: was a hardcoded duplicate of phaseTransitions.ts's budget.hard_multiplier — the exact
+// shape of drift the PI's truncation report traced back to (two independent copies of the same
+// number, free to go out of sync). Read from the SAME calibration-config.json source
+// phaseTransitions uses for enforcement, so the displayed budget can't drift from the enforced
+// ceiling again. loadProvisionalWeights() reads a statically-bundled JSON import (cached after
+// the first call), not disk I/O, so this keeps deriveDebateConfig's "no I/O" characterization.
+const HARD_MULTIPLIER = loadProvisionalWeights().budget.hard_multiplier;
 
 interface FidelityProfile {
   pacing: 'tight' | 'moderate' | 'thorough';
@@ -21,12 +27,28 @@ interface FidelityProfile {
   responseLength: 'brief' | 'medium' | 'detailed';
   tier: 'basic' | 'advanced';
   useAdaptiveStaging: boolean;
+  /**
+   * t/4753: shared calibration-config.json's phase_bounds (confrontation/argumentation/
+   * concluding max = 2/2/1) force-exits every Standard and Deep Ask a Question debate on
+   * its per-phase cap before convergence ever gets a chance to fire — argumentation's min
+   * EQUALS its max there, so it can never end any other way. Widening only the MAX bound
+   * per fidelity (TL-approved values, t/4753#2) leaves the shared min as a real floor
+   * below the new max, opening an actual window for natural convergence. `calibration-
+   * config.json` itself stays untouched — debates outside Ask a Question, and calibration
+   * studies, still read its unmodified 2/2/1. `maxTotalRounds`/the call budget (below)
+   * are unaffected by this and remain the true hard stop.
+   * Absent for 'quick' — quick is intentionally shallow, not the fidelity the PI's report
+   * was about.
+   */
+  phaseBoundsOverride?: PhaseBoundsOverride;
 }
 
 const FIDELITY_PROFILES: Record<Fidelity, FidelityProfile> = {
   quick:    { pacing: 'tight',    maxTotalRounds: 8,  rounds: 2, responseLength: 'brief',    tier: 'basic',    useAdaptiveStaging: false },
-  standard: { pacing: 'moderate', maxTotalRounds: 16, rounds: 4, responseLength: 'medium',   tier: 'basic',    useAdaptiveStaging: true  },
-  deep:     { pacing: 'thorough', maxTotalRounds: 20, rounds: 6, responseLength: 'detailed', tier: 'advanced', useAdaptiveStaging: true  },
+  standard: { pacing: 'moderate', maxTotalRounds: 16, rounds: 4, responseLength: 'medium',   tier: 'basic',    useAdaptiveStaging: true,
+    phaseBoundsOverride: { maxConfrontationRounds: 2, maxArgumentationRounds: 6, maxConcludingRounds: 2 } },
+  deep:     { pacing: 'thorough', maxTotalRounds: 20, rounds: 6, responseLength: 'detailed', tier: 'advanced', useAdaptiveStaging: true,
+    phaseBoundsOverride: { maxConfrontationRounds: 3, maxArgumentationRounds: 10, maxConcludingRounds: 2 } },
 };
 
 export interface DerivedDebateConfig {
@@ -97,6 +119,7 @@ export function deriveDebateConfig(
     maxTotalRounds: profile.maxTotalRounds,
     turnValidation: { enabled: true },
     stageModels: { evaluator: evaluatorModel },
+    ...(profile.phaseBoundsOverride ? { phaseBoundsOverride: profile.phaseBoundsOverride } : {}),
     ...(soulResolver ? { soulResolver } : {}),
   };
 

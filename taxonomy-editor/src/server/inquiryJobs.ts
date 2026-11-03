@@ -33,6 +33,8 @@ import { randomUUID } from 'crypto';
 export const INQUIRY_BOOT_ID: string = randomUUID();
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { errorMessage } from '../../../lib/debate/errors.js';
+import { stageProgress, createDebateProgressTracker } from '../../../lib/debate/debateProgressMapping.js';
+import type { DebateProgress } from '../../../lib/debate/debateEngine/internals.js';
 import { log } from './logger.js';
 import type { InquiryRequest, InquiryResult } from '../../../lib/inquiry/index.js';
 import { saveInquiryResult, type InquiryResultSummary } from './storage/inquiryResultStore.js';
@@ -55,14 +57,9 @@ export type { InquiryJobStatus, InquiryPipelineStage } from '../../../lib/inquir
 export const MAX_CONCURRENT_INQUIRY_JOBS = 1;        // per user — an inquiry is heavier than an export (pilot: 54 turns + 16 QBAF, minutes, real spend). TL t/3578#6.
 export const INQUIRY_JOB_TTL_MS = 30 * 60_000;       // 30 min — poll + idempotency window; > export's 10 min because an inquiry runs minutes. TL-confirmed t/3578#6.
 
-// TRUNCATION_REASONS, InquiryPipelineStage, InquiryJobStatus, isTerminalStatus, and deriveTruncation
-// were hoisted to lib/inquiry (t/3609) — imported + re-exported above. PROGRESS stays host-local (not
-// hoisted to lib): it is this server's display concern, not shared vocabulary (Electron main keeps its
-// own copy). It IS shared within the host because all three GET tiers render through buildPollView.
-const PROGRESS: Record<InquiryJobStatus, number> = {
-  queued: 0, grounding: 10, debating: 40, judging: 70, synthesizing: 90,
-  done: 100, done_truncated: 100, failed: 100,
-};
+// t/4712: PROGRESS table replaced with stageProgress() from lib (t/4710/t/4711).
+// stageProgress is the single shared source for both server (here) and Electron main.
+// During the debating stage, progress is computed from a debate fraction (0-1).
 
 /** Fields each GET tier constructs independently — the shared contract for buildPollView (e/221#13/14).
  *  Having each tier construct this type ensures identical response shape at the type level. */
@@ -73,19 +70,22 @@ export interface InquiryPollProjection {
   error: string | null;
   debateId: string | null;
   terminationReason: string | null;
+  stageDetail?: string;
 }
 
-/** Build a poll-response record from a shared projection, deriving progressPct from PROGRESS.
+/** Build a poll-response record from a shared projection, deriving progressPct from stageProgress.
  *  All three GET tiers route through this — "identical shape" is a type-level fact (e/221#13/14).
  *  Note: tier-3 live path derives progress from the durable record's status, which may lag the
  *  in-memory value (transition writes are fire-and-forget) — lagging bar, never backward (e/221#16). */
 export function buildPollView(p: InquiryPollProjection): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     jobId: p.jobId, status: p.status,
-    progressPct: PROGRESS[p.status],
+    progressPct: stageProgress(p.status),
     terminationReason: p.terminationReason,
     resultId: p.resultId, error: p.error, debateId: p.debateId,
   };
+  if (p.stageDetail) body.stageDetail = p.stageDetail;
+  return body;
 }
 
 export interface InquiryJob {
@@ -104,13 +104,19 @@ export interface InquiryJob {
    *  The `resultId` opens the persisted answer; this opens the underlying debate run (t/3617). */
   debateId: string | null;
   startedAt: number;
+  /** t/4712: current stage detail during debate (e.g. "Round 2 of 4 · Skeptic responding"). */
+  currentStageDetail?: string;
+  /** t/4712: current debate progress fraction [0, 1] for detailed progress during debating stage. */
+  currentDebateFraction: number;
 }
 
 const jobs = new Map<string, InquiryJob>();
 
 function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
   job.status = status;
-  job.progressPct = PROGRESS[status];
+  // t/4712: use stageProgress() from lib instead of local PROGRESS table.
+  // Pass debate fraction only during debating stage.
+  job.progressPct = stageProgress(status, status === 'debating' ? job.currentDebateFraction : 0);
 }
 
 // ── Registry helpers (mirror briefExportJobs) ──
@@ -168,6 +174,8 @@ function readDebateRef(result: InquiryResult): string | null {
 
 export interface InquiryPipelineContext {
   onStage: (stage: InquiryPipelineStage) => void;
+  /** t/4712: optional callback for debate progress events from the debate engine. */
+  onDebateProgress?: (p: DebateProgress) => void;
   signal?: AbortSignal;
   /** t/4338: threaded through so the pipeline deps (inquiryPipelineDeps.ts) can mark the
    *  persisted debate session's origin without inquiryJobs.ts reaching into the pipeline. */
@@ -212,11 +220,12 @@ export async function startInquiryJob(args: CreateInquiryJobArgs): Promise<Inqui
     userId: args.userId,
     idempotencyKey: args.idempotencyKey,
     status: 'queued',
-    progressPct: PROGRESS['queued'],
+    progressPct: stageProgress('queued'),
     resultId: null,
     error: null,
     debateId: null,
     startedAt: Date.now(),
+    currentDebateFraction: 0,
   };
   jobs.set(job.jobId, job);
   // Await the creation write (SO condition 3 — a lost creation write silently disables tier-3 recovery).
@@ -240,8 +249,19 @@ async function runInquiryJob(job: InquiryJob, args: CreateInquiryJobArgs): Promi
   })();
 
   try {
+    // t/4712: create a debate progress tracker to capture detailed progress during debating stage.
+    const debateProgressTracker = createDebateProgressTracker((update) => {
+      job.currentDebateFraction = update.fraction;
+      job.currentStageDetail = update.detail;
+      // Update progressPct if we're in the debating stage.
+      if (job.status === 'debating') {
+        job.progressPct = stageProgress(job.status, job.currentDebateFraction);
+      }
+    });
+
     const result = await args.runPipeline(args.request, {
       onStage: (stage) => setStatus(job, stage),
+      onDebateProgress: (p) => debateProgressTracker(p),
       jobId: job.jobId,
     });
 

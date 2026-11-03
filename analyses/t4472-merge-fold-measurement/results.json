@@ -1,0 +1,57 @@
+[
+  {
+    "doc_id": "fixture-1-paraphrase-key-point",
+    "pre_merge_key_points": 2,
+    "old_merged_key_points": 2,
+    "new_merged_key_points": 1,
+    "pre_merge_claims": 0,
+    "old_merged_claims": 0,
+    "new_merged_claims": 0,
+    "new_evidence_spans_on_kp": 1,
+    "new_evidence_spans_on_claim": 0
+  },
+  {
+    "doc_id": "fixture-2-factual-claim-numeric-superset",
+    "pre_merge_key_points": 0,
+    "old_merged_key_points": 0,
+    "new_merged_key_points": 0,
+    "pre_merge_claims": 2,
+    "old_merged_claims": 2,
+    "new_merged_claims": 1,
+    "new_evidence_spans_on_kp": 0,
+    "new_evidence_spans_on_claim": 1
+  },
+  {
+    "doc_id": "fixture-3-templated-stat-false-positive",
+    "pre_merge_key_points": 0,
+    "old_merged_key_points": 0,
+    "new_merged_key_points": 0,
+    "pre_merge_claims": 2,
+    "old_merged_claims": 2,
+    "new_merged_claims": 2,
+    "new_evidence_spans_on_kp": 0,
+    "new_evidence_spans_on_claim": 2
+  },
+  {
+    "doc_id": "fixture-4-same-node-reworded-point",
+    "pre_merge_key_points": 2,
+    "old_merged_key_points": 2,
+    "new_merged_key_points": 1,
+    "pre_merge_claims": 0,
+    "old_merged_claims": 0,
+    "new_merged_claims": 0,
+    "new_evidence_spans_on_kp": 1,
+    "new_evidence_spans_on_claim": 0
+  },
+  {
+    "doc_id": "fixture-5-anchors-veto",
+    "pre_merge_key_points": 2,
+    "old_merged_key_points": 2,
+    "new_merged_key_points": 2,
+    "pre_merge_claims": 0,
+    "old_merged_claims": 0,
+    "new_merged_claims": 0,
+    "new_evidence_spans_on_kp": 2,
+    "new_evidence_spans_on_claim": 0
+  }
+]

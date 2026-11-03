@@ -41,7 +41,7 @@ export class FilesystemBackend implements StorageBackend {
     }
   }
 
-  async readFile(filePath: string, _opts?: { ref?: string; optional?: boolean }): Promise<string | null> {
+  async readFile(filePath: string, _opts?: { ref?: string; optional?: boolean; consultOverlayOnPin?: boolean }): Promise<string | null> {
     try {
       return await fs.readFile(filePath, 'utf-8');
     } catch (err: unknown) {

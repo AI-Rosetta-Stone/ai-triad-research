@@ -180,6 +180,116 @@ Describe 'Invoke-OrgDerivedCampScores (t/1560 Stage 5)' -Tag 'taxonomy' {
         }
     }
 
+    Context 'Recency supersession on opposite-polarity pairs (t/4475 7a)' {
+
+        It 'newer ADVOCATES_FOR beats an older OPPOSES on the same node' {
+            InModuleScope AITriad -Parameters @{ EdgesPath = $script:edgesPath } {
+                param($EdgesPath)
+                @{ edges = @(
+                    [PSCustomObject]@{ source='org-600'; target='saf-beliefs-001'; type='ADVOCATES_FOR'; status='approved'; source_refs=@('doc-new') }
+                    [PSCustomObject]@{ source='org-600'; target='saf-beliefs-001'; type='OPPOSES';       status='approved'; source_refs=@('doc-old') }
+                )} | ConvertTo-Json -Depth 5 | Set-Content $EdgesPath -Encoding utf8NoBOM
+                Mock Get-OrganizationsStore {
+                    [PSCustomObject]@{ organizations = @([PSCustomObject]@{ id='org-600' }) }
+                }
+                Mock _getSourceDatePublished {
+                    param($DocId)
+                    if ($DocId -eq 'doc-new') { [datetime]'2026-06-01' } else { [datetime]'2023-01-01' }
+                }
+                $r = Invoke-OrgDerivedCampScores -OrgEdgesPath $EdgesPath 6>$null
+
+                $r.Approved['org-600'].saf.Advocates | Should -Be 1 -Because 'the newer ADVOCATES_FOR wins'
+                $r.Approved['org-600'].saf.Opposes   | Should -Be 0 -Because 'the older OPPOSES is superseded, not counted'
+                $r.Superseded['org-600'].saf         | Should -Be 1
+            }
+        }
+
+        It 'newer OPPOSES beats an older ADVOCATES_FOR on the same node' {
+            InModuleScope AITriad -Parameters @{ EdgesPath = $script:edgesPath } {
+                param($EdgesPath)
+                @{ edges = @(
+                    [PSCustomObject]@{ source='org-601'; target='saf-beliefs-001'; type='ADVOCATES_FOR'; status='approved'; source_refs=@('doc-old2') }
+                    [PSCustomObject]@{ source='org-601'; target='saf-beliefs-001'; type='OPPOSES';       status='approved'; source_refs=@('doc-new2') }
+                )} | ConvertTo-Json -Depth 5 | Set-Content $EdgesPath -Encoding utf8NoBOM
+                Mock Get-OrganizationsStore {
+                    [PSCustomObject]@{ organizations = @([PSCustomObject]@{ id='org-601' }) }
+                }
+                Mock _getSourceDatePublished {
+                    param($DocId)
+                    if ($DocId -eq 'doc-new2') { [datetime]'2026-06-01' } else { [datetime]'2023-01-01' }
+                }
+                $r = Invoke-OrgDerivedCampScores -OrgEdgesPath $EdgesPath 6>$null
+
+                $r.Approved['org-601'].saf.Advocates | Should -Be 0 -Because 'the older ADVOCATES_FOR is superseded'
+                $r.Approved['org-601'].saf.Opposes   | Should -Be 1 -Because 'the newer OPPOSES wins'
+                $r.Superseded['org-601'].saf         | Should -Be 1
+            }
+        }
+
+        It 'an undated pair counts both and WARNs — unresolved, for a reviewer' {
+            InModuleScope AITriad -Parameters @{ EdgesPath = $script:edgesPath } {
+                param($EdgesPath)
+                @{ edges = @(
+                    [PSCustomObject]@{ source='org-602'; target='saf-beliefs-001'; type='ADVOCATES_FOR'; status='approved'; source_refs=@('doc-undated-a') }
+                    [PSCustomObject]@{ source='org-602'; target='saf-beliefs-001'; type='OPPOSES';       status='approved'; source_refs=@('doc-undated-b') }
+                )} | ConvertTo-Json -Depth 5 | Set-Content $EdgesPath -Encoding utf8NoBOM
+                Mock Get-OrganizationsStore {
+                    [PSCustomObject]@{ organizations = @([PSCustomObject]@{ id='org-602' }) }
+                }
+                Mock _getSourceDatePublished { $null }
+                $Warnings = $null
+                $r = Invoke-OrgDerivedCampScores -OrgEdgesPath $EdgesPath -WarningVariable Warnings -WarningAction SilentlyContinue 6>$null
+
+                $r.Approved['org-602'].saf.Advocates | Should -Be 1 -Because 'undated — both count, no supersession'
+                $r.Approved['org-602'].saf.Opposes   | Should -Be 1
+                $r.Superseded['org-602'].saf         | Should -Be 0 -Because 'nothing was superseded, just unresolved'
+                @($Warnings | Where-Object { "$_" -like '*opposite-polarity edges unresolved*' }).Count | Should -Be 1
+            }
+        }
+
+        It 'a same-date pair counts both and WARNs — tied evidence cannot be resolved' {
+            InModuleScope AITriad -Parameters @{ EdgesPath = $script:edgesPath } {
+                param($EdgesPath)
+                @{ edges = @(
+                    [PSCustomObject]@{ source='org-603'; target='saf-beliefs-001'; type='ADVOCATES_FOR'; status='approved'; source_refs=@('doc-tied-a') }
+                    [PSCustomObject]@{ source='org-603'; target='saf-beliefs-001'; type='OPPOSES';       status='approved'; source_refs=@('doc-tied-b') }
+                )} | ConvertTo-Json -Depth 5 | Set-Content $EdgesPath -Encoding utf8NoBOM
+                Mock Get-OrganizationsStore {
+                    [PSCustomObject]@{ organizations = @([PSCustomObject]@{ id='org-603' }) }
+                }
+                Mock _getSourceDatePublished { [datetime]'2025-01-01' }
+                $Warnings = $null
+                $r = Invoke-OrgDerivedCampScores -OrgEdgesPath $EdgesPath -WarningVariable Warnings -WarningAction SilentlyContinue 6>$null
+
+                $r.Approved['org-603'].saf.Advocates | Should -Be 1 -Because 'tied dates — both count'
+                $r.Approved['org-603'].saf.Opposes   | Should -Be 1
+                $r.Superseded['org-603'].saf         | Should -Be 0
+                @($Warnings | Where-Object { "$_" -like '*opposite-polarity edges unresolved*' }).Count | Should -Be 1
+            }
+        }
+
+        It 'no opposite-polarity pair on the node → output unchanged, no supersession, no WARN' {
+            InModuleScope AITriad -Parameters @{ EdgesPath = $script:edgesPath } {
+                param($EdgesPath)
+                @{ edges = @(
+                    [PSCustomObject]@{ source='org-604'; target='saf-beliefs-001'; type='ADVOCATES_FOR'; status='approved'; source_refs=@('doc-solo') }
+                    [PSCustomObject]@{ source='org-604'; target='saf-beliefs-002'; type='ADVOCATES_FOR'; status='approved'; source_refs=@('doc-solo2') }
+                )} | ConvertTo-Json -Depth 5 | Set-Content $EdgesPath -Encoding utf8NoBOM
+                Mock Get-OrganizationsStore {
+                    [PSCustomObject]@{ organizations = @([PSCustomObject]@{ id='org-604' }) }
+                }
+                Mock _getSourceDatePublished { [datetime]'2025-01-01' }
+                $Warnings = $null
+                $r = Invoke-OrgDerivedCampScores -OrgEdgesPath $EdgesPath -WarningVariable Warnings -WarningAction SilentlyContinue 6>$null
+
+                $r.Approved['org-604'].saf.Advocates | Should -Be 2
+                $r.Approved['org-604'].saf.Opposes   | Should -Be 0
+                $r.Superseded['org-604'].saf         | Should -Be 0
+                @($Warnings).Count | Should -Be 0
+            }
+        }
+    }
+
     Context '-OrgId filter' {
 
         It 'Restricts processing to specified org ids' {

@@ -1,0 +1,33 @@
+You judge whether an organization's stated position ENDORSES a taxonomy node.
+
+ORGANIZATION POSITION (extracted from the organization's own document):
+{{claim}}
+
+TAXONOMY NODE ({{node_pov}}):
+{{node_prop}}
+
+Decide in this order.
+
+1. Direction. Does the position favour the node's approach, or an opposed or
+   competing one (for example voluntary versus mandatory measures, national
+   advantage versus international coordination, adapting after harm versus
+   preventing it)? If it favours an opposed or competing approach, the answer
+   is topic_only, however much vocabulary they share.
+
+2. Commitment. Would someone who holds the position thereby be committed to
+   the node's proposition?
+   - endorses: yes, to the whole of it, in the same or stronger terms.
+   - partial: yes, to at least one specific component of it: one of its
+     claims, a narrower case of it, or a condition it states. The position
+     need not state the whole node.
+   - topic_only: no. It is about the same subject, or a related practice, but
+     holding it does not commit you to any specific part of the node.
+
+Sharing vocabulary is not endorsement. Example: the position "Developers
+should publish an annual summary of their model evaluations" is topic_only
+for the node "Independent auditors, not developers, should evaluate frontier
+models": it is about the same practice, but it does not commit you to who
+should evaluate.
+
+Return JSON: {"reason": "<one sentence: the direction, then the commitment>",
+"verdict": "endorses|partial|topic_only"}

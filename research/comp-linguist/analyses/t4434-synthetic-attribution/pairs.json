@@ -1,0 +1,202 @@
+[
+  {
+    "pair_id": "p00",
+    "claim": "The current reality of AI isn't liberation; it's displacement and intensified workloads for real people.",
+    "node_id": "skp-beliefs-002",
+    "node_pov": "skeptic",
+    "X": "Current trends strongly echo technological unemployment arguments, demonstrating that AI-driven automation is outpacing job creation, leading to net human labor displacement across administrative and creative job families.",
+    "Y": "A Belief within skeptic discourse that documents current, empirical labor market contractions and the systemic displacement of human workers resulting directly from the deployment of AI automation.\nEncompasses: Statistical tracking of layoffs, role obsolescence in creative and administrative sectors, and wage depression linked to algorithmic integration.\nExcludes: Theoretical projections of post-scarcity economics and the generation of novel, unproven technological employment categories."
+  },
+  {
+    "pair_id": "p01",
+    "claim": "An OECD report from 2018 estimated that 14% of jobs in developed economies are highly automatable, with another 32% facing significant transformation, not always for the better.",
+    "node_id": "skp-beliefs-042",
+    "node_pov": "skeptic",
+    "X": "A Belief within skeptic discourse that examines the multifaceted ways AI is changing the job market and worker experience. \nEncompasses: Job displacement, new job creation, increased workload, economic limits to automation, and worker agency.\nExcludes: Broad economic predictions, which are covered by 'Ghost GDP', and the slow pace of technology adoption, which is covered by 'Innovation-Diffusion Lag'.",
+    "Y": "Arguments for mass job annihilation by AI consistently fail to account for the economic limits to automation and the significant restructuring of tasks rather than wholesale elimination."
+  },
+  {
+    "pair_id": "p02",
+    "claim": "Unregulated AI innovation concentrating wealth and power in the hands of a few tech giants, leading directly to systemic inequities.",
+    "node_id": "skp-beliefs-119",
+    "node_pov": "skeptic",
+    "X": "A Belief within skeptic discourse that AI development concentrates vast wealth in the hands of a few, thereby threatening democratic systems and social cohesion. This perspective warns that disproportionate economic gains for a small number of entities erode the social contract. Encompasses: economic inequality and democratic instability risks. Excludes: 'Stop The AI Power Grab' which focuses on active prevention of control, and 'Using Tech for People, Not Profit' which proposes alternative ownership models.",
+    "Y": "Even if historical tech cycles eventually democratized economic benefits, the unprecedented velocity of AI's wealth concentration constitutes a non-competitive market distortion and an accelerated erosion of social cohesion, posing immediate, unmanageable systemic risk to our operational environment, far beyond past patterns of adaptation."
+  },
+  {
+    "pair_id": "p03",
+    "claim": "Genuine resilience and adaptation require collective action and democratic oversight, not just individual effort.",
+    "node_id": "skp-desires-081",
+    "node_pov": "skeptic",
+    "X": "Publicly governed AI infrastructure has clear precedent in successful state capacity \u2014 we manage national research labs, public broadcasting, and sovereign wealth funds without inevitable capture, and democratic accountability mechanisms can be institutionally designed to resist factional control.",
+    "Y": "A Desire within skeptic discourse that advocates for fundamental changes to economic and social structures \u2014 from robust labor protections to collective ownership and predistributive governance \u2014 to prevent AI from concentrating power, displacing workers, and deepening inequality. \nEncompasses: Labor union protections and transition frameworks for displaced workers, human-in-the-loop employment models, collective ownership and profit-sharing of AI infrastructure, predistributive governance, democratizing AI ownership, universal basic income pilots funded by AI productivity gains, public AI data trusts, and fair distribution of AI's benefits.\nExcludes: Concerns about individual privacy (covered by Safeguarding Individual Rights in AI), specific algorithmic biases (covered by Fixing AI's Built-in Biases), incremental market-based solutions, theoretical projections of post-scarcity abundance, and unconstrained AI capability scaling."
+  },
+  {
+    "pair_id": "p04",
+    "claim": "These must be funded directly by those who profit most from AI, perhaps through a progressive tax on AI-generated corporate profits.",
+    "node_id": "skp-intentions-013",
+    "node_pov": "skeptic",
+    "X": "An Intention within skeptic discourse that proposes creating a global fund to collect AI-generated wealth and distribute it as a universal basic income to every person on Earth. \nEncompasses: The idea of an AI-funded universal basic income designed to support individuals impacted by automation-driven job displacement.\nExcludes: Proposals for direct ownership stakes in AI systems, such as 'Collective Ownership and Profit-Sharing from AI', and from regulating AI as a public utility, like 'Predistributive AI Governance'.",
+    "Y": "The wealth generated by AI systems is already measurable through corporate profit margins attributable to automation\u2014what's missing is the political will to tax it at the point of extraction, not a technical barrier to identification."
+  },
+  {
+    "pair_id": "p05",
+    "claim": "The claim that 'regulatory friction' is the bottleneck, and that my proposals for collective action are 'slow-moving paralysis,' ignores the material reality of what AI is already doing on the ground.",
+    "node_id": "skp-beliefs-170",
+    "node_pov": "skeptic",
+    "X": "While it's true that AI's rapid evolution presents novel regulatory challenges for existing frameworks, we see a pattern where corporations actively exploit this complexity through 'audit washing' and deliberate legal fictions, not merely struggling to comply, but strategically carving out unregulated spaces for profit.",
+    "Y": "A Belief within skeptic discourse that the unchecked power of corporations in the AI sector and their strategies to circumvent effective regulation.\nEncompasses: exposing tactics like 'audit washing,' regulatory arbitrage, misuse of legal fictions, and the instrumentalization of AI for profit over public good.\nExcludes: purely technical critiques of AI systems or proposals for broad economic restructuring."
+  },
+  {
+    "pair_id": "p06",
+    "claim": "In 2025 alone, over 100,000 job losses were directly linked to AI restructuring, according to \"Project Iceberg: The Iceberg Index: Measuring Skills-centered Exposure in the AI Economy.\"",
+    "node_id": "skp-beliefs-002",
+    "node_pov": "skeptic",
+    "X": "A Belief within skeptic discourse that documents current, empirical labor market contractions and the systemic displacement of human workers resulting directly from the deployment of AI automation.\nEncompasses: Statistical tracking of layoffs, role obsolescence in creative and administrative sectors, and wage depression linked to algorithmic integration.\nExcludes: Theoretical projections of post-scarcity economics and the generation of novel, unproven technological employment categories.",
+    "Y": "Why do economic indicators still ignore the explicit, empirically tracked job losses from AI automation in sectors like customer service and data entry, masking a critical market failure?"
+  },
+  {
+    "pair_id": "p07",
+    "claim": "Accelerationist's vision of 'more wealth, more productivity, and more opportunities' is a convenient narrative for those who profit from deregulation, allowing them to externalize the social costs of displacement onto the public.",
+    "node_id": "skp-beliefs-119",
+    "node_pov": "skeptic",
+    "X": "A Belief within skeptic discourse that AI development concentrates vast wealth in the hands of a few, thereby threatening democratic systems and social cohesion. This perspective warns that disproportionate economic gains for a small number of entities erode the social contract. Encompasses: economic inequality and democratic instability risks. Excludes: 'Stop The AI Power Grab' which focuses on active prevention of control, and 'Using Tech for People, Not Profit' which proposes alternative ownership models.",
+    "Y": "Even granting that historical technological revolutions eventually broadened prosperity, AI's unique winner-take-all economics and algorithmic power fundamentally accelerate wealth capture in ways that historical analogies simply fail to account for, rapidly destabilizing the social compact."
+  },
+  {
+    "pair_id": "p08",
+    "claim": "When women's jobs are three times more likely to be automated than men's, as reported in \"Women are avoiding the very technology that threatens them most...\", that is a structural inequity, not a fleeting friction point.",
+    "node_id": "skp-beliefs-038",
+    "node_pov": "skeptic",
+    "X": "Occupational segregation creates a compounding asymmetry: women are overrepresented in administrative and service roles with high automation susceptibility scores, yet critically underrepresented in the technical workforce designing and deploying these systems, yielding a gendered exposure differential that existing labor market interventions fail to address.",
+    "Y": "A Belief within skeptic discourse that describes how AI adoption disproportionately impacts different genders due to existing occupational segregation. \nEncompasses: How women are often concentrated in roles vulnerable to automation while being under-represented in AI development.\nExcludes: General instances of algorithmic discrimination, which are covered in \"Real-World Examples of AI Bias,\" and analyses of the technical design choices that cause bias, which are covered in \"Bad Choices Lead to AI Bias.\""
+  },
+  {
+    "pair_id": "p09",
+    "claim": "Who is looking at the water table in Iowa supplying the data centers, or the content moderators in Nairobi keeping it running, while we debate abstract futures?",
+    "node_id": "skp-beliefs-044",
+    "node_pov": "skeptic",
+    "X": "The disclosed energy consumption figures for frontier AI models systematically undercount water usage for cooling, Scope 3 emissions from chip manufacturing, and lifecycle e-waste \u2014 costs that never appear in corporate sustainability reports but can exceed the operational carbon footprint by 300%.",
+    "Y": "A Belief within skeptic discourse that highlights the often-overlooked financial and ecological costs associated with AI development and deployment. \nEncompasses: High energy consumption, carbon footprint, misleading financial claims, and potential market instability.\nExcludes: Direct job displacement, which is covered by 'AI's Complex Effects on the Workforce', and individual privacy harms, which are covered by 'Documented Harms and Biases of AI'."
+  },
+  {
+    "pair_id": "p10",
+    "claim": "The real question in this debate is not whether strict liability burdens innovation \u2014 it is whether any alternative gives a person harmed by an opaque AI system meaningful recourse.",
+    "node_id": "skp-intentions-040",
+    "node_pov": "skeptic",
+    "X": "While it's true that AI's context-sensitive behavior poses unique challenges for liability, the existing body of product liability law has already evolved to address complex, evolving products; adapting a risk-utility test merely extends this precedent to hold AI developers accountable for design choices.",
+    "Y": "An Intention within skeptic discourse that applies the Restatement of Torts risk-utility framework to evaluate algorithmic design defects during litigation.\nEncompasses: rebuttable presumptions of design defect for opaque models, fee-shifting provisions for injured plaintiffs, mandatory production of interpretable alternatives, limitation of tort claims to compensable non-catastrophic harms.\nExcludes: pre-deployment administrative licensing gates, retrospective remedies for irreversible infrastructure collapse, voluntary corporate safety guidelines."
+  },
+  {
+    "pair_id": "p11",
+    "claim": "Companies structure opacity deliberately to limit legal exposure.",
+    "node_id": "skp-beliefs-178",
+    "node_pov": "skeptic",
+    "X": "A Belief within skeptic discourse that companies intentionally limit risk disclosures to mitigate legal liability and consumer lawsuits. Encompasses: Risk reporting, legal defense strategies, liability flow. Excludes: Technical safety research, regulatory compliance.",
+    "Y": "To dismantle liability-motivated suppression, corporate law must impose punitive damages for intentional non-disclosure of AI-driven market failures, creating real consequences for opacity."
+  },
+  {
+    "pair_id": "p12",
+    "claim": "The solution is domain-specific, tiered liability that scales to the risk profile of the deployment, not the size of the developer.",
+    "node_id": "skp-intentions-139",
+    "node_pov": "skeptic",
+    "X": "An Intention within skeptic discourse that advocates for empowering established sectoral agencies to mandate runtime telemetry interfaces and operational fail-safes within their respective safety domains.\nEncompasses: Food and Drug Administration predetermined change control plans, Securities and Exchange Commission algorithmic trading circuit-breakers, National Highway Traffic Safety Administration automated driving defect investigations, domain-calibrated drift alarms.\nExcludes: centralized horizontal agency mandates, blanket federal pre-clearance licensing, voluntary corporate self-auditing.",
+    "Y": "From a **Law and Economics** perspective, current horizontal liability schemes fail to create efficient incentives for AI developers to internalize external costs; only domain-calibrated liability can correct this market failure."
+  },
+  {
+    "pair_id": "p13",
+    "claim": "Under-investment in safety is a false economy, and strict liability corrects that market failure.",
+    "node_id": "skp-beliefs-182",
+    "node_pov": "skeptic",
+    "X": "The prevailing market failure to incentivize proactive AI safety investment creates a moral hazard, leading to chronic remediation loops and exorbitant long-term transaction costs.",
+    "Y": "A Belief within skeptic discourse that reversibility and correction cost are distinct axes, so AI-assisted output can produce bounded, non-catastrophic defects whose remediation cost still compounds across requirement-drift cycles.\nEncompasses: cost-versus-reversibility as separate measurements, per-cycle remediation expense when no human holds the model, accumulation across dependency upgrades and edge cases, the gap between a point-in-time test pass and durability under requirement drift.\nExcludes: catastrophic or irreversible failure (consumer-feature ceiling stipulated out), theoretical post-scarcity projections, capability-scaling debates."
+  },
+  {
+    "pair_id": "p14",
+    "claim": "The ATCB validates a deployer's monitoring infrastructure without ever examining the developer-level decisions that cause the most insidious harms: training data selection, proxy variable choices, and architectural tradeoffs baked into foundation models before any deployer touches them.",
+    "node_id": "skp-intentions-107",
+    "node_pov": "skeptic",
+    "X": "An Intention within skeptic discourse that couples mandatory pre-deployment independent audits with strict liability and statutory algorithmic disgorgement.\nEncompasses: independent pre-deployment testing, statutory halt authority for sectoral regulators, mandatory model weight destruction for systemic violations, uninsurable corporate officer liability.\nExcludes: voluntary industry self-certification, post-deployment tort remedies without structural remedies, static compliance checklists as liability shields.",
+    "Y": "Pre-deployment red-teaming catches design flaws while post-deployment liability deters corner-cutting and incentivizes fix-on-detection\u2014these mechanisms reinforce each other rather than creating redundant regulatory burden or conflicting signals to developers."
+  },
+  {
+    "pair_id": "p15",
+    "claim": "Performative compliance will infect telemetry pipelines just as it infects pre-deployment certification, and the Accelerationist's own examples prove it.",
+    "node_id": "skp-intentions-097",
+    "node_pov": "skeptic",
+    "X": "Genuine application-level safeguards and robust compliance require an independent body with teeth, capable of enforcing standards and demanding accountability throughout an AI system's operational lifecycle, from deployment to obsolescence.",
+    "Y": "An Intention within skeptic discourse that advocates for robust, independent mechanisms to monitor, audit, and enforce compliance for AI systems across their lifecycle.\nEncompasses: mandatory pre-release evaluations, post-deployment remediation, application-level safeguards, and civil rights protections.\nExcludes: voluntary industry self-regulation or purely technical safety measures without external enforcement."
+  },
+  {
+    "pair_id": "p16",
+    "claim": "The Accelerationist's own conditional concession \u2014 enhanced pre-deployment review when anomaly detection is too slow \u2014 swallows the rule for every high-risk deployment that matters.",
+    "node_id": "skp-intentions-097",
+    "node_pov": "skeptic",
+    "X": "An Intention within skeptic discourse that advocates for robust, independent mechanisms to monitor, audit, and enforce compliance for AI systems across their lifecycle.\nEncompasses: mandatory pre-release evaluations, post-deployment remediation, application-level safeguards, and civil rights protections.\nExcludes: voluntary industry self-regulation or purely technical safety measures without external enforcement.",
+    "Y": "To prevent market failures from unchecked AI, regulators must mandate pre-release impact assessments and continuous post-deployment monitoring for high-risk systems, moving beyond voluntary industry self-attestation."
+  },
+  {
+    "pair_id": "p17",
+    "claim": "Staged rollout fails in the high-risk domains that matter most \u2014 not because staging is architecturally impossible, but because diffuse statistical harms propagate faster than canary deployments can detect them.",
+    "node_id": "skp-intentions-146",
+    "node_pov": "skeptic",
+    "X": "An Intention within skeptic discourse that advocates for legally required, tiered, and performance-gated independent audits of frontier AI models, using objective thresholds and anti-gaming safeguards to ensure demonstrable fairness and safety before and during deployment.\nEncompasses: pre-deployment third-party safety evaluations proportional to systemic-harm potential, falsifiable performance triggers for mandatory audit, pre-registered thresholds with multiple-comparison correction, published log schemas at token-class granularity, subject-keyed escrow custody, worker-led safety vetoes, external red-teaming, and civil-rights impact assessments.\nExcludes: reliance solely on post-deployment adaptive oversight, deployer-controlled log signatures, post-hoc threshold-setting, one-size-fits-all mandates that create insurmountable barriers for small-scale developers, and purely market-based liability frameworks.",
+    "Y": "Pre-registered performance thresholds like disparity ratios exceeding 1.25 in protected-class outcomes or adversarial success rates above 15% can predict deployment failures with actuarial precision \u2014 the alternative is waiting for documented harm after the fact."
+  },
+  {
+    "pair_id": "p18",
+    "claim": "Instead of building moats, we should be taxing compute-capacity-hours at the enterprise level to fund direct, portable social safety nets.",
+    "node_id": "skp-intentions-013",
+    "node_pov": "skeptic",
+    "X": "An Intention within skeptic discourse that proposes creating a global fund to collect AI-generated wealth and distribute it as a universal basic income to every person on Earth. \nEncompasses: The idea of an AI-funded universal basic income designed to support individuals impacted by automation-driven job displacement.\nExcludes: Proposals for direct ownership stakes in AI systems, such as 'Collective Ownership and Profit-Sharing from AI', and from regulating AI as a public utility, like 'Predistributive AI Governance'.",
+    "Y": "Absent a dedicated global fund leveraging AI-generated wealth for universal basic income, we face a stark market failure in social safety nets against automation's disruptive force."
+  },
+  {
+    "pair_id": "p19",
+    "claim": "It's not AI, but *existing regulatory friction* and market failures that shield incumbents and stifle competition.",
+    "node_id": "acc-beliefs-043",
+    "node_pov": "accelerationist",
+    "X": "A Belief within accelerationist discourse that identifies specific human, organizational, or regulatory factors hindering the optimal development and equitable deployment of artificial intelligence. \nEncompasses: Regulatory friction leading to inequality, human developers as bottlenecks, the role of 'little tech' in innovation, and temporal mismatches in accountability. \nExcludes: Technical challenges inherent to AI scaling, broad economic predictions, or philosophical arguments about AI's nature.",
+    "Y": "The genuine bottlenecks inhibiting scalable AI deployment and market capture are not intrinsic technical limitations, but existing regulatory friction and fragmented liability frameworks that stifle innovation."
+  },
+  {
+    "pair_id": "p20",
+    "claim": "These are not \"irreversible\" harms that require us to freeze progress. They are *transitional costs* of a massive technological shift, and our adaptive safety integration framework is specifically designed to address them in real-time, not through some bureaucratic, months-long review cycle.",
+    "node_id": "acc-beliefs-077",
+    "node_pov": "accelerationist",
+    "X": "A Belief within accelerationist discourse that software failure modes remain correctable while harmful deployments stay coupled to metered, switchable infrastructure, with the coupling treated as a dated empirical claim rather than a law of nature.\nEncompasses: instrumented fault isolation at compute providers, the 2026 record of frontier training on rented compute, falsification by audited evidence of frontier capability off-meter, efficiency-driven erosion of the compute threshold.\nExcludes: static pre-deployment gatekeeping, fatalistic containment impossibility, the claim that the infrastructure coupling is permanent or self-evident.",
+    "Y": "While critics express legitimate concerns that high-consequence AI failures may propagate rapidly across interconnected systems, this overlooks the regulatory mandate for integrated adaptive safety systems capable of real-time dynamic containment and automated remediation, which ensures initial localized impacts are halted before escalating into unmitigable systemic costs and maintains a recoverable intervention window."
+  },
+  {
+    "pair_id": "p21",
+    "claim": "Congress should create an AI Telemetry Compliance Board with binding halt authority, modeled on the NTSB's investigative independence combined with the SEC's disclosure-enforcement power.",
+    "node_id": "acc-intentions-106",
+    "node_pov": "accelerationist",
+    "X": "An Intention within accelerationist discourse that gates immunity on distributionally sampled deployed behavior with re-measurement triggered by verified drift and capability change.\nEncompasses: real-time output-based monitoring, pre-registered per-tier thresholds, drift-keyed re-measurement independent of vendor version labels, court-admissible telemetry streams, independent deep audits for high-stakes decisions.\nExcludes: one-size-fits-all pre-deployment certification, single-draw attestation checks, calendar-window acceptance sampling on continuously fine-tuned models.",
+    "Y": "Congress should legislate a liability framework that leverages standardized, real-time output telemetry for continuous adaptive safety, reserving intensive, independent discovery audits for critical, high-stakes AI deployments."
+  },
+  {
+    "pair_id": "p22",
+    "claim": "I would change my position if a single, specific, deployed AI system was proven to cause irreversible harm that could not be corrected within two adaptive iterations, and if the delay of its benefits demonstrably saved more lives than it cost.",
+    "node_id": "acc-beliefs-077",
+    "node_pov": "accelerationist",
+    "X": "Just as in Agile development, where every iteration provides rapid feedback, our AI deployments prioritize 'minimum viable safety' with continuous adaptive remediation, ensuring that initial localized issues are contained, not compounded.",
+    "Y": "A Belief within accelerationist discourse that software failure modes remain correctable while harmful deployments stay coupled to metered, switchable infrastructure, with the coupling treated as a dated empirical claim rather than a law of nature.\nEncompasses: instrumented fault isolation at compute providers, the 2026 record of frontier training on rented compute, falsification by audited evidence of frontier capability off-meter, efficiency-driven erosion of the compute threshold.\nExcludes: static pre-deployment gatekeeping, fatalistic containment impossibility, the claim that the infrastructure coupling is permanent or self-evident."
+  },
+  {
+    "pair_id": "p23",
+    "claim": "Every one of those controls operates at machine speed, not committee speed \u2014 they are infrastructure that makes faster deployment safer",
+    "node_id": "acc-beliefs-078",
+    "node_pov": "accelerationist",
+    "X": "A Belief within accelerationist discourse that posits a targeted, agile investment (e.g., 5-7%) in adaptive safety mechanisms optimally balances rapid AI deployment with effective risk mitigation, avoiding the opportunity costs of excessive upfront spending.\nEncompasses: strategic allocation for real-time telemetry, rapid human-in-the-loop validation, automated remediation, competitive advantage from velocity.\nExcludes: static, high-overhead pre-deployment audits, regulatory frameworks that stifle innovation, the assumption that all safety investments yield equal returns.",
+    "Y": "Human oversight panels scale horizontally with deployment volume when structured around sampling protocols and escalation thresholds, enabling rapid iteration without creating review bottlenecks."
+  },
+  {
+    "pair_id": "p24",
+    "claim": "Restrictive labor regulations function as a regressive monitorability tax that protects incumbents at the expense of human potential.",
+    "node_id": "acc-beliefs-085",
+    "node_pov": "accelerationist",
+    "X": "The constituency most effectively served by contemporary AI safety regulation is not end users but incumbent firms seeking durable competitive advantages through regulatory capture.",
+    "Y": "A Belief within accelerationist discourse that regulatory and compliance structures systematically impede AI innovation and entrench incumbent market power rather than serving the public interest.\nEncompasses: institutional inertia, compliance cost asymmetries, regulatory capture by large technology companies, and the creation of pay-to-play barriers against smaller developers.\nExcludes: specific technical critiques of individual safety measures, normative arguments about risk management, and the complete dismantling of all governance structures."
+  }
+]

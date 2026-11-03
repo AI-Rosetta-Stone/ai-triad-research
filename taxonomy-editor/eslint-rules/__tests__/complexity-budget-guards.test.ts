@@ -2,6 +2,8 @@
 // Guards around lib's complexity ratchet (t/3823 Phase 2, SO e/286#2):
 //  C2: check-complexity-budget-disables.mjs refuses inline bypasses of local/complexity-budget.
 //  C1: generate-complexity-baseline.mjs --ext filters the walk and rejects an extension it does not measure.
+// Also t/4442 part 2 (TL e/365#2): the same script's --include-tests flag, a second, narrower bypass
+// guard for require-windows-hide* in test files (poviewer/summary-viewer/workflow-app only).
 // Lives here with the rule's own tests (t/3093 precedent: lib eslint-rules are tested from taxonomy-editor).
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -16,6 +18,7 @@ import { findBypasses, scan } from '../../../lib/eslint-rules/check-complexity-b
 type Bypass = { line: number; directive: string; reason: string };
 const LIB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../lib');
 const GENERATOR = path.join(LIB, 'eslint-rules/generate-complexity-baseline.mjs');
+const SCRIPT = path.join(LIB, 'eslint-rules/check-complexity-budget-disables.mjs');
 
 describe('C2: inline bypasses of local/complexity-budget are refused', () => {
   it.each([
@@ -83,6 +86,107 @@ describe('C2: inline bypasses of local/complexity-budget are refused', () => {
   // Parses all ~370 lib files with the TS parser: ~1.5s as a plain script, ~7s under CI coverage instrumentation.
   it('the real lib tree is clean, so the gate starts green', { timeout: 60_000 }, () => {
     expect((scan(LIB) as { violations: unknown[] }).violations).toEqual([]);
+  });
+});
+
+// t/4442 part 2 (TL e/365#2): --include-tests widens the walk to test files, and checks THEM for
+// require-windows-hide* disables instead of complexity-budget ones. Without the flag, behavior for
+// lib and taxonomy-editor is exactly the C2 suite above, unchanged.
+describe('--include-tests (t/4442 part 2): require-windows-hide bypasses in test files', () => {
+  it.each([
+    ['blanket block disable in a test file', '/* eslint-disable */\nexport const a = 1;'],
+    ['blanket next-line disable in a test file', '// eslint-disable-next-line\nexport const a = 1;'],
+    ['named disable of require-windows-hide', '// eslint-disable-next-line local/require-windows-hide\nexport const a = 1;'],
+    ['named disable of require-windows-hide-unverifiable', '// eslint-disable-next-line local/require-windows-hide-unverifiable\nexport const a = 1;'],
+    // The guard rule itself, named directly -- a residual ESLint's own require-windows-hide-disable-reason
+    // rule can't catch (it only watches disables of the two rules it guards, not disables of itself).
+    ['named disable of the guard rule itself, require-windows-hide-disable-reason', '/* eslint-disable local/require-windows-hide-disable-reason */\nexport const a = 1;'],
+    ['inline config turning require-windows-hide off', '/* eslint local/require-windows-hide: off */\nexport const a = 1;'],
+  ])('%s is refused in testMode', (_label, src) => {
+    const found = findBypasses(src, 'file.test.ts', { testMode: true }) as Bypass[];
+    expect(found).toHaveLength(1);
+  });
+
+  it.each([
+    ['a named disable of local/complexity-budget (out of scope for testMode -- not require-windows-hide*)', '// eslint-disable-next-line local/complexity-budget\nexport const a = 1;'],
+    ['a disable naming an unrelated rule', '// eslint-disable-next-line @typescript-eslint/no-explicit-any\nexport const a: any = 1;'],
+    ['prose that mentions require-windows-hide', '// see local/require-windows-hide for the gate\nexport const a = 1;'],
+  ])('allows %s in testMode', (_label, src) => {
+    expect(findBypasses(src, 'file.test.ts', { testMode: true })).toEqual([]);
+  });
+
+  it('without opts (or testMode: false), a require-windows-hide disable is NOT flagged -- the default path is unchanged', () => {
+    expect(findBypasses('// eslint-disable-next-line local/require-windows-hide\nexport const a = 1;')).toEqual([]);
+    expect(findBypasses('// eslint-disable-next-line local/require-windows-hide\nexport const a = 1;', 'file.ts', { testMode: false })).toEqual([]);
+  });
+
+  it('a blanket disable in a NON-test file is still the complexity-budget reason, even with includeTests set -- testMode is per-file, not global', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'cb-include-tests-'));
+    try {
+      mkdirSync(path.join(root, '__tests__'));
+      writeFileSync(path.join(root, 'a.ts'), '/* eslint-disable */\nexport const a = 1;\n');
+      writeFileSync(path.join(root, '__tests__/b.test.ts'), '/* eslint-disable */\nexport const b = 1;\n');
+      const { violations } = scan(root, { includeTests: true }) as { violations: (Bypass & { file: string; testFile: boolean })[] };
+      const byFile = Object.fromEntries(violations.map((v) => [v.file, v]));
+      expect(byFile['a.ts'].testFile).toBe(false);
+      expect(byFile['a.ts'].reason).toMatch(/complexity gate/);
+      expect(byFile['__tests__/b.test.ts'].testFile).toBe(true);
+      expect(byFile['__tests__/b.test.ts'].reason).toMatch(/require-windows-hide/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('a blanket disable in a test file is reported when scanning WITH --include-tests, and the same file is invisible WITHOUT it', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'cb-include-tests-'));
+    try {
+      writeFileSync(path.join(root, 'a.test.ts'), '/* eslint-disable */\nexport const a = 1;\n');
+      const without = scan(root) as { files: number; violations: unknown[] };
+      expect(without.files).toBe(0); // the test file is not even walked
+      expect(without.violations).toEqual([]);
+
+      const withFlag = scan(root, { includeTests: true }) as { files: number; violations: (Bypass & { testFile: boolean })[] };
+      expect(withFlag.files).toBe(1);
+      expect(withFlag.violations).toHaveLength(1);
+      expect(withFlag.violations[0].testFile).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('a helper file under __tests__/ not itself named *.test.ts is still test-mode-scanned with --include-tests', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'cb-include-tests-'));
+    try {
+      mkdirSync(path.join(root, '__tests__'));
+      writeFileSync(path.join(root, '__tests__/helper.ts'), '// eslint-disable-next-line local/require-windows-hide\nexport const h = 1;\n');
+      const { violations } = scan(root, { includeTests: true }) as { violations: (Bypass & { testFile: boolean })[] };
+      expect(violations).toHaveLength(1);
+      expect(violations[0].testFile).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('the real lib tree, scanned WITH --include-tests, reports only test-file findings (testFile: true) -- 0 non-test regressions', { timeout: 60_000 }, () => {
+    const { violations } = scan(LIB, { includeTests: true }) as { violations: (Bypass & { testFile: boolean })[] };
+    expect(violations.every((v) => v.testFile)).toBe(true);
+  });
+
+  it('the CLI (spawned) exits 0 and prints ::warning:: lines for test-file findings, but still fails on a non-test one', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'cb-cli-'));
+    try {
+      writeFileSync(path.join(root, 'a.test.ts'), '/* eslint-disable */\nexport const a = 1;\n');
+      const warnOnly = spawnSync(process.execPath, [SCRIPT, root, '--include-tests'], { encoding: 'utf8' });
+      expect(warnOnly.status, warnOnly.stderr).toBe(0);
+      expect(warnOnly.stdout).toMatch(/::warning file=a\.test\.ts,line=1::/);
+
+      writeFileSync(path.join(root, 'b.ts'), '/* eslint-disable local/complexity-budget */\nexport const b = 1;\n');
+      const stillFails = spawnSync(process.execPath, [SCRIPT, root, '--include-tests'], { encoding: 'utf8' });
+      expect(stillFails.status).not.toBe(0);
+      expect(stillFails.stderr).toMatch(/complexity-budget bypass check FAILED/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

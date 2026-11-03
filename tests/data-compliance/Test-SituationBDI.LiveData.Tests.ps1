@@ -47,6 +47,15 @@
       FIFTH occurrence. The push gate flagged both pushes on data issue #6 and the
       scheduled check went red; neither was acted on until 10-04, because the alert path
       was still warn-only. Producer fix tracked as t/3894.
+    - 454->456 (sit-490/491, data 9eb99f88): decomposed on emit via
+      Set-SituationBdiInterpretation (t/3011); no backfill needed; CL sign-off on #3333.
+      First bump in this test's history that needed no backfill -- t/3011's decompose-on-emit
+      fix is doing its job.
+    - 456->458 (sit-492/493, data PR #78 / 5006b0fa "digital resurrection"): both nodes
+      carried full per-POV interpretations (belief/desire/intention/summary x3 camps) in
+      the same creation commit; no backfill needed. A later commit (e81fca8b, CL t/4620
+      session-start audit) only corrected sit-493's description text, not its decomposition.
+      CL sign-off (p/210#171).
 #>
 
 BeforeAll {
@@ -65,9 +74,9 @@ Describe 'Situation BDI-decomposition live-data baseline (t/1312, relocated t/23
         $script:BdiCheck | Should -Not -BeNullOrEmpty
     }
 
-    It 'Live-data baseline: 454 / 454 non-deprecated situations pass, 1 exempt (post-t/3886 backfill)' {
+    It 'Live-data baseline: 458 / 458 non-deprecated situations pass, 1 exempt (post-#78 bump)' {
         $script:BdiCheck.Status | Should -Be 'pass'
-        $script:BdiCheck.Detail | Should -Match '454 / 454'
+        $script:BdiCheck.Detail | Should -Match '458 / 458'
         $script:BdiCheck.Detail | Should -Match '1 exempt via \[DEPRECATED\] prefix'
     }
 

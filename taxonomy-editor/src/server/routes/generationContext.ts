@@ -37,9 +37,14 @@ export function resolveGenerationContext(req: http.IncomingMessage, model: strin
   const { principalName, idp } = callerIdentity(); // t/848: verified context, not raw headers
   const tier = proxyTiers.resolveTier(principalName, idp);
   const isFree = tier.level === 'free';
-  // Free tier (t/793): keyed per-IP (all keyless users would otherwise share one
-  // bucket), with the model pinned. Other tiers key by user and honour the request model.
-  const limitKey = isFree ? `free:${getClientIp(req)}` : (principalName || '_anonymous');
+  // Free tier (t/793, t/4487): signed-in callers key per-identity on the stable principal id
+  // (one bucket per user, independent of network — closes the "change IP to multiply your
+  // limit" gap and the shared-NAT false-sharing gap), since item 0 (#3691) made that id
+  // non-spoofable. Anonymous callers (principalName === '') still key per-IP — there's no
+  // stable identity to key on. Other tiers key by user and honour the request model.
+  const limitKey = isFree
+    ? (principalName ? `free:user:${principalName}` : `free:${getClientIp(req)}`)
+    : (principalName || '_anonymous');
   const effectiveModel = isFree ? (tier.pinnedModel ?? model) : model;
   // t/4196 Stage 1 (AC3): null, not the real registry — this module is mocked (partial factory,
   // no getModelRegistry) across many route-level test suites; wiring the real registry through

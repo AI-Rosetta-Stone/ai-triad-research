@@ -7,14 +7,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
-const { readPolicyRegistryMock, readTaxonomyFileMock, loadDictionaryMock, readEntityRegistryMock, getOrganizationByIdMock, recordMock } =
+const { readPolicyRegistryMock, readTaxonomyFileMock, loadDictionaryMock, readEntityRegistryMock, getEntityRegistryStatusMock, getOrganizationByIdMock, recordMock, loadSourcesIndexMock } =
   vi.hoisted(() => ({
     readPolicyRegistryMock: vi.fn(),
     readTaxonomyFileMock: vi.fn(),
     loadDictionaryMock: vi.fn(),
     readEntityRegistryMock: vi.fn(),
+    // t/4584/t/4586: defaults to "not degraded" so every pre-existing test
+    // (which never set up this mock) keeps its original 200 [] behavior.
+    getEntityRegistryStatusMock: vi.fn(() => ({ degraded: false, reason: null })),
     getOrganizationByIdMock: vi.fn(),
     recordMock: vi.fn(),
+    loadSourcesIndexMock: vi.fn(),
   }));
 
 vi.mock('../storage/fileIO.js', () => ({
@@ -22,9 +26,12 @@ vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: readTaxonomyFileMock,
   loadDictionary: loadDictionaryMock,
   readEntityRegistry: readEntityRegistryMock,
+  getEntityRegistryStatus: getEntityRegistryStatusMock,
 }));
 vi.mock('../organizations.js', () => ({ getOrganizationById: getOrganizationByIdMock }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
+// t/4527: loadSourcesIndex is the only new dependency resolveEntityRegistryRef pulls in.
+vi.mock('../storage/sourcesIndexReader.js', () => ({ loadSourcesIndex: loadSourcesIndexMock }));
 
 import type { Entity } from '../../../../lib/entities/types.js';
 import type { ServerCtx } from '../routes/context.js';
@@ -64,6 +71,7 @@ describe('GET /api/entity/:ref (t/1786)', () => {
     readEntityRegistryMock.mockReset();
     getOrganizationByIdMock.mockReset();
     recordMock.mockReset();
+    loadSourcesIndexMock.mockReset();
 
     getOrganizationByIdMock.mockImplementation(async (id: string) =>
       id === 'org-001' ? { id: 'org-001', name: 'Electronic Frontier Foundation' } : null);
@@ -177,6 +185,86 @@ describe('GET /api/entity/:ref (t/1786)', () => {
     expect((nullCase.body as { record: Entity }).record.source_refs).toEqual([]);
   });
 
+  // ── t/4527: fold source_refs through duplicate_of before returning ──
+
+  it('a source_ref marked duplicate_of resolves to its canonical target', async () => {
+    readEntityRegistryMock.mockResolvedValue(new Map([
+      ['ent-060', { id: 'ent-060', name: 'Dup refs', source_refs: ['doc-copy'] } as unknown as Entity],
+    ]));
+    loadSourcesIndexMock.mockResolvedValue({
+      schema_version: 1, source_commit: 'abc', doc_count: 2,
+      docs: [
+        { id: 'doc-copy', duplicate_of: 'doc-canonical' },
+        { id: 'doc-canonical' },
+      ],
+    });
+    const { status, body } = await invoke('ent-060');
+    expect(status).toBe(200);
+    expect((body as { record: Entity }).record.source_refs).toEqual(['doc-canonical']);
+  });
+
+  it('an invalid duplicate_of mark (self/missing-target/chain) is left as-is', async () => {
+    readEntityRegistryMock.mockResolvedValue(new Map([
+      ['ent-061', { id: 'ent-061', name: 'Invalid marks', source_refs: ['doc-self', 'doc-missing', 'doc-chain-a'] } as unknown as Entity],
+    ]));
+    loadSourcesIndexMock.mockResolvedValue({
+      schema_version: 1, source_commit: 'abc', doc_count: 3,
+      docs: [
+        { id: 'doc-self', duplicate_of: 'doc-self' }, // self: invalid
+        // 'doc-missing' marks a target absent from the index entirely — missing_target: invalid.
+        { id: 'doc-chain-a', duplicate_of: 'doc-chain-b' },
+        { id: 'doc-chain-b', duplicate_of: 'doc-chain-c' }, // one-hop only — chain: invalid
+        { id: 'doc-chain-c' },
+      ],
+    });
+    const { status, body } = await invoke('ent-061');
+    expect(status).toBe(200);
+    expect((body as { record: Entity }).record.source_refs).toEqual(['doc-self', 'doc-missing', 'doc-chain-a']);
+  });
+
+  it('a canonical doc and its copy in the same list collapse to one entry', async () => {
+    readEntityRegistryMock.mockResolvedValue(new Map([
+      ['ent-062', { id: 'ent-062', name: 'Sibling collapse', source_refs: ['doc-canonical', 'doc-copy'] } as unknown as Entity],
+    ]));
+    loadSourcesIndexMock.mockResolvedValue({
+      schema_version: 1, source_commit: 'abc', doc_count: 2,
+      docs: [
+        { id: 'doc-canonical' },
+        { id: 'doc-copy', duplicate_of: 'doc-canonical' },
+      ],
+    });
+    const { status, body } = await invoke('ent-062');
+    expect(status).toBe(200);
+    expect((body as { record: Entity }).record.source_refs).toEqual(['doc-canonical']);
+  });
+
+  it('a target outside the entity\'s own ref list still resolves (not misclassified as missing_target)', async () => {
+    readEntityRegistryMock.mockResolvedValue(new Map([
+      ['ent-063', { id: 'ent-063', name: 'Target not cited by this entity', source_refs: ['doc-copy'] } as unknown as Entity],
+    ]));
+    // 'doc-canonical' is a real corpus doc but never appears in ent-063's own source_refs —
+    // the lookup must still find it (t/4357's pitfall).
+    loadSourcesIndexMock.mockResolvedValue({
+      schema_version: 1, source_commit: 'abc', doc_count: 2,
+      docs: [
+        { id: 'doc-copy', duplicate_of: 'doc-canonical' },
+        { id: 'doc-canonical' },
+      ],
+    });
+    const { body } = await invoke('ent-063');
+    expect((body as { record: Entity }).record.source_refs).toEqual(['doc-canonical']);
+  });
+
+  it('degrades safely when sources-index.json is unavailable: source_refs unchanged, no throw', async () => {
+    readEntityRegistryMock.mockResolvedValue(new Map([
+      ['ent-064', { id: 'ent-064', name: 'No index', source_refs: ['doc-copy'] } as unknown as Entity],
+    ]));
+    loadSourcesIndexMock.mockResolvedValue(null);
+    const { status, body } = await invoke('ent-064');
+    expect(status).toBe(200);
+    expect((body as { record: Entity }).record.source_refs).toEqual(['doc-copy']);
+  });
+
   it('follows a merged_into tombstone to the canonical Entity + stamps redirected_from', async () => {
     readEntityRegistryMock.mockResolvedValue(new Map([
       ['ent-001', { id: 'ent-001', merged_into: 'ent-002' } as unknown as Entity],
@@ -234,6 +322,7 @@ describe('GET /api/entities (t/1883)', () => {
   beforeEach(() => {
     readEntityRegistryMock.mockReset();
     recordMock.mockReset();
+    getEntityRegistryStatusMock.mockReset().mockReturnValue({ degraded: false, reason: null });
   });
 
   it('returns summary rows from a populated registry — exactly the 7 summary keys, no Entity leak', async () => {
@@ -276,11 +365,23 @@ describe('GET /api/entities (t/1883)', () => {
     expect(rows.find(r => r.id === 'ent-071')!.aliases).toEqual(['GDPR']);
   });
 
-  it('returns [] when the entity store is absent (readEntityRegistry → null)', async () => {
+  it('returns [] when the entity store is absent (readEntityRegistry → null, a clean/not-degraded absence)', async () => {
     readEntityRegistryMock.mockResolvedValue(null);
     const { status, body } = await invokeList();
     expect(status).toBe(200);
     expect(body).toEqual([]);
+  });
+
+  // t/4584/t/4586 (incident): a null registry from a DEGRADED read (GitHub
+  // rate-limit exhaustion, circuit-open, no creds) must return 503, never the
+  // same 200 [] a genuine absence gets — that silent collapse was the
+  // incident's actual symptom.
+  it('returns 503 when the entity registry read is degraded, not a genuine absence', async () => {
+    readEntityRegistryMock.mockResolvedValue(null);
+    getEntityRegistryStatusMock.mockReturnValue({ degraded: true, reason: 'rate_limited' });
+    const { status, body } = await invokeList();
+    expect(status).toBe(503);
+    expect(body).toMatchObject({ error: expect.stringContaining('rate_limited') });
   });
 
   it('returns [] for an empty registry', async () => {

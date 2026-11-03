@@ -15,13 +15,16 @@ For each position:
   AI developer ought to ..."). The organization's name is already recorded on the
   claim; name its own instrument in "anchors" instead (e.g. ["Responsible Scaling
   Policy"]).
-- "anchors" (t/4482; forensic/additive — see the point-of-use exemption note on
-  the "anchors" field in pov-summary-schema.prompt): the names (instruments,
-  jurisdictions, organizations or dates), as given in the document, that the
-  position would lose its meaning without, e.g. ["EU AI Act Article 62"],
-  ["Responsible Scaling Policy"]. Use [] for a general position. Names that
-  only illustrate the position, or that are where a figure or quotation came
-  from, are not anchors.
+- "anchors": the names (instruments, jurisdictions, organizations or dates),
+  as given in the document, that the position would lose its meaning without,
+  e.g. ["EU AI Act Article 62"], ["Responsible Scaling Policy"]. Use [] for a
+  general position. Names that only illustrate the position, or that are
+  where a figure or quotation came from, are not anchors.
+  FORENSIC/ADDITIVE (t/4482): NO consumer branches on this field yet. THE
+  EXEMPTION LAPSES the moment any code path reads anchors to make a decision
+  (display, matching, filtering) — at that point a Second Opinion is required
+  for the change that introduces the read. See lib/ai-client/types.ts for the
+  model of this note.
 - "polarity": "asserts" if the organization advances the position; "opposes" if it
   argues against it. The canonical_proposition states the POSITION and polarity
   carries the direction — when the org rejects X, write X as the proposition with

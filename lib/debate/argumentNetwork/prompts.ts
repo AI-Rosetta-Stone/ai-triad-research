@@ -139,7 +139,7 @@ For each claim, also classify:
   Desires: deontic ("X ought to be the case")
   Intentions: instrumental ("Achieve X by means of Y")
   SELF-CONTAINED: a reader who never saw the debate must understand the sentence on its own.
-    1. Nothing may point outside the sentence: no "it", "they", "this policy", "the speaker", "the proposal".
+    1. Nothing may point outside the sentence: no "it", "they", "this policy", "the speaker", "the proposal", or a POV camp's own name used as the claim's subject ("Accelerationists believe...", "Safetyists counter that...", "Skeptics argue..."). State the position itself, not which camp holds it — the camp is already recorded elsewhere on the claim.
     2. Replace a name a debater coined mid-debate with what it is, using only what the debate itself says it is; never add detail the debate does not give: "the attestation" -> "a mandatory data-processing attestation" (when the debate has said so), "the two-year verification test" -> "a two-year test comparing sampled data-practice attestations against actual practice".
     3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
   Use controlled vocabulary terms where applicable. This field is used for taxonomy matching — precision matters.
@@ -354,12 +354,24 @@ export function formatArgumentNetworkContext(
   return lines.join('\n');
 }
 
+/** t/4644/t/4692: appends the attributed node's synthetic-statement grounding line, if the
+ *  claim's attribution carries one (computed once at attribution time, not re-derived here).
+ *  Extracted out of formatEstablishedPoints/formatConcessionCandidatesHint to keep the branch
+ *  out of their already-high complexity. */
+export function appendGroundingLine(
+  lines: string[],
+  attribution: { primary_ref?: string; grounding_statement?: string } | undefined,
+): void {
+  if (!attribution?.primary_ref || !attribution.grounding_statement) return;
+  lines.push(`  Taxonomy grounding [${attribution.primary_ref}]: "${attribution.grounding_statement}"`);
+}
+
 /** Format claims from other debaters, prioritized by response-relevance.
  *  Tier 1: Claims that respond to this agent's prior claims.
  *  Tier 2: Unaddressed claims targeting this agent.
  *  Tier 3: Recency (fallback). */
 export function formatEstablishedPoints(
-  allNodes: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string }[],
+  allNodes: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string } }[],
   currentSpeaker: string,
   maxPoints: number = 10,
   edges?: { source: string; target: string; type: 'supports' | 'attacks' }[],
@@ -402,7 +414,7 @@ export function formatEstablishedPoints(
   }
 
   // Build prioritized list
-  const result: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; tag: string }[] = [];
+  const result: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string }; tag: string }[] = [];
 
   for (const c of otherClaims) {
     if (tier1.has(c.id)) {
@@ -471,6 +483,7 @@ export function formatEstablishedPoints(
         factTag = normalized === 'false' ? ` [FACT-CHECKED FALSE${ev}]` : ` [FACT-CHECKED DISPUTED${ev}]`;
       }
       lines.push(`- ${c.id} (${campLabel}):${tag}${factTag} ${c.text}`);
+      appendGroundingLine(lines, c.claim_taxonomy_attribution);
     }
   }
 

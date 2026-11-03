@@ -111,12 +111,9 @@ function Invoke-Mechanism5RetrievalPass {
         return
     }
 
-    # POV prefix map for in-memory node filtering
-    $PovPrefixMap = @{
-        accelerationist = 'acc-'
-        safetyist       = 'saf-'
-        skeptic         = 'skp-'
-    }
+    # t/4478: node-id -> category, for the BDI scoping Get-BdiScopedNodeIds applies below
+    # (POV prefix map lives there too, shared with Invoke-RetrievalConfidencePass).
+    $CategoryMap = Get-BdiCategoryMap
 
     # Node label map (guaranteed populated by Assert-TaxonomyCacheFresh earlier)
     $LabelMap = @{}
@@ -154,12 +151,14 @@ function Invoke-Mechanism5RetrievalPass {
         $QNorm = [Math]::Sqrt($QNormSq)
         if ($QNorm -eq 0) { continue }
 
-        # Score nodes filtered to this key_point's POV
-        $PovPrefix = if ($PovPrefixMap.ContainsKey($Pov)) { $PovPrefixMap[$Pov] } else { $null }
+        # Score nodes filtered to this key_point's POV and (t/4478) BDI category, WARN-fallback to
+        # POV-only when the key_point's category isn't a valid B/D/I value.
+        $AllNodeIds = @($script:CachedEmbeddings.Keys | Where-Object { -not ($script:PillarNodeIds -and $script:PillarNodeIds.Contains($_)) })  # t/2369
+        $KpCategory = if ($kp.PSObject.Properties['category']) { [string]$kp.category } else { $null }
+        $ScopedIds = Get-BdiScopedNodeIds -AllNodeIds $AllNodeIds -Pov $Pov -Category $KpCategory `
+            -CategoryMap $CategoryMap -Context "Invoke-Mechanism5RetrievalPass ($($kp.taxonomy_node_id))"
         $Scores = [System.Collections.Generic.List[PSObject]]::new()
-        foreach ($NodeId in $script:CachedEmbeddings.Keys) {
-            if ($PovPrefix -and -not $NodeId.StartsWith($PovPrefix)) { continue }
-            if ($script:PillarNodeIds -and $script:PillarNodeIds.Contains($NodeId)) { continue }  # t/2369
+        foreach ($NodeId in $ScopedIds) {
             $NodeVec = [double[]]$script:CachedEmbeddings[$NodeId]
             if ($NodeVec.Count -ne $Dim) { continue }
 

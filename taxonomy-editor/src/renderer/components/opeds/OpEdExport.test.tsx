@@ -97,7 +97,11 @@ describe('exportOpEdSet — JSON path (t/2797)', () => {
     exportOpEdSet(set, 'markdown');
 
     const md = await capturedBlob!.text();
-    expect(md).toContain('| Element | Node ID | Type | Relevance | Reflected in the op-ed |');
-    expect(md).toContain('| A belief about safety | saf-belief-014 | BDI | 0.82 | Grounds the claim |');
+    // t/4634: "Taxonomy grounding" renamed to "Why"; columns are now ID | Element | Type |
+    // Reflected — Node ID moves first and is renamed ID, Relevance is dropped (matches the
+    // screen's new Why table).
+    expect(md).toContain('## Why');
+    expect(md).toContain('| ID | Element | Type | Reflected in the op-ed |');
+    expect(md).toContain('| saf-belief-014 | A belief about safety | BDI | Grounds the claim |');
   });
 });

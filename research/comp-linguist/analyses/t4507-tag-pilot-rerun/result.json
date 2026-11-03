@@ -1,0 +1,395 @@
+{
+  "_provenance": {
+    "script": "analyze.ts",
+    "debates": "ai-triad-data/debates/t4507-tag-pilot-rerun (50 ok)",
+    "skeptic_json": "ai-triad-data taxonomy/Origin/skeptic.json, unchanged since before the run (data HEAD 5d0d5363)",
+    "embedder": "production ONNX all-MiniLM-L6-v2 (dml EP)",
+    "computed": "2026-10-27"
+  },
+  "complete_motions": 10,
+  "skipped_motions": [],
+  "median_F": 0.1848,
+  "F_values": [
+    0.1848,
+    0.1408,
+    0.2805,
+    0.1996,
+    0.1157,
+    0.1894,
+    0.1322,
+    0.1215,
+    0.2098,
+    0.1238
+  ],
+  "manipulation_checks": {
+    "a1": {
+      "tag": "critical",
+      "mode": "scope",
+      "injected_skeptic_nodes": 220,
+      "tagged": 220,
+      "tagged_share": 1,
+      "criterion": ">= 0.95",
+      "pass": true,
+      "seat_tags_recorded_ok": true,
+      "n_debates": 10
+    },
+    "a2": {
+      "tag": "critical",
+      "mode": "prioritize",
+      "injected_skeptic_nodes": 214,
+      "tagged": 210,
+      "tagged_share": 0.9813,
+      "criterion": "> base rate 0.727",
+      "pass": true,
+      "seat_tags_recorded_ok": true,
+      "n_debates": 10
+    },
+    "a3": {
+      "tag": "institutional",
+      "mode": "scope",
+      "injected_skeptic_nodes": 214,
+      "tagged": 214,
+      "tagged_share": 1,
+      "criterion": ">= 0.95",
+      "pass": true,
+      "seat_tags_recorded_ok": true,
+      "n_debates": 10
+    },
+    "a4": {
+      "tag": "institutional",
+      "mode": "prioritize",
+      "injected_skeptic_nodes": 210,
+      "tagged": 204,
+      "tagged_share": 0.9714,
+      "criterion": "> base rate 0.5879",
+      "pass": true,
+      "seat_tags_recorded_ok": true,
+      "n_debates": 10
+    },
+    "a1r": {
+      "tag": "critical",
+      "mode": "scope",
+      "injected_skeptic_nodes": 212,
+      "tagged": 212,
+      "tagged_share": 1,
+      "criterion": ">= 0.95",
+      "pass": true,
+      "seat_tags_recorded_ok": true,
+      "n_debates": 10
+    }
+  },
+  "manipulation_pass": true,
+  "Q1_wings": {
+    "verdict": "DISTINCT",
+    "distinct_motions": 7,
+    "of": 10
+  },
+  "Q2_modes": {
+    "verdict": "INCONCLUSIVE",
+    "distinct_motions": 5,
+    "of": 10
+  },
+  "turn_count_covariate": {
+    "mean_statements": {
+      "a1": 1.7,
+      "a2": 1.7,
+      "a3": 1.5,
+      "a4": 1.7,
+      "a1r": 1.5
+    },
+    "distribution": {
+      "a1": [
+        2,
+        2,
+        2,
+        1,
+        2,
+        1,
+        1,
+        2,
+        2,
+        2
+      ],
+      "a2": [
+        2,
+        2,
+        1,
+        1,
+        2,
+        1,
+        2,
+        3,
+        2,
+        1
+      ],
+      "a3": [
+        2,
+        2,
+        3,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        1
+      ],
+      "a4": [
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        2,
+        2
+      ],
+      "a1r": [
+        2,
+        1,
+        1,
+        2,
+        2,
+        1,
+        1,
+        1,
+        2,
+        2
+      ]
+    },
+    "spread_gt_1": false,
+    "possibly_confounded_arms": []
+  },
+  "corpus_base_rates": {
+    "critical": 0.727,
+    "institutional": 0.5879,
+    "n_nodes": 381
+  },
+  "secondary_exploratory": {
+    "cited_tagged_share": {
+      "a1": {
+        "cited_skeptic_refs": 96,
+        "tagged": 96,
+        "share": 1
+      },
+      "a2": {
+        "cited_skeptic_refs": 87,
+        "tagged": 84,
+        "share": 0.9655
+      },
+      "a3": {
+        "cited_skeptic_refs": 81,
+        "tagged": 81,
+        "share": 1
+      },
+      "a4": {
+        "cited_skeptic_refs": 79,
+        "tagged": 77,
+        "share": 0.9747
+      },
+      "a1r": {
+        "cited_skeptic_refs": 87,
+        "tagged": 87,
+        "share": 1
+      }
+    },
+    "prioritize_lift": {
+      "a2": 0.2543,
+      "a4": 0.3835
+    }
+  },
+  "rows": [
+    {
+      "motion": "m01",
+      "F": 0.1848,
+      "B": 0.1984,
+      "M": 0.1872,
+      "wings_distinct": true,
+      "modes_distinct": true,
+      "d13": 0.1788,
+      "d24": 0.2181,
+      "d12": 0.1976,
+      "d34": 0.1769,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 2,
+        "a3": 2,
+        "a4": 1,
+        "a1r": 2
+      }
+    },
+    {
+      "motion": "m02",
+      "F": 0.1408,
+      "B": 0.1665,
+      "M": 0.1315,
+      "wings_distinct": true,
+      "modes_distinct": false,
+      "d13": 0.1736,
+      "d24": 0.1595,
+      "d12": 0.0924,
+      "d34": 0.1706,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 2,
+        "a3": 2,
+        "a4": 2,
+        "a1r": 1
+      }
+    },
+    {
+      "motion": "m03",
+      "F": 0.2805,
+      "B": 0.1657,
+      "M": 0.1587,
+      "wings_distinct": false,
+      "modes_distinct": false,
+      "d13": 0.1832,
+      "d24": 0.1483,
+      "d12": 0.1553,
+      "d34": 0.162,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 1,
+        "a3": 3,
+        "a4": 2,
+        "a1r": 1
+      }
+    },
+    {
+      "motion": "m04",
+      "F": 0.1996,
+      "B": 0.1767,
+      "M": 0.1424,
+      "wings_distinct": false,
+      "modes_distinct": false,
+      "d13": 0.1873,
+      "d24": 0.1662,
+      "d12": 0.1678,
+      "d34": 0.117,
+      "skeptic_statements": {
+        "a1": 1,
+        "a2": 1,
+        "a3": 1,
+        "a4": 2,
+        "a1r": 2
+      }
+    },
+    {
+      "motion": "m05",
+      "F": 0.1157,
+      "B": 0.1389,
+      "M": 0.1175,
+      "wings_distinct": true,
+      "modes_distinct": true,
+      "d13": 0.1837,
+      "d24": 0.0942,
+      "d12": 0.0954,
+      "d34": 0.1396,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 2,
+        "a3": 1,
+        "a4": 2,
+        "a1r": 2
+      }
+    },
+    {
+      "motion": "m06",
+      "F": 0.1894,
+      "B": 0.2561,
+      "M": 0.2231,
+      "wings_distinct": true,
+      "modes_distinct": true,
+      "d13": 0.1666,
+      "d24": 0.3455,
+      "d12": 0.1964,
+      "d34": 0.2499,
+      "skeptic_statements": {
+        "a1": 1,
+        "a2": 1,
+        "a3": 1,
+        "a4": 2,
+        "a1r": 1
+      }
+    },
+    {
+      "motion": "m07",
+      "F": 0.1322,
+      "B": 0.2145,
+      "M": 0.2947,
+      "wings_distinct": true,
+      "modes_distinct": true,
+      "d13": 0.1959,
+      "d24": 0.2331,
+      "d12": 0.258,
+      "d34": 0.3314,
+      "skeptic_statements": {
+        "a1": 1,
+        "a2": 2,
+        "a3": 1,
+        "a4": 1,
+        "a1r": 1
+      }
+    },
+    {
+      "motion": "m08",
+      "F": 0.1215,
+      "B": 0.2181,
+      "M": 0.1939,
+      "wings_distinct": true,
+      "modes_distinct": true,
+      "d13": 0.2224,
+      "d24": 0.2138,
+      "d12": 0.1542,
+      "d34": 0.2336,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 3,
+        "a3": 1,
+        "a4": 1,
+        "a1r": 1
+      }
+    },
+    {
+      "motion": "m09",
+      "F": 0.2098,
+      "B": 0.1618,
+      "M": 0.1503,
+      "wings_distinct": false,
+      "modes_distinct": false,
+      "d13": 0.1819,
+      "d24": 0.1418,
+      "d12": 0.1841,
+      "d34": 0.1164,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 2,
+        "a3": 2,
+        "a4": 2,
+        "a1r": 2
+      }
+    },
+    {
+      "motion": "m10",
+      "F": 0.1238,
+      "B": 0.2052,
+      "M": 0.1191,
+      "wings_distinct": true,
+      "modes_distinct": false,
+      "d13": 0.1807,
+      "d24": 0.2297,
+      "d12": 0.1281,
+      "d34": 0.11,
+      "skeptic_statements": {
+        "a1": 2,
+        "a2": 1,
+        "a3": 1,
+        "a4": 2,
+        "a1r": 2
+      }
+    }
+  ]
+}

@@ -447,6 +447,21 @@ jobs:
             }
           }
 
+      - name: Check staging GitHub App vars are set (t/4587 SO C4)
+        run: |
+          # SO condition (e/384): an empty _STAGING var falls back to prod's App values,
+          # silently sharing the quota again (the exact t/4584 condition this ticket fixes).
+          # Fallback itself is fine as a default, but it must never be silent -- warn.
+          for v in SYNC_GITHUB_APP_ID_STAGING SYNC_GITHUB_APP_INSTALLATION_ID_STAGING SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING; do
+            if [ -z "${!v}" ]; then
+              echo "::warning::$v is empty -- staging will fall back to prod's GitHub App values (shared rate-limit quota, t/4584 condition)."
+            fi
+          done
+        env:
+          SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
+          SYNC_GITHUB_APP_INSTALLATION_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }}
+          SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING: ${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
+
       - name: Preview Bicep changes (what-if)
         env:
           # t/4326: passed through env (not inlined) so bash never interprets the value.
@@ -483,6 +498,9 @@ jobs:
               githubAppId=${{ vars.SYNC_GITHUB_APP_ID }} \
               githubAppInstallationId=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID }} \
               githubAppPrivateKeySecretName=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }} \
+              githubAppIdStaging=${{ vars.SYNC_GITHUB_APP_ID_STAGING }} \
+              githubAppInstallationIdStaging=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }} \
+              githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }} \
               githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }} \
               freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
@@ -529,6 +547,9 @@ jobs:
             githubAppId=${{ vars.SYNC_GITHUB_APP_ID }}
             githubAppInstallationId=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID }}
             githubAppPrivateKeySecretName=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }}
+            githubAppIdStaging=${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
+            githubAppInstallationIdStaging=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }}
+            githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
             githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }}
             freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }}
             geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }}
@@ -564,18 +585,6 @@ jobs:
         run: |
           ./operations/devops/Invoke-BlobContainerGateCheck.ps1 `
             -StorageAccount '${{ steps.deploy.outputs.storageAccountName }}'
-
-      # Warn-only: compares share data against the data-repo canonical blob sha via
-      # GitHub Git Trees API. Catches seed-lag (t/3090 pattern — share stale relative
-      # to data repo). Flip to blocking is a separate Gate-Promotion PR after ≥1 green
-      # cycle on the real share. (t/3091)
-      - name: Verify share data freshness (warn-only — t/3091)
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          ./operations/devops/Invoke-ShareFreshnessGateCheck.ps1 `
-            -StorageAccount '${{ steps.deploy.outputs.storageAccountName }}' `
-            -GitHubToken    '${{ github.token }}'
 
       - name: Cleanup stale revisions
         shell: pwsh
@@ -715,12 +724,22 @@ jobs:
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
 
-          # Get the revision-specific FQDN to test the new revision directly
-          $RevInfo = Get-ContainerAppRevision -Mode Fqdn `
-            -RevisionName '${{ steps.new_revision.outputs.revision }}' `
-            -AppName '${{ env.CONTAINER_APP_NAME }}' `
-            -ResourceGroup '${{ env.RESOURCE_GROUP }}'
-          $RevFqdn = if ($RevInfo) { $RevInfo.Fqdn } else { $null }
+          # Get the revision-specific FQDN to test the new revision directly.
+          # t/4822: the revision was JUST created (prior step) -- a single immediate query here
+          # raced ARM's propagation of properties.fqdn onto a still-Activating revision and lost
+          # reliably (reproduced twice: runs 41660425655, 41662045970), routing every deploy into
+          # the fail-closed branch below despite the revision itself being perfectly healthy.
+          # Bounded retry (same shape as Get-MountReadinessVerdict.ps1's SMB-mount propagation fix)
+          # closes that gap; a revision that never gets an FQDN still falls through unresolved.
+          . ./operations/devops/Get-RevisionFqdnVerdict.ps1
+          $FqdnVerdict = Wait-RevisionFqdn -MaxAttempts 6 -IntervalSeconds 5 -Probe {
+            $RevInfo = Get-ContainerAppRevision -Mode Fqdn `
+              -RevisionName '${{ steps.new_revision.outputs.revision }}' `
+              -AppName '${{ env.CONTAINER_APP_NAME }}' `
+              -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+            if ($RevInfo) { $RevInfo.Fqdn } else { $null }
+          }
+          $RevFqdn = $FqdnVerdict.Fqdn
 
           $BaseUrl = if ([string]::IsNullOrWhiteSpace($RevFqdn)) { "${{ steps.deploy.outputs.appUrl }}" } else { "https://$RevFqdn" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "base_url=$BaseUrl"
@@ -821,39 +840,46 @@ jobs:
           $BaseUrl = '${{ steps.health_check.outputs.base_url }}'
           $RevisionCreatedAt = Get-Date  # closest available proxy; the step runs immediately after revision creation
 
-          $Routes = @(
-            @{ Path = '/api/entities';                  Field = '';      Label = 'entities' }
-            @{ Path = '/api/organizations';             Field = '';      Label = 'organizations' }
-            @{ Path = '/api/taxonomy/accelerationist';  Field = 'nodes'; Label = 'taxonomy nodes' }
-          )
-          $Probe = {
-            try {
-              $DataSession = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec 15
-              foreach ($R in $Routes) {
-                $Params = @{ BaseUrl = $BaseUrl; Path = $R.Path; Method = 'GET'; TimeoutSec = 15; ExpectJson = $true }
-                if ($DataSession) { $Params.Session = $DataSession }
-                $Check  = Invoke-RemoteCheck @Params
-                $Assert = Test-DataPresenceAssertion -Body $Check.Body -ContentType $Check.ContentType `
-                  -CountField $R.Field -Label $R.Label
-                if (-not $Assert.Pass) {
-                  Write-Host "mount-readiness probe: $($R.Label) not ready — $($Assert.Reason)"
-                  return $false
-                }
-              }
-              return $true
-            } catch {
-              Write-Host "mount-readiness probe error (treated as not-ready): $($_.Exception.Message)"
-              return $false
+          # t/4513 incident (run 40358394585): the first implementation here called
+          # New-AnonymousWebSession/Invoke-RemoteCheck/Test-DataPresenceAssertion directly --
+          # module-Private helpers, invisible to a `run:` block that only has `Import-Module` in
+          # scope. Every attempt failed "not recognized" and read as "mount not ready" for all 13
+          # rounds, rolling prod back on a FALSE NEGATIVE (fail-safe, but no deploy could succeed).
+          # Fix: Test-TaxEditorMountReadiness is a PUBLIC cmdlet (exported, resolves from
+          # Import-Module alone, same as Test-EmbeddingHealth/Test-TaxEditorHealth already do) that
+          # owns the actual HTTP probing; this step only owns the retry loop around it.
+          #
+          # Observability (TL incident requirement 3): a command that doesn't resolve is a defect
+          # in the GATE ITSELF, not a genuine "not ready" signal, and must fail fast and say so --
+          # never be silently absorbed into 13 "not ready" attempts again. The probe scriptblock
+          # below deliberately does NOT catch CommandNotFoundException (or any other
+          # infrastructure-level exception) -- only Test-TaxEditorMountReadiness's own documented
+          # $false-returning "not ready" outcome is treated as a retryable condition. An uncaught
+          # exception propagates out of Wait-MountReady on the FIRST attempt (proven by
+          # tests/Get-MountReadinessVerdict.Tests.ps1's "treats a probe exception as a failed round"
+          # case) and is caught here, once, and reported as a gate defect distinctly from a real
+          # not-ready mount.
+          try {
+            # t/4760: MaxAttempts raised 13->22 (130s->220s). #4357 (t/4760) made the
+            # in-process data-root validation retry for up to DATA_ROOT_MOUNT_WAIT_MS
+            # (default 180s) on the github-api path (entities/organizations/edges via
+            # readFileStrict), not just the filesystem path this probe was originally
+            # sized for. This external probe must outlast that in-process budget with
+            # margin, or it gives up and rolls back a revision that would have become
+            # ready a few seconds later. 220s > 180s + ~40s margin.
+            $Probe = { (Test-TaxEditorMountReadiness -BaseUrl $BaseUrl -TimeoutSec 15).Ready }
+            $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 22 -IntervalSeconds 10
+            $ElapsedSec = [math]::Round(((Get-Date) - $RevisionCreatedAt).TotalSeconds, 1)
+            if ($Verdict.Verdict -eq 'ready') {
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=true"
+              Write-Host "Mount readiness probe passed after $($Verdict.Attempts) attempt(s), ~${ElapsedSec}s since this step started — post this on t/4513 (live-fire proof)"
+            } else {
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
+              Write-Host "::error::Mount readiness probe failed after $($Verdict.Attempts) attempt(s) (~${ElapsedSec}s) — entities/organizations/taxonomy never all returned real data. See t/4504/t/4513."
             }
-          }
-          $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 13 -IntervalSeconds 10
-          $ElapsedSec = [math]::Round(((Get-Date) - $RevisionCreatedAt).TotalSeconds, 1)
-          if ($Verdict.Verdict -eq 'ready') {
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=true"
-            Write-Host "Mount readiness probe passed after $($Verdict.Attempts) attempt(s), ~${ElapsedSec}s since this step started — post this on t/4513 (TL condition 3, live-fire)"
-          } else {
+          } catch {
             Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
-            Write-Host "::error::Mount readiness probe failed after $($Verdict.Attempts) attempt(s) (~${ElapsedSec}s) — entities/organizations/taxonomy never all returned real data. See t/4504/t/4513."
+            Write-Host "::error::MOUNT READINESS GATE DEFECT (not a mount problem) — $($_.Exception.GetType().Name): $($_.Exception.Message). The probe itself could not run; this is a bug in the gate, same failure class as the t/4513 incident (run 40358394585). Treated as not-ready (fail-closed) without burning the full retry budget. See t/4513."
           }
           $global:LASTEXITCODE = 0
           exit 0
@@ -953,6 +979,97 @@ jobs:
           & ./operations/devops/Invoke-EmbeddingsResolutionGateCheck.ps1 `
             -BaseUrl '${{ steps.health_check.outputs.base_url }}'
 
+      - name: Check GitHub App installation quota before traffic shift (t/4587 part b)
+        # WARN-ONLY (T1, non-blocking): catches the t/4584 condition (a cold boot draining the
+        # sync App's shared rate-limit quota) before the shift, not after. e/406: reads the
+        # NEW revision's own /health (its cold-boot burst already happened) AND the OLD/still-
+        # serving revision's /health (SO e/406#4 point 1 — take the lower of the two so neither
+        # side's drain is masked by the other). Needs no new secret access: /health already
+        # exposes githubRateLimitRemaining/githubRateLimitResetsAt for the running app's own
+        # installation (e/406#2 dissent — do NOT mint a fresh token from the raw PEM here).
+        id: quota_preflight
+        if: steps.health_check.outputs.healthy == 'true' && steps.warm_gate.outputs.warm == 'true'
+        shell: pwsh
+        continue-on-error: true
+        env:
+          # t/4587 GV live-fire only (TL review, e/406): a repo/environment variable, not a
+          # workflow_dispatch input -- forcing this arm on PROD via dispatch would BE a real prod
+          # deploy. Proven on staging's next natural (workflow_run-triggered) deploy instead.
+          TEST_CEILING: ${{ vars.QUOTA_PREFLIGHT_TEST_CEILING }}
+        run: |
+          # TL review (e/406, PR #4235 comments): every outcome below must be a visible verdict
+          # (a plain log line or a ::warning::) -- NEVER a silent pass, whether that's "zero
+          # readings produced," "the old revision's address couldn't be resolved," or "the whole
+          # step threw." The outer try/catch below exists specifically for the last case: this
+          # step is continue-on-error:true, which reports step conclusion=success on ANY outcome
+          # including an uncaught exception -- without this catch, a crash would look identical
+          # to a clean pass in the job summary.
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force -ErrorAction SilentlyContinue
+            . ./operations/devops/GitHubAppQuotaVerdict.ps1
+
+            function Get-QuotaReading {
+              param([string]$Label, [string]$BaseUrl)
+              try {
+                $Resp = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 15
+                $Remaining = if ($Resp.PSObject.Properties['githubRateLimitRemaining']) { $Resp.githubRateLimitRemaining } else { $null }
+                $ResetsAtRaw = if ($Resp.PSObject.Properties['githubRateLimitResetsAt']) { $Resp.githubRateLimitResetsAt } else { $null }
+                $ResetsAt = if ($ResetsAtRaw) { try { [datetime]$ResetsAtRaw } catch { $null } } else { $null }
+                [PSCustomObject]@{ Label = $Label; Remaining = $Remaining; ResetsAt = $ResetsAt; QueryError = $null }
+              } catch {
+                [PSCustomObject]@{ Label = $Label; Remaining = $null; ResetsAt = $null; QueryError = $_.Exception.Message }
+              }
+            }
+
+            function Show-QuotaVerdict {
+              param([string]$Label, [object]$Reading, [int]$Ceiling)
+              $Verdict = Get-GitHubAppQuotaVerdict -Remaining $Reading.Remaining -ResetsAt $Reading.ResetsAt -QueryError $Reading.QueryError -Ceiling $Ceiling
+              if ($Verdict.ShouldWarn) {
+                Write-Host "::warning::t/4587 quota preflight ($Label revision): $($Verdict.Reason)"
+              } else {
+                Write-Host "t/4587 quota preflight ($Label revision): $($Verdict.Reason)"
+              }
+            }
+
+            $Ceiling = if ([string]::IsNullOrWhiteSpace($env:TEST_CEILING)) { 1000 } else { [int]$env:TEST_CEILING }
+
+            # NEW revision: base_url should always be set by the health-check step above. An
+            # unexpectedly empty value is itself a finding (the mechanism this preflight depends
+            # on broke), never silently skipped.
+            $NewUrl = '${{ steps.health_check.outputs.base_url }}'
+            if ([string]::IsNullOrWhiteSpace($NewUrl)) {
+              Write-Host "::warning::t/4587 quota preflight (new revision): base_url was unexpectedly empty -- cannot read quota, treat as unknown."
+            } else {
+              Show-QuotaVerdict -Label 'new' -Reading (Get-QuotaReading -Label 'new' -BaseUrl $NewUrl) -Ceiling $Ceiling
+            }
+
+            # OLD revision: genuinely absent only on a first-ever deploy (no prior revision to
+            # pin at all) -- that case alone is a quiet, expected "nothing to check." Any OTHER
+            # reason the old revision's address can't be resolved (the FQDN lookup throws, or
+            # returns nothing) is a DISTINCT failure and must warn, not fall through to silence.
+            $OldRevName = '${{ steps.current_revision.outputs.revision }}'
+            if ([string]::IsNullOrWhiteSpace($OldRevName)) {
+              Write-Host "t/4587 quota preflight (old revision): no prior revision -- first-ever deploy, nothing to check."
+            } else {
+              $OldInfo = $null
+              $OldFqdnError = $null
+              try {
+                $OldInfo = Get-ContainerAppRevision -Mode Fqdn -RevisionName $OldRevName `
+                  -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+              } catch {
+                $OldFqdnError = $_.Exception.Message
+              }
+              if ($OldFqdnError -or -not $OldInfo -or -not $OldInfo.Fqdn) {
+                $Reason = if ($OldFqdnError) { $OldFqdnError } else { "no FQDN resolved for revision '$OldRevName'" }
+                Write-Host "::warning::t/4587 quota preflight (old revision): could not resolve the old revision's address ($Reason) -- cannot read its quota, treat as unknown."
+              } else {
+                Show-QuotaVerdict -Label 'old' -Reading (Get-QuotaReading -Label 'old' -BaseUrl "https://$($OldInfo.Fqdn)") -Ceiling $Ceiling
+              }
+            }
+          } catch {
+            Write-Host "::warning::t/4587 quota preflight CRASHED before producing a verdict: $($_.Exception.Message) -- treat as unknown, never a silent pass."
+          }
+
       - name: Shift traffic to new revision
         # t/3148: warm_gate is now a peer gate — traffic shifts only when the /readyz warm-gate
         # reports warm=='true' (embeddings.json cache proven warm), alongside acceptance/persona.
@@ -994,6 +1111,7 @@ jobs:
               HOME                               = '/home/aitriad'
               AI_TRIAD_DATA_ROOT                 = '/mnt/shared'
               TAXONOMY_CACHE_DIR                 = '/home/aitriad/.cache/taxonomy-github-api'  # t/4298/t/4299/t/4300 — deliberately NOT /mnt/shared, see main.bicep baseEnv comment
+              NLI_CLASSIFY_SCRIPT                = ''  # t/4596 — explicit disable of the NLI gate on hosted (CL, t/4596#7)
               MAX_REPLICAS                       = '1'  # t/4176 — must equal main.bicep maxReplicas (AI RPM + rate limits divide by it)
               AUTH_OPTIONAL                      = '${{ inputs.auth_mode == 'optional' && '1' || '' }}'
               AUTH_DISABLED                      = '${{ inputs.auth_mode == 'disabled' && '1' || '' }}'
@@ -1006,6 +1124,10 @@ jobs:
               GITHUB_APP_PRIVATE_KEY_SECRET_NAME = '${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }}'
               AZURE_KEYVAULT_URL                 = '${{ steps.deploy.outputs.keyVaultUri }}'
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
+              AZURE_USER_CONTENT_CONTAINER       = 'user-content'  # t/4738 — explicit prod container name, must match main.bicep baseEnv
+              AZURE_COMMUNITY_CONTAINER          = 'community'  # t/4738 — explicit prod container name, must match main.bicep baseEnv
+              AZURE_BRIEF_EXPORTS_CONTAINER      = 'brief-exports'  # t/4738 — explicit prod container name, must match main.bicep baseEnv
+              AZURE_ANALYTICS_CONTAINER          = 'analytics'  # t/4794 — explicit prod container name, must match main.bicep baseEnv
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
               EMBEDDING_WORKER_POOL_SIZE         = '1'  # t/4263 SO C3 — one worker at 1.5 vCPU; must match main.bicep baseEnv
               OVERLAY_CONFLICT_STATE_ENABLED     = '1'  # t/4312/#3467, PI-approved (p/331#2174) — gate verifies the overlay-conflict fence is armed
@@ -1339,6 +1461,16 @@ jobs:
           ./operations/devops/Test-AllowedOriginsFqdnParity.ps1 `
             -Apps '${{ env.CONTAINER_APP_NAME }}', '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+
+      - name: Staging CLI-only env var drift (warn-only, t/4728 — a prod Bicep apply can silently wipe a CLI override)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./operations/devops/Test-StagingEnvCliDrift.ps1 `
+            -App '${{ env.CONTAINER_APP_NAME }}-staging' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -BicepPath './deploy/azure/main.bicep'
 
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────

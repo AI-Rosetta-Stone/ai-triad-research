@@ -23,7 +23,10 @@ import type { LibraryListPageConfig, LibraryVariant } from '../shared/LibraryLis
 import { OpEdCampTags } from './OpEdCampTags';
 import { OpEdReader } from './OpEdReader';
 import { NewOpEdDialog } from './NewOpEdDialog';
-import { opedRoutePath, navigateTo, replaceRoute } from '../../routing/appRoutes';
+import { OpEdGettingStarted } from './OpEdGettingStarted';
+import { opedRoutePath } from '../../routing/appRoutes';
+import { replaceCurrentView } from '../../navigation';
+import './opedShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
 import './OpEdTab.css';
 
 // LibraryListPage requires `{ id: string }`; OpEdSetSummary's own key is `set_id`. Adapter, not
@@ -76,12 +79,12 @@ function buildOpEdMarkdown(set: OpEdSet): string {
     lines.push('');
     lines.push(m.body);
     if (m.grounding.length > 0) {
-      lines.push('\n---\n\n## Taxonomy grounding\n');
-      lines.push('| Element | Node ID | Type | Relevance | Reflected in the op-ed |');
-      lines.push('|---|---|---|---|---|');
+      lines.push('\n---\n\n## Why\n');
+      lines.push('| ID | Element | Type | Reflected in the op-ed |');
+      lines.push('|---|---|---|---|');
       for (const g of m.grounding) {
         const type = g.node_id.startsWith('sit-') ? 'Situation' : 'BDI';
-        lines.push(`| ${g.label || g.node_id} | ${g.node_id} | ${type} | ${g.relevance || '—'} | ${g.how_reflected || '(not reported)'} |`);
+        lines.push(`| ${g.node_id} | ${g.label || '—'} | ${type} | ${g.how_reflected || '(not reported)'} |`);
       }
     }
     if (m.rhetorical_meta) {
@@ -232,13 +235,12 @@ function ShareOpEdControl({ setId, source = 'my' }: { setId: string; source?: 'm
 // ── Reader view (back bar + article/loading/error) ────────────────────────────
 
 export function OpEdReaderView({
-  readerSet, readerLoading, readerError, status, onBack, shareSource, communityId, initialPov, onPovChange,
+  readerSet, readerLoading, readerError, status, shareSource, communityId, initialPov, onPovChange,
 }: {
   readerSet: OpEdSet | null;
   readerLoading: boolean;
   readerError: string | null;
   status: string | null;
-  onBack: () => void;
   /** t/2987/t/3315: which store the op-ed came from — 'my' (own share) or 'community' (public community
    *  share); null = not shareable. Both mint a public /share/oped link via their respective endpoint. */
   shareSource: 'my' | 'community' | null;
@@ -260,7 +262,8 @@ export function OpEdReaderView({
     <div className="two-column oped-tab-table-mode">
       <div className="oped-reader-shell">
         <div className="oped-reader-bar">
-          <button type="button" className="oped-reader-back" onClick={onBack}>‹ Op-Ed Studies</button>
+          {/* t/4689: the "‹ Op-Ed Studies" link is removed — the shared location-bar crumb
+              (LocationBarHost) now provides the same up-navigation. */}
           {status && <span className="oped-status">{status}</span>}
           {/* Share is web-only (electron-bridge rejects, t/2728). Own op-eds use the own-share endpoint;
               community op-eds use the community-share endpoint (t/3315 — community is public). Both mint
@@ -299,6 +302,9 @@ export function OpEdTab() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [showNewDialog, setShowNewDialog] = useState(false);
+  // t/4562: a getting-started chip seeds this before opening the dialog; "+ New Op-Ed" leaves
+  // it undefined, so the dialog keeps whatever topic (if any) the user last typed.
+  const [newDialogTopic, setNewDialogTopic] = useState<string | undefined>(undefined);
 
   // The set currently open in the reader — may come from the personal store (My)
   // or a community load (Community). null = table view.
@@ -386,7 +392,9 @@ export function OpEdTab() {
     setReaderSet(null);
     setReaderLoading(true);
     setInitialPov(pov);
-    navigateTo(opedRoutePath(id, pov)); // t/3486: reflect the open set in the address bar.
+    // t/4640: selectSet() above is the place change the nav subscriber records; the camp is a
+    // view of it, so it only replaces that entry's URL.
+    if (pov) replaceCurrentView(opedRoutePath(id, pov), `opeds:${id}`);
     api.loadOpEdSet(id).then(set => {
       setReaderSet(set);
     }).catch(err => {
@@ -420,16 +428,6 @@ export function OpEdTab() {
     }).finally(() => setReaderLoading(false));
   }, [selectSet]);
 
-  const closeReader = useCallback(() => {
-    selectSet(null);
-    setReaderSet(null);
-    setReaderSource(null);
-    setReaderCommunityId(null);
-    setReaderError(null);
-    setInitialPov(undefined);
-    navigateTo('/'); // t/3486: back to the table view — the address bar should match.
-  }, [selectSet]);
-
   // A fresh create (PR#2) — reload the library, then open the new set in the reader. LibraryListPage
   // owns tab state internally now (t/3703) — a create from the Community tab opens straight into
   // the reader same as before; closing the reader returns to whichever tab was active, not forced
@@ -440,7 +438,6 @@ export function OpEdTab() {
     selectSet(setId);
     setReaderSource('my'); // t/2987: a freshly-created set is the user's own → shareable.
     setReaderCommunityId(null); // t/3426: only set for the community branch.
-    navigateTo(opedRoutePath(setId)); // t/3486: reflect the newly-created set in the address bar.
     setReaderError(null);
     setReaderSet(null);
     setReaderLoading(true);
@@ -504,6 +501,17 @@ export function OpEdTab() {
     });
   }, [deleteSelected, flash]);
 
+  // t/4562: a getting-started chip seeds the topic, then opens the same dialog "+ New Op-Ed" uses.
+  const handlePickStarter = useCallback((topic: string) => {
+    setNewDialogTopic(topic);
+    setShowNewDialog(true);
+  }, []);
+
+  const handleNewClick = useCallback(() => {
+    setNewDialogTopic(undefined);
+    setShowNewDialog(true);
+  }, []);
+
   // ── LibraryListPage adoption (t/3703) — id adapter + config ──
 
   const myLibRows = useMemo<OpEdMyLibRow[]>(() => orderedSets.map(s => ({ ...s, id: s.set_id })), [orderedSets]);
@@ -511,7 +519,7 @@ export function OpEdTab() {
   const libConfig: LibraryListPageConfig<OpEdMyLibRow, OpEdCommunityLibRow> = useMemo(() => ({
     title: 'Op-Ed Studies',
     newLabel: '+ New Op-Ed',
-    onNew: () => setShowNewDialog(true),
+    onNew: handleNewClick,
     showEdit: true,
     // t/3703#8: unlike Debates, an anonymous session has real (temporary) op-eds — NewOpEdDialog
     // only gates URL-source creation for anonymous, not topic-only creation, and the temp anon
@@ -540,10 +548,10 @@ export function OpEdTab() {
     titleHeader: 'Headline',
     titleSortable: true,
     columns: [
-      { key: 'camps', header: 'Camps', width: '150px', render: row => <OpEdCampTags camps={row.camps} /> },
-      { key: 'outlet', header: 'Outlet', width: '90px', sortable: true, compare: (a, b) => (a.outlet ?? '').localeCompare(b.outlet ?? ''), render: row => row.outlet ?? <span className="lib-empty-value">—</span> },
+      { key: 'camps', header: 'Camps', width: '150px', phone: 'meta', render: row => <OpEdCampTags camps={row.camps} /> },
+      { key: 'outlet', header: 'Outlet', width: '90px', phone: 'meta', sortable: true, compare: (a, b) => (a.outlet ?? '').localeCompare(b.outlet ?? ''), render: row => row.outlet ?? <span className="lib-empty-value">—</span> },
       {
-        key: 'date', header: 'Date', width: '110px', sortable: true,
+        key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true,
         compare: (a, b, variant) => new Date(opEdLibDate(a, variant)).getTime() - new Date(opEdLibDate(b, variant)).getTime(),
         render: (row, variant) => <span className="lib-date">{formatLibDate(opEdLibDate(row, variant))}</span>,
       },
@@ -570,10 +578,13 @@ export function OpEdTab() {
     onShare: handleShare,
     onCopy: handleCopy,
     showCopy: () => !auth?.anonymous,
+    // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Web-only per the ticket
+    // (canOpenInNewWindow already gates Electron, which has no op-ed popout window type).
+    itemPlace: row => ({ tool: 'opeds', id: row.id, path: `/opeds/${row.id}` }),
   }), [
     editMode, selectedIds, customOrder, exitEditMode, handleBulkDelete, clearSelected, saveCustomOrder,
     toggleSelected, myLibRows, moveSet, handleRename, renamingId, handleExportMy, handleExportCommunity,
-    handleShare, handleCopy, auth?.anonymous,
+    handleShare, handleCopy, auth?.anonymous, handleNewClick,
   ]);
 
   // ── Reader view ──
@@ -585,14 +596,13 @@ export function OpEdTab() {
         readerLoading={readerLoading}
         readerError={readerError}
         status={status}
-        onBack={closeReader}
         shareSource={readerSource}
         communityId={readerCommunityId}
         initialPov={initialPov}
         // t/3486: only "my" sets are URL-tracked for now (t/3486#4) — a community set's
         // reader still works, its tab switches just don't update the address bar.
         onPovChange={readerSource === 'my' && readerSet
-          ? (pov: string) => replaceRoute(opedRoutePath(readerSet.set_id, pov))
+          ? (pov: string) => replaceCurrentView(opedRoutePath(readerSet.set_id, pov), `opeds:${readerSet.set_id}`)
           : undefined}
       />
     );
@@ -613,6 +623,9 @@ export function OpEdTab() {
         communityLoading={communityLoading}
         onOpenMy={openMy}
         onOpenCommunity={openCommunity}
+        intro={<OpEdGettingStarted hasNoOpEds={myLibRows.length === 0} onPickStarter={handlePickStarter} />}
+        defaultCommunityOnWeb
+        restoreKey="opeds"
       />
 
       {/* Create dialog — both builds (t/2614). URL/source create is desktop-only in v1
@@ -622,6 +635,7 @@ export function OpEdTab() {
         onClose={() => setShowNewDialog(false)}
         onCreated={setId => { void handleCreated(setId); }}
         allowUrlSource={isElectron}
+        initialTopic={newDialogTopic}
       />
     </>
   );

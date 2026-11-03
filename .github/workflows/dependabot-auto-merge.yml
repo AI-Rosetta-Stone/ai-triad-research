@@ -3,6 +3,10 @@
 # auto-merge, which only lands the PR when the required `ci-gate` check is green —
 # so a bump that breaks the build is never merged. MAJOR bumps are deliberately
 # excluded: they need human review (e.g. the TypeScript 7 decision, closed by owner).
+#
+# Since the merge queue (2026-10-28), this arm alone does NOT enqueue: auto-merge armed
+# with GITHUB_TOKEN never entered the queue. The arm is now the minor/patch POLICY MARKER;
+# enqueue-sweep.yml enqueues armed, green PRs as a GitHub App.
 name: Dependabot auto-merge
 
 on: pull_request
@@ -27,7 +31,7 @@ jobs:
         if: >-
           steps.meta.outputs.update-type == 'version-update:semver-minor' ||
           steps.meta.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge --auto --rebase "$PR_URL"
+        run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

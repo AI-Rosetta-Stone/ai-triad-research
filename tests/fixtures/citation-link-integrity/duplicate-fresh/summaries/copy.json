@@ -1,0 +1,14 @@
+{
+  "pov_summaries": {
+    "acc": {
+      "key_points": [
+        {
+          "verbatim": "copy-only point",
+          "extraction_confidence": 0.5,
+          "taxonomy_node_id": "acc-2"
+        }
+      ]
+    }
+  },
+  "doc_id": "copy"
+}

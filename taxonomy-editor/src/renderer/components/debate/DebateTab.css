@@ -628,3 +628,12 @@
   max-width: none !important;
   flex: 1;
 }
+
+/* t/4691 — table mode's in-place detail (DebateTableDetail), filling the same slot
+   DebateLibraryPanel otherwise occupies. */
+.debate-tab-table-detail {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  overflow: auto;
+}

@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Back/Forward Navigation Mockup</title>
+<style>
+:root{
+  --bg:#fbf9f5; --bg-rail:#f1ede5; --bg-bar:#f6f3ed; --bg-card:#f3efe8; --bg-hover:#e8e2d7;
+  --text:#1c1c1c; --text-2:#5a554d; --border:#ddd6c9; --focus:#a51c30; --accent:#a51c30;
+  --pop-bg:#ffffff; --shadow:0 8px 24px rgba(0,0,0,.14);
+  --acc:#9a4a12; --saf:#22579a; --skp:#6e3d8f;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1b1d; --bg-rail:#232326; --bg-bar:#202023; --bg-card:#28282c; --bg-hover:#34343a;
+    --text:#ececec; --text-2:#b4b0a8; --border:#3a3a40; --focus:#f08a9a; --accent:#f08a9a;
+    --pop-bg:#2a2a2e; --shadow:0 8px 24px rgba(0,0,0,.5);
+    --acc:#f0a46a; --saf:#8ab4ff; --skp:#c9a0ea;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1b1d; --bg-rail:#232326; --bg-bar:#202023; --bg-card:#28282c; --bg-hover:#34343a;
+  --text:#ececec; --text-2:#b4b0a8; --border:#3a3a40; --focus:#f08a9a; --accent:#f08a9a;
+  --pop-bg:#2a2a2e; --shadow:0 8px 24px rgba(0,0,0,.5);
+  --acc:#f0a46a; --saf:#8ab4ff; --skp:#c9a0ea;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.page{max-width:1180px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--text-2);margin:0 0 20px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tabs button{font:inherit;border:1px solid var(--border);background:var(--bg-card);color:var(--text);padding:6px 12px;border-radius:999px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--text);color:var(--bg);border-color:var(--text)}
+.tabs .rec{font-size:11px;margin-left:6px;opacity:.8}
+.toolbar-row{display:flex;gap:12px;align-items:center;margin-bottom:12px;color:var(--text-2);font-size:13px}
+.toolbar-row button{font:inherit;border:1px solid var(--border);background:var(--bg-card);color:var(--text);padding:4px 10px;border-radius:6px;cursor:pointer}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+@media (max-width:980px){.layout{grid-template-columns:1fr}}
+.notes{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.notes h3{margin:0 0 8px;font-size:14px}
+.notes ul{margin:0 0 12px;padding-left:18px}
+.notes li{margin:3px 0}
+.verdict{font-size:13px;padding:8px 10px;border-radius:6px;background:var(--bg);border:1px solid var(--border);margin-bottom:10px}
+kbd{font:12px ui-monospace,Consolas,monospace;border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--bg)}
+
+/* ---- app frame ---- */
+.frame{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg);box-shadow:var(--shadow)}
+.titlebar{height:28px;display:flex;align-items:center;gap:8px;padding:0 10px;background:var(--bg-rail);border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)}
+.menubar{height:24px;display:flex;align-items:center;gap:14px;padding:0 10px;font-size:12px;border-bottom:1px solid var(--border)}
+.menubar .spacer{flex:1}
+.app{display:flex;height:470px;position:relative}
+.rail{width:56px;flex:none;background:var(--bg-rail);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:2px}
+.rail .item{width:50px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 0;border-radius:6px;font-size:10px;color:var(--text-2);text-align:center;line-height:1.1;cursor:default}
+.rail .item.on{background:var(--bg-hover);color:var(--text)}
+.rail .item svg{width:18px;height:18px}
+.rail .divider{width:32px;height:1px;background:var(--border);margin:4px 0}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.content{flex:1;padding:22px 28px;overflow:hidden}
+.content .eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}
+.content h2{margin:0 0 10px;font-size:24px}
+.content p{color:var(--text-2);max-width:60ch;margin:0 0 10px}
+.ghost{height:10px;border-radius:5px;background:var(--bg-card);margin:8px 0}
+
+/* nav buttons */
+.nb{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--text);display:inline-grid;place-items:center;cursor:pointer;padding:0;position:relative}
+.nb svg{width:18px;height:18px}
+.nb:hover:not(:disabled){background:var(--bg-hover)}
+.nb:disabled{opacity:.4;cursor:default}
+.nb:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.nb.caret{width:18px}
+.nb.caret svg{width:14px;height:14px}
+
+/* Option B: location bar */
+.locbar{height:38px;flex:none;display:flex;align-items:center;gap:2px;padding:0 10px;border-bottom:1px solid var(--border);background:var(--bg-bar)}
+.crumbs{display:flex;align-items:center;gap:6px;min-width:0;margin-left:10px;font-size:13px;color:var(--text-2);white-space:nowrap}
+.crumbs .c{overflow:hidden;text-overflow:ellipsis}
+.crumbs .c:last-child{color:var(--text);font-weight:600}
+.crumbs .sep{opacity:.6}
+.crumbs svg{width:14px;height:14px;flex:none}
+.pov-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:1px}
+
+/* tooltip */
+.tip{position:absolute;top:calc(100% + 6px);left:0;background:var(--text);color:var(--bg);font-size:12px;padding:4px 8px;border-radius:5px;white-space:nowrap;z-index:5;pointer-events:none;display:none}
+.nb:hover .tip,.nb:focus-visible .tip{display:block}
+.tip kbd{background:transparent;color:inherit;border-color:currentColor;opacity:.8}
+
+/* history popover */
+.pop{position:absolute;z-index:6;background:var(--pop-bg);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);width:340px;padding:6px;display:none}
+.pop.open{display:block}
+.pop .hd{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);padding:4px 8px 6px}
+.pop button{display:flex;width:100%;align-items:center;gap:10px;border:0;background:transparent;color:var(--text);font:inherit;font-size:13px;text-align:left;padding:6px 8px;border-radius:5px;cursor:pointer}
+.pop button:hover,.pop button:focus-visible{background:var(--bg-hover);outline:none}
+.pop button svg{width:16px;height:16px;flex:none;color:var(--text-2)}
+.pop .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop .tool{font-size:11px;color:var(--text-2)}
+.pop .cur{font-weight:600}
+.pop .cur .t::after{content:"  · you are here";font-weight:400;color:var(--text-2)}
+.pop .ft{border-top:1px solid var(--border);margin-top:4px;padding:6px 8px 2px;font-size:11px;color:var(--text-2)}
+
+/* Option A: rail top */
+.railnav{display:flex;flex-direction:column;align-items:center;gap:0}
+.railnav .nb{width:40px;height:28px}
+
+/* Option C: titlebar */
+.menubar .navgroup{display:flex;align-items:center;gap:0}
+.menubar .navgroup .nb{width:24px;height:22px}
+.menubar .navgroup .nb svg{width:15px;height:15px}
+.menubar .loc{font-size:12px;color:var(--text-2);margin-left:6px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* phone */
+.phone-wrap{margin-top:22px}
+.phone-wrap h3{font-size:14px;margin:0 0 8px}
+.phones{display:flex;gap:20px;flex-wrap:wrap}
+.phone{width:300px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--bg);box-shadow:var(--shadow)}
+.phone .locbar{height:44px}
+.phone .nb{width:36px;height:36px}
+.phone .content{padding:14px 16px}
+.phone .content h2{font-size:19px}
+.phone .tabbar{display:flex;justify-content:space-around;border-top:1px solid var(--border);padding:6px 0;background:var(--bg-rail)}
+.phone .tabbar .item{font-size:10px;color:var(--text-2);display:flex;flex-direction:column;align-items:center;gap:2px}
+.phone .tabbar svg{width:18px;height:18px}
+.cap{font-size:12px;color:var(--text-2);margin-top:6px;max-width:300px}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Back/Forward navigation: mockups</h1>
+  <p class="sub">t/4640 · Design · for PI review before implementation. The mockups are clickable: use the arrows, the <kbd>▾</kbd> history menu, or <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd>. Node titles are sample content.</p>
+
+  <div class="tabs" role="tablist" aria-label="Options">
+    <button role="tab" aria-selected="true" data-opt="B">B · Location bar<span class="rec">Recommended</span></button>
+    <button role="tab" aria-selected="false" data-opt="A">A · Top of rail</button>
+    <button role="tab" aria-selected="false" data-opt="C">C · Title bar</button>
+    <button role="tab" aria-selected="false" data-opt="now">Today (as built)</button>
+  </div>
+  <div class="toolbar-row">
+    <button id="themeBtn" type="button">Toggle dark</button>
+    <span id="stackInfo"></span>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="frame">
+        <div class="titlebar">◎ Rosetta Stone</div>
+        <div class="menubar"><span>File</span><span>Edit</span><span>View</span><span>Help</span>
+          <span class="spacer"></span>
+          <span class="navgroup opt-C hidden" id="cNav"></span>
+          <span class="spacer opt-C hidden"></span>
+        </div>
+        <div class="app" id="app">
+          <div class="opt-now hidden" style="width:99px;flex:none;border-right:1px solid var(--border);display:flex;gap:6px;justify-content:center;padding-top:14px" id="nowNav"></div>
+          <nav class="rail" aria-label="Tools">
+            <div class="railnav opt-A hidden" id="aNav"></div>
+            <div class="divider opt-A hidden"></div>
+            <div id="railItems" style="display:contents"></div>
+          </nav>
+          <div class="main">
+            <div class="locbar opt-B" id="bNav"></div>
+            <div class="content" id="content"></div>
+          </div>
+          <div class="pop" id="pop" role="menu" aria-label="Recent locations"></div>
+        </div>
+      </div>
+
+      <div class="phone-wrap opt-B">
+        <h3>Phone (390px): option B</h3>
+        <div class="phones">
+          <div>
+            <div class="phone">
+              <div class="locbar" id="phoneNav"></div>
+              <div class="content" id="phoneContent" style="height:300px"></div>
+              <div class="tabbar" id="phoneTabs"></div>
+            </div>
+            <p class="cap">Back only, as on web: the browser and Android already have Forward. The bar shows just the current page, and tapping the title opens the same history list as a sheet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="notes" id="notes"></aside>
+  </div>
+</div>
+
+<script>
+const I = {
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
+  fwd:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+  chevL:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+  chevR:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  caret:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  sep:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>',
+  chat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.6 7.3L3 21l2-5.1A8.5 8.5 0 1 1 21 11.5z"/></svg>',
+  news:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>',
+  ask:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/></svg>',
+  debate:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  tax:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>'
+};
+const TOOLS=[['Rosetta Stone','star'],['Chat','chat'],['Op-Ed Studies','news'],['Ask a Question','ask'],['Debate','debate'],['Taxonomy','tax']];
+const POV={Accelerationist:'--acc',Safetyist:'--saf',Skeptic:'--skp'};
+const STACK=[
+  {tool:'Rosetta Stone',crumbs:['Rosetta Stone'],title:'AI Rosetta Stone',eyebrow:'Home'},
+  {tool:'Chat',crumbs:['Chat','Is compute governance enforceable?'],title:'Is compute governance enforceable?',eyebrow:'Chat'},
+  {tool:'Debate',crumbs:['Debate','Should frontier AI development slow down?'],title:'Should frontier AI development slow down?',eyebrow:'Debate · Round 2'},
+  {tool:'Taxonomy',crumbs:['Taxonomy','Accelerationist','Open models speed up safety research'],title:'Open models speed up safety research',eyebrow:'Accelerationist · Desires',pov:'Accelerationist'},
+  {tool:'Taxonomy',crumbs:['Taxonomy','Safetyist','AI must not erode human resilience'],title:'AI must not erode human resilience',eyebrow:'Safetyist · Desires',pov:'Safetyist'}
+];
+let idx=STACK.length-1, opt='B';
+const iconFor=t=>I[(TOOLS.find(x=>x[0]===t)||[,'star'])[1]];
+const short=e=>e.crumbs[e.crumbs.length-1];
+const label=e=>e.tool===short(e)?e.tool:e.tool+': '+short(e);
+
+function btn(dir,{big=false,chev=false,tip=true}={}){
+  const isB=dir==='back', can=isB?idx>0:idx<STACK.length-1;
+  const dest=can?STACK[idx+(isB?-1:1)]:null;
+  const name=isB?'Back':'Forward';
+  const t=dest?`${name} to ${label(dest)}`:name;
+  const key=isB?'Alt+←':'Alt+→';
+  const ic=chev?(isB?I.chevL:I.chevR):(isB?I.back:I.fwd);
+  return `<button class="nb" type="button" data-go="${dir}" ${can?'':'disabled'} aria-label="${t}" ${opt==='now'?`title="${dest?t:name+' to '+name}"`:''}>${ic}${tip&&opt!=='now'?`<span class="tip">${t} <kbd>${key}</kbd></span>`:''}</button>`;
+}
+function caret(){return `<button class="nb caret" type="button" data-pop aria-haspopup="menu" aria-expanded="false" aria-label="Recent locations">${I.caret}<span class="tip">Recent locations</span></button>`}
+function crumbs(e,{compact=false}={}){
+  const parts=compact?[short(e)]:e.crumbs;
+  return `<div class="crumbs">${compact?'':iconFor(e.tool)}${parts.map((c,i)=>{
+    const dot=POV[c]?`<span class="pov-dot" style="background:var(${POV[c]})"></span>`:'';
+    return (i?`<span class="sep">${I.sep}</span>`:'')+`<span class="c">${dot}${c}</span>`}).join('')}</div>`;
+}
+function render(){
+  const e=STACK[idx];
+  document.querySelectorAll('[class*="opt-"]').forEach(el=>{
+    const m=[...el.classList].find(c=>c.startsWith('opt-')).slice(4);
+    el.classList.toggle('hidden',m!==opt);
+  });
+  document.getElementById('railItems').innerHTML=TOOLS.map(([n,i])=>`<div class="item ${n===e.tool?'on':''}">${I[i]}<span>${n.replace(' ','<br>')}</span></div>`).join('');
+  document.getElementById('bNav').innerHTML=btn('back')+btn('fwd')+caret()+crumbs(e);
+  document.getElementById('aNav').innerHTML=btn('back')+btn('fwd');
+  document.getElementById('cNav').innerHTML=btn('back')+btn('fwd')+caret()+`<span class="loc">${label(e)}</span>`;
+  document.getElementById('nowNav').innerHTML=btn('back',{chev:true})+btn('fwd',{chev:true});
+  const pov=e.pov?`<span class="pov-dot" style="background:var(${POV[e.pov]})"></span>`:'';
+  document.getElementById('content').innerHTML=`<div class="eyebrow">${pov}${e.eyebrow}</div><h2>${e.title}</h2><p>Sample page content. The navigation chrome is what's under review.</p><div class="ghost" style="width:70%"></div><div class="ghost" style="width:55%"></div><div class="ghost" style="width:62%"></div>`;
+  document.getElementById('phoneNav').innerHTML=btn('back',{tip:false})+crumbs(e,{compact:true});
+  document.getElementById('phoneContent').innerHTML=`<div class="eyebrow">${pov}${e.eyebrow}</div><h2>${e.title}</h2><div class="ghost" style="width:80%"></div><div class="ghost" style="width:60%"></div>`;
+  document.getElementById('phoneTabs').innerHTML=TOOLS.filter(t=>t[0]!=='Rosetta Stone').map(([n,i])=>`<div class="item" style="${n===e.tool?'color:var(--text)':''}">${I[i]}${n.split(' ')[0]}</div>`).join('');
+  document.getElementById('stackInfo').textContent=`History: ${idx+1} of ${STACK.length}`;
+  document.getElementById('notes').innerHTML=NOTES[opt];
+  closePop();
+}
+function go(d){const n=idx+d;if(n>=0&&n<STACK.length){idx=n;render();}}
+const pop=document.getElementById('pop');
+function closePop(){pop.classList.remove('open');document.querySelectorAll('[data-pop]').forEach(b=>b.setAttribute('aria-expanded','false'))}
+function openPop(anchor){
+  const app=document.getElementById('app').getBoundingClientRect(), r=anchor.getBoundingClientRect();
+  pop.innerHTML=`<div class="hd">Recent locations</div>`+STACK.map((e,i)=>({e,i})).reverse().map(({e,i})=>
+    `<button role="menuitem" data-jump="${i}" class="${i===idx?'cur':''}">${iconFor(e.tool)}<span class="t">${short(e)}</span><span class="tool">${e.tool===short(e)?'':e.tool}</span></button>`).join('')
+    +`<div class="ft">Holds the last 50 locations in this window</div>`;
+  pop.style.left=Math.max(8,r.left-app.left-40)+'px'; pop.style.top=(r.bottom-app.top+6)+'px';
+  pop.classList.add('open'); anchor.setAttribute('aria-expanded','true');
+  pop.querySelector('.cur')?.focus();
+}
+document.addEventListener('click',ev=>{
+  const g=ev.target.closest('[data-go]'); if(g){go(g.dataset.go==='back'?-1:1);return}
+  const p=ev.target.closest('[data-pop]'); if(p){pop.classList.contains('open')?closePop():openPop(p);return}
+  const j=ev.target.closest('[data-jump]'); if(j){idx=+j.dataset.jump;render();return}
+  const t=ev.target.closest('[data-opt]'); if(t){opt=t.dataset.opt;document.querySelectorAll('[data-opt]').forEach(b=>b.setAttribute('aria-selected',b===t));render();return}
+  if(!ev.target.closest('.pop'))closePop();
+});
+document.addEventListener('keydown',ev=>{
+  if(ev.key==='Escape')closePop();
+  if(ev.altKey&&(ev.key==='ArrowLeft'||ev.key==='ArrowRight')){ev.preventDefault();go(ev.key==='ArrowLeft'?-1:1)}
+});
+document.getElementById('themeBtn').onclick=()=>{
+  const r=document.documentElement, dark=r.getAttribute('data-theme')==='dark'||(!r.hasAttribute('data-theme')&&matchMedia('(prefers-color-scheme: dark)').matches);
+  r.setAttribute('data-theme',dark?'light':'dark');
+};
+const NOTES={
+B:`<h3>B · Location bar (recommended)</h3>
+<div class="verdict">A slim 38px bar across the top of the content pane: <b>← → ▾</b> and then a breadcrumb of where you are. It's the pattern people know from browsers, VS Code, Finder and Explorer.</div>
+<ul>
+<li><b>No dead column.</b> It reclaims about 100px of width on every screen.</li>
+<li><b>Says where you are</b> (Taxonomy › Safetyist › node), so Back makes sense: you can see what you'd leave.</li>
+<li><b>Says where you'll go:</b> the tooltip reads "Back to Debate: Should frontier…" with <kbd>Alt+←</kbd>.</li>
+<li><b>▾ Recent locations</b> jumps several steps at once. A right-click or long-press on ← opens the same list.</li>
+<li>Arrows, not chevrons, so they don't read as collapse controls.</li>
+<li>Breadcrumb segments are text only in v1. Making them clickable comes later.</li>
+</ul>
+<h3>Behaviour (unchanged from the spec)</h3>
+<ul>
+<li><b>Push</b> on a tool switch, opening a debate/chat/inquiry, or a <i>user</i> node click.</li>
+<li><b>Replace</b> on the auto-selected node, a POV tab switch, sort or filter changes.</li>
+<li><kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> and mouse buttons 4/5, ignored inside text fields.</li>
+<li><b>Web:</b> Back only (the browser owns Forward). <b>Phone:</b> Back plus the current title.</li>
+</ul>
+<h3>Accessibility</h3>
+<ul><li><code>nav[aria-label="History"]</code>. aria-labels name the destination. A disabled button says plain "Back".</li>
+<li>The ▾ opens a <code>menu</code>: arrow keys move, <kbd>Esc</kbd> closes and returns focus. Hit areas are 28px, or 36px on touch.</li></ul>`,
+A:`<h3>A · Top of rail</h3>
+<div class="verdict">Stacked ← → at the top of the 56px rail, above the tools. This is what the original spec said.</div>
+<ul><li>+ The smallest change. It needs no new bar.</li>
+<li>− It pushes every tool down by about 60px, and the rail is already tall.</li>
+<li>− It still doesn't show <i>where you are</i>. The arrows remain mysterious.</li>
+<li>− There's no room for a history list or labels. On a phone the rail turns into a bottom tab bar, so Back needs a second home anyway.</li></ul>`,
+C:`<h3>C · Title bar</h3>
+<div class="verdict">← → ▾ plus the current location, centred in the menu row, like VS Code's command centre.</div>
+<ul><li>+ It costs no vertical or horizontal space.</li>
+<li>− Electron only. The web build has no menu row, so the two builds would diverge.</li>
+<li>− It's far from the content and small (22px targets), so it's easy to miss.</li>
+<li>− It's crowded once the window is narrow.</li></ul>`,
+now:`<h3>Today (as built, #4196)</h3>
+<ul><li>A 99px column that is empty except for two chevrons.</li>
+<li>The chevrons read as "collapse panel", not "go back".</li>
+<li>When disabled, the tooltips read "Back to Back".</li>
+<li>Nothing says where you are or where Back goes.</li></ul>`
+};
+render();
+</script>
+</body>
+</html>

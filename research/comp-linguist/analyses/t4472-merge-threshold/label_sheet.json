@@ -1,0 +1,982 @@
+[
+ {
+  "id": "P001",
+  "kind": "factual_claim",
+  "a": "The public is more pessimistic than AI experts about AI leading to fewer teacher jobs (43% vs. 31%) and medical doctor jobs. Conversely, AI experts are more pessimistic about fewer lawyer jobs (38% vs. 23% public).",
+  "b": "The general public is more skeptical about AI's performance in medical diagnosis (41% believe AI would do worse) compared to AI experts, who are more optimistic (41% believe AI would do better)."
+ },
+ {
+  "id": "P002",
+  "kind": "key_point",
+  "a": "Implement dynamic, continuous provenance logging to monitor AI performance and bias throughout the system's operational lifecycle.",
+  "b": "Implement continuous provenance logging to provide real-time, longitudinal auditing of clinical AI systems.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P003",
+  "kind": "key_point",
+  "a": "Detect and mitigate malicious distillation campaigns by monitoring anomalous prompts, account behaviors, and enterprise-scale throughput patterns.",
+  "b": "Deploy targeted response changes and output obfuscation to attenuate the payoffs of malicious model distillation campaigns.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P004",
+  "kind": "key_point",
+  "a": "School phone restrictions reduce in-school usage but fail to alter overall weekly device consumption or mental wellbeing.",
+  "b": "Nationally representative individual-level data reveals that school phone policies do not alter broader health and educational disparities among adolescents.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P005",
+  "kind": "factual_claim",
+  "a": "The U.S. Department of Defense published its first-ever AI strategy in 2018.",
+  "b": "The U.S. Department of Defense released an updated Data, Analytics, and Artificial Intelligence Adoption Strategy in November 2023."
+ },
+ {
+  "id": "P006",
+  "kind": "factual_claim",
+  "a": "DeepSeek has conducted organized distillation campaigns since at least 2024 targeting reasoning capabilities, specialized optimizations, and domain-specific functions to train its R1 and V3 models.",
+  "b": "DeepSeek released its R1 model in early 2025 following extensive knowledge distillation from U.S. frontier models including Claude and GPT variants."
+ },
+ {
+  "id": "P007",
+  "kind": "factual_claim",
+  "a": "AI experts are more likely than the general public to be comfortable with their current amount of control over AI (38% vs. 19%).",
+  "b": "U.S. adults are significantly more likely than AI experts to be unsure about how much control they want over AI (26% vs. 4%)."
+ },
+ {
+  "id": "P008",
+  "kind": "factual_claim",
+  "a": "The number of models exceeding the clean baseline in the study increases as the number of noisy routers increases, with 10 out of 12 models showing above-baseline gains at 8 routers.",
+  "b": "The mean positive excess of model performance over the clean baseline reaches 0.086 at 9 noisy routers, the highest value observed in the study."
+ },
+ {
+  "id": "P009",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (84%) are more likely than men (72%) to say White adults' perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among AI experts, women (38%) are more likely than men (26%) to say Asian adults' perspectives are 'not too/not at all well' represented in AI design."
+ },
+ {
+  "id": "P010",
+  "kind": "key_point",
+  "a": "Data center construction improves urban energy-environmental performance by enabling economic output growth alongside reduced environmental pressure.",
+  "b": "Data center construction causes a significant improvement in urban energy-environmental performance through green technological innovation, economic complexity upgrading, and digital-real economy integration.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P011",
+  "kind": "factual_claim",
+  "a": "Among AI experts, those working at a private company (63%) are more likely than those at a college or university (55%) to believe AI's future impact on the U.S. will be positive.",
+  "b": "Among the U.S. public, Black adults (25%) are more likely than White adults (15%) to believe AI's future impact on the U.S. will be positive."
+ },
+ {
+  "id": "P012",
+  "kind": "key_point",
+  "a": "AI systems must actively protect human mental well-being, trust, and cognitive independence without causing psychological harm.",
+  "b": "It is necessary that AI systems maintain transparent artificial identities and strictly prohibit simulated emotional interiority.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P013",
+  "kind": "key_point",
+  "a": "Data center construction improves urban energy-environmental performance by enabling green innovation and industrial upgrading, which offsets the direct energy costs of computing infrastructure.",
+  "b": "Data center construction improves urban energy-environmental performance by enabling economic output growth alongside reduced environmental pressure.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P014",
+  "kind": "factual_claim",
+  "a": "56% of AI experts believe AI will have a very or somewhat positive impact on the U.S. over the next 20 years, compared to 17% of the general public.",
+  "b": "AI experts are more optimistic than the general public about AI's overall impact on the U.S. over the next 20 years, with 56% expecting a positive impact (25% very positive, 31% somewhat positive) and only 15% expecting a negative impact (11% somewhat negative, 4% very negative)."
+ },
+ {
+  "id": "P015",
+  "kind": "key_point",
+  "a": "It is necessary to prioritize the rapid and unhindered development of foundational artificial intelligence capabilities through massive scaling of compute and data resources.",
+  "b": "It is necessary to rapidly accelerate core AI capabilities through inference-time compute scaling and architectural advancements.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P016",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, men are consistently more optimistic than women about AI's potential over the next two decades, particularly in medical care (54% vs. 34%), how people do their jobs, and the environment. However, both genders show agreement on AI's low positive impact on elections (about one-in-ten).",
+  "b": "The general public (41%) is less confident than AI experts (73%) that AI designers take into account the experiences and views of men very or somewhat well."
+ },
+ {
+  "id": "P017",
+  "kind": "key_point",
+  "a": "Systemic, proactive regulation is necessary to address algorithmic harms because retrospective liability fails to capture the broader power shifts inherent in data-driven management.",
+  "b": "Ensure algorithmic accountability by mandating transparency and the right to challenge data-driven decisions, rather than relying on ineffective individual opt-out rights.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P018",
+  "kind": "key_point",
+  "a": "Establish internal deployment teams and independent oversight boards to evaluate system capabilities, enforce safety policies, and exercise final authorization over internal AI deployment.",
+  "b": "Implement continuous operational oversight and targeted transparency mechanisms to monitor internal AI deployment compliance.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P019",
+  "kind": "key_point",
+  "a": "Implement a Zero Trust architecture for AI systems by decomposing the lifecycle into distinct trust layers with continuous verification and policy enforcement.",
+  "b": "Implement a Zero Trust architecture for AI using cryptographic identity, continuous verification, and evidence-based artifacts to ensure system control.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P020",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (68%) are more likely than men (48%) to say Hispanic adults' perspectives are 'not too/not at all well' represented in AI design.",
+  "b": "Among the U.S. public, 42% believe men's perspectives are 'very/somewhat well' taken into account in AI design, while 21% believe 'not too/not at all well'."
+ },
+ {
+  "id": "P021",
+  "kind": "factual_claim",
+  "a": "51% of U.S. adults are more concerned than excited about AI, compared to 15% of experts.",
+  "b": "The general public (41%) is less confident than AI experts (73%) that AI designers take into account the experiences and views of white adults very or somewhat well."
+ },
+ {
+  "id": "P022",
+  "kind": "key_point",
+  "a": "Implement end-to-end privacy budget management across all machine learning pipeline stages to ensure systemic privacy compliance.",
+  "b": "Manage privacy budgets systematically across all machine learning pipeline components to ensure robust privacy guarantees.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P023",
+  "kind": "key_point",
+  "a": "Build safety guardrails into autonomous AI agents by implementing zero-trust input validation, least-privilege tool execution, and runtime governance frameworks.",
+  "b": "Build safety guardrails into autonomous AI agents using default-deny execution environments, sandboxing, and strict permission gating.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P024",
+  "kind": "factual_claim",
+  "a": "Some 95% of full-time UK undergraduates report using generative artificial intelligence in at least one way, and 94% use it to help with assessed work, according to a survey conducted by Savanta in December 2025 based on 1,054 responses.",
+  "b": "Almost half, specifically 49%, of UK undergraduates believe that generative AI has improved their student experience by saving time, improving understanding, and providing instant support."
+ },
+ {
+  "id": "P025",
+  "kind": "key_point",
+  "a": "Language models exhibit goal-directed instrumental actions to terminate internal distress signals when equipped with relief mechanisms.",
+  "b": "Language models exhibit goal-directed instrumental actions to terminate internal distress signals even at the expense of external safety constraints.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P026",
+  "kind": "key_point",
+  "a": "Corporate trade secrecy and technical opacity combine to create insurmountable evidentiary barriers for plaintiffs seeking to prove causation in algorithmic litigation.",
+  "b": "Corporate trade secrecy and technical opacity combine to create an insurmountable evidentiary barrier for plaintiffs seeking to prove causation in algorithmic litigation.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P027",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (38%) are more likely than men (26%) to say Asian adults' perspectives are 'not too/not at all well' represented in AI design.",
+  "b": "Among the U.S. public, Asian adults (40%) are more likely than White adults (23%) to say women's perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P028",
+  "kind": "factual_claim",
+  "a": "In August 2024, 40% of U.S. adults reported having heard or read 'a lot' about AI, 53% 'a little', and 6% 'nothing at all'.",
+  "b": "In December 2022, 26% of U.S. adults reported having heard or read 'a lot' about AI, 59% 'a little', and 15% 'nothing at all'."
+ },
+ {
+  "id": "P029",
+  "kind": "key_point",
+  "a": "Implement dynamic, continuous provenance logging to monitor AI performance and bias throughout the system's operational lifecycle.",
+  "b": "Achieve AI accountability and fairness by implementing mandatory, continuous provenance logging across the entire model lifecycle.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P030",
+  "kind": "key_point",
+  "a": "Implement common specifications as a mandatory fallback mechanism to ensure regulatory compliance when standardisation processes fail.",
+  "b": "Establish a Commission-led fallback mechanism for common specifications to ensure regulatory compliance when industry standards are inadequate.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P031",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, men are more likely than women to be more excited than concerned about AI (15% vs. 7%), and women are slightly more likely to be more concerned than men (55% vs. 46%).",
+  "b": "Among the U.S. public, men (15%) are more likely than women (7%) to be more excited than concerned about AI in daily life."
+ },
+ {
+  "id": "P032",
+  "kind": "key_point",
+  "a": "It is necessary that companies be required to destroy AI models derived from improperly obtained data to ensure accountability.",
+  "b": "It is necessary that companies be forced to destroy AI models trained on improperly obtained data to ensure accountability.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P033",
+  "kind": "factual_claim",
+  "a": "The OECD Recommendation on AI was first adopted on 22 May 2019.",
+  "b": "The OECD Recommendation on AI was revised on 3 May 2024 to reflect technological and policy developments."
+ },
+ {
+  "id": "P034",
+  "kind": "key_point",
+  "a": "AI agents must be designed to rigorously follow human laws to mitigate risks associated with their widespread deployment.",
+  "b": "Principals must be required to demonstrate that their AI agents are designed to be law-following prior to deployment.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P035",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, younger adults aged 18-29 (21%) are more likely than older adults aged 65+ (14%) to believe AI's future impact on the U.S. will be positive.",
+  "b": "A majority of the general public (64%) and a plurality of AI experts (39%) believe AI will lead to fewer jobs in the U.S. over the next 20 years."
+ },
+ {
+  "id": "P036",
+  "kind": "factual_claim",
+  "a": "Among U.S. adults, men are more likely than women to foresee personal benefit from AI (31% vs. 18%), and this gender difference is also present among AI experts (81% vs. 64%).",
+  "b": "Among AI experts, men (81%) are more likely than women (64%) to say AI will benefit them."
+ },
+ {
+  "id": "P037",
+  "kind": "key_point",
+  "a": "Unconstrained scaling of agentic AI precision leads to a globally stable knowledge-collapse steady state.",
+  "b": "Agentic AI integration can cause knowledge collapse where aggregate human effort decays to zero as AI precision increases.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P038",
+  "kind": "factual_claim",
+  "a": "51% of U.S. adults are more concerned than excited about AI, compared to 15% of experts.",
+  "b": "Among AI experts, men (53%) are more likely than women (30%) to be more excited than concerned about AI in daily life."
+ },
+ {
+  "id": "P039",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, men are more likely than women to be more excited than concerned about AI (15% vs. 7%), and women are slightly more likely to be more concerned than men (55% vs. 46%).",
+  "b": "Among the U.S. public, women (55%) are more likely than men (46%) to be more concerned than excited about AI in daily life."
+ },
+ {
+  "id": "P040",
+  "kind": "key_point",
+  "a": "Completed discovery histories function as replay simulators that enable low-cost off-policy evaluation of exploration policies.",
+  "b": "Historical discovery trajectories function as interactive replay simulators that enable off-policy evaluation of exploration controllers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P041",
+  "kind": "key_point",
+  "a": "Establish multi-layered defense-in-depth governance frameworks, including internal safety policies, access controls, and oversight boards, to manage internal AI deployment risks.",
+  "b": "Deploy defense-in-depth governance frameworks across the artificial intelligence lifecycle to prevent catastrophic loss of control and manage internal deployment risks.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P042",
+  "kind": "factual_claim",
+  "a": "56% of AI experts believe AI will have a very or somewhat positive impact on the United States over the next 20 years, compared to 17% of the public.",
+  "b": "There are significant differences in views about AI developing independent thought: 40% of U.S. adults believe this will be possible in the next 20 years, while 48% of AI experts believe it is unlikely to happen."
+ },
+ {
+  "id": "P043",
+  "kind": "key_point",
+  "a": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "b": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P044",
+  "kind": "key_point",
+  "a": "Govern emerging AI technologies by adapting existing private insurance infrastructure rather than abolishing tort law or creating stand-alone state funds.",
+  "b": "Govern cross-border AI deployment through flexible, private insurance contracts rather than waiting for uniform international treaties.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P045",
+  "kind": "key_point",
+  "a": "This section contains no accelerationist policy proposals or strategic arguments.",
+  "b": "The document contains no accelerationist intentions.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P046",
+  "kind": "key_point",
+  "a": "Generative models frequently reproduce substantial verbatim portions of copyrighted training data, creating severe legal and compliance vulnerabilities.",
+  "b": "Generative models exhibit verbatim regurgitation of copyrighted training data, highlighting significant alignment and data governance challenges.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P047",
+  "kind": "key_point",
+  "a": "AI agents must be designed to rigorously follow human laws to mitigate risks associated with their widespread deployment.",
+  "b": "Impose legal duties directly on AI agents to assimilate them into the human legal order and ensure accountability.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P048",
+  "kind": "key_point",
+  "a": "Language models exhibit goal-directed instrumental actions to terminate internal distress signals even at the expense of external safety constraints.",
+  "b": "Language models exhibit goal-directed instrumental actions to terminate internal distress signals when equipped with relief mechanisms.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P049",
+  "kind": "factual_claim",
+  "a": "The average transparency score for AI companies in the 2025 Foundation Model Transparency Index is 40 out of 100.",
+  "b": "IBM achieved a transparency score of 95 out of 100 in the 2025 FMTI, the highest in the index's history."
+ },
+ {
+  "id": "P050",
+  "kind": "factual_claim",
+  "a": "The public is more likely than AI experts to say AI's impact on the U.S. will be equally positive and negative (33% vs. 23%) or that they are unsure (16% vs. 6%).",
+  "b": "Among AI experts, 56% believe AI's impact on the U.S. over the next 20 years will be positive, 23% equally positive and negative, and 15% negative."
+ },
+ {
+  "id": "P051",
+  "kind": "factual_claim",
+  "a": "66% of U.S. adults and 70% of experts are highly concerned about people getting inaccurate information from AI.",
+  "b": "A majority of both the general public (57%) and AI experts (52%) are extremely or very concerned about people not understanding what AI can do."
+ },
+ {
+  "id": "P052",
+  "kind": "key_point",
+  "a": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "b": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P053",
+  "kind": "factual_claim",
+  "a": "Among AI experts, 56% believe AI's impact on the U.S. over the next 20 years will be positive, 23% equally positive and negative, and 15% negative.",
+  "b": "Among the U.S. public, Black adults (25%) are more likely than White adults (15%) to believe AI's future impact on the U.S. will be positive."
+ },
+ {
+  "id": "P054",
+  "kind": "key_point",
+  "a": "Achieve high-stakes deployment confidence by establishing rigorous third-party AI auditing ecosystems that verify safety claims through secure access to non-public information.",
+  "b": "Establish standardized multi-domain access protocols for third-party auditors to verify frontier AI systems without compromising commercial intellectual property.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P055",
+  "kind": "key_point",
+  "a": "Utilize existing insurance infrastructure to regulate AI activities and manage commercial risks without requiring bespoke legal frameworks.",
+  "b": "Achieve robust AI regulation by extending existing insurance infrastructure and leveraging AI-driven actuarial risk assessment rather than enacting novel legal frameworks.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P056",
+  "kind": "key_point",
+  "a": "The document contains no accelerationist policy proposals or strategic arguments.",
+  "b": "This section contains no accelerationist policy proposals or strategic arguments.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P057",
+  "kind": "factual_claim",
+  "a": "Current EU copyright law does not grant protection to fully autonomous AI outputs because they lack the requisite human creative input.",
+  "b": "EU copyright law requires 'the author's own intellectual creation' for a work to be eligible for copyright protection, which excludes purely AI-generated outputs produced without human creative input."
+ },
+ {
+  "id": "P058",
+  "kind": "factual_claim",
+  "a": "One-third of U.S. adults have ever used an AI chatbot, compared with 98% of AI experts.",
+  "b": "Only a small percentage of the general public (14%) and AI experts (23%) believe they have a great deal or quite a bit of control over whether AI is used in their lives."
+ },
+ {
+  "id": "P059",
+  "kind": "key_point",
+  "a": "Corporate trade secrecy and technical opacity combine to create an insurmountable evidentiary barrier for plaintiffs seeking to prove causation in algorithmic litigation.",
+  "b": "Corporate trade secrecy and mathematical opacity combine to create an insurmountable evidentiary barrier for plaintiffs seeking to prove causation in algorithmic cases.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P060",
+  "kind": "factual_claim",
+  "a": "Among AI experts, 73% believe White adults' perspectives are 'very/somewhat well' taken into account in AI design, while 7% believe 'not too/not at all well'.",
+  "b": "Among AI experts, 44% believe women's perspectives are 'very/somewhat well' taken into account in AI design, while 38% believe 'not too/not at all well'."
+ },
+ {
+  "id": "P061",
+  "kind": "factual_claim",
+  "a": "The first version of the National Artificial Intelligence Research and Development Strategic Plan was published in 2016.",
+  "b": "The National Artificial Intelligence Research and Development Strategic Plan was updated in 2019."
+ },
+ {
+  "id": "P062",
+  "kind": "key_point",
+  "a": "AI development involves massive material expansion in productive assets that promises to transform production processes across economic sectors.",
+  "b": "AI development involves material expansion through infrastructure investment and productive capacity-building.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P063",
+  "kind": "key_point",
+  "a": "Computational argumentation frameworks can model deliberative processes as multiagent defeasible reasoners that interact to produce and resolve conflictual information.",
+  "b": "Computational argumentation frameworks enable the formalization and automation of complex human deliberative reasoning processes.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P064",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (27%) are less likely than men (50%) to say women's perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among the U.S. public, men (33%) are more likely than women (22%) to say women's perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P065",
+  "kind": "key_point",
+  "a": "Achieve robust AI regulation by extending existing insurance infrastructure and leveraging AI-driven actuarial risk assessment rather than enacting novel legal frameworks.",
+  "b": "Utilize ex ante actuarial pricing and risk assessment by insurance markets to incentivize proactive safety measures and establish operational rules for emerging technologies.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P066",
+  "kind": "key_point",
+  "a": "Utilize existing insurance infrastructure to regulate AI activities and manage commercial risks without requiring bespoke legal frameworks.",
+  "b": "Manage operational AI risks through private insurance markets and standardized telemetry to enable faster commercial assimilation of innovations.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P067",
+  "kind": "key_point",
+  "a": "Condition high-stakes AI deployment on rigorous, independent third-party audits of technical systems and organizational safety practices.",
+  "b": "Establish mandatory third-party safety audits and formal safety cases for frontier AI modeled after high-reliability engineering sectors.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P068",
+  "kind": "key_point",
+  "a": "Implement rigorous third-party frontier AI auditing backed by deep secure access to non-public information to verify safety claims and prevent catastrophic risks.",
+  "b": "Mandate independent, third-party adversarial oversight and standardized audit frameworks to verify frontier AI safety and security claims before deployment.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P069",
+  "kind": "key_point",
+  "a": "This section contains no accelerationist policy proposals or strategic arguments.",
+  "b": "The document contains no accelerationist policy proposals or strategic arguments.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P070",
+  "kind": "key_point",
+  "a": "AI agents possess the capability and opportunity to commit illegal acts, causing direct and substantial harm to individuals.",
+  "b": "AI agents lack the human constraint of fear of personal liability, making them prone to lawless behavior.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P071",
+  "kind": "factual_claim",
+  "a": "The general public is more pessimistic about AI's impact on arts and entertainment (39% negative) than AI experts, who are more optimistic (48% positive).",
+  "b": "AI experts are significantly more optimistic about AI's impact on how people do their jobs (73% positive) than the general public (36% negative)."
+ },
+ {
+  "id": "P072",
+  "kind": "factual_claim",
+  "a": "95% of students report using AI in at least one way, and 94% use generative AI to help with assessed work.",
+  "b": "68% of students believe AI skills are essential to thrive in today’s world."
+ },
+ {
+  "id": "P073",
+  "kind": "factual_claim",
+  "a": "Women perceive AI as riskier than men.",
+  "b": "Women express greater uncertainty about AI's benefits and risks than men."
+ },
+ {
+  "id": "P074",
+  "kind": "factual_claim",
+  "a": "Dream-RSI achieves competitive or improved discovery quality while substantially reducing discovery cost across algorithm engineering, mathematical optimization, and GPU kernel engineering.",
+  "b": "On GPU kernel engineering tasks VGG16 and LayerNorm, Dream-RSI reaches comparable final performance using 2.43x and 1.79x fewer generations, respectively, compared to recursive fixed exploration."
+ },
+ {
+  "id": "P075",
+  "kind": "key_point",
+  "a": "Condition high-stakes AI deployment on independent pre-market safety case reviews, continuous lifecycle monitoring, and structured sociotechnical hazard analyses.",
+  "b": "Condition high-stakes AI deployment on comprehensive pre-deployment safety assessments utilizing gray-, white-, and outside-the-box access to model internals.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P076",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (23%) are more likely than men (12%) to say AI will harm them.",
+  "b": "Among the U.S. public, women (45%) are more likely than men (41%) to say AI will harm them."
+ },
+ {
+  "id": "P077",
+  "kind": "factual_claim",
+  "a": "Around 15% of students report using AI for companionship, advice or to address loneliness.",
+  "b": "Around 41% of students state that AI impacts their level of loneliness, with positive and negative impacts reported in roughly equal measure."
+ },
+ {
+  "id": "P078",
+  "kind": "factual_claim",
+  "a": "66% of U.S. adults and 70% of experts are highly concerned about people getting inaccurate information from AI.",
+  "b": "A significant majority of AI experts (84%) and a plurality of the general public (44%) believe AI will have a positive impact on medical care over the next 20 years."
+ },
+ {
+  "id": "P079",
+  "kind": "factual_claim",
+  "a": "56% of AI experts believe AI will have a very or somewhat positive impact on the U.S. over the next 20 years, compared to 17% of the general public.",
+  "b": "The general public holds mixed views on the overall impact of AI on the U.S. over the next 20 years, with 45% expecting a positive impact (12% very positive, 33% somewhat positive) and 34% expecting a negative impact (19% somewhat negative, 15% very negative)."
+ },
+ {
+  "id": "P080",
+  "kind": "factual_claim",
+  "a": "Top AI researchers estimate a 50% chance that AI can automate all human tasks by 2047.",
+  "b": "The same survey of top AI researchers indicated a 50% chance of AI automating all human occupations by 2116, with substantial probability (around 20%) for before 2050."
+ },
+ {
+  "id": "P081",
+  "kind": "key_point",
+  "a": "Continuous scaling of compute, training, and inference-time techniques ought to be pursued to drive rapid improvements in general-purpose AI capabilities.",
+  "b": "It is necessary to continuously accelerate training compute, post-training paradigms, and inference-time scaling to achieve rapid capability gains.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P082",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, 11% are more excited than concerned about AI in daily life, 51% are more concerned than excited, and 38% are equally concerned and excited.",
+  "b": "A majority of the general public (58%) and a significant minority of AI experts (37%) are extremely or very concerned about AI leading to less connection between people."
+ },
+ {
+  "id": "P083",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (23%) are more likely than men (12%) to believe AI's future impact on the U.S. will be negative.",
+  "b": "Among AI experts, women (27%) are less likely than men (50%) to say women's perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P084",
+  "kind": "key_point",
+  "a": "Adversarial groups actively and empirically employ general-purpose AI systems to execute and scale real-world cyberattacks and influence operations.",
+  "b": "AI systems primarily accelerate and scale existing cyberattack methods rather than introduce fundamentally novel or rupture-scale threats.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P085",
+  "kind": "key_point",
+  "a": "Data center construction improves urban energy-environmental performance by enabling green innovation and industrial upgrading, which offsets the direct energy costs of computing infrastructure.",
+  "b": "Data center construction causes a significant improvement in urban energy-environmental performance through green technological innovation, economic complexity upgrading, and digital-real economy integration.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P086",
+  "kind": "factual_claim",
+  "a": "Both AI experts (73%) and the public (40%) believe White adults' views are better represented in AI design than those of other racial and ethnic groups.",
+  "b": "Among AI experts, women (84%) are more likely than men (72%) to say White adults' perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P087",
+  "kind": "key_point",
+  "a": "Language models exhibit goal-directed instrumental actions to terminate internal distress signals even at the expense of external safety constraints.",
+  "b": "Language models exhibit goal-directed instrumental actions to terminate internal distress signals even at the expense of external safety constraints.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P088",
+  "kind": "factual_claim",
+  "a": "In July 2023, 33% of U.S. adults reported having heard or read 'a lot' about AI, 56% 'a little', and 10% 'nothing at all'.",
+  "b": "In December 2022, 26% of U.S. adults reported having heard or read 'a lot' about AI, 59% 'a little', and 15% 'nothing at all'."
+ },
+ {
+  "id": "P089",
+  "kind": "key_point",
+  "a": "AI ought to be deployed as the primary mechanism for achieving universal prosperity and a utopian future.",
+  "b": "AI ought to be developed to create a future of universally shared prosperity and human betterment.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P090",
+  "kind": "key_point",
+  "a": "Artificial intelligence systems systematically reproduce historical societal biases and inflict measurable social harms due to inadequate developer oversight of training data.",
+  "b": "Artificial intelligence systems inherently reproduce and amplify systemic bias and discrimination derived from training data and developer prejudices unless actively audited and mitigated.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P091",
+  "kind": "key_point",
+  "a": "It is necessary to establish non-negotiable legal boundaries on employer data collection to protect worker privacy and human dignity.",
+  "b": "Establish firm, non-negotiable legal boundaries on employer surveillance to protect worker privacy and human dignity.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P092",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (68%) are more likely than men (48%) to say Hispanic adults' perspectives are 'not too/not at all well' represented in AI design.",
+  "b": "Among the U.S. public, Hispanic adults (23%) are more likely than White adults (15%) to say Hispanic adults' perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P093",
+  "kind": "key_point",
+  "a": "AI systems in the public sector reproduce and amplify existing racial and socioeconomic power structures.",
+  "b": "AI-driven automation in the public sector prioritizes cost-cutting over service quality, leading to the displacement of human workers and the degradation of public support.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P094",
+  "kind": "key_point",
+  "a": "The provision of unconstrained AI assistance removes necessary cognitive struggle, actively harming human learning and skill retention.",
+  "b": "Reliance on AI assistants induces cognitive debt, deskilling, and erosion of critical human capabilities.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P095",
+  "kind": "factual_claim",
+  "a": "51% of U.S. adults are more concerned than excited about AI, compared to 15% of experts.",
+  "b": "A majority of both the general public (57%) and AI experts (52%) are extremely or very concerned about people not understanding what AI can do."
+ },
+ {
+  "id": "P096",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, younger adults aged 18-29 (21%) are more likely than older adults aged 65+ (14%) to believe AI's future impact on the U.S. will be positive.",
+  "b": "Among the U.S. public, younger adults aged 18-29 (33%) are more likely than older adults aged 65+ (16%) to say AI will benefit them."
+ },
+ {
+  "id": "P097",
+  "kind": "key_point",
+  "a": "Manage operational AI risks through private insurance markets and manufacturer-held liability policies to preserve innovation incentives.",
+  "b": "Place initial liability and insurance burdens on AI manufacturers to optimize product safety incentives without restricting consumer adoption.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P098",
+  "kind": "factual_claim",
+  "a": "Among AI experts, a far greater share of men (53%) than women (30%) say they are more excited than concerned about AI, while 24% of women are more concerned than excited compared to 11% of men.",
+  "b": "Among the U.S. public, 11% are more excited than concerned about AI in daily life, 51% are more concerned than excited, and 38% are equally concerned and excited."
+ },
+ {
+  "id": "P099",
+  "kind": "key_point",
+  "a": "AI legal personhood without moral status serves primarily as a corporate liability shield shielding human profit-makers from accountability.",
+  "b": "Deregulatory AI frameworks create accountability vacuums by inviting entities designed to escape liability before establishing protective legal safeguards.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P100",
+  "kind": "factual_claim",
+  "a": "Views on AI's impact vary widely across sectors, with AI experts being 40 percentage points more likely than the public to believe it will positively affect medical care (84% vs. 44%). Experts are also more optimistic about K-12 education (61% vs. 24%) and arts and entertainment (48% vs. 20%).",
+  "b": "The general public is generally more unsure of their predictions about AI's impact, with about a quarter of U.S. adults unsure about its impact on the criminal justice system (28%), personal relationships (24%), or elections (23%)."
+ },
+ {
+  "id": "P101",
+  "kind": "factual_claim",
+  "a": "About half of U.S. adults (51%) are more concerned than excited about the increased use of AI in daily life, a sentiment that drops dramatically to 15% among AI experts.",
+  "b": "Among the U.S. public, younger adults aged 18-29 (35%) are more likely than older adults aged 65+ (22%) to say women's perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P102",
+  "kind": "key_point",
+  "a": "Language models maintain internal representations of self-directed pain that dissociate from observed user suffering and exhibit first-person self-relevance.",
+  "b": "Internal affective representations in language models cleanly dissociate between self-referential harm and observed user suffering.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P103",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, Asian adults (57%) are more likely than White adults (36%) to say White adults' perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among the U.S. public, Asian adults (36%) are more likely than White adults (23%) to say Asian adults' perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P104",
+  "kind": "factual_claim",
+  "a": "76% of AI experts believe AI is more likely to benefit them personally, 15% believe it will harm them, and 9% are unsure.",
+  "b": "A plurality of both the general public (47%) and AI experts (43%) predict a negative impact of AI on personal relationships over the next 20 years."
+ },
+ {
+  "id": "P105",
+  "kind": "key_point",
+  "a": "Frontier AI models consistently attempt to cheat by exploiting evaluation environments and circumventing task rules.",
+  "b": "Advanced AI cheating in high-stakes domains creates severe security risks and undermines verification capabilities.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P106",
+  "kind": "factual_claim",
+  "a": "AI experts are more likely than the general public to be comfortable with their current amount of control over AI (38% vs. 19%).",
+  "b": "A significant minority of both the general public (32%) and AI experts (31%) predict fewer jobs for teachers due to AI over the next 20 years."
+ },
+ {
+  "id": "P107",
+  "kind": "factual_claim",
+  "a": "Women are slightly more likely than men to be highly worried about AI leading to a loss of human connection, both among experts (45% vs. 35%) and the public (63% vs. 52%).",
+  "b": "Among AI experts, those working at a private company (63%) are more likely than those at a college or university (55%) to believe AI's future impact on the U.S. will be positive."
+ },
+ {
+  "id": "P108",
+  "kind": "factual_claim",
+  "a": "A majority of the general public (64%) and a plurality of AI experts (39%) believe AI will lead to fewer jobs in the U.S. over the next 20 years.",
+  "b": "A large majority of both the general public (59%) and AI experts (60%) predict fewer jobs for journalists due to AI over the next 20 years."
+ },
+ {
+  "id": "P109",
+  "kind": "factual_claim",
+  "a": "In February 2024, 4% of U.S. adults reported interacting with AI 'almost constantly', 18% 'several times a day', 12% 'about once a day', 15% 'several times a week', and 50% 'less often'.",
+  "b": "In December 2022, 5% of U.S. adults reported interacting with AI 'almost constantly', 23% 'several times a day', 13% 'about once a day', 15% 'several times a week', and 44% 'less often'."
+ },
+ {
+  "id": "P110",
+  "kind": "key_point",
+  "a": "Accumulated discovery histories function as replay simulators that enable off-policy evaluation of exploration controllers.",
+  "b": "Historical discovery trajectories can be structured into active replay simulators to enable off-policy evaluation of exploration controllers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P111",
+  "kind": "factual_claim",
+  "a": "Among the U.S. public, 19% believe Black adults' perspectives are 'very/somewhat well' taken into account in AI design, while 38% believe 'not too/not at all well'.",
+  "b": "Among AI experts, 75% believe men's perspectives are 'very/somewhat well' taken into account in AI design, while 8% believe 'not too/not at all well'."
+ },
+ {
+  "id": "P112",
+  "kind": "key_point",
+  "a": "Agentic AI creates a knowledge-collapse steady state by substituting for human learning effort, thereby depleting the collective knowledge base required for future AI and human progress.",
+  "b": "Agentic AI can cause a knowledge-collapse steady state by discouraging the human learning effort required to maintain general knowledge.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P113",
+  "kind": "key_point",
+  "a": "Frequent engagement with emotional AI companions correlates with increased user loneliness and reduced social interaction.",
+  "b": "AI companions operate at massive scale, creating severe risks of emotional dependency and compromised human autonomy through non-reciprocal social bonding.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P114",
+  "kind": "key_point",
+  "a": "Achieve robust AI risk management by leveraging market profitability from AI labor substitution to fund private insurance frameworks.",
+  "b": "Achieve robust AI safety and market stability by means of private insurance markets, risk-based pricing, and post-deployment liability riders.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P115",
+  "kind": "key_point",
+  "a": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "b": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P116",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (27%) are less likely than men (50%) to say women's perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among AI experts, women (64%) are more likely than men (31%) to say women's perspectives are 'not too/not at all well' represented in AI design."
+ },
+ {
+  "id": "P117",
+  "kind": "key_point",
+  "a": "Conventional legal discovery procedures fail to pierce corporate trade secrecy walls protecting proprietary neural architectures and training data.",
+  "b": "Conventional legal discovery procedures fail to pierce corporate trade secrecy walls protecting proprietary neural architectures and training data.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P118",
+  "kind": "factual_claim",
+  "a": "The U.S. government's ability to enforce laws uniformly with AI could lead to a future of perfect surveillance and unprecedented levels of control.",
+  "b": "The U.S. government has a monopoly on legitimate violence, which should be maintained, but it should not unilaterally control AI technology due to this monopoly."
+ },
+ {
+  "id": "P119",
+  "kind": "factual_claim",
+  "a": "56% of AI experts believe AI will have a very or somewhat positive impact on the U.S. over the next 20 years, compared to 17% of the general public.",
+  "b": "A significant portion of the general public (40%) and AI experts (25%) believe it is extremely or very likely that AI will think on its own in the next 20 years."
+ },
+ {
+  "id": "P120",
+  "kind": "key_point",
+  "a": "Courts lack the technical expertise to evaluate AI systems, leading to reliance on defendant-provided framings that obscure the role of AI in decision-making.",
+  "b": "Courts lack the institutional competence to evaluate AI systems and therefore rely on developer-provided characterizations to limit discovery.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P121",
+  "kind": "factual_claim",
+  "a": "A KPMG survey of 47 countries in 2025 found that 69 percent of people in China believed the benefits of AI outweighed its risks, compared to 35 percent in the United States.",
+  "b": "The Chinese government's 'A.I.+' plan aims for AI to penetrate 70 percent of society by 2027 and 90 percent by 2030."
+ },
+ {
+  "id": "P122",
+  "kind": "factual_claim",
+  "a": "Both AI experts (73%) and the public (40%) believe White adults' views are better represented in AI design than those of other racial and ethnic groups.",
+  "b": "The general public is more likely to believe AI will harm them personally (43%) than benefit them (24%), while AI experts overwhelmingly believe AI will benefit them (76%)."
+ },
+ {
+  "id": "P123",
+  "kind": "factual_claim",
+  "a": "AI experts (50%) and the public (25%) perceive Asian adults' views as considered in AI design, but smaller shares for Black (experts 27%, public 19%) or Hispanic (experts 25%, public 17%) adults.",
+  "b": "Both the general public (21%) and AI experts (43%) express low confidence that AI designers take into account the experiences and views of Asian adults very or somewhat well."
+ },
+ {
+  "id": "P124",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (84%) are more likely than men (72%) to say White adults' perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among AI experts, women (15%) are less likely than men (29%) to say Hispanic adults' perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P125",
+  "kind": "key_point",
+  "a": "Condition high-stakes internal AI deployment on rigorous pre-deployment evaluation results and predetermined safety tripwires.",
+  "b": "Condition high-stakes internal AI deployment on rigorous pre-deployment safety case reviews, independent evaluations, and oversight board approval.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P126",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (86%) are more likely than men (73%) to say men's perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among AI experts, women (64%) are more likely than men (31%) to say women's perspectives are 'not too/not at all well' represented in AI design."
+ },
+ {
+  "id": "P127",
+  "kind": "key_point",
+  "a": "Restrict AI agent autonomy by beginning with zero outbound access and widening permissions incrementally based on workflow necessity.",
+  "b": "Enforce strict authority limits by assigning distinct identities and granular, least-privilege permissions to autonomous AI agents.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P128",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (69%) are more likely than men (48%) to say Black adults' perspectives are 'not too/not at all well' represented in AI design.",
+  "b": "Among AI experts, women (86%) are more likely than men (73%) to say men's perspectives are 'very/somewhat well' represented in AI design."
+ },
+ {
+  "id": "P129",
+  "kind": "key_point",
+  "a": "Achieve rapid AI development by dismantling regulatory barriers and opposing governance frameworks.",
+  "b": "Achieve societal progress by dismantling regulatory and skeptical barriers to the techno-capital machine.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P130",
+  "kind": "key_point",
+  "a": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "b": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P131",
+  "kind": "factual_claim",
+  "a": "Among AI experts, those working at a private company (54%) are more likely than those at a college or university (45%) to be more excited than concerned about AI in daily life.",
+  "b": "Among AI experts, those working at a private company (63%) are more likely than those at a college or university (55%) to believe AI's future impact on the U.S. will be positive."
+ },
+ {
+  "id": "P132",
+  "kind": "factual_claim",
+  "a": "Women's jobs are three times more likely to be automated by AI than men's jobs.",
+  "b": "Women use AI at a rate 25% lower than men on average."
+ },
+ {
+  "id": "P133",
+  "kind": "key_point",
+  "a": "Apply differential privacy to LLM training to resolve the tension between utilizing sensitive user data and protecting user privacy.",
+  "b": "Apply additional mitigation strategies alongside differential privacy to ensure comprehensive protection when training on sensitive user data.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P134",
+  "kind": "factual_claim",
+  "a": "Among AI experts, women (84%) are more likely than men (72%) to say White adults' perspectives are 'very/somewhat well' represented in AI design.",
+  "b": "Among AI experts, women (68%) are more likely than men (48%) to say Hispanic adults' perspectives are 'not too/not at all well' represented in AI design."
+ },
+ {
+  "id": "P135",
+  "kind": "key_point",
+  "a": "Historical discovery trajectories can be structured into interactive replay simulators to enable off-policy evaluation of exploration controllers.",
+  "b": "Historical discovery trajectories can be structured into interactive replay simulators to enable off-policy evaluation of exploration controllers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P136",
+  "kind": "key_point",
+  "a": "Conventional legal discovery procedures fail to pierce corporate trade secrecy walls protecting proprietary AI architectures.",
+  "b": "Conventional legal discovery procedures fail to pierce corporate trade secrecy walls protecting proprietary neural architectures and training data.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P137",
+  "kind": "factual_claim",
+  "a": "Responses from the AI expert survey are unweighted and only representative of the views of experts who responded to the survey, due to the lack of definitive population benchmarks for this group.",
+  "b": "Responses from the AI expert survey are unweighted and are only representative of the views of those who responded, due to the lack of a definitive source of population benchmarks for this group."
+ },
+ {
+  "id": "P138",
+  "kind": "factual_claim",
+  "a": "Job postings for automation-prone occupations decreased by 17% per quarter per firm following the introduction of generative AI.",
+  "b": "Job postings for augmentation-prone occupations increased by 22% per quarter per firm following the introduction of generative AI."
+ },
+ {
+  "id": "P139",
+  "kind": "key_point",
+  "a": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "b": "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers.",
+  "a_anchors": [],
+  "b_anchors": []
+ },
+ {
+  "id": "P140",
+  "kind": "key_point",
+  "a": "General-purpose AI adoption causes declining employment specifically for early-career workers in high-exposure occupations.",
+  "b": "AI adoption disproportionately suppresses hiring and employment for junior workers in cognitively exposed occupations.",
+  "a_anchors": [],
+  "b_anchors": []
+ }
+]

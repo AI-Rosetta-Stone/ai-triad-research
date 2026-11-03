@@ -84,6 +84,52 @@ param stagingSharedReadOnly bool = true
 @description('Temporarily size staging like prod (2 vCPU/4Gi, maxReplicas 3, concurrentRequests scale rule) for a load test (t/4203). Revert to false for the next ordinary deploy.')
 param stagingLoadTestSize bool = false
 
+// ── Staging free-pool daily calls cap override (t/4728) ──
+// A PARAMETER, not a hand-applied `--set-env-vars`: the latter is wiped by the next prod Bicep
+// apply (t/4728, p/868#31 — exactly what happened on 2026-10-31), because the deploy re-applies
+// this template's declared value. Declaring it here means an apply KEEPS the override instead of
+// silently reverting it.
+// TEMPORARY, default '5', for the t/4677 AC3/AC4 low-cap staging proof. TODO(t/4732): once that
+// proof closes, change this default back (omit the entry, or set it to '1500' to match
+// freePoolBudget.ts's own code default) in a Bicep PR — never by CLI.
+@description('FREE_POOL_DAILY_CALLS_CAP override for staging only. TEMPORARY for the t/4677 proof — revert via t/4732, in Bicep, not CLI.')
+param freePoolDailyCallsCapStaging string = '5'
+
+// ── Staging blob-container isolation (t/4738 incident) ──
+// PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
+// incident-only value). `server.ts` wires AzureBlobBackend whenever AZURE_STORAGE_ACCOUNT_URL is
+// set, defaulting each container to the prod name (`user-content`/`community`/`brief-exports`)
+// when its env var is unset. Staging shares prod's storage ACCOUNT by design (t/4406 et al.), but
+// nothing ever set these three CONTAINER vars for staging, so staging's chats, debates, community
+// submissions and brief exports were reading from and writing to PROD's containers (t/4738) —
+// `main.bicep` already provisions the three `staging-*` containers below (t/2821 / line ~420), the
+// wiring step was simply never done. A PARAMETER, not a hand-applied `--set-env-vars`: same t/4728
+// lesson — a CLI-set value is wiped by the next apply, which is exactly why this was caught as a
+// live incident instead of a code review.
+@description('AZURE_USER_CONTENT_CONTAINER override for staging only (t/4738). Isolates staging chats/debates from prod.')
+param azureUserContentContainerStaging string = 'staging-user-content'
+@description('AZURE_COMMUNITY_CONTAINER override for staging only (t/4738). Isolates staging community submissions from prod — without this, a staging test item could be approved and published on the public prod site.')
+param azureCommunityContainerStaging string = 'staging-community'
+@description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
+param azureBriefExportsContainerStaging string = 'staging-brief-exports'
+// t/4794: same gap as t/4738, a fourth instance — AZURE_ANALYTICS_CONTAINER was never wired for
+// either app, so staging fell back to server.ts's `|| 'analytics'` default and wrote into prod's
+// analytics container (213 staging-origin events found, 11-02 incident window). `staging-analytics`
+// and its RBAC grant (t/2701) already existed; only the env var was missing.
+@description('AZURE_ANALYTICS_CONTAINER override for staging only (t/4794). Isolates staging analytics events from prod.')
+param azureAnalyticsContainerStaging string = 'staging-analytics'
+
+// t/4752: cae-aitriad's defaultDomain, hardcoded instead of read via containerAppEnv.properties.*.
+// A managed environment's default domain is fixed at creation and never changes without
+// recreating 'cae-aitriad' (destructive, deliberate, would already require updating
+// deployment-facts.md). Verified live via `az containerapp env show --query properties.defaultDomain`
+// at authoring time. Referencing the resource instead made baseEnv/stagingEnvOverrides
+// resource-dependent, which forces ARM to inline the ENTIRE derived env-var chain at every use —
+// staging's extra filter()/map() layer pushed that inlined expression over ARM's 81920-char single
+// -expression limit (89240 actual), failing template validation for EVERY deploy regardless of SHA.
+@description('cae-aitriad managed environment default domain suffix (t/4752) — see comment above.')
+param containerAppEnvDefaultDomain string = 'yellowbush-aeda037d.eastus.azurecontainerapps.io'
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -156,6 +202,22 @@ param githubAppInstallationId string = ''
 
 @description('Name of the Key Vault secret holding the GitHub App private key (PEM). Upload separately via az keyvault secret set.')
 param githubAppPrivateKeySecretName string = ''
+
+// t/4587: staging gets its OWN GitHub App installation, with its own 5000/hr GitHub API
+// rate-limit quota, independent of prod's (ai-triad-taxonomy-sync, id 3646042). t/4584 showed
+// staging cold-boots draining the SHARED quota can take prod's /api/entities and
+// /api/organizations down with it. Empty = staging falls back to prod's App (the pre-t/4587
+// shared-quota behavior) -- only pass these once the PI has created the staging App and
+// uploaded its key, per docs/sync-github-app-setup-staging.md.
+
+@description('t/4587: staging-only GitHub App numeric ID (ai-triad-taxonomy-sync-staging). Empty = staging falls back to the prod App ID (githubAppId), the pre-t/4587 shared-quota behavior.')
+param githubAppIdStaging string = ''
+
+@description('t/4587: staging-only GitHub App installation ID. Empty = staging falls back to githubAppInstallationId.')
+param githubAppInstallationIdStaging string = ''
+
+@description('t/4587: Key Vault secret name holding the staging GitHub App private key (PEM). Empty = staging falls back to githubAppPrivateKeySecretName. Upload separately via az keyvault secret set -- DevOps never handles the key value.')
+param githubAppPrivateKeySecretNameStaging string = ''
 
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
@@ -553,7 +615,7 @@ var baseEnv = [
   // MUST equal the container app's maxReplicas below, and deploy-azure.yml ExpectedEnvVars.
   { name: 'MAX_REPLICAS', value: '1' }
   // PROD's origin. Staging overrides it with its own FQDN in stagingEnvOverrides (t/4406).
-  { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnv.properties.defaultDomain}' }
+  { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnvDefaultDomain}' }
   { name: 'HOME', value: '/home/aitriad' }
   { name: 'NODE_ENV', value: 'production' }
   // BYOK model: users enter keys via the app UI. In Azure the server
@@ -590,11 +652,27 @@ var baseEnv = [
   { name: 'GITHUB_APP_ID', value: githubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID', value: githubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: githubAppPrivateKeySecretName }
+  // t/4596: the NLI opposition-detection gate's own ML deps (transformers/sentence-transformers
+  // + the nli-deberta-v3-small model) are NOT in this image -- the CL's call (t/4596#7, no
+  // DevOps/CL disagreement to escalate) is to keep it explicitly disabled on hosted until
+  // t/4593's precision/recall + fire-rate re-validation lands, not left as an implicit
+  // no-op from a missing dependency. Empty string is nliDirectionGate.ts's documented
+  // explicit-disable value (distinct logged reason from "script not found").
+  { name: 'NLI_CLASSIFY_SCRIPT', value: '' }
   // Application Insights — runtime error monitoring and request tracing.
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
   // Azure Blob Storage — user content (chats, debates) and community library.
   // Auth via managed identity (DefaultAzureCredential), no connection string needed.
   { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageAccount.properties.primaryEndpoints.blob }
+  // t/4738: explicit, not relying on server.ts's code default. Staging overrides all three to
+  // its own staging-* containers (see stagingEnvOverrides below) — prod states its own name here
+  // so neither side depends on an implicit fallback matching by coincidence.
+  { name: 'AZURE_USER_CONTENT_CONTAINER', value: 'user-content' }
+  { name: 'AZURE_COMMUNITY_CONTAINER', value: 'community' }
+  { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: 'brief-exports' }
+  // t/4794: same reasoning as the three above — explicit, not relying on server.ts's
+  // `|| 'analytics'` default. Staging overrides to its own staging-analytics container below.
+  { name: 'AZURE_ANALYTICS_CONTAINER', value: 'analytics' }
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
@@ -659,9 +737,21 @@ var containerEnv = paidTierEnabled
 // independent — staging inherits AI_TRIAD_DATA_ROOT=/mnt/shared from baseEnv and
 // overrides only TAXONOMY_CACHE_DIR to the isolated mount. The old must-match
 // invariant (t/2061) is lifted by PR #1078's code fix.
+// t/4587: staging's own GitHub App, falling back to prod's App when not yet provisioned
+// (empty param -- the pre-t/4587 shared-quota behavior, e.g. before the PI uploads the key).
+var stagingGithubAppId = empty(githubAppIdStaging) ? githubAppId : githubAppIdStaging
+var stagingGithubAppInstallationId = empty(githubAppInstallationIdStaging) ? githubAppInstallationId : githubAppInstallationIdStaging
+var stagingGithubAppPrivateKeySecretName = empty(githubAppPrivateKeySecretNameStaging) ? githubAppPrivateKeySecretName : githubAppPrivateKeySecretNameStaging
+
 var stagingEnvOverrides = [
   // Force off: staging must not sync to prod's git backend (t/2643 git-worktree hazard)
   { name: 'GIT_SYNC_ENABLED',    value: '0' }
+  // t/4587: staging's own GitHub App installation -- separate rate-limit quota from prod,
+  // so a staging cold-boot storm can no longer drain prod's /api/entities, /api/organizations
+  // quota (t/4584). Falls back to prod's App values if the staging App isn't provisioned yet.
+  { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
+  { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
+  { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
   // Isolated cache dir only — AI_TRIAD_DATA_ROOT=/mnt/shared inherited from baseEnv
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
@@ -677,12 +767,23 @@ var stagingEnvOverrides = [
   // live exposure the SO found (t/4446#5), broader than the already-closed direct-write-to-main
   // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
   { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
+  // t/4728: staging's TEMPORARY low-cap override for the t/4677 proof. See the
+  // freePoolDailyCallsCapStaging param above (near stagingLoadTestSize) for the revert note.
+  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
+  // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
+  // (near freePoolDailyCallsCapStaging) for the incident history and rationale.
+  { name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }
+  { name: 'AZURE_COMMUNITY_CONTAINER', value: azureCommunityContainerStaging }
+  { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: azureBriefExportsContainerStaging }
+  // t/4794: a fourth container nobody wired — same incident class as the three above.
+  // staging-analytics and its RBAC grant (t/2701) already existed; only this line was missing.
+  { name: 'AZURE_ANALYTICS_CONTAINER', value: azureAnalyticsContainerStaging }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
   // list; Host is preserved through ingress, probed t/4406#3) and is NOT the staging sign-in bounce.
   // Host MUST match the staging app's name below; tests/BicepAllowedOrigins.Tests.ps1 asserts it.
-  { name: 'ALLOWED_ORIGINS',     value: 'https://taxonomy-editor-staging.${containerAppEnv.properties.defaultDomain}' }
+  { name: 'ALLOWED_ORIGINS',     value: 'https://taxonomy-editor-staging.${containerAppEnvDefaultDomain}' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
   // /readyz warm-gate replaces the boot hard-fail. Nothing to override here.
   // NOTE: S2 (GROUNDING_RECONCILE_INLINE=0 override) DROPPED per TL (e/327#5) — G8a is gated by
@@ -691,8 +792,13 @@ var stagingEnvOverrides = [
 ]
 // stagingBaseEnv = baseEnv with the isolation overrides applied.
 // filter() removes the baseEnv entries that stagingEnvOverrides supersedes.
+// SO C1 (t/4587 e/384): DERIVED from stagingEnvOverrides's own names, not hand-duplicated --
+// a hand-copied list drifts the moment a new override is added to one place but not the
+// other, producing a duplicate env name in staging's container template (a template that
+// deploys in the SAME apply as prod, so a rejected template blocks prod too).
+var stagingOverriddenKeys = map(stagingEnvOverrides, e => e.name)
 var stagingBaseEnv = concat(
-  filter(baseEnv, e => e.name != 'TAXONOMY_CACHE_DIR' && e.name != 'GIT_SYNC_ENABLED' && e.name != 'ALLOWED_ORIGINS'),
+  filter(baseEnv, e => !contains(stagingOverriddenKeys, e.name)),
   stagingEnvOverrides
 )
 // Rebuild the secret chain for staging — mirrors the prod chain so staging
@@ -1823,6 +1929,56 @@ resource paidFallbackOverflow 'Microsoft.Insights/scheduledQueryRules@2023-03-15
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+// Free-pool headroom early-warning (t/4485 item 4 / t/4677 AC5). The free-pool budget gate
+// (freePoolBudgetGate.ts) WARNs once per UTC day, per process, the first time either the calls
+// or token usage crosses 80% of its daily cap — before admission is actually refused. This alert
+// is what makes that WARN visible instead of a log line nobody watches.
+//
+// MATCH-TOKEN IS A CONTRACT: the literal "FREE-POOL-HEADROOM pct=80" (freePoolBudgetGate.ts:183)
+// — change that message, change it here too, or the headroom crossing goes unmonitored.
+//
+// Split by ContainerAppName_s (t/4288 precedent, same pattern as alert-aadsts-config-error) so
+// prod and staging page independently — the free-pool pool is shared across both apps, so a
+// staging-only low-cap test crossing (t/4677 AC4) must not look like a prod sev-2.
+resource freePoolHeadroom 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-free-pool-headroom'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Free Pool Budget Headroom (80% of daily cap)'
+    description: 'The free-tier Gemini pool crossed 80% of its daily calls or token cap (t/4485). Early warning before admission is refused at 100% — consider the paid fallback or raising the pool. Split by ContainerAppName_s (t/4288) so prod and staging page independently.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where Log_s contains "FREE-POOL-HEADROOM pct=80"
+            | summarize Warnings = count() by ContainerAppName_s
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
         }
       ]
     }

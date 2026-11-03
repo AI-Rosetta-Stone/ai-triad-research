@@ -14,7 +14,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { TOAST_DURATION_FEEDBACK } from '../../constants';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useTaxonomyStore, getStoredModel } from '../../hooks/useTaxonomyStore';
-import { fixMarkdownLinks, openPromptInGemini } from './utils';
+import { fixMarkdownLinks, copyPromptForGemini } from './utils';
 import './ExplainPanel.css';
 
 /** Normalize a thrown error to the ActionableError shape (Goal/Problem/Location/Next Steps) —
@@ -105,21 +105,56 @@ export function ExplainPanel({ prompt, scopeLabel, onClose }: ExplainPanelProps)
     setCopied(true);
     setTimeout(() => setCopied(false), TOAST_DURATION_FEEDBACK);
   };
-  const handleOpenInGemini = () => openPromptInGemini(prompt);
+
+  // t/4645: "Copy prompt & open Gemini" — must not read as an in-app action. Copy, confirm
+  // (visibly, via aria-live, for TOAST_DURATION_FEEDBACK), THEN open Gemini. A failed copy
+  // never opens Gemini — show the error and the raw prompt to copy by hand instead.
+  const [geminiState, setGeminiState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+  const geminiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current); }, []);
+
+  const handleOpenInGemini = useCallback(() => {
+    if (geminiState === 'copying') return;
+    setGeminiState('copying');
+    void copyPromptForGemini(prompt).then((ok) => {
+      if (!ok) { setGeminiState('error'); return; }
+      setGeminiState('copied');
+      geminiTimerRef.current = setTimeout(() => {
+        void api.openExternal('https://gemini.google.com/app');
+        setGeminiState('idle');
+      }, TOAST_DURATION_FEEDBACK);
+    });
+  }, [prompt, geminiState]);
 
   return (
     <div className="debate-explain-panel" onKeyDown={handleKeyDown}>
       <div className="debate-explain-panel-header">
         <span className="debate-explain-panel-title">Explaining {scopeLabel}</span>
-        <button
-          type="button"
-          className="debate-explain-gemini-link"
-          onClick={handleOpenInGemini}
-          title="Copy this prompt and open Gemini in your browser instead"
-        >
-          Open in Gemini
-        </button>
+        <span className="debate-explain-gemini-area">
+          <button
+            type="button"
+            className="debate-explain-gemini-link"
+            onClick={handleOpenInGemini}
+            disabled={geminiState === 'copying'}
+            title="Copy this prompt, then open Gemini in your browser so you can paste it in"
+          >
+            Copy prompt &amp; open Gemini
+          </button>
+          <span className="debate-explain-gemini-status" aria-live="polite">
+            {geminiState === 'copied' ? 'Prompt copied. Paste it into Gemini.' : ''}
+          </span>
+        </span>
       </div>
+
+      {geminiState === 'error' && (
+        <div className="debate-explain-gemini-error" role="alert">
+          <div>Couldn&apos;t copy the prompt to your clipboard. Copy it manually:</div>
+          <pre className="debate-explain-gemini-prompt-text">{prompt}</pre>
+          <div className="debate-explain-actions">
+            <button type="button" className="btn btn-sm" onClick={handleOpenInGemini}>Retry</button>
+          </div>
+        </div>
+      )}
 
       {state === 'loading' && (
         <div className="debate-explain-loading" aria-live="polite">

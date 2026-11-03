@@ -26,11 +26,12 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index.js';
 import { getCurrentUserId, getSessionBranchName } from '../security/userContext.js';
-import { GitHubRestClient, normalizeErrorForEvent, type CircuitState } from './githubRestClient.js';
+import { GitHubRestClient, normalizeErrorForEvent, type CircuitState, type ApiResult } from './githubRestClient.js';
 import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
 import { BlobLease } from './blobLease.js';
+import { SharedOverlayStore, type SharedOverlayEntry } from './sharedOverlayStore.js';
 import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 
@@ -88,6 +89,18 @@ export interface GitHubAPIBackendConfig {
     maxReplicas: number;
     serviceClient?: BlobServiceClient; // test seam (Azurite)
   };
+  /** t/4311 follow-up (read-path + write-through): a `SharedOverlayStore`
+   *  for cross-replica overlay read visibility. Omitted → today's
+   *  local-map-only behavior, unchanged. Even when supplied, the actual
+   *  effect is also gated by `OVERLAY_SHARED_STATE_ENABLED` (env) AND
+   *  `OVERLAY_SHARED_STATE_COMMIT_READY` (hardcoded `false` until the
+   *  commit-path follow-up PR ships, t/4311#30 R2) — `forceActiveForTesting`
+   *  bypasses that second gate for tests exercising this PR's wiring before
+   *  the real flag can ever flip; never set outside tests. */
+  sharedOverlayState?: {
+    store: SharedOverlayStore;
+    forceActiveForTesting?: boolean;
+  };
 }
 
 /** Published to the poll-coordination blob by the current holder. */
@@ -139,6 +152,58 @@ const SESSION_READ_CACHE_REVALIDATE_MS = 30_000;
 
 const MANIFEST_FILE = 'manifest.json';
 
+// t/4311 follow-up (read-path + write-through). Raw env flag — never
+// consulted directly; see OVERLAY_SHARED_STATE_COMMIT_READY below.
+const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED === '1';
+
+// Hardcoded false until the commit-path follow-up PR (t/4311#30 R2) wires
+// unstage(ifMatch) into commit/discard/revert. Without that, nothing ever
+// clears a shared entry, so turning reads+writes on now would let
+// discarded or already-committed content keep serving as "staged" to
+// other replicas forever. Flips to true in that later PR, never by env var.
+const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+
+/** t/4499: bounded concurrency for readFilesBatch's GraphQL chunks — same
+ *  shape as nodeSourceIndex.ts's mapWithConcurrencyLimit, duplicated rather
+ *  than shared since it's an 8-line generic and the two call sites (summary
+ *  reads, GraphQL chunks) have no other coupling. */
+async function mapWithLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/** t/4584/t/4586: the reason taxonomy for every `null` `fetchFileFromGitHub`/
+ *  `readFileFromMainCache` return — logged unconditionally (a WARN, not just
+ *  in `strict` mode) so a dashboard/alert can see every one of these, not
+ *  only the ones a `readFileStrict` caller happens to care about. */
+type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds' | `status=${number}`;
+
+/** t/4585: the three-way result of a main-pinned raw.githubusercontent.com
+ *  attempt. `fallback` means "don't trust this as an answer, fall through
+ *  to the existing REST Contents-API path" — covers a genuine raw outage
+ *  (429/5xx/network/timeout) AND a raw 404 for a path the tree says exists
+ *  (TL condition 1: the exact t/4584 failure class — a read failure must
+ *  never silently collapse to "absent"). Only a 404 for a path NOT in the
+ *  tree is `not_found` — unless the manifest itself is stale (t/4615, TL
+ *  edge case on t/4585#6): a file added to main after the manifest's
+ *  `lastCommitSha` is "not in tree" by construction until the next poll,
+ *  so a stale manifest can't vouch for a path's absence either. `disabled`
+ *  is the rawDisabled early-return's own reason (t/4615 — previously
+ *  reused `status=503`, conflating with genuine 503 fallbacks in the
+ *  stats). */
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled';
+
+type RawFetchResult =
+  | { kind: 'hit'; content: string; sha: string }
+  | { kind: 'not_found' }
+  | { kind: 'fallback'; reason: RawFallbackReason };
+
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
 export class GitHubAPIBackend implements StorageBackend {
@@ -170,6 +235,16 @@ export class GitHubAPIBackend implements StorageBackend {
   static readonly TOMBSTONE = '\0__DELETED__\0';
   private sessionOverlays: Map<string, Map<string, string>> = new Map();
   private maxOverlayBytesPerUser: number = DEFAULT_MAX_OVERLAY_BYTES_PER_USER;
+
+  // t/4311 follow-up (read-path + write-through). `sharedOverlayStateActive`
+  // is the single effective gate every new code path checks — never the raw
+  // env flag directly (see OVERLAY_SHARED_STATE_COMMIT_READY's doc comment).
+  // `sharedOverlayReadCache`: userId → the last-synced {gen, entries} this
+  // replica has observed from the shared store — the authoritative source
+  // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
+  private readonly sharedOverlayStore: SharedOverlayStore | null = null;
+  private readonly sharedOverlayStateActive: boolean = false;
+  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry> }> = new Map();
 
   // t/4312: per-path base blob sha, recorded once when a path first enters a
   // clean overlay slot (never reset by a later same-path rewrite — see
@@ -246,6 +321,26 @@ export class GitHubAPIBackend implements StorageBackend {
   // GitHub for since boot — never reset, so it reads as "since cold start".
   private coldCacheMissCount = 0;
 
+  // t/4585: raw.githubusercontent.com cold-boot cache warm. Counts every
+  // raw-fetch-falls-back-to-REST event since boot, split by reason so
+  // staging measurement can tell whether raw is throttling (429) versus
+  // something else (network, 5xx, a tree-present path that 404'd).
+  private rawFallbackCounts: Record<string, number> = {};
+  // t/4585 TL condition 1: a disable switch, never re-enabled this process's
+  // lifetime once tripped — avoids paying a raw miss on every single read
+  // if raw starts misbehaving broadly (repo turns private, CDN outage).
+  private rawDisabled = false;
+  private rawFallbackWindowStart = 0;
+  private rawFallbackWindowCount = 0;
+  private static readonly RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE = 20;
+  // t/4585 TL condition 3: bounds raw's own concurrency so a cold boot's
+  // ~1,000 near-simultaneous reads don't fire that many unauthenticated
+  // requests at once and trip raw.githubusercontent.com's undocumented
+  // per-IP limits (staging and prod share egress characteristics).
+  private rawInFlight = 0;
+  private rawWaiters: Array<() => void> = [];
+  private static readonly RAW_CONCURRENCY_LIMIT = 8;
+
   // Manifest write mutex — serializes all manifest mutations to prevent
   // concurrent read-modify-write races (see t/479). Without this, parallel
   // readFile() cache misses each call writeToDiskCache() → saveManifest()
@@ -295,7 +390,29 @@ export class GitHubAPIBackend implements StorageBackend {
       },
     });
 
+    const sharedOverlay = GitHubAPIBackend.resolveSharedOverlayState(config);
+    this.sharedOverlayStore = sharedOverlay.store;
+    this.sharedOverlayStateActive = sharedOverlay.active;
+    if (sharedOverlay.warnInert) {
+      log.storage.warn(
+        'OVERLAY_SHARED_STATE_ENABLED=1 is set, but OVERLAY_SHARED_STATE_COMMIT_READY is false — '
+        + 'shared overlay state is inert until the commit-path follow-up PR ships (t/4311). Local overlay only.',
+      );
+    }
+
     this.registerSigHandler();
+  }
+
+  /** Extracted from the constructor to keep its complexity under budget
+   *  (t/4311 follow-up). Pure function of `config` — no `this` access, so
+   *  it can run before `this.sharedOverlayStore`/`sharedOverlayStateActive`
+   *  (both `readonly`) are assigned in the constructor body itself. */
+  private static resolveSharedOverlayState(config: GitHubAPIBackendConfig): { store: SharedOverlayStore | null; active: boolean; warnInert: boolean } {
+    if (!config.sharedOverlayState) return { store: null, active: false, warnInert: false };
+    const active = config.sharedOverlayState.forceActiveForTesting
+      ?? (OVERLAY_SHARED_STATE_ENABLED && OVERLAY_SHARED_STATE_COMMIT_READY);
+    const warnInert = OVERLAY_SHARED_STATE_ENABLED && !OVERLAY_SHARED_STATE_COMMIT_READY && !config.sharedOverlayState.forceActiveForTesting;
+    return { store: config.sharedOverlayState.store, active, warnInert };
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -503,19 +620,227 @@ export class GitHubAPIBackend implements StorageBackend {
     return undefined;
   }
 
+  // ── Shared overlay state (t/4311 follow-up) ────────────────────────────
+  //
+  // `checkSessionOverlay` above stays untouched and local-only — besides
+  // serving plain reads when the shared store is inactive, it's also used
+  // by writeOverlayWithPrecondition's intra-request race-check (the
+  // "landedWhileAwaiting" re-check right before writeToOverlay() below),
+  // which exists specifically to detect another write landing in THIS
+  // process's local map between an await and the eventual local write.
+  // That's a same-replica, same-tick race-closing check, not a
+  // cross-replica visibility question — it must never become async or it
+  // reintroduces the exact race it was written to close (SO fault C1,
+  // e/302#4). The methods below are for genuine user-facing reads only.
+
+  /**
+   * The authoritative overlay entries for a user, refreshed from the
+   * shared store whenever `_gen` has moved since this replica's last sync
+   * (t/4311#30 R1 — the shared store is authoritative once synced, not
+   * "local wins on a hit"). Returns `null` on a store outage — callers
+   * fall back to the local map for that one read (degrades to today's
+   * pre-this-PR, single-replica-correct behavior) rather than failing it.
+   */
+  private async getSyncedSharedEntries(userId: string): Promise<Map<string, SharedOverlayEntry> | null> {
+    if (!this.sharedOverlayStore) return null;
+    const cached = this.sharedOverlayReadCache.get(userId);
+    try {
+      const currentGen = await this.sharedOverlayStore.getGeneration(userId);
+      if (cached && cached.gen === currentGen) return cached.entries;
+      const listed = await this.sharedOverlayStore.listEntries(userId);
+      const entries = new Map(listed.map(e => [e.repoPath, e.entry]));
+      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries });
+      return entries;
+    } catch (err) {
+      const message = `Shared overlay sync failed; falling back to the local overlay for this read: ${userId}`;
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message,
+        data: { userId },
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      log.storage.warn({ userId, error: String(err) }, message);
+      return null;
+    }
+  }
+
+  /**
+   * One path's effective overlay value for a user-facing read — the shared
+   * store's synced entry when active and synced, else the local map
+   * (inactive flag, or a store outage per `getSyncedSharedEntries`).
+   * Returns `GitHubAPIBackend.TOMBSTONE` for a staged delete either way, so
+   * every caller keeps comparing against one sentinel regardless of source.
+   *
+   * PER-PATH FALLBACK, not a blanket "shared always wins": if the synced
+   * shared entries have NO entry for this exact path, fall through to the
+   * local map rather than returning `undefined`. Caught during
+   * implementation (t/4311#29/#31's posted design didn't call this out):
+   * `writeThroughSharedOverlay` is fire-and-forget, so a replica's own
+   * write can be visible locally before its `_gen` bump has landed — a
+   * plain "shared wins" would make a replica briefly unable to read back
+   * its own just-written content. Safe in THIS PR's scope specifically
+   * because nothing yet clears a shared entry (commit/discard/revert
+   * wiring is the separate, not-yet-landed commit-path follow-up) — so a
+   * path present locally but absent from a freshly-synced shared view can
+   * only mean "this replica's own write hasn't round-tripped yet," never
+   * "someone else's write was already superseded." TL's R1 scenario (write
+   * X on A, write Y on B, read on A) is unaffected: the shared store DOES
+   * have an entry for that path (B's Y), so the shared value still wins.
+   */
+  private async readEffectiveOverlayEntry(userId: string, repoPath: string): Promise<string | undefined> {
+    if (this.sharedOverlayStateActive) {
+      const synced = await this.getSyncedSharedEntries(userId);
+      if (synced !== null) {
+        const entry = synced.get(repoPath);
+        if (entry !== undefined) return entry.content === null ? GitHubAPIBackend.TOMBSTONE : entry.content;
+        // No shared entry for this path — fall through to local (see above).
+      }
+    }
+    const overlay = this.sessionOverlays.get(userId);
+    return overlay?.get(repoPath);
+  }
+
+  /**
+   * Cross-replica-aware overlay read for readFile/readFileWithVersion —
+   * same ref/user guard and cache.hit event as the old `checkSessionOverlay`
+   * had, but backed by `readEffectiveOverlayEntry` so it's shared-store-aware
+   * when active.
+   */
+  private async readOverlayForUserRead(repoPath: string): Promise<string | undefined> {
+    const readBranch = this.getEffectiveRef();
+    const readUserId = this.getEffectiveUserId();
+    if (readBranch === this.baseBranch || !readUserId) return undefined;
+
+    const val = await this.readEffectiveOverlayEntry(readUserId, repoPath);
+    if (val !== undefined) {
+      this.recordEvent({
+        type: 'cache.hit',
+        component: 'cache',
+        level: 'debug',
+        message: `Session overlay hit: ${repoPath}`,
+        data: { path: repoPath, layer: 'session', userId: readUserId },
+      });
+    }
+    return val;
+  }
+
+  /**
+   * Every effective overlay path for a user, as `[repoPath, isTombstone]`
+   * pairs — normalizes the shared store's `content === null` convention and
+   * the local map's `TOMBSTONE` sentinel into one shape for
+   * `mergeOverlayIntoListing`. Returns `null` when there's nothing staged
+   * at all (no local entry, and either inactive or a synced-empty shared
+   * store).
+   *
+   * Same per-path fallback as `readEffectiveOverlayEntry` (see its doc
+   * comment): the synced shared entries win per path, and any local-only
+   * path (this replica's own write still in flight to the store) fills the
+   * gaps rather than being dropped.
+   */
+  private async listEffectiveOverlayPaths(userId: string): Promise<Array<[string, boolean]> | null> {
+    const local = this.sessionOverlays.get(userId);
+    if (this.sharedOverlayStateActive) {
+      const synced = await this.getSyncedSharedEntries(userId);
+      if (synced !== null) {
+        const pairs: Array<[string, boolean]> = [...synced].map(([p, e]) => [p, e.content === null] as [string, boolean]);
+        if (local) {
+          for (const [p, v] of local) {
+            if (!synced.has(p)) pairs.push([p, v === GitHubAPIBackend.TOMBSTONE]);
+          }
+        }
+        return pairs.length > 0 ? pairs : null;
+      }
+    }
+    if (!local) return null;
+    return [...local].map(([p, v]) => [p, v === GitHubAPIBackend.TOMBSTONE] as [string, boolean]);
+  }
+
+  /**
+   * Mirror a local overlay write into the shared store (t/4311#30 R1/R2) —
+   * additive and failure-tolerant: the local map write this follows has
+   * already succeeded and is never at risk here. A failure only means
+   * another replica may miss this write for now, no worse than today's
+   * (pre-this-PR) single-replica-only behavior. Fire-and-forget by design
+   * (never awaited by its callers) — every error path below is caught and
+   * WARN-logged, never thrown, so the returned promise never rejects.
+   * No-op when the flag is inactive.
+   *
+   * KNOWN GAP (flagged, not fixed, here — t/4311#29/#31): `SharedOverlayEntry.baseSha`
+   * is typed `string | 'unknown'`, with no slot for the local model's
+   * `null` ("file was absent when staged" — t/4312). The `?? 'unknown'`
+   * below collapses that distinction. It's inert today: this PR's read
+   * path only ever consults `content`, never `baseSha`, and the commit
+   * path (the only consumer t/4312's fencing matters to) is a separate,
+   * not-yet-wired follow-up. That follow-up must widen
+   * `SharedOverlayEntry.baseSha`'s type before relying on it, or it will
+   * silently treat every staged-absent path as "unknown" (fail-closed per
+   * t/4312, so not unsafe, just not what it meant to record).
+   */
+  private async writeThroughSharedOverlay(userId: string, repoPath: string, content: string | null, baseSha: string | null | 'unknown'): Promise<void> {
+    if (!this.sharedOverlayStateActive || !this.sharedOverlayStore) return;
+    try {
+      const result = await this.sharedOverlayStore.stage(userId, repoPath, {
+        content,
+        baseSha: baseSha ?? 'unknown',
+        stagedAt: new Date().toISOString(),
+      });
+      if (!result.ok) {
+        this.recordEvent({
+          type: 'system.error', component: 'github-api', level: 'warn',
+          message: `Shared overlay write-through failed (local write already succeeded): ${repoPath}`,
+          data: { userId, repoPath },
+        });
+        return;
+      }
+      // Update our own cache directly with this write, rather than waiting
+      // for a future getGeneration() round trip to notice our own `_gen`
+      // bump — avoids a self-inflicted sync on a replica's own
+      // write-then-immediate-read (t/4311#30 R1).
+      const cached = this.sharedOverlayReadCache.get(userId);
+      const entries = cached ? new Map(cached.entries) : new Map<string, SharedOverlayEntry>();
+      entries.set(repoPath, { content, baseSha: baseSha ?? 'unknown', stagedAt: new Date().toISOString() });
+      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries });
+    } catch (err) {
+      const message = `Shared overlay write-through threw (local write already succeeded): ${repoPath}`;
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message,
+        data: { userId, repoPath },
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      log.storage.warn({ userId, repoPath, error: String(err) }, message);
+    }
+  }
+
   /**
    * Read a file as UTF-8, or null if absent.
    *
    * `opts.ref` pins the GitHub API fallback to a specific ref (e.g. 'main') for
    * shared data that lives on main rather than the caller's session branch —
-   * community submissions, calibration logs. Without it, a cache miss fetches
-   * with the effective session-branch ref, which 404s for shared files (the file
-   * doesn't exist on the branch) and burns rate limit. See t/684.
+   * pipeline-generated taxonomy/source/summary data. Without it, a cache miss
+   * fetches with the effective session-branch ref, which 404s for shared files
+   * (the file doesn't exist on the branch) and burns rate limit. See t/684.
    *
-   * The session overlay is still consulted first regardless of `opts.ref`, so
-   * in-session writes remain visible (read-your-writes) — this is required by the
-   * read-modify-write flows in community/calibration curation, where the same
-   * shared file is appended to multiple times within one request.
+   * t/4510: the session overlay is consulted first ONLY when the call isn't
+   * pinned away from the session's own ref (same precedence as `fileExists`,
+   * t/4428#2) — an explicit `opts.ref` is asking for that ref's real content,
+   * and answering from this session's overlay would defeat the pin. The
+   * dozens of genuinely-pipeline-only `{ ref: 'main' }` callers across
+   * fileIO.ts/nodeSourceIndex.ts/sourcesIndexReader.ts already follow the
+   * established convention of pinning only where nothing writes that path
+   * through the session backend (fileIO.ts's readLineageEnrichments comment,
+   * TL p/538#161) — for them this is a no-op today (no overlay entry would
+   * ever exist at those paths) and closes a latent gap (a future caller
+   * accidentally writing to a nominally-pipeline-only path would otherwise
+   * silently leak into these reads).
+   *
+   * `opts.consultOverlayOnPin: true` is the one documented exception —
+   * calibrationStore.ts's append-within-request flows (appendIntegrationRecord,
+   * promoteAndIntegrate) pin reads to `ref: 'main'` while still needing to see
+   * the SAME request's own earlier append, which lands in the session overlay
+   * (the effective ref during an active session is the session branch, not
+   * 'main'). Passing this explicitly opts back into the pre-t/4510 "overlay
+   * regardless of opts.ref" behavior for exactly those call sites.
    */
   /**
    * `opts.forWrite`: this read precedes a write by the caller (t/4215
@@ -526,17 +851,24 @@ export class GitHubAPIBackend implements StorageBackend {
    * view-only session trusts its cache indefinitely instead of paying a ref
    * call it gets no benefit from) — see revalidateSessionReadCache().
    */
-  async readFile(filePath: string, opts?: { ref?: string; optional?: boolean; forWrite?: boolean }): Promise<string | null> {
+  async readFile(
+    filePath: string,
+    opts?: { ref?: string; optional?: boolean; forWrite?: boolean; consultOverlayOnPin?: boolean },
+  ): Promise<string | null> {
     const repoPath = this.toRepoPath(filePath);
-
-    // Check session overlay first
-    const overlayVal = this.checkSessionOverlay(repoPath);
-    if (overlayVal !== undefined) {
-      return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
-    }
-
+    const effectiveRef = this.getEffectiveRef();
     // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = opts?.ref ?? effectiveRef;
+
+    // t/4510: skip the overlay only when genuinely pinned away from the
+    // session's own ref, unless the caller explicitly opts back in (see the
+    // docstring above — calibrationStore.ts's append-within-request flows).
+    if (ref === effectiveRef || opts?.consultOverlayOnPin) {
+      const overlayVal = await this.readOverlayForUserRead(repoPath);
+      if (overlayVal !== undefined) {
+        return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
+      }
+    }
 
     // t/4215: a session-branch read with no overlay entry must not fall
     // through to main's on-disk cache below — that cache represents main
@@ -549,24 +881,64 @@ export class GitHubAPIBackend implements StorageBackend {
     return this.readFileFromMainCache(repoPath, ref, opts?.optional);
   }
 
-  /** The pre-t/4215 main-cache path for readFile, unchanged. */
-  private async readFileFromMainCache(repoPath: string, ref: string, optional: boolean | undefined): Promise<string | null> {
-    const cached = await this.readFromDiskCache(repoPath);
-    if (cached !== null) {
-      this.recordEvent({
-        type: 'cache.hit',
-        component: 'cache',
-        level: 'debug',
-        message: `Disk cache hit: ${repoPath}`,
-        data: { path: repoPath, layer: 'main' },
-      });
+  /** t/4584 (TL design t/4584#2/#4): like `readFile(filePath, { ref: 'main' })`,
+   *  for pipeline-curated main-only data that's never legitimately absent on
+   *  hosted — a genuine 404 still returns `null`, but no credentials, a
+   *  tripped circuit breaker, or any other non-OK GitHub response throw
+   *  `{ kind: 'transient', reason }` instead of silently collapsing to the
+   *  same `null` the plain path serves. Always `ref: 'main'` — no
+   *  session-branch content is ambiguous this way, so this skips the
+   *  overlay/session-branch paths entirely (same precedent as
+   *  `listDirectoryStrict`, t/3296 A arm). */
+  async readFileStrict(filePath: string): Promise<string | null> {
+    const repoPath = this.toRepoPath(filePath);
+    return this.readFileFromMainCache(repoPath, this.baseBranch, false, true);
+  }
 
-      // Coherency probe — async, doesn't block the read
-      if (Math.random() < this.coherencyProbeRate) {
-        this.runCoherencyProbe(repoPath).catch(() => {});
+  /** t/4584/t/4586: logs the reason behind a null/transient read exactly
+   *  once per call site (never per-retry — the retries already happened
+   *  inside `GitHubRestClient.request`), console-visible (not just the
+   *  FlightRecorder ring buffer, same t/4258/t/4281 precedent as the
+   *  rate-limit/circuit-breaker logs in githubRestClient.ts). */
+  private logNullReadReason(repoPath: string, reason: NullReadReason, optional: boolean | undefined): void {
+    // A real 404 on an `optional` read is the expected, quiet case — the
+    // existing convention (`is404Optional` in githubRestClient.ts) already
+    // downgrades it; mirror that here instead of WARNing on every optional miss.
+    if (reason === 'not_found' && optional) {
+      log.github.debug({ path: repoPath, reason }, `fetchFileFromGitHub: null read (${reason})`);
+      return;
+    }
+    log.github.warn({ path: repoPath, reason }, `fetchFileFromGitHub: null read (${reason})`);
+  }
+
+  /** The pre-t/4215 main-cache path for readFile, unchanged except for
+   *  `strict` (t/4584, TL t/4584#2): a tripped circuit breaker silently
+   *  served `null` ("file not available"), indistinguishable from a
+   *  genuine absence. The reason is now ALWAYS logged (t/4586); `strict`
+   *  additionally throws, for callers that need that distinction
+   *  (`readFileStrict`). */
+  private async readFileFromMainCache(repoPath: string, ref: string, optional: boolean | undefined, strict = false): Promise<string | null> {
+    // t/4778: skip disk cache for strict reads — it may serve stale "absent"
+    // markers from a previous revision, causing cold-start 404s on files that
+    // exist on main. Always fetch fresh for strict reads (readFileStrict).
+    if (!strict) {
+      const cached = await this.readFromDiskCache(repoPath);
+      if (cached !== null) {
+        this.recordEvent({
+          type: 'cache.hit',
+          component: 'cache',
+          level: 'debug',
+          message: `Disk cache hit: ${repoPath}`,
+          data: { path: repoPath, layer: 'main' },
+        });
+
+        // Coherency probe — async, doesn't block the read
+        if (Math.random() < this.coherencyProbeRate) {
+          this.runCoherencyProbe(repoPath).catch(() => {});
+        }
+
+        return cached;
       }
-
-      return cached;
     }
 
     // Cache miss — fetch from GitHub
@@ -586,11 +958,38 @@ export class GitHubAPIBackend implements StorageBackend {
     // conditions. Revisit sampling/throttling here if ingestion volume proves material.
     log.cache.info({ path: repoPath }, `cache.miss: ${repoPath}`);
 
+    // t/4585: a main-pinned read of the public data repo can be served from
+    // raw.githubusercontent.com at the resolved commit SHA — immutable
+    // content, no auth, no REST quota. Tried before the REST circuit check
+    // below (a different host, unaffected by GitHub REST's circuit state).
+    // Gated on having a resolved commit SHA (set at initialize(); a
+    // cold-cold boot before the first tree load just skips straight to the
+    // existing REST path below, same as pre-t/4585 behavior).
+    const mainSha = ref === this.baseBranch ? this.manifest?.lastCommitSha : undefined;
+    if (mainSha) {
+      const rawResult = await this.fetchFileFromRaw(repoPath, mainSha);
+      if (rawResult.kind === 'hit') {
+        await this.writeToDiskCache(repoPath, rawResult.content, rawResult.sha, '');
+        return rawResult.content;
+      }
+      if (rawResult.kind === 'not_found') {
+        this.logNullReadReason(repoPath, 'not_found', optional);
+        return null;
+      }
+      this.recordRawFallback(rawResult.reason);
+      log.github.warn({ path: repoPath, reason: rawResult.reason },
+        `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+    }
+
     if (this.rest.isTripped()) {
+      this.logNullReadReason(repoPath, 'circuit_open', optional);
+      if (strict) {
+        throw Object.assign(new Error(`GitHub API circuit breaker open — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'circuit_open' as const });
+      }
       return null; // Circuit open — serve null (file not available)
     }
 
-    const result = await this.fetchFileFromGitHub(repoPath, ref, optional);
+    const result = await this.fetchFileFromGitHub(repoPath, ref, optional, strict);
     if (result === null) return null;
 
     // Write-through to disk cache
@@ -755,11 +1154,18 @@ export class GitHubAPIBackend implements StorageBackend {
    * version is its own git blob SHA (gitBlobSha(overlay content)), computed
    * the same way writeFile's overlay fast path does, so a write that follows
    * this read with that version as baseSha matches cleanly.
+   *
+   * t/4510 (TL t/4510#3): this has the same overlay-before-ref-resolve order
+   * readFile() had before its fix — no current caller passes `opts.ref`
+   * (confirmed by grep), so it's out of scope for that fix. It MUST get the
+   * same precedence rule (skip the overlay when `opts.ref` pins away from
+   * the effective ref, with the same `consultOverlayOnPin` escape hatch)
+   * before any caller starts pinning a ref here.
    */
   async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
     const repoPath = this.toRepoPath(filePath);
 
-    const overlayVal = this.checkSessionOverlay(repoPath);
+    const overlayVal = await this.readOverlayForUserRead(repoPath);
     if (overlayVal !== undefined) {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
@@ -1183,7 +1589,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // tombstoned files are hidden — mirroring readFile()/fileExists() semantics.
     // Without this, submissions written to the overlay (e.g. community submits)
     // are invisible to listDirectory() until the overlay is flushed on commit.
-    this.mergeOverlayIntoListing(prefix, seen);
+    await this.mergeOverlayIntoListing(prefix, seen);
 
     return [...seen];
   }
@@ -1254,20 +1660,20 @@ export class GitHubAPIBackend implements StorageBackend {
    * Tombstones for files nested in subdirectories do not remove the subdirectory
    * segment, since other (non-deleted) files may still live under it.
    */
-  private mergeOverlayIntoListing(prefix: string, entries: Set<string>): void {
+  private async mergeOverlayIntoListing(prefix: string, entries: Set<string>): Promise<void> {
     if (this.getEffectiveRef() === this.baseBranch) return;
     const userId = this.getEffectiveUserId();
     if (!userId) return;
-    const overlay = this.sessionOverlays.get(userId);
-    if (!overlay) return;
+    const pairs = await this.listEffectiveOverlayPaths(userId);
+    if (!pairs) return;
 
-    for (const [p, content] of overlay) {
+    for (const [p, isTombstone] of pairs) {
       if (prefix && !p.startsWith(prefix)) continue;
       const rest = prefix ? p.slice(prefix.length) : p;
       if (!rest) continue;
       const seg = rest.split('/')[0];
       const isDirectFile = !rest.includes('/');
-      if (content === GitHubAPIBackend.TOMBSTONE) {
+      if (isTombstone) {
         if (isDirectFile) entries.delete(seg);
       } else {
         entries.add(seg);
@@ -1331,8 +1737,8 @@ export class GitHubAPIBackend implements StorageBackend {
     // and answering from this session's overlay would defeat the pin.
     const existsUserId = this.getEffectiveUserId();
     if (ref === effectiveRef && effectiveRef !== this.baseBranch && existsUserId) {
-      const overlay = this.sessionOverlays.get(existsUserId);
-      if (overlay?.has(repoPath)) return overlay.get(repoPath) !== GitHubAPIBackend.TOMBSTONE;
+      const overlayVal = await this.readEffectiveOverlayEntry(existsUserId, repoPath);
+      if (overlayVal !== undefined) return overlayVal !== GitHubAPIBackend.TOMBSTONE;
     }
 
     // t/4428: the disk-cache manifest and in-memory repoTree represent
@@ -1439,6 +1845,154 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
     return data.tree;
+  }
+
+  // ── Batched blob reads (t/4499, TL design t/4499#18) ────────────────────
+
+  private static readonly BATCH_CHUNK_SIZE = 80;
+  /** t/4499#24/#25: at ~925 summary files this is ~12 chunks. 8 ran them in
+   *  2 serial waves, leaving `batchFetchMs` ~2x a single wave's latency and
+   *  missing the <3s scale-to-zero target in 2/3 measured samples. 16 covers
+   *  a cold-start's ~12 chunks in one wave; `graphqlCost` stayed a cheap 12
+   *  points total across every measured build, so this doesn't meaningfully
+   *  change GitHub's rate-limit exposure — same call count, less serialized. */
+  private static readonly BATCH_CHUNK_CONCURRENCY = 16;
+
+  /**
+   * t/4499: batched content read for many files on one ref via GitHub's
+   * GraphQL API, replacing N individual Contents-API round trips with
+   * ~N/80 GraphQL queries (one aliased `object(expression:...)` field per
+   * path, chunked to keep a single query a reasonable size). REST has no
+   * "get N blobs" verb; a repo tarball can't be scoped to a subtree and
+   * would pull the whole ~410MB data repo to read a few hundred summaries
+   * (ruled out, t/4499#18).
+   *
+   * Returns only the paths that resolved to a real, non-truncated blob —
+   * a path missing from `contents` (chunk failure, null object, or
+   * `isTruncated: true` — GraphQL's blob `text` has a size ceiling) is the
+   * caller's job to read itself via `readFile`, never a throw from here.
+   * `fallbackCount` is that absence count; `graphqlCost` is the summed
+   * GraphQL point cost (a separate budget from REST's 5000/hr), for the
+   * caller to log alongside its own phase timing.
+   */
+  async readFilesBatch(
+    filePaths: string[], opts?: { ref?: string },
+  ): Promise<{ contents: Map<string, string>; fallbackCount: number; graphqlCost: number }> {
+    const contents = new Map<string, string>();
+    if (filePaths.length === 0) return { contents, fallbackCount: 0, graphqlCost: 0 };
+
+    const creds = await this.getCredsCached();
+    if (!creds) return { contents, fallbackCount: filePaths.length, graphqlCost: 0 };
+
+    const ref = opts?.ref ?? this.getEffectiveRef();
+    const [owner, name] = creds.repo.split('/');
+    // repoPath (the GraphQL expression's path) <-> the caller's original
+    // absolute filePath, so the result map is keyed the same way callers
+    // pass paths in — same convention as readFile's repoPath/filePath split.
+    const byRepoPath = new Map(filePaths.map(fp => [this.toRepoPath(fp), fp]));
+    const repoPaths = [...byRepoPath.keys()];
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < repoPaths.length; i += GitHubAPIBackend.BATCH_CHUNK_SIZE) {
+      chunks.push(repoPaths.slice(i, i + GitHubAPIBackend.BATCH_CHUNK_SIZE));
+    }
+
+    let graphqlCost = 0;
+    await mapWithLimit(chunks, GitHubAPIBackend.BATCH_CHUNK_CONCURRENCY, async (chunk) => {
+      const chunkResult = await this.fetchBlobChunk(creds, owner, name, ref, chunk);
+      graphqlCost += chunkResult.cost;
+      for (const [repoPath, text] of chunkResult.texts) {
+        const fp = byRepoPath.get(repoPath);
+        if (fp !== undefined) contents.set(fp, text);
+      }
+    });
+
+    const fallbackCount = filePaths.length - contents.size;
+    if (fallbackCount > 0) {
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: `readFilesBatch: ${fallbackCount}/${filePaths.length} paths fell back to per-file read (chunk failure, null or truncated blob)`,
+        data: { requested: filePaths.length, fallbackCount, graphqlCost },
+      });
+      log.github.warn({ requested: filePaths.length, fallbackCount, graphqlCost },
+        'readFilesBatch: some paths fell back to per-file read');
+    }
+    return { contents, fallbackCount, graphqlCost };
+  }
+
+  /** GraphQL variables can't parameterize a per-field `expression` string
+   *  (each alias needs its own literal), so every path is inlined directly
+   *  — escaped, since paths come from a `listDirectory()` result, not a
+   *  fixed literal. Owner/repo come from the backend's own resolved creds,
+   *  never user input. */
+  private buildBatchQuery(
+    owner: string, name: string, ref: string, repoPaths: string[],
+  ): { query: string; aliasToPath: Map<string, string> } {
+    const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const aliasToPath = new Map<string, string>();
+    const fields = repoPaths.map((p, i) => {
+      const alias = `b${i}`;
+      aliasToPath.set(alias, p);
+      return `${alias}: object(expression: "${esc(`${ref}:${p}`)}") { ... on Blob { text isTruncated } }`;
+    }).join('\n        ');
+    const query = `query {
+      repository(owner: "${esc(owner)}", name: "${esc(name)}") {
+        ${fields}
+      }
+      rateLimit { cost }
+    }`;
+    return { query, aliasToPath };
+  }
+
+  private async fetchBlobChunk(
+    creds: SyncCredentials, owner: string, name: string, ref: string, repoPaths: string[],
+  ): Promise<{ texts: Map<string, string>; cost: number }> {
+    const texts = new Map<string, string>();
+    const { query, aliasToPath } = this.buildBatchQuery(owner, name, ref, repoPaths);
+
+    let resp: ApiResult;
+    try {
+      resp = await this.rest.request(creds, 'POST', '/graphql', { query });
+    } catch (err) {
+      log.github.warn({ chunkSize: repoPaths.length, error: normalizeErrorForEvent(err) },
+        'readFilesBatch: GraphQL chunk request threw — this chunk falls back to per-file read');
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: 'readFilesBatch: GraphQL chunk request threw — this chunk falls back to per-file read',
+        data: { chunkSize: repoPaths.length },
+        error: normalizeErrorForEvent(err),
+      });
+      return { texts, cost: 0 };
+    }
+    if (!resp.ok) {
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: `readFilesBatch: GraphQL chunk request failed (${resp.status}) — this chunk falls back to per-file read`,
+        data: { chunkSize: repoPaths.length, status: resp.status, error: resp.error },
+      });
+      return { texts, cost: 0 };
+    }
+
+    const body = resp.data as {
+      data?: { repository?: Record<string, { text?: string; isTruncated?: boolean } | null>; rateLimit?: { cost: number } };
+      errors?: Array<{ message: string }>;
+    };
+    if (body.errors && body.errors.length > 0) {
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: `readFilesBatch: GraphQL chunk returned ${body.errors.length} error(s) alongside any data`,
+        data: { chunkSize: repoPaths.length, errors: body.errors.slice(0, 5).map(e => e.message) },
+      });
+    }
+
+    const repoData = body.data?.repository;
+    if (repoData) {
+      for (const [alias, p] of aliasToPath) {
+        const blob = repoData[alias];
+        if (blob && typeof blob.text === 'string' && !blob.isTruncated) texts.set(p, blob.text);
+      }
+    }
+    return { texts, cost: body.data?.rateLimit?.cost ?? 0 };
   }
 
   async createBranch(name: string, fromSha?: string): Promise<void> {
@@ -2186,13 +2740,185 @@ export class GitHubAPIBackend implements StorageBackend {
 
   // ── GitHub file operations (low-level) ─────────────────────────────────
 
+  /** t/4584/t/4586: classifies a non-2xx Contents-API response — logs the
+   *  reason unconditionally, and additionally throws when `strict` and the
+   *  status isn't a genuine 404 — pulled out of `fetchFileFromGitHub` to
+   *  keep that method's own complexity in budget (local/complexity-budget).
+   *  403/429 (TL t/4584#4, confirmed root cause) is GitHub's shared
+   *  installation rate limit exhausted, not a generic refusal, so it gets
+   *  its own reason rather than falling into the generic `status=<n>`. */
+  private classifyNonOkContentsResponse(resp: ApiResult, repoPath: string, optional: boolean | undefined, strict: boolean): void {
+    if (resp.status === 404) {
+      this.logNullReadReason(repoPath, 'not_found', optional);
+      return;
+    }
+    const reason: NullReadReason = (resp.status === 403 || resp.status === 429) ? 'rate_limited' : `status=${resp.status}`;
+    this.logNullReadReason(repoPath, reason, optional);
+    if (strict) {
+      throw Object.assign(new Error(`GitHub API returned ${resp.status} for ${repoPath} — transient (${reason})`),
+        { kind: 'transient' as const, status: resp.status, reason });
+    }
+  }
+
+  /** t/4584/t/4586: pulled out of `fetchFileFromGitHub` for the same
+   *  complexity-budget reason as `classifyNonOkContentsResponse`. */
+  private handleMissingCreds(repoPath: string, optional: boolean | undefined, strict: boolean): void {
+    this.logNullReadReason(repoPath, 'no_creds', optional);
+    if (strict) {
+      throw Object.assign(new Error(`GitHub App credentials unavailable — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'no_creds' as const });
+    }
+  }
+
+  // ── Raw-at-commit-SHA main reads (t/4585) ───────────────────────────────
+
+  /** TL condition 1: a raw 404 for a path the tree already knows about must
+   *  never collapse to "absent" — that's the exact t/4584 failure class.
+   *  Mirrors `fileExistsInBaseBranchCache`'s own membership check (manifest
+   *  file list, then the in-memory tree), without triggering a lazy
+   *  `ensureRepoTreeFilled()` — an empty tree here just means "we can't
+   *  confirm it exists," which keeps the conservative pre-t/4585 behavior
+   *  (a 404 is `not_found`) rather than inventing a new default. */
+  private isPathKnownInTree(repoPath: string): boolean {
+    if (this.manifest?.files[repoPath]) return true;
+    return this.repoTree.has(repoPath);
+  }
+
+  /** t/4615 (TL edge case, t/4585#6): a file added to main after the
+   *  manifest's `lastCommitSha` is "not in tree" by construction — the
+   *  in-memory tree and raw's pinned commit SHA both predate it — until the
+   *  next poll cycle refreshes the manifest. A stale manifest can't vouch
+   *  for a path's absence, so once it's older than the poll interval, "not
+   *  in tree" stops being trusted as a genuine `not_found` (see the 404
+   *  branch in `fetchFileFromRaw`). No manifest timestamp at all (a
+   *  cold-cold boot) is treated as stale too — nothing to vouch with. */
+  private isManifestStale(): boolean {
+    if (!this.manifest?.lastUpdated) return true;
+    return Date.now() - new Date(this.manifest.lastUpdated).getTime() > this.pollIntervalMs;
+  }
+
+  /** TL condition 3: bounds raw's own concurrency (8 in flight) so a cold
+   *  boot's ~1,000 near-simultaneous reads don't fire that many
+   *  unauthenticated requests at raw.githubusercontent.com at once. */
+  private async acquireRawSlot(): Promise<void> {
+    if (this.rawInFlight < GitHubAPIBackend.RAW_CONCURRENCY_LIMIT) {
+      this.rawInFlight++;
+      return;
+    }
+    await new Promise<void>((resolve) => this.rawWaiters.push(resolve));
+    this.rawInFlight++;
+  }
+
+  private releaseRawSlot(): void {
+    this.rawInFlight--;
+    const next = this.rawWaiters.shift();
+    if (next) next();
+  }
+
+  /** TL condition 1's disable guard: a fixed one-minute window counting
+   *  every raw-fallback event, regardless of reason. Crossing the threshold
+   *  trips `rawDisabled` for the rest of the process's lifetime (never
+   *  re-enabled — a restart is the recovery path) so a broadly misbehaving
+   *  raw endpoint (repo turned private, CDN outage) doesn't pay a raw miss
+   *  on every single subsequent read. Also tallies `rawFallbackCounts` by
+   *  reason (unconditionally, even after disable) so staging measurement
+   *  can see 429s separately from other causes (TL condition 3).
+   *  t/4615 (Quality follow-up): once `rawDisabled` is already tripped, the
+   *  window/threshold check below is moot — the decision is permanent for
+   *  this process. Still tallying `rawFallbackCounts['disabled']` (same
+   *  never-reset convention as `coldCacheMissCount`), but skipping the
+   *  window bookkeeping stops it growing forever for no purpose. */
+  private recordRawFallback(reason: RawFallbackReason): void {
+    this.rawFallbackCounts[reason] = (this.rawFallbackCounts[reason] ?? 0) + 1;
+    if (this.rawDisabled) return;
+
+    const now = Date.now();
+    if (now - this.rawFallbackWindowStart > 60_000) {
+      this.rawFallbackWindowStart = now;
+      this.rawFallbackWindowCount = 0;
+    }
+    this.rawFallbackWindowCount++;
+    // this.rawDisabled is always false here — the early return above skips
+    // this whole block once it's true.
+    if (this.rawFallbackWindowCount > GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE) {
+      this.rawDisabled = true;
+      log.github.error({ counts: { ...this.rawFallbackCounts } },
+        `fetchFileFromRaw: disabling raw reads for the rest of this process — more than ${GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE} fallbacks in the last minute`);
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'error',
+        message: 'fetchFileFromRaw: raw reads disabled for process lifetime — fallback rate exceeded threshold',
+        data: { counts: { ...this.rawFallbackCounts } },
+      });
+    }
+  }
+
+  /** t/4585 (TL design t/4585#2): main-pinned reads of the public data repo
+   *  via `raw.githubusercontent.com/<repo>/<commitSha>/<path>` — pinning the
+   *  commit SHA makes the content immutable, so no auth and no REST quota
+   *  are spent. Tried before the REST circuit-breaker check (a different
+   *  host/CDN, unaffected by GitHub REST's own circuit state). Never throws;
+   *  any failure becomes `fallback` for the caller to retry via REST. */
+  private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
+    if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
+
+    const creds = await this.getCredsCached();
+    if (!creds) return { kind: 'fallback', reason: 'network_error' };
+
+    const encodedPath = repoPath.split('/').map(encodeURIComponent).join('/');
+    const url = `https://raw.githubusercontent.com/${creds.repo}/${commitSha}/${encodedPath}`;
+
+    await this.acquireRawSlot();
+    try {
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      } catch {
+        // telemetry — silent by design here; the caller (readFileFromMainCache)
+        // logs exactly one WARN for every `fallback` result, naming the reason
+        // — a second record here would double-log the same event.
+        return { kind: 'fallback', reason: 'network_error' };
+      }
+
+      if (res.status === 404) {
+        // TL condition 1: a tree-known path 404ing on raw is never trusted
+        // as a genuine absence — could be a renamed/moved CDN edge case, a
+        // repo-visibility change, or raw misbehaving.
+        if (this.isPathKnownInTree(repoPath)) {
+          return { kind: 'fallback', reason: 'raw_404_but_in_tree' };
+        }
+        // t/4615: an unknown path still isn't trustworthy as genuinely
+        // absent if the manifest itself predates it (a just-added file,
+        // not yet seen by the next poll) — only a FRESH manifest's silence
+        // gets the fast, quiet "absent" answer.
+        if (this.isManifestStale()) {
+          return { kind: 'fallback', reason: 'raw_404_manifest_stale' };
+        }
+        return { kind: 'not_found' };
+      }
+      if (!res.ok) {
+        return { kind: 'fallback', reason: res.status === 429 ? 'status=429' : `status=${res.status}` };
+      }
+
+      // TL condition 2: hash the ORIGINAL bytes, before any decode — a
+      // decode-then-re-encode round trip (res.text()) can change bytes (a
+      // BOM, an invalid UTF-8 sequence), desyncing the cached sha from
+      // git's actual blob hash.
+      const bytes = Buffer.from(await res.arrayBuffer());
+      const sha = gitBlobSha(bytes);
+      const content = bytes.toString('utf-8');
+      return { kind: 'hit', content, sha };
+    } finally {
+      this.releaseRawSlot();
+    }
+  }
+
   private async fetchFileFromGitHub(
     repoPath: string,
     ref: string,
     optional?: boolean,
+    strict = false,
   ): Promise<{ content: string; sha: string; etag: string } | null> {
     const creds = await this.getCredsCached();
-    if (!creds) return null;
+    if (!creds) { this.handleMissingCreds(repoPath, optional, strict); return null; }
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
@@ -2202,7 +2928,11 @@ export class GitHubAPIBackend implements StorageBackend {
     // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
     // from a cached etag — getCachedEtag() no longer sends one for a non-main
     // ref, but treat it as a miss defensively rather than crash on null data.
-    if (!resp.ok || resp.status === 304) return null;
+    if (resp.status === 304) return null;
+    if (!resp.ok) {
+      this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
+      return null;
+    }
 
     const data = resp.data as {
       content?: string;
@@ -3049,6 +3779,15 @@ export class GitHubAPIBackend implements StorageBackend {
   getRequestMetrics(): { totalRequests: number; byRouteClass: Record<string, number>; rateLimitRemaining: number } {
     return this.rest.getRequestMetrics();
   }
+
+  /** t/4585 AC2: raw.githubusercontent.com fallback-to-REST events since
+   *  boot, by reason (`status=429` counted separately — TL condition 3 —
+   *  so staging measurement can tell whether raw is throttling versus
+   *  something else), plus whether the disable guard has tripped. */
+  getRawFallbackStats(): { counts: Record<string, number>; disabled: boolean } {
+    return { counts: { ...this.rawFallbackCounts }, disabled: this.rawDisabled };
+  }
+
   getCacheHitRate(): number {
     // Approximation from tree + manifest coverage
     if (this.repoTree.size === 0) return 0;
@@ -3129,6 +3868,11 @@ export class GitHubAPIBackend implements StorageBackend {
     }
 
     overlay.set(repoPath, content);
+    // t/4311 follow-up: mirror into the shared store for cross-replica read
+    // visibility. Fire-and-forget (writeToOverlay stays synchronous — the
+    // local write above, which this follows, is the one that must never be
+    // delayed by a network call) — writeThroughSharedOverlay never rejects.
+    void this.writeThroughSharedOverlay(userId, repoPath, content, this.sessionOverlayBaseShas.get(userId)?.get(repoPath) ?? 'unknown');
   }
 
   /** Total bytes of non-tombstone overlay content for a user (t/727). */
@@ -3175,6 +3919,9 @@ export class GitHubAPIBackend implements StorageBackend {
       this.sessionOverlays.set(userId, overlay);
     }
     overlay.set(repoPath, GitHubAPIBackend.TOMBSTONE);
+    // t/4311 follow-up: mirror the tombstone into the shared store — same
+    // fire-and-forget shape as writeToOverlay's write-through.
+    void this.writeThroughSharedOverlay(userId, repoPath, null, this.sessionOverlayBaseShas.get(userId)?.get(repoPath) ?? 'unknown');
   }
 
   /**

@@ -43,6 +43,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
+import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
@@ -67,6 +68,7 @@ import type { ServerCtx } from './routes/context.js';
 import { listFlags, setFlag, deleteFlag, type FlagDef } from './featureFlags.js';
 import { drainServerLogLines } from './serverLogBuffer.js';
 import { initAnonymousSessionStore } from './storage/anonymousSessionStore.js';
+import { ensureFreePoolBudgetBooted } from './storage/freePoolBudget.js';
 import { checkProviderBinding } from './ai/providerBinding.js';
 import * as community from './community/community.js';
 import * as fileIO from './storage/fileIO.js';
@@ -92,7 +94,7 @@ import type { ReviewAction } from './community/admin/types.js';
 import { calibrationReviewHandler } from './community/admin/calibrationHandler.js';
 import { communityReviewHandler } from './community/admin/communityReviewHandler.js';
 import { serveStatic } from './staticServe.js';
-import { normalizePrincipalNameHeader } from './principalName.js';
+import { normalizePrincipalNameHeader, getIdentityMapKey, getRequestStableId } from './principalName.js';
 
 // Register review domain handlers at startup so the unified admin endpoints
 // (queue/stats/action/detail) can delegate to them (t/646, t/647, t/650).
@@ -263,32 +265,8 @@ if (STORAGE_MODE === 'github-api') {
 
   // User content (chats, debates, community) lives in Azure Blob Storage.
   // Taxonomy/conflicts/calibration stay on the GitHub backend.
-  const blobAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  if (blobAccountUrl) {
-    const { AzureBlobBackend } = await import('./storage/azureBlobBackend.js');
-    fileIO.setUserContentBackend(new AzureBlobBackend({
-      accountUrl: blobAccountUrl,
-      userContentContainer: process.env.AZURE_USER_CONTENT_CONTAINER || 'user-content',
-      communityContainer: process.env.AZURE_COMMUNITY_CONTAINER || 'community',
-    }));
-    const briefExportsContainer = process.env.AZURE_BRIEF_EXPORTS_CONTAINER || 'brief-exports';
-    fileIO.setBriefExportBackend(new AzureBlobBackend({
-      accountUrl: blobAccountUrl,
-      userContentContainer: briefExportsContainer,
-      communityContainer: briefExportsContainer,
-    }));
-    serverRecorder.record({
-      type: 'storage.mode', component: 'storage', level: 'info',
-      message: 'User content storage: azure-blob',
-      data: { accountUrl: blobAccountUrl },
-    });
-  } else {
-    log.storage.warn('AZURE_STORAGE_ACCOUNT_URL is unset — Blob backend not initialized; user content will fall back to the primary GitHub backend.');
-    serverRecorder.record({
-      type: 'storage.mode', component: 'storage', level: 'warn',
-      message: 'User content storage: github-api fallback (Azure Blob not configured)',
-    });
-  }
+  // t/4756: initialize blob backends with fail-closed validation (extracted to blobBackendInit.ts)
+  await initAzureBlobBackends(serverRecorder);
 } else {
   // FilesystemBackend is the default in fileIO.ts — no action needed
   serverRecorder.record({
@@ -925,7 +903,8 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   // claimed this storageUserId. Prevents a different provider from accessing
   // another user's data by presenting the same normalized email.
   if (!isAnon) {
-    const binding = checkProviderBinding(storageUserId, effectiveIdp);
+    // t/4540: an admin-held IDENTITY_MAP entry for THIS request's own (idp, stable id) overrides a binding mismatch — read from the WeakMap (principalName.ts), never a header, so there's no forgery surface.
+    const binding = checkProviderBinding(storageUserId, effectiveIdp, getIdentityMapKey(req));
     if (!binding.ok) {
       json(res, {
         error: 'provider_mismatch',
@@ -940,7 +919,7 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const reqCtx = getRequestContext();
   if (reqCtx) reqCtx.userId = storageUserId;
   const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
-  return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId };
+  return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId, stableId: isAnon ? undefined : getRequestStableId(req) };
 }
 
 /** M7: per-IP rate limit on API write methods (100/min). Returns true when 429-limited. */
@@ -1329,13 +1308,12 @@ process.on('unhandledRejection', (reason) => {
   serverRecorder.record({ type: 'system.error', component: 'server', level: 'error', message: err.message, error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) } });
   log.server.error({ err }, 'Unhandled promise rejection');
 });
-
 // ── Anonymous session store (in-memory, ephemeral) ──
 initAnonymousSessionStore({
   sessionTtlMs: parseInt(process.env.ANON_SESSION_TTL_MS || '0', 10) || undefined,
   maxSessions: parseInt(process.env.ANON_MAX_SESSIONS || '0', 10) || undefined,
 });
-
+ensureFreePoolBudgetBooted(log);
 // ── Start ──
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
 // t/3296 (t/3290 prevention) → t/3309 Path B (step-3): assert taxonomy/ + dictionary/ are present AND
@@ -1346,10 +1324,8 @@ assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn
 // (proven to block a misprovisioned promotion by the Arm-B GV, t/3309#21) is now the SOLE data-root
 // deploy protection: a misprovisioned revision never promotes (warm-gate blocks + rolls back) while
 // the old rev keeps serving, so the process stays up (liveness) with no crash-loop (t/2683 class).
-try {
-  await fileIO.validateDataRoot();
-  setDataRootReady(); // t/3309: cache data-root readiness for the /readyz gate
-} catch (err) {
+// t/4760: NOT awaited, so a slow data mount (up to DATA_ROOT_MOUNT_WAIT_MS) can't hold off listen(); /readyz says 'warming' until it settles.
+void fileIO.validateDataRoot().then(() => setDataRootReady(), (err: unknown) => { // t/3309: cache readiness for /readyz
   // t/3309 step-3: record the definitive failure for the /readyz gate, then CONTINUE (no exit(1)).
   // The boot exit(1)/DATA_ROOT_VALIDATION_ENFORCE path is REMOVED — after the staging Arm-B GV proved
   // the /readyz warm-gate blocks a misprovisioned rev (t/3309#21), the readiness gate supersedes the
@@ -1358,7 +1334,7 @@ try {
   setDataRootFailed(err instanceof Error ? err.message : String(err));
   const errObj = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
   log.server.warn({ err: errObj }, 'Data root validation failed at boot — /readyz will report data-root-failed (503); process continues (liveness up), the deploy warm-gate blocks the promotion');
-}
+});
 // t/4298/t/4299/t/4300: WARN-only boot check — github-api's disk cache must never overlap
 // AI_TRIAD_DATA_ROOT (a data-root writer would otherwise silently become what this server
 // serves, with no check against GitHub). Synchronous, never throws, no-op on filesystem mode.

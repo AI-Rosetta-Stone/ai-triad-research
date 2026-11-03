@@ -6,20 +6,6 @@
    CSS vars) — this is a fixed redesign look, not theme-reactive. */
 
 .library-list-page {
-  --lib-bg: #f4f0ea;
-  --lib-text: #2b2622;
-  --lib-text-secondary: #5d554f;
-  --lib-text-faded: #8a8079;
-  --lib-dash: #b3aaa2;
-  --lib-accent: #9e2236;
-  --lib-accent-hover: #861b2d;
-  --lib-border-header: #e0d8cd;
-  --lib-border-row: #e6dfd5;
-  --lib-border-control: #ddd5ca;
-  --lib-active-bg: #f3dde1;
-  --lib-inactive-badge-bg: #e8e1d7;
-  --lib-row-hover: #ece6dd;
-
   background: var(--lib-bg);
   color: var(--lib-text);
   padding: 28px 32px;
@@ -265,6 +251,26 @@
 
 /* ── title cell ── */
 
+/* t/4720: wraps the title text/web-address span + an optional titleBadge, same line, so the
+   badge sits beside the title on both desktop (.lib-cell.lib-col-title) and phone (.lib-phone-
+   title) without either path needing its own markup. flex-wrap lets the badge drop to its own
+   line under the title at narrow widths instead of overflowing or shrinking the title further. */
+.lib-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.lib-title-line > .lib-title-text,
+.lib-title-line > .lib-title-webaddr {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.lib-title-badge-slot {
+  flex: none;
+}
+
 .lib-title-text {
   font-size: 14px;
   font-weight: 500;
@@ -430,4 +436,191 @@
 @media (max-width: 700px) {
   .lib-header-row2 { flex-wrap: wrap; }
   .lib-search { width: 100%; }
+}
+
+/* ── phone layout (t/4571, ≤767px) ── */
+
+@media (max-width: 767px) {
+  /* Which layout renders is decided in LibraryListPage via useBreakpoint (one layout in the DOM
+     at a time); these rules only style the phone pieces. */
+
+  /* Header row 1: flex-wrap for primary button on row 1, secondary on row 2 */
+  .lib-header-row1 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    row-gap: var(--sp-2);
+  }
+  .lib-title { flex: 1; min-width: 0; }
+  .lib-header-actions { flex: 0 0 auto; display: flex; gap: var(--sp-2); order: 3; }
+
+  /* Sort bar */
+  .lib-phone-sort-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    height: 44px;
+    border-bottom: 1px solid var(--lib-border-row);
+  }
+  .lib-phone-sort-label {
+    font-size: var(--text-sm);
+    color: var(--lib-text-secondary);
+    white-space: nowrap;
+  }
+  .lib-phone-sort-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex: 1;
+    min-width: 0;
+  }
+  .lib-phone-sort {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    background: var(--lib-bg);
+    color: var(--lib-text);
+    font-size: var(--text-sm);
+  }
+  .lib-phone-sort-direction {
+    appearance: none;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    background: var(--lib-bg);
+    color: var(--lib-text);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .lib-phone-sort-direction:hover { background: #fff; border-color: #c9bfb2; }
+
+  /* Phone list container */
+  .lib-phone-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Phone list item: stacked card layout */
+  .lib-phone-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    border-bottom: 1px solid var(--lib-border-row);
+    min-height: 44px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .lib-phone-item:hover { background: var(--lib-row-hover); }
+  .lib-phone-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+  /* Checkbox in phone item */
+  .lib-phone-checkbox {
+    align-self: flex-start;
+    margin-right: var(--sp-2);
+  }
+
+  /* Phone title row: 2-line clamp with flex for inline edit */
+  .lib-phone-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    min-width: 0;
+  }
+  .lib-phone-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
+  /* Phone meta row: badges/short facts separated by · */
+  .lib-phone-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    font-size: var(--text-2xs);
+    color: var(--lib-text-secondary);
+  }
+  .lib-phone-meta-part {
+    display: inline;
+    background: var(--lib-inactive-badge-bg);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .lib-phone-meta-sep::after {
+    content: ' ·';
+    margin: 0 var(--sp-1);
+  }
+  .lib-phone-meta-sep:last-child::after { content: ''; margin: 0; }
+
+  /* Phone actions: trailing menu button */
+  .lib-phone-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .lib-actions {
+    flex-direction: row;
+    gap: var(--sp-1);
+  }
+  .lib-phone-actions-menu-wrap {
+    position: relative;
+  }
+  .lib-phone-actions-btn {
+    appearance: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    background: var(--lib-bg);
+    color: var(--lib-text);
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .lib-phone-actions-btn:hover { background: #fff; border-color: #c9bfb2; }
+  .lib-phone-actions-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 120px;
+    background: #fff;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(43, 38, 34, 0.12);
+    z-index: 20;
+    padding: 4px;
+  }
+  .lib-phone-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    color: var(--lib-text);
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .lib-phone-menu-item:hover { background: var(--lib-bg); }
 }

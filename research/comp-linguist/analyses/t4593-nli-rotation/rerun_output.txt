@@ -1,0 +1,28 @@
+Loading NLI model 'cross-encoder/nli-deberta-v3-small'...
+label order from model.config.id2label: ['contradiction', 'entailment', 'neutral']
+
+=== case_1 controlled_2x2 [rich_framed, rich_no_framing, bare_framed, bare_no_framing] ===
+  {'label': 'neutral', 'margin': 3.8178, 'contradiction': -3.4233, 'entailment': -0.0123, 'neutral': 3.8054}
+  {'label': 'neutral', 'margin': 4.2992, 'contradiction': -3.9912, 'entailment': 0.0067, 'neutral': 4.3059}
+  {'label': 'contradiction', 'margin': 4.7523, 'contradiction': 3.9172, 'entailment': -3.1216, 'neutral': -0.8351}
+  {'label': 'contradiction', 'margin': 4.85, 'contradiction': 4.0887, 'entailment': -3.3456, 'neutral': -0.7613}
+
+=== case_4 (saf-beliefs-017, verbatim, framed, label-plus-Core) ===
+  {'label': 'neutral', 'margin': 7.4435, 'contradiction': -2.2554, 'entailment': -2.3397, 'neutral': 5.1882}
+
+=== case_5 [acc-127 canonical, acc-127 verbatim, acc-047 canonical, acc-047 verbatim] ===
+  {'label': 'neutral', 'margin': 2.7406, 'contradiction': -3.847, 'entailment': 0.7279, 'neutral': 3.4684}
+  {'label': 'neutral', 'margin': 1.5722, 'contradiction': -2.6165, 'entailment': 0.731, 'neutral': 2.3032}
+  {'label': 'contradiction', 'margin': 7.1098, 'contradiction': 5.3774, 'entailment': -3.4409, 'neutral': -1.7324}
+  {'label': 'neutral', 'margin': 3.5282, 'contradiction': -2.1968, 'entailment': -0.4448, 'neutral': 3.0834}
+
+--- summary ---
+case_1 rich_framed:     {'label': 'neutral', 'margin': 3.8178, 'contradiction': -3.4233, 'entailment': -0.0123, 'neutral': 3.8054}
+case_1 rich_no_framing: {'label': 'neutral', 'margin': 4.2992, 'contradiction': -3.9912, 'entailment': 0.0067, 'neutral': 4.3059}
+case_1 bare_framed:     {'label': 'contradiction', 'margin': 4.7523, 'contradiction': 3.9172, 'entailment': -3.1216, 'neutral': -0.8351}
+case_1 bare_no_framing: {'label': 'contradiction', 'margin': 4.85, 'contradiction': 4.0887, 'entailment': -3.3456, 'neutral': -0.7613}
+case_4 verbatim:        {'label': 'neutral', 'margin': 7.4435, 'contradiction': -2.2554, 'entailment': -2.3397, 'neutral': 5.1882}
+case_5 acc-127 canonical: {'label': 'neutral', 'margin': 2.7406, 'contradiction': -3.847, 'entailment': 0.7279, 'neutral': 3.4684}
+case_5 acc-127 verbatim:  {'label': 'neutral', 'margin': 1.5722, 'contradiction': -2.6165, 'entailment': 0.731, 'neutral': 2.3032}
+case_5 acc-047 canonical: {'label': 'contradiction', 'margin': 7.1098, 'contradiction': 5.3774, 'entailment': -3.4409, 'neutral': -1.7324}
+case_5 acc-047 verbatim:  {'label': 'neutral', 'margin': 3.5282, 'contradiction': -2.1968, 'entailment': -0.4448, 'neutral': 3.0834}

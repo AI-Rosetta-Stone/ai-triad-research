@@ -27,13 +27,12 @@ async function openTab(page, tabId) {
 }
 
 test.beforeEach(async ({ page }) => {
-  // Suppress the OnboardingTour overlay (shown to no-API-key users) — it is aria-modal and
-  // intercepts every tab click, so without this the whole suite times out (t/3026 live-run
-  // finding). App.tsx:337 early-returns when this localStorage flag is set.
-  await page.addInitScript(() => {
-    try { localStorage.setItem('taxonomy-editor-onboarding-dismissed', 'true'); } catch { /* private mode */ }
-  });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  // t/4543: every launch now opens the Rosetta Stone landing view (the old OnboardingTour
+  // overlay this beforeEach used to suppress is retired — every user lands here, not just
+  // first-time/no-API-key ones). Navigate into Taxonomy to reach the [data-tab] POV surface
+  // this spec's openTab() helper and every test below assume.
+  await page.locator('button[aria-label="Taxonomy"]').first().click();
   await page.waitForSelector('[data-tab]', { timeout: 30_000 });
 });
 

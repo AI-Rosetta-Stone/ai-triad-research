@@ -2,11 +2,12 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
- * Web bridge — implements AppAPI via REST and WebSocket calls to the server.
- * Used when the app runs in a browser served by the container.
+ * Web bridge — implements AppAPI via REST and WebSocket calls to the server when run in a browser served by the container. All renderer HTTP calls must route through this bridge — never a bare `fetch()` — except `analyticsEmitter.ts` (sendBeacon telemetry), `flightRecorderInit.ts` (must work when the bridge is broken), `trace.ts` (low-level perf tracing), `dumpToast.ts` (error dump upload), `healthProbe.ts` (bypasses retry/circuit-breaker), and `components/PublicPovView.tsx` (public read-only view; session-recovery would mint an anonymous session, violating the no-session invariant, t/1790, TL t/1787#2).
+ * Centralizes timeout, retry, error normalization, and 429/503 handling (t/4763, moved from taxonomy-editor/AGENTS.md).
  */
 import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult, RefreshModelsResponse } from './types';
 import { pullDataUpdatesRest } from './dataUpdatesPull';
+import { submitAskToCommunityRest } from './communityAskSubmit';
 import { createTaxonomyVersions } from './taxonomyVersions';
 import { exportInquiryToFileWeb } from './inquiryExportWeb';
 import { instrumentBridge } from './instrumentBridge';
@@ -20,6 +21,7 @@ import { resilientFetch, categorizeEndpoint, registerConnectionPoolProvider, typ
 import { nextStepsForStatus } from './httpErrorSteps';
 import { computeEmbeddingsChunked } from './embeddingsBatch';
 import { runChatStream, chatStreamBus } from './chatStream';
+import { checkAnonymousSessionForModelSelection } from './anonymousSessionCheck';
 import { runOpEdCreate, cancelActiveOpEdRun, opedProgressBus } from './opedStream';
 import { readByokKeys, maskByokKey } from './byokKeys';
 import { onQuotaMilestone } from '../hooks/useQuotaWarning';
@@ -42,6 +44,8 @@ function openAppWindow(hash: string): void {
   }
 }
 
+function isDiagnosticsInline(): boolean { return !window.location.hash.includes('debate-window') && window.innerWidth <= 1023; } // t/4642
+let diagWindowRef: Window | null = null;
 function throwHttpError(status: number, err: ActionableError): never {
   (err as ActionableError & { httpStatus: number }).httpStatus = status;
   throw err;
@@ -158,11 +162,7 @@ function isHtmlLoginPage(res: Response): boolean {
   return (res.headers.get('content-type') ?? '').includes('text/html');
 }
 
-async function fetchWithSessionRecovery(
-  path: string,
-  init: RequestInit,
-  opts: import('./resilience').ResilientFetchOptions,
-): Promise<Response> {
+async function fetchWithSessionRecovery(path: string, init: RequestInit, opts: import('./resilience').ResilientFetchOptions): Promise<Response> {
   let res = await resilientFetch(path, init, opts);
   if (await isNoSessionResponse(res) || isHtmlLoginPage(res)) {
     const recovered = await recoverAnonymousSession();
@@ -821,6 +821,7 @@ const rawApi: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => get('/api/models'),
+  checkAnonymousSession: () => checkAnonymousSessionForModelSelection(() => _authAnonymous, (v) => { _authAnonymous = v; }), // t/4628: see anonymousSessionCheck.ts
   // t/4031: opts travel as the POST body; a plain refresh still sends none. Not retried (a mutation).
   refreshAIModels: (opts) => post<RefreshModelsResponse>('/api/models/refresh', opts),
   validateApiKey: (key, backend) => post('/api/keys/validate', { key, backend }),
@@ -1008,7 +1009,6 @@ const rawApi: AppAPI = {
   deleteDebateSession: (id) => del(`/api/debates/${encodeURIComponent(id)}`).then(() => {}),
   loadDebateComments: (id) => get(`/api/debates/${encodeURIComponent(id)}/comments`),
   saveDebateComments: (id, data) => put(`/api/debates/${encodeURIComponent(id)}/comments`, data).then(() => {}),
-
   // Inquiry (t/3582) — client of routes/inquiry.ts (t/3581); idempotency key rides a header, never the body.
   startInquiry: (request: StartInquiryRequest, idempotencyKey?: string) => post<{ jobId: string }>('/api/inquiry', request, undefined, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),
   getInquiry: (jobId: string) => get<InquiryStatusResponse>(`/api/inquiry/${encodeURIComponent(jobId)}`),
@@ -1016,6 +1016,7 @@ const rawApi: AppAPI = {
   exportInquiryToFile: (result: InquiryResult, title: string, format: 'json' | 'markdown' | 'pdf') => exportInquiryToFileWeb(result, title, format),
   shareInquiry: (jobId) => post<{ shareId: string; url: string }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`, {}),
   unshareInquiry: (jobId) => del<{ ok: boolean }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`),
+  loadCommunityInquiry: (id) => get<InquiryResult>(`/api/community/inquiries/${encodeURIComponent(id)}`),
 
   // Brief Export (t/2805, T7) — client of the T6 REST API (server: routes/briefExports.ts).
   createBriefExport: (debateId, body) => post<{ jobId: string }>(`/api/debates/${encodeURIComponent(debateId)}/exports`, body),
@@ -1218,9 +1219,8 @@ const rawApi: AppAPI = {
   loadCommunityDebateSession: (id) => get(`/api/community/debates/${encodeURIComponent(id)}`),
   loadCommunityOpEd: (id) => get<OpEdSet>(`/api/community/opeds/${encodeURIComponent(id)}`),
   loadCommunityChatSession: (id) => get(`/api/community/chats/${encodeURIComponent(id)}`),
-  // Web mode is same-origin; baseUrl is ignored and the relative path is used.
-  communitySubmit: (_baseUrl, payload) => post('/api/community/submit', payload),
-
+  communitySubmit: (_baseUrl, payload) => post('/api/community/submit', payload), // web mode: same-origin, baseUrl ignored
+  submitAskToCommunity: (_baseUrl, result, note) => submitAskToCommunityRest(result, note), // t/4746 — see communityAskSubmit.ts
   // Support cases
   createSupportCase: (payload) => post('/api/support/cases', payload),
   listSupportCases: () => get('/api/support/cases'),
@@ -1305,16 +1305,16 @@ const rawApi: AppAPI = {
 
   // Diagnostics — in web mode, communicate cross-tab via BroadcastChannel
   openDiagnosticsWindow: async () => {
-    const isPopout = window.location.hash.includes('debate-window');
-    const width = window.innerWidth;
-    console.log(`[diagnostics] openDiagnosticsWindow: width=${width}, isPopout=${isPopout}, hash=${window.location.hash}`);
-    if (!isPopout && width <= 1023) {
-      console.log('[diagnostics] Using drawer path (narrow main window)');
-      window.dispatchEvent(new CustomEvent('open-diagnostics-drawer'));
-      return;
-    }
-    console.log('[diagnostics] Using new-tab path (popout or wide window)');
-    openAppWindow('diagnostics-window');
+    if (isDiagnosticsInline()) { window.dispatchEvent(new CustomEvent('open-diagnostics-drawer')); return 'inline'; }
+    // t/4648: mobile's in-place hash nav has no separate window either — report 'inline' too.
+    if (isMobilePlatform()) { window.location.hash = 'diagnostics-window'; return 'inline'; }
+    diagWindowRef = window.open(`${location.origin}/#diagnostics-window`, 'aitriad-diagnostics');
+    return 'popout';
+  },
+  focusDiagnosticsWindow: async () => {
+    if (isDiagnosticsInline()) return 'inline';
+    if (!diagWindowRef || diagWindowRef.closed) return 'not-open';
+    diagWindowRef.focus(); return 'focused';
   },
   openPovProgressionWindow: async () => {
     openAppWindow('pov-progression-window');

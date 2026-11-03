@@ -39,6 +39,7 @@
 import type { IncomingMessage } from 'http';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { isStagingIdentity } from './config.js';
 
 const NAME_HEADER = 'x-ms-client-principal-name';
 const PRINCIPAL_HEADER = 'x-ms-client-principal';
@@ -163,6 +164,43 @@ function warnOnce(key: string, fields: Record<string, unknown>, message: string)
 /** Test-only: reset the once-per-process WARN dedupe and the cached IDENTITY_MAP. */
 export function _resetPrincipalNameForTest(): void { warned.clear(); identityMap = null; }
 
+/**
+ * t/4540: the literal IDENTITY_MAP key (e.g. `aad:tenant-1-obj-1`) this request's own
+ * (idp, stable id) resolved against, set only by canonicalizeGithub/canonicalizeAad at the
+ * exact point their own `getIdentityMap().get(...)` lookup hits. A WeakMap keyed on the live
+ * request object, NOT a header: a header is client-writable and its safety would depend on an
+ * unconditional clear running on every current and future code path (rejected design, t/4540
+ * TL review). This is never client-visible or client-settable — there's nothing to forge.
+ * Absence (never set) is the safe default for checkProviderBinding's caller: no override.
+ */
+const identityMapKeyByRequest = new WeakMap<IncomingMessage, string>();
+
+/** t/4540: read-only accessor for checkProviderBinding's caller. `undefined` unless THIS
+ *  request's own (idp, stable id) resolved via an IDENTITY_MAP entry. */
+export function getIdentityMapKey(req: IncomingMessage): string | undefined {
+  return identityMapKeyByRequest.get(req);
+}
+
+/**
+ * t/4706: stable identity key for GitHub and AAD (format: `github:<id>` or `aad:<tid>-<oid>`),
+ * recorded by canonicalizeGithub/canonicalizeAad whenever a valid stable id is extracted.
+ * A WeakMap keyed on the live request object (same safety model as identityMapKeyByRequest):
+ * absence means no authenticated stable id for this request (anon or unknown idp).
+ */
+const stableIdByRequest = new WeakMap<IncomingMessage, string>();
+
+/** t/4706: read-only accessor for UserContext.stableId. Returns `undefined` unless the
+ *  request has an authenticated principal with a recordable stable id (GitHub or AAD). */
+export function getRequestStableId(req: IncomingMessage): string | undefined {
+  return stableIdByRequest.get(req);
+}
+
+/** Test-only: reset the stableIdByRequest WeakMap. */
+export function _resetRequestStableIdForTest(): void {
+  // WeakMaps can't be cleared; this is a no-op placeholder for test symmetry with
+  // _resetPrincipalNameForTest. Tests should create fresh request objects instead.
+}
+
 /** GitHub: replace the (user-editable) name with a stable-id-derived canonical name. */
 function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): void {
   const claimId = claimValue(decoded.claims, NAMEIDENTIFIER_CLAIM);
@@ -178,7 +216,10 @@ function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): vo
       'GitHub principal has no usable stable id; request treated as anonymous');
     return;
   }
-  const mapped = getIdentityMap().get(`github:${stableId.toLowerCase()}`);
+  const key = `github:${stableId.toLowerCase()}`;
+  stableIdByRequest.set(req, key); // t/4706: record the stable id for UserContext
+  const mapped = getIdentityMap().get(key);
+  if (mapped) identityMapKeyByRequest.set(req, key); // t/4540: this request's own map hit, for checkProviderBinding
   req.headers[NAME_HEADER] = mapped ?? `github-${stableId.toLowerCase()}`;
 }
 
@@ -204,7 +245,10 @@ function canonicalizeAad(req: IncomingMessage, decoded: DecodedPrincipal): void 
       'AAD tid/oid outside safe charset; request treated as anonymous');
     return;
   }
-  const mapped = getIdentityMap().get(`aad:${stableId}`);
+  const key = `aad:${stableId}`;
+  stableIdByRequest.set(req, key); // t/4706: record the stable id for UserContext
+  const mapped = getIdentityMap().get(key);
+  if (mapped) identityMapKeyByRequest.set(req, key); // t/4540: this request's own map hit, for checkProviderBinding
   req.headers[NAME_HEADER] = mapped ?? `aad-${stableId}`;
 }
 
@@ -234,6 +278,41 @@ function warnOnUnreviewedIdp(idp: string, claimTypes: string[]): void {
 }
 
 /**
+ * TEMPORARY (t/4436), STAGING-ONLY, single-account-gated. One-time claim-shape capture
+ * for Google sign-ins. deriveStorageUserId's email-based derivation for Google is not
+ * injective (t/4436); the fix is a stable-id-keyed canonicalizeGoogle, same shape as
+ * GitHub/AAD, but the claim carrying Google's OIDC `sub` hasn't been confirmed against
+ * the live sidecar. Revised twice by TL review (p/602#31, p/832#3): an always-on design
+ * (closed #3928) logged on every environment including prod; a staging-wide opt-in flag
+ * design still touched every staging sign-in. This version:
+ *   - gated on isStagingIdentity() — structurally cannot fire on prod;
+ *   - gated on CLAIM_SHAPE_DIAG_EMAIL — a staging-only env var holding the PI's one test
+ *     account email (jsnover2025@gmail.com, p/832#3). Unset by default. The diagnostic
+ *     compares the sign-in's email against it IN MEMORY ONLY — that comparison's result
+ *     (and the email itself) never reach the log. Every other Google user's sign-in is
+ *     completely untouched (not even a presence check runs for them).
+ *   - logs claim TYPE NAMES, their presence, hasStableIdClaim (whether a
+ *     nameidentifier-shaped claim exists), and stableIdDistinctFromEmail (whether that
+ *     claim's value differs from the sign-in email) — booleans/type names only, never any
+ *     value, not even the gate email itself;
+ *   - once per process.
+ * Remove this function, its call site, and CLAIM_SHAPE_DIAG_EMAIL once the claim shape is
+ * captured and canonicalizeGoogle ships — tracked as its own removal ticket (t/4569).
+ */
+function logGoogleClaimShapeDiag(req: IncomingMessage, decoded: DecodedPrincipal): void {
+  if (!isStagingIdentity()) return;
+  const targetEmail = (process.env.CLAIM_SHAPE_DIAG_EMAIL ?? '').trim().toLowerCase();
+  if (!targetEmail) return;
+  const signInEmail = (headerString(req, NAME_HEADER) || claimValue(decoded.claims, EMAIL_CLAIM)).toLowerCase();
+  if (!signInEmail || signInEmail !== targetEmail) return;
+  const stableIdClaim = claimValue(decoded.claims, NAMEIDENTIFIER_CLAIM);
+  const hasStableIdClaim = !!stableIdClaim;
+  const stableIdDistinctFromEmail = hasStableIdClaim && stableIdClaim.toLowerCase() !== signInEmail;
+  warnOnce('google|claim-shape-diag', { idp: 'google', claimTypes: decoded.claimTypes, nameTyp: decoded.nameTyp, decodedOk: decoded.ok, hasStableIdClaim, stableIdDistinctFromEmail },
+    'TEMPORARY (t/4436), staging-only, single-account-gated: Google sign-in claim shape captured for the sub-claim investigation — types/booleans only, never values');
+}
+
+/**
  * Set the canonical `x-ms-client-principal-name` on the request. Call once per request,
  * at entry, before anything reads principal headers. No-op unless Easy Auth is on.
  */
@@ -251,6 +330,7 @@ export function normalizePrincipalNameHeader(req: IncomingMessage, azureAuthEnab
   }
   const decoded = decodePrincipal(encoded);
   warnOnUnreviewedIdp(idp, decoded.claimTypes);
+  if (idp === 'google') logGoogleClaimShapeDiag(req, decoded);
   if (!encoded) return;
   fillMissingName(req, idp, decoded);
 }

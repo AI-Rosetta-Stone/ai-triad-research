@@ -1,0 +1,221 @@
+{
+  "ticket": "t/4495",
+  "anchor": "t/4402",
+  "repo": "ai-triad-sources",
+  "base_commit": "689d214695dbbfab073ca8b28bbf015b9e2352cd",
+  "base_note": "All six target files are byte-identical between cf27561 (the R1 apply) and 689d214 (origin/main at preparation time).",
+  "serializer": "json.dumps(obj, indent=2, ensure_ascii=False) + \"\\n\", UTF-8, LF, no BOM (round-trip verified byte-exact on every target)",
+  "operation": "values-only: replace the value of existing keys; no key is added, removed or reordered",
+  "targets": [
+    {
+      "doc_id": "text-2026",
+      "path": "text-2026/metadata.json",
+      "pre_sha256": "a11210a2a02694e99d2c52d088db0ec68e4382323eae0df37edb95ac9842ec51",
+      "post_sha256": "fe2b9ae4bd2cb9464d6b4cad472a54e9297b1476b6e36e684ad00fbec8687d10",
+      "fields": [
+        {
+          "field": "title",
+          "old": "text",
+          "new": "World Economic Outlook Update: Global Economy: Steady amid Divergent Forces",
+          "evidence": "Own artifact: snapshot.md body opens 'INTERNATIONAL MONETARY FUND / WORLD ECONOMIC OUTLOOK UPDATE / Global Economy: Steady amid Divergent Forces / 2026 JAN'; raw blob 8d7c115… is identical to the WEO group's (t/4402#1). Value copied verbatim from the duplicate_of canonical world-economic-outlook-update-global-economy-steady-amid-2026-2 for group consistency."
+        },
+        {
+          "field": "url",
+          "old": "https://www.collinsdictionary.com/us/dictionary/english/text",
+          "new": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026",
+          "evidence": "Publisher page fetched 2026-10-27 (WebFetch): title 'World Economic Outlook Update, January 2026: Global Economy: Steady amid Divergent Forces', released January 19, 2026. Old value came from a confidence:'search' provenance guess."
+        },
+        {
+          "field": "resolved_url",
+          "old": "https://www.collinsdictionary.com/us/dictionary/english/text",
+          "new": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026",
+          "evidence": "Same as url. Required: debate citation paths prefer resolved_url over url (lib/debate/debateEngine.ts:1375-1377, lib/debate/citationResolution.ts:126,141), so fixing url alone would leave debates linking to Collins."
+        },
+        {
+          "field": "provenance",
+          "old": [{"scheme": "url", "id": "https://www.collinsdictionary.com/us/dictionary/english/text", "confidence": "search"}],
+          "new": [{"scheme": "url", "id": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026", "confidence": "verified"}],
+          "evidence": "The only entry is the wrong search guess. 'verified' is existing vocabulary (scripts/archive/populate_provenance.py: verified/extracted/search) and the URL was checked against the publisher page."
+        },
+        {
+          "field": "provenance_status",
+          "old": "extracted",
+          "new": "verified",
+          "evidence": "Derived by the existing rule in populate_provenance.py: any 'verified' entry => status 'verified'."
+        }
+      ]
+    },
+    {
+      "doc_id": "text-2026-1",
+      "path": "text-2026-1/metadata.json",
+      "pre_sha256": "7ff23d2f6a9e72ed3031c36450ab4f158e2d114d017e21860a7cdb720d55a993",
+      "post_sha256": "765b0d485c75ca0f4a40493373206c4b3a1592ad681e007bdc6769098761102c",
+      "fields": [
+        {
+          "field": "title",
+          "old": "text",
+          "new": "World Economic Outlook Update: Global Economy: Steady amid Divergent Forces",
+          "evidence": "As text-2026 (same raw blob as the WEO group, t/4402#1)."
+        },
+        {
+          "field": "url",
+          "old": "https://www.collinsdictionary.com/us/dictionary/english/text",
+          "new": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026",
+          "evidence": "As text-2026."
+        },
+        {
+          "field": "resolved_url",
+          "old": "https://www.collinsdictionary.com/us/dictionary/english/text",
+          "new": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026",
+          "evidence": "As text-2026."
+        },
+        {
+          "field": "provenance",
+          "old": [{"scheme": "url", "id": "https://www.collinsdictionary.com/us/dictionary/english/text", "confidence": "search"}],
+          "new": [{"scheme": "url", "id": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026", "confidence": "verified"}],
+          "evidence": "As text-2026."
+        },
+        {
+          "field": "provenance_status",
+          "old": "extracted",
+          "new": "verified",
+          "evidence": "As text-2026."
+        }
+      ]
+    },
+    {
+      "doc_id": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+      "path": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026/metadata.json",
+      "pre_sha256": "294e2368ec2c1c7a29fa2969474d793d41784bf9e84a0322fe0b97d49b02cfa2",
+      "post_sha256": "68a109b62ec09b40c0cd244257185ceaeaaa1d50c892b1e52c5c34c13531b503",
+      "fields": [
+        {
+          "field": "title",
+          "old": "California lawyer's ChatGPT use is why courts want AI regulation",
+          "new": "California issues historic fine over lawyer's ChatGPT fabrications",
+          "evidence": "Own artifact: snapshot.md shows the headline '… historic fine over lawyer’s ChatGPT fabrications / BY KHARI JOHNSON / SEPTEMBER 22, 2025'; the old value is the page's SEO title (PDF metadata / file name), t/4402#1. Publisher page fetched 2026-10-27 confirms the headline. Value matches the duplicate_of member california-issues-historic-fine-over-lawyers-chatgpt-2026 verbatim. The SEO title is NOT kept as an alias: the metadata schema has no alias/alternate-title field (New-Metadata.ps1), and adding one is a shape change outside this values-only list."
+        },
+        {
+          "field": "url",
+          "old": "",
+          "new": "https://calmatters.org/economy/technology/2025/09/chatgpt-lawyer-fine-ai-regulation/",
+          "evidence": "Publisher page fetched 2026-10-27 (WebFetch): headline 'California issues historic fine over lawyer's ChatGPT fabrications', Khari Johnson, September 22, 2025, the $10,000 Mostafavi fine. The URL slug matches the SEO title the raw file carries."
+        },
+        {
+          "field": "date_published",
+          "old": null,
+          "new": "2025-09-22",
+          "evidence": "Own artifact: snapshot.md byline 'SEPTEMBER 22, 2025'; publisher page; the member doc's metadata already carries 2025-09-22."
+        },
+        {
+          "field": "source_time",
+          "old": null,
+          "new": "2025-09-22",
+          "evidence": "Consistency addition beyond t/4402#1, flagged for the SO: in every other target and canonical source_time equals date_published, and taxonomy-editor reads it (src/server/storage/fileIO.ts:841). Same evidence as date_published."
+        },
+        {
+          "field": "authors",
+          "old": [],
+          "new": ["Khari Johnson"],
+          "evidence": "Consistency addition beyond t/4402#1, flagged for the SO: snapshot byline 'BY KHARI JOHNSON'; publisher page; the member doc's metadata already carries ['Khari Johnson']."
+        }
+      ]
+    },
+    {
+      "doc_id": "how-existing-liability-frameworks-can-handle-agentic-ai-2026",
+      "path": "how-existing-liability-frameworks-can-handle-agentic-ai-2026/metadata.json",
+      "pre_sha256": "57962fecea6f0033787ed180924c5d7e9f38654995ec122fc62f78a76b68fa65",
+      "post_sha256": "49348b76a9e5633fffd120b5e96a1fa5191ec2bfa0bb53662317b6ccff1e424d",
+      "fields": [
+        {
+          "field": "url",
+          "old": "https://www.linkedin.com/posts/the-lawfare-institute_how-existing-liability-frameworks-can-handle-activity-7402008287564476416-bwAM",
+          "new": "https://www.lawfaremedia.org/article/how-existing-liability-frameworks-can-handle-agentic-ai-harms",
+          "evidence": "Publisher page fetched 2026-10-27 (WebFetch): title 'How Existing Liability Frameworks Can Handle Agentic AI Harms', Maarten Herbosch, Wednesday December 3, 2025 (matches this doc's title, author and date_published). Own artifact: snapshot.md opens 'Cybersecurity & Tech / How Existing Liability Frameworks Can Handle Agentic AI Harms / Maarten Herbosch / Wed…' (Lawfare's section layout); member -2026-1's title ends '  Lawfare'. Old value is a LinkedIn share post found by search."
+        },
+        {
+          "field": "resolved_url",
+          "old": "https://www.linkedin.com/posts/the-lawfare-institute_how-existing-liability-frameworks-can-handle-activity-7402008287564476416-bwAM",
+          "new": "https://www.lawfaremedia.org/article/how-existing-liability-frameworks-can-handle-agentic-ai-harms",
+          "evidence": "Same as url; debate citations read resolved_url first."
+        },
+        {
+          "field": "provenance",
+          "old": [{"scheme": "url", "id": "https://www.linkedin.com/posts/the-lawfare-institute_how-existing-liability-frameworks-can-handle-activity-7402008287564476416-bwAM", "confidence": "search"}],
+          "new": [{"scheme": "url", "id": "https://www.lawfaremedia.org/article/how-existing-liability-frameworks-can-handle-agentic-ai-harms", "confidence": "verified"}],
+          "evidence": "Replaces the wrong search guess; URL checked against the publisher page."
+        },
+        {
+          "field": "provenance_status",
+          "old": "extracted",
+          "new": "verified",
+          "evidence": "Existing derivation rule (any 'verified' entry)."
+        }
+      ]
+    },
+    {
+      "doc_id": "international-ai-safety-report-2026-2026-1",
+      "path": "international-ai-safety-report-2026-2026-1/metadata.json",
+      "pre_sha256": "c76c13b98e4870982cb16897026434614423da2eb9ae673065712e1e51c772b6",
+      "post_sha256": "6b4971d122a431a3c28bb8afacc26a3f991f4808549a535a797be99089b13656",
+      "fields": [
+        {
+          "field": "url",
+          "old": "https://www.linkedin.com/posts/yoshuabengio_today-were-releasing-the-international-ai-activity-7424442271615582209-dOCq",
+          "new": "https://internationalaisafetyreport.org/publication/international-ai-safety-report-2026",
+          "evidence": "Own artifact: snapshot.md is a browser print of this page; its page footer URL 'https://internationalaisafetyreport.org/publication/international-ai-safety-report-2026' occurs 325 times, and its header reads 'International AI Safety Report 2026 | International AI Safety Report … 3 FEBRUARY 2…'. Old value is Yoshua Bengio's LinkedIn announcement post found by search."
+        },
+        {
+          "field": "resolved_url",
+          "old": "https://www.linkedin.com/posts/yoshuabengio_today-were-releasing-the-international-ai-activity-7424442271615582209-dOCq",
+          "new": "https://internationalaisafetyreport.org/publication/international-ai-safety-report-2026",
+          "evidence": "Same as url; debate citations read resolved_url first."
+        },
+        {
+          "field": "provenance",
+          "old": [{"scheme": "url", "id": "https://www.linkedin.com/posts/yoshuabengio_today-were-releasing-the-international-ai-activity-7424442271615582209-dOCq", "confidence": "search"}],
+          "new": [{"scheme": "url", "id": "https://internationalaisafetyreport.org/publication/international-ai-safety-report-2026", "confidence": "extracted"}],
+          "evidence": "Replaces the wrong search guess. 'extracted' (not 'verified') because the URL is extracted from our own snapshot, not checked against a live page. provenance_status stays 'extracted'."
+        }
+      ]
+    },
+    {
+      "doc_id": "scaling-laws-differentially-private-language-models-2026-1",
+      "path": "scaling-laws-differentially-private-language-models-2026-1/metadata.json",
+      "pre_sha256": "71327cb1c0b314c5b5672ec6cd50af951dbc7dab3d618ef838f4d29140b6e413",
+      "post_sha256": "ae0119c04d80ff7d962613c84f22a94adb2b6ff5d542d0b5a71ac58914e0f5e9",
+      "fields": [
+        {
+          "field": "url",
+          "old": "https://github.com/AkihikoWatanabe/paper_notes/issues/2791",
+          "new": "https://proceedings.mlr.press/v267/mckenna25a.html",
+          "evidence": "Own artifact: raw file is raw/mckenna25a.pdf (PMLR's paper key) and its text reads 'Vancouver, Canada. PMLR 267, 2025'. This is the ICML 2025 version, a different file from the arXiv canonical (raw blob 02eb577… vs 6482d1d…), which is why it is correctly not marked duplicate_of. Publisher page fetched 2026-10-27 (WebFetch): 'Scaling Laws for Differentially Private Language Models', McKenna et al., Proceedings of ICML 2025, PMLR 267:43375-43398. Old value is a third-party paper-notes GitHub issue found by search."
+        },
+        {
+          "field": "resolved_url",
+          "old": "https://github.com/AkihikoWatanabe/paper_notes/issues/2791",
+          "new": "https://proceedings.mlr.press/v267/mckenna25a.html",
+          "evidence": "Same as url; debate citations read resolved_url first."
+        },
+        {
+          "field": "provenance",
+          "old": [{"scheme": "url", "id": "https://github.com/AkihikoWatanabe/paper_notes/issues/2791", "confidence": "search"}],
+          "new": [{"scheme": "url", "id": "https://proceedings.mlr.press/v267/mckenna25a.html", "confidence": "verified"}],
+          "evidence": "Replaces the wrong search guess; URL checked against the publisher page."
+        },
+        {
+          "field": "provenance_status",
+          "old": "extracted",
+          "new": "verified",
+          "evidence": "Existing derivation rule (any 'verified' entry)."
+        }
+      ]
+    }
+  ],
+  "not_included": [
+    "snapshot.md headers of text-2026, text-2026-1 ('Title : text') and the California canonical (SEO title) still show the old titles. Snapshot files are content artifacts, not metadata; not changed here.",
+    "California canonical: no resolved_url/provenance keys exist; consumers fall back to url (debateEngine.ts:1377), so no key is added (values-only).",
+    "scaling-laws-…-2026-1 date_published '2025-01-01' looks like a year-only placeholder (PMLR 267 = ICML 2025, July 2025); not in t/4402#1 and no exact date evidenced in our artifacts, so left alone.",
+    "WEO canonical world-economic-outlook-update-…-2026-2 url is a third-party mirror (service.betterregulation.com, confidence 'search'); out of scope for this list, noted for a follow-up."
+  ]
+}

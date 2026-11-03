@@ -253,3 +253,164 @@ describe('NodeTree debate-tested chip display gate (t/1661)', () => {
     expect(chipTextFor('Belief no record')).toBeNull();
   });
 });
+
+// ── t/4532: title-only nav, per-POV collapse state, no-auto-expand on first view ──
+
+describe('t/4532: nav row shows title only, no aphorism', () => {
+  it('never renders graph_attributes.aphorism, even when present', () => {
+    mockSessionStorage.setItem('taxonomy-editor-collapsed-categories', '[]');
+    const withAphorism = [
+      makeNode({ id: 'acc-B-001', category: 'Beliefs', label: 'Open dev is safe', graph_attributes: { aphorism: 'Move fast, build things' } as any }),
+    ];
+    render(<NodeTree nodes={withAphorism} selectedNodeId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText('Open dev is safe')).toBeDefined();
+    expect(screen.queryByText('Move fast, build things')).toBeNull();
+  });
+});
+
+describe('t/4532: collapse state is per POV', () => {
+  const accNodes = NODES; // acc-* ids, as above
+  const safNodes: PovNode[] = [
+    makeNode({ id: 'saf-B-001', category: 'Beliefs', label: 'Caution first' }),
+    makeNode({ id: 'saf-D-001', category: 'Desires', label: 'Avoid harm' }),
+    makeNode({ id: 'saf-I-001', category: 'Intentions', label: 'Slow rollout' }),
+  ];
+
+  beforeEach(() => mockSessionStorage.clear());
+
+  it('expanding Desires for one POV leaves Desires collapsed for another', () => {
+    const r1 = render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    fireEvent.click(document.querySelector('[data-cat="Desires"]')!);
+    expect(screen.getByText('Maximize progress')).toBeDefined();
+    r1.unmount();
+
+    render(<NodeTree nodes={safNodes} selectedNodeId={null} onSelect={vi.fn()} pov="safetyist" />);
+    expect(screen.queryByText('Avoid harm')).toBeNull(); // still collapsed: safetyist's own key, untouched
+  });
+
+  it('reopening a POV already visited this session keeps what was expanded there', () => {
+    const r1 = render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    fireEvent.click(document.querySelector('[data-cat="Desires"]')!);
+    expect(screen.getByText('Maximize progress')).toBeDefined();
+    r1.unmount();
+
+    // Switch away and back (PovTab's conditional mount: NodeTree remounts fresh each time).
+    render(<NodeTree nodes={safNodes} selectedNodeId={null} onSelect={vi.fn()} pov="safetyist" />).unmount();
+    render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.getByText('Maximize progress')).toBeDefined(); // still expanded
+  });
+
+  it('two NodeTree instances with no pov prop share the legacy bare key (backward compat)', () => {
+    // Existing suites above never pass `pov` and seed the bare key directly — this just pins
+    // that the fallback really is the pre-t/4532 key, not a `:undefined`-suffixed one.
+    mockSessionStorage.setItem('taxonomy-editor-collapsed-categories', '[]');
+    render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText('Open dev is safe')).toBeDefined();
+  });
+});
+
+describe('t/4532: a preselected/restored node does not auto-expand its category on first view', () => {
+  beforeEach(() => mockSessionStorage.clear());
+
+  it('first-ever view this session: a preselected node in a collapsed category stays collapsed', () => {
+    // True first view: sessionStorage has nothing for this POV yet.
+    render(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.queryByText('Maximize progress')).toBeNull(); // Desires stays collapsed
+  });
+
+  it('the first non-null selection on a first view is suppressed too (PovTab\'s "auto-select first node on load" effect sets selectedNodeId from null to an id ASYNCHRONOUSLY, shortly after mount — the exact same shape, not a user action)', () => {
+    const { rerender } = render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.queryByText('Maximize progress')).toBeNull();
+    rerender(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.queryByText('Maximize progress')).toBeNull(); // still suppressed: this transition IS the first view's auto-select
+  });
+
+  it('a later, genuinely explicit selection (search, link, keyboard-nav) still auto-expands', () => {
+    // The guard is consumed by the first selection change (PovTab's auto-select, above) — a
+    // SECOND change, in a different category, is what a real user-driven explicit navigation
+    // looks like from NodeTree's side, since it necessarily happens after the tree has already
+    // rendered for the user to act on.
+    const { rerender } = render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    rerender(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />); // consumes the guard
+    expect(screen.queryByText('Fund research')).toBeNull();
+    rerender(<NodeTree nodes={NODES} selectedNodeId="acc-I-001" onSelect={vi.fn()} pov="accelerationist" />); // a later, explicit selection
+    expect(screen.getByText('Fund research')).toBeDefined();
+  });
+
+  it('reopening a POV already visited this session: a preselected node DOES auto-expand (not a first view)', () => {
+    render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />).unmount();
+    // Second mount: sessionStorage already has this POV's key (still all-collapsed, but present).
+    render(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.getByText('Maximize progress')).toBeDefined();
+  });
+});
+
+// ── t/4578: L2 hierarchy removed — flat list under every BDI category in every sort mode ──
+
+describe('t/4578: POV tree renders flat, no L2 parent/child hierarchy', () => {
+  // A former-parent node with two former-children, mixed in with an ordinary leaf — exactly the
+  // shape that used to trigger the hierarchical branch for Label/Similarity sorts.
+  const HIERARCHY_NODES: PovNode[] = [
+    makeNode({ id: 'acc-B-010', category: 'Beliefs', label: 'Zeta parent belief', children: ['acc-B-011', 'acc-B-012'] }),
+    makeNode({ id: 'acc-B-011', category: 'Beliefs', label: 'Alpha child one', parent_id: 'acc-B-010' }),
+    makeNode({ id: 'acc-B-012', category: 'Beliefs', label: 'Beta child two', parent_id: 'acc-B-010' }),
+    makeNode({ id: 'acc-B-013', category: 'Beliefs', label: 'Mid ordinary leaf' }),
+  ];
+
+  beforeEach(() => {
+    mockSessionStorage.clear();
+    mockSessionStorage.setItem('taxonomy-editor-collapsed-categories', '[]');
+  });
+
+  it('renders every former-child and former-parent node as a plain row, with no parent header DOM', () => {
+    const { container } = render(<NodeTree nodes={HIERARCHY_NODES} selectedNodeId={null} onSelect={vi.fn()} sortMode="label" />);
+    expect(screen.getByText('Zeta parent belief')).toBeDefined();
+    expect(screen.getByText('Alpha child one')).toBeDefined();
+    expect(screen.getByText('Beta child two')).toBeDefined();
+    expect(screen.getByText('Mid ordinary leaf')).toBeDefined();
+    // No hierarchical DOM survives: no parent-header group, no count badge, no indentation.
+    expect(container.querySelector('.node-tree-parent-group')).toBeNull();
+    expect(container.querySelector('.node-tree-parent-header')).toBeNull();
+    expect(container.querySelector('.node-item-child')).toBeNull();
+  });
+
+  it('sorts the whole category alphabetically in Label sort, former parent/child distinction dropped', () => {
+    render(<NodeTree nodes={HIERARCHY_NODES} selectedNodeId={null} onSelect={vi.fn()} sortMode="label" />);
+    const rows = Array.from(document.querySelectorAll('.node-item')).map(el => el.textContent);
+    const beliefRows = rows.filter(t => /Alpha|Beta|Mid|Zeta/.test(t ?? ''));
+    expect(beliefRows).toEqual([
+      'Alpha child one',
+      'Beta child two',
+      'Mid ordinary leaf',
+      'Zeta parent belief',
+    ]);
+  });
+
+  it('a former-parent node is a normal selectable row (click fires onSelect with its own id, not a toggle)', () => {
+    const onSelect = vi.fn();
+    render(<NodeTree nodes={HIERARCHY_NODES} selectedNodeId={null} onSelect={onSelect} sortMode="label" />);
+    fireEvent.click(screen.getByText('Zeta parent belief').closest('.node-item')!);
+    expect(onSelect).toHaveBeenCalledWith('acc-B-010');
+  });
+
+  it('onVisibleIdsChange reports the same flat order the DOM renders, in Label sort', () => {
+    const onVisibleIdsChange = vi.fn();
+    render(
+      <NodeTree
+        nodes={HIERARCHY_NODES}
+        selectedNodeId={null}
+        onSelect={vi.fn()}
+        sortMode="label"
+        onVisibleIdsChange={onVisibleIdsChange}
+      />,
+    );
+    const lastCall = onVisibleIdsChange.mock.calls.at(-1)?.[0] as string[];
+    expect(lastCall).toEqual(['acc-B-011', 'acc-B-012', 'acc-B-013', 'acc-B-010']);
+  });
+
+  it('a category with no parent/child nodes at all still renders flat (no regression for ordinary data)', () => {
+    render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} sortMode="label" />);
+    expect(screen.getByText('Open dev is safe')).toBeDefined();
+    expect(screen.getByText('Markets self-correct')).toBeDefined();
+  });
+});

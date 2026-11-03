@@ -54,6 +54,14 @@
     Writes the new secret and restarts both apps, but stops before the deletion phase — use this
     to rotate without immediately retiring the old credential (e.g. a scheduled rotation where
     the old one isn't known-bad yet).
+.PARAMETER GitHubSecretNameOverride
+    t/4481 (t/4288 R5 guard-testability gap): overrides which GitHub Actions secret name Phase 1
+    writes. Defaults to the real name for -Provider (unchanged behavior when omitted). Lets a
+    dry-run point the full script, end-to-end, at a scratch secret name instead of the real
+    AAD_CLIENT_SECRET/GOOGLE_CLIENT_SECRET/GH_OAUTH_CLIENT_SECRET.
+.PARAMETER ContainerSecretNameOverride
+    t/4481: same as -GitHubSecretNameOverride, for the Azure Container App secret name. Defaults
+    to the real name for -Provider.
 .EXAMPLE
     ./Rotate-SignInSecret.ps1 -Provider aad -AadAppId 51dee973-5497-47f8-a749-68603cbe8c8f
 .EXAMPLE
@@ -73,7 +81,11 @@ param(
 
     [string]$ContainerAppName = 'taxonomy-editor',
 
-    [switch]$SkipDelete
+    [switch]$SkipDelete,
+
+    [string]$GitHubSecretNameOverride,
+
+    [string]$ContainerSecretNameOverride
 )
 
 Set-StrictMode -Version Latest
@@ -94,6 +106,11 @@ $providerMap = @{
 }
 $cfg = $providerMap[$Provider]
 $apps = @($ContainerAppName, "$ContainerAppName-staging")
+
+# t/4481 (t/4288 R5 guard-testability gap): override points, defaulting to the real names so
+# ordinary (no-override) behavior is byte-identical to before this change.
+if ($GitHubSecretNameOverride) { $cfg.GitHubSecret = $GitHubSecretNameOverride }
+if ($ContainerSecretNameOverride) { $cfg.ContainerSecret = $ContainerSecretNameOverride }
 
 if ($Provider -eq 'aad' -and -not $AadAppId) {
     throw (New-ActionableError -Goal 'Rotate the Microsoft sign-in secret' `

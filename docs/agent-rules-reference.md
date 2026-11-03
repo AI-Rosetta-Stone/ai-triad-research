@@ -53,7 +53,7 @@ This is not `direct` failing at what it is chosen for — one agent committing s
 
 Before `gh pr merge`, confirm all four (prevents stranded/stale-head merges — #710, #701, #830/#831, t/2470):
 0. **Base is `main`** — `gh pr view <N> --json baseRefName` (GitHub silently suggests the parent feature branch).
-1. **Head matches your push — ENFORCE it with `--match-head-commit`.** Always self-merge as:
+1. **Head matches your push — ENFORCE it with `--match-head-commit`.** On `main` (queue-protected), enqueue with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` (t/4740), which pins the head and verifies the PR actually entered the queue, falling back to the direct GraphQL mutation on a silent miss — the bare `gh pr merge --auto --squash --match-head-commit <sha>` CLI form has twice (t/4731#1, t/4740#1) reported success while leaving the PR unenqueued. For a direct (non-queue) merge, still pass the flag yourself:
    `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`
    GitHub then refuses the merge *atomically* if the live head ≠ that SHA — race-free: a stale local view OR a newer push both abort instead of stranding the later commit (#1868). Never run a bare `gh pr merge` without this flag.
 2. **CI ran on that exact OID** — `gh run list --commit <headRefOid>` is green, not a predecessor's.
@@ -72,6 +72,10 @@ Before `gh pr merge`, confirm all four (prevents stranded/stale-head merges — 
 > 4. **No tool tells you a rule is live; only an observed injection does.** `get_feedback_rule` reports the *definition* (this rule said `enabled: true` while dead). `list_feedback_rules(enabled: true)` is the better liveness signal (absent ⇒ not live), but present ≠ executing. Fire a deliberately triggering no-op and read what comes back, and repeat after any platform update.
 
 The `pre-self-merge-verify` hook **injects an advisory** on a manual `gh pr merge` that omits `--match-head-commit` (t/3270; pure-predicate `operations/devops/merge-guard-predicate.mjs`). It is not blocking yet; see above. `--auto` is exempt: it can't carry the flag and is stale-head-safe by GitHub re-targeting, and its gated-PR risk is handled by the `consult-hold` and `joint-gv` contexts. **Emergency override, once it blocks** (broken tooling / P1 hotfix), in the same spirit as the commit-guard's `--no-verify`: `disable_feedback_rule pre-self-merge-verify`, merge, then re-enable.
+
+**Merge queue (t/4567, t/4580).** Once `main` moves to the GitHub merge queue, "self-merge" becomes "enqueue pinned", a bare manual merge is refused by branch protection, and the incident hotfix jumps the queue without skipping any required check. The queue rationale, the fail-closed label guards, and the SO conditions C1–C5 are in t/4567 and t/4580.
+
+> **`autoMergeRequest` does not track merge-queue state once a PR actually enters the queue (found p/27#91, confirmed on #4075; lifecycle corrected p/27#92, confirmed on #4099).** The full lifecycle: right after arming (`gh pr merge --auto`), `autoMergeRequest` IS populated while checks are still running and `isInMergeQueue` is still `false` — at that point `autoMergeRequest` correctly answers "is it armed". Once checks pass and GitHub actually pulls the PR into the queue, `autoMergeRequest` goes back to `null` and `isInMergeQueue`/`mergeQueueEntry` become the true signal. The "lies" moment is specifically *after* real queue entry, not the whole arm→merge window — checking `autoMergeRequest` alone at that point reads as disarmed when it is not, risking a double re-arm. **Use `isInMergeQueue` / `mergeQueueEntry{position,state}` via GraphQL** to check queue membership; `autoMergeRequest` is only reliable for the pre-queue-entry "is `--auto` armed" question.
 
 ## 4. PR-flow practice rules (full text)
 

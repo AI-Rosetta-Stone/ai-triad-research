@@ -97,7 +97,17 @@ function Invoke-PolarityGatePass {
     $counts = @{ opposes = 0; agrees = 0; unrelated = 0; unresolved = 0; gated = 0; reps = 0
                  judge_flipped = 0; judge_kept = 0; self_healed = 0 }
     $items = @($KeyPoints)
-    if ($SkipDirectionalGate -or $items.Count -eq 0) { return $counts }
+    if ($items.Count -eq 0) { return $counts }
+    # t/4572 write-freeze (SO C3): this gate WRITES stance_polarity_flag into every
+    # summary's key_points on every finalize. Treated identically to the existing
+    # -SkipDirectionalGate (mutates nothing) until this consumer is recalibrated
+    # against the corrected label mapping -- see Test-NliDirectionalGateFrozen.
+    if ($SkipDirectionalGate -or (Test-NliDirectionalGateFrozen -Consumer 'PolarityGatePass')) {
+        if (-not $SkipDirectionalGate) {
+            Write-Warning "Invoke-PolarityGatePass: directional gate frozen pending recalibration (t/4572) -- stance mapping unchanged this pass."
+        }
+        return $counts
+    }
 
     # ── node_prop lookup: label + Core, Encompasses:/Excludes: tails stripped ──
     # IDENTICAL construction to V1 (Invoke-OrgClaimMatching) — TL GV condition #3.

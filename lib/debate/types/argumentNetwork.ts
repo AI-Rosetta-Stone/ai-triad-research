@@ -112,6 +112,15 @@ export interface ClaimTaxonomyAttribution {
   secondary_refs?: { node_id: string; similarity: number }[];
   /** Reason the claim was unattributed, if applicable. */
   unattributed_reason?: 'novel_argument' | 'no_embedding' | 'direction_mismatch';
+  /**
+   * Best-matching synthetic statement for this claim against the attributed node's synthetic
+   * corpus (t/4644/t/4692) — NOT the node's canonical DOLCE description. Computed once at
+   * attribution time (max cosine of the claim's embedding against the node's synthetic
+   * vectors), so prompt renderers and the UI both read the exact text that grounded the claim
+   * rather than recomputing it. Absent when attribution failed, or when the node has no
+   * synthetic corpus — older debates predating t/4692 also have no value here.
+   */
+  grounding_statement?: string;
 }
 
 export interface ArgumentNetworkEdge {

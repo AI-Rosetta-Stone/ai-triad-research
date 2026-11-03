@@ -2,7 +2,7 @@
 
 **Ticket:** t/664
 **Author:** Design (Orca)
-**Status:** Ready for implementation
+**Status:** Superseded. The Welcome Tour overlay (`OnboardingTour`) and the Help dialog's "Welcome Tour" tab are retired. Their content now lives on the **Rosetta Stone** home page (`RosettaStoneTab.tsx`, t/4542), which is the top item in the left rail and opens on launch. The PI confirmed this replacement on 2026-10-27. This document is kept for history only; don't implement from it.
 
 ## Overview
 

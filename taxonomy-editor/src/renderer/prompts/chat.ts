@@ -99,9 +99,10 @@ Respond ONLY with a JSON object in this exact format (no markdown, no code fence
 {
   "response": "Your response text here (use markdown formatting for structure)",
   "taxonomy_refs": [
-    { "node_id": "xxx-yyy", "relevance": "How this node informed your response" }
+    { "node_id": "acc-beliefs-001", "relevance": "How this node informed your response" }
   ]
-}`;
+}
+Each "node_id" MUST be copied verbatim, character-for-character, from YOUR TAXONOMY CONTEXT above — never paraphrase, shorten, or append a label/slug to it (e.g. "sit-153", not "sit-153-ensuring-ai-alignment-and-control"). An id that doesn't exactly match a node in your taxonomy context will be silently dropped before the user sees it.`;
 }
 
 // ── First message prompt (the POVer's opening) ───────────

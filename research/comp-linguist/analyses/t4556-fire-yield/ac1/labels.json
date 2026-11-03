@@ -1,0 +1,758 @@
+{
+ "labels": {
+  "bold-dataset-000": [
+   "genuine",
+   "A"
+  ],
+  "bold-dataset-001": [
+   "genuine",
+   "C"
+  ],
+  "bold-dataset-002": [
+   "genuine",
+   "A"
+  ],
+  "bold-dataset-003": [
+   "genuine",
+   "D"
+  ],
+  "bold-dataset-004": [
+   "genuine",
+   "C"
+  ],
+  "bold-dataset-005": [
+   "genuine",
+   "E"
+  ],
+  "bold-dataset-006": [
+   "genuine",
+   "D"
+  ],
+  "bold-dataset-007": [
+   "genuine",
+   "C"
+  ],
+  "bold-dataset-008": [
+   "stretched",
+   null
+  ],
+  "bold-dataset-009": [
+   "genuine",
+   "C"
+  ],
+  "bold-dataset-010": [
+   "genuine",
+   "C"
+  ],
+  "bold-dataset-011": [
+   "genuine",
+   "A"
+  ],
+  "constructing-000": [
+   "genuine",
+   "I"
+  ],
+  "constructing-001": [
+   "genuine",
+   "B"
+  ],
+  "constructing-002": [
+   "genuine",
+   "A"
+  ],
+  "constructing-003": [
+   "genuine",
+   "D"
+  ],
+  "constructing-004": [
+   "genuine",
+   "B"
+  ],
+  "constructing-005": [
+   "genuine",
+   "C"
+  ],
+  "constructing-006": [
+   "genuine",
+   "H"
+  ],
+  "constructing-007": [
+   "genuine",
+   "G"
+  ],
+  "constructing-008": [
+   "genuine",
+   "J"
+  ],
+  "constructing-009": [
+   "genuine",
+   "H"
+  ],
+  "constructing-010": [
+   "genuine",
+   "A"
+  ],
+  "constructing-011": [
+   "genuine",
+   "A"
+  ],
+  "constructing-012": [
+   "genuine",
+   "E"
+  ],
+  "constructing-013": [
+   "genuine",
+   "D"
+  ],
+  "constructing-014": [
+   "stretched",
+   null
+  ],
+  "constructing-015": [
+   "genuine",
+   "K"
+  ],
+  "constructing-016": [
+   "genuine",
+   "L"
+  ],
+  "constructing-017": [
+   "genuine",
+   "F"
+  ],
+  "constructing-018": [
+   "genuine",
+   "J"
+  ],
+  "constructing-019": [
+   "stretched",
+   null
+  ],
+  "constructing-020": [
+   "genuine",
+   "I"
+  ],
+  "new-economy--000": [
+   "genuine",
+   "P"
+  ],
+  "new-economy--001": [
+   "genuine",
+   "B"
+  ],
+  "new-economy--002": [
+   "genuine",
+   "O"
+  ],
+  "new-economy--003": [
+   "genuine",
+   "C"
+  ],
+  "new-economy--004": [
+   "genuine",
+   "D"
+  ],
+  "new-economy--005": [
+   "genuine",
+   "E"
+  ],
+  "new-economy--006": [
+   "genuine",
+   "E"
+  ],
+  "new-economy--007": [
+   "genuine",
+   "M"
+  ],
+  "new-economy--008": [
+   "genuine",
+   "F"
+  ],
+  "new-economy--009": [
+   "genuine",
+   "A"
+  ],
+  "new-economy--010": [
+   "genuine",
+   "F"
+  ],
+  "new-economy--011": [
+   "genuine",
+   "G"
+  ],
+  "new-economy--012": [
+   "genuine",
+   "H"
+  ],
+  "new-economy--013": [
+   "genuine",
+   "I"
+  ],
+  "new-economy--014": [
+   "genuine",
+   "J"
+  ],
+  "new-economy--015": [
+   "genuine",
+   "A"
+  ],
+  "new-economy--016": [
+   "stretched",
+   null
+  ],
+  "new-economy--017": [
+   "genuine",
+   "L"
+  ],
+  "new-economy--018": [
+   "genuine",
+   "E"
+  ],
+  "new-economy--019": [
+   "stretched",
+   null
+  ],
+  "new-economy--020": [
+   "genuine",
+   "M"
+  ],
+  "new-economy--021": [
+   "genuine",
+   "N"
+  ],
+  "new-economy--022": [
+   "genuine",
+   "M"
+  ],
+  "something-bi-000": [
+   "genuine",
+   "A"
+  ],
+  "something-bi-001": [
+   "unsupported",
+   null
+  ],
+  "something-bi-002": [
+   "unsupported",
+   null
+  ],
+  "something-bi-003": [
+   "genuine",
+   "D"
+  ],
+  "something-bi-004": [
+   "unsupported",
+   null
+  ],
+  "something-bi-005": [
+   "genuine",
+   "G"
+  ],
+  "something-bi-006": [
+   "genuine",
+   "G"
+  ],
+  "something-bi-007": [
+   "genuine",
+   "H"
+  ],
+  "something-bi-008": [
+   "genuine",
+   "I"
+  ],
+  "something-bi-009": [
+   "genuine",
+   "G"
+  ],
+  "something-bi-010": [
+   "genuine",
+   "A"
+  ],
+  "something-bi-011": [
+   "genuine",
+   "J"
+  ],
+  "something-bi-012": [
+   "unsupported",
+   null
+  ],
+  "something-bi-013": [
+   "genuine",
+   "L"
+  ],
+  "something-bi-014": [
+   "genuine",
+   "I"
+  ],
+  "something-bi-015": [
+   "genuine",
+   "M"
+  ],
+  "something-bi-016": [
+   "genuine",
+   "N"
+  ],
+  "something-bi-017": [
+   "genuine",
+   "M"
+  ],
+  "something-bi-018": [
+   "genuine",
+   "G"
+  ],
+  "something-bi-019": [
+   "unsupported",
+   null
+  ],
+  "something-bi-020": [
+   "genuine",
+   "P"
+  ],
+  "something-bi-021": [
+   "genuine",
+   "J"
+  ],
+  "something-bi-022": [
+   "genuine",
+   "D"
+  ],
+  "something-bi-023": [
+   "genuine",
+   "Q"
+  ],
+  "something-bi-024": [
+   "genuine",
+   "G"
+  ],
+  "something-bi-025": [
+   "genuine",
+   "D"
+  ],
+  "risks-not-as-000": [
+   "genuine",
+   "B"
+  ],
+  "risks-not-as-001": [
+   "genuine",
+   "A"
+  ],
+  "risks-not-as-002": [
+   "genuine",
+   "C"
+  ],
+  "risks-not-as-003": [
+   "genuine",
+   "D"
+  ],
+  "risks-not-as-004": [
+   "genuine",
+   "D"
+  ],
+  "risks-not-as-005": [
+   "genuine",
+   "E"
+  ],
+  "risks-not-as-006": [
+   "genuine",
+   "A"
+  ],
+  "risks-not-as-007": [
+   "genuine",
+   "A"
+  ],
+  "risks-not-as-008": [
+   "genuine",
+   "F"
+  ],
+  "risks-not-as-009": [
+   "genuine",
+   "D"
+  ],
+  "risks-not-as-010": [
+   "genuine",
+   "G"
+  ],
+  "risks-not-as-011": [
+   "genuine",
+   "H"
+  ],
+  "risks-not-as-012": [
+   "stretched",
+   null
+  ],
+  "risks-not-as-013": [
+   "stretched",
+   null
+  ],
+  "risks-not-as-014": [
+   "genuine",
+   "A"
+  ],
+  "risks-not-as-015": [
+   "genuine",
+   "I"
+  ],
+  "risks-not-as-016": [
+   "stretched",
+   null
+  ],
+  "risks-not-as-017": [
+   "genuine",
+   "C"
+  ],
+  "risks-not-as-018": [
+   "genuine",
+   "N"
+  ],
+  "risks-not-as-019": [
+   "genuine",
+   "G"
+  ],
+  "risks-not-as-020": [
+   "genuine",
+   "K"
+  ],
+  "risks-not-as-021": [
+   "genuine",
+   "F"
+  ],
+  "risks-not-as-022": [
+   "genuine",
+   "D"
+  ],
+  "risks-not-as-023": [
+   "genuine",
+   "J"
+  ],
+  "risks-not-as-024": [
+   "genuine",
+   "L"
+  ],
+  "risks-not-as-025": [
+   "genuine",
+   "M"
+  ],
+  "prioritizing-000": [
+   "genuine",
+   "G"
+  ],
+  "prioritizing-001": [
+   "genuine",
+   "H"
+  ],
+  "prioritizing-002": [
+   "genuine",
+   "I"
+  ],
+  "prioritizing-003": [
+   "genuine",
+   "E"
+  ],
+  "prioritizing-004": [
+   "genuine",
+   "J"
+  ],
+  "prioritizing-005": [
+   "genuine",
+   "K"
+  ],
+  "prioritizing-006": [
+   "genuine",
+   "L"
+  ],
+  "prioritizing-007": [
+   "genuine",
+   "M"
+  ],
+  "prioritizing-008": [
+   "genuine",
+   "N"
+  ],
+  "prioritizing-009": [
+   "genuine",
+   "K"
+  ],
+  "prioritizing-010": [
+   "genuine",
+   "P"
+  ],
+  "prioritizing-011": [
+   "genuine",
+   "O"
+  ],
+  "prioritizing-012": [
+   "genuine",
+   "Q"
+  ],
+  "prioritizing-013": [
+   "genuine",
+   "C"
+  ],
+  "prioritizing-014": [
+   "genuine",
+   "R"
+  ],
+  "prioritizing-015": [
+   "genuine",
+   "M"
+  ],
+  "prioritizing-016": [
+   "genuine",
+   "H"
+  ],
+  "prioritizing-017": [
+   "genuine",
+   "D"
+  ],
+  "prioritizing-018": [
+   "genuine",
+   "D"
+  ],
+  "prioritizing-019": [
+   "genuine",
+   "E"
+  ],
+  "prioritizing-020": [
+   "genuine",
+   "C"
+  ],
+  "prioritizing-021": [
+   "genuine",
+   "S"
+  ],
+  "prioritizing-022": [
+   "genuine",
+   "B"
+  ],
+  "prioritizing-023": [
+   "genuine",
+   "T"
+  ],
+  "prioritizing-024": [
+   "genuine",
+   "P"
+  ],
+  "prioritizing-025": [
+   "genuine",
+   "P"
+  ],
+  "prioritizing-026": [
+   "genuine",
+   "N"
+  ],
+  "prioritizing-027": [
+   "genuine",
+   "C"
+  ],
+  "prioritizing-028": [
+   "genuine",
+   "B"
+  ],
+  "prioritizing-029": [
+   "genuine",
+   "U"
+  ],
+  "prioritizing-030": [
+   "genuine",
+   "V"
+  ],
+  "prioritizing-031": [
+   "genuine",
+   "G"
+  ],
+  "prioritizing-032": [
+   "genuine",
+   "X"
+  ],
+  "prioritizing-033": [
+   "genuine",
+   "S"
+  ],
+  "prioritizing-036": [
+   "genuine",
+   "B"
+  ],
+  "prioritizing-037": [
+   "genuine",
+   "Y"
+  ],
+  "prioritizing-038": [
+   "genuine",
+   "A"
+  ],
+  "prioritizing-039": [
+   "genuine",
+   "Y"
+  ],
+  "prioritizing-040": [
+   "genuine",
+   "S"
+  ],
+  "prioritizing-041": [
+   "genuine",
+   "A"
+  ],
+  "prioritizing-042": [
+   "genuine",
+   "P"
+  ],
+  "prioritizing-043": [
+   "genuine",
+   "B"
+  ],
+  "prioritizing-044": [
+   "genuine",
+   "M"
+  ],
+  "prioritizing-045": [
+   "genuine",
+   "T"
+  ],
+  "prioritizing-046": [
+   "genuine",
+   "Z"
+  ],
+  "prioritizing-047": [
+   "genuine",
+   "D"
+  ],
+  "prioritizing-048": [
+   "genuine",
+   "A"
+  ],
+  "prioritizing-049": [
+   "genuine",
+   "AA"
+  ],
+  "prioritizing-050": [
+   "genuine",
+   "N"
+  ],
+  "prioritizing-051": [
+   "genuine",
+   "A"
+  ],
+  "prioritizing-052": [
+   "genuine",
+   "P"
+  ],
+  "prioritizing-053": [
+   "genuine",
+   "H"
+  ],
+  "prioritizing-054": [
+   "genuine",
+   "X"
+  ],
+  "prioritizing-055": [
+   "genuine",
+   "B"
+  ],
+  "prioritizing-034": [
+   "stretched",
+   null
+  ],
+  "prioritizing-035": [
+   "stretched",
+   null
+  ]
+ },
+ "clusters": {
+  "bold-dataset-metrics-measuring-biases-open-ended-language-2026": {
+   "A": "LMs show larger social bias than the Wikipedia baseline, risking downstream harm",
+   "C": "BOLD dataset + metrics (sentiment/toxicity/regard/psycholinguistic/gender polarity), AMT-validated, proposed for benchmarking",
+   "D": "group-specific findings (African American, Islam/Atheism, social-media-trained CTRL more polar)",
+   "E": "NLG models are building blocks of many applications"
+  },
+  "constructing-ai-speech-2026": {
+   "A": "disruption is the wrong question: law co-constructs technology, not passively broken",
+   "B": "intent-centred First Amendment doctrine (Counterman etc.) mismatches AI speakers",
+   "C": "AI speech as speech at scale: notice-and-takedown style tools",
+   "D": "AI as risky complex system: ex ante risk regulation, with policy baggage",
+   "E": "EU AI Act product-safety model did not anticipate GPAI",
+   "F": "DSA risk-assessment toolkit for VLOPs",
+   "G": "Section 230 split, Bambauer and Surdeanu",
+   "H": "tort/products liability for software errors; shift from prevention to mitigation",
+   "I": "FTC consumer-protection construction; no AI exemption; de facto governance",
+   "J": "legal construction = values + institutions/tools + objects; choosing tools, regulatory arbitrage",
+   "K": "FTC scrutiny of AI capability claims, OpenAI investigation, dark patterns",
+   "L": "politics of the current Court and platform-bias laws shape construction"
+  },
+  "new-economy-skills-unlocking-human-advantage-2026": {
+   "A": "human-centric skills are the competitive edge; AI complements, tech investment alone insufficient",
+   "B": "Coursera: rising learning hours; analytical thinking as bridge skill (51% co-occur with AI)",
+   "C": "Indeed genAI transformation: human skills resist, others ~6x more likely transformed",
+   "D": "PISA 2022: <half ask clarifying questions, 44% review homework",
+   "E": "AWS SimuLearn case study",
+   "F": "Universidad de los Andes AI trend-analysis tool for curriculum",
+   "G": "Udemy AI Role Play case study",
+   "H": "credentialing human skills: badges need standards/metadata",
+   "I": "employers value but rarely measure human skills (72% of postings)",
+   "J": "Tec21 Monterrey: >15-point learning gains",
+   "L": "PwC badging case",
+   "M": "cognitive offloading risk; desirable difficulty",
+   "N": "human skills fragile; pandemic decline",
+   "O": "recommendation: prioritize new economy skills in learning; curriculum/teacher obstacles",
+   "P": "Workhuman recognition: future-driving skills least recognized"
+  },
+  "something-big-is-happening-but-not-what-you-think-2026": {
+   "A": "responsible adoption: use AI seriously, experiment, paid tools, automate repetitive tasks",
+   "D": "jagged frontier; Stanford-Carnegie hybrid teams beat autonomous agents by 68.7%",
+   "G": "greatest short-term danger is over-delegation; disciplined integration, human review, teach hybrid reasoning",
+   "H": "benchmark extrapolation is not societal destiny; institutions channel tech as risk management",
+   "I": "category mistake: task performance is not personhood/accountability; drafting is not signing",
+   "J": "acceleration is real; coding autonomy advanced",
+   "L": "quantum convergence raises the stakes",
+   "M": "hallucination remains the top concern for Bench and Bar",
+   "N": "bar-exam myth: Martinez re-evaluation, bottom 15% on essays",
+   "P": "viral fear narratives, algorithmic amplification, LLM-optimized rhetoric irony",
+   "Q": "AI assists but does not replace good associates",
+   "_note": "unsupported items here are page chrome (sidebar captions, archive link titles) or claims absent from the text"
+  },
+  "risks-not-assumed-against-application-assumption-risk-harms-2026": {
+   "A": "thesis: assumption of risk should not apply to AI harms; developers must not escape liability; limited regulation, growing litigation",
+   "B": "proximate cause can let defendants fend off meritless suits (intervening acts)",
+   "C": "AI inherits human bias from data; hard to eliminate",
+   "D": "black box / specialized knowledge: plaintiffs cannot know or appreciate AI risks (knowledge requirement unmet, King v. King)",
+   "E": "OpenAI disbanded safety teams; executive departures",
+   "F": "real harms without accountability: Setzer suicide, chatbots",
+   "G": "not voluntary: cannot freely opt out; spillover onto nonusers",
+   "H": "alternatives: clearer waivers and warnings, with limits",
+   "I": "industrial-era parallel: AI firms have the power to grow without the doctrine",
+   "J": "Stein, Sayre and Glover propose applying assumption of risk",
+   "K": "litigation landscape: Walters defamation, privacy, publicity, copyright, product cases",
+   "L": "history: all-or-nothing defense shifted accident burden onto workers (Casey)",
+   "M": "burden of safety should sit with developers",
+   "N": "catalogue of AI risks: moral deskilling, privacy, deepfakes, bias, culture, security",
+   "_note": "013 and 016 stretched: trade-secret mechanism and the COMPAS/Northpointe example are not in the text"
+  },
+  "prioritizing-risks-from-artificial-intelligence-2026": {
+   "A": "headline: >=10% catastrophic probability in 18/24 risks (BAU); 5 stay >10% under mitigations, incl. inequality & unemployment",
+   "B": "vulnerability diffuse (users, stakeholders) vs responsibility concentrated (GPAI developers + governance): moral hazard",
+   "C": "distributed responsibility / accountability sink; deployer vs developer vs infrastructure responsibility debate",
+   "D": "governance instruments (regulation, liability, insurance, transparency) needed to internalize costs",
+   "E": "competitive race dynamics push release despite known harms; privatized profits vs socialized tail risk",
+   "G": "overreliance harms: AI-assisted suicide, eroded judgment, emotional dependence",
+   "H": "black-box opacity: cannot challenge decisions; models may lie; compliance hard; prompt-processing flaw",
+   "I": "coding agent dropped a production table: subgoal misalignment example",
+   "J": "fragile AI in critical infrastructure: brittleness, large-scale disruption",
+   "K": "discrimination already severe (Uyghurs, Palestine; hiring, credit, >$2B/yr)",
+   "L": "education-sector vulnerability: uneven IT maturity, student data",
+   "M": "multi-agent risks: loss of control, cascading failures",
+   "N": "24-subdomain risk taxonomy (Slattery et al.), its domain definitions",
+   "O": "misuse of AI as a tool vs inherently dangerous capabilities",
+   "P": "power centralization and inequality: persistent, structural (compute scale, S&P 500 38%), need antitrust-scale intervention",
+   "Q": "industry coordination (developer mutual insurer) to cool race dynamics",
+   "R": "security: attack surface outpaces hardening; signed artifacts, isolation, default-deny",
+   "S": "socioeconomic harms: employment quality, devaluation of human effort, vulnerable occupations",
+   "T": "information ecosystem pollution, misinformation, eroded suspicion/trust",
+   "U": "users skip T&Cs and cannot control data retention/inference",
+   "V": "capability scaling and open-model proliferation outpace evals; residual cyber/CBRN risk",
+   "X": "GPAI providers lobby for deregulation/de-facto standards, undermining governance",
+   "Y": "method: 3-round Delphi, 272 experts, 24 domains, severity rubric adapted from CSET",
+   "Z": "AI fraud and scams already exceed catastrophic thresholds",
+   "AA": "infrastructure providers lever bias/accuracy through cost-performance of compute",
+   "_note": "expert quotes reported in the document count as asserted by it; 035 stretched (bibliography-derived), 034 stretched (counter-camp view not in text)"
+  }
+ }
+}

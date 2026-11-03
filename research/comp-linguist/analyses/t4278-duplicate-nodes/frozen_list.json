@@ -1,5 +1,5 @@
 {
-  "_comment": "t/4278 FROZEN target list (data-mutation element 1). Built read-only on 2026-10-20 against ai-triad-data origin/main 7dc19c88. The write script must READ this file and never re-derive the set. Preparation only (TL p/349#565); the write needs PI authorization. Survivor rule (SO e/343#2 Q3): a node's self-declaration that it is a duplicate comes first; then most edges in edges.json; on a tie, the lower ID. 'kind' comes from per-entry inspection (playbook check A), not set-level evidence.",
+  "_comment": "t/4278 FROZEN target list (data-mutation element 1). Built read-only on 2026-10-20 against ai-triad-data origin/main 7dc19c88. The write script must READ this file and never re-derive the set. Preparation only (TL p/349#565); the write needs PI authorization. Survivor rule (SO e/343#2 Q3): a node's self-declaration that it is a duplicate comes first; then most edges in edges.json; on a tie, the lower ID. 'kind' comes from per-entry inspection (playbook check A), not set-level evidence. UPDATED 2026-10-29 per PI decision (p/548#334, relayed t/4278#15): both held-editorial items are now resolved and folded into the mechanical set -- G5's saf-intentions-237 retires into -235, and G7's survivor flips from acc-beliefs-116 to acc-beliefs-115 (116 and 117 both retire into 115). This file's own hash changed as a result; the TL's and SO's earlier approvals of the prior hash do not carry over -- see so_review below.",
   "data_revision": "7dc19c88",
   "built": "2026-10-20",
   "groups": [
@@ -123,11 +123,11 @@
         "saf-intentions-236": 7,
         "saf-intentions-237": 7
       },
-      "note": "236's low cosine reflects its rewritten 'deprecated' description, not distinct content. Corrects the t/4278#1 'probably relabel' call.",
+      "note": "236's low cosine reflects its rewritten 'deprecated' description, not distinct content. Corrects the t/4278#1 'probably relabel' call. PI approved retiring 237 into 235 too (p/548#334, t/4278#15, 2026-10-29): 235 is the better survivor text (names microphone, camera and network, states the contrast with the language model); 237 is the vaguer restatement with the same Encompasses/Excludes.",
       "retire_mechanical": [
-        "saf-intentions-236"
+        "saf-intentions-236",
+        "saf-intentions-237"
       ],
-      "editorial_open": "saf-intentions-237 is held for the editorial pass with G7 (SO Q3). CL check: 235 is the better survivor text (it names microphone, camera and network, and states the contrast with the language model); 237 is the vaguer restatement with the same Encompasses/Excludes. Recommend retiring 237 into 235; the PI confirms.",
       "survivor_basis": "self-declaration: 236's description says it is a duplicate of 235"
     },
     {
@@ -154,14 +154,15 @@
       "group": "G7",
       "pov": "accelerationist",
       "label": "Behavioral Compliance Thresholds Become Adversarial Optimization Targets",
-      "kind": "116/117 exact copies; 115 a broader statement under the same label",
+      "kind": "116/117 exact copies of each other; 115 a broader statement under the same label. PI approved (p/548#334, t/4278#15, 2026-10-29): 115 survives -- the broader claim with more citations (10 vs 5+4) -- absorbing both 116 and 117.",
       "cosine": {
         "115-116": 0.903,
         "115-117": 0.903,
         "116-117": 1.0
       },
-      "survivor": "acc-beliefs-116",
+      "survivor": "acc-beliefs-115",
       "retire": [
+        "acc-beliefs-116",
         "acc-beliefs-117"
       ],
       "edges": {
@@ -169,8 +170,9 @@
         "acc-beliefs-116": 5,
         "acc-beliefs-117": 4
       },
-      "editorial_open": "acc-beliefs-115 vs 116: supersede 116 by 115 (115 has more edges and is the broader claim) or relabel 115 to separate it. A PI/editor call; not included in the mechanical set.",
+      "survivor_basis": "editorial (CL recommendation, t/4278#12): most-citations tie-break, same rule used for the mechanical groups' survivor choice -- 115's 10 citations exceed 116's 5 (already absorbing the near-identical 117's 4)",
       "retire_mechanical": [
+        "acc-beliefs-116",
         "acc-beliefs-117"
       ]
     },
@@ -197,11 +199,8 @@
   ],
   "totals": {
     "groups": 8,
-    "nodes_retired_mechanical": 8,
-    "held_editorial": [
-      "saf-intentions-237",
-      "acc-beliefs-115 vs -116 (G7)"
-    ]
+    "nodes_retired_mechanical": 10,
+    "held_editorial": []
   },
-  "so_review": "e/343#2: proceed with B under conditions C1-C5; no dissent. Re-confirm with the SO on any change to this list."
+  "so_review": "e/343#2: proceed with B under conditions C1-C5; no dissent (ORIGINAL approval, no longer covers this file's current hash). UPDATED 2026-10-29: PI approved both previously-held items (p/548#334, t/4278#15) -- G5's saf-intentions-237 and G7's flip to acc-beliefs-115 surviving. This file's hash changed; pending a fresh SO re-confirmation on the new hash per the PI's instruction before the combined apply."
 }

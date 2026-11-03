@@ -1,0 +1,3 @@
+frozen list sha256 29937a4e2318b0361cae68986224bc3074f2bd09ec0ee251dd20aab42967c72d  targets=1  mode=dry-run
+  OK world-economic-outlook-update-global-economy-steady-amid-2026-2: 4 field(s), 10 diff line(s), keys 24 unchanged, post_sha256 3d5b780325bade8d67e24cf87fe7ea20db1af8606416465d3689c6a0f8f9c7fe
+dry-run: 1/1 targets pass all checks; nothing written

@@ -1,0 +1,381 @@
+[
+ {
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 6,
+  "saved_off": 8,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 4,
+   "on": 4,
+   "off": 8,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.04
+  }
+ },
+ {
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 12,
+  "saved_off": 13,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 6,
+   "on": 13,
+   "off": 3,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0639
+  }
+ },
+ {
+  "doc": "do-ai-risks-require-extraordinary-government-intervention-2026",
+  "tag": "skeptic",
+  "chunked_saved": false,
+  "saved_model": "gemini-3.5-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 5,
+  "saved_off": 5,
+  "new": {
+   "status": "ok",
+   "path": "single_shot",
+   "extraction_mode": "single_shot",
+   "calls": 1,
+   "on": 3,
+   "off": 3,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0195
+  }
+ },
+ {
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 10,
+  "saved_off": 15,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 6,
+   "on": 8,
+   "off": 13,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.076
+  }
+ },
+ {
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 6,
+  "saved_off": 10,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 5,
+   "on": 5,
+   "off": 9,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.056
+  }
+ },
+ {
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.5-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 14,
+  "saved_off": 19,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 5,
+   "on": 13,
+   "off": 9,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0692
+  }
+ },
+ {
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.5-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 11,
+  "saved_off": 8,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 4,
+   "on": 7,
+   "off": 5,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0482
+  }
+ },
+ {
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 9,
+  "saved_off": 13,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 6,
+   "on": 13,
+   "off": 7,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0692
+  }
+ },
+ {
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 13,
+  "saved_off": 8,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 4,
+   "on": 8,
+   "off": 4,
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0435
+  }
+ },
+ {
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 19,
+  "saved_off": 13,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 7,
+   "on": 19,
+   "off": 4,
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0791
+  }
+ },
+ {
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "tag": "safetyist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 8,
+  "saved_off": 7,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 4,
+   "on": 8,
+   "off": 6,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0482
+  }
+ },
+ {
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "tag": "safetyist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 14,
+  "saved_off": 12,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 6,
+   "on": 14,
+   "off": 5,
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0717
+  }
+ },
+ {
+  "doc": "pluralistic-what-kind-bubble-is-ai-2026",
+  "tag": "skeptic",
+  "chunked_saved": false,
+  "saved_model": "gemini-3.5-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 7,
+  "saved_off": 6,
+  "new": {
+   "status": "ok",
+   "path": "single_shot",
+   "extraction_mode": "single_shot",
+   "calls": 1,
+   "on": 3,
+   "off": 1,
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.0164
+  }
+ },
+ {
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "tag": "safetyist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.1-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 21,
+  "saved_off": 12,
+  "new": {
+   "status": "ok",
+   "path": "chunked",
+   "extraction_mode": "single_shot",
+   "calls": 10,
+   "on": 23,
+   "off": 6,
+   "empty_camps": [],
+   "empty_cells_persisted": true,
+   "empty_cells_n": 0,
+   "empty_camps_undeclared": [],
+   "tagged_empty": false,
+   "tagged_empty_warn": false,
+   "crash": false,
+   "spend_usd": 0.114
+  }
+ },
+ {
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_model": "gemini-3.5-flash-lite",
+  "saved_mode": "single_shot",
+  "saved_on": 10,
+  "saved_off": 12,
+  "new": {
+   "status": "skipped_by_triage",
+   "reason": "duplicate_of set in metadata"
+  }
+ }
+]

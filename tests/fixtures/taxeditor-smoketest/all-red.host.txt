@@ -5,7 +5,7 @@ Smoke testing: https://stub
         connection refused
 
 === Endpoint Tests ===
-  [FAIL] /api/models — 500 42ms (12 nodes)
+  [FAIL] /api/models — 500 42ms
         HTTP 500
 
 === Anon Community Endpoints ===
@@ -67,7 +67,6 @@ Smoke testing: https://stub
 Category     Pass Fail
 --------     ---- ----
 Analytics       0    3
-Community       0    1
-Core            0    1
+Community       0    2
 DataPresence    0    3
 OpedFiles       0    1

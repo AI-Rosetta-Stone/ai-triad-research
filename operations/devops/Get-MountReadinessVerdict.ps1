@@ -48,11 +48,16 @@ The bounded mount-readiness loop the deploy workflow runs between the health che
 pre-traffic smoke (t/4513).
 
 .DESCRIPTION
-Each round runs the injected Probe scriptblock (expected to return $true/$false, never throw —
-the caller's probe wraps its own try/catch so a probe exception reads as "not ready yet", not an
-unhandled loop failure) and classifies it with Get-MountReadinessVerdict. Stops on the first
-'ready', or after MaxAttempts rounds with 'failed'. Sleeps IntervalSeconds between rounds, never
-after the last one.
+Each round runs the injected Probe scriptblock and classifies its $true/$false result with
+Get-MountReadinessVerdict. Stops on the first 'ready', or after MaxAttempts rounds with 'failed'.
+Sleeps IntervalSeconds between rounds, never after the last one.
+
+t/4513 incident (run 40358394585) revised the contract: this loop does NOT catch an exception
+from Probe. A genuine defect (e.g. a command that doesn't resolve, CommandNotFoundException)
+propagates out on the FIRST attempt rather than being retried 13 times as "not ready" -- the
+caller's own try/catch, one level up, is what distinguishes a gate defect from a real not-ready
+mount. Only a probe that itself returns $false for a transient condition (timeout, connection
+refused, HTTP error -- all caught internally by the probe's own HTTP layer) is a retryable round.
 #>
 function Wait-MountReady {
     [CmdletBinding()]

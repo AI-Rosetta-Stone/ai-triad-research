@@ -75,6 +75,13 @@ function rejectOpEdIpc(goal: string, method: string): Promise<never> {
 // When the drawer is used instead, we also deliver to local callbacks.
 const localDiagCallbacks = new Set<(state: unknown) => void>();
 
+// t/4642: shared by openDiagnosticsWindow and focusDiagnosticsWindow so the drawer-vs-popout
+// rule exists in one place, same extraction as web-bridge.ts's.
+function isDiagnosticsInline(): boolean {
+  const isPopout = window.location.hash.includes('debate-window');
+  return !isPopout && window.innerWidth <= 1023;
+}
+
 // Brief-timeout renderer-local event bus (t/2307). The debate pipeline runs in
 // THIS renderer window and the toast/dialog render in the SAME window, so emit
 // and consume share a module-local Set — no main-process IPC round-trip. Mirrors
@@ -192,6 +199,9 @@ export const api: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => window.electronAPI.loadAIModels(),
+  // t/4628: Electron has no anonymous-session concept — always signed-in-equivalent for model
+  // selection, so the t/4628 anonymous-default override never fires here (AC3).
+  checkAnonymousSession: async () => false,
   // t/4031: forward opts only when given, so a plain refresh sends the same IPC call as before.
   refreshAIModels: (opts) => (opts ? window.electronAPI.refreshAIModels(opts) : window.electronAPI.refreshAIModels()),
   validateApiKey: (key, backend) => window.electronAPI.validateApiKey?.(key, backend) ?? Promise.resolve({ valid: false, error: 'Key validation not available in this version' }),
@@ -366,6 +376,8 @@ export const api: AppAPI = {
     location: 'electron-bridge.unshareInquiry',
     nextSteps: ['Use the web app to manage share links.'],
   })),
+  // t/4562: mirrors loadCommunityOpEd — Community browsing itself is already web-only.
+  loadCommunityInquiry: async () => { throw new Error('Community Library is only available in the web app'); },
 
   // Brief Export — desktop parity via main-process IPC (t/2840). Calls the shared runBriefPipeline
   // in-process; download returns raw bytes wrapped into a Blob (Blob-returning AppAPI in both builds).
@@ -468,6 +480,8 @@ export const api: AppAPI = {
   loadCommunityChatSession: async () => { throw new Error('Community Library is only available in the web app'); },
   // Proxy through the main process so the cross-origin POST is not blocked by browser CORS.
   communitySubmit: (baseUrl, payload) => window.electronAPI.communitySubmit(baseUrl, payload),
+  // t/4746/t/4612: same CORS-bypass proxy, dedicated to the desktop Ask upload-to-draft flow.
+  submitAskToCommunity: (baseUrl, result, note) => window.electronAPI.submitAskToCommunity(baseUrl, result, note),
 
   // Support cases — desktop stubs (not supported in Electron per HLD)
   createSupportCase: () => Promise.reject(new Error('Support cases are only available in the web app')),
@@ -518,16 +532,23 @@ export const api: AppAPI = {
 
   // Diagnostics
   openDiagnosticsWindow: () => {
-    const isPopout = window.location.hash.includes('debate-window');
-    const width = window.innerWidth;
-    console.log(`[diagnostics] openDiagnosticsWindow: width=${width}, isPopout=${isPopout}, hash=${window.location.hash}`);
-    if (!isPopout && width <= 1023) {
+    console.log(`[diagnostics] openDiagnosticsWindow: width=${window.innerWidth}, hash=${window.location.hash}`);
+    if (isDiagnosticsInline()) {
       console.log('[diagnostics] Using drawer path (narrow main window)');
       window.dispatchEvent(new CustomEvent('open-diagnostics-drawer'));
-      return Promise.resolve();
+      return Promise.resolve('inline' as const);
     }
     console.log('[diagnostics] Using IPC path (popout or wide window)');
-    return window.electronAPI.openDiagnosticsWindow();
+    // t/4648: this bridge already knows the path taken (the IPC call only ever happens here, on
+    // the real-popout arm) — report it, rather than passing window.electronAPI's void through.
+    return window.electronAPI.openDiagnosticsWindow().then(() => 'popout' as const);
+  },
+  // t/4642/t/4663: 'inline' is decided here (the narrow-window drawer has no BrowserWindow to
+  // focus); otherwise delegates to the real 'focus-diagnostics-window' IPC handler, which
+  // returns 'focused'/'not-open' depending on whether the diagnostics popout is still open.
+  focusDiagnosticsWindow: () => {
+    if (isDiagnosticsInline()) return Promise.resolve('inline' as const);
+    return window.electronAPI.focusDiagnosticsWindow();
   },
   openPovProgressionWindow: () => window.electronAPI.openPovProgressionWindow(),
   closeDiagnosticsWindow: () => window.electronAPI.closeDiagnosticsWindow(),

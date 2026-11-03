@@ -6,6 +6,25 @@
   overflow-y: auto;
 }
 
+/* t/4774 follow-up (Design, PR #4410 review): the always-visible ModelPicker added ~140px over
+   the old checkbox, pushing Start Chat below the fold at ordinary laptop heights (1154x671: 779px
+   of content, only 602px visible). .new-chat-dialog is the scroll region (max-height/overflow-y
+   above), so pinning the footer here keeps Cancel/Start Chat visible while the rest scrolls under
+   it, instead of scrolling the footer out of view with everything else.
+   bottom: -24px, not 0 (Design, PR #4436 review): the sticky offset is measured inside .dialog's
+   own 24px padding, so bottom: 0 left a 24px strip below the footer that content could still
+   scroll through, showing the model <select> under Start Chat mid-scroll. -24px (the padding's
+   exact size) seats the footer flush with the dialog's real bottom edge at every scroll position
+   — verified live by Design. */
+.new-chat-dialog .dialog-actions {
+  position: sticky;
+  bottom: -24px;
+  margin: 12px -24px -24px;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
 .new-chat-label {
   display: block;
   margin: 12px 0 4px;
@@ -80,6 +99,7 @@
 }
 
 .new-chat-pover-option {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -99,8 +119,20 @@
   border-color: var(--focus-ring);
 }
 
+/* t/4536 round-3 review (t/4536#8): display:none made this unreachable by keyboard and by
+   .focus() alike (a display:none element can never receive focus). Visually-hidden instead —
+   still focusable, still toggled by the wrapping <label>, just not painted. */
 .new-chat-pover-option input[type="radio"] {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.new-chat-pover-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .new-chat-pover-name {
@@ -129,42 +161,6 @@
   border-color: var(--focus-ring);
 }
 
-.new-chat-model-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.new-chat-model-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.new-chat-model-select {
-  padding: 4px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-}
-
-.new-chat-model-info {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-
 /* ─── Monolith-extracted new-chat styles (Phase 3 co-location, t/2989) ─── */
 
 /* NewChatDialog — inline-style migration (t/1868). Values verbatim; no theme change. */
-
-.new-chat-model-fields {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 6px;
-}

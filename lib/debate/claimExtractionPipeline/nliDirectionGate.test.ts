@@ -1,8 +1,11 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runNliDirectionGate, buildNliNodeProp } from './nliDirectionGate.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import { runNliDirectionGate, buildNliNodeProp, resolveNliScriptPath } from './nliDirectionGate.js';
+import { setGlobalRecorder, clearGlobalRecorder, type FlightRecorder, type RecordInput } from '../../flight-recorder/index.js';
 import type { ArgumentNetworkNode } from '../types.js';
 
 // Create the fn inside the factory so it's available when vi.mock is hoisted.
@@ -321,5 +324,183 @@ describe('runNliDirectionGate — V4 direction gate, multi-field OR (t/2746, t/2
     // Rich node_prop: label+Core with Encompasses stripped
     expect(parsed[0].node_prop).toBe('Unregulatable AI — AI cannot be regulated.');
     expect(parsed[0].node_prop).not.toContain('Encompasses');
+  });
+});
+
+// ── Script path resolution (t/4596, 2nd occurrence of the t/1721 class) ─────
+
+describe('resolveNliScriptPath — depth-agnostic repo-root walk (t/4596)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('finds the script from a source-style start dir (lib/debate/claimExtractionPipeline)', () => {
+    const root = path.resolve('/repo');
+    const start = path.join(root, 'lib', 'debate', 'claimExtractionPipeline');
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => p === path.join(root, 'scripts', 'nli_classify.py'));
+    expect(resolveNliScriptPath(start)).toBe(path.join(root, 'scripts', 'nli_classify.py'));
+  });
+
+  it('finds the script from an Electron dist/main-style start dir, any nesting depth', () => {
+    const root = path.resolve('/repo');
+    const start = path.join(root, 'dist', 'main', 'lib', 'debate', 'claimExtractionPipeline');
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => p === path.join(root, 'scripts', 'nli_classify.py'));
+    expect(resolveNliScriptPath(start)).toBe(path.join(root, 'scripts', 'nli_classify.py'));
+  });
+
+  it('finds the script from a server dist/server-style start dir (diagnosis: 4 levels up, not the old hardcoded 3)', () => {
+    const root = path.resolve('/app');
+    const start = path.join(root, 'dist', 'server', 'lib', 'debate', 'claimExtractionPipeline');
+    vi.spyOn(fs, 'existsSync').mockImplementation((p) => p === path.join(root, 'scripts', 'nli_classify.py'));
+    expect(resolveNliScriptPath(start)).toBe(path.join(root, 'scripts', 'nli_classify.py'));
+  });
+
+  it('returns undefined when the script is not found anywhere up to the filesystem root', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+    expect(resolveNliScriptPath(path.resolve('/a/b/c/d'))).toBeUndefined();
+  });
+});
+
+// ── Gate behaviour when the script is unavailable (t/4596) ──────────────────
+
+describe('runNliDirectionGate — script unavailable (t/4596)', () => {
+  const ORIGINAL_ENV = process.env.NLI_CLASSIFY_SCRIPT;
+  const ORIGINAL_REASON_ENV = process.env.NLI_CLASSIFY_SCRIPT_DISABLED_REASON;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (ORIGINAL_ENV === undefined) delete process.env.NLI_CLASSIFY_SCRIPT;
+    else process.env.NLI_CLASSIFY_SCRIPT = ORIGINAL_ENV;
+    if (ORIGINAL_REASON_ENV === undefined) delete process.env.NLI_CLASSIFY_SCRIPT_DISABLED_REASON;
+    else process.env.NLI_CLASSIFY_SCRIPT_DISABLED_REASON = ORIGINAL_REASON_ENV;
+    clearGlobalRecorder();
+  });
+
+  it('WARNs and returns empty (no subprocess spawned) when the script cannot be found', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+
+    const nodes = [makeNode('AN-1', 'acc-bel-001')];
+    const nodeMap = new Map([['acc-bel-001', 'some node text']]);
+    const result = runNliDirectionGate(nodes, nodeMap, 'acc');
+
+    expect(result.opposingIds.size).toBe(0);
+    expect(result.counts).toEqual({ opposes: 0, agrees: 0, unrelated: 0, unresolved: 0 });
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0][0].message).toContain('gate skipped');
+    expect(record.mock.calls[0][0].message).toContain('not found');
+  });
+
+  it('honors NLI_CLASSIFY_SCRIPT="" as an explicit disable, with a distinct logged reason', () => {
+    process.env.NLI_CLASSIFY_SCRIPT = '';
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+
+    const nodes = [makeNode('AN-1', 'acc-bel-001')];
+    const nodeMap = new Map([['acc-bel-001', 'some node text']]);
+    const result = runNliDirectionGate(nodes, nodeMap, 'acc');
+
+    expect(result.opposingIds.size).toBe(0);
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(record.mock.calls[0][0].message).toContain('disabled via NLI_CLASSIFY_SCRIPT');
+  });
+
+  it('lets ops name the disable reason via NLI_CLASSIFY_SCRIPT_DISABLED_REASON (CL ask, p/49#584)', () => {
+    process.env.NLI_CLASSIFY_SCRIPT = '';
+    process.env.NLI_CLASSIFY_SCRIPT_DISABLED_REASON = 'disabled on hosted pending t/4593 recalibration';
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+
+    const nodes = [makeNode('AN-1', 'acc-bel-001')];
+    const nodeMap = new Map([['acc-bel-001', 'some node text']]);
+    runNliDirectionGate(nodes, nodeMap, 'acc');
+
+    expect(record.mock.calls[0][0].message).toContain('disabled on hosted pending t/4593 recalibration');
+  });
+
+  it('honors NLI_CLASSIFY_SCRIPT as an explicit path override, bypassing the directory walk entirely', () => {
+    process.env.NLI_CLASSIFY_SCRIPT = path.join('custom', 'nli_classify.py');
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false); // walk would fail — override must skip it
+    mockSpawn.mockReturnValue(spawnResult([
+      { id: 'AN-1__v', direction: 'unrelated', confidence: 0.1, method: 'nli-deberta' },
+    ]) as any);
+
+    const nodes = [makeNode('AN-1', 'acc-bel-001')];
+    const nodeMap = new Map([['acc-bel-001', 'some node text']]);
+    runNliDirectionGate(nodes, nodeMap, 'acc');
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'python3',
+      [path.join('custom', 'nli_classify.py')],
+      expect.objectContaining({ cwd: 'custom' }),
+    );
+  });
+});
+
+// ── Interpreter resolution (t/4596#2 — Diagnostics' ENOENT finding) ──────────
+
+describe('runNliDirectionGate — interpreter resolution (t/4596)', () => {
+  const ORIGINAL_SCRIPT_ENV = process.env.NLI_CLASSIFY_SCRIPT;
+  const ORIGINAL_PYTHON_ENV = process.env.NLI_PYTHON_INTERPRETER;
+
+  beforeEach(() => {
+    process.env.NLI_CLASSIFY_SCRIPT = path.join('custom', 'nli_classify.py'); // skip the real fs walk
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (ORIGINAL_SCRIPT_ENV === undefined) delete process.env.NLI_CLASSIFY_SCRIPT;
+    else process.env.NLI_CLASSIFY_SCRIPT = ORIGINAL_SCRIPT_ENV;
+    if (ORIGINAL_PYTHON_ENV === undefined) delete process.env.NLI_PYTHON_INTERPRETER;
+    else process.env.NLI_PYTHON_INTERPRETER = ORIGINAL_PYTHON_ENV;
+  });
+
+  it('tries python3 first by default', () => {
+    mockSpawn.mockReturnValue(spawnResult([
+      { id: 'AN-1__v', direction: 'unrelated', confidence: 0.1, method: 'nli-deberta' },
+    ]) as any);
+    runNliDirectionGate([makeNode('AN-1', 'acc-bel-001')], new Map([['acc-bel-001', 'node text']]), 'acc');
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    expect(mockSpawn.mock.calls[0][0]).toBe('python3');
+  });
+
+  it('falls back to python when python3 ENOENTs (the hosted-prod failure Diagnostics found)', () => {
+    const enoent = Object.assign(new Error('spawnSync python3 ENOENT'), { code: 'ENOENT' });
+    mockSpawn
+      .mockReturnValueOnce({ stdout: '', stderr: '', status: null, error: enoent } as any)
+      .mockReturnValueOnce(spawnResult([
+        { id: 'AN-1__v', direction: 'unrelated', confidence: 0.1, method: 'nli-deberta' },
+      ]) as any);
+
+    const result = runNliDirectionGate([makeNode('AN-1', 'acc-bel-001')], new Map([['acc-bel-001', 'node text']]), 'acc');
+
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    expect(mockSpawn.mock.calls[0][0]).toBe('python3');
+    expect(mockSpawn.mock.calls[1][0]).toBe('python');
+    expect(result.counts.unrelated).toBe(1);
+  });
+
+  it('does NOT retry with another interpreter on a real failure (bad script / missing deps) — only on ENOENT', () => {
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+    mockSpawn.mockReturnValue({ stdout: '', stderr: 'ModuleNotFoundError: sentence_transformers', status: 1, error: undefined } as any);
+
+    runNliDirectionGate([makeNode('AN-1', 'acc-bel-001')], new Map([['acc-bel-001', 'node text']]), 'acc');
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1); // no retry — a real failure, not "interpreter not found"
+    expect(record.mock.calls[0][0].message).toContain('ModuleNotFoundError');
+    clearGlobalRecorder();
+  });
+
+  it('honors NLI_PYTHON_INTERPRETER as an explicit override, skipping the python3/python chain', () => {
+    process.env.NLI_PYTHON_INTERPRETER = 'py';
+    mockSpawn.mockReturnValue(spawnResult([
+      { id: 'AN-1__v', direction: 'unrelated', confidence: 0.1, method: 'nli-deberta' },
+    ]) as any);
+
+    runNliDirectionGate([makeNode('AN-1', 'acc-bel-001')], new Map([['acc-bel-001', 'node text']]), 'acc');
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    expect(mockSpawn.mock.calls[0][0]).toBe('py');
   });
 });

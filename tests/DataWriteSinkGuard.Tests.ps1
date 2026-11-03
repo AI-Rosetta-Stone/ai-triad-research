@@ -35,6 +35,12 @@ BeforeAll {
 
     # Files allowed to call a raw sink while touching data — each with its reason.
     # Paths are repo-relative, forward slashes.
+    # t/4452: a whole-file entry here means EVERY raw sink line in that file is unchecked, not
+    # just the one that justified the entry -- a real data-of-record write added to that file
+    # later would also pass silently. Only list a file here when ALL of its raw sink calls are
+    # non-data (verified at the time the entry is added). The moment a file mixes a genuine
+    # non-data write with any data write, use the `# sink-guard-allow: <reason>` line marker on
+    # the specific non-data line instead, so the data line stays checked.
     $script:ExemptFiles = @{
         # The guarded sinks THEMSELVES (they implement the write + call the guard).
         'scripts/AITriad/Private/Write-Utf8NoBom.ps1'      = 'the content-string sink (calls the guard, then Set-Content)'
@@ -61,7 +67,9 @@ BeforeAll {
         'scripts/AITriad/Public/Test-DebatePersistence.ps1' = 'writes a random persist-probe .tmp (test probe, non-data)'
         'scripts/AITriad/Private/AICallLog.ps1'            = 'append-only AI call-log JSONL (Add-Content); references Get-DataRoot only to locate the log file — never read-mutate-rewrites a data-of-record file (t/3241)'
         'scripts/AITriad/Private/GroundingLock.ps1'        = 'advisory lockfile bookkeeping only (t/4193): [IO.File]::Move renames the <data>.lock file for the stale-break and its non-overwriting restore; it names entity_mentions.json/policy_actions.json only as the files the lock PROTECTS and never writes a data-of-record file (the callers write those through the guarded funnel)'
-        'scripts/data-mutations/t4404/Invoke-T4404SourceRefsFreeze.ps1' = '/data-mutation freeze (t/4404): its one WriteAllText writes the frozen list into scripts/data-mutations/t4404/ in this repo; it only READS entities.json, the extraction log and the evidence index (after asserting the data tree clean at origin/main). The data write is Invoke-T4404SourceRefsWrite.mjs, which refuses a dirty target file itself. WHOLE-FILE exemption (the guard has no line-level marker yet, t/4452): this file must write ONLY the frozen list; any data-repo write added here must go through Write-Utf8NoBom / Assert-DataWriteAllowed, and this entry must then be removed'
+        # scripts/data-mutations/t4404/Invoke-T4404SourceRefsFreeze.ps1 moved to a line-level
+        # `# sink-guard-allow:` marker on its one WriteAllText line (t/4452) -- no longer a
+        # whole-file exemption.
         'scripts/New-SourceIdentityFixture.ps1'            = 'test-fixture generator (t/4344): its one WriteAllText writes tests/fixtures/source-identity-cases.json in this repo; it only READS sources metadata.json + snapshot.md for the two real-corpus grouping cases and never writes ../ai-triad-data or ai-triad-sources'
         'scripts/run-fol-debate-eval.ps1'                  ='read-only FOL-on-debate eval harness (t/3354); Set-Content writes only run-manifest.json + clauses.jsonl + classified-clauses.jsonl + resolved-clauses.jsonl + formalized-clauses.jsonl + contradictions.jsonl + fn-rate-report.json + summary-contradictions.jsonl + correlation-index.json to -OutputDir, which is fail-closed asserted OUTSIDE the data root via Test-IsUnderDataRoot (design §1) — references data tokens (debates/summaries/conflicts) as read-only inputs, never writes ../ai-triad-data'
     }
@@ -78,6 +86,11 @@ BeforeAll {
     $script:PsSanctioned = 'Write-Utf8NoBom|Write-EdgesFile|Assert-DataWriteAllowed|Assert-CleanDataTree'
     $script:PySanctioned = 'assert_clean_data_tree|is_data_tree_clean'
 
+    # t/4452: line-level allow marker. Must carry a non-empty reason after the colon -- a bare
+    # marker (no reason, or no colon at all) does not match, so the line still fails. Only the
+    # marked sink line is skipped; every other sink line in the file is still checked.
+    $script:SinkGuardAllowMarker = '#\s*sink-guard-allow:\s*\S'
+
     function Test-SourceContent {
         <# Returns the sink line numbers that are VIOLATIONS for one file's content. #>
         param([string]$Content, [bool]$IsPython)
@@ -89,7 +102,9 @@ BeforeAll {
         $violations = @()
         $lines = $Content -split "`n"
         for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match $sink) { $violations += ($i + 1) }
+            if ($lines[$i] -notmatch $sink) { continue }
+            if ($lines[$i] -match $script:SinkGuardAllowMarker) { continue }   # t/4452
+            $violations += ($i + 1)
         }
         return $violations
     }
@@ -164,5 +179,29 @@ one-line reason. (t/2902; mirrors lib/edges/edgesWriterGuard.test.ts.)
         # Non-data raw write is ignored (no data token).
         $nonData = 'Set-Content -Path $reportPath -Value $html'
         (Test-SourceContent -Content $nonData -IsPython $false) | Should -BeNullOrEmpty
+    }
+
+    It 'line-level allow marker (t/4452): a marked sink line passes' {
+        $marked = '$p = Get-SummariesDir; [System.IO.File]::WriteAllText($p, $json)  # sink-guard-allow: writes a non-data report, not a data-of-record file'
+        (Test-SourceContent -Content $marked -IsPython $false) | Should -BeNullOrEmpty
+    }
+
+    It 'line-level allow marker (t/4452): an unmarked sink line in the same file still fails' {
+        $mixed = @'
+$p = Get-SummariesDir
+[System.IO.File]::WriteAllText($p, $json)  # sink-guard-allow: writes a non-data report
+[System.IO.File]::WriteAllText($p2, $json2)
+'@
+        $violations = Test-SourceContent -Content $mixed -IsPython $false
+        $violations | Should -Not -BeNullOrEmpty
+        $violations | Should -Be 3 -Because 'the marked line (2) is skipped; the unmarked line (3) still fails'
+    }
+
+    It 'line-level allow marker (t/4452): a marker with no reason does not count' {
+        $noReason = '$p = Get-SummariesDir; [System.IO.File]::WriteAllText($p, $json)  # sink-guard-allow:'
+        (Test-SourceContent -Content $noReason -IsPython $false) | Should -Not -BeNullOrEmpty
+
+        $noColon = '$p = Get-SummariesDir; [System.IO.File]::WriteAllText($p, $json)  # sink-guard-allow'
+        (Test-SourceContent -Content $noColon -IsPython $false) | Should -Not -BeNullOrEmpty
     }
 }

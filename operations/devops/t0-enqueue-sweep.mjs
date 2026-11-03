@@ -1,0 +1,218 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+// Enqueue T0 PRs that are green and idle but were never put in the merge queue.
+//
+// WHY: AGENTS.md asks authors to arm T0 PRs at creation, and they often don't. Over the
+// five days after the merge queue launched, 9 T0 PRs waited 1-14h (about 35h in total)
+// with green checks and nothing enqueued (e.g. #4077-#4084, ~3h each). This sweep does
+// the arming: it runs as the GitHub App (GITHUB_TOKEN-initiated auto-merge never entered
+// the queue, see dependabot-enqueue-sweep.mjs) and enqueues through enqueue-pr.mjs,
+// which pins the head and verifies queue entry.
+//
+// A PR is enqueued only when ALL of these hold (PI decision, 2026-11-02):
+//   - the body's first non-empty line declares `Tier: T0`, base is main, not a draft,
+//     not already queued, not authored by Dependabot (that flow has its own sweep);
+//   - no hold or opt-out label: consult-hold, joint-gv, no-auto-enqueue;
+//   - no merge conflict, and every REQUIRED_GREEN context passed on the head;
+//   - IDLE: nothing pushed for IDLE_MINUTES. Pushing to a queued PR is refused, so an
+//     author still adding commits must not be cut off. The push time is taken as the
+//     earliest check-run start on the head (CI starts within seconds of a push; GitHub's
+//     commit pushedDate is deprecated and usually null).
+//
+// Pure core (`selectT0Candidates`) is unit-tested in t0-enqueue-sweep.test.mjs.
+//
+//   GH_TOKEN=<app token> node operations/devops/t0-enqueue-sweep.mjs <owner>/<repo> [--dry-run]
+
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { enqueuePR } from './enqueue-pr.mjs';
+import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
+import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
+
+export const IDLE_MINUTES = 15;
+export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
+export const BLOCKING_LABELS = ['consult-hold', 'joint-gv', 'no-auto-enqueue'];
+
+/** PURE. True when the first non-empty line of a PR body declares Tier: T0 (AGENTS.md format). */
+export function declaresT0(body) {
+  const first = String(body ?? '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  return /^\s*Tier:\s*T0\b/i.test(first);
+}
+
+/** PURE. Earliest check-run start on the head, as a push-time proxy; null when unknown. */
+export function headPushedAt(contexts) {
+  const starts = (contexts ?? []).map((c) => Date.parse(c.startedAt ?? '')).filter((t) => !Number.isNaN(t));
+  return starts.length ? Math.min(...starts) : null;
+}
+
+/**
+ * PURE. Splits open PRs into those to enqueue now and those to skip (with the reason).
+ * `waiting` lists the skipped PRs whose ONLY blocker is the idle window, with the time
+ * (ms) they become eligible, so an event-triggered run can wait for them (planNextWake).
+ */
+export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = {}) {
+  const enqueue = [];
+  const skip = [];
+  const waiting = [];
+  for (const pr of prs) {
+    const labels = pr.labels ?? [];
+    const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
+    let reason = null;
+    // Security: the repo is public and `main` requires checks, not a review. A fork PR that
+    // writes `Tier: T0` and goes green must never be merged with no human looking at it.
+    // Same-repo branches need write access. Fails closed: an unknown value counts as a fork.
+    if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
+    else if (!declaresT0(pr.body)) reason = 'not declared Tier: T0';
+    else if (pr.baseRefName !== 'main') reason = `base is ${pr.baseRefName}, not main`;
+    else if (pr.isDraft) reason = 'draft';
+    else if (pr.isInMergeQueue) reason = 'already in merge queue';
+    else if (/dependabot/i.test(pr.author ?? '')) reason = 'Dependabot PR (handled by dependabot-enqueue-sweep)';
+    else if (blocking) reason = `label ${blocking}`;
+    else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
+    else {
+      for (const name of REQUIRED_CONTEXTS) {
+        const v = checkVerdict(pr.contexts, name);
+        if (v !== 'success') { reason = `${name} is ${v}`; break; }
+      }
+      if (!reason) {
+        const pushed = headPushedAt(pr.contexts);
+        if (pushed == null) reason = 'push time unknown (no check runs with a start time)';
+        else {
+          const idle = (nowMs - pushed) / 60000;
+          if (idle < idleMinutes) {
+            reason = `idle ${Math.floor(idle)}m < ${idleMinutes}m since last push`;
+            waiting.push({ number: pr.number, eligibleAt: pushed + idleMinutes * 60000 });
+          }
+        }
+      }
+    }
+    if (reason) skip.push({ number: pr.number, reason });
+    else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
+  }
+  return { enqueue, skip, waiting };
+}
+
+/**
+ * PURE. When should a run wake to sweep again? The earliest `eligibleAt` plus a small
+ * margin, if that is no later than `deadlineMs`; otherwise null (stop, and leave the PR to
+ * the next CI-completion trigger or the schedule).
+ */
+export function planNextWake(waiting, nowMs, deadlineMs, { marginMs = 20000 } = {}) {
+  if (!waiting?.length) return null;
+  const wake = Math.max(nowMs, Math.min(...waiting.map((w) => w.eligibleAt)) + marginMs);
+  return wake <= deadlineMs ? wake : null;
+}
+
+function gh(args) {
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+}
+
+function listOpenPRs(repo) {
+  const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:50,after:$cursor){
+    pageInfo{hasNextPage endCursor}
+    nodes{... on PullRequest{
+      number body headRefOid baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
+      author{login} labels(first:30){nodes{name}} autoMergeRequest{enabledAt}
+      commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
+        ... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}}}}}}}}}}}`;
+  const prs = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const args = ['api', 'graphql', '-f', `query=${query}`, '-f', `q=repo:${repo} is:pr is:open base:main`];
+    if (cursor) args.push('-f', `cursor=${cursor}`);
+    const r = JSON.parse(gh(args)).data.search;
+    for (const n of r.nodes) {
+      prs.push({
+        number: n.number, body: n.body, headRefOid: n.headRefOid, baseRefName: n.baseRefName,
+        isDraft: n.isDraft, isInMergeQueue: n.isInMergeQueue, mergeStateStatus: n.mergeStateStatus,
+        isCrossRepository: n.isCrossRepository,
+        author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
+        autoMergeRequest: n.autoMergeRequest,
+        contexts: n.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],
+      });
+    }
+    if (!r.pageInfo.hasNextPage) break;
+    cursor = r.pageInfo.endCursor;
+  }
+  return prs;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One or more passes. With waitMaxMinutes > 0 (the event-triggered mode), a PR blocked only
+ * by the idle window makes this run sleep until it qualifies and sweep again, for up to
+ * waitMaxMinutes in total. GitHub's scheduler runs this repo's crons hours late (#4389), so
+ * without waiting, a PR that goes green right after a CI-completion trigger could sit until
+ * the next unrelated CI run.
+ */
+export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
+  const deadline = Date.now() + waitMaxMinutes * 60000;
+  const failures = new Set();
+  for (let pass = 1; ; pass++) {
+    const { enqueue, skip, waiting } = selectT0Candidates(listOpenPRs(repo), Date.now());
+    for (const s of skip) console.log(`skip #${s.number}: ${s.reason}`);
+    if (enqueue.length === 0) console.log(`pass ${pass}: no T0 PRs to enqueue.`);
+
+    for (const pr of enqueue) {
+      if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+      // Search results lag: re-read the PR directly right before acting (see live-pr-state.mjs).
+      const before = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+      if (!before.ok) {
+        console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
+          (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
+        continue;
+      }
+      try {
+        // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
+        // re-arm, so clear it first.
+        if (pr.armed) gh(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
+        const result = await enqueuePR(repo, pr.number);
+        console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
+        failures.delete(pr.number);
+      } catch (err) {
+        // The PR may have moved on in the seconds since the check above (merged by the queue,
+        // queued by its author, closed). That is a race, not a failure.
+        const after = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+        if (after.raced) {
+          console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
+          continue;
+        }
+        failures.add(pr.number);
+        console.error(`::error::#${pr.number}: ${err.message ?? err}`);
+      }
+    }
+
+    if (dryRun) break;
+    const wake = planNextWake(waiting, Date.now(), deadline);
+    if (wake == null) break;
+    const ids = waiting.map((w) => `#${w.number}`).join(', ');
+    console.log(`waiting ${Math.round((wake - Date.now()) / 1000)}s for ${ids} to pass the ${IDLE_MINUTES}-minute idle window`);
+    await sleep(wake - Date.now());
+  }
+  if (failures.size) {
+    throw new Error(
+      `t0-enqueue-sweep: failed to enqueue ${[...failures].map((n) => `#${n}`).join(', ')} on ${repo}.\n` +
+      '  Goal:       land green, idle T0 PRs through the merge queue.\n' +
+      '  Problem:    enqueue-pr.mjs could not get these PRs into the queue as the App.\n' +
+      '  Location:   operations/devops/t0-enqueue-sweep.mjs (see the ::error:: lines above).\n' +
+      "  Next steps: check each PR's mergeStateStatus; the next sweep retries automatically.",
+    );
+  }
+}
+
+const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isCliEntry) {
+  const repo = process.argv[2];
+  if (!repo) {
+    console.error('Usage: node operations/devops/t0-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--wait-max-minutes=N]');
+    process.exit(1);
+  }
+  const waitArg = process.argv.find((a) => a.startsWith('--wait-max-minutes='));
+  const waitMaxMinutes = waitArg ? Number(waitArg.split('=')[1]) || 0 : 0;
+  sweep(repo, { dryRun: process.argv.includes('--dry-run'), waitMaxMinutes }).then(
+    () => {},
+    (err) => { console.error(err.message ?? err); process.exit(1); },
+  );
+}

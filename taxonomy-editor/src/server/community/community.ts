@@ -22,6 +22,7 @@ import type { InquiryResult } from '../../../../lib/inquiry/index.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
 import { AppliedTagSchema, loadPovTagRegistry } from '../../../../lib/schema/povTags.js';
 import type { OpEdCommunityEntry } from '../../../../lib/oped/types.js';
+import { AI_POVERS } from '../../../../lib/debate/types.js';
 
 // ── Paths ──
 
@@ -41,6 +42,75 @@ export function getAdminUsers(): string[] {
 export function isAdmin(userId?: string): boolean {
   const uid = userId ?? getStorageUserId();
   return uid !== '_local' && getAdminUsers().includes(uid);
+}
+
+// ── Desktop Ask validation (t/4612, t/4744) ──
+
+// A node ref is any object carrying a string `nodeId`. Every nodeId site in lib/inquiry/schema.ts
+// (NodeRefSchema, SituationRefSchema) is an array element, so pruning removes array entries.
+function isNodeRef(v: unknown): v is { nodeId: string } {
+  return typeof v === 'object' && v !== null && typeof (v as { nodeId?: unknown }).nodeId === 'string';
+}
+
+/**
+ * Every nodeId anywhere in `value` (B3). Generic rather than per-path, so a nodeId site added to
+ * the schema later is still seen. Iterative, not recursive: the payload is client-supplied and its
+ * passthrough objects (e.g. `grounding`) can nest arbitrarily, which would overflow a recursive walk.
+ */
+export function collectAllNodeIds(value: unknown): string[] {
+  const ids = new Set<string>();
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const v = stack.pop();
+    if (typeof v !== 'object' || v === null) continue;
+    if (isNodeRef(v)) ids.add(v.nodeId);
+    for (const child of Array.isArray(v) ? v : Object.values(v)) stack.push(child);
+  }
+  return [...ids];
+}
+
+export type NodeRefPruneResult =
+  | { ok: true; result: InquiryResult; droppedRefs: string[] }
+  /** Every ref was unknown (route maps to 400), or an unknown ref sat outside an array and so
+   *  could not be removed (fail closed rather than store it). */
+  | { ok: false; reason: 'all_refs_unknown' | 'unprunable_ref'; droppedRefs: string[] };
+
+/**
+ * Remove every node ref whose nodeId isn't in `known` from a client-supplied result (B2, F1 D3).
+ * Works on a copy; the input is untouched. Entries that merely contain refs (camp verdicts,
+ * convergences) are kept with their `nodes` filtered: their text isn't a taxonomy claim.
+ */
+export function pruneUnknownNodeRefs(result: InquiryResult, known: ReadonlySet<string>): NodeRefPruneResult {
+  const allIds = collectAllNodeIds(result);
+  const droppedRefs = allIds.filter(id => !known.has(id));
+  if (allIds.length > 0 && droppedRefs.length === allIds.length) {
+    return { ok: false, reason: 'all_refs_unknown', droppedRefs };
+  }
+  if (droppedRefs.length === 0) return { ok: true, result: structuredClone(result), droppedRefs };
+
+  // One WARN per payload, not per ref: a hostile payload can carry thousands of refs.
+  log.server.warn({ count: droppedRefs.length, sample: droppedRefs.slice(0, 20) },
+    'Desktop Ask: pruning unknown nodeIds (F1 D3)');
+
+  const pruned = structuredClone(result);
+  const stack: unknown[] = [pruned];
+  while (stack.length > 0) {
+    const v = stack.pop();
+    if (typeof v !== 'object' || v === null) continue;
+    if (Array.isArray(v)) {
+      for (let i = v.length - 1; i >= 0; i--) {
+        const item: unknown = v[i];
+        if (isNodeRef(item) && !known.has(item.nodeId)) v.splice(i, 1);
+      }
+    }
+    for (const child of Array.isArray(v) ? v : Object.values(v)) stack.push(child);
+  }
+
+  // Defence in depth: an unknown ref that wasn't an array element survived. Don't store it.
+  if (collectAllNodeIds(pruned).some(id => !known.has(id))) {
+    return { ok: false, reason: 'unprunable_ref', droppedRefs };
+  }
+  return { ok: true, result: pruned, droppedRefs };
 }
 
 // ── Listing index (t/726) ──
@@ -63,7 +133,7 @@ export function isAdmin(userId?: string): boolean {
 const COMMUNITY_INDEX_FILE = '_index.json';
 
 // Bump when toEntry shape changes so stale caches are replaced on next list.
-const CHAT_INDEX_VERSION = 'chat-v2'; // v2: added model (t/2779)
+const CHAT_INDEX_VERSION = 'chat-v3'; // v2: added model (t/2779); v3: added pover (t/4721)
 const DEBATE_INDEX_VERSION = 'debate-v2'; // v2: added model + turn_count (t/2362/t/2384)
 const OPED_INDEX_VERSION = 'oped-v3'; // v2: added outlet (t/2993); v3: added tag (t/3991)
 const INQUIRY_INDEX_VERSION = 'inquiry-v1'; // t/3621
@@ -234,6 +304,8 @@ export async function listCommunityChats(): Promise<unknown[]> {
       mode: parsed.mode || '',
       community_metadata: stripOriginalId(parsed.community_metadata || null), // t/856
       ...(typeof parsed.chat_model === 'string' ? { model: parsed.chat_model } : {}),
+      // Read-only projection: only a known AI camp id passes through; anything else is dropped.
+      ...((AI_POVERS as readonly unknown[]).includes(parsed.pover) ? { pover: parsed.pover } : {}),
     }),
   });
   return [...items].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
@@ -732,6 +804,11 @@ export async function approveSubmission(
     path.join(dir, `${prefix}${sanitized.id}.json`),
     JSON.stringify(sanitized, null, 2),
   );
+
+  // Invalidate the listing index so the published item appears immediately on the next list call (t/4611).
+  // The index caches directory contents + version; without this, listViaIndex serves the stale cached copy
+  // that was built before the item was written, so the newly approved item doesn't appear until the cache TTL expires.
+  await invalidateListingIndex(backend, dir);
 
   // Update submission status
   submission.status = 'approved';

@@ -3,8 +3,12 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockApi, mockRecord, taxonomyNodes } = vi.hoisted(() => {
+const { mockApi, mockRecord, mockGetLabelForId, taxonomyNodes } = vi.hoisted(() => {
   const mockRecord = vi.fn();
+  // t/4675: default to "every id resolves" so existing parseChatResponse fixtures (whose ids
+  // are arbitrary test strings, not real taxonomy ids) keep passing; tests for the drop-on-
+  // unresolved-id behavior override this per-test with mockImplementationOnce/mockReturnValueOnce.
+  const mockGetLabelForId = vi.fn((id: string) => (id ? 'resolved-label' : ''));
   /** Accelerationist POV nodes the mocked taxonomy store returns (t/3995 tag tests set it). */
   const taxonomyNodes: { skeptic: Array<{ id: string; pov_tags?: string[] }> } = { skeptic: [] };
   const mockApi = {
@@ -18,7 +22,7 @@ const { mockApi, mockRecord, taxonomyNodes } = vi.hoisted(() => {
     onChatStreamChunk: vi.fn().mockReturnValue(() => {}),
     trackEvent: vi.fn(),
   };
-  return { mockApi, mockRecord, taxonomyNodes };
+  return { mockApi, mockRecord, mockGetLabelForId, taxonomyNodes };
 });
 
 vi.mock('@bridge', () => ({ api: mockApi }));
@@ -32,6 +36,7 @@ vi.mock('./useTaxonomyStore', () => ({
       situations: { nodes: [] },
       aiBackend: 'gemini',
       geminiModel: 'gemini-flash-lite-latest',
+      getLabelForId: mockGetLabelForId,
     }),
   },
   MODELS_BY_BACKEND: { gemini: [{ value: 'gemini-flash-lite-latest', label: 'Flash Lite' }] },
@@ -495,6 +500,46 @@ describe('useChatStore', () => {
     it('leaves think-free responses unchanged', () => {
       expect(parseChatResponse('{"response":"ok"}').response).toBe('ok');
       expect(parseChatResponse('just text').response).toBe('just text');
+    });
+  });
+
+  // t/4675 — the model sometimes returns a label-slugged id instead of the real taxonomy id;
+  // drop any ref whose id doesn't resolve, mirroring lib/debate/inquirySynthesis.ts's
+  // resolveNodeRefs, so an unresolvable ref never reaches the UI as a permanent "not found".
+  describe('parseChatResponse — drops unresolvable taxonomy ids (t/4675)', () => {
+    beforeEach(() => {
+      mockRecord.mockClear();
+    });
+
+    afterEach(() => {
+      // Restore the suite-wide "every id resolves" default other describe blocks rely on.
+      mockGetLabelForId.mockImplementation((id: string) => (id ? 'resolved-label' : ''));
+    });
+
+    it('keeps a ref whose id resolves', () => {
+      mockGetLabelForId.mockReturnValue('Ensuring AI Alignment and Control');
+      const r = parseChatResponse('{"response":"hi","taxonomy_refs":[{"node_id":"sit-153","relevance":"x"}]}');
+      expect(r.taxonomyRefs).toEqual([{ node_id: 'sit-153', relevance: 'x' }]);
+    });
+
+    it('drops a ref whose id does not resolve, and WARNs', () => {
+      mockGetLabelForId.mockReturnValue('');
+      const r = parseChatResponse(
+        '{"response":"hi","taxonomy_refs":[{"node_id":"sit-153-ensuring-ai-alignment-and-control","relevance":"x"}]}',
+      );
+      expect(r.taxonomyRefs).toEqual([]);
+      const rec = mockRecord.mock.calls.map(c => c[0]).find((r2: { message?: string }) => r2.message?.includes('unresolvable taxonomy id'));
+      expect(rec).toBeTruthy();
+      expect(rec.level).toBe('warn');
+      expect(rec.message).toContain('sit-153-ensuring-ai-alignment-and-control');
+    });
+
+    it('keeps resolvable refs and drops unresolvable ones from the same response', () => {
+      mockGetLabelForId.mockImplementation((id: string) => (id === 'acc-beliefs-001' ? 'resolved' : ''));
+      const r = parseChatResponse(
+        '{"response":"hi","taxonomy_refs":[{"node_id":"acc-beliefs-001","relevance":"a"},{"node_id":"acc-beliefs-999-slug","relevance":"b"}]}',
+      );
+      expect(r.taxonomyRefs).toEqual([{ node_id: 'acc-beliefs-001', relevance: 'a' }]);
     });
   });
 

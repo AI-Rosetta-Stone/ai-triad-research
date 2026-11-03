@@ -23,6 +23,27 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import { getEmbeddingsCacheStatus, getEmbeddingsResolution } from '../ai/aiBackends.js';
 import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
+import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
+import { isFreePoolBudgetEnforced } from '../featureFlags.js';
+import { areBlobBackendsWired } from '../storage/blobBackendBoot.js';
+
+/** `/health`'s free-pool block (t/4677, t/4733): wiring and enforcement, plus the container and
+ *  daily cap this process actually uses, so a staging/prod store share or a wrong cap is visible
+ *  by curl. `container`/`callsCap` are null while the store is unwired. */
+export function freePoolBudgetHealth(): { wired: boolean; enforced: boolean; container: string | null; callsCap: number | null } {
+  const cfg = getFreePoolBudgetConfig();
+  return {
+    wired: getFreePoolBudget() !== null,
+    enforced: isFreePoolBudgetEnforced(),
+    container: cfg?.container ?? null,
+    callsCap: cfg?.callsCap ?? null,
+  };
+}
+
+/** `/health`'s blob backend block (t/4756): wiring status, visible in both /health and /readyz. */
+export function blobBackendHealth(): { wired: boolean } {
+  return { wired: areBlobBackendsWired() };
+}
 import { log } from '../logger.js';
 import { LLMS_TXT } from '../llmsTxt.js';
 import { getLastEventLoopSample } from '../eventLoopMonitor.js';
@@ -151,6 +172,13 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       json(res, { status: 'warming', reason: 'data-root-validating' }, 503);
       return;
     }
+    // t/4756: blob backend boot validation. If AZURE_STORAGE_ACCOUNT_URL is set but required
+    // container vars are missing in hosted mode, backends are not wired and the deploy warm-gate
+    // blocks promotion.
+    if (!areBlobBackendsWired()) {
+      json(res, { status: 'failed', reason: 'container-config-missing' }, 503);
+      return;
+    }
     const { present, nodeCount, resolves, canaryId } = getEmbeddingsResolution();
     if (present && (nodeCount ?? 0) > 0 && resolves) {
       json(res, { status: 'ready', nodeCount, resolves: true });
@@ -181,7 +209,32 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // admin-only below, since those are operational detail, not a liveness signal.
     const nodeSourceIndexStatus = getNodeSourceIndexStatus();
     const nodeSourceIndexComplete = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.complete;
-    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete }); return; }
+    // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): the
+    // installation's shared rate limit is the signal that would have caught
+    // this before it became a user-visible outage — public (not admin-gated,
+    // same precedent as eventLoopLagMs/nodeSourceIndexComplete above) so an
+    // unauthenticated monitor/alert can watch it without a session. null for
+    // backends with no GitHub rate limit (Electron/local filesystem mode).
+    const githubBackendForHealth = ctx.getGithubBackend();
+    const githubRateLimitRemaining = githubBackendForHealth?.getRateLimitRemaining() ?? null;
+    const githubRateLimitResetsAt = githubBackendForHealth?.getRateLimitResetsAt() ?? null;
+    // t/4586 AC (flagged missing post-deploy, t/4586#4): same precedent as the rate-limit
+    // fields above — a tripped circuit breaker is the other half of "GitHub reachability"
+    // an unauthenticated alert should see, null for backends with no circuit (Electron/local).
+    const githubCircuitOpen = githubBackendForHealth ? githubBackendForHealth.getCircuitState() === 'open' : null;
+    const entityRegistryDegraded = fileIO.getEntityRegistryStatus().degraded;
+    const organizationsRegistryDegraded = fileIO.getOrganizationsReadStatus().degraded;
+    if (!community.isAdmin()) {
+      json(res, {
+        status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
+        ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
+        eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
+        githubRateLimitRemaining, githubRateLimitResetsAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
+        freePoolBudget: freePoolBudgetHealth(),
+        blobBackend: blobBackendHealth(),
+      });
+      return;
+    }
     const base: Record<string, unknown> = {
       status: 'ok',
       version: ctx.serverVersion,
@@ -209,6 +262,9 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       freeTierLimits: freeKeyPoolSize > 0 ? { requestsPerMinute: proxyTiers.scaledFreeTierRpm(freeKeyPoolSize), tokensPerDay: getConfig().tiers.free.tokensPerDay } : null,
     };
 
+    base.freePoolBudget = freePoolBudgetHealth();
+    base.blobBackend = blobBackendHealth();
+
     // t/3086: embeddings cache probe result — surfaces t/3085 condition in /health without FR access.
     const embeddingsStatus = getEmbeddingsCacheStatus();
     base.embeddings = { cachePresent: embeddingsStatus.present, nodeCount: embeddingsStatus.nodeCount };
@@ -217,7 +273,12 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // public /health above only got the boolean. null (never built) passes through as-is.
     base.nodeSourceIndex = nodeSourceIndexStatus;
 
-    const githubBackend = ctx.getGithubBackend();
+    // t/4584: full reason admin-only, same split as nodeSourceIndex above —
+    // public /health only got the booleans.
+    base.entityRegistry = fileIO.getEntityRegistryStatus();
+    base.organizationsRegistry = fileIO.getOrganizationsReadStatus();
+
+    const githubBackend = githubBackendForHealth;
     if (githubBackend) {
       (base.storage as Record<string, unknown>).mainSha = githubBackend.getMainSha();
       (base.storage as Record<string, unknown>).cacheFileCount = githubBackend.getCachedFileCount();
@@ -235,6 +296,11 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         coherencyViolations: githubBackend.getCoherencyViolations(),
         activeBranches: githubBackend.getActiveBranchCount(),
         lastPollAgeS: githubBackend.getLastPollAge(),
+        // t/4585 AC2: REST calls since boot (the measurable the cold-boot
+        // raw-read fix targets) and raw.githubusercontent.com fallback
+        // events, by reason.
+        restCallsSinceBoot: githubBackend.getRequestMetrics().totalRequests,
+        rawFallback: githubBackend.getRawFallbackStats(),
       };
     }
 

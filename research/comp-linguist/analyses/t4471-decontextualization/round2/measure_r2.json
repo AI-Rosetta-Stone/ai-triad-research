@@ -1,0 +1,31 @@
+{
+  "docs": 11,
+  "old": {
+    "n_kp": 71,
+    "n_cp": 69,
+    "n_fc": 40,
+    "cp_heuristic_outward": 0.043,
+    "fc_heuristic_outward": 0.05,
+    "cp_words_median": 16.0,
+    "retrieval": {
+      "n": 65,
+      "hit@5": 0.4,
+      "hit@30": 0.8
+    }
+  },
+  "new": {
+    "n_kp": 73,
+    "n_cp": 73,
+    "n_fc": 44,
+    "cp_heuristic_outward": 0.068,
+    "fc_heuristic_outward": 0.068,
+    "cp_words_median": 18.0,
+    "retrieval": {
+      "n": 63,
+      "hit@5": 0.667,
+      "hit@30": 0.937
+    },
+    "anchors_field_present": "73/73",
+    "anchors_nonempty": 35
+  }
+}

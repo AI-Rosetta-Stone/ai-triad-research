@@ -4,6 +4,6 @@
 interface ImportMeta {
   readonly glob: <T = { default: unknown }>(
     pattern: string,
-    options?: { eager?: boolean; import?: string; as?: string },
+    options?: { eager?: boolean; import?: string; as?: string; query?: string },
   ) => Record<string, T>;
 }

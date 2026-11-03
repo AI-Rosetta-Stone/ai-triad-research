@@ -490,7 +490,7 @@ Describe 'Invoke-POVSummary persists factual_claims and unmapped_concepts as arr
     # A bare if-expression in the summary literal unrolled: 0 items persisted as null and 1 item as a
     # bare object. Readers expect arrays (t/1726), which is what 869 of 870 summaries on disk hold.
     It 'writes <Field> as a JSON array for <Case>' -ForEach @(
-        foreach ($f in 'factual_claims', 'unmapped_concepts') {
+        foreach ($f in 'factual_claims', 'unmapped_concepts', 'empty_cells') {
             @{ Field = $f; Case = 'an omitted field'; Json = '{ "pov_summaries": {} }'; Count = 0 }
             @{ Field = $f; Case = 'an explicit null'; Json = "{ `"pov_summaries`": {}, `"$f`": null }"; Count = 0 }
             @{ Field = $f; Case = '0 items'; Json = "{ `"pov_summaries`": {}, `"$f`": [] }"; Count = 0 }

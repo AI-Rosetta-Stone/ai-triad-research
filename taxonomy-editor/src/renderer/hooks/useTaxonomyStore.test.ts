@@ -304,6 +304,10 @@ describe('useTaxonomyStore', () => {
       });
     });
 
+    // t/4628: applyAnonymousSessionDefaults tests moved to the sibling file
+    // useTaxonomyStore.anonymousDefaults.test.ts to keep this file under the 2000-line budget
+    // (same split as useTaxonomyStore.saveConflict.test.ts).
+
     describe('paneSpacing', () => {
       it('defaults to normal', () => {
         expect(useTaxonomyStore.getState().paneSpacing).toBe('normal');

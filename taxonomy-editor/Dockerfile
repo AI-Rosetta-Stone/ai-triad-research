@@ -7,7 +7,7 @@
 # (see deploy/azure/Dockerfile.base)
 
 # ── Stage 1: Build ──
-FROM node:22.23.3-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS builder
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS builder
 
 WORKDIR /build
 
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # so onnxEmbedding.ts runs fully offline. Without this, each cold-start downloads
 # from HuggingFace at runtime, hitting the 50s route timeout (t/2784).
 # fp32 is required — quantized output diverges from the stored embeddings.json corpus.
-FROM node:22.23.3-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS onnx-model
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS onnx-model
 # hadolint ignore=DL3008
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -108,7 +108,7 @@ RUN mkdir -p /onnx/all-MiniLM-L6-v2 \
          -o /onnx/all-MiniLM-L6-v2/tokenizer_config.json
 
 # ── Stage 2: Production dependencies (with build tools for native modules) ──
-FROM node:22.23.3-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS prod-deps
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS prod-deps
 
 # node-pty requires make/g++/python3 for compilation when prebuilds
 # are unavailable. The runtime base image is intentionally slim (no
@@ -152,7 +152,12 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # Bumped to :2026-10-19 — the container.yml Trivy blocking gate caught libexpat1
 # CVE-2026-77214 (fixable high) on :2026-10-06; this tag is base-image.yml's normal weekly
 # rebuild (apt-get upgrade), dispatched a cycle early to unblock a pending container build.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-19@sha256:242806a9ba51c07b4e1db2398cae19abf780506fe9e79e69e1cd839f33a7edbb AS runtime
+# Bumped to :2026-10-28 (t/1990) — Node 22 -> 26 (Active LTS), landed atomically with
+# ci.yml's node-version bump and userland undici 6->8 (the co-landing PR; Node 26 bundles
+# undici 8.x, which trips the undici major-version invariant if the runtime moves alone).
+# onnxruntime-node and node-pty verified to build and load under Node 26 with real build
+# output before this landed (t/1990#10).
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-01@sha256:b7232d9f48ac773c716f34b1e473abcac2b7f628487ab119962015409608e6da AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"

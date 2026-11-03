@@ -37,16 +37,12 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
     open-pull-requests-limit: 6  # covers taxonomy-editor majors (was on its own entry) too
-    ignore:
-      # undici MAJOR is HELD (t/2053/t/2113/t/2281; #1091). The GitHub REST client passes an
-      # undici.Agent as `dispatcher:` to Node's built-in fetch; per assertUndiciMajorInvariant,
-      # userland undici major MUST equal Node's bundled undici major (node:22.23.2 → undici 6.x),
-      # or fetch silently ignores the dispatcher and falls back to TLS session caching
-      # (CVE-2026-58040). A userland-only major bump (e.g. 6→8) reintroduces that condition and
-      # reds githubApi.test.ts. minor/patch within the pinned major still flow (security patches).
-      # REVISIT when the pinned Node runtime bundles a newer undici major, then bump both together.
-      - dependency-name: undici
-        update-types: [version-update:semver-major]
+    # undici MAJOR was HELD (t/2053/t/2113/t/2281; #1091) until the pinned Node runtime
+    # bundled a newer undici major -- that happened with the t/1990 Node 26 bump (Node 26
+    # bundles undici 8.x). The ignore is dropped now that userland undici has moved to ^8.x
+    # (landed atomically with ci.yml's node-version bump and the Dockerfiles, t/1990). The
+    # assertUndiciMajorInvariant check (githubRestClient.ts) still enforces the alignment
+    # going forward -- see undiciInvariant.ts for the mechanism.
 
   - package-ecosystem: npm
     directory: /lib/debate
@@ -95,27 +91,19 @@ updates:
   # ── docker — web image + azure base image. Monthly (base images update rarely).
   # Left UNGROUPED deliberately: each directory tracks a SINGLE base image, so a
   # group could never batch more than one PR (one image = one bump).
-  # node MAJOR bumps are HELD (t/1990): Node 26 is a Current release (started
-  # 2026-05-05); native addons (onnxruntime-node prebuilts, node-pty) lag on
-  # Current, the baked ONNX model could fail to load, and prod should run LTS.
-  # REVISIT when Node 26 reaches Active LTS — 2026-10-28 (nodejs.org): drop the
-  # `node` semver-major ignore below and bump both docker dirs together
-  # (deploy/azure base image first, then taxonomy-editor). node minor/patch (22.x)
-  # still flow for security patches.
+  # node MAJOR bumps were HELD from t/1990's close (2026-07-30) until Node 26
+  # reached Active LTS on 2026-10-28 (nodejs.org) — t/1990 revisit, done. The
+  # semver-major ignore is dropped below now that 26 is Active LTS and the base
+  # image + app Dockerfile are bumped; node minor/patch (26.x) continue to flow
+  # for security patches as before.
   - package-ecosystem: docker
     directory: /taxonomy-editor
     schedule:
       interval: monthly
     open-pull-requests-limit: 2
-    ignore:
-      - dependency-name: node
-        update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
     directory: /deploy/azure
     schedule:
       interval: monthly
     open-pull-requests-limit: 2
-    ignore:
-      - dependency-name: node
-        update-types: [version-update:semver-major]

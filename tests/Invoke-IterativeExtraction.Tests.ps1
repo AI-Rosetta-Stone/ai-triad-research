@@ -218,3 +218,27 @@ Describe 'Invoke-IterativeExtraction drift detection (gap 4.1)' -Tag 'ingestion'
         }
     }
 }
+
+Describe 'Invoke-IterativeExtraction accepts an empty -ApiKey (t/4529)' -Tag 'ingestion' {
+
+    It 'Binds and runs with -ApiKey "" (registry-resolved key, t/4087) instead of a parameter-binding error' {
+        InModuleScope AITriad {
+            $script:TaxonomyData = @{}
+            $script:CachedEmbeddings = $null
+
+            Mock Invoke-AIApi -ParameterFilter { $MaxTokens -eq 32768 } {
+                [PSCustomObject]@{
+                    Text = '{"factual_claims":[{"claim_label":"claim-0","claim":"A claim","evidence_criteria":{"specificity":"precise","has_warrant":true,"internally_consistent":true}}],"pov_summaries":{},"unmapped_concepts":[]}'
+                    Backend = 'gemini'; Model = 'gemini-3.5-flash-lite'; Truncated = $false; Usage = $null; RawResponse = @{}
+                }
+            }
+
+            # Pre-fix: [Parameter(Mandatory)][string]$ApiKey (no AllowEmptyString) rejects ''
+            # with "Cannot bind argument to parameter 'ApiKey' because it is an empty string" —
+            # exactly the failure CL observed on the interactive FIRE/AutoFire-Stage-2 path.
+            { Invoke-IterativeExtraction -Prompt 'test' -Model 'gemini-3.5-flash-lite' -ApiKey '' `
+                -ConfidenceThreshold 0.7 -MaxIterPerClaim 1 -WallClockSeconds 30 3>$null } |
+                Should -Not -Throw
+        }
+    }
+}

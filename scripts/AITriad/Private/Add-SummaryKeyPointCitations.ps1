@@ -38,7 +38,7 @@ function Add-SummaryKeyPointCitations {
     if (-not $HasPovSummaries) { return $DocKeyPoints }
 
     foreach ($PovName in @('accelerationist', 'safetyist', 'skeptic')) {
-        $PovData = $Summary.pov_summaries.$PovName
+        $PovData = Get-SummaryField $Summary.pov_summaries $PovName
         if (-not $PovData -or -not $PovData.PSObject.Properties['key_points'] -or -not $PovData.key_points) { continue }
 
         foreach ($Point in @($PovData.key_points)) {

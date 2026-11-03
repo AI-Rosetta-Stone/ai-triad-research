@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   extractTier,
+  extractTierAnywhere,
   extractSchemaChange,
   isDependabot,
   checkR1,
@@ -11,6 +12,7 @@ import {
   checkR3,
   checkR4,
   checkR5,
+  checkR6,
   evaluateTierCheck,
   factsFromListFiles,
   checkApiVersion,
@@ -32,6 +34,17 @@ test('extractTier: matches with and without trailing text, rejects wrong positio
   assert.equal(extractTier('some other first line\nTier: T1'), null);
   assert.equal(extractTier(''), null);
   assert.equal(extractTier(null), null);
+});
+
+// Found via PR #4395 (a real T1 PR that declared the line at the bottom of the body): confirms
+// the diagnostic helper finds it anywhere, strictly for the advisory message, while extractTier
+// above stays strict to the first line for R1-R4's actual pass/fail.
+test('extractTierAnywhere: finds a misplaced Tier: line anywhere in the body', () => {
+  assert.equal(extractTierAnywhere('some other first line\nTier: T1'), 'T1');
+  assert.equal(extractTierAnywhere('Tier: T2\n\nbody'), 'T2');
+  assert.equal(extractTierAnywhere('no tier line anywhere'), null);
+  assert.equal(extractTierAnywhere(''), null);
+  assert.equal(extractTierAnywhere(null), null);
 });
 
 test('extractSchemaChange: additive and breaking, missing is null', () => {
@@ -239,6 +252,118 @@ test('R5: declared T2 without consult-hold is advisory-flagged; T2 with the labe
   assert.equal(checkR5('T1', []), false);
 });
 
+// ── R6 (P2, t/4266) ────────────────────────────────────────────────────────
+// Test arms per the TL's exact spec (t/4266#4), corrected for #3402's freshness case (#5/#6).
+const HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+const APP_LOGIN = 'ai-triad-reviewer-jpsnover';
+const PUSH_AT = '2026-10-19T12:00:00Z';
+
+test('R6: T2/R1 PR, no label, no approval -> FAIL (fires)', () => {
+  const fired = checkR6(true, [], [], [], HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, true);
+});
+
+test('R6: T2/R1 PR, no label, TL reviewer-App review at the head + SO clearing marker with the head SHA -> PASS', () => {
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): T2 approval at this head.' }];
+  const comments = [{ body: `**SO clearing comment (T2, t/4266), head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, false);
+});
+
+test('R6 (t/4266#13 fix 1): an App review at an OLDER commitId fails -- approval must be at the current head', () => {
+  const OLD_HEAD = '0000000000000000000000000000000000000000';
+  const reviews = [{ state: 'APPROVED', commitId: OLD_HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): approved at the old head.' }];
+  const comments = [{ body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, true);
+});
+
+test('R6 (t/4266#13 fix 2): "not yet cleared by the SO" does NOT satisfy the SO-clearing match (too loose a pattern would)', () => {
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): go ahead.' }];
+  const comments = [{ body: `This PR has not yet been cleared by the SO (still reviewing, head ${HEAD}).`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, true, '"not yet cleared" must not satisfy SO-clearing -- the real marker is "SO clearing comment", not a loose "clear" substring');
+});
+
+test('R6: SO clearing marker with the WRONG head SHA does not count (bound to head, not just present)', () => {
+  const OTHER_HEAD = '1111111111111111111111111111111111111111';
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): go ahead.' }];
+  const comments = [{ body: `**SO clearing comment, head \`${OTHER_HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, true);
+});
+
+test('R6: T2/R1 PR, label present, no approval yet -> PASS (the hold itself is the signal)', () => {
+  const fired = checkR6(true, ['consult-hold'], [], [], HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, false);
+});
+
+test('R6: T0/T1 PR (not T2, no R1 hit) -> PASS (rule does not apply)', () => {
+  const fired = checkR6(false, [], [], [], HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, false);
+});
+
+// ── t/4266#15 (TL regression catch): dropping all timestamps broke the two comment-only paths
+// (Approved (PI): / "SO did not review") that have no SHA-binding of their own -- restored
+// lastPushAt freshness for exactly those two. The App review and the SO marker stay head-bound.
+test('R6 (t/4266#15): a PI-comment approval that PREDATES the latest push is stale -- does not count', () => {
+  const comments = [
+    { body: 'Approved (PI): go ahead.', createdAt: '2020-01-01T00:00:00Z' }, // long before PUSH_AT
+    { body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' },
+  ];
+  const fired = checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, true, 'a PI comment from long before the latest push must not clear this head');
+});
+
+test('R6 (t/4266#15): a fresh PI-comment approval + head-bound SO marker -> PASS', () => {
+  const comments = [
+    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T12:06:00Z' }, // after PUSH_AT
+    { body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' },
+  ];
+  const fired = checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, false);
+});
+
+test('R6 (t/4266#15): an "SO did not review" note that PREDATES the latest push is stale -- does not count', () => {
+  const comments = [
+    { body: 'SO did not review within the time-box.', createdAt: '2020-01-01T00:00:00Z' },
+    { body: 'Approved (PI): proceeding without SO review.', createdAt: '2026-10-19T12:06:00Z' },
+  ];
+  const fired = checkR6(true, [], comments, [], HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, true, 'a stale "SO did not review" note must not clear this head');
+});
+
+test('R6 (t/4266#15): a fresh "SO did not review" note + an App review at the head -> PASS (no PI comment needed)', () => {
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): proceeding without SO review.' }];
+  const comments = [{ body: 'SO did not review within the time-box.', createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN, PUSH_AT);
+  assert.equal(fired, false);
+});
+
+test('evaluateTierCheck: R6 is advisory only -- never flips pass to false, same as R5', () => {
+  const result = evaluateTierCheck({
+    body: 'Tier: T2\n\nsome body',
+    headRefName: 'feat/x',
+    paths: ['README.md'],
+    prCreatedAt: new Date('2026-10-19T12:00:00Z'),
+    graceCutoff: new Date('2026-10-08T00:00:00Z'),
+    labels: [],
+    config: CONFIG,
+    workflowDiffs: [],
+    lintDiffs: [],
+    baseCiGateNeeds: null,
+    headCiGateNeeds: null,
+    approvalComments: [],
+    reviews: [],
+    headSha: 'anyhead',
+    reviewerAppLogin: 'ai-triad-reviewer-jpsnover',
+    lastPushAt: '2026-10-19T12:00:00Z',
+  });
+  assert.equal(result.pass, true, 'T2 declared, consult-hold missing is R5\'s concern, not R1-R4 -- R6 must not fail it either');
+  assert.equal(result.r6Advisory, true);
+  assert.ok(result.comments.some((c) => c.startsWith('R6')));
+});
+
 // ── evaluateTierCheck: full integration, R5 never affects pass/fail ───────
 test('evaluateTierCheck: R1 hit without T2 fails; R5 alone never flips pass to false', () => {
   const base = {
@@ -261,6 +386,30 @@ test('evaluateTierCheck: R1 hit without T2 fails; R5 alone never flips pass to f
   const t2WithoutHold = evaluateTierCheck({ ...base, body: 'Tier: T2\n\nsome body' });
   assert.equal(t2WithoutHold.pass, true);
   assert.equal(t2WithoutHold.r5Advisory, true);
+});
+
+// Found via PR #4395: R4's failure message now distinguishes "declared, wrong position" from
+// "not declared at all" instead of collapsing both into the same opaque "(none)".
+test('evaluateTierCheck: R4 names a misplaced Tier: line distinctly from a genuinely missing one', () => {
+  const base = {
+    headRefName: 'feat/x',
+    paths: ['README.md'],
+    prCreatedAt: new Date('2026-10-09T00:00:00Z'),
+    graceCutoff: new Date('2026-10-08T00:00:00Z'),
+    labels: [],
+    config: CONFIG,
+    workflowDiffs: [],
+    lintDiffs: [],
+    baseCiGateNeeds: null,
+    headCiGateNeeds: null,
+  };
+  const misplaced = evaluateTierCheck({ ...base, body: '# Summary\n\nsome body\n\nTier: T1' });
+  const r4Misplaced = misplaced.failures.find((f) => f.rule === 'R4');
+  assert.match(r4Misplaced.detail, /Tier: T1 is declared .* not on the first line/);
+
+  const missing = evaluateTierCheck({ ...base, body: '# Summary\n\nno tier anywhere' });
+  const r4Missing = missing.failures.find((f) => f.rule === 'R4');
+  assert.equal(r4Missing.detail, 'no Tier: T0|T1|T2 line in the PR body');
 });
 
 test('evaluateTierCheck: a clean T0 PR with no rule hits passes with no comments', () => {

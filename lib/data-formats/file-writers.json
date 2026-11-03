@@ -28,7 +28,7 @@
         "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
         "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; appends '\\n' since #3613)"
       ],
-      "measured": {"ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"}
+      "measured": {"ts-pretty2-lf-nl": "byte-identical at 2abb64ef (t/4623, refreshed from the stale 7dc19c88 reading above): the t/3962 inline pov_tags gap closed as a side effect of b20ce8ca, an unrelated content write through the proper canonical funnel; independently re-confirmed (Shared Lib, CL t/4623#1, TL t/4623#2 — all three measured the live file through the real scripts/json-canonical.mjs and got 6,811,152 bytes, zero diff)"}
     },
     "taxonomy/Origin/situations.json": {
       "format": "pretty2-lf-nl",

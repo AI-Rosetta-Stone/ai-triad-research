@@ -1005,6 +1005,18 @@ function loadSourceMetadata<T>(mapMeta: (meta: SourceMetaJson, name: string) => 
   return out;
 }
 
+/** t/4528: a cheap full-sources-dir scan for just the `duplicate_of` mark — the `lookup`
+ *  entityHandlers.ts's `get-entity` IPC path feeds into the shared `resolveRefsThroughDuplicateOf`
+ *  (lib/sourceIndex/types.js, t/4527) to fold `Entity.source_refs` before returning. Deliberately
+ *  lighter than `loadSourceMetaAndIdentity` (below) — no snapshot-hash computation, since this
+ *  path only needs "what does this id's mark say," not canonical grouping. Reuses
+ *  `loadSourceMetadata`, which already scans the WHOLE sources dir, so the lookup covers every
+ *  doc under it by construction — the shared resolver's contract requires that (a target outside
+ *  the caller's own ref list must still resolve, t/4357's missing_target pitfall). */
+export function loadDuplicateOfLookup(): Record<string, { duplicate_of?: string | null }> {
+  return loadSourceMetadata((meta) => ({ duplicate_of: meta.duplicate_of ?? null }));
+}
+
 type NodeSourceMeta = {
   title: string; url: string | null; sourceType: string; datePublished: string;
   authors: string[]; topicTags: string[]; oneLiner: string | null;

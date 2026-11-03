@@ -107,6 +107,11 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
     'public-share': I('MUST include with the tag: Scope (one wing only) and Prioritize (every node, tagged first) make very different claims about the same camp.'),
     community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL),
   },
+  'request.temperature': {
+    'public-share': I('The temperature setting is part of the run configuration that defines the answer; needed to contextualize the answer\'s character.'),
+    community: I('Run configuration; comparable run metadata.'),
+    export: I(EXPORT_FULL),
+  },
 
   // ── campVerdicts ──
   'campVerdicts.camp': { 'public-share': I(PUBLIC_CORE), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
@@ -193,6 +198,11 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
     community: X('Internal financial/operational data; a community reader needn\'t see exact USD spend, and no existing community type exposes cost. Deliberate exclude, NOT inherited from public-share (Server Community t/3651#7).'),
     export: I(EXPORT_FULL),
   },
+  'derivation.temperature': {
+    'public-share': I('What actually ran (vs request.temperature, the ask), the way derivation.fidelity pairs with request.fidelity.'),
+    community: I('Run configuration; comparable run metadata.'),
+    export: I(EXPORT_FULL),
+  },
   'derivation.tag.pov': { 'public-share': I('What actually ran (vs request.tagSelection, the ask), the way derivation.fidelity pairs with request.fidelity.'), community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL) },
   'derivation.tag.tag': { 'public-share': I('What actually ran (vs request.tagSelection, the ask).'), community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL) },
   'derivation.tag.mode': { 'public-share': I('What actually ran (vs request.tagSelection, the ask).'), community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL) },
@@ -214,6 +224,12 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   },
   'grounding.nodesByCamp.label': { 'public-share': I('Public-safe node snapshot (label).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   'grounding.nodesByCamp.camp': { 'public-share': I('Public-safe node snapshot (camp).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
+  // Top situation candidates (t/4592) — same disposition as nodesByCamp (TL p/438#61: precedent-following, not novel policy).
+  'grounding.situationNodes.nodeId': {
+    'public-share': X('Private taxonomy id — excluded consistently across every NodeRef-shaped ref (Server Auth t/3648#2), same stance as grounding.nodesByCamp.nodeId.'),
+    community: I('Authenticated-user taxonomy reference; consistent with the community nodeId stance.'), export: I(EXPORT_FULL),
+  },
+  'grounding.situationNodes.label': { 'public-share': I('Public-safe situation snapshot (label).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   // Coverage signal (t/4374): internal diagnostic; excluded from public share (synthesis caveat is expressed in text, not raw scores)
   'grounding.campCoverage.bestRawScore': { 'public-share': X('Internal diagnostic score — not surfaced to anonymous readers; synthesis caveat carries the meaning.'), community: I('Coverage diagnostic for authenticated research use.'), export: I(EXPORT_FULL) },
   'grounding.campCoverage.lowCoverage': { 'public-share': X('Internal coverage flag — not surfaced to anonymous readers; synthesis caveat carries the meaning.'), community: I('Coverage flag for authenticated research use.'), export: I(EXPORT_FULL) },

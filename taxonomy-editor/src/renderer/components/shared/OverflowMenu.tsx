@@ -35,6 +35,7 @@ export function OverflowMenu({ entries, triggerClassName }: OverflowMenuProps) {
         className={triggerClassName ?? 'btn btn-ghost btn-sm overflow-menu-trigger'}
         onClick={() => setOpen(!open)}
         title="More actions"
+        aria-label="More actions"
         aria-haspopup="true"
         aria-expanded={open}
       >&hellip;</button>

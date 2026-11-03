@@ -43,3 +43,26 @@ Describe 'Test-IsAwaitingPi (t/4115, TL p/702#59 noise-reduction)' -Tag 'powersh
         Test-IsAwaitingPi -Labels $labels | Should -BeFalse
     }
 }
+
+Describe 'Test-IsDraft (t/4599, second-layer defense against a stale label on a now-draft PR)' -Tag 'powershell' {
+
+    It 'is true when the PR object carries isDraft true' {
+        Test-IsDraft -Pr ([pscustomobject]@{ isDraft = $true }) | Should -BeTrue
+    }
+
+    It 'is false when isDraft is false' {
+        Test-IsDraft -Pr ([pscustomobject]@{ isDraft = $false }) | Should -BeFalse
+    }
+
+    It 'is false for a null PR value (never throws under strict mode)' {
+        Test-IsDraft -Pr $null | Should -BeFalse
+    }
+
+    It 'still correctly identifies a draft PR that also carries a stuck-pr-alert label (the t/4007 shape)' {
+        $pr = [pscustomobject]@{
+            isDraft = $true
+            labels  = @([pscustomobject]@{ name = 'stuck-pr-alert-tl' })
+        }
+        Test-IsDraft -Pr $pr | Should -BeTrue
+    }
+}

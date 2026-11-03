@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import type { LucideIcon } from 'lucide-react';
+import { createLucideIcon, type LucideIcon } from 'lucide-react';
 import {
   Search, LayoutGrid, MessageSquare, MessageCircle,
   Crosshair, TriangleAlert, CirclePlus, BookText,
@@ -9,6 +9,13 @@ import {
   BookOpen, LineChart, Terminal, FileText, CircleHelp, Star,
   RefreshCw, Settings, Building2, Boxes, Newspaper, Sparkles,
 } from 'lucide-react';
+
+// t/4543: the Rosetta Stone tool's rail icon — option A ("rosette") from the three choices
+// presented in the approved t/4542 mockup (Rail.dc.html), picked because it's distinct from
+// every other rail icon and reads as "a key to decode by," the Rosetta Stone's own metaphor.
+export const RosetteIcon: LucideIcon = createLucideIcon('Rosette', [
+  ['path', { d: 'M12 2l2.5 5.5L20 9l-4.5 4L17 19l-5-3-5 3 1.5-6L4 9l5.5-1.5z' }],
+]);
 
 export type NavAction =
   | { type: 'switchTab'; target: string }
@@ -32,13 +39,17 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  // ── Primary tier ──
+  // ── Primary tier ── t/4535: reordered (PI request, p/351#29). Order only — labels,
+  // icons and gates unchanged.
+  // t/4543: Rosetta Stone added topmost — the tool every launch opens into (PI decision,
+  // t/4541#1). No gate: always reachable, for every user.
+  { id: 'rosetta-stone', label: 'Rosetta Stone', icon: RosetteIcon, tier: 'primary', action: { type: 'switchTab', target: 'rosetta-stone' } },
   { id: 'search', label: 'Search', icon: Search, tier: 'primary', action: { type: 'togglePanel', target: 'search' } },
-  { id: 'taxonomy', label: 'Taxonomy', icon: LayoutGrid, tier: 'primary', action: { type: 'custom', id: 'taxonomy' } },
-  { id: 'debate', label: 'Debate', icon: MessageSquare, tier: 'primary', action: { type: 'switchTab', target: 'debate' } },
   { id: 'chat', label: 'Chat', icon: MessageCircle, tier: 'primary', action: { type: 'switchTab', target: 'chat' } },
   { id: 'opeds', label: 'Op-Ed Studies', icon: Newspaper, tier: 'primary', action: { type: 'switchTab', target: 'opeds' }, gate: { anyFlag: ['env-electron-opeds', 'env-web-opeds'] } },
   { id: 'inquiry', label: 'Ask a Question', icon: Sparkles, tier: 'primary', action: { type: 'switchTab', target: 'inquiry' } },
+  { id: 'debate', label: 'Debate', icon: MessageSquare, tier: 'primary', action: { type: 'switchTab', target: 'debate' } },
+  { id: 'taxonomy', label: 'Taxonomy', icon: LayoutGrid, tier: 'primary', action: { type: 'custom', id: 'taxonomy' } },
 
   // ── Secondary tier — browse group ──
   { id: 'situations', label: 'Situations', icon: Crosshair, tier: 'secondary', group: 'browse', action: { type: 'switchTab', target: 'situations' } },

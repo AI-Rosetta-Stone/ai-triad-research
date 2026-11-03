@@ -53,8 +53,10 @@ REQUIRED EXTRACTION EFFORT (hard constraints):
   This document is approximately {{WORD_COUNT}} words.
 
   EFFORT REQUIREMENTS (non-negotiable):
-    • Examine ALL nine BDI cells (3 POV camps × 3 categories) for every document.
-    • For each cell, extract every distinct point the document actually contains.
+    • Examine every BDI category (beliefs, desires, intentions) of each tagged
+      camp. Examine untagged camps under the CAMP EXPECTATIONS rule below.
+    • For each tagged-camp cell, extract every distinct point the document
+      actually contains.
     • If a cell is genuinely empty (the document does not engage this frame),
       report it explicitly:
         "empty_cells": [
@@ -66,15 +68,41 @@ REQUIRED EXTRACTION EFFORT (hard constraints):
       date-specific prediction, and quantitative comparison. Each is a separate
       factual_claim.
     • unmapped_concepts: search all four taxonomy files before declaring any
-      concept unmapped. Target: {{UC_MIN}}-{{UC_MAX}}.
+      concept unmapped. Up to about {{UC_MAX}}.
 
-  DENSITY GUIDANCE (targets, not floors):
-    • key_points: target {{KP_MIN}}-{{KP_MAX}} per camp for a {{WORD_COUNT}}-word
-      document. Longer documents should yield more points. But a document that
-      yields 2 accelerationist key points and 12 safetyist key points is CORRECT
-      if that reflects the document's actual content.
-    • If total extraction across all camps falls below {{TOTAL_FLOOR}}, re-examine
-      the document — you may have missed salient content.
+  CAMP EXPECTATIONS:
+    The document's POV tags (given with the document) name the camps it was
+    classified as engaging. Treat them as a strong hint, not a limit.
+    • Tagged camps: be thorough. Extract every distinct point the document makes
+      that bears on that camp's beliefs, desires or intentions.
+    • Untagged camps: extract a point only when the document itself argues for or
+      against a position that camp holds. A document's topic overlapping a camp's
+      interests is not enough.
+      BANNED CONSTRUCTION — camp bridging: do not write the point as a claim
+      ABOUT the camp's relationship to the document's content. This includes,
+      but is not limited to:
+        "From an <camp> perspective, this …"
+        "This aligns with / supports the <camp> goal of …"
+        "<Camp>s would support/endorse/reject this because …"
+        "This is relevant to <camp> because …"
+      These are all the same move — translating a topic into a camp's language
+      instead of quoting what the document itself asserts. A point for an
+      untagged camp must be phrased exactly as you would phrase it for a tagged
+      camp: as something the document says, not as something a camp would say
+      about the document. If you cannot state the point without naming the camp
+      inside the point's own text, the document does not actually make that
+      point for that camp — leave the cell empty instead.
+        WRONG (bridged): "This finding aligns with the accelerationist goal of
+          minimizing regulatory friction."
+        RIGHT (if the document actually argues it): "Regulatory compliance
+          costs delayed model deployment by 14 months."
+        RIGHT (if the document does not argue it): leave the cell empty.
+    • If no POV tags are given, treat every camp as tagged.
+    • An empty camp is a correct answer when the document does not engage it.
+      Declare each empty cell in "empty_cells" with a one-line reason.
+    Longer documents usually yield more points, but there is no quota. An honest
+    extraction of 3 points beats a padded extraction of 7.
+    At most about {{KP_MAX}} key_points per tagged camp.
 
   ANTI-FABRICATION RULE: Every key_point and factual_claim MUST be traceable to
   specific text in the document. Do NOT pad to hit targets. An honest extraction
@@ -180,11 +208,8 @@ CANONICAL PROPOSITION (required for every key_point):
        "the attestation" -> "the mandatory data-processing attestation" only if
        the source has said it is mandatory and about data processing.
     3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
-    4. Keep the proposition general enough to match a taxonomy node. Put a name
-       in "anchors" only if removing it would change what the claim asserts. A
-       name that illustrates a general claim, or is where a figure or quotation
-       came from, is not an anchor. Do not invent an anchor the source does not
-       give.
+    4. Keep canonical_proposition general; the specific instrument stays in
+       "point".
 
     Examples:
       Source: "In the EU, the Digital Services Act (DSA) requires major platforms to
@@ -192,14 +217,12 @@ CANONICAL PROPOSITION (required for every key_point):
                reasonable, proportionate and effective mitigation measures."
       canonical_proposition: "Major online platforms ought to conduct annual systemic
                risk assessments and adopt proportionate mitigation measures."
-      anchors: ["EU Digital Services Act"]
 
       Source: "... a big study out of China ... kids using A.I. had increases on their
                homework scores, and then when they had to test outside of that
                context, their test scores began falling."
       canonical_proposition: "Students who use AI for homework score worse on tests
                taken without it."
-      anchors: []          (China is an example here, not what the claim is about)
 
       Source: welfare and justice systems "in the Netherlands, the UK, and
                Australia" used biased algorithmic decision-making that wrongly
@@ -207,8 +230,6 @@ CANONICAL PROPOSITION (required for every key_point):
       canonical_proposition: "Algorithmic bias and automated decision systems cause
                documented, severe present harms to vulnerable populations across
                welfare and justice systems."
-      anchors: []          (remove the three countries and the claim asserts the
-                            same thing; they illustrate it)
 
       Earlier in the debate: "We propose a mandatory attestation of how the system
                processes personal data."
@@ -216,15 +237,6 @@ CANONICAL PROPOSITION (required for every key_point):
                bystanders included."
       canonical_proposition: "A mandatory attestation of personal-data processing
                ought to cover all data the system processes, including bystanders'."
-      anchors: []          (every word traces to the two turns; nothing is added)
-
-  ANCHORS (t/4482; forensic/additive — see the point-of-use exemption note on the
-  "anchors" field in pov-summary-schema.prompt):
-    "anchors": the names (instruments, jurisdictions, organizations or dates),
-    as given in the source, that the claim would lose its meaning without, e.g.
-    ["EU AI Act Article 62"], ["California Judicial Council", "2025-12-15"].
-    Use [] for a general claim. Names that only illustrate the claim, or that
-    are where a figure or quotation came from, are not anchors.
 
 ATTRIBUTION TEXT (required for every key_point):
   Provide an "attribution_text" field that rewrites the claim mirroring
@@ -385,7 +397,7 @@ SELF-CONTAINED FACTUAL CLAIMS:
   2. Replace a name the source invented with what it is, using only what the
      source itself says it is. Never add detail the source does not give.
   3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
-  A factual claim KEEPS its specific names in the sentence. It has no anchors field.
+  A factual claim KEEPS its specific names in the sentence.
 
   Examples:
     Wrong: "Participants rated roughly one-third of completed AI-assisted tasks

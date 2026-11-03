@@ -1010,6 +1010,17 @@ export const PROMPT_CATALOG: PromptCatalogEntry[] = [
     promptFiles: ['org-stance-extraction'],
   },
   {
+    id: 'ps-org-endorsement-gate',
+    title: 'Organization Endorsement Gate',
+    description: 'Judges whether an organization\'s stated position endorses a taxonomy node\'s proposition, or only shares its topic.',
+    source: 'AITriad/Prompts/org-endorsement-gate.prompt',
+    template: '(Loading from disk...)',
+    group: 'powershell',
+    purpose: 'Used by Invoke-OrgClaimMatching (t/4475 7b, t/4523) to tag a proposed org→node edge endorses/partial/topic_only — confirming the directional gate\'s topical match actually asserts the node\'s proposition, not just its subject.',
+    applicableDataSources: ['taxonomyNodes'],
+    promptFiles: ['org-endorsement-gate'],
+  },
+  {
     id: 'ps-pov-aphorism',
     title: 'POV Aphorism',
     description: 'Produces one short, camp-voiced aphorism (3–8 words) for a taxonomy node.',

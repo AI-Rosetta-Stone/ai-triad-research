@@ -28,6 +28,11 @@ import {
   chatContinuationPrompt,
   CHAT_MODE_TEMPERATURE,
 } from '../prompts/chat';
+// t/4690, per TL p/864#1: registerRun must be called from the store-level run loop itself, never
+// a view effect, so a run survives the view that started it unmounting (the whole point of the
+// shell's running signal). Pre-approved call site — see t/4687#1/#3.
+import { registerRun } from '../navigation/runningSignal';
+import type { RunOutcome } from '../navigation/runningSignal';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -186,6 +191,12 @@ export function parseChatResponse(text: string, model?: string): { response: str
   try {
     const parsed = JSON.parse(stripCodeFences(stripped));
     const response = parsed.response || stripped;
+    // t/4675: the model sometimes returns a label-slugged id (e.g. "sit-153-ensuring-ai-
+    // alignment-and-control" instead of "sit-153") that passes the string-shape check below but
+    // never resolves in the taxonomy lookup, so the ref permanently shows "not found" to the
+    // user. Mirror lib/debate/inquirySynthesis.ts's resolveNodeRefs: exact-match against the
+    // known ids and drop+WARN on mismatch, rather than passing an unresolvable id downstream.
+    const getLabelForId = useTaxonomyStore.getState().getLabelForId;
     const taxonomyRefs: TaxonomyRef[] = Array.isArray(parsed.taxonomy_refs)
       ? parsed.taxonomy_refs
         .filter((r: Record<string, unknown>) => r.node_id && typeof r.node_id === 'string')
@@ -193,6 +204,18 @@ export function parseChatResponse(text: string, model?: string): { response: str
           node_id: r.node_id as string,
           relevance: (r.relevance as string) || '',
         }))
+        .filter((ref: TaxonomyRef) => {
+          const resolves = getLabelForId(ref.node_id) !== '';
+          if (!resolves) {
+            getGlobalRecorder()?.record({
+              type: 'system.error',
+              component: 'chat-store',
+              level: 'warn',
+              message: `Chat response cited an unresolvable taxonomy id, dropped: '${ref.node_id}'`,
+            });
+          }
+          return resolves;
+        })
       : [];
     return { response, taxonomyRefs };
   } catch (err) {
@@ -386,6 +409,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const isStillValid = createChatGuard(get);
     set({ chatGenerating: true, chatError: null, chatStreamingText: null });
 
+    const finishRun = registerRun('chat', activeChat.id, activeChat.topic);
+    // Default 'aborted': every isStillValid() early-return below exits through finally before
+    // either terminal assignment runs, and 'aborted' — not a success, not a thrown failure — is
+    // the accurate outcome for a run that was invalidated out from under it.
+    let outcome: RunOutcome = 'aborted';
+
     try {
       const info = chatSoul(activeChat);
       const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
@@ -433,7 +462,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // Update session list
       const sessions = await api.listChatSessions();
       set({ sessions: sessions as ChatSessionSummary[] });
+      outcome = 'done';
     } catch (err) {
+      outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to generate opening message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ chatError: `Failed to start conversation: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
       // createChat pre-saved an empty session before generation; the opening never landed, so remove
@@ -447,6 +478,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: 'Failed to clean up empty chat session after opening failure', error: { name: (cleanupErr as Error).name ?? 'Error', message: String(cleanupErr), stack: (cleanupErr as Error).stack } });
       }
     } finally {
+      finishRun(outcome);
       set({ chatGenerating: false });
     }
   },
@@ -457,6 +489,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     const isStillValid = createChatGuard(get);
     set({ chatGenerating: true, chatError: null, chatStreamingText: null });
+
+    const finishRun = registerRun('chat', activeChat.id, activeChat.topic);
+    // Default 'aborted' — see generateOpening's identical isStillValid()-early-return rationale.
+    let outcome: RunOutcome = 'aborted';
 
     // Add user message to transcript
     const userEntry: ChatEntry = {
@@ -567,11 +603,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // Update session list
       const sessions = await api.listChatSessions();
       set({ sessions: sessions as ChatSessionSummary[] });
+      outcome = 'done';
     } catch (err) {
       if (!isStillValid()) return;
+      outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to send chat message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ chatError: `Response failed: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
     } finally {
+      finishRun(outcome);
       set({ chatGenerating: false });
     }
   },

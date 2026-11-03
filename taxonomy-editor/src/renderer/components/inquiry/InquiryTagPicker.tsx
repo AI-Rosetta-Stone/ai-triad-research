@@ -26,6 +26,13 @@ function tagLabelOf(entries: { id: string; label: string }[], tag: string): stri
   return entries.find(t => t.id === tag)?.label ?? tag;
 }
 
+/** t/4667: the Options summary's tag label — same lookup as the picker's own scope line, exposed
+ *  so the summary doesn't duplicate the registry walk. */
+export function tagSummaryLabel(sel: TagSelection): string {
+  const entries = loadPovTagRegistry().povs[sel.pov] ?? [];
+  return tagLabelOf(entries, sel.tag);
+}
+
 /** The scope a selection would have, or null when the camp's nodes aren't loaded (nothing to count). */
 function scopeOf(sel: TagSelection) {
   const nodes = useTaxonomyStore.getState()[sel.pov]?.nodes ?? [];

@@ -1,0 +1,9 @@
+#!/bin/sh
+# post-merge — sweep landed linked worktrees after the shared checkout advances.
+# Runs the sweep detached in the background so it never delays or fails a merge/pull.
+# The sweep only removes worktrees whose PR is MERGED, that are clean, and whose HEAD is
+# the merged head or already on origin/main (see operations/devops/sweep-landed-worktrees.sh).
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+LOG="$ROOT/.git/sweep-landed-worktrees.log"
+( sh "$ROOT/operations/devops/sweep-landed-worktrees.sh" >>"$LOG" 2>&1 & )
+exit 0

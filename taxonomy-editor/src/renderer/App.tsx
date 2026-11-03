@@ -1,14 +1,22 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, type ReactNode } from 'react';
 import './App.css';
 import { api } from '@bridge';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import ErrorBoundary from '../../../lib/electron-shared/components/ErrorBoundary';
 import { useTaxonomyStore, initAIModels } from './hooks/useTaxonomyStore';
-import { initDebateSessions } from './hooks/useDebateStore';
+import { initDebateSessions, useDebateStore } from './hooks/useDebateStore';
+import { useChatStore } from './hooks/useChatStore';
+import { useOpEdStore } from './hooks/useOpEdStore';
+import { useInquiryStore } from './hooks/useInquiryStore';
 import { useAppRoute } from './routing/useAppRoute';
+import { installNavSubscriber } from './navigation/subscriber';
+import { restorePath } from './navigation/restore';
+import { installUnsavedEditsGuard } from './navigation/unloadGuard';
+import { navHistory } from './navigation';
+import { LocationBarHost } from './components/navigation/LocationBarHost';
 import { Toolbar } from './components/shared/Toolbar';
 import { TabBar } from './components/shared/TabBar';
 import { SaveBar } from './components/sync/SaveBar';
@@ -18,7 +26,7 @@ import { PovTab } from './components/taxonomy/PovTab';
 import { FirstRunDialog } from './components/settings/FirstRunDialog';
 import { WhatsNewToast } from './components/settings/WhatsNewToast';
 import { HelpDialog } from './components/settings/HelpDialog';
-import { OnboardingTour } from './components/OnboardingTour';
+import { RosettaStoneTab } from './components/RosettaStoneTab';
 import { DeploymentErrorScreen } from './components/shared/DeploymentErrorScreen';
 
 import { StartupProgressScreen } from './components/shared/StartupProgressScreen';
@@ -32,6 +40,7 @@ import { useBreakpoint } from './hooks/useBreakpoint';
 import { useIsTouchDevice } from './hooks/useIsTouchDevice';
 import { BottomNav } from './components/shared/BottomNav';
 import { HamburgerMenu } from './components/shared/HamburgerMenu';
+import { useNavigationShortcuts } from './hooks/useNavigationShortcuts';
 import { GitProgressBanner } from './components/sync/GitProgressBanner';
 import { AnonymousBanner } from './components/community/AnonymousBanner';
 import { ResilienceBanner } from './components/shared/ResilienceBanner';
@@ -44,9 +53,11 @@ import { pullDataTracked } from './utils/syncApi';
 import { useFeatureFlagStore, useFlag } from './hooks/useFeatureFlags';
 import { useTheoryLinkHotkey } from './hooks/useTheoryLinkHotkey';
 import { PrecacheToast } from './components/shared/PrecacheToast';
+import { RunToastHost } from './components/navigation/RunToastHost';
 import { usePrecache } from './hooks/usePrecache';
 import { DiagnosticsDrawer } from './components/shared/DiagnosticsDrawer';
 import { GlobalDetailPaneHost } from './components/shared/GlobalDetailPaneHost';
+import { ToolbarPaneRenderer, PhoneToolClose } from './components/shared/ToolbarPaneRenderer';
 
 // Lazy-loaded tab components — only fetched when their tab is selected
 const SituationsTab = recordingLazy(() => import('./components/debate/SituationsTab').then(m => ({ default: m.SituationsTab })));
@@ -172,6 +183,67 @@ function FileViewerApp() {
   </div>;
 }
 
+/** t/4628: runs once `initAIModels()` has resolved (so the anonymous-default target reflects the
+ *  LIVE ai-models.json defaults, not the bundled pre-load snapshot), applies the anonymous-session
+ *  model/backend override if needed, then proceeds with the rest of app bootstrap. Shared by all
+ *  four `initAIModels().then(...)` call sites so none of them can drift from the others. */
+async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>): Promise<void> {
+  const isAnonymous = await api.checkAnonymousSession();
+  useTaxonomyStore.getState().applyAnonymousSessionDefaults(isAnonymous);
+  void loadAllFn();
+  initAnalyticsSession();
+  initDebateSessions();
+  // t/4640: install navigation subscriber to maintain history stack (buttons/shortcuts)
+  // The open item lives in each tool's own store, so the subscriber listens to all of them.
+  installNavSubscriber({
+    taxonomy: useTaxonomyStore,
+    debate: useDebateStore,
+    chat: useChatStore,
+    opEd: useOpEdStore,
+    inquiry: useInquiryStore,
+  }, navHistory, restorePath);
+  installUnsavedEditsGuard(useTaxonomyStore); // t/4640 AC6
+}
+
+// t/4722: Chat, Conflicts, Cruxes, Debate, Situations and the POV tabs mount their own
+// ToolbarPaneRenderer (list-pane layout, isFullWidthPanel()). Every other tab never did, so a
+// Tools-menu pick there set toolbarPanel and highlighted the menu item but rendered nothing.
+// MainApp's fallback is derived from this single set, instead of a mount per missing tab — the
+// drift that caused the bug in the first place, and the next new tab would repeat it. Exported
+// so the regression test can assert it covers every tab, not just the ones known at the time.
+export const TABS_WITH_OWN_TOOLBAR_PANE = ['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'accelerationist', 'safetyist', 'skeptic'];
+
+export function tabNeedsToolbarFallback(activeTab: string, toolbarPanel: string | null): boolean {
+  return toolbarPanel !== null && !TABS_WITH_OWN_TOOLBAR_PANE.includes(activeTab);
+}
+
+/** The main tab-content body: the t/4722 toolbar-pane fallback, the POV tab shell, or the tab
+ *  itself. Kept out of MainApp so MainApp stays within its complexity budget. */
+function TabBody({ activeTab, toolbarPanel, showPovHeader, children }: {
+  activeTab: string;
+  toolbarPanel: string | null;
+  showPovHeader: boolean;
+  children: ReactNode;
+}) {
+  if (tabNeedsToolbarFallback(activeTab, toolbarPanel)) {
+    return (
+      <div className="list-panel list-panel-full">
+        <PhoneToolClose />
+        <ToolbarPaneRenderer panel={toolbarPanel} />
+      </div>
+    );
+  }
+  if (showPovHeader) {
+    return (
+      <div className="pov-tab-shell">
+        <TabBar />
+        <div className="pov-tab-shell-body">{children}</div>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 export function App() {
   const [hash, setHash] = useState(window.location.hash);
   const analyticsFlag = useFlag('env-web-analytics-dashboard');
@@ -294,6 +366,7 @@ function AppRouter() {
 function MainApp() {
   const { activeTab, loading, backgroundLoading, loadingProgress, loadAll, colorScheme, paneSpacing, zoomLevel, zoomIn, zoomOut, zoomReset, toolbarPanel } = useTaxonomyStore();
   useAppRoute(); // t/3486: restore a deep-linked in-app view (e.g. /opeds/:setId) at boot + popstate.
+  useNavigationShortcuts(); // t/4640: Alt+←/→ (Cmd+[/] on macOS) and mouse buttons 4/5 for back/forward
   const summariesFlag = useFlag('env-electron-summaries');
   // OR both build flags — mirrors the navConfig Op-Eds gate (anyFlag: electron||web). Gates
   // BOTH the tab render below and must stay in sync with the nav gate, else the button shows
@@ -316,7 +389,6 @@ function MainApp() {
   const [showFirstRun, setShowFirstRun] = useState(false);
   const [dataRoot, setDataRoot] = useState('');
   const [copyStatus, setCopyStatus] = useState<{ state: string; dir?: string; copied?: number; total?: number } | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [showChangelogHelp, setShowChangelogHelp] = useState(false);
 
   useEffect(() => {
@@ -333,28 +405,9 @@ function MainApp() {
       if (!available) {
         setShowFirstRun(true);
       } else {
-        void initAIModels().then(() => { void useTaxonomyStore.getState().loadAll(); initAnalyticsSession(); initDebateSessions(); });
+        void initAIModels().then(() => bootstrapAfterModelsLoaded(() => useTaxonomyStore.getState().loadAll()));
       }
     });
-  }, []);
-
-  // Show onboarding tour after data loads for first-time users without an API key
-  useEffect(() => {
-    if (loading || showFirstRun) return;
-    const dismissed = localStorage.getItem('taxonomy-editor-onboarding-dismissed') === 'true';
-    if (dismissed) return;
-    void api.hasApiKey().then(has => {
-      if (!has) setShowOnboarding(true);
-    }).catch((err) => {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'app', level: 'warn', message: 'Tour API key check failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    });
-  }, [loading, showFirstRun]);
-
-  // Listen for "show tour" requests from HelpDialog
-  useEffect(() => {
-    const handler = () => setShowOnboarding(true);
-    window.addEventListener('show-onboarding-tour', handler);
-    return () => window.removeEventListener('show-onboarding-tour', handler);
   }, []);
 
   // Poll copy status while showFirstRun is true in web mode
@@ -374,7 +427,7 @@ function MainApp() {
             if (available) {
               setShowFirstRun(false);
               setCopyStatus(null);
-              void initAIModels().then(() => { void useTaxonomyStore.getState().loadAll(); initAnalyticsSession(); initDebateSessions(); });
+              void initAIModels().then(() => bootstrapAfterModelsLoaded(() => useTaxonomyStore.getState().loadAll()));
             }
             // If still not available after copy complete, DeploymentErrorScreen will show
           });
@@ -569,12 +622,12 @@ function MainApp() {
 
   const handleFirstRunComplete = () => {
     setShowFirstRun(false);
-    void initAIModels().then(() => { void loadAll(); initAnalyticsSession(); initDebateSessions(); });
+    void initAIModels().then(() => bootstrapAfterModelsLoaded(loadAll));
   };
 
   const handleFirstRunSkip = () => {
     setShowFirstRun(false);
-    void initAIModels().then(() => { void loadAll(); initAnalyticsSession(); initDebateSessions(); });
+    void initAIModels().then(() => bootstrapAfterModelsLoaded(loadAll));
   };
 
   if (showFirstRun) {
@@ -618,9 +671,10 @@ function MainApp() {
   // column (t/2857) so the left nav rail spans full window height, matching Debate/Chat/Op-Eds.
   // showPovHeader mirrors the original TabBar visibility condition exactly. Layout-only.
   const showPovHeader = toolbarPanel === null &&
-    !['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'organizations', 'inquiry'].includes(activeTab);
+    !['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'organizations', 'inquiry'].includes(activeTab);
   const tabContent = (
     <>
+      {activeTab === 'rosetta-stone' && <RosettaStoneTab />}
       {activeTab === 'accelerationist' && <PovTab pov="accelerationist" />}
       {activeTab === 'safetyist' && <PovTab pov="safetyist" />}
       {activeTab === 'skeptic' && <PovTab pov="skeptic" />}
@@ -750,15 +804,15 @@ function MainApp() {
       </div>
       <div className="app-body">
         <Toolbar />
-        <div className="tab-content">
-          {showPovHeader ? (
-            <div className="pov-tab-shell">
-              <TabBar />
-              <div className="pov-tab-shell-body">{tabContent}</div>
-            </div>
-          ) : (
-            tabContent
-          )}
+        {/* t/4640: column wrapper puts the LocationBar above .tab-content (a row flexbox),
+            not beside it as a narrow left column. */}
+        <div className="tab-column">
+          <LocationBarHost />
+          <div className="tab-content">
+            <TabBody activeTab={activeTab} toolbarPanel={toolbarPanel} showPovHeader={showPovHeader}>
+              {tabContent}
+            </TabBody>
+          </div>
         </div>
         {/* One app-level ref → DetailPane host for every main tab in this shell (t/1987).
             A ref-link click in PovTab/Situations/Conflicts/Cruxes/Debate sets the global
@@ -773,10 +827,10 @@ function MainApp() {
       {isMobile && <HamburgerMenu isOpen={hamburgerOpen} onClose={() => setHamburgerOpen(false)} />}
       {UpdatePrompt && !loading && <Suspense fallback={null}><UpdatePrompt /></Suspense>}
       <PrecacheToast progress={precacheProgress} onCancel={cancelPrecache} onDismiss={dismissPrecache} />
+      <RunToastHost />
       <WhatsNewToast onOpenChangelog={() => setShowChangelogHelp(true)} />
       {showChangelogHelp && <HelpDialog onClose={() => setShowChangelogHelp(false)} initialTab="changelog" />}
       {isMobile && <DiagnosticsDrawer />}
-      {showOnboarding && <OnboardingTour onDismiss={() => setShowOnboarding(false)} />}
     </div>
   );
 }

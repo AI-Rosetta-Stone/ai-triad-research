@@ -22,8 +22,10 @@ import { parseEntityRef } from '../../../../lib/entities/types.js';
 // (shared byte-identical by the server + ElectronMain transports); imported here
 // rather than defined locally so the two copies can't drift.
 import { resolveMergedInto, normalizeEntity, coerceStringArray } from '../../../../lib/entities/entityResolve.js';
+import { resolveRefsThroughDuplicateOf, type ScopedDocLookup } from '../../../../lib/sourceIndex/types.js';
 import * as fileIO from '../storage/fileIO.js';
 import { getOrganizationById } from '../organizations.js';
+import { loadSourcesIndex } from '../storage/sourcesIndexReader.js';
 
 // Depth cap for the merged_into tombstone chase (Section 7). A well-formed merge
 // graph is a short chain; anything past this is corrupt data, not deep nesting.
@@ -136,6 +138,17 @@ async function resolveEntityRegistryRef(ref: EntityRef): Promise<unknown> {
   // t/1964: normalize polymorphic aliases/source_refs before the detail/mention
   // flow renders them — ent-034 "Claude" (the mention target) has aliases: null.
   const record = normalizeEntity(resolved.record);
+  // t/4527: fold source_refs through any valid duplicate_of mark (spec 6.1 checks 1-3) before
+  // returning, so the renderer's "Appears in" chips never show a doc already superseded by
+  // its canonical. source_refs_basis (keyed by the PRE-fold ids) is deliberately left
+  // untouched — out of this ticket's scope, PS's Get-EntityReport is its only reader today.
+  if (record.source_refs && record.source_refs.length > 0) {
+    const sourcesIndex = await loadSourcesIndex();
+    if (sourcesIndex) {
+      const lookup = new Map<string, ScopedDocLookup>(sourcesIndex.docs.map(d => [d.id, d]));
+      record.source_refs = resolveRefsThroughDuplicateOf(record.source_refs, id => lookup.get(id));
+    }
+  }
   return resolved.redirectedFrom === undefined
     ? { ref, kind: 'entity', record }
     : { ref, redirected_from: resolved.redirectedFrom, kind: 'entity', record };
@@ -169,6 +182,17 @@ export function registerEntityRoutes(r: Router, _ctx: ServerCtx): void {
       // params for forward-compat but return the full summary list. readEntityRegistry
       // (t/1807) returns null when entities.json is absent → [] (never crash, ADR-001).
       const reg = await fileIO.readEntityRegistry();
+      // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): a null
+      // registry from a DEGRADED read (not a genuine absence) must not render as an
+      // empty list — that's indistinguishable from "no entities exist" and was the
+      // incident's actual symptom. 503, not 200 [].
+      if (reg === null) {
+        const status = fileIO.getEntityRegistryStatus();
+        if (status.degraded) {
+          error(res, `Entity registry temporarily unavailable: ${status.reason}`, 503);
+          return;
+        }
+      }
       const rows: EntitySummary[] = reg
         ? [...reg.values()].map(e => ({
             // t/1964: aliases is polymorphic in the store (array | null | string) — coerce

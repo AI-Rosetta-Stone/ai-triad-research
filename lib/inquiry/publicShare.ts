@@ -15,7 +15,7 @@
 // makes the shape ⟷ matrix cross-check exact, which is worth more than a flatter artifact.
 
 import { z } from 'zod';
-import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, type InquiryResult, type NodeRef, type TagMode } from './schema.js';
+import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
 import { PovNameSchema, type PovName } from '../schema/povTags.js';
 import { TRUNCATION_REASONS } from './jobStatus.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
@@ -25,6 +25,8 @@ export const PUBLIC_INQUIRY_SHARE_VERSION = 1;
 
 // Public NodeRef snapshot: label + camp only. nodeId is EXCLUDED (private taxonomy id — matrix).
 const PublicNodeRefSchema = z.object({ label: z.string(), camp: CampSchema }).strict();
+// Public SituationRef snapshot: label only — no camp (situations aren't camp-scoped), nodeId EXCLUDED (t/4592).
+const PublicSituationRefSchema = z.object({ label: z.string() }).strict();
 const PublicTrustStateSchema = z.object({
   verdict: TrustVerdictSchema,
   reason: z.string(),
@@ -50,15 +52,19 @@ const PublicDerivationSchema = z.object({
   models: z.record(z.string(), z.string()),
   rounds: z.number().int(),
   tag: z.object(publicAppliedTagFields).strict().optional(),
+  // Temperature (t/4771): the ask and what ran are both public, the way fidelity pairs request/derivation.
+  temperature: z.number().min(0).max(2).optional(),
 }).strict(); // NO callBudget / callsUsed / costUsd (operational internals — matrix)
 const PublicRequestSchema = z.object({
   question: z.string(),
   fidelity: FidelitySchema,
   tagSelection: z.object(publicTagSelectionFields).strict().optional(),
+  temperature: z.number().min(0).max(2).optional(),
 }).strict(); // NO situationId / models
 const PublicGroundingSchema = z.object({
   anchorSummary: z.string().optional(), // NO anchorSituationId (internal anchor id)
   nodesByCamp: z.partialRecord(CampSchema, z.array(PublicNodeRefSchema)),
+  situationNodes: z.array(PublicSituationRefSchema).optional(),
 }).strict();
 
 /** The public share artifact. STRICT (not passthrough) — a public artifact must not carry unknown fields. */
@@ -85,6 +91,7 @@ export type PublicInquiryShare = z.infer<typeof PublicInquiryShareSchema>;
 // evolution across the ACA deploy-overlap window (t/3730). Strict on write, tolerant on read.
 // Zod strictness is shallow, so every nested object must be replaced — not just the top level.
 const PublicNodeRefReadSchema = z.object({ label: z.string(), camp: CampSchema }).passthrough();
+const PublicSituationRefReadSchema = z.object({ label: z.string() }).passthrough();
 const PublicTrustStateReadSchema = z.object({
   verdict: TrustVerdictSchema,
   reason: z.string(),
@@ -106,15 +113,18 @@ const PublicDerivationReadSchema = z.object({
   models: z.record(z.string(), z.string()),
   rounds: z.number().int(),
   tag: z.object(publicAppliedTagFields).passthrough().optional(),
+  temperature: z.number().min(0).max(2).optional(),
 }).passthrough();
 const PublicRequestReadSchema = z.object({
   question: z.string(),
   fidelity: FidelitySchema,
   tagSelection: z.object(publicTagSelectionFields).passthrough().optional(),
+  temperature: z.number().min(0).max(2).optional(),
 }).passthrough();
 const PublicGroundingReadSchema = z.object({
   anchorSummary: z.string().optional(),
   nodesByCamp: z.partialRecord(CampSchema, z.array(PublicNodeRefReadSchema)),
+  situationNodes: z.array(PublicSituationRefReadSchema).optional(),
 }).passthrough();
 
 /** Tolerant read-side counterpart to {@link PublicInquiryShareSchema} — passthrough at every nested
@@ -167,6 +177,7 @@ function sanitizeSources(sources: string[]): string[] {
 }
 
 const publicNode = (n: NodeRef): z.infer<typeof PublicNodeRefSchema> => ({ label: n.label, camp: n.camp }); // omits nodeId by not reading it
+const publicSituationRef = (s: SituationRef): z.infer<typeof PublicSituationRefSchema> => ({ label: s.label }); // omits nodeId by not reading it (t/4592)
 // Named reads, so a field a newer build adds to the (passthrough) stored tagSelection never reaches the share.
 const publicTagSelection = (t: { pov: PovName; tag: string; mode: TagMode }) => ({ pov: t.pov, tag: t.tag, mode: t.mode });
 
@@ -208,6 +219,7 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       question: result.request.question,
       fidelity: result.request.fidelity,
       ...(result.request.tagSelection ? { tagSelection: publicTagSelection(result.request.tagSelection) } : {}),
+      ...(result.request.temperature !== undefined ? { temperature: result.request.temperature } : {}),
     },
     campVerdicts: result.campVerdicts.map((cv) => ({ camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes.map(publicNode) })),
     convergences: result.convergences.map((c) => ({ claim: truncateExcerpt(c.claim), nodes: c.nodes.map(publicNode) })),
@@ -229,12 +241,14 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       models: result.derivation.models,
       rounds: result.derivation.rounds,
       ...(result.derivation.tag ? { tag: { ...publicTagSelection(result.derivation.tag), included: result.derivation.tag.included, excludedUntagged: result.derivation.tag.excludedUntagged } } : {}),
+      ...(result.derivation.temperature !== undefined ? { temperature: result.derivation.temperature } : {}),
     },
     grounding: {
       ...(result.grounding.anchorSummary !== undefined ? { anchorSummary: truncateExcerpt(result.grounding.anchorSummary) } : {}),
       nodesByCamp: Object.fromEntries(
         Object.entries(result.grounding.nodesByCamp ?? {}).map(([camp, nodes]) => [camp, (nodes ?? []).map(publicNode)]),
       ),
+      ...(result.grounding.situationNodes ? { situationNodes: result.grounding.situationNodes.map(publicSituationRef) } : {}),
     },
     singleRunCaveat: result.singleRunCaveat,
     // Condition A: omit for degraded runs — enforced here at construction, NOT delegated to the generator.

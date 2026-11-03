@@ -34,6 +34,22 @@ let focusServer: http.Server | null = null;
 
 const FOCUS_PORT = 17862;
 
+// t/4775: pushed by the renderer (navigation/unloadReason.ts) whenever its computed unload
+// reason changes — main only stores the latest value, no combining logic here (contract agreed
+// at p/546#82/#83, t/4761 follow-up). Read by the will-prevent-unload dialog below.
+type UnloadReason = 'edits' | 'debate' | 'both' | null;
+let unloadReason: UnloadReason = null;
+
+function unloadReasonMessage(reason: UnloadReason): string {
+  switch (reason) {
+    case 'edits': return 'You have unsaved taxonomy edits.';
+    case 'debate': return 'A debate is still running.';
+    case 'both':
+    case null:
+    default: return 'You have unsaved work or a running debate. Leave anyway?';
+  }
+}
+
 function sendFocusNode(nodeId: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('focus-node', nodeId);
@@ -220,6 +236,31 @@ function createWindow(): void {
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     console.error('[main] Failed to load:', errorCode, errorDescription);
+  });
+
+  // t/4758: the renderer's beforeunload guards (a running debate, unsaved taxonomy edits)
+  // cancel the unload — but in Electron a cancelled beforeunload cancels the window close
+  // SILENTLY unless the main process handles will-prevent-unload itself. Without this, the
+  // close button does nothing and the user gets no explanation.
+  const windowForUnloadDialog = mainWindow;
+  windowForUnloadDialog.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(windowForUnloadDialog, {
+      type: 'warning',
+      buttons: ['Stay', 'Leave'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Close Rosetta Stone?', // t/4761: "Leave this page?" read like a browser, not a desktop window
+      message: unloadReasonMessage(unloadReason),
+    });
+    if (choice === 1) event.preventDefault(); // Leave: override the renderer's cancel.
+    // Stay (choice === 0): do nothing — the renderer's beforeunload cancel stands.
+  });
+
+  // t/4775: the renderer pushes its computed unload reason here whenever it changes (not
+  // computed-at-unload-time) — crossing the IPC boundary from inside a beforeunload handler
+  // would race will-prevent-unload with no guarantee the value lands first (p/546#82).
+  ipcMain.on('set-unload-reason', (_event, reason: UnloadReason) => {
+    unloadReason = reason;
   });
 
   mainWindow.on('unresponsive', () => {
@@ -483,6 +524,19 @@ void app.whenReady().then(() => {
     if (diagWindow && !diagWindow.isDestroyed()) {
       diagWindow.close();
     }
+  });
+
+  // t/4642/t/4663: bring an already-open diagnostics popout to the front on a repeat card
+  // click (open-diagnostics-window's show/focus lines, without the create-if-absent branch —
+  // the 'inline' arm for narrow windows is decided in electron-bridge.ts before this ever fires).
+  ipcMain.handle('focus-diagnostics-window', (): 'focused' | 'not-open' => {
+    if (diagWindow && !diagWindow.isDestroyed()) {
+      if (diagWindow.isMinimized()) diagWindow.restore();
+      diagWindow.show();
+      diagWindow.focus();
+      return 'focused';
+    }
+    return 'not-open';
   });
 
   registerChatWindowHandlers(path.join(__dirname, 'preload.cjs'), () => mainWindow, hardenWindow);

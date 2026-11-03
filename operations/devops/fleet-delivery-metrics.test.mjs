@@ -146,23 +146,46 @@ test('approvalWaitByTier: buckets by extractTier, defaults to none', () => {
   assert.equal(r.none.n, 1);
 });
 
-test('findSoClearedAt: matches "SO cleared" and "SO clearing comment", takes the LATEST match', () => {
+test('findSoClearedAt: matches a comment whose OWN HEADER opens with "SO cleared"/"SO clearing comment", takes the FIRST such match', () => {
   const comments = [
     { body: 'Some unrelated discussion', createdAt: '2026-10-19T08:00:00Z' },
     { body: '**The SO cleared it at head `abc123`.**', createdAt: '2026-10-19T09:00:00Z' },
     { body: '**SO clearing comment (T2, head `def456`).**', createdAt: '2026-10-20T01:00:00Z' },
   ];
-  assert.equal(findSoClearedAt(comments), '2026-10-20T01:00:00.000Z');
+  assert.equal(findSoClearedAt(comments), '2026-10-19T09:00:00.000Z');
 });
 
-test('findSoClearedAt: does NOT match "SO re-confirmation ... Not cleared yet" (SO isn\'t adjacent to clear*)', () => {
-  const comments = [{ body: 'SO re-confirmation at the new head. Not cleared yet; one gap remains.', createdAt: '2026-10-19T08:00:00Z' }];
+test('findSoClearedAt: does NOT match "SO re-confirmation ... Not cleared yet" (not a cleared/clearing/did-not-review header)', () => {
+  const comments = [{ body: '**SO re-confirmation** at the new head. Not cleared yet; one gap remains.', createdAt: '2026-10-19T08:00:00Z' }];
   assert.equal(findSoClearedAt(comments), null);
 });
 
-test('findSoClearedAt: "SO did not review" also matches (the time-box-lapsed fallback phrase)', () => {
-  const comments = [{ body: 'Per the time-box, SO did not review -- going to the PI marked accordingly.', createdAt: '2026-10-19T10:00:00Z' }];
+test('findSoClearedAt: "SO did not review" also matches, when it opens the comment\'s own header', () => {
+  const comments = [{ body: '**SO did not review.**\nGoing to the PI marked accordingly, per the time-box.', createdAt: '2026-10-19T10:00:00Z' }];
   assert.equal(findSoClearedAt(comments), '2026-10-19T10:00:00.000Z');
+});
+
+// t/4537 (TL, p/702#87): the original "latest text match anywhere in body" logic mis-picked a
+// LATER comment that merely quotes an earlier clearance. Regression test using PR #3423's own
+// real comment shape (t/4091#45): a genuine SO clearing comment, followed by a PI-approval
+// comment that references the phrase in prose but is not itself an SO artifact.
+test('findSoClearedAt: REGRESSION (#3423) -- a later PI-approval comment that merely QUOTES "SO clearing comment" in its body does NOT override the genuine earlier clearance', () => {
+  const comments = [
+    { body: '**SO review of #3423 at `77f541da`**\n\n**Recommendation:** proceed with conditions.', createdAt: '2026-10-19T15:12:46Z' },
+    { body: '**SO clearing comment (T2, head `c24088d4`).** Delta from `716ccefa`: operational-commands.md', createdAt: '2026-10-20T00:28:09Z' },
+    { body: '**PI approval (T2, head `c24088d4`).**\n\nSO conditions R1-R5 are met per the SO clearing comment. Approved to merge.', createdAt: '2026-10-20T18:18:52Z' },
+  ];
+  // The genuine clearance is 00:28:09Z, NOT the 18:18:52Z PI-approval comment that quotes it.
+  assert.equal(findSoClearedAt(comments), '2026-10-20T00:28:09.000Z');
+});
+
+test('findSoClearedAt: afterISO excludes a clearing comment that predates the latest push (stale round, #3386 multi-rebase shape)', () => {
+  const comments = [
+    { body: '**SO clearing comment** at the OLD head (stale -- predates the rebase).', createdAt: '2026-10-19T09:00:00Z' },
+    { body: '**SO clearing comment** at the NEW head, after the rebase.', createdAt: '2026-10-20T01:00:00Z' },
+  ];
+  // A push landed at 09:30Z, after the stale clearance but before the real one.
+  assert.equal(findSoClearedAt(comments, '2026-10-19T09:30:00Z'), '2026-10-20T01:00:00.000Z');
 });
 
 test('findSoClearedAt: no matching comment returns null, not a guess', () => {

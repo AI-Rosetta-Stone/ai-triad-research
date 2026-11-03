@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   policy: null as unknown,
   taxonomy: {} as Record<string, unknown>,
   entities: [] as unknown[],
+  duplicateOfLookup: {} as Record<string, { duplicate_of?: string | null }>,
 }));
 
 vi.mock('electron', () => ({
@@ -34,6 +35,7 @@ vi.mock('../fileIO.js', () => ({
   // resolve to [] deterministically (term resolution is covered by the server suite).
   getDataRootPath: () => '/no-such-data-root-for-entity-test',
   readEntities: () => h.entities,
+  loadDuplicateOfLookup: () => h.duplicateOfLookup,
 }));
 
 vi.mock('../organizations.js', () => ({
@@ -62,6 +64,7 @@ beforeEach(() => {
   h.policy = null;
   h.taxonomy = {};
   h.entities = [];
+  h.duplicateOfLookup = {};
   registerEntityHandlers();
 });
 
@@ -149,6 +152,45 @@ describe('entity-resolve IPC handler (t/1809)', () => {
       { id: 'ent-b', name: 'B', merged_into: 'ent-a', aliases: [], source_refs: [] },
     ];
     expect(() => resolve('ent-a')).toThrow(ActionableError);
+  });
+
+  // ── t/4528 (mirrors server t/4527): fold source_refs through duplicate_of ──
+
+  it('a source_ref marked duplicate_of resolves to its canonical target', () => {
+    h.entities = [{ id: 'ent-060', name: 'Dup refs', aliases: [], source_refs: ['doc-copy'] }];
+    h.duplicateOfLookup = { 'doc-copy': { duplicate_of: 'doc-canonical' }, 'doc-canonical': {} };
+    expect(resolve('ent-060')).toMatchObject({ record: { source_refs: ['doc-canonical'] } });
+  });
+
+  it('an invalid duplicate_of mark (self/missing-target/chain) is left as-is', () => {
+    h.entities = [{ id: 'ent-061', name: 'Invalid marks', aliases: [], source_refs: ['doc-self', 'doc-missing', 'doc-chain-a'] }];
+    h.duplicateOfLookup = {
+      'doc-self': { duplicate_of: 'doc-self' }, // self: invalid
+      // 'doc-missing' marks a target absent from the lookup entirely — missing_target: invalid.
+      'doc-chain-a': { duplicate_of: 'doc-chain-b' },
+      'doc-chain-b': { duplicate_of: 'doc-chain-c' }, // one-hop only — chain: invalid
+      'doc-chain-c': {},
+    };
+    expect(resolve('ent-061')).toMatchObject({ record: { source_refs: ['doc-self', 'doc-missing', 'doc-chain-a'] } });
+  });
+
+  it('a canonical doc and its copy in the same list collapse to one entry', () => {
+    h.entities = [{ id: 'ent-062', name: 'Sibling collapse', aliases: [], source_refs: ['doc-canonical', 'doc-copy'] }];
+    h.duplicateOfLookup = { 'doc-canonical': {}, 'doc-copy': { duplicate_of: 'doc-canonical' } };
+    expect(resolve('ent-062')).toMatchObject({ record: { source_refs: ['doc-canonical'] } });
+  });
+
+  it("a target outside the entity's own ref list still resolves (not misclassified as missing_target)", () => {
+    h.entities = [{ id: 'ent-063', name: 'Target not cited by this entity', aliases: [], source_refs: ['doc-copy'] }];
+    // 'doc-canonical' is a real corpus doc but never appears in ent-063's own source_refs —
+    // the lookup (loadDuplicateOfLookup, a full-sources-dir scan) must still find it (t/4357's pitfall).
+    h.duplicateOfLookup = { 'doc-copy': { duplicate_of: 'doc-canonical' }, 'doc-canonical': {} };
+    expect(resolve('ent-063')).toMatchObject({ record: { source_refs: ['doc-canonical'] } });
+  });
+
+  it('an empty source_refs array is left untouched (no lookup call needed)', () => {
+    h.entities = [{ id: 'ent-064', name: 'No refs', aliases: [], source_refs: [] }];
+    expect(resolve('ent-064')).toMatchObject({ record: { source_refs: [] } });
   });
 });
 

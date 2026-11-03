@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "builder": "Build-NodeSourceIndex",
+  "builderVersion": "1.2.0",
+  "inputHash": "307340e0a9e1ff44d7d1ba882bfa6cda128651269da9987f43c0e7009226fed9",
+  "marksHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "totals": {
+    "nodes": 2,
+    "entries": 2,
+    "byLinkSource": {
+      "key_point": 2,
+      "factual_claim": 0
+    }
+  },
+  "index": {
+    "acc-new": [
+      {
+        "source_id": "doc-one",
+        "link_source": "key_point",
+        "quote": "cites the retired node",
+        "doc_position": null,
+        "evidence_level": null,
+        "extraction_confidence": 0.7
+      }
+    ],
+    "acc-other": [
+      {
+        "source_id": "doc-one",
+        "link_source": "key_point",
+        "quote": "cites a live node",
+        "doc_position": null,
+        "evidence_level": null,
+        "extraction_confidence": 0.6
+      }
+    ],
+    "acc-old": []
+  }
+}

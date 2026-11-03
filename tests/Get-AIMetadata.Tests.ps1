@@ -11,6 +11,9 @@
 #>
 
 BeforeAll {
+    # t/4582 (GH #3978): the tests mock Invoke-AIByUsage, which AITriad exports, so load it here
+    # rather than depending on an earlier file in the shard having done it (order-dependent heal).
+    Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
     $ModulePath = Join-Path $PSScriptRoot '..' 'scripts' 'AIEnrich.psm1'
     Import-Module $ModulePath -Force -WarningAction SilentlyContinue
 }
@@ -198,6 +201,123 @@ Describe 'Get-AIMetadata title/one_liner length limits (gap 2.2)' -Tag 'ingestio
         $result = Get-AIMetadata -MarkdownText 'test doc' 3>$null 6>$null
         $result.one_liner.Length | Should -Be 300
         $result.one_liner | Should -BeLike '*...'
+    }
+}
+
+Describe 'Get-AIMetadata whole-document sampling (t/4655)' -Tag 'ingestion' {
+
+    BeforeAll {
+        # A >6000-word document with a unique marker sentence placed well past word 6000, inside a
+        # late section Split-RagQueryWindows would keep -- proves the classifier sees past the old
+        # flat-prefix cutoff, not just that a WARN fired.
+        $script:LongDocMarker = 'MARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX appears only near the end.'
+        $filler = (1..6500 | ForEach-Object { "word$_" }) -join ' '
+        $script:LongDoc = "## Introduction`n`n$filler`n`n## Conclusion`n`n$($script:LongDocMarker) The document concludes here."
+    }
+
+    It 'samples across the whole document and WARNs with word/window counts' {
+        $mockResponse = [PSCustomObject]@{
+            Text    = '{"title":"T","authors":[],"date_published":"2024","pov_tags":["accelerationist"],"topic_tags":[],"one_liner":"O"}'
+            Backend = 'gemini'
+            Model   = 'gemini-2.5-flash-lite'
+            Truncated = $false
+            Usage   = $null
+            RawResponse = @{}
+        }
+        $script:capturedPrompt = $null
+        Mock Invoke-AIApi -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Prompt
+            $mockResponse
+        }
+        Mock Invoke-AIByUsage -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Values.prompt
+            $mockResponse
+        }
+
+        $warnings = $null
+        $null = Get-AIMetadata -MarkdownText $script:LongDoc -WarningVariable warnings -WarningAction SilentlyContinue 6>$null
+
+        $script:capturedPrompt | Should -Match 'MARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX'
+        ($warnings -join '|') | Should -Match 'sampled \d+ words from a \d+-word document across \d+ windows'
+    }
+
+    It 'does not sample or WARN for a document at or under the 6000-word budget' {
+        $mockResponse = [PSCustomObject]@{
+            Text    = '{"title":"T","authors":[],"date_published":"2024","pov_tags":[],"topic_tags":[],"one_liner":"O"}'
+            Backend = 'gemini'
+            Model   = 'gemini-2.5-flash-lite'
+            Truncated = $false
+            Usage   = $null
+            RawResponse = @{}
+        }
+        $script:capturedPrompt = $null
+        Mock Invoke-AIApi -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Prompt
+            $mockResponse
+        }
+        Mock Invoke-AIByUsage -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Values.prompt
+            $mockResponse
+        }
+        $shortDoc = "## Doc`n`nMARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX is right here, well under budget."
+
+        $warnings = $null
+        $null = Get-AIMetadata -MarkdownText $shortDoc -WarningVariable warnings -WarningAction SilentlyContinue 6>$null
+
+        $script:capturedPrompt | Should -Match 'MARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX'
+        ($warnings -join '|') | Should -Not -Match 'sampled \d+ words'
+    }
+}
+
+Describe 'Get-AIMetadata non-ASCII author round-trip through the full write path (t/4658)' -Tag 'ingestion' {
+    # t/4658: 20 corpus docs have a "LeÃ³n"-style mojibake author (UTF-8 bytes mis-decoded as
+    # Latin-1, then correctly re-encoded -- the on-disk bytes for 'ó' end up C3 83 C2 B3 instead
+    # of the correct C3 B3). Not reproducible against the live Get-AIMetadata call alone (verified
+    # separately), but Quality's design review (t/4658, p/678#216) asked this test to go past the
+    # in-memory object and exercise the actual ConvertTo-Json -> Write-Utf8NoBom write path, since
+    # that's the layer a future regression is most likely to reappear in.
+
+    It 'writes a non-ASCII author name to disk as correct UTF-8, not a double-encoded mojibake' {
+        $mockResponse = [PSCustomObject]@{
+            Text    = '{"title":"T","authors":["Esteban Ponce de León"],"date_published":"2024","pov_tags":[],"topic_tags":[],"one_liner":"O"}'
+            Backend = 'gemini'
+            Model   = 'gemini-2.5-flash-lite'
+            Truncated = $false
+            Usage   = $null
+            RawResponse = @{}
+        }
+        Mock Invoke-AIApi -ModuleName AIEnrich -MockWith { $mockResponse }
+        Mock Invoke-AIByUsage -ModuleName AIEnrich -MockWith { $mockResponse }
+
+        $meta = Get-AIMetadata -MarkdownText 'test doc' 3>$null 6>$null
+
+        # Simulate Import-AITriadDocument's metadata.json assembly and write (same two calls,
+        # ConvertTo-Json then Write-Utf8NoBom), not just inspecting the in-memory object.
+        # Write-Utf8NoBom is AITriad-Private, so the actual write happens via InModuleScope.
+        $outPath = Join-Path $TestDrive 'metadata.json'
+        $authorsJson = $meta.authors | ConvertTo-Json -Depth 5 -AsArray
+        InModuleScope AITriad -Parameters @{ AuthorsJson = $authorsJson; OutPath = $outPath } {
+            param($AuthorsJson, $OutPath)
+            $Metadata = [ordered]@{ id = 'test-doc'; authors = ($AuthorsJson | ConvertFrom-Json) }
+            $Metadata | ConvertTo-Json -Depth 5 | Write-Utf8NoBom -Path $OutPath
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($outPath)
+        $hex = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+
+        $hex | Should -Match 'c3b3'       # correct single UTF-8 encoding of 'ó'
+        $hex | Should -Not -Match 'c383c2b3'   # the double-encoded mojibake pattern ("Ã³")
+
+        # Confirm readback matches the pre-write codepoints exactly. Compared as codepoints,
+        # not a literal string, so this doesn't depend on this source FILE's own encoding.
+        # @(...)[0] guards against the single-element authors array round-tripping as a bare
+        # string (PowerShell's ConvertTo-Json/-From-Json unwrap single-element arrays by default),
+        # which would otherwise index into its first CHAR instead of the author string.
+        $readBack = @((Get-Content -LiteralPath $outPath -Raw -Encoding utf8 | ConvertFrom-Json).authors)[0]
+        $originalAuthor = @($meta.authors)[0]
+        $readBackCodepoints = $readBack.ToCharArray() | ForEach-Object { [int]$_ }
+        $originalCodepoints = $originalAuthor.ToCharArray() | ForEach-Object { [int]$_ }
+        ($readBackCodepoints -join ',') | Should -Be ($originalCodepoints -join ',')
     }
 }
 

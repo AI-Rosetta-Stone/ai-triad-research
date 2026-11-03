@@ -14,7 +14,11 @@ BeforeAll {
         return $Matches[1]
     }
     function Get-OriginHost([string]$Block) {
-        $m = [regex]::Matches($Block, "\{\s*name:\s*'ALLOWED_ORIGINS',\s*value:\s*'https://([a-z0-9-]+)\.\$\{containerAppEnv\.properties\.defaultDomain\}'\s*\}")
+        # t/4752: interpolates containerAppEnvDefaultDomain (a param), not the live
+        # containerAppEnv.properties.defaultDomain resource reference -- that reference made the
+        # whole derived env-var chain resource-dependent, forcing ARM to inline it in full at
+        # every use and exceeding the 81920-char single-expression limit on staging's chain.
+        $m = [regex]::Matches($Block, "\{\s*name:\s*'ALLOWED_ORIGINS',\s*value:\s*'https://([a-z0-9-]+)\.\$\{containerAppEnvDefaultDomain\}'\s*\}")
         return @($m | ForEach-Object { $_.Groups[1].Value })
     }
     function Get-AppName([string]$ResourceSymbol) {
@@ -41,8 +45,16 @@ Describe 'ALLOWED_ORIGINS per app (t/4406)' {
     }
 
     It 'stagingBaseEnv filters baseEnv ALLOWED_ORIGINS out, so staging carries one value, not prod''s plus its own' {
+        # t/4587 (SO C1, e/384): the filter moved from a chained e.name != '...' && ...
+        # predicate to !contains(stagingOverriddenKeys, e.name), and stagingOverriddenKeys is
+        # now DERIVED (map(stagingEnvOverrides, e => e.name)), not hand-duplicated -- a
+        # hand-copied list drifts the moment a new override lands in one place but not the
+        # other. So "ALLOWED_ORIGINS is filtered" now means it's present in stagingEnvOverrides
+        # itself (already asserted by the 'names the staging app host exactly once' test above).
         $script:Bicep -match "(?s)var stagingBaseEnv\s*=\s*concat\(\s*filter\(baseEnv,\s*e\s*=>\s*([^\)]*)\)" | Should -Be $true
-        $Matches[1] | Should -Match "e\.name != 'ALLOWED_ORIGINS'"
+        $Matches[1] | Should -Match "!contains\(stagingOverriddenKeys,\s*e\.name"
+        $script:Bicep -match "var stagingOverriddenKeys\s*=\s*map\(stagingEnvOverrides,\s*e\s*=>\s*e\.name\)" | Should -Be $true
+        (Get-Block 'stagingEnvOverrides') | Should -Match "'ALLOWED_ORIGINS'"
     }
 
     It 'the prod and staging origins differ' {

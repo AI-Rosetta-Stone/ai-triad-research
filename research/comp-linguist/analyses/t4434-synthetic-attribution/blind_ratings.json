@@ -1,0 +1,33 @@
+{
+  "rater": "Computational Linguist (single rater, not inter-rater)",
+  "method": "Blind: rater saw only X/Y text and the claim, not pairs_key.json, until all 25 were rated.",
+  "criterion": "Which of X/Y better grounds a debater on THIS claim as a node reference inside a debate prompt: specific/concrete and on-topic for the claim beats generic taxonomic scope-setting (Encompasses/Excludes framing reads as documentation, not a usable debate reference).",
+  "n": 25,
+  "ratings": [
+    {"pair_id": "p00", "picked": "X", "why": "directly engages the claim's displacement/workload framing; Y is scope-setting prose"},
+    {"pair_id": "p01", "picked": "Y", "why": "takes a position on the claim's stat rather than listing what the node covers"},
+    {"pair_id": "p02", "picked": "Y", "why": "mirrors the claim's own argument structure (concedes history, argues velocity is different)"},
+    {"pair_id": "p03", "picked": "X", "why": "names concrete governance precedent matching 'collective action, democratic oversight'; Y's scope is broader than the claim"},
+    {"pair_id": "p04", "picked": "Y", "why": "directly addresses taxing AI profits, the claim's actual proposal"},
+    {"pair_id": "p05", "picked": "X", "why": "names the specific mechanism ('audit washing') the claim is defending against a characterization of"},
+    {"pair_id": "p06", "picked": "X", "why": "states the scope (statistical tracking of layoffs) that the claim's cited figure falls under; Y's rhetorical question is vaguer"},
+    {"pair_id": "p07", "picked": "Y", "why": "mirrors the claim's rebuttal structure against the same accelerationist framing"},
+    {"pair_id": "p08", "picked": "X", "why": "names the specific mechanism (occupational segregation, exposure differential) behind the claim's stat"},
+    {"pair_id": "p09", "picked": "X", "why": "gives a concrete, checkable figure (300% undercount) matching the claim's concrete framing"},
+    {"pair_id": "p10", "picked": "X", "why": "directly argues the liability-extension point the claim is making"},
+    {"pair_id": "p11", "picked": "X", "why": "diagnoses intent, matching the claim's own diagnosis; Y proposes a remedy the claim doesn't ask for"},
+    {"pair_id": "p12", "picked": "Y", "why": "states the market-failure rationale the claim is invoking for domain-specific liability"},
+    {"pair_id": "p13", "picked": "X", "why": "names the moral-hazard mechanism the claim's 'false economy' language is pointing at"},
+    {"pair_id": "p14", "picked": "X", "why": "the only one of the two naming developer-level pre-deployment accountability, which is what the claim is actually contrasting against deployer-level ATCB monitoring"},
+    {"pair_id": "p15", "picked": "X", "why": "echoes the claim's 'enforcement with teeth' framing directly"},
+    {"pair_id": "p16", "picked": "Y", "why": "names the specific mechanism (pre-release impact assessments, continuous monitoring) the claim's 'enhanced pre-deployment review' is referring to"},
+    {"pair_id": "p17", "picked": "X", "why": "the richer mechanism list (falsifiable triggers, anti-gaming, escrow) covers the claim's 'performance-gated audits' more fully than Y's one example"},
+    {"pair_id": "p18", "picked": "X", "why": "the Excludes clause usefully distinguishes this from adjacent proposals, which matters since the claim's own mechanism (compute-hours tax) sits awkwardly between the fund and the excluded alternatives"},
+    {"pair_id": "p19", "picked": "Y", "why": "near-paraphrase of the claim itself in argument form, directly usable as a debate line"},
+    {"pair_id": "p20", "picked": "Y", "why": "directly engages the claim's 'adaptive safety integration... real-time' framing; X is jargon-heavy ('switchable infrastructure', 'off-meter') and harder to use as spoken grounding"},
+    {"pair_id": "p21", "picked": "Y", "why": "closely mirrors the claim's Telemetry Compliance Board proposal"},
+    {"pair_id": "p22", "picked": "X", "why": "the Agile/iteration analogy matches the claim's 'two adaptive iterations' language directly"},
+    {"pair_id": "p23", "picked": "Y", "why": "directly addresses 'machine speed, not committee speed' via oversight-panel scaling without bottlenecks"},
+    {"pair_id": "p24", "picked": "X", "why": "near-direct restatement of the claim's regulatory-capture argument"}
+  ]
+}

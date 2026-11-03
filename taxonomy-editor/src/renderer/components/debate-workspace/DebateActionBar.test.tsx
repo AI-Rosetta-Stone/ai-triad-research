@@ -229,6 +229,25 @@ describe('DebaterToggles', () => {
     expect(skpPill?.classList.contains('debate-debater-pill-inactive')).toBe(true);
   });
 
+  it('labels a sat-out debater as sitting out, not as hidden (t/4748)', () => {
+    mockStore.activeDebate = {
+      active_povers: ['safetyist', 'skeptic'],
+      transcript: [],
+    };
+    mockStore.debateGenerating = null;
+    render(<DebaterToggles />);
+    const accPill = screen.getByRole('button', { name: /Accelerationist/ });
+    const safPill = screen.getByRole('button', { name: /Safetyist/ });
+
+    expect(accPill).toHaveAttribute('aria-pressed', 'false');
+    expect(accPill).toHaveTextContent('sitting out');
+    expect(accPill).toHaveAttribute('title', 'Add Accelerationist back to the next rounds.');
+
+    expect(safPill).toHaveAttribute('aria-pressed', 'true');
+    expect(safPill).not.toHaveTextContent('sitting out');
+    expect(safPill.getAttribute('title')).toContain('Their turns so far stay in the transcript.');
+  });
+
   it('disables pills when generating', () => {
     mockStore.activeDebate = {
       active_povers: ['accelerationist'],

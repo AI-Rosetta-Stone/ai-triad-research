@@ -1,0 +1,152 @@
+{
+ "something-big-is-happening-but-not-what-you-think-2026": {
+  "fire": {
+   "key_points": 8,
+   "factual_claims": 4,
+   "mode": "fire",
+   "chunk_count": null,
+   "fire_stats": {
+    "api_calls": 1,
+    "iterations": 0,
+    "claims_total": 4,
+    "claims_confident": 4,
+    "claims_iterated": 0,
+    "claims_dropped_verification": 0,
+    "elapsed_seconds": 11.9,
+    "termination_reason": "all_confident"
+   }
+  },
+  "chunk": {
+   "key_points": 18,
+   "factual_claims": 8,
+   "mode": "single_shot",
+   "chunk_count": 5,
+   "fire_stats": null
+  }
+ },
+ "bold-dataset-metrics-measuring-biases-open-ended-language-2026": {
+  "fire": {
+   "key_points": 5,
+   "factual_claims": 3,
+   "mode": "fire",
+   "chunk_count": null,
+   "fire_stats": {
+    "api_calls": 1,
+    "iterations": 0,
+    "claims_total": 3,
+    "claims_confident": 3,
+    "claims_iterated": 0,
+    "claims_dropped_verification": 0,
+    "elapsed_seconds": 8.7,
+    "termination_reason": "all_confident"
+   }
+  },
+  "chunk": {
+   "key_points": 7,
+   "factual_claims": 9,
+   "mode": "single_shot",
+   "chunk_count": 4,
+   "fire_stats": null
+  }
+ },
+ "new-economy-skills-unlocking-human-advantage-2026": {
+  "fire": {
+   "key_points": 11,
+   "factual_claims": 5,
+   "mode": "fire",
+   "chunk_count": null,
+   "fire_stats": {
+    "api_calls": 1,
+    "iterations": 0,
+    "claims_total": 5,
+    "claims_confident": 5,
+    "claims_iterated": 0,
+    "claims_dropped_verification": 0,
+    "elapsed_seconds": 18.7,
+    "termination_reason": "all_confident"
+   }
+  },
+  "chunk": {
+   "key_points": 12,
+   "factual_claims": 20,
+   "mode": "single_shot",
+   "chunk_count": 5,
+   "fire_stats": null
+  }
+ },
+ "risks-not-assumed-against-application-assumption-risk-harms-2026": {
+  "fire": {
+   "key_points": 5,
+   "factual_claims": 4,
+   "mode": "fire",
+   "chunk_count": null,
+   "fire_stats": {
+    "api_calls": 1,
+    "iterations": 0,
+    "claims_total": 4,
+    "claims_confident": 4,
+    "claims_iterated": 0,
+    "claims_dropped_verification": 0,
+    "elapsed_seconds": 9.0,
+    "termination_reason": "all_confident"
+   }
+  },
+  "chunk": {
+   "key_points": 21,
+   "factual_claims": 20,
+   "mode": "single_shot",
+   "chunk_count": 6,
+   "fire_stats": null
+  }
+ },
+ "prioritizing-risks-from-artificial-intelligence-2026": {
+  "fire": {
+   "key_points": 6,
+   "factual_claims": 4,
+   "mode": "fire",
+   "chunk_count": null,
+   "fire_stats": {
+    "api_calls": 1,
+    "iterations": 0,
+    "claims_total": 4,
+    "claims_confident": 4,
+    "claims_iterated": 0,
+    "claims_dropped_verification": 0,
+    "elapsed_seconds": 11.2,
+    "termination_reason": "all_confident"
+   }
+  },
+  "chunk": {
+   "key_points": 50,
+   "factual_claims": 24,
+   "mode": "single_shot",
+   "chunk_count": 10,
+   "fire_stats": null
+  }
+ },
+ "constructing-ai-speech-2026": {
+  "fire": {
+   "key_points": 6,
+   "factual_claims": 3,
+   "mode": "fire",
+   "chunk_count": null,
+   "fire_stats": {
+    "api_calls": 1,
+    "iterations": 0,
+    "claims_total": 3,
+    "claims_confident": 3,
+    "claims_iterated": 0,
+    "claims_dropped_verification": 0,
+    "elapsed_seconds": 11.7,
+    "termination_reason": "all_confident"
+   }
+  },
+  "chunk": {
+   "key_points": 15,
+   "factual_claims": 22,
+   "mode": "single_shot",
+   "chunk_count": 8,
+   "fire_stats": null
+  }
+ }
+}

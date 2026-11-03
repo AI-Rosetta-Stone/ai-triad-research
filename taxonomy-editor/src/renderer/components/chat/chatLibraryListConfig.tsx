@@ -9,12 +9,36 @@
 import type { LibraryListPageConfig, LibraryVariant } from '../shared/LibraryListPage.types';
 import type { ChatSessionSummary, ChatMode } from '../../types/chat';
 import type { CommunityChat } from '../../hooks/useCommunityStore';
+import { CampGlyph, povToCamp } from '../shared/CampGlyph';
+import type { CampKey } from '../shared/CampGlyph';
+import './chatLibraryListConfig.css';
 
 const MODE_LABELS: Record<ChatMode, string> = {
   brainstorm: 'Brainstorm',
   inform: 'Inform',
   decide: 'Decide',
 };
+
+const CAMP_LABEL: Record<CampKey, string> = {
+  acc: 'Accelerationist',
+  saf: 'Safetyist',
+  skp: 'Skeptic',
+};
+
+/** t/4718: a colored camp chip beside the title, both tabs. `pover` lives on
+ *  `ChatSessionSummary` (My) and, since t/4721, on `CommunityChat` too — both optional, so a
+ *  missing/unresolvable value (old rows) renders no chip rather than an empty one. */
+export function rowCampChip(row: ChatSessionSummary | CommunityChat, variant: LibraryVariant) {
+  const pover = variant === 'my' ? (row as ChatSessionSummary).pover : (row as CommunityChat).pover;
+  const camp = pover ? povToCamp(pover) : undefined;
+  if (!camp) return null;
+  return (
+    <span className="chat-lib-camp-chip" data-camp={camp}>
+      <CampGlyph camp={camp} size={12} className="chat-lib-camp-chip-icon" />
+      {CAMP_LABEL[camp]}
+    </span>
+  );
+}
 
 /** Spec: "MMM DD, HH:mm" (e.g. "Aug 16, 10:48") — exact format, not locale-dependent. */
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -92,6 +116,7 @@ export function buildChatLibraryListConfig(
     titleHeader: 'Title',
     titleSortable: true,
     getTitle: (row) => row.title,
+    titleBadge: rowCampChip,
 
     onRename: deps.onRename,
     renamingId: deps.renamingId,
@@ -123,5 +148,8 @@ export function buildChatLibraryListConfig(
     onExportCommunity: (row, format) => deps.onExportCommunity(row.id, format),
     onShare: deps.onShare,
     onCopy: deps.onCopy,
+
+    // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Path matches placeOf.ts's chat route.
+    itemPlace: (row) => ({ tool: 'chat', id: row.id, path: `/chat/${row.id}` }),
   };
 }

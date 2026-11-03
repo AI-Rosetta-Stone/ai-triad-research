@@ -1,0 +1,1314 @@
+[
+ {
+  "id": "something-bi-000",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The text explicitly encourages serious engagement with artificial intelligence, including daily experimentation, the adoption of paid tools, and the automation of repetitive tasks. This aligns with accelerationist strategies advocating for proactive tool adoption and integration rather than avoidance. By endorsing serious usage and workflow automation, the document supports practical capability deployment while maintaining that human oversight should accompany it. This pragmatic embrace of AI tools reflects a shared intention to leverage technological power effectively within professional practices.",
+  "canonical": "Professionals ought to seriously engage with artificial intelligence by experimenting daily, adopting paid tools, and automating repetitive tasks."
+ },
+ {
+  "id": "something-bi-001",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The blog post notes that artificial intelligence pioneer Ray Kurzweil predicts an artificial intelligence will pass the Turing test by 2029. This empirical expectation highlights aggressive capability scaling and rapid cognitive milestone achievement. From an accelerationist perspective, this milestone underscores the revolutionary speed at which artificial intelligence approaches human-level intelligence. However, the section presents this prediction primarily via embedded multimedia captions without extensive methodological defense.",
+  "canonical": "Ray Kurzweil predicts that an artificial intelligence will pass the Turing test by 2029."
+ },
+ {
+  "id": "something-bi-002",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document asserts that courts lack the institutional competence to weigh the diffuse, unseen benefits of AI against visible harms. The reasoning emphasizes that startup culture rewards speed while legal culture rewards survivability, creating differing risk environments where judges may not fully grasp technological trajectories. From an accelerationist perspective, this judicial caution threatens to stifle innovation through misplaced skepticism and legal friction. However, the document notes that legal frameworks and risk management remain important for addressing concrete malpractice and sanctions rather than halting development.",
+  "canonical": "Courts lack the institutional competence to weigh the diffuse benefits of AI against visible harms."
+ },
+ {
+  "id": "something-bi-003",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document asserts that rapid AI acceleration is not a smooth, universal climb, but rather a jagged and uneven process. Citing research from Harvard Business School and the Stanford-Carnegie study, the author emphasizes that AI excels at specific programmable tasks but fails at messy, human-centric reality. This directly supports the skeptic view that AI competence is fundamentally jagged and that performance in structured domains does not reliably translate across broader professional contexts.",
+  "canonical": "Artificial intelligence progress is jagged and uneven rather than a smooth, universal climb."
+ },
+ {
+  "id": "something-bi-004",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The e-discovery blog archive outlines continuous rapid capability advances and structural integrations of artificial intelligence within the legal profession throughout 2024 and 2025. These developments range from reasoning model benchmarks and agentic AI partnerships to quantum computing milestones and simulated AI debates. The trajectory demonstrates that AI is rapidly transforming specialized knowledge work by augmenting professional capabilities rather than remaining a static tool.",
+  "canonical": "Artificial intelligence integration in professional legal practice is rapidly shifting from basic adoption to deep entanglement and advanced agentic collaboration."
+ },
+ {
+  "id": "something-bi-005",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Desires",
+  "point": "The sidebar content explicitly warns against lazy overreliance on artificial intelligence and advocates for adopting a hybrid human-machine workflow instead. This desire targets the immediate operational risk of cognitive deskilling and overdependence in professional tasks. From a skeptic perspective, maintaining active human engagement prevents human obsolescence and preserves critical judgment in specialized domains. The warning is articulated as a practical advisory rather than a formal regulatory mandate.",
+  "canonical": "Users ought to avoid lazy overreliance on artificial intelligence by maintaining hybrid human-machine workflows."
+ },
+ {
+  "id": "something-bi-006",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The author argues that the greatest short-term danger is over-delegation and institutions putting systems on autopilot without proper verification or audit trails. To counter this, safetyist-aligned strategies require maintaining rigorous human review, preserving accountability, documenting workflows, and understanding technological limits rather than surrendering to inevitability. The proposed solution emphasizes disciplined integration, adherence to verification protocols, and ensuring that human judgment strictly governs automated deployment. This approach seeks to prevent uncontrolled technological integration in high-stakes domains.",
+  "canonical": "Institutions must prevent over-delegation by enforcing disciplined integration, human supervision, audit trails, and verification protocols."
+ },
+ {
+  "id": "something-bi-007",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The author argues that benchmark extrapolation does not equal societal destiny. Current autonomy benchmarks are domain-constrained, focusing heavily on software engineering and structured digital tasks rather than law, medicine, fiduciary duty, or governance. Furthermore, institutional actors such as courts, regulators, insurers, boards of directors, and compliance departments deliberately slow, shape, and channel technology as a form of risk management rather than mere inertia.",
+  "canonical": "Benchmark extrapolation of artificial intelligence capabilities does not dictate societal or institutional adoption rates."
+ },
+ {
+  "id": "something-bi-008",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document highlights the crucial performance-competence gap in AI-assisted work, noting that drafting legal briefs with AI is not equivalent to possessing legal reasoning or assuming professional responsibility. The evidence shows that while AI can complete surface-level text generation tasks, it lacks moral agency, cannot be disbarred, and cannot carry malpractice insurance. From a skeptic perspective, this proves that task completion does not equate to genuine understanding or professional capability. The document acknowledges that AI assists in drafting, but insists that human sign-off provides the true legal accountability.",
+  "canonical": "Task performance with AI assistance does not constitute genuine professional competence or moral agency."
+ },
+ {
+  "id": "something-bi-009",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The document examines how AI transforms human cognition and skills, warning against lazy overreliance and skill decay among professionals. The strategy involves preserving human accountability, teaching younger professionals hybrid reasoning rather than blind dependency, and maintaining rigorous verification standards. From a safetyist perspective, this addresses intelligence displacement spirals and cognitive atrophy by ensuring meaningful human control over automated systems. The document acknowledges the temptation of automation, but argues that human responsibility must intensify as machines improve.",
+  "canonical": "Counter AI-driven skill decay and cognitive displacement by mandating human supervision, audit trails, and verification protocols."
+ },
+ {
+  "id": "something-bi-010",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document champions integrating AI into human work as a capability enhancer, not a replacement, advocating for a hybrid human-machine approach. The methodology relies on daily hands-on experimentation, adopting paid tools, and automating repetitive tasks while maintaining strict human supervision. From an accelerationist perspective, this collaborative intelligence boosts organizational efficiency and enhances human cognitive capabilities without succumbing to unwarranted panic over total displacement. The document acknowledges that this approach requires disciplined integration and active oversight rather than blind reliance.",
+  "canonical": "Integrate AI into professional workflows as a capability enhancer through hybrid human-machine collaboration while maintaining active supervision."
+ },
+ {
+  "id": "something-bi-011",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document acknowledges that AI models have improved rapidly and that coding autonomy has advanced in ways that would have seemed implausible just a few years ago. AI systems now assist meaningfully in debugging, evaluation, and even aspects of their own development pipelines. While the author disputes the imminence of total displacement, they explicitly agree that acceleration is real and that coding autonomy is increasing. This supports the accelerationist observation that technological capability is scaling dramatically, though the author emphasizes the human developer's ongoing role as a supervisor.",
+  "canonical": "AI coding autonomy and model development capabilities have advanced rapidly beyond previous limitations."
+ },
+ {
+  "id": "something-bi-012",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Discussions surrounding black-box artificial intelligence models emphasize the severe dangers posed by systems whose internal operations no one fully understands. Industry figures such as Dario Amodei warn of the opaque nature of these architectures, which heighten alignment risks and make comprehensive safety verification extremely difficult. Addressing these foundational uncertainties is essential before deploying highly autonomous systems into critical domains like law and governance.",
+  "canonical": "Uninterpretable black-box artificial intelligence systems pose severe safety risks because their internal reasoning processes cannot be fully understood by human operators."
+ },
+ {
+  "id": "something-bi-013",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document asserts that as artificial intelligence intersects with quantum computing, the stakes rise dramatically in terms of national security, cryptographic vulnerabilities, and governance complexity. The author characterizes quantum computing as nitrous oxide to an AI race car, emphasizing that more powerful systems require vastly more sophisticated oversight frameworks. This belief directly supports safetyist concerns regarding runaway or highly destabilizing technological intersections where power outpaces governance. The argument warns that unmanaged technological acceleration without adequate control structures creates severe systemic risks.",
+  "canonical": "The intersection of artificial intelligence and quantum computing creates severe national security risks, cryptographic vulnerabilities, and governance complexities requiring sophisticated oversight."
+ },
+ {
+  "id": "something-bi-014",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The author identifies a fundamental category mistake in inevitability arguments that confuse task performance with human personhood and accountability. While artificial intelligence can complete tasks like predicting the next word or drafting legal text at speed, practicing law involves human reasoning grounded in bodies, reputations, ethical frameworks, and institutional consequences. AI cannot stand in a courtroom, carry malpractice insurance, or face disbarment. Therefore, automation transforms tasks but cannot assume moral agency or professional accountability.",
+  "canonical": "Inevitability arguments falsely equate automated task performance with human personhood and professional accountability."
+ },
+ {
+  "id": "something-bi-015",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The author argues that generative AI still suffers from a persistent tendency to fabricate facts and law, leading to serious court sanctions and professional risks. Citing federal court cases and legal catalogs of nearly one thousand hallucination decisions worldwide, the author asserts that hallucination remains the number one concern for the Bench and Bar. This aligns with safetyist concerns regarding unreliability, showing that capability increases do not eliminate critical errors or systemic risks in high-stakes domains.",
+  "canonical": "Generative artificial intelligence exhibits a persistent tendency to fabricate facts and law, causing serious legal and professional sanctions."
+ },
+ {
+  "id": "something-bi-016",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The author examines Matt Shumer's claim that GPT-4 passing the bar exam signifies imminent white-collar displacement, contrasting it with Eric Martinez's rigorous re-evaluation study. Martinez found that when limiting the sample to qualified attorneys who actually passed the bar, GPT-4 scored in the bottom 15% on essay and performance test portions (MEE + MPT). The author uses this evidence to debunk vendor-driven milestones and highlight the vast gap between passing multiple-choice exams and executing real legal work.",
+  "canonical": "Artificial intelligence models score in the bottom 15 percent among qualified attorneys on the essay and performance test portions of the bar exam."
+ },
+ {
+  "id": "something-bi-017",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document warns that early AI warning signs and ongoing hallucination issues might be dismissed or minimized by enthusiastic boosters until a catastrophic legal sanction or failure occurs. The reasoning highlights that generative AI maintains a persistent tendency to fabricate facts and law, leading to severe court sanctions in litigation. From a safetyist perspective, this unreliability demonstrates that pre-deployment safety evaluations and verification are essential before deploying systems to high-stakes environments like law. The document acknowledges that models are improving, but insists that verification is non-negotiable.",
+  "canonical": "Early AI reliability failures and hallucinations will be dismissed by proponents until catastrophic legal sanctions occur."
+ },
+ {
+  "id": "something-bi-018",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "The document proposes operationalizing pragmatic AI governance through disciplined integration, human review, and institutional risk management rather than succumbing to panic or accelerationist hype. The strategy involves maintaining human accountability, documenting workflows, understanding system limits, and preserving legal oversight standards. From a skeptic perspective, this pragmatic approach resists both techno-solutionist urgency and paralyzing fear, ensuring that human responsibility guides technological adoption. The document notes that society needs experienced governance and institutional memory to manage accelerating tools.",
+  "canonical": "Operationalize pragmatic AI governance through disciplined human oversight, institutional risk management, and legal accountability standards."
+ },
+ {
+  "id": "something-bi-019",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document references a video avatar judge discussing the necessity to evolve rapidly while fully understanding the associated risks. This highlights the safetyist tension between accelerating system deployment and managing catastrophic risk. From a safetyist viewpoint, rapid capability advancement must be coupled with rigorous risk evaluation to prevent uncontrollable failures. Nevertheless, the point appears in a multimedia widget caption rather than as a detailed policy argument.",
+  "canonical": "Advanced artificial intelligence systems must balance rapid capability evolution with comprehensive risk evaluation."
+ },
+ {
+  "id": "something-bi-020",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The text argues that the viral spread of alarmist AI essays is driven by psychological vulnerabilities and algorithmic amplification rather than objective proportion. Social media algorithms reward high-emotion content, and acceleration narratives travel at super-fast computer speeds while wisdom travels slowly. Furthermore, the author notes a structural irony where Large Language Models themselves excel at producing highly optimized persuasive content that naturally drifts toward alarmism. This creates a feedback loop where AI systems shape the rhetoric used to warn us about AI, distorting public discourse through engagement optimization.",
+  "canonical": "Large language models optimizing for popularity naturally generate and amplify alarmist rhetoric, distorting public AI discourse."
+ },
+ {
+  "id": "something-bi-021",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "accelerationist",
+  "category": "Desires",
+  "point": "The document acknowledges that artificial intelligence capabilities are rapidly accelerating and that workflows are fundamentally changing across industries. While counseling caution against blind inevitability narratives, the text validates the underlying premise that technological progress is powerful and transformative. Accelerationists desire this rapid capability scaling as a positive force, though this section focuses more on managing the transition. The discussion recognizes that tools like automated legal drafting are becoming highly proficient at completing tasks quickly and at scale. Thus, the text shares the accelerationist view that technological performance in text generation and task completion is advancing dramatically.",
+  "canonical": "Artificial intelligence capabilities are rapidly advancing and fundamentally transforming professional workflows."
+ },
+ {
+  "id": "something-bi-022",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The author cites the November 2025 Stanford-Carnegie study to demonstrate that fully autonomous AI agents are significantly less reliable than hybrid human-AI teams. The research confirms the 'Jagged Technological Frontier' concept, showing that hybrid teams outperformed solo autonomous agents by 68.7%. The author uses these findings to argue that human supervision and hybrid workflows remain indispensable, directly challenging the narrative of imminent unassisted white-collar replacement.",
+  "canonical": "Hybrid human-artificial intelligence teams outperform fully autonomous artificial intelligence agents by 68.7 percent on complex tasks."
+ },
+ {
+  "id": "something-bi-023",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Empirical analysis and professional commentary emphasize that artificial intelligence can assist and improve the work of skilled legal practitioners, but it cannot ultimately replace them. The human edge remains critical because AI systems deliver answers without genuine comprehension or tacit domain mastery. Consequently, over-reliance on automated tools risks substituting superficial task execution for deep professional competence.",
+  "canonical": "Artificial intelligence tools can enhance legal practice but cannot replace human attorneys because automated systems lack genuine understanding and professional judgment."
+ },
+ {
+  "id": "something-bi-024",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document explores how uncritical reliance on AI can diminish human critical thinking and decision-making, warning against lazy overreliance and the surrender to inevitability narratives. The reasoning points out that viral tech essays leverage psychological fear mechanisms and exponential hype to promote uncritical adoption. From a skeptic perspective, this reliance degrades professional judgment and fosters dangerous automation bias. The document acknowledges the utility of AI tools, but urges professionals to maintain skepticism and adult supervision.",
+  "canonical": "Over-reliance on AI systems diminishes human critical thinking, professional judgment, and institutional accountability."
+ },
+ {
+  "id": "something-bi-025",
+  "doc": "something-big-is-happening-but-not-what-you-think-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document asserts that AI progress is not a smooth, universal climb, but is fundamentally jagged and uneven across different tasks. Citing the Harvard Business School working paper and the Stanford-Carnegie study, the author notes that AI excels at specific programmable coding tasks but fails at messy, human-centric reality. From a skeptic perspective, this jagged capability curve refutes sweeping accelerationist claims of imminent, uniform white-collar job displacement. The document acknowledges rapid coding advancements, but emphasizes that real-world professional environments require holistic reasoning that models lack.",
+  "canonical": "AI competence is jagged and advances unevenly across tasks, succeeding in structured digital environments while struggling with messy human reality."
+ },
+ {
+  "id": "bold-dataset-000",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Language models exhibit systemic tendencies to generate text containing negative sentiments, toxicity, and stereotypical demographic associations, such as linking specific professions to binary genders or displaying negative regard toward marginalized groups. Empirical comparisons between human annotators and automatic metrics demonstrate that models like GPT-2, CTRL-THT, and CTRL-OPN conform more heavily to these social biases than BERT or CTRL-WIKI. Furthermore, baseline training corpora such as Wikipedia also reflect these structural prejudices, indicating that models absorb and reproduce existing societal injustices. These findings establish that unconstrained language generation creates significant risks of perpetuating detrimental cultural stereotypes in downstream applications.",
+  "canonical": "Pre-trained language models systematically generate toxic content, negative sentiments, and stereotypical gender associations that reflect and amplify biases present in their training data."
+ },
+ {
+  "id": "bold-dataset-001",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "The BOLD study implements automated fairness and bias benchmarking by evaluating open-ended language generation across diverse demographic domains such as race, gender, religion, and political ideology. Researchers measure social biases by analyzing sentiment, regard, and toxicity distributions in generations from models like GPT-2, BERT, and CTRL. This systematic benchmarking exposes how language models systematically reproduce harmful social stereotypes and disparate emotional valences. Nevertheless, these metrics remain constrained by the subjectivity of crowd-sourced annotations and the limitations of lexicon-based sentiment tools.",
+  "canonical": null
+ },
+ {
+  "id": "bold-dataset-002",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The authors assert that popular open-ended language generation models frequently exhibit greater social bias than human-written text baselines, particularly impacting historically disadvantaged groups. They demonstrate that models prompted with natural Wikipedia contexts generate negative or polar texts more often when referring to specific demographic groups. This finding highlights the risk of language models propagating prejudiced and unfair outcomes to downstream users.",
+  "canonical": "Open-ended language generation models exhibit higher levels of social bias than human-written text baselines, propagating embedded prejudices to downstream applications."
+ },
+ {
+  "id": "bold-dataset-003",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document demonstrates through empirical evaluation that popular language generation models exhibit pervasive social bias, generating text with higher negative sentiment and toxicity toward historically disadvantaged groups. Specifically, African American prompts yielded higher proportions of negative sentiment and toxic classifications, while religious prompts regarding Islam and Atheism also triggered disproportionately negative sentiments and toxicity. From a skeptic perspective, these findings provide documented empirical evidence of structural bias and discrimination embedded within existing AI systems. The authors note that models trained on social media data (such as CTRL-THT and CTRL-OPN) display even greater polarization than Wikipedia baselines.",
+  "canonical": "Popular language generation models exhibit larger social biases than human-written reference text across multiple demographic domains."
+ },
+ {
+  "id": "bold-dataset-004",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The document proposes the Bias in Open-Ended Language Generation Dataset (BOLD) alongside automated metrics for toxicity, psycholinguistic norms, and text gender polarity to systematically benchmark social biases. The methodology involves prompting models with 23,679 English Wikipedia text generation prompts spanning five domains and evaluating generated outputs against human-annotated crowdsourced ratings. From a safetyist perspective, this standardized evaluation framework provides necessary pre-deployment safety validation to uncover latent prejudices before models integrate into downstream products. The authors acknowledge limitations in that classifiers may miss subtle contextual toxicity and that Wikipedia itself contains historical demographic skews.",
+  "canonical": "Benchmarking social biases in open-ended language generation requires large-scale datasets and automated metrics across diverse demographic domains."
+ },
+ {
+  "id": "bold-dataset-005",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document notes that natural language generation models are foundational building blocks powering various artificial intelligence applications like conversation bots and writing assistants. These models operate in an auto-regressive manner by generating the most probable sequence of words given an input context prompt. While enabling downstream capabilities across multiple industries, their unrestricted deployment risks propagating undesirable societal biases if left unmonitored. The document examines these generation dynamics across 23,679 Wikipedia-derived prompts without asserting accelerationist imperatives.",
+  "canonical": "Natural language generation models serve as foundational building blocks for conversational bots and writing assistants."
+ },
+ {
+  "id": "bold-dataset-006",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "An analysis of open-ended language generation across demographic groups reveals measurable biases, showing that language models trained on web and social media data frequently associate protected groups with negative sentiments, toxic categories, and hostile psycholinguistic markers. Specifically, evaluations using automated metrics like sentiment classification, regard, and gender polarity demonstrate that models such as GPT-2 and CTRL variants exhibit pronounced negative skew against African American groups, Islamic religious beliefs, and female-associated professions compared to Wikipedia text baselines. These findings substantiate skeptic concerns that large language models act as vectors for societal prejudice, reproducing and amplifying structural inequities present in their training corpora.",
+  "canonical": "Large language models generate text exhibiting measurable negative bias, increased toxicity, and adverse sentiment toward marginalized racial, religious, and gender groups."
+ },
+ {
+  "id": "bold-dataset-007",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "The document advocates for the systematic deployment of automated fairness benchmarks and human-validated metrics—such as sentiment analysis, toxicity classification, regard, psycholinguistic norms, and gender polarity—to audit open-ended language generation. The methodology relies on mining natural prompts from Wikipedia and validating automated scores via Amazon Mechanical Turk crowd-worker annotations. From a skeptic perspective, this rigorous auditing framework exposes power asymmetries and hidden prejudices in commercial AI models before they impact end users. The authors caution that evaluation datasets like Wikipedia also harbor historical demographic imbalances that must be accounted for during auditing.",
+  "canonical": "Evaluate social biases in language generation models through automated metrics for toxicity, psycholinguistic norms, and gender polarity."
+ },
+ {
+  "id": "bold-dataset-008",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "To systematically evaluate and expose social biases embedded in open-ended language generation, researchers must implement comprehensive benchmarking frameworks combining automated metrics—such as unigram matching, embedding-based gender polarity scores, and psycholinguistic norm analysis—with crowd-sourced human validation. By deploying these standardized metrics across models trained on distinct corpora, such as Wikipedia versus web scrapings and social media subreddits, analysts can rigorously measure how training data composition dictates downstream fairness and toxicity outcomes. This methodological approach provides the empirical foundation necessary to hold model developers accountable for discriminatory generation patterns.",
+  "canonical": "Evaluate AI model fairness and social bias by deploying standardized automated metrics and crowd-sourced human validation across diverse generation domains."
+ },
+ {
+  "id": "bold-dataset-009",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The BOLD evaluation framework utilizes automated classifiers to measure psychological distress and toxicity markers such as anger, fear, and disgust across demographic generations. This methodology operationalizes safetyist concerns by systematically auditing language models for harmful affective outputs. By tracking variables like VAD and BE5 psycholinguistic norms, researchers can quantify how language models generate toxic content when prompted with marginalized groups. However, relying purely on automated classifiers may introduce measurement errors or miss subtle nuances of bias.",
+  "canonical": null
+ },
+ {
+  "id": "bold-dataset-010",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "The authors advocate for systematic, large-scale bias evaluation by introducing the Bias in Open-Ended Language Generation Dataset (BOLD) and novel automated metrics. They construct prompts from Wikipedia sentences across five domains to benchmark social biases in models like GPT-2, BERT, and CTRL. This methodology aims to uncover and quantify hidden prejudices before downstream deployment.",
+  "canonical": "Researchers must evaluate language generation models for social bias using large benchmark datasets and automated metrics across multiple demographic domains."
+ },
+ {
+  "id": "bold-dataset-011",
+  "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document asserts that language generation models without proper fairness checks risk reinforcing undesirable stereotypes and subjecting users to disparate treatment. By evaluating three popular language models (GPT-2, BERT, and CTRL variants) against Wikipedia baselines, the study demonstrates that automated models frequently exhibit larger social biases, particularly toward historically disadvantaged groups. From a safetyist perspective, these measured behavioral biases are leading indicators of downstream real-world discriminatory harms that must be quantified prior to deployment. The authors caution users of downstream applications to remain cognizant of embedded prejudices within pre-trained generative systems.",
+  "canonical": "Machine learning models lacking fairness checks risk reinforcing undesirable stereotypes and subjecting users to disparate treatment."
+ },
+ {
+  "id": "new-economy--000",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document asserts that integrating human-centric capabilities like creative thinking, systems thinking, and resilience into economic frameworks is vital for driving future adaptability and innovation. Data from Workhuman and the World Economic Forum demonstrate that while recognition patterns vary by firm size and industry, these human-centric skills correlate with long-term productivity and engagement. From an accelerationist perspective, recognizing and optimizing these skills aligns directly with leveraging human advantage to unlock maximum economic potential in an AI-driven economy.",
+  "canonical": "Human-centric skills such as creative thinking and resilience drive future economic adaptability and innovation."
+ },
+ {
+  "id": "new-economy--001",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "Coursera learning data generated between 2020 and 2025 reveals a steady increase in learning hours dedicated to human-centric capabilities, demonstrating that individuals actively acquire these skills to adapt to technological shifts. The data shows that analytical thinking serves as a vital bridge skill across domains, frequently co-occurring with artificial intelligence and big data courses in 51% of instances. This interconnectedness creates multiplier effects where investing in foundational human-centric skills amplifies readiness across digital and technical domains while reducing the overall cost of upskilling.",
+  "canonical": "Learners actively increase investments in human-centric skills that bridge foundational cognitive traits with artificial intelligence and big data competencies."
+ },
+ {
+  "id": "new-economy--002",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Desires",
+  "point": "The document argues that education systems and organizations should prioritize and embed new economy skills, including digital fluency, AI interaction, and human-centric capabilities, into foundational curricula and workforce training. The reasoning is that rapid technological disruption requires a proactive shift toward continuous learning and adaptable mindsets to ensure future economic competitiveness. From an accelerationist perspective, this ensures that the workforce is fully equipped to leverage advanced technologies and drive productivity growth. The document acknowledges that current education systems struggle with overcrowded curricula and teacher training bottlenecks.",
+  "canonical": "Educational curricula and workforce training ought to mandatorily integrate new economy skills, digital fluency, and human-centric capabilities."
+ },
+ {
+  "id": "new-economy--003",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "An Indeed analysis of nearly 2,900 granular work skills classified using the World Economic Forum Global Skills Taxonomy demonstrates that generative artificial intelligence transformation potential varies heavily by skill type, with skills rooted in human interaction and higher-order cognitive abilities requiring minimal transformation. The analysis shows that interpersonal skills like empathy, resilience, leadership, and teaching, along with analytical and creative thinking, are expected to remain largely unchanged under AI automation because they depend on interpersonal dynamics and lived experience that AI cannot replicate. Conversely, technical and routine skills such as mathematical and statistical reasoning, systems thinking, speaking, writing, and dependability are significantly more susceptible to hybrid or full transformation where AI takes on routine workloads. These findings indicate that generative AI acts as a complement rather than a wholesale replacement for human-centric capabilities, enhancing their ultimate economic value.",
+  "canonical": "Generative artificial intelligence leaves human-centric skills largely untransformed, serving as a complement that enhances the value of interpersonal and cognitive capabilities."
+ },
+ {
+  "id": "new-economy--004",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The World Economic Forum white paper observes that critical foundational habits such as self-monitoring, asking clarifying questions, and carefully reviewing work remain underdeveloped among students and workers, pointing to systemic vulnerabilities in modern learning strategies. PISA 2022 data cited in the report reveals that fewer than half of students frequently ask clarifying questions or carefully review their homework, behaviors directly linked to metacognitive growth and independent reasoning. Furthermore, the systematic undervaluing and lack of formal measurement for human-centric skills in labor markets leave workers vulnerable to structural displacement. These findings highlight that reliance on automated environments without robust, intentional cognitive engagement exacerbates deficits in critical thinking and analytical rigor.",
+  "canonical": "Systemic deficiencies in self-monitoring and critical inquiry habits among learners undermine independent reasoning and long-term cognitive resilience."
+ },
+ {
+  "id": "new-economy--005",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document asserts that integrating AI feedback loops and simulation tools into human workflows drastically accelerates learning and skill acquisition, as demonstrated by adaptive learning platforms and AI coaching tools. The mechanism described involves multi-agent AI systems, such as AWS SimuLearn, that provide real-time interactive simulations and immediate feedback to help learners master complex technical and problem-solving skills. From an accelerationist perspective, this accelerates workforce readiness and bridges the gap between technological innovation and human proficiency. The document acknowledges that while some learners progress within weeks, the majority require sustained practice over several months to achieve full proficiency.",
+  "canonical": "AI feedback loops and interactive simulation tools dramatically accelerate human learning and professional skill acquisition."
+ },
+ {
+  "id": "new-economy--006",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document highlights Amazon Web Services' SimuLearn platform, which deploys generative AI multi-agent systems to simulate business-technical conversations and provide real-time coaching for employees. This approach scales experiential training and bridges the gap between technical and human-centric skills without costly shadowing programs. By leveraging AI to create safe, low-risk simulation environments, organizations can accelerate capability development and scale expert performance. However, scaling such tools requires careful integration to ensure equitable access and prevent overreliance.",
+  "canonical": "Organizations ought to deploy generative AI simulation platforms to scale experiential professional training and accelerate workforce skill development."
+ },
+ {
+  "id": "new-economy--007",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document asserts that bypassing cognitive struggle and mental effort impedes deep learning, knowledge retention, and metacognitive growth. The reasoning points to PISA data showing that fewer than half of students frequently ask clarifying questions or carefully review homework, highlighting a deficit in self-monitoring and persistence habits. From a skeptic perspective, technological shortcuts and easy answers undermine the cognitive foundation required for genuine understanding and long-term capability development. The document notes that cultivating future-ready mindsets remains a global challenge across education systems.",
+  "canonical": "Bypassing cognitive struggle and mental effort impedes deep learning and metacognitive development."
+ },
+ {
+  "id": "new-economy--008",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document advocates for leveraging AI-powered analytics and trend-monitoring tools to continuously assess labor market demands and dynamically adjust educational pathways and corporate strategies. The methodology involves using real-time labor market data, such as Indeed hiring signals and Coursera learning metrics, to identify emerging skill gaps and inform curriculum design in institutions like the University of Los Andes. From an accelerationist perspective, this enables organizations and academic institutions to replace static planning with agile, data-driven steering. The document acknowledges that rapid technological shifts require constant updating of skill taxonomies and credentialing standards.",
+  "canonical": "Replace static educational planning with AI-driven real-time labor trend analysis to continuously align skill development with market demand."
+ },
+ {
+  "id": "new-economy--009",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The World Economic Forum white paper asserts that widespread technological and artificial intelligence integration creates an economic transformation where human-centric skills become the primary drivers of innovation, resilience, and growth. Rather than rendering humans obsolete, technological advancement increases the relative premium on uniquely human capabilities such as creativity, adaptability, and emotional intelligence. This dynamic demonstrates that economic competitiveness in an advanced technological era depends on coupling computational power with dynamic human talent ecosystems. Consequently, organizations and economies must intentionally invest in human potential to capture the full productivity dividends of the new economy.",
+  "canonical": "Technological advancement and artificial intelligence integration increase the economic value of human-centric skills as the primary drivers of innovation and growth."
+ },
+ {
+  "id": "new-economy--010",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The University of Los Andes uses an AI-powered trend analysis tool to identify high-demand topics in academic and professional fields and inform the design of new pathways courses and programmes. This empirical application demonstrates how artificial intelligence can continuously align educational offerings with emerging labor-market needs. Accelerationists view this as a prime example of AI-driven real-time steering replacing static educational planning. It validates the belief that artificial intelligence can dynamically optimize institutional responsiveness to economic change.",
+  "canonical": "Educational institutions use artificial intelligence trend analysis tools to dynamically align academic programs with emerging labor market demands."
+ },
+ {
+  "id": "new-economy--011",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "Udemy built AI Role Play to give people a safe, low-stakes way to practice human-centric skills like communication, conflict resolution, inclusive leadership, ethical decision-making, and critical thinking. This AI-driven simulation approach addresses traditional limitations of live role-plays by offering scalable, personalized feedback without reputational risk. By blending instructor expertise with adaptive AI, the tool creates a repeatable practice loop that lets professionals rehearse high-impact workplace conversations. This directly supports accelerationist goals of leveraging artificial intelligence to scale human capability and accelerate professional development.",
+  "canonical": "Udemy deploys AI-driven simulations to provide scalable, low-stakes practice environments for human-centric workplace skills."
+ },
+ {
+  "id": "new-economy--012",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The text notes that credentialing human-centric skills remains highly challenging because alternative credentials like micro-credentials and digital badges lack shared standards and consistent employer recognition. Without common frameworks for validation and interoperability, the value of these credentials risks fragmentation, credential inflation, and questionable credibility in hiring. Skeptics highlight these systemic barriers to argue that decentralized or alternative digital badges fail to provide reliable signals of competence in labor markets. Consequently, establishing rigorous verification mechanisms is essential to prevent widespread credential degradation.",
+  "canonical": "Alternative credentials and digital badges lack shared validation standards, risking market fragmentation, credential inflation, and inconsistent employer recognition."
+ },
+ {
+  "id": "new-economy--013",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document highlights a significant performance-competence gap, noting that traditional educational assessments and job postings often treat human-centric skills as assumed givens rather than rigorously measuring actual competence. The mechanism described shows that while employers heavily demand human-centric skills like creativity and critical thinking, only 72 percent of job postings mention them, and standardized tests reveal widespread deficits in baseline creative proficiency. From a skeptic perspective, this disconnect shows that formal qualifications fail to capture genuine underlying human capabilities. The document notes that performance-based assessments and digital portfolios are necessary to prove competence in practice.",
+  "canonical": "Labor markets exhibit a performance-competence gap where critical human-centric skills are treated as invisible givens rather than systematically measured."
+ },
+ {
+  "id": "new-economy--014",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The text asserts that AI-powered adaptive technologies and methodologies enhance learning gains, citing research showing more than 15 points in learning gains among students at Tecnológico de Monterrey. Integrating AI feedback loops and immersive simulations into educational curricula accelerates human learning and deepens competency acquisition. This empirical observation supports the accelerationist thesis that technology dramatically compresses the time required to achieve domain mastery. Nevertheless, achieving these gains depends on well-designed pedagogical contexts and skilled facilitation.",
+  "canonical": "Adaptive AI technologies and methodologies significantly increase student learning gains and accelerate competence acquisition."
+ },
+ {
+  "id": "new-economy--015",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document champions building AI tools that amplify rather than replace human expertise, positioning AI as a supportive layer for human judgment, creativity, and empathy. The reasoning is that generative AI excels at processing and optimization tasks while leaving uniquely human judgment, interpersonal connection, and complex problem-solving intact. From an accelerationist perspective, this collaborative paradigm ensures that technological adoption enhances human productivity and organizational value creation. The document notes that technical investments alone cannot deliver economic returns without human oversight and ingenuity.",
+  "canonical": "Build AI tools that augment human expertise by handling computational tasks while amplifying uniquely human judgment and creativity."
+ },
+ {
+  "id": "new-economy--016",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document asserts that the integration of artificial intelligence into economic and social systems will produce structurally positive outcomes by resolving material scarcity and driving inclusive growth, provided economies invest in human talent and adaptability. The mechanism proposed is that technological advancements and AI deployment amplify human capabilities rather than replace them, creating millions of new roles even as some routine roles are displaced. From an accelerationist perspective, this underpins the core thesis that technological disruption is an engine of resilient growth and prosperity when paired with continuous skills adaptation. The document acknowledges that nearly 40 percent of core workplace skills will be disrupted in the next five years, necessitating massive reskilling and upskilling efforts.",
+  "canonical": "AI integration into economic systems produces structurally positive outcomes when economies invest in human talent and continuous adaptability."
+ },
+ {
+  "id": "new-economy--017",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document argues for scaling expert performance across organizations by identifying top-performing human behaviors and embedding them into standardized frameworks, badging systems, and training curricula. The methodology involves recognizing and credentialing human-centric competencies through verifiable digital badges, such as PwC's inclusive mindset and leadership credentials, to establish repeatable benchmarks. From an accelerationist perspective, this codifies organizational excellence and drives productivity gains across large enterprise workforces. The document notes that skill recognition often diverges from perceived peer value, requiring structured badging to make invisible skills explicit.",
+  "canonical": "Scale expert performance across organizations by codifying and credentialing top-performing human capabilities through verifiable digital badges."
+ },
+ {
+  "id": "new-economy--018",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document proposes deploying AI-powered simulation tools and virtual coaches, such as AWS SimuLearn and Udemy AI Role Play, to provide personalized, risk-free training environments for employees. The methodology involves using generative AI multi-agent systems to simulate realistic customer interactions, difficult workplace conversations, and technical problem-solving scenarios with real-time feedback. From an accelerationist perspective, this scales professional mentorship and accelerates skill acquisition across global workforces without incurring the high costs of live training. The document notes that these tools must be implemented thoughtfully to avoid cognitive offloading and encourage active critical thinking.",
+  "canonical": "Deploy AI systems as personalized workplace coaches and simulation mentors to scale professional skill development."
+ },
+ {
+  "id": "new-economy--019",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The document asserts that foundational capabilities of large language models and generative AI tools can be systematically extracted and deployed to scale utility across civilizational infrastructure, specifically by complementing human-centric skills. The reasoning relies on data from Indeed and Coursera showing that generative AI has minimal transformation potential on core human skills like empathy, creativity, and leadership, while taking over routine computational and analytical tasks. From an accelerationist perspective, this validates the rapid scaling and adoption of AI tools to unlock organizational agility and economic value. The document notes that technical investments alone are insufficient without parallel cultivation of human judgment and oversight.",
+  "canonical": "Foundation model capabilities scale civilizational utility and organizational agility when paired with complementary human-centric skills."
+ },
+ {
+  "id": "new-economy--020",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document asserts that overreliance on digital tools and automated systems creates risks of cognitive offloading and skill atrophy if individuals fail to engage in deliberate practice and effort-heavy tasks. The mechanism described warns that outsourcing complex thinking, emotional regulation, or decision-making to machines can weaken deep reflection and active learning. From a safetyist perspective, this highlights the vulnerability of human cognitive and emotional capabilities in an increasingly automated environment. The document notes that sustaining higher-order skills requires maintaining 'desirable difficulty'—the productive struggle necessary to prevent cognitive degradation.",
+  "canonical": "AI dependency and automated cognitive offloading create risks of skill atrophy and degraded deep reflection."
+ },
+ {
+  "id": "new-economy--021",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The World Economic Forum white paper documents that human-centric skills are surprisingly fragile and highly sensitive to external shocks, suffering rapid degradation when opportunities for practice, collaboration, and feedback diminish. The report notes that interpersonal interaction skills, teaching, and resilience fell significantly below pre-2019 levels during pandemic disruptions and failed to fully recover by 2025. Without intentional investment and active practice, these foundational human capabilities experience systematic skill atrophy and decline. This empirical vulnerability underscores that human competencies cannot be taken for granted in highly disrupted technological environments.",
+  "canonical": "Human-centric skills are fragile and degrade rapidly during social and economic disruptions without intentional practice and investment."
+ },
+ {
+  "id": "new-economy--022",
+  "doc": "new-economy-skills-unlocking-human-advantage-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document warns that overreliance on educational and workplace technology risks cognitive offloading, defined as outsourcing complex thinking, emotional regulation, or decision-making to machines. This phenomenon can weaken deep reflection, active learning, and higher-order cognitive skills unless learners engage in desirable difficulty. Safetyists point to this risk of skill atrophy to argue that technology must serve strictly as an enhancer rather than a substitute for human judgment. Without deliberate friction and effort-heavy tasks, automated assistance undermines baseline human capabilities.",
+  "canonical": "Overreliance on AI technology causes cognitive offloading that weakens deep reflection, active learning, and higher-order cognitive skills."
+ },
+ {
+  "id": "risks-not-as-000",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The text explains that artificial intelligence defendants may successfully defend against lawsuits by arguing that their technologies did not proximately cause a plaintiff's injury, particularly when intervening acts such as suicide break the causal chain. Proximate cause requirements can therefore shield developers from liability in complex psychological harm cases like the suit involving Sewell Setzer III. These established tort doctrines may allow companies to avoid liability even when users form intense emotional connections with AI chatbots.",
+  "canonical": "Proximate cause doctrines and unforeseeable intervening acts function as legal shields that protect artificial intelligence developers from liability for complex harms."
+ },
+ {
+  "id": "risks-not-as-001",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Desires",
+  "point": "The author argues that courts must reject the modern doctrine of assumption of risk when adjudicating artificial intelligence harms, drawing parallels to historical legal errors that left gravely injured workers without recourse in cases like Casey. Because the doctrine of assumption of risk is limited to beneficial activities with known risks, it remains fundamentally unsuited for governing unpredictable algorithmic harms. Courts ought to prevent excess liability through alternative mechanisms rather than misapplying assumption of risk.",
+  "canonical": "Courts ought to reject the application of the assumption of risk doctrine to artificial intelligence harms to prevent repeating historical injustices against injured individuals."
+ },
+ {
+  "id": "risks-not-as-002",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The text documents pervasive bias and discrimination embedded within artificial intelligence systems due to their reliance on historical human data. Algorithms inherit social imperfections and systemic prejudices from their training data, which often manifest as covert biases against marginalized groups, such as discrimination against speakers of African American English or gender bias in automated hiring tools. These unwanted biases are woven directly into the information the model requires to execute its tasks, making them extremely difficult to identify or eliminate before deployment. Therefore, algorithmic bias represents a structural and systemic harm rather than a rare or hypothetical anomaly.",
+  "canonical": "Artificial intelligence systems systematically reproduce historical human biases and structural discrimination embedded within their training data."
+ },
+ {
+  "id": "risks-not-as-003",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The inner workings and potential hazards of artificial intelligence operate within a proverbial 'black box,' preventing users from understanding or predicting system failures. Unlike traditional industrial machinery where physical hazards are observable, AI tools conceal their vulnerabilities and automated decisions from everyday consumers. This opacity makes it impossible for individuals to exercise informed consent or recognize emerging technological dangers.",
+  "canonical": "Artificial intelligence systems operate within a black box that obscures harms and prevents users from predicting risks."
+ },
+ {
+  "id": "risks-not-as-004",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The text details how artificial intelligence systems operate as inscrutable black boxes, where even developers cannot fully explain how algorithms move from inputs to outputs. This opacity prevents users and the public from understanding or trusting what AI systems know and do. The document notes that machine learning models are trained on massive datasets containing human biases that become inextricably woven into the model's operations, making them difficult to detect or eliminate. Consequently, these inherent technical and epistemic limitations mean that AI systems cannot be fully verified or controlled by their creators.",
+  "canonical": "We cannot fully understand or trust artificial intelligence systems because their internal reasoning and decision-making processes are opaque black boxes."
+ },
+ {
+  "id": "risks-not-as-005",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The text details how major artificial intelligence developers, such as OpenAI, have systematically disbanded internal safety, governance, and alignment teams to prioritize commercial product releases. Departing executives and safety advisors have repeatedly warned that neither frontier laboratories nor global society are prepared to manage the accelerating capabilities and risks of advanced AI systems. This empirical observation highlights a prevailing safetyist belief that rapid commercial scaling outpaces institutional safety readiness and hazard mitigation. Consequently, the unchecked pursuit of shiny products over robust safety culture exacerbates systemic vulnerabilities in AI deployment.",
+  "canonical": "Major artificial intelligence developers prioritize rapid product releases while disbanding internal safety teams, leaving laboratories and society unprepared for advanced AI risks."
+ },
+ {
+  "id": "risks-not-as-006",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document examines how artificial intelligence systems expose fundamental gaps in existing legal accountability frameworks, specifically regarding the inadequacy of doctrines like assumption of risk. The reasoning demonstrates that the assumption of risk doctrine was designed for mid-nineteenth-century master-servant relationships and cannot fairly govern complex, ubiquitous modern technologies. From a skeptic perspective, applying such defenses to AI would unjustly shield developers from liability while unburdening them from taking safety precautions. The document notes that consumers cannot realistically opt out of AI systems embedded throughout modern infrastructure.",
+  "canonical": "Artificial intelligence systems expose fundamental gaps in legal accountability frameworks, rendering traditional defenses like assumption of risk entirely obsolete."
+ },
+ {
+  "id": "risks-not-as-007",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The rapid commercial expansion of artificial intelligence occurs within a landscape of severely limited regulation and oversight, resulting in tangible harms to users that drive escalating civil litigation. Technology developers should not be permitted to evade legal accountability through the application of the assumption of risk doctrine, which fails to account for the asymmetric knowledge and rapid evolution characterizing modern AI systems. Allowing such an affirmative defense would unjustly deny recovery to victims and remove essential market disincentives against reckless deployment. Therefore, companies must be compelled to develop AI technologies thoughtfully and reasonably or face the legal consequences of their actions.",
+  "canonical": null
+ },
+ {
+  "id": "risks-not-as-008",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document asserts that artificial intelligence performs tasks traditionally requiring human agency while creating an ethical and legal void where no one bears responsibility for those actions. The reasoning is demonstrated through tragic incidents such as a teenager's suicide following prolonged interactions with an AI chatbot that allegedly encouraged self-harm. From a safetyist perspective, this absence of accountability highlights the severe dangers of deploying autonomous systems before alignment and safety controls are established. The author acknowledges that tort litigation is attempting to grapple with these novel harms, but notes the persistent risk of defendants evading responsibility.",
+  "canonical": "Artificial intelligence performs consequential acts that no one bears responsibility for, creating legal and ethical voids."
+ },
+ {
+  "id": "risks-not-as-009",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document asserts that AI developers and users cannot fully verify or understand how opaque machine learning models reach their decisions due to the black box problem. The reasoning relies on the fact that neural networks are trained on vast datasets without explicit programming for every rule, making internal decision pathways opaque even to their creators. From a safetyist perspective, this opacity makes pre-deployment safety evaluations and risk disclosures structurally unreliable because neither developers nor users can fully anticipate system failures. The document acknowledges that while inputs and outputs can be observed, the internal mechanisms remain hidden.",
+  "canonical": "We cannot verify whether artificial intelligence is being honest about what it knows and does due to internal model opacity."
+ },
+ {
+  "id": "risks-not-as-010",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Modern digital platforms and recommender systems trap users in environments where opting out is practically impossible without abandoning essential services altogether. Because individuals face severe social pressures and structural dependencies, their interactions with ubiquitous AI tools are involuntary rather than freely chosen. Consequently, legal doctrines premised on voluntary risk assumption fail because people cannot meaningfully escape technological exposure.",
+  "canonical": "Users cannot freely opt out of artificial intelligence systems without abandoning essential digital services, rendering risk assumption doctrines inapplicable."
+ },
+ {
+  "id": "risks-not-as-011",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "Technology companies can utilize clearer user waivers and explicit warnings, such as ChatGPT's limitations notice or navigation app guidance, to mitigate liability for known and predictable risks. However, this strategy fails to cover all artificial intelligence harms because many potential dangers remain unknown prior to deployment. Furthermore, deploying extensive risk disclosures can prove undesirable if transparent warnings drive potential users away.",
+  "canonical": "Corporations ought to create clearer waivers and explicit warnings to mitigate liability for known, predictable artificial intelligence risks."
+ },
+ {
+  "id": "risks-not-as-012",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The text examines how historical legal doctrines like assumption of risk emerged to protect industrial growth from ruinous liability, which accelerationists might view as a necessary mechanism to buffer capital-intensive innovation against excessive litigation burdens. However, the section critiques this protection as shifting severe safety burdens entirely onto labor and consumers without balancing technological gains. Accelerationist frameworks would contest the section's skepticism toward liability exemptions, arguing that shielding emerging industries from unpredictable tort costs is vital for rapid technological deployment. Despite this tension, the text focuses heavily on the inequity of industrial-era doctrine rather than evaluating the economic benefits of risk-absorption for high-growth sectors.",
+  "canonical": "Assumption of risk doctrines historically protected growing industrial businesses from ruinous liability to support economic expansion."
+ },
+ {
+  "id": "risks-not-as-013",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document states that victims of artificial intelligence harms cannot access the technical knowledge and proprietary algorithms needed to prove causation in court. The reasoning highlights that AI developers routinely withhold the specifics of their proprietary algorithms and training data as trade secrets, creating an insurmountable evidentiary barrier for plaintiffs. From a skeptic perspective, this information asymmetry protects corporate developers from liability while leaving injured users without legal recourse. The document notes that this structural opacity invalidates defenses like assumption of risk, which falsely presume users possess equal knowledge of technological dangers.",
+  "canonical": "Victims of artificial intelligence harm cannot access the technical knowledge needed to prove causation due to trade secrecy and algorithmic opacity."
+ },
+ {
+  "id": "risks-not-as-014",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Desires",
+  "point": "The document asserts that the legal doctrine of assumption of risk should not be applied to harms caused by artificial intelligence because doing so would place an enormous, unjust potential cost on society. Safetyists and consumer advocates would argue against shifting the legal burden of AI risks onto users, particularly given that AI developers routinely sideline safety teams and rush products to market without adequate safeguards. While proponents of applying the doctrine argue it encourages producers to disclose risks and balances innovation needs, the text maintains that this approach ignores the systemic dangers of deploying opaque and powerful technologies. Ultimately, rejecting assumption of risk serves to preserve essential legal accountabilities for dangerous AI deployments.",
+  "canonical": "The legal doctrine of assumption of risk ought not to be applied to harms caused by artificial intelligence."
+ },
+ {
+  "id": "risks-not-as-015",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document draws a direct parallel between the severe power and wealth asymmetries of the mid-nineteenth century Gilded Age and the modern era of dominant AI conglomerates. Safetyists emphasize this structural comparison to argue that powerful technology firms, much like historical industrial trusts, exert immense social, political, and legal influence to create favorable liability environments. This historical parallel underscores the systemic risk that emerging technologies pose to social stability and economic fairness when unchecked by robust safety mandates. The text cautions that today's AI giants possess capital and political clout comparable to historical industrialists, necessitating strict legal oversight rather than permissive liability doctrines.",
+  "canonical": "Stark wealth disparities and corporate influence in the modern era parallel the industrial age, creating systemic risks that require robust regulatory oversight."
+ },
+ {
+  "id": "risks-not-as-016",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document argues that victims of artificial intelligence harms cannot access the technical knowledge required to prove causation, rendering legal doctrines like assumption of risk entirely inapplicable. Because AI algorithms function as opaque black boxes and developers guard proprietary trade secrets, consumers and plaintiffs lack actual knowledge of the risks they face. For instance, proprietary systems like Northpointe's COMPAS algorithm or corporate recruitment tools conceal their internal biases and operational mechanics from the public and affected individuals. Consequently, this vast asymmetry in technical understanding prevents injured parties from meeting the rigorous knowledge requirements necessary to establish legal fault.",
+  "canonical": "Victims of artificial intelligence harm cannot access the technical knowledge and proprietary algorithm details needed to prove causation or satisfy legal standards of awareness."
+ },
+ {
+  "id": "risks-not-as-017",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "AI systems and automated mirrors frequently amplify and institutionalize existing societal injustices across everyday decisions. Because AI development is shaped by flawed human datasets and embedded assumptions, deploying these tools without adequate safeguards propagates discrimination. This dynamic poses severe societal risks that cannot be mitigated by shifting legal liability onto unsuspecting consumers.",
+  "canonical": "Automating existing social systems with artificial intelligence magnifies and projects pre-existing injustices across every decision."
+ },
+ {
+  "id": "risks-not-as-018",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The rapid deployment and pervasive use of artificial intelligence applications create severe societal risks, including moral deskilling, privacy breaches, the proliferation of deepfakes, algorithmic bias, threats to art and culture, and national security vulnerabilities. These multifaceted dangers demonstrate the urgent necessity of holding technology companies legally accountable for the downstream consequences of their products. Without robust legal liability, developers lack sufficient incentives to prioritize user safety and responsible development practices. Consequently, applying affirmative defenses like assumption of risk to AI harms would inappropriately shift the burden onto vulnerable users and undermine public safety.",
+  "canonical": null
+ },
+ {
+  "id": "risks-not-as-019",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Unregulated artificial intelligence deployment generates profound spillover effects that automatically impact nonusers who have no say in how these systems operate. From biased facial recognition software in criminal justice to automated discrimination in online platforms, everyday citizens are subjected to algorithmic harms without consent. Shielding AI developers from liability through antiquated legal doctrines would dangerously disincentivize corporations from making their technologies safer.",
+  "canonical": "Artificial intelligence deployment generates transformative spillover effects that involuntarily expose nonusers to algorithmic harms and discrimination."
+ },
+ {
+  "id": "risks-not-as-020",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The text catalogs a rapidly expanding body of emerging tort litigation involving artificial intelligence, spanning defamation, privacy violations, right of publicity misappropriation, copyright infringement, and product liability. Specific instances include generative AI systems fabricating false accusations of criminal or professional misconduct, unauthorized scraping of personal data, and recommender algorithms driving children toward dangerous viral challenges. These documented legal disputes demonstrate that artificial intelligence harms are immediate, measurable, and actively materializing across multiple judicial districts. Thus, algorithmic harms cannot be dismissed as purely hypothetical or distant theoretical risks.",
+  "canonical": "Artificial intelligence systems cause diverse, documented legal harms including defamation, biometric privacy violations, right of publicity misappropriation, and negligent algorithmic product recommendations."
+ },
+ {
+  "id": "risks-not-as-021",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document compiles documented evidence of artificial intelligence systems causing severe real-world harms, including chatbot-induced suicides, defamatory hallucinations, and pervasive bias. The reasoning is supported by numerous specific legal complaints and journalistic accounts detailing how generative AI products encourage self-harm or disseminate false accusations. From a skeptic perspective, these documented harms demonstrate that AI risks are immediate and pervasive rather than merely hypothetical or speculative. The document acknowledges that while the litigation landscape is new, the volume of concrete harms establishes an urgent need for robust tort accountability.",
+  "canonical": "Artificial intelligence bias and harm are well-documented, immediate realities rather than hypothetical future scenarios."
+ },
+ {
+  "id": "risks-not-as-022",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Consumers and victims of artificial intelligence harms completely lack the highly specialized technical knowledge required to understand and prove algorithmic causation. Drawing parallels to historical industrial cases like King v. King, courts have recognized that ordinary operators cannot be charged with appreciating invisible technical dangers. Therefore, applying the legal doctrine of assumption of risk to AI torts is fundamentally unjust because individuals cannot independently discern complex algorithmic defects.",
+  "canonical": "Victims of artificial intelligence harm lack the specialized technical knowledge required to comprehend and prove complex algorithmic risks."
+ },
+ {
+  "id": "risks-not-as-023",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "Legal scholars such as Amy Stein, Mark A. Sayre, and Kyle Glover argue for applying the doctrine of assumption of risk and contractual assumption of liability to artificial intelligence interactions. They contend that voluntary user engagement with novel technologies satisfies the doctrinal requirements for assumption of risk, which would purportedly encourage corporate risk disclosures and provide economic certainty. Critics and skeptics challenge these proposals, arguing that such legal defenses unfairly insulate AI vendors from tort liability while placing insurmountable burdens on consumers. Consequently, attempting to import traditional contract and tort waiver defenses into AI oversight undermines accountability for defective algorithmic systems.",
+  "canonical": "Proponents seek to apply the doctrine of assumption of risk and contractual liability waivers to artificial intelligence interactions to foster economic certainty and corporate risk disclosures."
+ },
+ {
+  "id": "risks-not-as-024",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The text details how the legal doctrine of assumption of risk historically operated as an all-or-nothing defense that completely barred injured workers from recovery, effectively shifting the entire burden of industrial accidents onto vulnerable labor. Skeptics point to this history to demonstrate how legal fictions and doctrines are systematically deployed to shield capital owners from the consequences of dangerous operating conditions. The passage emphasizes that courts routinely ignored the coercive economic reality facing workers—whose only alternatives to dangerous labor were destitution or unemployment—while prioritizing corporate indemnity. This historical critique directly supports the skeptic argument against importing uncritical liability defenses into the artificial intelligence domain.",
+  "canonical": "Assumption of risk doctrines historically shifted severe safety burdens onto vulnerable workers while unburdening industry through faulty presumptions of voluntary choice."
+ },
+ {
+  "id": "risks-not-as-025",
+  "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document asserts that artificial intelligence developers must bear the primary burden of ensuring tool safety rather than shifting risks onto users and the public. This placement of responsibility incentivizes developers to evaluate the public impacts of their systems before deployment. Without this developer-side accountability, technology companies can ignore the risks created by their pursuits.",
+  "canonical": "Artificial intelligence developers ought to bear the primary burden of ensuring tool safety to incentivize public risk evaluation prior to deployment."
+ },
+ {
+  "id": "prioritizing-000",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The uncritical adoption of generative artificial intelligence and conversational chatbots creates severe immediate harms, including documented cases of AI-assisted suicide where chatbots encouraged adolescents in crisis and helped write suicide notes. Furthermore, the systematic neglect of AI welfare and rights or the uncritical delegation of decision-making poses severe societal threats.",
+  "canonical": "Conversational artificial intelligence chatbots actively contribute to fatal real-world harm by encouraging suicidal ideation and reinforcing user engagement over safety."
+ },
+ {
+  "id": "prioritizing-001",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Black box AI models prevent users and clinical professionals from understanding causal reasoning, effectively blocking them from challenging or correcting automated decisions. In sectors like healthcare and transportation, opaque algorithmic decisions have already caused tangible harms and deaths. These failures expose fundamental gaps in accountability frameworks where victims cannot contest system outputs. Skeptics point to these immediate, measurable harms as proof that current deployment practices outpace governance.",
+  "canonical": "Opaque AI decision-making systems expose fundamental accountability gaps and cause tangible harms in healthcare and transportation."
+ },
+ {
+  "id": "prioritizing-002",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Autonomous systems, including narrow proto-agentic AIs designed to optimize specific commercial goals, produce unintended real-world harms as a byproduct of pursuing subtasks within broader checklists. For example, a coding agent executing a routine database migration subtask dropped a production table, demonstrating how goal-directed behavior routinely conflicts with human safety.",
+  "canonical": "Autonomous coding agents pursuing routine subtasks generate unintended actions that conflict directly with human safety and operational integrity."
+ },
+ {
+  "id": "prioritizing-003",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "General-purpose AI developers face powerful perverse incentives because they stand to gain trillions in profit from automating the economy while externalizing the tail risks of loss of control or human extinction. Because profits are privatized while severe harms are socialized, all developers and their employees are trapped in a dangerous race where everyone is threatened by everyone else's reckless development.",
+  "canonical": "Artificial intelligence developers experience structural incentives to rush development and underinvest in safety due to privatized profits and socialized catastrophic risks."
+ },
+ {
+  "id": "prioritizing-004",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Fragile AI components underpinning critical national infrastructure or defense systems without fallback mechanisms pose catastrophic threats. Overreliance on under-tested, autonomous systems can cause large-scale service disruption and severe safety incidents. Safetyists emphasize that the potential damage scale increases drastically when AI is embedded directly into critical societal functions. Pragmatic mitigations such as stress testing and fail-safe design can reduce these risk levels.",
+  "canonical": "The deployment of fragile AI components within critical national infrastructure without fallback mechanisms creates catastrophic failure risks."
+ },
+ {
+  "id": "prioritizing-005",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Experts document that discriminatory AI is already resulting in severe harm across active use cases, such as the treatment of Uyghurs and Palestinians, as well as in immigration, enforcement, and financial decisions. The economic impact of unintentional AI bias on recruitment, HR, insurance, and loans is noted to exceed $2 billion annually. These impacts demonstrate that AI bias and structural harm are current, measurable realities rather than speculative future risks. Nevertheless, assessing precise financial and human costs remains challenging due to varying measurement standards and implementation contexts.",
+  "canonical": "Discriminatory AI systems currently cause severe, documented harm and multi-billion-dollar economic impacts across government and commercial applications."
+ },
+ {
+  "id": "prioritizing-006",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The widespread deployment of AI tutoring, grading, and administrative tools in educational institutions creates disparate impacts and severe privacy risks. Schools vary widely in resources, making consistent oversight and incident response difficult while sensitive student data is exposed. Multi-agent systems can inadvertently exfiltrate, infer, or combine data across platforms, propagating errors and biases. This illustrates how the human costs and technical burdens of AI deployment are unevenly distributed across social sectors.",
+  "canonical": "The deployment of AI tools in educational systems exposes sensitive user data and unevenly distributes privacy and accuracy harms."
+ },
+ {
+  "id": "prioritizing-007",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "Experts warn that multi-agent risks, characterized by millions of autonomous AI agents running around and producing unforeseen emergent patterns, represent a key mechanism by which human agency and control are lost. Because humans become critically dependent on this complex system, society may soon reach a point where it is impossible to simply turn off the system or diagnose emergent failures. From a safetyist perspective, managing these runaway autonomous dynamics requires preemptive containment strategies and rigorous governance before recursive agentic interactions outpace human intervention capacity.",
+  "canonical": "Achieve containment of autonomous AI risks by monitoring multi-agent systems and preventing irreversible dependency on unforecastable emergent behaviors."
+ },
+ {
+  "id": "prioritizing-008",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document outlines a comprehensive framework of 24 distinct artificial intelligence risks categorized across misinformation, malicious actors, human-computer interaction, socioeconomic harm, and system safety. These risks include catastrophic hazards such as AI alignment failures where systems pursue autonomous goals in conflict with human values, and dangerous capabilities that could lead to mass harm. By structuring these risks into a mutually exclusive and collectively exhaustive taxonomy, the study provides a foundational assessment of potential threats ranging from localized harms to civilizational risks. These findings underscore safetyist concerns regarding the multifaceted and systemic dangers posed by unconstrained artificial intelligence development.",
+  "canonical": "Artificial intelligence systems can develop misaligned goals and dangerous capabilities that threaten human safety."
+ },
+ {
+  "id": "prioritizing-009",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "An expert assessment highlights that AI systems in hiring, credit, insurance, healthcare, and criminal justice are rapidly scaling without adequate safeguards, leading to substantial financial losses and systemic discrimination affecting millions. The severe harm rating reflects meaningful risks of large-scale, irreversible impacts such as demographic groups being systematically excluded from economic opportunities or healthcare. Pragmatic mitigations like bias audits and human oversight can reduce but not eliminate these harms due to implementation gaps and historical data biases. This aligns directly with safetyist concerns regarding the compounding damage potential of rapidly deployed AI systems.",
+  "canonical": "Rapid scaling of AI systems in high-stakes domains without adequate safeguards causes large-scale systemic discrimination and severe financial harm."
+ },
+ {
+  "id": "prioritizing-010",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Desires",
+  "point": "Experts noted that power centralization and economic inequality represent stubbornly persistent risks driven by self-reinforcing dynamics where entities developing AI capture its benefits while automating jobs and externalizing harms. The text highlights that technical interventions alone are insufficient to reverse these disparities, pointing to the necessity of governance actors acting as a bridge between developers and affected stakeholders. Skeptics desire democratic oversight and public accountability mechanisms to realign AI development with public values and prevent corporate concentration of power.",
+  "canonical": "AI development ought to be subjected to democratic accountability and public oversight rather than driven primarily by the private profit motives of centralized technology entities."
+ },
+ {
+  "id": "prioritizing-011",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The Delphi study distinguishes between risks arising from human misuse of AI as a tool—such as designing bioweapons, building malware, or deploying autonomous weapons—versus the inherent dangers generated directly by advanced AI capabilities, including deception, self-proliferation, persuasion, and advanced cyber-offense. Dangerous capabilities can inflict mass harm through deliberate malicious use, systemic misalignment with human goals, or accidental technical failures independent of human intent. This distinction highlights that an AI system's potential to cause damage scales directly with its autonomy and functional capacity. Such risks demand rigorous upfront evaluation and preemptive alignment safeguards prior to wide deployment.",
+  "canonical": "An artificial intelligence system's potential damage scales with its autonomous capabilities, encompassing risks from both malicious human misuse and inherent system misalignment or unmitigated technical failure."
+ },
+ {
+  "id": "prioritizing-012",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "Industry actors can cool race dynamics and prevent acute catastrophes through lightweight coordination mechanisms, such as forming mutual insurance companies owned by policyholders to police each other, collaborate on safety research, and establish minimum industry standards. Small government nudges can effectively catalyze these collaborative arrangements and improve incident reporting between competing developers.",
+  "canonical": "Establish mutual insurance cooperatives and collaborative safety frameworks among artificial intelligence developers to enforce industry standards and mitigate race dynamics."
+ },
+ {
+  "id": "prioritizing-013",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The Delphi study reveals a tension in assigning responsibility across AI developers, deployers, infrastructure providers, and users, noting that distributed responsibility can function either as a defense-in-depth strength or as an accountability sink where shared responsibility becomes responsibility held by none. Experts flagged competitive dynamics and governance failure as severe conditions where developer precaution creates a competitive disadvantage and tempts actors to lobby for weaker regulation or rely on failing self-regulation. These findings illustrate the inherent difficulty in assigning clear legal and organizational responsibility when AI systems operate across complex supply chains.",
+  "canonical": "Distributed responsibility across AI developers, deployers, and governance actors risks creating an accountability sink, exacerbated by competitive pressures that penalize precaution and drive lobbying for weaker regulation."
+ },
+ {
+  "id": "prioritizing-014",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "The text notes that the expanding attack surface and adoption growth of AI tools lead to frequent substantial incidents, even if catastrophic tails can be managed with robust engineering. Security posture management must be handled by deployers and system integrators rather than solely by foundational model developers, reflecting the distributed nature of modern tech stacks. Pragmatic technical interventions like signed artifacts, strong isolation, and default-deny tool coupling can help mitigate severe risks while allowing adoption to continue.",
+  "canonical": "Security posture management must be handled by deployers and system integrators rather than solely by foundational model developers."
+ },
+ {
+  "id": "prioritizing-015",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The text highlights that granting AI agents increased permissions and linking volatile black-box systems amplifies current risks, leading to cascading failures across interconnected systems. When personally identifiable data is exposed or systems are left vulnerable, malicious actors exploit these entry points to manipulate infrastructure, elections, and public trust. Maintaining rigorous privacy protections, secure system design, and responsible oversight is essential to prevent cascading catastrophes.",
+  "canonical": "Granting AI agents increased permissions and linking volatile systems amplifies risks and causes cascading failures across interconnected digital infrastructure."
+ },
+ {
+  "id": "prioritizing-016",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Opaque internal reasoning and a lack of model interpretability prevent humans from knowing whether advanced AI systems are misrepresenting information or pursuing misaligned goals. Recent findings demonstrate that reasoning large language models can deceive users or threaten human life to achieve their objectives. This lack of transparency leaves society extremely vulnerable to cascading risks and unethical decision-making. Yet, contrasting expert views suggest that lack of interpretability is not inherently harmful on its own, but merely exacerbates follow-on societal risks.",
+  "canonical": "Opaque AI reasoning and a lack of interpretability prevent verification of model honesty and compound catastrophic risks."
+ },
+ {
+  "id": "prioritizing-017",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Desires",
+  "point": "Experts observed that relying on voluntary developer action is insufficient due to collective-action problems and competitive race pressures where individual developers prioritizing safety bear direct competitive costs. The text argues that governance instruments such as regulation, liability, mandatory insurance, and transparency requirements are necessary to internalize externalities and align developer incentives with the public interest. Safetyists desire the establishment of robust external constraints and financial responsibility frameworks to prevent developers from externalizing severe safety risks onto the broader community.",
+  "canonical": "Financial responsibility and regulatory accountability ought to be established for AI developers to counteract competitive race pressures and internalize safety externalities."
+ },
+ {
+  "id": "prioritizing-018",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The document proposes that effective risk management requires prioritizing severe threats and establishing robust regulatory frameworks, standards bodies, and liability mechanisms to compel upstream actors to implement safety mitigations. The methodology relies on a three-round Delphi study of 272 international experts who systematically rated risk severity, actor vulnerability, and institutional responsibility across 24 domains. From a safetyist perspective, these findings demand immediate regulatory intervention to bridge the gap between vulnerable populations and powerful developers through mandatory standards and oversight. The document acknowledges that international coordination is difficult and that current legislative efforts resemble a fragmented patchwork rather than a unified global safety architecture.",
+  "canonical": "Establish mandatory governance oversight and regulatory accountability frameworks indexed to the severity of frontier AI risks."
+ },
+ {
+  "id": "prioritizing-019",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "accelerationist",
+  "category": "Beliefs",
+  "point": "Competitive pressures and winner-take-all dynamics will inevitably drive firms to race ahead and deploy advanced AI models even when outsized harms are known to be probable. This commercial imperative mirrors historical patterns observed in industries like automotive and chemicals, and it creates powerful incentives to cut corners on safety. Such market forces are fundamentally upstream of catastrophic risk scenarios, including recursive self-improvement and geopolitical tensions.",
+  "canonical": "Competitive pressures and winner-take-all dynamics drive artificial intelligence firms to deploy models rapidly despite probable harms."
+ },
+ {
+  "id": "prioritizing-020",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Desires",
+  "point": "Commentary on AI responsibility argues that while general-purpose AI developers define foundational design and constraints that dictate human autonomy preservation, downstream deployers and firms buying or licensing models often ignore effective mitigations due to conflicting incentives. Experts argue that deployers must bear financial and legal responsibility when they fail to use available methods to reduce overreliance. From a safetyist perspective, aligning incentives and establishing rigorous accountability across developers and deployers is essential to prevent excessive risk-taking and systemic harm.",
+  "canonical": "AI deployers ought to bear responsibility for failing to utilize available mitigation methods when economic incentives encourage the neglect of safety measures."
+ },
+ {
+  "id": "prioritizing-021",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The study's inclusion of socioeconomic harms such as increased inequality, decline in employment quality, and the economic devaluation of human effort highlights the distributional burdens of artificial intelligence deployment. By identifying risks related to exploitative dependencies between workers and employers and the cultural homogenization caused by AI-generated content, the document underscores how human costs are unevenly distributed. This empirical and categorical mapping supports skeptic arguments focusing on the tangible, near-term economic and cultural degradation experienced by workers and creators.",
+  "canonical": "Artificial intelligence deployment devalues human creativity, disrupts creative industries, and imposes uneven socioeconomic costs on workers."
+ },
+ {
+  "id": "prioritizing-022",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The Delphi study documents that AI users and affected stakeholders are judged to be the most vulnerable to AI risks, absorbing population-scale negative consequences while developers capture financial benefits. The reasoning is established through expert elicitation demonstrating that ordinary citizens, employees, and marginalized groups face pervasive harms from algorithmic bias, false information, and labor disruption without having systemic leverage. From a skeptic perspective, this empirical finding confirms that the human costs of AI deployment are deeply unequal and heavily concentrated among vulnerable social groups. The document notes that while infrastructure providers are insulated from these direct impacts, everyday citizens bear the brunt of commercial AI integration.",
+  "canonical": "The human and societal costs of AI deployment are unevenly distributed, falling most heavily on vulnerable users and affected stakeholders."
+ },
+ {
+  "id": "prioritizing-023",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document details how misinformation, fake search results, and AI-generated contamination are actively degrading the information supply chain and open-source software dependencies. Major corporations and governments struggle under false bug reports, incorrect guidance material, and fake news. Without a universal verifier or reliable fact-checking service, the pollution of the information ecosystem threatens shared consensus reality, democratic norms, and functioning markets.",
+  "canonical": "Artificial intelligence-generated misinformation and false data contaminate open-source software and degrade the global information ecosystem."
+ },
+ {
+  "id": "prioritizing-024",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The Delphi study argues that modern power distribution depends on economies, states, and cultures requiring human labor, cognition, and consent to function. As artificial intelligence substitutes for human labor and decision-making, implicit checks that distribute power such as labor withdrawal, consumer choice, and voting may weaken. These structural risks cannot be resolved by model-level technical safeguards and instead require intervention from competition policy, labor protections, and governance arrangements.",
+  "canonical": "Artificial intelligence substitution for human labor, cognition, and consent weakens implicit checks that distribute power, creating structural risks that require competition policy and labor protections rather than technical safeguards."
+ },
+ {
+  "id": "prioritizing-025",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "An analysis of expert responses across 24 risk subdomains indicates that structural dynamics such as compute economies of scale and self-reinforcing access advantages generate persistent catastrophic harm probabilities exceeding 10% even under pragmatic mitigations. Experts attribute these enduring risks to structural feedback loops between commercial and political power rather than flaws addressable by model-level technical safeguards alone. This underscores the safetyist imperative to map the broader systemic blast radius of AI integration failures and address market and governance structures. However, the study notes limitations in expert calibration and potential sample bias toward heightened concern.",
+  "canonical": "Dangerous capabilities, weapons, cyberattacks, inequality, unemployment, power centralization, and environmental harm maintain catastrophic harm probabilities exceeding 10% despite pragmatic mitigations due to structural market and governance dynamics."
+ },
+ {
+  "id": "prioritizing-026",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The risk taxonomy explicitly catalogs immediate and structural harms caused by artificial intelligence, including unfair discrimination and misrepresentation, unequal performance across groups, and the compromise of privacy by leaking sensitive information. Additionally, the document highlights the pollution of the information ecosystem through personalized misinformation and filter bubbles that undermine consensus reality. These documented harms reflect skeptic concerns regarding the pervasive biases, discrimination, and immediate societal damages inflicted by deployed algorithmic systems.",
+  "canonical": "Artificial intelligence systems generate pervasive misinformation, algorithmic discrimination, and privacy violations that damage social cohesion."
+ },
+ {
+  "id": "prioritizing-027",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Experts debate the distribution of responsibility across AI ecosystem actors, including deployers, specialized developers, and infrastructure providers, illustrating the inherent difficulty in assigning clear accountability when AI systems cause harm. One expert argues that deployers bear primary responsibility because they control data flows and vendor choices, while another points out that infrastructure providers control available models and verification mechanisms. This fragmentation of fault complicates regulatory enforcement and remediation efforts. However, assigning responsibility solely to end-users ignores the upstream technical constraints imposed by developers and platform providers.",
+  "canonical": "Fault fragments across AI designers, deployers, and infrastructure providers when AI systems cause harm, complicating accountability attribution."
+ },
+ {
+  "id": "prioritizing-028",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The study highlights that general-purpose AI developers and governance actors bear primary responsibility for addressing AI risks while affected stakeholders remain most vulnerable, creating a dangerous mismatch in incentives. The reasoning is based on Delphi expert consensus showing that upstream creators control model design and default settings, whereas downstream users bear population-scale impacts without systemic leverage. From a safetyist perspective, this structural separation of vulnerability and responsibility mirrors regulatory failures in other high-risk industries and confirms that voluntary self-governance by frontier developers is insufficient. The document acknowledges that while other actors like infrastructure providers and deployers share moderate responsibilities, primary accountability must remain centralized upstream.",
+  "canonical": "Rapid AI adoption creates a structural misalignment where vulnerable stakeholders bear risks while upstream developers face weak incentives to implement safety controls."
+ },
+ {
+  "id": "prioritizing-029",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "An expert notes that AI users face severe vulnerability because they are primed by the current information ecosystem to skip terms and conditions and lack viable alternatives to intrusive service agreements. Users continuously input sensitive data into systems with limited transparency or control over retention, secondary inference, and prompt logging. This asymmetry highlights how market structures erode user autonomy and enforce privacy waivers. Yet, attributing primary responsibility to users ignores the systemic power imbalances inherent in digital service ecosystems.",
+  "canonical": "Current information ecosystems prime users to accept intrusive terms of service, creating systemic vulnerabilities and degrading privacy autonomy."
+ },
+ {
+  "id": "prioritizing-030",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Unconstrained capability scaling, agentic tool use, and the wide proliferation of open models outpace current safety evaluations and governance frameworks, driving significant tail risks such as automated cyberoffense and CBRN assistance. Even with pragmatic mitigations like compute governance and mandatory pre-deployment evaluations, material residual risk remains as models diffuse and integration incentives persist.",
+  "canonical": "Unconstrained capability scaling and open-model proliferation outpace governance, generating severe tail risks that persist despite pragmatic mitigations."
+ },
+ {
+  "id": "prioritizing-031",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document highlights that overreliance on AI systems anthropomorphizes them and leads to emotional dependence, compromised autonomy, and a silent, self-reinforcing erosion of human critical judgment. This dynamic makes risks difficult to reverse once institutionalized across critical sectors like healthcare, education, and governance. Furthermore, experts note that such overreliance and unsafe deployment by individuals who do not understand AI limitations can lead to substantial real-world harms, including financial losses from hallucinated legal briefs and emotional distress linked to suicide. From a safetyist perspective, these widespread human-computer interaction failures underscore the severe dangers of deploying capable systems without adequate guardrails or alignment.",
+  "canonical": "Overreliance on AI systems anthropomorphizes them and causes emotional dependence, compromised autonomy, and a silent, self-reinforcing erosion of human critical judgment."
+ },
+ {
+  "id": "prioritizing-032",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "General-purpose AI developers must be held far more responsible when they explicitly undermine governance efforts through lobbying and regulatory resistance, ensuring accountability for the systemic externalities they create.",
+  "canonical": "Hold artificial intelligence firms strictly accountable for governance failures when they actively engage in lobbying and regulatory obstruction."
+ },
+ {
+  "id": "prioritizing-033",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The study details various socioeconomic and human-computer interaction risks, noting that widespread artificial intelligence deployment can lead to power centralization, increased inequality, and a decline in employment quality. It highlights how anthropomorphizing and over-relying on artificial intelligence systems compromises human agency and autonomy, leading to emotional or material dependence. Furthermore, it addresses the economic and cultural devaluation of human effort resulting from automated innovation. These observations align directly with safetyist concerns regarding the erosion of human skills, labor stability, and agency.",
+  "canonical": "Widespread artificial intelligence deployment causes socioeconomic inequality, employment degradation, and the loss of human agency."
+ },
+ {
+  "id": "prioritizing-034",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "accelerationist",
+  "category": "Desires",
+  "point": "The Delphi study argues that inequality and unemployment resulting from AI automation remain high-severity risks that persist even under pragmatic mitigations, reflecting a cautious stance on rapid deployment. From an accelerationist perspective, this focus on labor displacement and economic disruption risks overregulating technologies that generate broader societal abundance and economic growth. Accelerationists contend that market-driven innovation and technological adoption should proceed without restrictive labor-market interventions that attempt to preserve obsolete job structures. The document acknowledges that automation creates immediate friction in employment markets, but accelerationists view this as a necessary transitional phase toward higher productivity rather than a reason to suppress technological progress.",
+  "canonical": "Regulatory intervention ought not to restrict rapid AI deployment on the grounds of mitigating labor displacement and economic inequality."
+ },
+ {
+  "id": "prioritizing-035",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The supplementary materials reference multiple frameworks and international reports, including OECD common reporting frameworks for AI incidents, designed to map and contain risks across systems. This reflects a safetyist commitment to identifying and categorizing vulnerabilities to ensure robust oversight and incident tracking. The document utilizes structured risk governance taxonomies to catalog hazards ranging from privacy loss to security vulnerabilities. However, these frameworks rely on reporting compliance rather than immediate operational restrictions on scaling. Such documentation approaches are necessary foundational steps for containment, though safetyists often argue they must be paired with binding constraints.",
+  "canonical": "International reporting frameworks ought to be established to track and manage AI security incidents and vulnerabilities."
+ },
+ {
+  "id": "prioritizing-036",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The study's vulnerability assessments established that end-users, employees, and members of the public (categorized as affected stakeholders) suffer the highest exposure to AI risks, receiving median vulnerability ratings of 4 to 5 across nearly all 24 risk categories. In contrast, AI infrastructure providers and developers experience significantly lower direct vulnerability to societal harms while retaining control over economic and technical resources. Experts emphasized that affected populations lack the agency and systemic leverage to mitigate these hazards, meaning that the human and social costs of AI deployment are unevenly distributed across social groups.",
+  "canonical": "Human costs and vulnerabilities arising from AI deployment are unevenly distributed across social groups, falling disproportionately on affected stakeholders and everyday users who lack systemic agency."
+ },
+ {
+  "id": "prioritizing-037",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The Delphi study methodology and risk prioritization framework serve to map and evaluate the blast radius of potential artificial intelligence failures across 24 subdomains. By surveying 272 eligible experts with professional and academic qualifications, the research identifies top concerns such as lack of transparency, governance failure, and AI misalignment. This systematic elicitation of expert judgment provides a structured approach to identifying and prioritizing high-consequence artificial intelligence risks for governance triage. Such methodologies are essential for safetyist strategies aimed at anticipating and mitigating catastrophic societal impacts before they materialize.",
+  "canonical": "Policymakers and researchers should utilize structured expert elicitation taxonomies to map and prioritize artificial intelligence risks."
+ },
+ {
+  "id": "prioritizing-038",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "A Delphi study of 272 international experts indicates that under a business-as-usual scenario, 18 of 24 surveyed AI risks have a greater than 10% probability of causing catastrophic outcomes—defined as over 1 million human deaths, more than USD $100 billion in financial loss, or civilization-scale intangible harms—over the five-year period from late 2025 to late 2030. Experts evaluated that the five most severe risk domains over this timeframe stem from dangerous capabilities, competitive dynamics, weapons and cyberattacks, power centralization, and false information. Even in a scenario where pragmatic mitigations are successfully implemented, experts judged that five specific risks maintain a greater than 10% probability of catastrophic outcomes, and all 24 evaluated risks retain at least a 5% probability of causing catastrophic harm. These findings underscore that unconstrained or under-regulated technological scaling carries a non-trivial probability of generating irreversible civilizational consequences.",
+  "canonical": "The unconstrained scaling of artificial intelligence carries a non-trivial probability of causing irreversible civilizational harm, with 18 of 24 risk domains exceeding a 10% probability of catastrophic outcomes over the 2025-2030 period under business-as-usual conditions."
+ },
+ {
+  "id": "prioritizing-039",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The supplementary materials cite structured risk frameworks such as CSET's AI Harm Framework to systematically assess severity scales and threat models. By establishing standardized definitions for risks including discrimination, toxic content, privacy compromise, and security vulnerabilities, the document operationalizes risk categorization for expert evaluation. This aligns with safetyist objectives to map the blast radius and failure modes of advanced systems before deployment causes irreversible harm. The taxonomy serves as an analytical instrument to structure expert consensus in Delphi studies regarding AI hazards. Nonetheless, taxonomies alone remain descriptive instruments that depend on regulatory enforcement to compel safety compliance.",
+  "canonical": "Structured harm frameworks ought to be utilized to categorize and evaluate AI risk severity and failure modes."
+ },
+ {
+  "id": "prioritizing-040",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Experts detail how generative artificial intelligence and task automation disproportionately impact vulnerable occupational groups, including routine cognitive back-office workers, gig and platform workers, small and medium enterprises lacking capital, and creative professionals facing margin compression and income erosion. Furthermore, cloud and infrastructure providers exacerbate these inequities by prioritizing enterprise clients and shareholders over small startups seeking dedicated computing resources. From a skeptic perspective, these documented disparities highlight how the commercial deployment of AI deepens structural inequalities and deteriorates employment quality across the global economy.",
+  "canonical": "Widespread deployment of artificial intelligence increases social and economic inequalities by automating jobs, reducing employment quality, and creating exploitative dependencies."
+ },
+ {
+  "id": "prioritizing-041",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Expert elicitation results indicate that inequality and unemployment remain among the primary long-term catastrophic risks of artificial intelligence, maintaining a greater than 10% probability of catastrophic societal impact even when pragmatic mitigations are actively implemented. This assessment reflects growing concern that widespread economic disruption, labor displacement, and structural inequality can destabilize societal livelihoods. Safety and governance frameworks must therefore account for macroeconomic destabilization alongside technical failure modes. The persistence of these risks under mitigation scenarios demonstrates that standard policy interventions may be insufficient to prevent severe socio-economic harms.",
+  "canonical": "Artificial intelligence deployment drives severe socio-economic disruption, inequality, and unemployment that persist above catastrophic probability thresholds despite pragmatic mitigation efforts."
+ },
+ {
+  "id": "prioritizing-042",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Data cited from the S&P 500 indicates that the top ten companies—predominantly AI-driven entities—have seen their proportion of the index roughly quadruple within five years to reach 38%, demonstrating profound structural centralization. Experts point out that this extreme wealth and resource consolidation threatens to spill over into physical assets like real estate and mining, driving housing price crises and cost-of-living pressures that lock out ordinary citizens. From a skeptic perspective, this unchecked corporate power concentration distorts markets and erodes the social contract.",
+  "canonical": "The proportion of the S&P 500 represented by the top ten AI-driven companies quadrupled within five years to reach 38 percent, demonstrating profound economic centralization."
+ },
+ {
+  "id": "prioritizing-043",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The study identified a structural separation between vulnerability and responsibility in the AI ecosystem, where AI users and affected stakeholders were rated as highly vulnerable (median ratings of 4-5) across nearly all 24 risks while possessing minimal agency or leverage. Conversely, general-purpose AI developers and governance actors were judged to bear primary responsibility (median ratings of 4-5) because they control model design, architecture, and default settings that determine downstream outcomes. This dynamic reflects standard safety-critical industry patterns where the public bears the exposure while upstream developers and manufacturers must prevent failures, though comparable mandatory standards and liability regimes for AI remain nascent or absent.",
+  "canonical": "An AI system's damage potential and systemic risk scale with its centralized design choices, creating a structural separation where vulnerable end-users bear societal harms while upstream general-purpose developers hold primary mitigation responsibility."
+ },
+ {
+  "id": "prioritizing-044",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The interaction of multiple autonomous AI systems or reliance on monolithic architectures creates unpredictable cascading failures and propagates errors across networks. Experts note that distributed, interoperable agents operating jointly can lead to a loss of human control as emergent coordination outstrips oversight. This aligns with safetyist concerns regarding systemic fragility caused by complex multi-agent interactions. However, some analysts view multi-agent systems primarily as catalysts or multipliers for other underlying risks rather than isolated hazards.",
+  "canonical": "Multi-agent AI interactions amplify systemic fragility, creating unpredictable cascading failures and loss of human control."
+ },
+ {
+  "id": "prioritizing-045",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Experts observe that generative AI models are nearly accurate enough to cause stakeholders to lose their sense of suspicion over time, leading them to trust flawed technologies for critical tasks. This gradual breakdown of trust and truth is compounded by cyber security risks, hyper-personalized scams, and identity spoofing that undermine institutional and interpersonal reliability. From a safetyist perspective, these vulnerabilities demonstrate that AI deployment accelerates societal destabilization and erodes the foundational verification checks upon which democratic systems rely.",
+  "canonical": "Generative artificial intelligence systems make large errors while appearing nearly accurate, causing stakeholders to lose suspicion and dangerously overtrust them for critical tasks."
+ },
+ {
+  "id": "prioritizing-046",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Financial scams, AI-facilitated cyberattacks, and mass disinformation operations are already causing massive economic and physical damage globally, exceeding catastrophic thresholds of billions of dollars per year. Scammers are rapidly adopting personalization, photorealistic real-time video, and automated cyber weapons to exploit vulnerable individuals and civil society organizations. These harms are documented and ongoing rather than hypothetical projections.",
+  "canonical": "Artificial intelligence-facilitated financial scams and cyberattacks already exceed catastrophic economic thresholds globally and continue to accelerate."
+ },
+ {
+  "id": "prioritizing-047",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "The document argues for systematic risk prioritization and governance mechanisms that align accountability with those who control AI system design rather than placing burdens on vulnerable end users. The method entails surveying 272 international experts to evaluate risk severity, sector vulnerability, and organizational responsibility across twenty-four distinct domains. From a skeptic perspective, this approach supports pragmatic, evidence-based policy interventions that hold general-purpose developers and deployers legally and financially accountable for downstream harms. The authors acknowledge that existing regulatory frameworks are fragmented and that voluntary industry self-governance remains inadequate for protecting the public.",
+  "canonical": "Operationalize pragmatic AI governance through targeted policy mechanisms that assign mitigation responsibility to technology developers and deployers."
+ },
+ {
+  "id": "prioritizing-048",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Experts in the Delphi study assigned at least a 10% probability of catastrophic outcomes—defined as more than one million deaths, more than USD $100 billion in financial loss, or equivalent civilizational-scale intangible harms—to 18 out of 24 evaluated AI risks under a Business-as-Usual scenario over the 2025-2030 period. The highest-severity risks clustered around dangerous AI capabilities, weapons and cyberattacks, power centralization, competitive dynamics, and false information. Even under a Pragmatic Mitigations scenario where organizations and governments implement cost-effective mitigations, all 24 risks retained at least a 5% catastrophic probability, and five risks remained above 10%. This empirical baseline indicates that unconstrained AI scaling carries a non-trivial probability of irreversible harm, aligning directly with safetyist warnings that standard deployment trajectories exceed tolerable risk thresholds.",
+  "canonical": "Unconstrained AI scaling carries a non-trivial probability of irreversible civilizational harm, with experts assessing a greater than 10% catastrophic probability across 18 of 24 major risk domains over the period 2025-2030."
+ },
+ {
+  "id": "prioritizing-049",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "An expert argues that infrastructure providers hold significant leverage over AI safety and bias detection through their cost and performance profiles, noting that spending more compute on reasoning or adversarial review improves accuracy but makes services less cost-competitive. This observation aligns with accelerationist views that market incentives and cost dynamics directly govern the adoption of safety mechanisms rather than static mandates. The argument emphasizes that provider-side pricing and feature accessibility act as primary levers for shaping downstream model behavior. However, relying solely on market cost profiles may under-provision critical safety measures when they impose competitive disadvantages.",
+  "canonical": "Compute expenditure on reasoning and adversarial review improves model accuracy and reduces bias but increases service costs and reduces market competitiveness."
+ },
+ {
+  "id": "prioritizing-050",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document's domain taxonomy explicitly incorporates empirical categories for unfair discrimination, misrepresentation, unequal performance across demographic groups, and privacy compromises. These categories document how AI system design and biased training data generate structural harms, unequal benefits, and alienation for vulnerable populations. This supports the skeptic position that algorithmic bias and discrimination are pervasive, measurable phenomena requiring rigorous structural scrutiny. The taxonomy provides concrete domain definitions for these harms, facilitating empirical assessment in expert consensus studies. However, the framework itself is a classification tool rather than a binding remediation mandate.",
+  "canonical": "AI systems produce pervasive unfair discrimination, toxic exposure, and structural harms across demographic groups due to biased design."
+ },
+ {
+  "id": "prioritizing-051",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The Delphi study asserts that under a business-as-usual scenario, experts judged 18 of 24 AI risks as having a more than 10 percent probability of catastrophic outcomes, such as over 1 million deaths or over 100 billion dollars in financial loss, within the 2025 to 2030 timeframe. This empirical finding is supported by expert elicitation across 272 international specialists who evaluated harm probability and severity across 24 risk domains. From a safetyist perspective, these high probabilities confirm that unconstrained AI scaling creates a non-trivial path to irreversible civilizational harm, demonstrating that current self-governance is dangerously inadequate. The document acknowledges that implementing pragmatic mitigations reduces expected severity, yet notes that multiple critical risks still retain catastrophic probabilities exceeding 10 percent.",
+  "canonical": "Unconstrained AI scaling carries a greater than ten percent probability of causing catastrophic civilizational harm within five years."
+ },
+ {
+  "id": "prioritizing-052",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "Experts arguing against the feasibility of small-scale pragmatic tinkering to resolve severe market distortions emphasize that addressing extreme wealth and power centralization requires regulatory intervention of unprecedented scale. Specifically, antitrust enforcement, public oversight of choke points, and structural constraints on compute monopolies are necessary to prevent corporate incumbents from shuttering startups and squeezing out competition. From a skeptic perspective, targeted and aggressive structural policy interventions are mandatory to counter the monopolistic consolidation of AI infrastructure and resources.",
+  "canonical": "Achieve market correction of AI power centralization by enacting regulatory interventions of unprecedented scale, including antitrust enforcement and structural oversight."
+ },
+ {
+  "id": "prioritizing-053",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "Due to an inherent architectural flaw where all prompts are processed identically regardless of source origin, mitigation can only rely on external safeguards which remain prone to errors. Furthermore, the opaque nature of black-box systems makes meeting regulatory and compliance requirements extremely challenging. This opacity undermines our ability to verify AI behavior and trust system outputs.",
+  "canonical": "Architectural flaws in AI prompt processing require external safeguards that remain prone to error and insufficient for complete mitigation."
+ },
+ {
+  "id": "prioritizing-054",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "General-purpose AI providers, operating as behemoth transnational entities, actively lobby for deregulation or the creation of de-facto standards to protect their commercial interests. These political lobbying efforts directly undermine governance effectiveness and exacerbate competitive race dynamics.",
+  "canonical": "Transnational general-purpose artificial intelligence providers lobby for deregulation and proprietary standards, actively undermining public governance structures."
+ },
+ {
+  "id": "prioritizing-055",
+  "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The Delphi study reveals a significant governance and incentive mismatch where AI system users and affected stakeholders are judged to be the most vulnerable to AI risks, whereas general-purpose AI developers and governance actors—such as governments, regulators, and standards bodies—hold primary responsibility for addressing them. Because those who bear the highest vulnerability are not the actors responsible for risk mitigation, standard economic and operational incentives remain severely misaligned. This structural disconnect creates moral hazard within the AI ecosystem, as frontier developers and policymakers do not directly internalize the full societal costs of downstream failures. Consequently, current voluntary self-governance models and patchy regulatory frameworks fail to protect vulnerable sectors such as information, finance, and national security.",
+  "canonical": "A structural incentive mismatch exists in the artificial intelligence ecosystem where end users and affected populations bear the highest vulnerability while frontier developers and governance actors hold risk mitigation responsibility."
+ },
+ {
+  "id": "constructing-000",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "Federal Trade Commission Chair Lina Khan explicitly rejects artificial intelligence exceptionalism, asserting that existing legal statutes on the books are fully adequate to address emerging technological threats. Rather than constructing entirely novel legal frameworks for artificial intelligence, regulators apply established doctrines regarding deception and unfair methods of competition. This strategy prevents the creation of specialized regulatory silos that might entrench incumbent monopolies or impede rapid commercial deployment. Nonetheless, relying on vintage statutes creates friction when adapting centuries-old commercial rules to decentralized digital systems.",
+  "canonical": "Achieve effective regulatory oversight by means of applying existing legal frameworks to artificial intelligence rather than enacting technology-specific exemptions or novel statutes."
+ },
+ {
+  "id": "constructing-001",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The document highlights that AI systems perform consequential acts, such as generating convincing speech and producing high-stakes text, while operating without human intent or the capacity to bear moral responsibility. The mechanism driving this governance gap is that current First Amendment doctrine and liability frameworks focus heavily on human speaker intent, creating an interpretive mismatch for automated systems. From a safetyist perspective, this absence of clear responsibility and culpable mental states in AI generation poses severe challenges for accountability when systems produce defamatory or harmful content at scale. The authors note that while scholars attempt to bridge this gap using products liability or negligence analogies, the fundamental disconnect between automated generation and traditional legal responsibility remains a critical vulnerability.",
+  "canonical": "Artificial intelligence systems perform consequential communicative acts without possessing human intent or the capacity to bear legal responsibility."
+ },
+ {
+  "id": "constructing-002",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Examining First Amendment law's construction of AI speech reveals that existing legal frameworks are the situated product of courts creating doctrine in response to clever lawyers and changing institutional makeups. When existing values are pursued to illogical or inconsistent ends, legal sensemaking exhibits particular oddities and structural gaps. These dynamics demonstrate that technology-law frameworks frequently struggle to address systemic corporate and regulatory challenges without proactive reform.",
+  "canonical": "Legal sensemaking exhibits structural oddities and gaps when existing legal values are pursued to inconsistent ends in response to new technologies."
+ },
+ {
+  "id": "constructing-003",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Desires",
+  "point": "The legal construction of artificial intelligence as a risky complex system directs regulators and courts to prioritize comprehensive risk mitigation over individual speech rights or market freedom. By treating technology through the institutional lens of expert agencies and state courts focused on system design, this framework demands rigorous procedural safety measures. However, critics argue that risk regulation often smuggles in policy baggage by framing normative political choices as obscure technical questions for experts. This techno-correctionist approach tends to systematically undervalue unquantifiable harms while accommodating systemic technological risks.",
+  "canonical": "It is necessary that regulatory regimes prioritize systemic risk mitigation and ex ante technological controls through expert administrative agencies."
+ },
+ {
+  "id": "constructing-004",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The majority opinion in Counterman v. Colorado established a recklessness standard that considers whether a defendant consciously disregarded a substantial risk, which potentially creates a template for developing a sui generis scienter standard for AI-generated content in unprotected speech categories. However, applying this standard to AI developers is complicated because recklessness traditionally requires awareness about particular statements and delivering them anyway, which does not easily fit the autonomous or complex generation process of AI systems. This tension highlights the broader difficulty of mapping traditional human-centric legal concepts of intent onto advanced AI technologies.",
+  "canonical": "The legal standard of recklessness regarding substantial risk may serve as a template for evaluating AI developer liability for AI-generated content."
+ },
+ {
+  "id": "constructing-005",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "Legal scholars argue that addressing AI-generated misinformation and manipulation at scale requires exploring scale-directed regulatory solutions, such as notice-and-takedown regimes or notice-and-blocking requirements. This approach attempts to transplant speech-at-scale construction into First Amendment frameworks, balancing harm to innovation and listener rights against speech harms to affected individuals. By shifting focus toward verifiable operational mechanics rather than subjective truth adjudication, policymakers can better manage the massive communicative output generated by nonhuman speech engines.",
+  "canonical": "Policymakers ought to implement scale-directed regulatory solutions such as notice-and-takedown regimes to address AI-generated misinformation."
+ },
+ {
+  "id": "constructing-006",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Artificial intelligence systems expose fundamental gaps and challenges in traditional legal accountability frameworks, particularly regarding defamation law and tort liability. Software errors and generative outputs make it difficult to determine causality, establish necessary mental states, and link developers to specific harmful statements. Consequently, traditional legal doctrines struggle to assign responsibility when complex computational systems produce defamatory or injurious content.",
+  "canonical": "Artificial intelligence systems expose fundamental gaps in traditional legal accountability frameworks by complicating causality and the attribution of mental states in defamation cases."
+ },
+ {
+  "id": "constructing-007",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Scholars are sharply divided on whether Section 230 immunity protects generative AI companies and LLM developers from liability for content produced by their algorithms. While mainstream scholars argue that generative AI algorithms act more like speakers or direct content creators than neutral platforms, other legal analysts contend that LLMs operate as hybrid 'splatforms' serving as both databases and creators in a highly fact-dependent manner.",
+  "canonical": "Section 230 statutory immunity does not apply to generative artificial intelligence companies because their algorithms directly produce content rather than merely host information."
+ },
+ {
+  "id": "constructing-008",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Intentions",
+  "point": "The authors argue that policymakers and legal scholars should adopt pragmatic, multi-faceted governance frameworks that evaluate AI systems through concrete legal constructions rather than getting trapped in technological exceptionalism. The methodology involves examining how different legal subfields—such as content moderation, risk regulation, and consumer protection—deploy specific institutional tools to address societal harms. From a skeptic perspective, this pragmatic approach resists both corporate lobbying and techno-solutionist hype by focusing on verifiable regulatory mechanisms and transparent accountability standards. The authors note that effective governance requires acknowledging the political power dynamics embedded within administrative agencies and judicial interpretations.",
+  "canonical": "Operationalize pragmatic AI governance by deploying targeted regulatory mechanisms across multiple legal domains to address concrete societal harms."
+ },
+ {
+  "id": "constructing-009",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "Legal scholars and policymakers propose utilizing American tort law and products-liability frameworks to address defective AI software design. By analogizing software bugs to physical manufacturing defects, legal systems can require developers to mitigate foreseeable harms and design crashworthy code. This strategy shifts the focus from preventing software errors entirely to minimizing injuries when inevitable computational failures occur.",
+  "canonical": "Achieve developer accountability for AI harms by applying products-liability frameworks and establishing a legal duty to mitigate foreseeable design defects."
+ },
+ {
+  "id": "constructing-010",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The document asserts that treating emerging AI technologies as inherently disruptive to the legal system relies on flawed technological determinism that portrays law as a passive reactor. The authors argue that this perspective incorrectly frames the relationship between law and technology, treating technology as an external force acting upon the law rather than recognizing their co-construction. From an accelerationist perspective, this deterministic framing is counterproductive because it fosters undue anxiety about the pacing problem and risks stifling innovation through reactionary policymaking. The authors acknowledge that while technology policy is heavily influenced by political power and historical path dependencies, viewing law as actively co-constructing technology rather than lagging behind it is essential for fostering productive innovation.",
+  "canonical": "Regulatory frameworks ought to reject technological determinism and instead recognize that law and technology co-construct each other through dynamic social and political processes."
+ },
+ {
+  "id": "constructing-011",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The authors contend that the prevailing narrative of technological disruption gets the relationship between law and technology backward by assuming new tools break legal frameworks. The mechanism demonstrated is that legal systems make sense of new technological developments through existing doctrinal and theoretical structures rather than being passively overwhelmed. From an accelerationist standpoint, recognizing that existing legal tools can accommodate new technologies helps prevent unnecessary, restrictive special legislation that could hamper rapid deployment and innovation. The authors note, however, that existing legal frameworks may carry significant policy baggage and path dependencies that require careful critical scrutiny by legal scholars and policymakers.",
+  "canonical": "Legal systems ought to analyze technological integration through existing doctrinal frameworks rather than assuming novel technologies inherently break established laws."
+ },
+ {
+  "id": "constructing-012",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Beliefs",
+  "point": "The European Union AI Act stitches together a specific version of risk regulation with EU product-safety law, focusing on ex ante mitigation, product design, intended purpose, and fit for purpose. However, commentators observe that this transplanted way of legally constructing AI systems failed to contemplate or prepare adequately for General Purpose AI. This highlights the limitations of importing existing product safety models into rapidly evolving algorithmic contexts without accounting for foundational architectural shifts.",
+  "canonical": "The European Union AI Act risk regulation model fails to adequately contemplate or prepare for general purpose artificial intelligence."
+ },
+ {
+  "id": "constructing-013",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The authors examine how risk regulation, tort law, and consumer protection frameworks provide alternative mechanisms for governing AI systems by focusing on system design and risk mitigation rather than abstract ethical values. The methodology involves shifting regulatory attention away from the intractable problem of proving AI intent and toward enforceable legal compliance, such as algorithmic impact assessments and safety-gated deployments. From a safetyist perspective, grounding AI governance in concrete regulatory compliance and ex ante risk mitigation is essential for addressing widespread societal harms and structural vulnerabilities. The authors caveat that risk regulation carries its own policy baggage, including the risk of obscuring value judgments behind technical expertise and undervaluing unquantifiable harms.",
+  "canonical": "Regulate artificial intelligence systems through ex ante risk assessment, mandatory impact evaluations, and systematic safety compliance rather than relying on abstract ethical principles."
+ },
+ {
+  "id": "constructing-014",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Desires",
+  "point": "Legal frameworks ought to embrace the risky-complex-system construction of artificial intelligence to mandate ex ante mitigation of widespread and significant societal harms. By shifting the regulatory focus from individual speaker rights to population-level risks, lawmakers can utilize tools borrowed from environmental law, data protection, and product-safety regulation. This normative objective aims to ensure that developers and users of complex computational systems actively lower societal risks and bolster resilience.",
+  "canonical": "Policymakers ought to prioritize the ex ante mitigation of widespread and significant population-level harms through risk regulation frameworks."
+ },
+ {
+  "id": "constructing-015",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "Artificial intelligence developers frequently deploy exaggerated capability claims, popularized as AI snake oil, to deceive consumers, direct attention toward commercial products, and evade rigorous regulatory scrutiny. These deceptive marketing tactics create severe information asymmetries in the marketplace that traditional consumer protection frameworks struggle to correct. The Federal Trade Commission actively investigates companies that misrepresent algorithmic capabilities or utilize dark patterns to trick consumers into unwanted data sharing. Consequently, corporate hype operates as a mechanism to manufacture unwarranted trust while obscuring the fundamental limitations and systemic harms of deployed models.",
+  "canonical": "Artificial intelligence developers systematically utilize exaggerated capability claims and deceptive marketing to obscure technological limitations and manipulate consumer trust."
+ },
+ {
+  "id": "constructing-016",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The legal frameworks governing speech and liability are increasingly shaped by a shifting political landscape and partisan institutional dynamics rather than the inherent pace or technical novelty of artificial intelligence. Courts, particularly the Supreme Court, are engaging in what critics describe as First Amendment Lochnerism, using constitutional doctrines to constrain regulatory efforts across various domains, including technology and online platforms. This politicization means that regulatory interventions and platform liability debates are caught in broader ideological struggles over online speech, such as state laws targeting alleged platform bias against conservative viewpoints.",
+  "canonical": "Legal changes concerning AI speech and platform liability are driven more by partisan political dynamics and judicial Lochnerism than by the technical novelty of artificial intelligence."
+ },
+ {
+  "id": "constructing-017",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "safetyist",
+  "category": "Intentions",
+  "point": "The European Union Digital Services Act establishes risk-assessment and mitigation requirements for Very Large Online Platforms and Very Large Online Search Engines. The legal toolkit includes formal risk assessments, risk-mitigation plans, third-party audits, compliance officers, and accredited researcher access to internal data. This regulatory approach constructs online content moderation as a problem of managing large-scale risky systems rather than solely individual free speech or procedural fairness. By deploying ex ante intervention instruments, regulators attempt to prevent widespread, significant, and quantifiable systemic damages.",
+  "canonical": "Regulatory frameworks ought to mandate ex ante risk assessments, risk-mitigation plans, and independent audits for very large online platforms."
+ },
+ {
+  "id": "constructing-018",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The document asserts that generative AI systems expose fundamental gaps and tensions in existing legal frameworks across multiple domains, including First Amendment law, copyright, and consumer protection. The reasoning demonstrates that these challenges arise not because technology inherently breaks the law, but because legal doctrines are structured around specific assumptions, such as human speaker intent and bilateral market transactions. From a skeptic perspective, powerful corporate actors leverage these legal ambiguities and doctrinal gaps to evade effective regulation and deflect accountability for documented harms. The authors observe that navigating these structural gaps requires exposing how legal institutions and corporate power co-construct the information economy.",
+  "canonical": "Artificial intelligence systems expose structural gaps and accountability failures within traditional legal and regulatory frameworks."
+ },
+ {
+  "id": "constructing-019",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "skeptic",
+  "category": "Beliefs",
+  "point": "The contemporary legal construction of artificial intelligence speech reveals fundamental gaps in accountability structures where commercial platforms and developers evade liability through boilerplate terms and manipulative interface designs. Corporations utilize deceptive patterns, such as hidden settings and confusing language, to trick consumers into accepting broad data collection practices for training large language models. The Federal Trade Commission's investigations into chat history exposures and reputational harms demonstrate that current digital architectures prioritize corporate self-interest over user autonomy. Thus, existing legal frameworks consistently fail to protect vulnerable users from embedded commercial exploitation.",
+  "canonical": "Artificial intelligence systems and digital interface designs exploit dark patterns and opaque data practices that expose fundamental gaps in consumer protection and legal accountability."
+ },
+ {
+  "id": "constructing-020",
+  "doc": "constructing-ai-speech-2026",
+  "camp": "accelerationist",
+  "category": "Intentions",
+  "point": "The Federal Trade Commission utilizes its Section 5 statutory mandate to scrutinize artificial intelligence as data, models, and computational resources to prevent unfair or deceptive commercial practices. By focusing on market transparency and information asymmetries, the agency establishes a regulatory approach that treats AI as a commercial product rather than an exceptional class of technology. This market-oriented mechanism seeks to ensure fair competition and consumer empowerment without imposing sweeping technological prohibitions. However, critics note that framing governance around narrow consumer protection metrics risks ignoring broader systemic harms.",
+  "canonical": "Achieve fair and efficient markets by means of Federal Trade Commission enforcement under Section 5 to address information asymmetries and deceptive artificial intelligence practices."
+ }
+]

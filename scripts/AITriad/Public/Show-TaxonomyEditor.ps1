@@ -369,7 +369,7 @@ function Start-LegacyElectronMode {
             -NextSteps @(
                 'Set $env:AI_TRIAD_CODE_ROOT to the path where you cloned ai-triad-research'
                 'Or cd into the ai-triad-research directory before running this command'
-                'Or clone the repo: git clone https://github.com/jsnov/ai-triad-research'
+                'Or clone the repo: git clone https://github.com/AI-Rosetta-Stone/ai-triad-research'
             ))
     }
     $AppDir = Join-Path $CodeRoot 'taxonomy-editor'
@@ -532,22 +532,20 @@ function Start-ContainerMode {
 
     # ── Resolve data path ─────────────────────────────────────────────────
     if (-not $DataPath) {
-        # Use the same resolution logic as the module
-        if ($env:AI_TRIAD_DATA_ROOT) {
-            $DataPath = $env:AI_TRIAD_DATA_ROOT
+        # t/4755: this used to call Resolve-DataPath '.', which isn't a real function
+        # (only Get-DataRoot exists) -- it always threw, silently skipping .aitriad.json
+        # and falling through to the hardcoded sibling-dir guess below on every launch.
+        # Get-DataRoot already checks $env:AI_TRIAD_DATA_ROOT first, then .aitriad.json.
+        try {
+            $DataPath = Get-DataRoot
         }
-        else {
-            try {
-                $DataPath = Resolve-DataPath '.'
-            }
-            catch {
-                # Last resort: sibling directory of code repo, or platform default
-                $CodeRoot = Get-CodeRoot
-                if ($CodeRoot) {
-                    $DataPath = Join-Path (Split-Path $CodeRoot -Parent) 'ai-triad-data'
-                } else {
-                    $DataPath = Get-PlatformDataDir
-                }
+        catch {
+            # Last resort: sibling directory of code repo, or platform default
+            $CodeRoot = Get-CodeRoot
+            if ($CodeRoot) {
+                $DataPath = Join-Path (Split-Path $CodeRoot -Parent) 'ai-triad-data'
+            } else {
+                $DataPath = Get-PlatformDataDir
             }
         }
     }
@@ -610,8 +608,17 @@ function Start-ContainerMode {
     $runArgs = @(
         'run', '--rm'
         '--name', $ContainerName
-        '-p', "${Port}:7862"
+        # Loopback only (t/4755): the container has no sign-in gate (server.ts:885-889),
+        # so a LAN-reachable bind would expose it to the whole network.
+        '-p', "127.0.0.1:${Port}:7862"
         '-v', "${DataPath}:/data"
+        # t/4755: the image's own Dockerfile default (NODE_ENV=production,
+        # AI_TRIAD_DATA_ROOT=/tmp/taxonomy-cache) makes the server pick the github-api
+        # storage backend, which needs GitHub App credentials nobody but the hosted
+        # deployment has -- the /data bind mount above was silently never read. Force
+        # the filesystem backend and point it at the mount.
+        '-e', 'STORAGE_MODE=filesystem'
+        '-e', 'AI_TRIAD_DATA_ROOT=/data'
         # Security hardening
         '--cap-drop', 'ALL'
         '--read-only'
@@ -652,7 +659,11 @@ function Start-ContainerMode {
                 Write-Info "Fix: Stop whatever is using port ${Port}:"
                 Write-Info "  docker ps                          # find the container"
                 Write-Info "  docker stop <container-id>         # stop it"
-                Write-Info "  lsof -i :$Port                     # or find non-Docker process"
+                if ($IsWindows) {
+                    Write-Info "  Get-NetTCPConnection -LocalPort $Port  # or find non-Docker process"
+                } else {
+                    Write-Info "  lsof -i :$Port                     # or find non-Docker process"
+                }
                 Write-Info "Or use a different port: Show-TaxonomyEditor -Port 8080"
             }
             elseif ($errorText -match 'is already in use by container') {
@@ -701,7 +712,11 @@ function Start-ContainerMode {
                 Write-Info "Fix: Stop whatever is using port ${Port}:"
                 Write-Info "  docker ps                          # find the container"
                 Write-Info "  docker stop <container-id>         # stop it"
-                Write-Info "  lsof -i :$Port                     # or find non-Docker process"
+                if ($IsWindows) {
+                    Write-Info "  Get-NetTCPConnection -LocalPort $Port  # or find non-Docker process"
+                } else {
+                    Write-Info "  lsof -i :$Port                     # or find non-Docker process"
+                }
                 Write-Info "Or use a different port: Show-TaxonomyEditor -Port 8080"
             }
             elseif ($errorText -match 'is already in use by container') {

@@ -42,7 +42,7 @@ function Measure-DensityDistribution {
         }
 
         foreach ($Camp in $Camps) {
-            $CampData = $Sum.pov_summaries.$Camp
+            $CampData = Get-SummaryField $Sum.pov_summaries $Camp
             if ($CampData -and $CampData.PSObject.Properties['key_points'] -and $CampData.key_points) { $KPCount = @($CampData.key_points).Count } else { $KPCount = 0 }
             $DensityRecords.Add([PSCustomObject]@{
                 DocId     = $DocId

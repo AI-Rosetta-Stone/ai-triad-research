@@ -18,11 +18,17 @@ function hero(): Element {
 }
 
 describe('login page hero (t/4183 shared copy)', () => {
-  it('renders the same eyebrow, title and tagline as before', () => {
+  it('renders title and tagline in hero-row, coda in specimen (t/4638)', () => {
     const h = hero();
-    expect(h.querySelector('.eyebrow')?.textContent).toBe('AI Triad Research · Berkman Klein Center');
+    expect(h.querySelector('.eyebrow')).toBeNull();
+    expect(h.querySelector('.hero-row')).not.toBeNull();
     expect(h.querySelector('.project-title')?.textContent).toBe('AI Rosetta Stone');
-    expect(h.querySelector('.tagline')?.innerHTML).toBe('The goal is NOT to PROVIDE ANSWERS.<br>The goal is to PROVOKE THINKING.');
+    // t/4739: caps → bold.
+    expect(h.querySelector('.tagline')?.innerHTML).toBe(
+      'The goal is <strong>not</strong> to <strong>provide answers</strong>.<br>The goal is to <strong>provoke thinking</strong>.',
+    );
+    expect(h.querySelector('.coda')?.textContent).toBe('The issue isn’t what was said, but why.');
+    expect(h.querySelector('.coda')?.innerHTML).toBe('The issue isn’t <strong>what</strong> was said, but <strong>why</strong>.');
   });
 
   it('renders the question and the three voices, in POV order with their POV colour classes', () => {

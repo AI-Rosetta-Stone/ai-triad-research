@@ -11,7 +11,7 @@ Five themes via `[data-theme="xxx"]` on `<html>`. Default: `harvard`.
 |---|---|---|
 | Light | `light` | General use, high contrast |
 | Dark | `dark` | Low-light environments |
-| BKC | `bkc` | Berkman Klein Center branding |
+| BKC | `bkc` | Alternate dark palette |
 | Harvard | `harvard` | Harvard library aesthetic (default) |
 | System | `system` | Follows OS preference (resolves to light or dark) |
 
@@ -153,7 +153,7 @@ Additional queries: `(pointer: coarse)` for touch devices, `(prefers-reduced-mot
 
 ### Modal Dialog
 
-Full-screen `.dialog-overlay` backdrop + centered `.dialog` card. Click overlay to close (with `stopPropagation` on dialog). Used by: SettingsDialog, HelpDialog, FirstRunDialog, DeleteConfirmDialog, OnboardingTour.
+Full-screen `.dialog-overlay` backdrop + centered `.dialog` card. Click overlay to close (with `stopPropagation` on dialog). Used by: SettingsDialog, HelpDialog, FirstRunDialog, DeleteConfirmDialog.
 
 ### Toast Notification
 
@@ -199,13 +199,15 @@ Unicode symbols used for lightweight indicators: `▸`/`▾` (collapse arrows), 
 
 ## Node Detail Tabs
 
-Current tab set (from `NodeDetail.tsx`):
+Current tab set (from `NodeDetail.tsx`). Simple view shows only Content and Related; the rest are Advanced-only. Content is renamed **Analysis** by the node detail redesign (t/4574, pending; see `node-detail-redesign.md`).
 
 | ID | Label | Notes |
 |---|---|---|
 | `content` | Content | Default. Label + description editing |
 | `related` | Related | Edge browser |
 | `attributes` | Attributes | Graph attributes panel |
+| `conflicts` | Conflicts | Conflicts involving the node; count in the label |
+| `cruxes` | Cruxes | Cruxes involving the node; count in the label |
 | `phrases` | Phrases | Synthetic phrases |
 | `sources` | Sources | Source documents |
 | `facts` | Facts | Extracted facts with viewer |
@@ -231,14 +233,17 @@ Current tab set (from `SituationDetail.tsx`):
 
 | ID | Label |
 |---|---|
-| `tour` | Welcome Tour |
 | `about` | About |
+| `changelog` | What's New |
 | `overview` | Overview |
 | `documentation` | Documentation |
 | `methods` | Methods |
 | `shortcuts` | Shortcuts |
 | `sbom` | SBOM |
 | `licenses` | Licenses |
+| `my-cases` | My Cases (web build only) |
+
+The Welcome Tour tab is retired. Its content moved to the Rosetta Stone home page (see `onboarding.md`).
 
 ## LocalStorage Keys
 

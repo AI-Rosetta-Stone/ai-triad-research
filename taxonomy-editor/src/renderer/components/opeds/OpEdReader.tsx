@@ -166,14 +166,14 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
 
   return (
     <details className="oped-grounding" open>
-      <summary className="oped-grounding-summary">Taxonomy grounding ({grounding.length} element{grounding.length !== 1 ? 's' : ''})</summary>
+      <summary className="oped-grounding-summary">Why ({grounding.length} element{grounding.length !== 1 ? 's' : ''})</summary>
       <div className="oped-grounding-table-wrap">
         <table className="oped-grounding-table">
-          <caption className="sr-only">Taxonomy grounding for this op-ed</caption>
+          <caption className="sr-only">Why this op-ed says what it says — taxonomy elements it draws on</caption>
           <thead>
             <tr>
+              <th scope="col">ID</th>
               <th scope="col">Element</th>
-              <th scope="col">Relevance</th>
               <th scope="col">Reflected in the op-ed</th>
             </tr>
           </thead>
@@ -183,17 +183,20 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
               return (
                 <tr key={g.node_id} className={isOpen ? 'oped-grounding-row-active' : ''}>
                   <td>
-                    <button
-                      type="button"
-                      className="oped-grounding-id-btn"
-                      aria-expanded={isOpen}
-                      title={g.node_id}
-                      onClick={() => setExpandedId(isOpen ? null : g.node_id)}
-                    >
-                      {g.label || g.node_id}
-                    </button>
+                    {g.node_id ? (
+                      <button
+                        type="button"
+                        className="oped-grounding-id-btn"
+                        aria-expanded={isOpen}
+                        aria-label={`Show ${g.label || g.node_id}`}
+                        title={g.node_id}
+                        onClick={() => setExpandedId(isOpen ? null : g.node_id)}
+                      >
+                        {g.node_id}
+                      </button>
+                    ) : '—'}
                   </td>
-                  <td>{g.relevance || '—'}</td>
+                  <td>{g.label || '—'}</td>
                   <td>{g.how_reflected || '(not reported)'}</td>
                 </tr>
               );
@@ -289,6 +292,7 @@ export function OpEdReader({
     return idx >= 0 ? idx : 0;
   });
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const active = members[Math.min(activeIdx, members.length - 1)];
 
@@ -296,6 +300,13 @@ export function OpEdReader({
     setActiveIdxState(idx);
     onPovChange?.(members[idx].pov);
   }, [members, onPovChange]);
+
+  // Design review (p/29#204, t/4715#2 fix 3): the page used to scroll, so switching tabs
+  // naturally started the new article at the top. Now .oped-reader-shell is the scroll
+  // container (t/4715) and doesn't reset on its own, so the new article could open mid-scroll.
+  useEffect(() => {
+    rootRef.current?.closest('.oped-reader-shell')?.scrollTo({ top: 0 });
+  }, [activeIdx]);
 
   const onTabKeyDown = useCallback((e: React.KeyboardEvent, idx: number) => {
     let next = idx;
@@ -323,7 +334,7 @@ export function OpEdReader({
   }
 
   return (
-    <div className="oped-reader">
+    <div className="oped-reader" ref={rootRef}>
       <div className="oped-tabstrip" role="tablist" aria-label="Op-ed voices">
         {members.map((m, i) => {
           const meta = resolvePovMeta(m.pov);
