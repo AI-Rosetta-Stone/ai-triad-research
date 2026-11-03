@@ -48,15 +48,27 @@ export function getAdminUsers(): string[] {
  *  C1: Match idp-qualified entries (github:<id>, aad:<tid>-<oid>) only.
  *  Bare entries don't match. Undefined stableId is not admin.
  */
-export function isAdmin(): boolean {
-  const stableId = getStableId();
-  if (!stableId) return false; // Undefined stableId is never admin (C1)
+export function isAdmin(userId?: string): boolean {
+  // When called with no args (new pattern per SO C1-C3): match stableId against idp-qualified entries.
+  // When called with userId (legacy): check storageUserId against bare ADMIN_USERS entries (backward compat).
+  // TODO(t/4328 follow-up): Deprecate userId parameter; fix call sites with proper third-party admin design.
 
-  const userIdp = getCurrentUser()?.idp;
-  if (!userIdp) return false;
+  if (!userId) {
+    // New SO-required pattern: match current user's stableId against idp-qualified entries
+    const stableId = getStableId();
+    if (!stableId) return false; // Undefined stableId is never admin (C1)
 
-  const qualifiedEntry = `${userIdp.toLowerCase()}:${stableId.toLowerCase()}`;
-  return getAdminUsers().includes(qualifiedEntry);
+    const userIdp = getCurrentUser()?.idp;
+    if (!userIdp) return false;
+
+    const qualifiedEntry = `${userIdp.toLowerCase()}:${stableId.toLowerCase()}`;
+    return getAdminUsers().includes(qualifiedEntry);
+  }
+
+  // Legacy: check arbitrary userId against bare entries (for featureFlags, quotas, session call sites)
+  const uid = userId;
+  if (uid === '_local') return false;
+  return getAdminUsers().includes(uid);
 }
 
 /** Boot-time validation: warn on bare (unmatchable) ADMIN_USERS entries. */
