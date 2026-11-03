@@ -3,7 +3,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+// t/4802 (Design): the hint's closing phrase differs by target, matching the ⧉ button's own label
+// (LocationBarHost.tsx) — "a separate window" in Electron, "a new tab" on web.
+const isElectron = import.meta.env.VITE_TARGET !== 'web';
 import { useChatStore } from '../../hooks/useChatStore';
 import { expectReplace } from '../../navigation';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
@@ -75,17 +79,36 @@ function writeHintAcknowledged(): void {
 
 function ChatInPlaceHint() {
   const [acknowledged, setAcknowledged] = useState(readHintAcknowledged);
+
+  const dismiss = useCallback(() => {
+    writeHintAcknowledged();
+    setAcknowledged(true);
+  }, []);
+
+  // t/4802 (Design, matching DebateInPlaceHint/t/4801): dismiss on Esc, or on the first navigation
+  // away from the item place. ChatDetailContent only renders while an item is open, so this
+  // component's own unmount *is* "navigated away" — no separate navigation listener needed.
+  useEffect(() => {
+    if (acknowledged) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismiss();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      writeHintAcknowledged();
+    };
+  }, [acknowledged, dismiss]);
+
   if (acknowledged) return null;
   return (
     <div className="chat-in-place-hint" role="status">
-      <span><strong>Opens here now.</strong> Use ⧉ to open it in a separate window.</span>
-      <button
-        type="button"
-        className="chat-in-place-hint-dismiss"
-        aria-label="Dismiss"
-        onClick={() => { writeHintAcknowledged(); setAcknowledged(true); }}
-      >
-        &times;
+      <span>
+        <strong>Opens here now.</strong> Use <ExternalLink aria-hidden="true" className="chat-in-place-hint-icon" />{' '}
+        to open it in {isElectron ? 'a separate window' : 'a new tab'}.
+      </span>
+      <button type="button" className="btn-xs btn-ghost chat-in-place-hint-dismiss" onClick={dismiss}>
+        Got it
       </button>
     </div>
   );
