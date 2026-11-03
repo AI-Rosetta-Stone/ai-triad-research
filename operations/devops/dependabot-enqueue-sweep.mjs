@@ -76,6 +76,20 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 }
 
+export function normalizePR(n) {
+  return {
+    number: n.number,
+    headRefOid: n.headRefOid,
+    isDraft: n.isDraft,
+    isInMergeQueue: n.isInMergeQueue,
+    mergeStateStatus: n.mergeStateStatus,
+    autoMergeRequest: n.autoMergeRequest,
+    isCrossRepository: n.isCrossRepository,
+    author: n.author ? { typename: n.author.__typename, login: n.author.login } : {},
+    contexts: n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
+  };
+}
+
 function listOpenDependabotPRs(repo) {
   const query = `query($q:String!){search(query:$q,type:ISSUE,first:50){nodes{... on PullRequest{
     number headRefOid isDraft isInMergeQueue mergeStateStatus autoMergeRequest{enabledAt} isCrossRepository
@@ -84,17 +98,7 @@ function listOpenDependabotPRs(repo) {
       ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}}`;
   const out = JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`,
     '-f', `q=repo:${repo} is:pr is:open author:app/dependabot`]));
-  return out.data.search.nodes.map((n) => ({
-    number: n.number,
-    headRefOid: n.headRefOid,
-    isDraft: n.isDraft,
-    isInMergeQueue: n.isInMergeQueue,
-    mergeStateStatus: n.mergeStateStatus,
-    autoMergeRequest: n.autoMergeRequest,
-    isCrossRepository: n.isCrossRepository,
-    author: n.author ?? {},
-    contexts: n.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],
-  }));
+  return out.data.search.nodes.map(normalizePR);
 }
 
 export async function sweep(repo, { dryRun = false } = {}) {

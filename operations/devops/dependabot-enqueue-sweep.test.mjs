@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkVerdict, selectSweepCandidates } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, selectSweepCandidates, normalizePR } from './dependabot-enqueue-sweep.mjs';
 
 const green = [
   { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS' },
@@ -94,4 +94,36 @@ test('selectSweepCandidates: wrong typename (not Bot) is never enqueued', () => 
   const { enqueue, skip } = selectSweepCandidates([pr({ number: 1, author: { typename: 'User', login: 'dependabot' } })]);
   assert.deepEqual(enqueue, []);
   assert.match(skip[0].reason, /author is not Bot\/dependabot/);
+});
+
+test('normalizePR: converts GraphQL __typename to typename and enqueues valid Dependabot PR', () => {
+  // Verbatim GraphQL shape from #4282 (TL reference)
+  const graphqlNode = {
+    number: 4282,
+    headRefOid: 'abc123',
+    isDraft: false,
+    isInMergeQueue: false,
+    isCrossRepository: false,
+    mergeStateStatus: 'BLOCKED',
+    autoMergeRequest: { enabledAt: '2026-11-02T00:00:00Z' },
+    author: { __typename: 'Bot', login: 'dependabot' },
+    commits: {
+      nodes: [{
+        commit: {
+          statusCheckRollup: {
+            contexts: {
+              nodes: [
+                { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS' },
+                { name: 'CodeQL Analysis', status: 'COMPLETED', conclusion: 'SUCCESS' },
+              ],
+            },
+          },
+        },
+      }],
+    },
+  };
+  const normalized = normalizePR(graphqlNode);
+  const { enqueue, skip } = selectSweepCandidates([normalized]);
+  assert.deepEqual(enqueue, [{ number: 4282, headRefOid: 'abc123' }]);
+  assert.deepEqual(skip, []);
 });
