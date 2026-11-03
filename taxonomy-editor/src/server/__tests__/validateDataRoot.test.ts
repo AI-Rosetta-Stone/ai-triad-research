@@ -53,10 +53,14 @@ function makeFilesystemBackend(
 
 function makeGitHubBackend(
   listDirectoryStrictFn: (dir: string, opts?: { ref?: string }) => Promise<string[]>,
+  readFileStrictFn: (file: string) => Promise<string | null> = async () => SENTINEL_FILE_BODY,
 ): StorageBackend {
   return {
     listDirectory: async () => [],
     listDirectoryStrict: listDirectoryStrictFn,
+    readFileStrict: readFileStrictFn,
+    // github-api sentinel reads must go through readFileStrict (t/4760#6); a plain readFile here fails the test.
+    readFile: async () => { throw new Error('readFile must not be used for github-api sentinels'); },
   } as unknown as StorageBackend;
 }
 
@@ -106,7 +110,7 @@ describe('validateDataRoot (t/3296 A arm)', () => {
       setBackend(makeFilesystemBackend(async () => ['f.json'], async (file) => { read.push(file); return SENTINEL_FILE_BODY; }));
       await expect(validateDataRoot()).resolves.toBeUndefined();
       const taxonomyDir = getTaxonomyDir();
-      expect(read).toEqual([path.join(taxonomyDir, 'entities.json'), path.join(taxonomyDir, 'organizations.json')]);
+      expect(read).toEqual(['entities.json', 'organizations.json', 'organization_edges.json'].map(f => path.join(taxonomyDir, f)));
     });
 
     it('throws naming entities.json when it is missing', async () => {
@@ -237,6 +241,44 @@ describe('validateDataRoot (t/3296 A arm)', () => {
       expect(callCount).toBe(1); // no retry for ActionableError
       const warns = recordedEvents.filter(e => e.level === 'warn');
       expect(warns).toHaveLength(0); // no WARN recorded for config errors
+    });
+  });
+
+  // ── github-api mode: wait for the curated files through readFileStrict (t/4760#6) ──
+
+  describe('github-api mode: waiting for the curated files (t/4760#6)', () => {
+    beforeEach(() => { process.env.DATA_ROOT_MOUNT_WAIT_MS = '60000'; });
+    afterEach(() => { process.env.DATA_ROOT_MOUNT_WAIT_MS = '0'; });
+
+    it('keeps waiting while entities.json reads absent (the 10-27 rollback), then passes', async () => {
+      let entityReads = 0;
+      setBackend(makeGitHubBackend(async () => ['f.json'], async (file) => {
+        if (file.endsWith('entities.json')) return ++entityReads < 3 ? null : SENTINEL_FILE_BODY;
+        return SENTINEL_FILE_BODY;
+      }));
+      await expect(validateDataRoot()).resolves.toBeUndefined();
+      expect(entityReads).toBe(3);
+    });
+
+    it('treats a transient readFileStrict error as not-ready-yet, then passes', async () => {
+      let reads = 0;
+      setBackend(makeGitHubBackend(async () => ['f.json'], async () => {
+        if (++reads === 1) throw Object.assign(new Error('circuit open'), { kind: 'transient', reason: 'circuit_open' });
+        return SENTINEL_FILE_BODY;
+      }));
+      await expect(validateDataRoot()).resolves.toBeUndefined();
+      expect(recordedEvents.filter(e => e.level === 'warn' && e.message?.includes('entities.json'))).toHaveLength(1);
+    });
+
+    it('fails naming the file once the budget runs out', async () => {
+      process.env.DATA_ROOT_MOUNT_WAIT_MS = '30';
+      process.env.DATA_ROOT_MOUNT_RETRY_DELAY_MS = '10';
+      try {
+        setBackend(makeGitHubBackend(async () => ['f.json'], async (file) => (file.endsWith('organization_edges.json') ? null : SENTINEL_FILE_BODY)));
+        await expect(validateDataRoot()).rejects.toMatchObject({ message: expect.stringMatching(/organization_edges\.json.*after waiting/) });
+      } finally {
+        process.env.DATA_ROOT_MOUNT_RETRY_DELAY_MS = '0';
+      }
     });
   });
 });
