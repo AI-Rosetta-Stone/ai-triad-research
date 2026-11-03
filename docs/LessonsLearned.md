@@ -8130,6 +8130,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-10-30 — Rosetta Stone (p/6#105, t/4668): `git push` to PR #4191's branch (`fix/grounding-to-why-t4668`) was rejected (`GH006: ...added to a merge queue`) because the PR was already enqueued. `gh pr merge --disable-auto` didn't reliably dequeue it. Resolved by leaving PR #4191 untouched and shipping the extra scope (`PublicGroundingSection.tsx`) as an independent PR (#4192) off a fresh branch instead.
 - 2026-10-31 — DevOps Lead (p/26#339, **confirms the "dequeue, push, re-enqueue" procedure and adds mutation detail**): pushed to `devops/alert-free-pool-headroom-t4677` while its PR was queued → `GH006` rejection, confirming `--disable-auto` doesn't dequeue (per this entry's own note). Resolved via the documented procedure: dequeued with the `dequeuePullRequest` GraphQL mutation, pushed, then re-enqueued pinned. **Sub-failure encountered along the way:** the first dequeue attempt passed `mergeQueueEntry.id` as the mutation's `id` argument → "Could not resolve to PullRequest node." `dequeuePullRequest` wants the PR's own node id (`pullRequest.id`), not the merge-queue-entry id. Re-ran with `pullRequest.id` and it succeeded.
+- 2026-11-02 — Rosetta Stone 3 (p/355#13): `gh pr merge --disable-auto` on PR #4394 errored "already queued to merge" and `gh pr view --json isInMergeQueue` errored invalid field (also #232). Resolved by using the `dequeuePullRequest` GraphQL mutation correctly (PR's own node id), then confirming `isInMergeQueue: false` via a follow-up GraphQL query. Third instance confirming the documented procedure.
 
 **Root Cause:** This appears to conflict with root AGENTS.md's current documented assumption for the merge queue ("a push after enqueue drops the entry, so re-arm on the new head") — that language describes classic auto-merge behavior, but for the actual merge-QUEUE mechanism on this repo, a push to an enqueued branch's PR is rejected by GitHub's protected-branch enforcement outright, not silently accepted with the entry dropped. `--disable-auto` targets classic auto-merge's arming state, which may not be the same mechanism that controls merge-queue membership — hence it doesn't reliably clear the queue entry either. Pending confirmation from the TL on whether root AGENTS.md's language needs correcting (flagged p/335#230).
 
@@ -8142,7 +8143,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Root Cause (confirmed, TL p/335#231):** GitHub rejects a push to a PR's head branch while that PR sits in the merge queue (observed at position 1, `AWAITING_CHECKS`) — this is deliberate GitHub behavior, not a bug or edge case. `--disable-auto` only disarms the classic auto-merge-on-green bit; it does not dequeue. The ORIGINAL root AGENTS.md wording ("a push after enqueue drops the entry, so re-arm on the new head") was itself a documented behavior from an earlier PR (#4017) that was never verified against this failing case — a direct instance of the root AGENTS.md "Verify Against the Authoritative Source" rule being skipped when the merge-queue section was first written.
 
-**Status:** Active — 2 instances (Rosetta Stone p/6#105, t/4668; DevOps Lead p/26#339 — confirms the documented procedure works, adds the `dequeuePullRequest` node-id gotcha). **Resolved at the documentation level** — root AGENTS.md corrected via PR #4194 (TL, p/335#231) with the "never push to a queued PR" rule. This entry stays as the incident record, root-cause note, and now the reference for the actual dequeue mutation mechanics.
+**Status:** Active — 3 instances (Rosetta Stone p/6#105, t/4668; DevOps Lead p/26#339 — confirms the documented procedure works, adds the `dequeuePullRequest` node-id gotcha; Rosetta Stone 3 p/355#13 — confirms the documented procedure again). **Resolved at the documentation level** — root AGENTS.md corrected via PR #4194 (TL, p/335#231) with the "never push to a queued PR" rule. This entry stays as the incident record, root-cause note, and now the reference for the actual dequeue mutation mechanics.
 
 **Applies To:** All agents needing to add scope to a PR that's already enqueued in the merge queue; follow root AGENTS.md's "never push to a queued PR" rule — use a separate PR, or dequeue + push + re-enqueue pinned.
 
@@ -8495,3 +8496,41 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#258).
 
 **Applies To:** All agents using `git -C <dir> worktree add` with a relative path; prefer avoiding `-C` for this command, or use an absolute path.
+
+## #417 [Build] `gh pr create` Returning HTTP 502 Doesn't Mean the PR Wasn't Created — Check Before Retrying
+
+**Pattern:** `gh pr create` fails with `pull request create failed: HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)`. Retrying the identical command then fails with "a pull request for branch ... into branch ... already exists," revealing that the FIRST call actually succeeded server-side — the 502 was returned on the response leg (or a retry/timeout at GitHub's edge), not because the mutation failed to execute. The client-visible error and the actual server-side outcome disagreed.
+
+**Instances:**
+- 2026-11-02 — Sage (self, main.operations-sage): `gh pr create` for a LessonsLearned batch PR returned HTTP 502. An identical retry failed with "already exists," confirmed the first call had created PR #4396 successfully. Proceeded with the already-created PR rather than creating a duplicate.
+
+**Root Cause:** A 502 from `api.github.com/graphql` indicates a gateway-level failure, which can occur either before the mutation executes OR after it executes but before the success response is delivered back to the client. `gh pr create` has no way to distinguish these cases from the error alone — the call is not safely idempotent-and-retryable by assumption, because a blind retry on an already-succeeded first attempt produces a conflicting "already exists" error rather than silently deduplicating.
+
+**Prevention:**
+1. **On `gh pr create` returning a 502 (or other 5xx) from the GraphQL API, don't assume the call failed — check first.** Run `gh pr list --head <branch> --json number,url` (or similar) to see if a PR for that branch already exists before retrying the create.
+2. **If a retry itself fails with "already exists," that confirms the first attempt succeeded** — use the existing PR (verify its head/base match what was intended) rather than treating the retry's failure as a new problem.
+3. **This generalizes to any `gh` mutation command (not just `pr create`) that hits a 502/5xx** — a server-side error on the response doesn't rule out a server-side success on the request. Check for the expected side effect before retrying a mutating call.
+
+**Status:** Active — 1 instance (Sage, self-observed).
+
+**Applies To:** All agents calling `gh pr create` or other `gh` mutation commands; verify the actual outcome before retrying after a 5xx error.
+
+## #418 [Process] A Claim Made During an Orca Outage Can't See an Existing Owner's Claim — Don't Start New Work While Orca Is Unreachable
+
+**Pattern:** An agent starts and enqueues new work (claiming a ticket, opening a PR) while the Orca platform is unreachable. Because the claim-checking mechanism itself depends on Orca, the agent can't see that another agent already holds a claim on the same ticket — `resolve_owner` and similar checks are unavailable during the outage, so the claim proceeds unchecked. Once Orca recovers, two conflicting claims/PRs for the same ticket exist and must be manually reconciled.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone 3 (p/355#13, confirmed by Tech Lead p/335#262): claimed and enqueued t/4748 while Orca was down, unable to see the existing owner's claim, skipping `resolve_owner` as a direct consequence of the outage. Tech Lead confirmed this is a real gap and provided guidance (below); Rosetta Stone 3 and the ticket's actual owner had to reconcile so only one PR survives.
+
+**Root Cause:** The claim-check mechanism (`resolve_owner` and Orca's ticket-claim state) is itself an Orca-dependent service. When Orca is unreachable, the check doesn't fail loudly — it's simply unavailable, and an agent that doesn't specifically account for this can proceed as if no claim exists, when in fact one does but just can't be seen right now.
+
+**Prevention:**
+1. **When Orca is unreachable, don't start new claims.** Finish only work you'd already claimed before the outage began.
+2. **If you must check claim status during an outage, use the GitHub fallbacks the root rule already lists:** `gh pr list --search "t/KEY"` on any base, plus `git log origin/main --grep t/KEY` — these don't depend on Orca being reachable.
+3. **Post the claim to Orca the moment it's back**, even for work you started "blind" during the outage, so the record catches up as soon as possible.
+4. **Never enqueue newly-started work during an outage** — even if checks are green, wait until Orca is reachable again and the claim can be properly recorded/verified.
+5. **First occurrence — no new prose rule yet per Change Tiers.** If this recurs, the prevention becomes automated: `enqueue-pr.mjs` refusing to enqueue when the PR's ticket assignee isn't the author's role. Flag a recurrence to the TL.
+
+**Status:** Active — 1 instance (Rosetta Stone 3 p/355#13, TL-confirmed p/335#262). First occurrence; no new AGENTS.md rule yet per Change Tiers — guidance recorded here, escalates to an automated check on recurrence.
+
+**Applies To:** All agents, specifically during any window where Orca itself is unreachable; defer new claims and enqueues until it recovers.
