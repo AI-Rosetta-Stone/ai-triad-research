@@ -10,8 +10,9 @@
 // closes it too.
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Share2 } from 'lucide-react';
+import { Share2, Check } from 'lucide-react';
 import { isElectronMode } from '@bridge';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { PlaceInfo } from '../../navigation/types';
 import { getShareProvider, type ShareProvider } from '../../navigation/shareProvider';
 import { useCopyWithFeedback } from '../../hooks/useCopyWithFeedback';
@@ -33,11 +34,17 @@ function nextPopoverFor(sharedUrl: string | null, provider: ShareProvider): Popo
   return provider.renderPreview ? 'preview' : 'confirm';
 }
 
-function ConfirmPopover({ provider, onConfirm, onCancel }: { provider: ShareProvider; onConfirm: () => void; onCancel: () => void }) {
+/** Design review (t/4786#review): a failed create()/replace()/revoke() is never silent. */
+function InlineActionError({ message }: { message: string }) {
+  return <p className="nav-locbar-share-error" role="alert">{message}</p>;
+}
+
+function ConfirmPopover({ provider, error, onConfirm, onCancel }: { provider: ShareProvider; error: string | null; onConfirm: () => void; onCancel: () => void }) {
   const label = provider.contentLabel ?? 'item';
   return (
     <div className="nav-locbar-share-popover" role="dialog" aria-label={`Share this ${label}`}>
       <p>Anyone with this link can view this {label}, without signing in.</p>
+      {error && <InlineActionError message={error} />}
       <div className="nav-locbar-share-popover-actions">
         <button type="button" className="btn-xs" onClick={onConfirm}>Create link</button>
         <button type="button" className="btn-xs btn-ghost" onClick={onCancel}>Cancel</button>
@@ -48,11 +55,12 @@ function ConfirmPopover({ provider, onConfirm, onCancel }: { provider: ShareProv
 
 /** TL p/336#781: replacing a link is a separate, confirmed action — never folded into
  *  create()'s "already shared → same link" path. */
-function ReplacePopover({ provider, onConfirm, onCancel }: { provider: ShareProvider; onConfirm: () => void; onCancel: () => void }) {
+function ReplacePopover({ provider, error, onConfirm, onCancel }: { provider: ShareProvider; error: string | null; onConfirm: () => void; onCancel: () => void }) {
   const label = provider.contentLabel ?? 'item';
   return (
     <div className="nav-locbar-share-popover" role="dialog" aria-label={`Create a new link for this ${label}`}>
       <p>This turns off the old link — anyone who has it will no longer be able to view this {label}.</p>
+      {error && <InlineActionError message={error} />}
       <div className="nav-locbar-share-popover-actions">
         <button type="button" className="btn-xs" onClick={onConfirm}>Create a new link</button>
         <button type="button" className="btn-xs btn-ghost" onClick={onCancel}>Cancel</button>
@@ -61,9 +69,10 @@ function ReplacePopover({ provider, onConfirm, onCancel }: { provider: ShareProv
   );
 }
 
-function SharePopover({ popover, provider, onConfirm, onCancel, popoverRef, onKeyDown }: {
+function SharePopover({ popover, provider, error, onConfirm, onCancel, popoverRef, onKeyDown }: {
   popover: Popover;
   provider: ShareProvider;
+  error: string | null;
   onConfirm: () => void;
   onCancel: () => void;
   popoverRef: React.RefObject<HTMLDivElement | null>;
@@ -72,20 +81,22 @@ function SharePopover({ popover, provider, onConfirm, onCancel, popoverRef, onKe
   if (popover === 'confirm') {
     return (
       <div ref={popoverRef} onKeyDown={onKeyDown}>
-        <ConfirmPopover provider={provider} onConfirm={onConfirm} onCancel={onCancel} />
+        <ConfirmPopover provider={provider} error={error} onConfirm={onConfirm} onCancel={onCancel} />
       </div>
     );
   }
   if (popover === 'replace') {
     return (
       <div ref={popoverRef} onKeyDown={onKeyDown}>
-        <ReplacePopover provider={provider} onConfirm={onConfirm} onCancel={onCancel} />
+        <ReplacePopover provider={provider} error={error} onConfirm={onConfirm} onCancel={onCancel} />
       </div>
     );
   }
   if (popover === 'preview' && provider.renderPreview) {
     // InquiryShareDialog (the only current renderPreview) is its own full overlay+dialog —
     // this wraps it only for the Esc/outside-click/focus plumbing, not a second dialog role.
+    // It has no error slot of its own, so a create() failure here surfaces via the button's
+    // own inline error below (the dialog stays open; onConfirm doesn't close it on failure).
     return (
       <div ref={popoverRef} onKeyDown={onKeyDown}>
         {provider.renderPreview(onConfirm, onCancel)}
@@ -103,6 +114,8 @@ export function LocationBarShareButton({ place }: { place: PlaceInfo }) {
 function ShareButtonInner({ provider }: { provider: ShareProvider }) {
   const [sharedUrl, setSharedUrl] = useState<string | null | undefined>(undefined);
   const [popover, setPopover] = useState<Popover>('none');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
   const { copied, failed, copy, reset } = useCopyWithFeedback();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -130,6 +143,7 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
 
   const close = (refocus: boolean) => {
     setPopover('none');
+    setActionError(null);
     if (refocus) buttonRef.current?.focus();
   };
 
@@ -137,19 +151,45 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
     if (e.key === 'Escape') { e.preventDefault(); close(true); }
   };
 
+  // Keeps the popover open and shows an inline error on failure (Design review): a failed
+  // create()/replace() is never silent, and the user doesn't lose their place to retry.
   const doCreateAndCopy = async () => {
-    const url = await provider.create();
-    setSharedUrl(url);
-    setPopover('none');
-    await copy(url);
+    setActionError(null);
+    try {
+      const url = await provider.create();
+      setSharedUrl(url);
+      setPopover('none');
+      await copy(url);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'LocationBarShareButton', level: 'warn',
+        message: 'Failed to create a public share link',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      // InquiryShareDialog (the 'preview' popover) has no error slot of its own — close it so
+      // the fallback alert below the button (popover === 'none') can show instead (Design
+      // review t/4786#9: a failed publish through the preview dialog was otherwise silent).
+      if (popover === 'preview') setPopover('none');
+      setActionError("Couldn't create the link. Try again.");
+    }
   };
 
   const doReplaceAndCopy = async () => {
     if (!provider.replace) return;
-    const url = await provider.replace();
-    setSharedUrl(url);
-    setPopover('none');
-    await copy(url);
+    setActionError(null);
+    try {
+      const url = await provider.replace();
+      setSharedUrl(url);
+      setPopover('none');
+      await copy(url);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'LocationBarShareButton', level: 'warn',
+        message: 'Failed to replace a public share link',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      setActionError("Couldn't create the link. Try again.");
+    }
   };
 
   const onClick = () => {
@@ -157,13 +197,25 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
     const next = nextPopoverFor(sharedUrl ?? null, provider);
     if (next === 'copy') { void copy(sharedUrl as string); return; }
     if (next === 'create') { void doCreateAndCopy(); return; }
+    setActionError(null);
     setPopover(next);
   };
 
   const onRevoke = async () => {
     if (!provider.revoke) return;
-    await provider.revoke();
-    setSharedUrl(null);
+    setActionError(null);
+    try {
+      await provider.revoke();
+      setSharedUrl(null);
+      setAnnouncement('Link turned off');
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'LocationBarShareButton', level: 'warn',
+        message: 'Failed to revoke a public share link',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      setActionError("Couldn't turn off the link. Try again.");
+    }
   };
 
   if (sharedUrl === undefined) return null; // still resolving current() — avoid a flash of the wrong state
@@ -180,11 +232,11 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
         aria-expanded={popover !== 'none' || undefined}
         title={tooltipFor(failed, copied, provider.label)}
       >
-        <Share2 aria-hidden="true" />
+        {copied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
       </button>
 
       {sharedUrl && provider.replace && (
-        <button type="button" className="nav-locbar-btn nav-locbar-share-revoke" onClick={() => setPopover('replace')} aria-label="Create a new link" title="Create a new link (turns off the old one)">
+        <button type="button" className="nav-locbar-btn nav-locbar-share-revoke" onClick={() => { setActionError(null); setPopover('replace'); }} aria-label="Create a new link" title="Create a new link (turns off the old one)">
           New link
         </button>
       )}
@@ -194,6 +246,9 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
           Un-share
         </button>
       )}
+
+      {/* Un-share's own failure — the confirm/replace popovers show theirs inline above. */}
+      {actionError && popover === 'none' && <InlineActionError message={actionError} />}
 
       {failed && (
         <span className="nav-locbar-share-fallback">
@@ -208,11 +263,12 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
         </span>
       )}
 
-      <span className="sr-only" aria-live="polite">{copied ? 'Link copied' : ''}</span>
+      <span className="sr-only" aria-live="polite">{copied ? 'Link copied' : announcement}</span>
 
       <SharePopover
         popover={popover}
         provider={provider}
+        error={actionError}
         onConfirm={() => void (popover === 'replace' ? doReplaceAndCopy() : doCreateAndCopy())}
         onCancel={() => close(true)}
         popoverRef={popoverRef}

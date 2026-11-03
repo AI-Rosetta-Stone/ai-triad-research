@@ -52,11 +52,14 @@ const PublicDerivationSchema = z.object({
   models: z.record(z.string(), z.string()),
   rounds: z.number().int(),
   tag: z.object(publicAppliedTagFields).strict().optional(),
+  // Temperature (t/4771): the ask and what ran are both public, the way fidelity pairs request/derivation.
+  temperature: z.number().min(0).max(2).optional(),
 }).strict(); // NO callBudget / callsUsed / costUsd (operational internals — matrix)
 const PublicRequestSchema = z.object({
   question: z.string(),
   fidelity: FidelitySchema,
   tagSelection: z.object(publicTagSelectionFields).strict().optional(),
+  temperature: z.number().min(0).max(2).optional(),
 }).strict(); // NO situationId / models
 const PublicGroundingSchema = z.object({
   anchorSummary: z.string().optional(), // NO anchorSituationId (internal anchor id)
@@ -110,11 +113,13 @@ const PublicDerivationReadSchema = z.object({
   models: z.record(z.string(), z.string()),
   rounds: z.number().int(),
   tag: z.object(publicAppliedTagFields).passthrough().optional(),
+  temperature: z.number().min(0).max(2).optional(),
 }).passthrough();
 const PublicRequestReadSchema = z.object({
   question: z.string(),
   fidelity: FidelitySchema,
   tagSelection: z.object(publicTagSelectionFields).passthrough().optional(),
+  temperature: z.number().min(0).max(2).optional(),
 }).passthrough();
 const PublicGroundingReadSchema = z.object({
   anchorSummary: z.string().optional(),
@@ -214,6 +219,7 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       question: result.request.question,
       fidelity: result.request.fidelity,
       ...(result.request.tagSelection ? { tagSelection: publicTagSelection(result.request.tagSelection) } : {}),
+      ...(result.request.temperature !== undefined ? { temperature: result.request.temperature } : {}),
     },
     campVerdicts: result.campVerdicts.map((cv) => ({ camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes.map(publicNode) })),
     convergences: result.convergences.map((c) => ({ claim: truncateExcerpt(c.claim), nodes: c.nodes.map(publicNode) })),
@@ -235,6 +241,7 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       models: result.derivation.models,
       rounds: result.derivation.rounds,
       ...(result.derivation.tag ? { tag: { ...publicTagSelection(result.derivation.tag), included: result.derivation.tag.included, excludedUntagged: result.derivation.tag.excludedUntagged } } : {}),
+      ...(result.derivation.temperature !== undefined ? { temperature: result.derivation.temperature } : {}),
     },
     grounding: {
       ...(result.grounding.anchorSummary !== undefined ? { anchorSummary: truncateExcerpt(result.grounding.anchorSummary) } : {}),

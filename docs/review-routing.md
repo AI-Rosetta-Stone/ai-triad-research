@@ -28,6 +28,18 @@ As of 2026-10-15 it is the **only** Quality instance; check `list_instances` (ro
 - Conflict between agents requiring arbitration
 - Quality reviewer pings Main (TL) when a review exceeds their scope
 
+## Design Gate — User-Facing Changes (PI directive 2026-11-02, t/4781)
+
+Design's review is a **gate** for user-facing changes, on top of the tier's own review.
+
+- **User-facing:** the PR changes non-test `.tsx` or `.css` under `taxonomy-editor/src/renderer/**`, `poviewer/src/**` or `summary-viewer/src/**`; user-visible copy (`lib/electron-shared/introCopy.ts`); or `index.html` / public share pages. Test-, fixture- and type-only changes are not.
+- **Author:** attach before/after screenshots or a short recording from the running app (plus the hosted view for a web surface) and ping Design (`main.engineering-design@…`) with the PR number.
+- **Passes the gate:** Design posts, through the reviewer App **on the current head**, either `Approved (Design): …` or `Design-exempt (Design): <reason>` (no visible change). **Only Design grants an exemption.** A new push needs Design again.
+- **Arming:** a user-facing PR arms only after Design passes it, **even at T0**. A user-facing T1 needs both Quality's and Design's approvals.
+- **Hold label (until `design-review-guard` is required):** the T0 enqueue sweep can't read comments and re-enqueues any green T0 PR, and dequeuing doesn't stop it (#4410 merged over "Changes requested", t/4781#2). The author applies `no-auto-enqueue` at PR creation, and Design re-applies it with any `Changes requested (Design):`. Remove it only after Design passes the current head.
+- **Checklist and evidence standard:** `docs/design-review.md` (t/4783). Turnaround target: 4 working hours. If Design is unavailable, the TL may grant a time-boxed exemption with a recorded reason.
+- **Enforcement:** `design-review-guard` (t/4782) reports pass/fail on every PR; it becomes a required context after its warn-only period (T2, PI flips branch protection).
+
 ## Meta-Doc Accuracy Skim — LessonsLearned / AGENTS.md PRs (t/3362, audit G4)
 
 Meta-role output (Sage LessonsLearned batches, Documentation AGENTS.md edits) previously landed

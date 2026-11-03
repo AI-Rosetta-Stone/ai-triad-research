@@ -19,7 +19,7 @@ These are measured facts about the codebase, not impressions. Every recommendati
 7. **Navigation without words.** The 44px left rail is icon-only with hand-rolled inline SVGs (30 in `Toolbar.tsx`) and `data-tooltip` reveals. The three *key scenarios* — Taxonomy, Debate, Chat — are visually identical, unlabeled 36px squares mixed in with Search, Reload, and Settings. First-run users must hover-hunt.
 8. **Accessibility floor missing.** 37 `aria-label`s total; exactly one `:focus-visible` rule; `user-scalable=no, maximum-scale=1.0` in the viewport meta (blocks pinch-zoom — a WCAG 1.4.4 failure and an App Store review flag).
 9. **Density without hierarchy.** Screenshots show every panel bordered, every section boxed, chips everywhere, near-uniform 11–13px text. When everything is emphasized with a border, nothing is.
-10. **The front door is bare.** The login page is an unstyled column of provider buttons. It is the first impression of a Berkman Klein-affiliated research platform and it currently communicates "internal tool."
+10. **The front door is bare.** The login page is an unstyled column of provider buttons. It is the first impression of a research platform and it currently communicates "internal tool."
 
 ---
 

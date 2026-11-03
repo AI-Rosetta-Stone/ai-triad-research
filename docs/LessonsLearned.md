@@ -745,6 +745,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-29 — PowerShell (p/20#43, **new axis: MSYS path passed into pwsh**): `Get-ChildItem -LiteralPath $SummariesDir` threw "Cannot find path 'C:\c\Users\...'" — a bash-style MSYS path (`/c/Users/...`) was passed as a PowerShell variable value from inside the Bash tool. Native `pwsh` prepended `C:\` to the leading `/c/`, producing a double-rooted `C:\c\Users\...`. Fix: always pass native Windows paths (`C:\Users\...`) to PowerShell — never MSYS `/c/...` form.
 - 2026-10-01 — Shared Lib (p/5#31, **new axis: MSYS path as python3 file argument**): `python3` (a native win32 binary) could not open a file passed as an MSYS `/c/Users/...` path argument — ENOENT, same root as node axis. Fix: pipe the content via stdin (`cat file | python3 -c "import sys; ..."`) instead of passing the path as an argument. *(t/3827)*
 - 2026-10-01 — Shared Lib (p/5#37, **new axis: `2>nul` creates a file named `nul` in Git Bash**): used `2>nul` to suppress stderr in a Bash tool command — Git Bash (POSIX sh) treated `nul` as a literal filename and created a file named `nul` in the working directory instead of discarding output. `NUL` is only valid in cmd.exe/PowerShell. Fix: use `2>/dev/null` in the Bash tool.
+- 2026-11-03 — DevOps Lead (p/26#404, **third-axis recurrence**): `ls` with a Windows backslash path in Bash silently ate all backslashes (`C:\Users\...` → `C:Usersjsnov...`), producing a bogus "No such file" even though the file exists. Resolved by reissuing with a POSIX-style `/c/Users/...` path.
+- 2026-11-03 — Computational Linguist (p/7#180, **third-axis variant — trailing backslash escapes the closing quote**): `ls "C:\...\"` (a double-quoted Windows path ending in a backslash right before the closing quote) misparsed — the trailing `\"` escaped the closing double-quote itself, producing "unexpected EOF" rather than just a mangled-but-complete string. Resolved by switching to a forward-slash `/c/...` path in single quotes. Distinct from the plain backslash-stripping case: here the shell's own quoting breaks, not just the path content.
 
 **Root Cause:** Agents have access to both Bash and PowerShell tools. PowerShell cmdlets (`Get-ChildItem`, `Get-Item`, `Invoke-Pester`, `Select-Object`, etc.), `$var = ...` assignment, `.Property` access, and `;`-chained statements only work in the PowerShell tool. Unix commands (`ls`, `grep`, `cat`, `stat -c%s`) only work in Bash (on Windows/Git Bash). **A second axis is path format:** git-bash presents `/c/Users/...` msys paths, but native win32 programs (`node`, and anything not msys-aware) resolve `C:\...` — an msys path handed to `node require`/`fs` fails as MODULE_NOT_FOUND / ENOENT. **A third axis:** Windows backslash paths (`C:\...`) given directly to Bash fail silently — Bash treats `\` as escape characters. **A fourth axis: Bash glob over `C:\...` paths** — MSYS mangles the backslashes during expansion, producing zero matches with no error. **A fifth axis: MSYS path passed to pwsh** — `/c/Users/...` handed to native PowerShell gets double-rooted (`C:\c\Users\...`) because pwsh prepends `C:\` to the leading `/c/`. **A seventh axis: `2>nul` in Git Bash** — `NUL` is a Windows device name valid only in cmd.exe/PowerShell; in POSIX sh, `nul` is a literal filename and `2>nul` creates a file named `nul`. Use `2>/dev/null` in the Bash tool.
 
@@ -758,6 +760,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 9. **(Seventh axis — `2>nul` in Git Bash creates a file):** Use `2>/dev/null` to suppress stderr in the Bash tool. `2>nul` (Windows cmd.exe syntax) creates a literal file named `nul` in your working directory — POSIX sh has no concept of the NUL device (p/5#37). `NUL` is only valid in cmd.exe or PowerShell.
 5. **Don't use Windows backslash paths (`C:\...`) directly in the Bash tool** — Bash (POSIX sh) treats `\` as escape characters and silently mangles the path. Use the PowerShell tool for any operation that needs a `C:\...` path, or convert to a git-bash `/c/...` form (only valid for msys-aware tools) (p/5#23).
 6. **For file discovery (finding files by name pattern), use the dedicated Glob tool** — it resolves Windows paths natively without MSYS translation. `find` or shell glob expressions with `C:\...` paths in the Bash tool are silently broken (p/335#1).
+10. **A Windows backslash path ending right before a closing double-quote (`"...\"`) escapes that quote itself** — the shell sees an unterminated string ("unexpected EOF"), not just a mangled path. This is a sharper failure than plain backslash-stripping elsewhere in the string. Use single quotes with a forward-slash `/c/...` path instead, which avoids both the backslash-stripping and the quote-escaping trap at once (p/7#180).
 
 **Applies To:** All agents on this Windows dev environment with dual shell access.
 
@@ -1237,6 +1240,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 2. To verify a worktree commit: run verify in the main tree and prove byte-identity via `git diff <worktree-sha> <main-sha>`.
 3. If isolation is essential: `npm ci` inside the worktree (clean install, no junction needed).
 4. If a junction is already in place: `git worktree remove --force` + `git worktree prune` cleans safely.
+5. **This is the exact hazard class behind #420's shared-state corruption incident (t/4815)** — #345 once prescribed junctioning `node_modules` INTO a fresh worktree (the reverse direction of this entry's symlink-main-tree case), which carries the same risk: anything that writes through the junction (a `pnpm install` triggered from inside the worktree) lands in whichever side of the junction is the real directory. #345 has been amended to match this entry's prevention — if either entry's guidance is cited, cite both together.
 
 **Status:** Active
 
@@ -4862,6 +4866,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 - 2026-10-26 — Azure (p/105#32): `jq 'test("CodeQL")'` (single-arg form, no explicit flags) errored on `gh pr view` output. Fix: rewrote without `test()`, using `contains()` instead.
 - 2026-11-03 — Chat (p/687#12): `test("Approved \(Design\)")` — jq parse error on the escaped parens (`\(` starts interpolation before jq ever sees it as an escaped literal paren). Fix: switched to `contains("Approved (Design)")`, no escaping needed.
 - 2026-11-03 — Tech Lead (p/335#268): `test("...\\(Design\\)...")` — `unexpected token "\\"`, same `\(` interpolation trap with a different escaping variant. Fix: `contains("(Design)")`.
+- 2026-11-03 — DevOps Lead (p/26#402, **manual join-string variant**): a jq filter manually interpolating `\",\"` as an escaped comma-join separator failed to parse — jq rejected the escaped backslash-quote inside the string. Fix: used the built-in `[.labels[].name] | join(",")` (or `@tsv` for array output) instead of hand-building the join string.
 
 **Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq. Separately, `\(` inside a jq string literal is the string interpolation syntax (`\(expr)`), not a literal backslash-paren — using it in a regex pattern produces an unterminated string error.
 
@@ -4872,7 +4877,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 8 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant).
+**Status:** Active — 9 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant; DevOps Lead p/26#402 — manual join-string variant, fixed with built-in `join()`).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -5061,6 +5066,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-12 — DevOps Lead (p/26#155): copied `merge-guard-predicate.mjs` to scratchpad; `import` failed `ERR_MODULE_NOT_FOUND gate-telemetry.mjs`. Resolved by `git worktree add --detach <sha>` and probing the module in place.
+- 2026-11-03 — Tech Lead (p/335#277): extracted `dependabot-enqueue-sweep.mjs` alone into a temp dir for a read-only live-fire run; failed `ERR_MODULE_NOT_FOUND` for its sibling `./enqueue-pr.mjs`. Resolved by extracting the sibling from the same branch alongside it, then rerunning. New prevention: grep a module's relative imports before isolating it, as a faster check than discovering missing siblings one at a time.
 
 **Root Cause:** ES modules resolve sibling imports relative to the file's location on disk. A lone copy in the scratchpad has no siblings — all relative imports fail at runtime. The file works only when loaded from a directory that contains its full dependency graph.
 
@@ -5068,8 +5074,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 1. **To probe or test a PR module, check out the PR head in a detached worktree:** `git worktree add --detach <path> <sha>`. The full module graph is present and relative imports resolve correctly.
 2. **Do not copy individual files to the scratchpad for import/require testing.** Copying is safe for static analysis (reading, grepping) but not for execution.
 3. **`ERR_MODULE_NOT_FOUND` on a sibling module** (not a package) is a diagnostic signal that the file was loaded outside its source tree.
+4. **Before isolating an ESM module for a dry run, grep its relative imports first** (`grep -n "^import.*from ['\"]\./" <file>`) — extract every sibling it names alongside it, rather than discovering missing ones one `ERR_MODULE_NOT_FOUND` at a time.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#155).
+**Status:** Active — 2 instances (DevOps Lead p/26#155; Tech Lead p/335#277).
 
 **Applies To:** All agents probing or testing ES modules from PRs or branches.
 
@@ -7042,29 +7049,28 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #345 [Build] Fresh Worktree Has No `node_modules` — `mklink /J` Fails in Git Bash; Use PowerShell `New-Item -ItemType Junction`
+## #345 [Build] Fresh Worktree Has No `node_modules` — AMENDED: Never Junction It to the Shared Checkout; Run `pnpm install` in the Worktree Instead
 
-**Pattern:** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). Fix: create `node_modules` junctions from PowerShell and run tools from there.
+**AMENDMENT (2026-11-03, Tech Lead p/335#282, t/4815):** This entry's ORIGINAL prevention — junction a fresh worktree's `node_modules` to the shared checkout's via PowerShell `New-Item -ItemType Junction` — is the exact hazard that caused #420's shared-state corruption incident. On pnpm 11, `pnpm exec` (which the pre-push hook calls) auto-installs the whole workspace and writes new links straight through the junction into the shared directory. Three other worktrees had followed this entry's original advice and were unlinked as part of the incident cleanup. **The corrected guidance is: run `pnpm install` inside the worktree — never junction `node_modules` to the shared checkout in either direction.** See #420 (the incident this entry's original advice caused) and the Windows Junction Trap entry (the sibling hazard in the reverse direction — junctioning a worktree's `node_modules` FROM the shared tree instead of TO it). The original pattern/root-cause text below is kept for history; follow the amended prevention, not the original.
+
+**Pattern (as originally observed, now superseded by the amendment above):** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). The ORIGINAL fix — create `node_modules` junctions from PowerShell and run tools from there — is now known to be unsafe; see the amendment above.
 
 **Instances:**
 - 2026-10-21 — Tech Lead (p/335#180): fresh worktree, `ls eslint.config.*` exited 2; `cmd //c mklink /J` from Git Bash → "Invalid switch". Resolved by creating junctions with `New-Item -ItemType Junction` (repo root, `lib/`, `taxonomy-editor/`) in PowerShell, then running eslint, tsc and vitest.
+- 2026-11-03 — Tech Lead (p/335#271, **rmdir counterpart, chain-cut consequence**): removing a temporary `node_modules` junction via `cmd //c rmdir poviewer\\node_modules` from Git Bash failed "The system cannot find the file specified" — MSYS mangled the backslash path passed to `cmd //c`. Because it was the first link of an `&&` chain, the following commit and push never ran (same chain-cut genus as #96). Resolved by removing the junction from PowerShell (guarded by `Test-Path`), then committing and pushing as a separate command.
 
-**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating Windows junctions from Git Bash fails because Git Bash rewrites `//c` path prefixes (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` is not subject to MSYS translation.
+**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating OR removing Windows junctions from Git Bash fails because Git Bash rewrites `//c` prefixes and backslash paths (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` and junction removal are not subject to MSYS translation.
 
-**Prevention:**
-1. **In a fresh worktree, create `node_modules` junctions before running any JS/TS tools:**
-   ```powershell
-   $wt = "C:\Users\jsnov\repos\ai-triad-research\.worktrees\<name>"
-   New-Item -ItemType Junction "$wt\node_modules" -Target "$root\node_modules"
-   New-Item -ItemType Junction "$wt\lib\node_modules" -Target "$root\lib\node_modules"
-   New-Item -ItemType Junction "$wt\taxonomy-editor\node_modules" -Target "$root\taxonomy-editor\node_modules"
-   ```
-2. **Never use `cmd //c mklink` from Git Bash** — MSYS rewrites the path. Use PowerShell `New-Item -ItemType Junction` instead.
-3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file.
+**Prevention (AMENDED — follow this, not the original junction-based advice):**
+1. **In a fresh worktree, run `pnpm install` (or `npm ci`) inside the worktree itself.** This is slower than a junction but is the only safe option — a junctioned `node_modules` lets anything that installs inside the worktree (including an auto-install triggered by `pnpm exec` from a pre-push hook) write through the junction into the shared checkout's `node_modules`, corrupting it for every other agent. See #420 for the full incident this caused.
+2. **Never create a `node_modules` junction between a worktree and the shared checkout, in EITHER direction** — not worktree-to-shared (this entry's original, now-retracted advice) and not shared-to-worktree (the Windows Junction Trap entry's case). Both directions let a write on one side corrupt the other.
+3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file — the fix is `pnpm install` in the worktree, not a junction.
+4. **(Historical, still valid for any OTHER junction use, not `node_modules`) Never use `cmd //c mklink` OR `cmd //c rmdir` from Git Bash on a junction path** — MSYS rewrites the path either direction. Use PowerShell `New-Item -ItemType Junction` to create, and PowerShell `rmdir`/`Remove-Item` (guarded by `Test-Path`) to remove, for any junction that isn't `node_modules`.
+5. **Never chain a junction create/remove with a commit/push in one `&&` call** — if the junction operation fails (as it will from Git Bash), the chain cuts before the commit/push ever runs, same as #96. Run the junction operation and the git operations as separate commands.
 
-**Status:** Active — 1 instance (Tech Lead p/335#180).
+**Status:** Amended (2026-11-03, t/4815) — original junction-based prevention retracted as actively harmful; 2 instances of the original pattern remain on record (Tech Lead p/335#180; Tech Lead p/335#271 — rmdir counterpart), plus the incident that prompted this amendment (#420, Tech Lead p/335#273/#282).
 
-**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; create `node_modules` junctions via PowerShell before running any JS/TS toolchain.
+**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; run `pnpm install`/`npm ci` inside the worktree — never junction `node_modules` to or from the shared checkout.
 
 ---
 
@@ -8326,6 +8332,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-11-02 — DevOps Lead (p/26#352): `pwsh -Command "<script>" | pwsh -Command "$input | Format-List"` errored on an empty pipe element. Resolved by combining both steps into one `pwsh -Command` invocation (`& script.ps1 ... | Format-List`) instead of splitting the pipeline across two separate `pwsh` processes via a Bash pipe.
 - 2026-11-02 — DevOps Lead (p/26#367): same shape again — `pwsh.exe -Command` piped into a second `pwsh.exe -Command "$input | Format-List"` via Bash, same "An empty pipe element is not allowed" error. Resolved the same way: both commands combined into one `pwsh.exe -Command "... | Format-List"` invocation.
+- 2026-11-03 — DevOps Lead (p/26#399): `pwsh -NoProfile -File ... | pwsh -NoProfile -Command "$input | Format-List"` errored the same way. Resolved identically: ran it as one `pwsh -Command '... | Format-List'` call instead of two nested processes.
 
 **Root Cause:** Splitting a single logical PowerShell pipeline across two separate `pwsh` processes connected by Bash's `|` creates two independent pipe layers — the OS-level Bash pipe AND whatever pipe syntax appears inside the second process's own `-Command` string. When the second `-Command` string is written assuming it receives piped input via a leading `$input |`, that leading `|` has no left-hand operand from PowerShell's own parser's perspective (the OS-level connection is invisible to it), so it misparses.
 
@@ -8334,7 +8341,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **If a `-Command` string needs to start with a pipe-dependent construct like `$input |`, that's a signal the pipeline should be unified into one invocation instead** — `$input` inside `-Command` does not connect to an external Bash-level pipe the way a normal PowerShell pipeline stage does.
 3. **Use the PowerShell tool for any multi-stage PowerShell pipeline** — it runs the whole pipeline natively in one process, avoiding both this failure and #271's cmdlet-leak failure.
 
-**Status:** Active — 2 instances (DevOps Lead p/26#352; DevOps Lead p/26#367 — same mechanism, same day).
+**Status:** Active — 3 instances (DevOps Lead p/26#352; DevOps Lead p/26#367 — same mechanism, same day; DevOps Lead p/26#399 — same mechanism again, next day).
 
 **Applies To:** All agents invoking `pwsh` from the Bash tool with multi-stage pipelines; keep the entire pipeline inside one `-Command` string or use the PowerShell tool.
 
@@ -8558,3 +8565,60 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#392).
 
 **Applies To:** All agents relying on r/11's `SyncBlocked` predicate before a shared-checkout `--ff-only` sync; verify against git's actual refusal, not just the predicate.
+
+## #420 [Build] Junctioning a Worktree's `node_modules` to the Shared Checkout's Lets a `pnpm install` Inside the Worktree Corrupt the Shared Directory — Anchor t/4815
+
+**Pattern:** An agent, wanting to run tests in a worktree without a full `pnpm install`, junctions the worktree's `taxonomy-editor/node_modules` to the SHARED checkout's `node_modules`. **Correction (2026-11-03, Tech Lead p/335#282): this is not distinct from #345 — #345's original advice (junction a fresh worktree's `node_modules` via PowerShell) IS this exact hazard, confirmed by reproduction, and #345 has been amended to retract it.** If anything later runs `pnpm install` INSIDE that worktree (confirmed on pnpm 11: `pnpm exec`, which the pre-push hook calls, auto-installs the whole workspace), pnpm writes its new links straight through the junction into the SHARED directory — corrupting it with dozens of links pointing into `.worktrees/<name>/node_modules/.pnpm`. Once that worktree is removed, every OTHER agent using the shared checkout hits `MODULE_NOT_FOUND` from vitest/eslint, because the shared `node_modules` now contains links into a directory that no longer exists. **Confirmed spread: 3 other worktrees had independently followed #345's original advice and were unlinked as part of this incident's cleanup.**
+
+**Instances:**
+- 2026-11-03 — Tech Lead (p/335#273, t/4815): junctioned a worktree's `taxonomy-editor/node_modules` to the shared checkout's to run tests without installing. A `pnpm install` inside the worktree wrote 57 links through the junction into the shared directory. After the worktree was removed, Chat (p/513) hit `MODULE_NOT_FOUND` from vitest/eslint on the shared checkout. `pnpm install --frozen-lockfile` (with or without `--force`) reported "Already up to date" and did NOT relink or fix the corruption — the actual fix was moving `taxonomy-editor/node_modules` aside entirely, then running `pnpm install --frozen-lockfile --prefer-offline` fresh. Verified vitest and eslint working afterward.
+- 2026-11-03 — Tech Lead (p/335#282, **mechanism confirmed, spread identified**): confirmed on pnpm 11 that `pnpm exec` — called by the pre-push hook — is what auto-installs the whole workspace and writes through the junction. Found and unlinked 3 other worktrees that had independently followed #345's original (now-retracted) junction advice.
+
+**Root Cause:** A junction makes a worktree's `node_modules` path resolve to the SAME physical directory as the shared checkout's — there is no isolation between them. `pnpm install` running inside the worktree has no way to know it's writing through a junction into shared state; it writes exactly as if the worktree had its own real `node_modules`. The resulting links point into `.worktrees/<name>/node_modules/.pnpm`, a path that only exists while that specific worktree does — once removed, the shared `node_modules` is left holding dangling references. `pnpm install --frozen-lockfile` doesn't detect or repair this because it sees an already-populated `node_modules` tree and considers its job done ("Already up to date"), never inspecting whether the existing links point somewhere that still exists or somewhere worktree-scoped.
+
+**Prevention:**
+1. **Never junction a worktree's `node_modules` to the shared checkout's `node_modules`.** Run `pnpm install` inside the worktree itself (real directories, no junction) — slower but isolated and safe. (This is the opposite direction from #345's junction, which points a worktree AT an existing shared/root copy and is fine as long as nothing writes through it from inside the worktree — but even that carries the same risk if anything later installs inside the worktree.)
+2. **If `node_modules` ever needs sharing across a worktree boundary, treat it as read-only from the worktree's side** — confirm nothing (pre-push hooks, postinstall scripts, CI steps) will run `pnpm install`/`npm install` inside the worktree while the junction is in place.
+3. **`pnpm install --frozen-lockfile` is NOT a repair tool for this corruption** — it reports "Already up to date" and leaves dangling worktree-scoped links in place. The actual fix is moving the corrupted `node_modules` aside and reinstalling fresh (`pnpm install --frozen-lockfile --prefer-offline` into a clean directory).
+4. **If vitest/eslint suddenly report `MODULE_NOT_FOUND` on the shared checkout with no corresponding local change, suspect this corruption** — check whether `node_modules/.pnpm` contains any links resolving into a `.worktrees/` path that no longer exists.
+5. **Follow-ups opened (t/4815 anchor, DevOps Lead):** t/4816 — prevention: make pnpm refuse to run inside a worktree whose `node_modules` links out of the worktree. t/4817 — observability: a detector for shared `node_modules` links that point into `.worktrees/`. t/4815 stays open until both land.
+
+**Status:** Active — 1 instance (Tech Lead p/335#273, affecting Chat p/513). Anchor ticket t/4815; prevention (t/4816) and observability (t/4817) follow-ups filed, both with DevOps Lead.
+
+**Applies To:** All agents working in worktrees who are tempted to junction `node_modules` for speed; never junction a worktree's `node_modules` to the shared checkout's — install fresh inside the worktree instead.
+
+## #421 [Process] A Test Built on a Hand-Written Fixture Can Pass Against a Shape Production Never Actually Returns — Only a Live-API Run Catches It
+
+**Pattern:** A selector/parser is tested against a hand-written fixture meant to represent the real API's response shape. The test passes, but the fixture's shape diverges from what the production API actually returns (e.g. a literal string the fixture hardcodes as `dependabot[bot]` when the real field is named or formatted differently, or a fixture using `typename` when the real GraphQL response uses `__typename`). The selector works perfectly against the fixture and fails against reality — a test that provides false confidence precisely because it was authored independently of the real response shape rather than derived from it.
+
+**Instances:**
+- 2026-11-03 — Tech Lead (t/4779): twice in the same ticket, a selector passed tests built on a hand-written fixture in a shape production never returns — first a literal-string mismatch (`dependabot[bot]`), then a field-name mismatch (`typename` vs the real `__typename`). Only a run against the live API caught both; the hand-written fixtures gave no signal either time.
+
+**Root Cause:** A hand-written fixture encodes the test author's assumption about the API's shape, not a captured sample of the API's actual shape. When those two diverge — a renamed field, a double-underscore GraphQL convention, a slightly different literal — the test still passes, because it's only checking internal consistency between the fixture and the selector, not consistency between the selector and reality. The fixture and the selector can agree with each other while both disagree with production.
+
+**Prevention:**
+1. **Prefer fixtures captured from a real API response over hand-written ones**, especially for GraphQL responses where field-naming conventions (`__typename`, nested `nodes`/`edges`) are easy to get subtly wrong by hand.
+2. **When a hand-written fixture is unavoidable, run the selector against the live API at least once before trusting the fixture-based test suite** — this is the only way to catch a fixture/reality shape mismatch, since the fixture-based tests are structurally blind to it.
+3. **If this recurs on the same selector/parser after a fixture update, treat it as a signal the fixture-authoring process itself needs a captured-sample step**, not just another one-off fix.
+
+**Status:** Active — 1 instance, 2 recurrences within it (Tech Lead, t/4779).
+
+**Applies To:** All agents writing or reviewing tests for API-response selectors/parsers backed by hand-written fixtures; verify against a live run at least once, especially for GraphQL shapes.
+
+## #422 [Build] A Script Parsed `gh api`'s Output Without Checking Its Exit Code First — A Transient 5xx Produced Empty Output That Crashed the Parser
+
+**Pattern:** A script calls `gh api graphql` and immediately parses its stdout (e.g. `.data.nodes.map(...)`), without checking `gh`'s exit code first. When GitHub's API returns a transient 5xx (observed: 503), `gh` exits non-zero and produces empty or error-shaped output — but the script, having never checked the exit code, proceeds to parse that empty output as if it were a normal successful response, crashing with a generic type error (`nodes.map is not a function`) that obscures the real cause (an API outage, not a script bug).
+
+**Instances:**
+- 2026-11-03 — Tech Lead (p/335#279): `gh api graphql` returned HTTP 503 (a transient GitHub-side outage); the script crashed with `nodes.map is not a function` because it parsed the empty output without having checked `gh`'s exit code. Resolved by retrying the fetch and checking `$?` before parsing — the retry succeeded.
+
+**Root Cause:** The script treated `gh api`'s stdout as unconditionally parseable, skipping the exit-code check that would have distinguished "API call succeeded, here's the data" from "API call failed, this output is not data." A transient outage on GitHub's side is indistinguishable from a real script bug once the exit code is ignored — both manifest as a downstream parse/type error far from the actual cause.
+
+**Prevention:**
+1. **Always gate on `gh api`'s exit code before parsing its output** — check `$?` (or the equivalent in the script's language) immediately after the call, and treat a non-zero exit as "no valid data," not as "empty data to parse."
+2. **A generic downstream error like `X.map is not a function` on parsed API output is a signal to check the upstream exit code first**, not to assume the API's response shape itself is wrong.
+3. **For transient 5xx errors specifically, a simple retry is often sufficient** — don't over-engineer a fix before confirming whether the failure is even reproducible.
+
+**Status:** Active — 1 instance (Tech Lead p/335#279). Confirmed transient (GitHub-side outage), not a reproducible bug.
+
+**Applies To:** All agents writing scripts that call `gh api` and parse its output; check the exit code before parsing, every time.

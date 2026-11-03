@@ -23,7 +23,7 @@ Desktop (≥1024px), split 55 / 45:
 ┌──────────────────────────────────────────────┬────────────────────────────┐
 │  JACKET (ink)                                │  PAPER (warm white)        │
 │                                              │                            │
-│  AI TRIAD RESEARCH · BERKMAN KLEIN CENTER    │                            │
+│  AI TRIAD RESEARCH                           │                            │
 │                                              │   Sign in                  │
 │  AI Rosetta Stone          (serif display)   │                            │
 │                                              │  [◫ Continue with GitHub ] │
@@ -44,7 +44,6 @@ Desktop (≥1024px), split 55 / 45:
 │   ◆ Skeptic                                  │                            │
 │     First show me evidence the               │  Trouble signing in?       │
 │     premise holds.                           │  Clear session and retry   │
-│                                              │                            │
 └──────────────────────────────────────────────┴────────────────────────────┘
 ```
 
