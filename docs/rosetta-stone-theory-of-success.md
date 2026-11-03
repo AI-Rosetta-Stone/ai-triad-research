@@ -1,6 +1,6 @@
 # The Rosetta Stone Project: Theory of Success
 
-**AI Triad Research · Berkman Klein Center, Harvard University, 2026**
+**AI Triad Research · 2026**
 
 *A theory of success states what problem a project solves, how it solves it, and why that
 approach is the right one. This document does that for the Rosetta Stone Project. Read it first,
@@ -189,4 +189,4 @@ of AI-policy argument stress-tested to the point where what survives can be reli
 
 ---
 
-*Jeffrey Snover · AI Triad Research · Berkman Klein Center, 2026*
+*Jeffrey Snover · AI Triad Research · 2026*
