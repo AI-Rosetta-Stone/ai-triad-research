@@ -332,6 +332,8 @@ export interface ElectronAPI {
   onReloadTaxonomy: (callback: () => void) => () => void;
   onFocusNode: (callback: (nodeId: string) => void) => () => void;
   focusNodeInMainWindow: (nodeId: string) => void;
+  /** t/4775/t/4761: pushed whenever the renderer's computed unload reason changes. */
+  setUnloadReason: (reason: 'edits' | 'debate' | 'both' | null) => void;
   captureScreenshot: (opts?: { width?: number; height?: number; defaultName?: string }) => Promise<{ cancelled: boolean; filePath?: string }>;
 
   // Community
