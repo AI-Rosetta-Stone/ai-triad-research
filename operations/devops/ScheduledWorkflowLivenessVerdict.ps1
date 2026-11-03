@@ -39,6 +39,36 @@
 
 Set-StrictMode -Version Latest
 
+<#
+.SYNOPSIS
+    UTC-safe conversion for a GitHub API `created_at` value (t/4822-sibling bug).
+.DESCRIPTION
+    `ConvertFrom-Json` on some PowerShell/host combinations already coerces an ISO-8601
+    `created_at` string into a `[datetime]` (right clock-face numbers, `Kind=Unspecified`,
+    UTC designator lost). The naive fix -- `[datetime]::Parse($raw).ToUniversalTime()` --
+    then round-trips that already-DateTime value through the CURRENT CULTURE's ToString()
+    (stripping any UTC marker) before re-parsing, and `.ToUniversalTime()` treats the
+    Unspecified-kind result as LOCAL time, adding the host's UTC offset on top -- producing
+    a value that is off by exactly the host's timezone offset, every time, consistently
+    (reproduced: a steady ~5h error on a UTC-5 host, masquerading as a near-threshold
+    "stale" cadence gap for days before being caught).
+
+    This function instead branches on the VALUE's actual type: a [datetime] has its Kind
+    forced to Utc with no arithmetic (the clock-face numbers are already right); a string
+    is parsed with [datetimeoffset], which correctly honors an explicit 'Z'/offset.
+#>
+function ConvertTo-UtcTimestamp {
+    [CmdletBinding()]
+    [OutputType([datetime])]
+    param(
+        [Parameter(Mandatory)] $Value
+    )
+    if ($Value -is [datetime]) {
+        return [datetime]::SpecifyKind($Value, [DateTimeKind]::Utc)
+    }
+    return [datetimeoffset]::Parse([string]$Value).UtcDateTime
+}
+
 function Get-ScheduledWorkflowLivenessVerdict {
     [CmdletBinding()]
     param(

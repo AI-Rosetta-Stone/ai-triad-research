@@ -81,3 +81,25 @@ Describe 'Get-ScheduledWorkflowLivenessVerdict' {
         $v.Violations[0].File | Should -Be 'b.yml'
     }
 }
+
+Describe 'ConvertTo-UtcTimestamp' {
+    It 'marks an already-[datetime] value as Utc without shifting the clock-face numbers (the ConvertFrom-Json coercion case)' {
+        # Simulates what ConvertFrom-Json produces on a host where it auto-coerces an ISO-8601
+        # string to [datetime]: right numbers, wrong/unspecified Kind. The regression this guards
+        # against: [datetime]::Parse($alreadyADateTime).ToUniversalTime() round-trips through the
+        # current culture's ToString(), losing the UTC marker, then WRONGLY ADDS the host's UTC
+        # offset on top -- this function must do neither.
+        $coerced = [datetime]::new(2026, 11, 3, 16, 38, 14, [DateTimeKind]::Unspecified)
+        $result = ConvertTo-UtcTimestamp $coerced
+        $result.ToString('o') | Should -Be '2026-11-03T16:38:14.0000000Z'
+        $result.Kind | Should -Be ([DateTimeKind]::Utc)
+    }
+    It 'parses a raw ISO-8601 Z string correctly (the case where ConvertFrom-Json left it as a string)' {
+        $result = ConvertTo-UtcTimestamp '2026-11-03T16:38:14Z'
+        $result.ToString('o') | Should -Be '2026-11-03T16:38:14.0000000Z'
+    }
+    It 'honors an explicit non-Z offset in a raw string' {
+        $result = ConvertTo-UtcTimestamp '2026-11-03T11:38:14-05:00'
+        $result.ToString('o') | Should -Be '2026-11-03T16:38:14.0000000Z'
+    }
+}
