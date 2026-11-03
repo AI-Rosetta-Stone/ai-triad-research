@@ -895,10 +895,8 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       if (gate.blocked) return;
       // t/4489: BYOK user with their own Gemini key should use it directly, not the free pool.
       // If no BYOK key provided, fall back to free pool (same as before).
-      const { principalName, idp } = callerIdentity(); // t/848: verified context, not raw headers
-      const tier = proxyTiers.resolveTier(principalName, idp);
       let nliKeys: string[] | undefined;
-      if (clientKey && tier.level !== 'platform') {
+      if (clientKey) {
         // t/4489: BYOK user with their own key — use it, skip free pool entirely (and its geo gate).
         nliKeys = [clientKey];
       } else {
