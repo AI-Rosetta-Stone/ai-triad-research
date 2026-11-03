@@ -1300,5 +1300,13 @@
     justify-content: flex-start;
     row-gap: var(--sp-2);
   }
+
+  /* t/4641 AC5: without this, the row's own nowrap keeps the toolbar on the rule's row —
+     the toolbar's internal flex-wrap above only wraps its OWN buttons, it doesn't move the
+     whole toolbar under the rule. The rule (48px, flex-shrink:0) stays first and alone;
+     the wider toolbar wraps to its own line below it, left-aligned per spec §4. */
+  .nd-accent-description-row {
+    flex-wrap: wrap;
+  }
 }
 
