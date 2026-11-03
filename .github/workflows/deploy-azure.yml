@@ -724,12 +724,22 @@ jobs:
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
 
-          # Get the revision-specific FQDN to test the new revision directly
-          $RevInfo = Get-ContainerAppRevision -Mode Fqdn `
-            -RevisionName '${{ steps.new_revision.outputs.revision }}' `
-            -AppName '${{ env.CONTAINER_APP_NAME }}' `
-            -ResourceGroup '${{ env.RESOURCE_GROUP }}'
-          $RevFqdn = if ($RevInfo) { $RevInfo.Fqdn } else { $null }
+          # Get the revision-specific FQDN to test the new revision directly.
+          # t/4822: the revision was JUST created (prior step) -- a single immediate query here
+          # raced ARM's propagation of properties.fqdn onto a still-Activating revision and lost
+          # reliably (reproduced twice: runs 41660425655, 41662045970), routing every deploy into
+          # the fail-closed branch below despite the revision itself being perfectly healthy.
+          # Bounded retry (same shape as Get-MountReadinessVerdict.ps1's SMB-mount propagation fix)
+          # closes that gap; a revision that never gets an FQDN still falls through unresolved.
+          . ./operations/devops/Get-RevisionFqdnVerdict.ps1
+          $FqdnVerdict = Wait-RevisionFqdn -MaxAttempts 6 -IntervalSeconds 5 -Probe {
+            $RevInfo = Get-ContainerAppRevision -Mode Fqdn `
+              -RevisionName '${{ steps.new_revision.outputs.revision }}' `
+              -AppName '${{ env.CONTAINER_APP_NAME }}' `
+              -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+            if ($RevInfo) { $RevInfo.Fqdn } else { $null }
+          }
+          $RevFqdn = $FqdnVerdict.Fqdn
 
           $BaseUrl = if ([string]::IsNullOrWhiteSpace($RevFqdn)) { "${{ steps.deploy.outputs.appUrl }}" } else { "https://$RevFqdn" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "base_url=$BaseUrl"
