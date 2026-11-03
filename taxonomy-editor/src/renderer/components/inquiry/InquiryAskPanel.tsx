@@ -2,19 +2,16 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
-import { MODELS_BY_BACKEND } from '../../hooks/useTaxonomyStore/slices/settingsSlice';
-import { estimateInquiryDuration, type Fidelity } from '@lib/inquiry';
-import { FIDELITY_LABELS, FIDELITY_DESCRIPTIONS } from './inquiryDisplay';
+import { MODELS_BY_BACKEND, backendForModelWithFallback } from '../../hooks/useTaxonomyStore/slices/settingsSlice';
+import { estimateInquiryDuration } from '@lib/inquiry';
+import { ModelPicker } from '../shared/ModelPicker';
 import { InquiryTagPicker, inquiryTagBlocked } from './InquiryTagPicker';
 import {
-  truncateLabel, modelSummarySegment, tagSummarySegment, fidelitySummarySegment, optionsChangeCount,
+  truncateLabel, modelSummarySegment, tagSummarySegment, optionsChangeCount,
 } from './InquiryOptionsSummary';
 import { useFocusTrap } from '../debate/NewDebateDialog.hooks';
 import './InquiryTab.css';
-
-const FIDELITIES: Fidelity[] = ['quick', 'standard', 'deep'];
 
 // t/4751: estimateInquiryDuration's table is still PLACEHOLDER data (TL condition, p/875#4/#10)
 // — Azure's measured p50/p90 (t/4751 step 1) haven't replaced it yet, and the placeholders read
@@ -23,7 +20,7 @@ const FIDELITIES: Fidelity[] = ['quick', 'standard', 'deep'];
 // "PLACEHOLDER" in its header comment.
 export const SHOW_DURATION_ESTIMATE = false;
 
-/** Flattened, alphabetically-grouped model list for the two pickers — sourced from
+/** Flattened, alphabetically-grouped model list for the summary line — sourced from
  *  ai-models.json's picker entries (deriveModelsByBackend), never a hardcoded model list. */
 const ALL_MODEL_OPTIONS = Object.entries(MODELS_BY_BACKEND)
   .flatMap(([, entries]) => entries)
@@ -36,53 +33,13 @@ interface InquiryAskPanelProps {
   onStarted: () => void;
 }
 
-// t/4667: roving tabIndex + arrow-key navigation for the fidelity radiogroup, extracted so the
-// dialog's own complexity doesn't absorb the key-handling branches (local/complexity-budget).
-function FidelityCards({ fidelity, onChange }: { fidelity: Fidelity; onChange: (f: Fidelity) => void }) {
-  const cardRefs = useRef<Partial<Record<Fidelity, HTMLDivElement | null>>>({});
-
-  function moveFocus(fromIdx: number, dir: 1 | -1): void {
-    const next = FIDELITIES[(fromIdx + dir + FIDELITIES.length) % FIDELITIES.length];
-    onChange(next);
-    cardRefs.current[next]?.focus();
-  }
-
-  function handleKeyDown(e: ReactKeyboardEvent, idx: number, f: Fidelity): void {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange(f); return; }
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); moveFocus(idx, 1); return; }
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); moveFocus(idx, -1); }
-  }
-
-  return (
-    <div className="inquiry-fid" role="radiogroup" aria-label="Fidelity">
-      {FIDELITIES.map((f, idx) => (
-        <div
-          key={f}
-          ref={(el) => { cardRefs.current[f] = el; }}
-          className="inquiry-fcard"
-          data-sel={fidelity === f ? '1' : undefined}
-          tabIndex={fidelity === f ? 0 : -1}
-          role="radio"
-          aria-checked={fidelity === f}
-          onClick={() => onChange(f)}
-          onKeyDown={(e) => handleKeyDown(e, idx, f)}
-        >
-          <h4><span className="inquiry-tick" />{FIDELITY_LABELS[f]}</h4>
-          <p>{FIDELITY_DESCRIPTIONS[f]}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // t/4667: the Options toggle's summary line + change badge, extracted for the same reason —
 // the string-building (truncation, per-segment titles) doesn't belong in the dialog's own body.
 function OptionsToggleSummary({
-  fidelity, modelSegment, tagSegment, tagBlocked, changeCount,
+  modelSegment, tagSegment, tagBlocked, changeCount,
 }: {
-  fidelity: Fidelity; modelSegment: string; tagSegment: string; tagBlocked: boolean; changeCount: number;
+  modelSegment: string; tagSegment: string; tagBlocked: boolean; changeCount: number;
 }) {
-  const fidelitySeg = fidelitySummarySegment(fidelity);
   return (
     <>
       <span className="inquiry-options-title">Options</span>
@@ -92,8 +49,6 @@ function OptionsToggleSummary({
         </span>
       )}
       <span className="inquiry-options-summary">
-        {' · '}
-        <span title={fidelitySeg}>{truncateLabel(fidelitySeg)}</span>
         {' · '}
         <span title={modelSegment}>{truncateLabel(modelSegment)}</span>
         {' · '}
@@ -109,8 +64,16 @@ function OptionsToggleSummary({
 // it only mounts while open, so capturing the trigger on mount / restoring focus on unmount is
 // naturally open/close-symmetric (no separate `open` prop to track).
 export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
-  const { question, fidelity, debaterModel, evaluatorModel, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, tagSelection, setTagSelection, resolvedModels, startInquiry } = useInquiryStore();
+  const { question, debaterModel, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, tagSelection, setTagSelection, resolvedModels, startInquiry } = useInquiryStore();
   const [submitting, setSubmitting] = useState(false);
+  const resolved = resolvedModels();
+  // t/4770: one model, used for both debaters and evaluator — the dialog no longer offers a
+  // separate Evaluator choice. `family` is derived from it rather than tracked separately: the
+  // only way to change family is through ModelPicker's own family select, which always follows
+  // up with an onModelChange call for the new family's default model in the same handler, so the
+  // next render's derived family is already correct.
+  const model = debaterModel ?? resolved.debaters;
+  const family = backendForModelWithFallback(model);
   // t/4667: collapsed by default every time the dialog opens — not persisted (unlike t/4639's
   // getting-started accordion). A blocked tag force-expands regardless of this toggle.
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -147,19 +110,24 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [submitting, onClose]);
 
-  const resolved = resolvedModels();
-  // t/4751: AC1 — updates whenever fidelity or the debater model changes (resolvedModels() reads
-  // both). Rendering is gated by SHOW_DURATION_ESTIMATE until Azure's real numbers replace the
-  // helper's placeholder table.
-  const durationEstimate = estimateInquiryDuration({ fidelity, debaterModel: resolved.debaters });
+  // t/4770: every question runs at Quick now — no UI choice, but the request still needs
+  // `fidelity: 'quick'` set on the store (startInquiry() reads it from there). Mount-only, same
+  // rationale as the question-focus effect above: the dialog remounts fresh each open.
+  useEffect(() => {
+    setFidelity('quick');
+  }, [setFidelity]);
+
+  // t/4751: AC1 — updates whenever the model changes. Rendering is gated by
+  // SHOW_DURATION_ESTIMATE until Azure's real numbers replace the helper's placeholder table.
+  const durationEstimate = estimateInquiryDuration({ fidelity: 'quick', debaterModel: model });
   // t/4246: a tag whose scope is too small blocks the run here, as it does in chat setup.
   const tagBlocked = inquiryTagBlocked(tagSelection);
   const canSubmit = question.trim().length > 0 && !submitting && !tagBlocked;
   // t/4667 (spec): a blocked tag auto-expands Options regardless of the manual toggle state.
   const optionsExpanded = optionsOpen || !!tagBlocked;
-  const modelSegment = modelSummarySegment(resolved.debaters, resolved.evaluator, ALL_MODEL_OPTIONS);
+  const modelSegment = modelSummarySegment(model, model, ALL_MODEL_OPTIONS);
   const tagSegment = tagSummarySegment(tagSelection, tagBlocked);
-  const changeCount = optionsChangeCount(fidelity, debaterModel, evaluatorModel, tagSelection);
+  const changeCount = optionsChangeCount(debaterModel, tagSelection);
 
   // startInquiry() never rejects — it catches + records + sets `error` internally (single error
   // path shared with the poll loop). Once it resolves, the store's own jobId/status say whether
@@ -205,7 +173,6 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
               onClick={() => setOptionsOpen((o) => !o)}
             >
               <OptionsToggleSummary
-                fidelity={fidelity}
                 modelSegment={modelSegment}
                 tagSegment={tagSegment}
                 tagBlocked={!!tagBlocked}
@@ -220,36 +187,15 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
                 aria-describedby works on an element anywhere in the document. */}
             <span id="inquiry-options-tag-reason" className="inquiry-sr-only">{tagSegment}</span>
             <div id="inquiry-options-body" className="inquiry-options-body" hidden={!optionsExpanded}>
-              <FidelityCards fidelity={fidelity} onChange={setFidelity} />
-
               <div className="inquiry-models">
-                <div className="inquiry-mrow">
-                  <span className="inquiry-mlab">Debaters</span>
-                  <select
-                    className="inquiry-msel"
-                    aria-label="Debater model"
-                    value={debaterModel ?? ''}
-                    onChange={(e) => setDebaterModel(e.target.value || undefined)}
-                  >
-                    <option value="">{resolved.debaters} — from {FIDELITY_LABELS[fidelity]}</option>
-                    {ALL_MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </div>
-                <div className="inquiry-mrow">
-                  <span className="inquiry-mlab">Evaluator</span>
-                  <select
-                    className="inquiry-msel"
-                    aria-label="Evaluator model"
-                    value={evaluatorModel ?? ''}
-                    onChange={(e) => setEvaluatorModel(e.target.value || undefined)}
-                  >
-                    <option value="">{resolved.evaluator} — from {FIDELITY_LABELS[fidelity]}</option>
-                    {ALL_MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </div>
+                <ModelPicker
+                  idPrefix="inquiry-model"
+                  family={family}
+                  model={model}
+                  onFamilyChange={() => { /* derived from `model` on the next render — see the comment at `model`'s declaration */ }}
+                  onModelChange={(m) => { setDebaterModel(m); setEvaluatorModel(m); }}
+                />
                 <InquiryTagPicker value={tagSelection} onChange={setTagSelection} />
-                <p className="inquiry-mnote">Both default from the fidelity you picked. Change them when the model
-                  <em> is</em> the variable you're testing — the answer records what actually ran.</p>
               </div>
             </div>
           </div>
@@ -258,12 +204,11 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
         </div>
 
         <div className="new-question-actions">
-          <span className="inquiry-costnote">
-            Budget: <b>{resolved.callBudget}</b> API calls
-            {SHOW_DURATION_ESTIMATE && (
-              <> &middot; Est. time: <b>~{durationEstimate.lowMin}&ndash;{durationEstimate.highMin} min</b></>
-            )}
-          </span>
+          {/* t/4770: the "Budget: N API calls" text is gone. SHOW_DURATION_ESTIMATE's slot stays
+              (still flag-gated, t/4751) for when the time estimate is ready to ship. */}
+          {SHOW_DURATION_ESTIMATE && (
+            <span className="inquiry-costnote">Est. time: <b>~{durationEstimate.lowMin}&ndash;{durationEstimate.highMin} min</b></span>
+          )}
           <div className="new-question-actions-right">
             <button className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
             <button

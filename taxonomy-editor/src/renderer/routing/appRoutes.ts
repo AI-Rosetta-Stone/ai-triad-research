@@ -19,6 +19,7 @@ import { useChatStore } from '../hooks/useChatStore';
 import { useInquiryStore } from '../hooks/useInquiryStore';
 import { postNavNotice } from '../navigation/navNotice';
 import { resyncToState } from '../navigation/subscriber';
+import { recordNav } from '../navigation/navRecord';
 import { allPovNodes, type PovKey } from '../hooks/useTaxonomyStore/superseded';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
@@ -88,8 +89,9 @@ function nodeExists(tab: TabId, id: string): boolean {
  * new Back step) and say why. Only while the user is still on that tool — after they've moved
  * on, the entry and the notice would both be about somewhere they no longer are.
  */
-function fallBackToLibrary(tab: TabId, text: string): void {
+function fallBackToLibrary(tab: TabId, itemId: string, text: string): void {
   if (taxonomy().activeTab !== tab) return;
+  recordNav('nav.fallback', { tool: tab, itemId }, 'warn');
   resyncToState();
   postNavNotice(text);
 }
@@ -139,7 +141,7 @@ export const CHAT_ITEM_ROUTE = itemRoute('chat-item', 'chat', 'chatId', 'chat', 
   // showing under this chat's URL.
   useChatStore.setState({ activeChatId: null, activeChat: null });
   void useChatStore.getState().loadChat(chatId).then(() => {
-    if (useChatStore.getState().activeChatId !== chatId) fallBackToLibrary('chat', NOT_FOUND.chat);
+    if (useChatStore.getState().activeChatId !== chatId) fallBackToLibrary('chat', chatId, NOT_FOUND.chat);
   });
 });
 
@@ -156,7 +158,7 @@ export const DEBATE_ITEM_ROUTE = itemRoute('debate-item', 'debate', 'debateId', 
   // — closeDebate() would also log an abandon and reset a running debate's generation state.
   useDebateStore.setState({ activeDebateId: null, activeDebate: null });
   void useDebateStore.getState().loadDebate(debateId).then(() => {
-    if (useDebateStore.getState().activeDebateId !== debateId) fallBackToLibrary('debate', NOT_FOUND.debate);
+    if (useDebateStore.getState().activeDebateId !== debateId) fallBackToLibrary('debate', debateId, NOT_FOUND.debate);
   });
 });
 
@@ -217,7 +219,7 @@ export const TAXONOMY_ROUTE: AppRoute = {
       const state = taxonomy();
       if (state.activeTab !== tab || state.selectedNodeId !== node || nodeExists(tab, node)) return;
       state.setSelectedNodeId(null);
-      fallBackToLibrary(tab, NOT_FOUND.node);
+      fallBackToLibrary(tab, node, NOT_FOUND.node);
     });
   },
 };

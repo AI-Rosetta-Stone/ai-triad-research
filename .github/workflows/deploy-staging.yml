@@ -365,10 +365,14 @@ jobs:
           # incident requirement 3) -- an uncaught exception (e.g. a command that doesn't resolve)
           # propagates out of Wait-MountReady on the FIRST attempt and is caught once, below,
           # reported distinctly from a genuine not-ready mount.
+          # t/4760: MaxAttempts raised 13->22 (130s->220s), same rationale as deploy-azure.yml's
+          # mount-readiness probe -- the in-process data-root validation (#4357) now retries for
+          # up to DATA_ROOT_MOUNT_WAIT_MS (default 180s) on the github-api path too, so this
+          # external probe needs margin over that budget.
           $MountProbeStart = Get-Date
           try {
             $MountProbe = { (Test-TaxEditorMountReadiness -BaseUrl $BaseUrl -TimeoutSec 15).Ready }
-            $MountVerdict = Wait-MountReady -Probe $MountProbe -MaxAttempts 13 -IntervalSeconds 10
+            $MountVerdict = Wait-MountReady -Probe $MountProbe -MaxAttempts 22 -IntervalSeconds 10
             $MountElapsedSec = [math]::Round(((Get-Date) - $MountProbeStart).TotalSeconds, 1)
             if ($MountVerdict.Verdict -ne 'ready') {
               Write-Host "::error::Mount readiness probe failed after $($MountVerdict.Attempts) attempt(s) (~${MountElapsedSec}s) — NOT promoting staging traffic. See t/4504/t/4513."

@@ -4,6 +4,7 @@
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { findRoute, ROOT_ROUTE } from '../routing/appRoutes';
 import { expectReplace, setRestoringFlag } from './subscriber';
+import { recordNav } from './navRecord';
 
 /**
  * Restore app state from a history path (t/4640): boot, Reload, a pasted URL, and every
@@ -20,6 +21,7 @@ export function restorePath(path: string): void {
   const [pathname, queryString] = path.split('?');
   const query = new URLSearchParams(queryString ?? '');
   let match = findRoute(pathname);
+  const fellBack = !match;
   if (!match) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'navigation', level: 'warn',
@@ -33,7 +35,9 @@ export function restorePath(path: string): void {
   } finally {
     setRestoringFlag(false);
   }
-  expectReplace(match.route.placeKey(match.params, query));
+  const expectedPlaceKey = match.route.placeKey(match.params, query);
+  expectReplace(expectedPlaceKey);
+  recordNav('nav.restore', { path, routeId: match.route.id, params: match.params, expectedPlaceKey, fellBack });
 }
 
 /**

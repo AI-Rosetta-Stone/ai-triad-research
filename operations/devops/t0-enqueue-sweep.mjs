@@ -58,7 +58,11 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
     const labels = pr.labels ?? [];
     const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
     let reason = null;
-    if (!declaresT0(pr.body)) reason = 'not declared Tier: T0';
+    // Security: the repo is public and `main` requires checks, not a review. A fork PR that
+    // writes `Tier: T0` and goes green must never be merged with no human looking at it.
+    // Same-repo branches need write access. Fails closed: an unknown value counts as a fork.
+    if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
+    else if (!declaresT0(pr.body)) reason = 'not declared Tier: T0';
     else if (pr.baseRefName !== 'main') reason = `base is ${pr.baseRefName}, not main`;
     else if (pr.isDraft) reason = 'draft';
     else if (pr.isInMergeQueue) reason = 'already in merge queue';
@@ -107,7 +111,7 @@ function listOpenPRs(repo) {
   const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:50,after:$cursor){
     pageInfo{hasNextPage endCursor}
     nodes{... on PullRequest{
-      number body headRefOid baseRefName isDraft isInMergeQueue mergeStateStatus
+      number body headRefOid baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
       author{login} labels(first:30){nodes{name}} autoMergeRequest{enabledAt}
       commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
         ... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}}}}}}}}}}}`;
@@ -121,6 +125,7 @@ function listOpenPRs(repo) {
       prs.push({
         number: n.number, body: n.body, headRefOid: n.headRefOid, baseRefName: n.baseRefName,
         isDraft: n.isDraft, isInMergeQueue: n.isInMergeQueue, mergeStateStatus: n.mergeStateStatus,
+        isCrossRepository: n.isCrossRepository,
         author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
         autoMergeRequest: n.autoMergeRequest,
         contexts: n.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],

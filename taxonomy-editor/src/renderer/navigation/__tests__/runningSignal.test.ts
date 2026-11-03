@@ -14,6 +14,7 @@ import {
   isElsewhere,
   isRunning,
   runningCountByTool,
+  elsewhereCountByTool,
   subscribeRunning,
   subscribeRunCompletion,
   __resetRunningSignalForTest,
@@ -116,5 +117,28 @@ describe('runningSignal', () => {
     expect(isRunning('debate', 'debate-1')).toBe(true);
     finish('done');
     expect(isRunning('debate', 'debate-1')).toBe(false);
+  });
+
+  // t/4772: the rail dot counts runs elsewhere only, not every running item of that tool.
+  it('elsewhereCountByTool excludes a run on the current place', () => {
+    registerRun('chat', 'chat-1', 'My chat');
+    registerRun('chat', 'chat-2', 'Other chat');
+    currentMock.mockReturnValue({ placeKey: 'chat:chat-1' }); // viewing chat-1 right now
+    expect(elsewhereCountByTool('chat')).toBe(1); // only chat-2 is elsewhere
+    expect(runningCountByTool('chat')).toBe(2); // unaffected — still counts both
+  });
+
+  it('elsewhereCountByTool is 0 when every run of that tool is the current place', () => {
+    registerRun('debate', 'debate-1', 'My debate');
+    currentMock.mockReturnValue({ placeKey: 'debate:debate-1' });
+    expect(elsewhereCountByTool('debate')).toBe(0);
+  });
+
+  it('elsewhereCountByTool only counts the given tool', () => {
+    registerRun('chat', 'chat-1', 'My chat');
+    registerRun('debate', 'debate-1', 'My debate');
+    currentMock.mockReturnValue({ placeKey: 'rosetta-stone' });
+    expect(elsewhereCountByTool('chat')).toBe(1);
+    expect(elsewhereCountByTool('debate')).toBe(1);
   });
 });

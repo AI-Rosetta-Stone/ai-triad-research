@@ -142,14 +142,17 @@ describe('BlobFreePoolBudget (Azurite)', () => {
   });
 
   it('AC4: an unreleased reservation expires after its TTL and returns its budget', async () => {
-    const budget = makeBudget(prefix, { callsCap: 5, reservationTtlMs: 50 });
+    // t/4777: widened from 50ms TTL to 1000ms with 1200ms sleep for ~700ms slack,
+    // same as renew() test (lines 158-163). CI flake on loaded runners: Azurite round
+    // trips can consume >50ms, leaving the refused check with < timeout margin.
+    const budget = makeBudget(prefix, { callsCap: 5, reservationTtlMs: 1000 });
     const r1 = await budget.reserve({ calls: 5, tokens: 0, key: 'short-lived' }); // fills the cap
     expect(r1.ok).toBe(true);
 
     const refused = await budget.reserve({ calls: 1, tokens: 0, key: 'blocked' });
     expect(refused.ok).toBe(false);
 
-    await new Promise((resolve) => setTimeout(resolve, 150)); // past the 50ms TTL
+    await new Promise((resolve) => setTimeout(resolve, 1200)); // past the 1000ms TTL, with 200ms slack
 
     const afterExpiry = await budget.reserve({ calls: 1, tokens: 0, key: 'now-fits' });
     expect(afterExpiry.ok).toBe(true); // the expired reservation's budget returned

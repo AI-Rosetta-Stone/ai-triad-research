@@ -34,6 +34,22 @@ let focusServer: http.Server | null = null;
 
 const FOCUS_PORT = 17862;
 
+// t/4775: pushed by the renderer (navigation/unloadReason.ts) whenever its computed unload
+// reason changes — main only stores the latest value, no combining logic here (contract agreed
+// at p/546#82/#83, t/4761 follow-up). Read by the will-prevent-unload dialog below.
+type UnloadReason = 'edits' | 'debate' | 'both' | null;
+let unloadReason: UnloadReason = null;
+
+function unloadReasonMessage(reason: UnloadReason): string {
+  switch (reason) {
+    case 'edits': return 'You have unsaved taxonomy edits.';
+    case 'debate': return 'A debate is still running.';
+    case 'both':
+    case null:
+    default: return 'You have unsaved work or a running debate. Leave anyway?';
+  }
+}
+
 function sendFocusNode(nodeId: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('focus-node', nodeId);
@@ -233,11 +249,18 @@ function createWindow(): void {
       buttons: ['Stay', 'Leave'],
       defaultId: 0,
       cancelId: 0,
-      title: 'Leave this page?',
-      message: 'You have unsaved work or a running debate. Leave anyway?',
+      title: 'Close Rosetta Stone?', // t/4761: "Leave this page?" read like a browser, not a desktop window
+      message: unloadReasonMessage(unloadReason),
     });
     if (choice === 1) event.preventDefault(); // Leave: override the renderer's cancel.
     // Stay (choice === 0): do nothing — the renderer's beforeunload cancel stands.
+  });
+
+  // t/4775: the renderer pushes its computed unload reason here whenever it changes (not
+  // computed-at-unload-time) — crossing the IPC boundary from inside a beforeunload handler
+  // would race will-prevent-unload with no guarantee the value lands first (p/546#82).
+  ipcMain.on('set-unload-reason', (_event, reason: UnloadReason) => {
+    unloadReason = reason;
   });
 
   mainWindow.on('unresponsive', () => {

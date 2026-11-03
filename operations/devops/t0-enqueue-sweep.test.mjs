@@ -13,7 +13,19 @@ const greenAt = (start) => ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'con
 const pr = (over = {}) => ({
   number: 1, body: 'Tier: T0\n\nFix a thing.', headRefOid: 'abc', baseRefName: 'main', isDraft: false,
   isInMergeQueue: false, mergeStateStatus: 'BLOCKED', author: 'jpsnover', labels: [],
-  autoMergeRequest: null, contexts: greenAt(minsAgo(20)), ...over,
+  isCrossRepository: false, autoMergeRequest: null, contexts: greenAt(minsAgo(20)), ...over,
+});
+
+test('a fork PR is never enqueued, even green, idle and declaring Tier: T0 (public repo, no required review)', () => {
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 7, isCrossRepository: true, author: 'outsider' })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^fork PR/);
+});
+
+test('fails closed: a PR whose fork status is unknown is treated as a fork', () => {
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 8, isCrossRepository: undefined })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^fork PR/);
 });
 
 test('declaresT0 reads only the first non-empty line', () => {

@@ -53,3 +53,36 @@ describe('will-prevent-unload confirm dialog (t/4758)', () => {
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
 });
+
+// t/4775/t/4761: the dialog message depends on the unload reason the renderer last pushed via
+// setUnloadReason — main only stores the latest value, no combining logic (p/546#82/#83).
+type UnloadReason = 'edits' | 'debate' | 'both' | null;
+
+// Mirrors the 'unloadReasonMessage' helper installed in main.ts.
+function unloadReasonMessage(reason: UnloadReason): string {
+  switch (reason) {
+    case 'edits': return 'You have unsaved taxonomy edits.';
+    case 'debate': return 'A debate is still running.';
+    case 'both':
+    case null:
+    default: return 'You have unsaved work or a running debate. Leave anyway?';
+  }
+}
+
+describe('unloadReasonMessage (t/4775)', () => {
+  it('returns the unsaved-edits line for "edits"', () => {
+    expect(unloadReasonMessage('edits')).toBe('You have unsaved taxonomy edits.');
+  });
+
+  it('returns the running-debate line for "debate"', () => {
+    expect(unloadReasonMessage('debate')).toBe('A debate is still running.');
+  });
+
+  it('returns the combined line for "both"', () => {
+    expect(unloadReasonMessage('both')).toBe('You have unsaved work or a running debate. Leave anyway?');
+  });
+
+  it('returns the combined line when no reason was ever pushed (null)', () => {
+    expect(unloadReasonMessage(null)).toBe('You have unsaved work or a running debate. Leave anyway?');
+  });
+});
