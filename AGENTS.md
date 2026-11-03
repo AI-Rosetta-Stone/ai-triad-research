@@ -4,7 +4,7 @@ Guidance for agents working in this repository. The rules here are kept short. T
 
 ## Project Overview
 
-AI Triad Research — multi-perspective research platform for AI policy/safety literature. Berkman Klein Center, 2026. Two sibling repos: this one (code) and `../ai-triad-data` (structured JSON data, ~410 MB).
+AI Triad Research — multi-perspective research platform for AI policy/safety literature. Two sibling repos: this one (code) and `../ai-triad-data` (structured JSON data, ~410 MB).
 
 ## Build & Test Commands
 

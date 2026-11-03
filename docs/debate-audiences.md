@@ -221,6 +221,6 @@ The audience setting changes *how* arguments are expressed and *what* the modera
 
 ## Why Policymakers Is the Default
 
-AI Triad Research is a Berkman Klein Center project focused on AI policy and safety. The primary intended readership — policymakers, regulatory staff, and governance researchers — needs arguments framed in terms of implementability and enforcement. Policymakers is the only audience that adds evaluation criteria (political feasibility and implementation specificity) to the synthesis phase, ensuring that the default output surface directly serves the project's core mission.
+AI Triad Research is a project focused on AI policy and safety. The primary intended readership — policymakers, regulatory staff, and governance researchers — needs arguments framed in terms of implementability and enforcement. Policymakers is the only audience that adds evaluation criteria (political feasibility and implementation specificity) to the synthesis phase, ensuring that the default output surface directly serves the project's core mission.
 
 If your use case is exploratory research rather than policy analysis, consider switching to Academic Community or Technical Researchers.

@@ -1,7 +1,6 @@
 # AI Triad Research
 
 **Status:** Private
-**Fellowship:** Berkman Klein Center, 2026
 
 ## Purpose
 

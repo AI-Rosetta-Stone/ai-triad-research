@@ -6,7 +6,7 @@ This document provides the full context needed to evaluate the GitHub API-First 
 
 ## What Is This Project?
 
-**AI Triad Research** is a multi-perspective research platform for AI policy and safety literature, built at the Berkman Klein Center (Harvard). The platform lets researchers organize AI policy positions into a structured taxonomy (a graph of beliefs, desires, and intentions across three philosophical camps: accelerationist, safetyist, and skeptic), detect conflicts between positions, run AI-powered debates, and produce policy analysis.
+**AI Triad Research** is a multi-perspective research platform for AI policy and safety literature,. The platform lets researchers organize AI policy positions into a structured taxonomy (a graph of beliefs, desires, and intentions across three philosophical camps: accelerationist, safetyist, and skeptic), detect conflicts between positions, run AI-powered debates, and produce policy analysis.
 
 ### Two Repositories
 

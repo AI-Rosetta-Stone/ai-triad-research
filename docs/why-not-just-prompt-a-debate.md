@@ -10,4 +10,4 @@ My system costs more — 150 API calls versus one, 7 minutes versus 30 seconds, 
 
 ---
 
-*Jeffrey Snover · AI Triad Research · Berkman Klein Center, 2026*
+*Jeffrey Snover · AI Triad Research · 2026*
