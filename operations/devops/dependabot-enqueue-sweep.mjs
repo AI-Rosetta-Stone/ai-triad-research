@@ -50,12 +50,18 @@ export function selectSweepCandidates(prs) {
   const skip = [];
   for (const pr of prs) {
     let reason = null;
-    // Security (t/4779, matching t0-enqueue-sweep.mjs's fix, #4390): the repo is public and
-    // `main` requires checks, not a review. Dependabot itself never opens a cross-repo/fork
-    // PR -- this can't currently fire -- but the App-enqueue path must fail closed on this
-    // regardless of why a fork PR showed up here (a query change, a GitHub behavior change),
-    // not rely on Dependabot's own behavior holding forever. Unknown value counts as a fork.
-    if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
+    // Security (t/4779, TL p/331#2578): a loose author-login match (the shape t0-enqueue-sweep.mjs
+    // used, /dependabot/i) would let a fork from a lookalike account such as `dependabot-helper`
+    // pass. The GraphQL `author.login` field for the real bot is the exact string `dependabot[bot]`
+    // -- check that exactly, not a substring/pattern match, and don't rely on the search query's
+    // own `author:app/dependabot` qualifier alone (a refactor could drop or loosen it unnoticed).
+    if (pr.author !== 'dependabot[bot]') reason = `author is not dependabot[bot] (was "${pr.author}")`;
+    // isCrossRepository is still checked explicitly (not folded into the author check above) as a
+    // real control, not just defence in depth (TL p/331#2578): the repo is public and `main`
+    // requires checks, not a review, so any fork PR that somehow reached this selector -- even one
+    // that genuinely is dependabot[bot], which GitHub's own behavior today never produces as a fork
+    // -- must still never be auto-enqueued without a human looking at it.
+    else if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
     else if (pr.isInMergeQueue) reason = 'already in merge queue';
     else if (pr.isDraft) reason = 'draft';
     else if (!pr.autoMergeRequest) reason = 'not armed by dependabot-auto-merge (outside minor/patch policy)';
@@ -79,6 +85,7 @@ function gh(args) {
 function listOpenDependabotPRs(repo) {
   const query = `query($q:String!){search(query:$q,type:ISSUE,first:50){nodes{... on PullRequest{
     number headRefOid isDraft isInMergeQueue mergeStateStatus autoMergeRequest{enabledAt} isCrossRepository
+    author{login}
     commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
       ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}}`;
   const out = JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`,
@@ -91,6 +98,7 @@ function listOpenDependabotPRs(repo) {
     mergeStateStatus: n.mergeStateStatus,
     autoMergeRequest: n.autoMergeRequest,
     isCrossRepository: n.isCrossRepository,
+    author: n.author?.login ?? '',
     contexts: n.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],
   }));
 }

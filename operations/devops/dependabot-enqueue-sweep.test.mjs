@@ -12,6 +12,7 @@ const green = [
 ];
 const pr = (over = {}) => ({
   number: 1, headRefOid: 'abc', isDraft: false, isInMergeQueue: false, isCrossRepository: false,
+  author: 'dependabot[bot]',
   mergeStateStatus: 'BLOCKED', autoMergeRequest: { enabledAt: 't' }, contexts: green, ...over,
 });
 
@@ -78,4 +79,12 @@ test('selectSweepCandidates: an unknown (missing) isCrossRepository value fails 
   const { enqueue, skip } = selectSweepCandidates([pr({ isCrossRepository: undefined })]);
   assert.deepEqual(enqueue, []);
   assert.match(skip[0].reason, /fork PR/);
+});
+
+// t/4779 (TL p/331#2578): a loose author-login match (e.g. t0-enqueue-sweep.mjs's /dependabot/i)
+// would let a fork from a lookalike account such as `dependabot-helper` pass. Exact-match only.
+test('selectSweepCandidates: a lookalike author login (not exactly dependabot[bot]) is never enqueued', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ author: 'dependabot-helper' })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /author is not dependabot\[bot\]/);
 });
