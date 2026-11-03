@@ -139,7 +139,7 @@ if ($conclusion -ne 'success') {
          -Location 'Invoke-ContainerBuild.ps1 step 2 (CI not green)' `
          -NextSteps @(
              "Fix failing CI jobs, push a fix commit, and retry with the new SHA",
-             "Inspect the ci-gate run: gh api repos/$Repo/commits/$Sha/check-runs --jq '.check_runs[] | select(.name == \"ci-gate\")'"
+             "Inspect the ci-gate run: gh api repos/$Repo/commits/$Sha/check-runs --jq '.check_runs[] | select(.name == `"ci-gate`")'"
          )
 }
 
