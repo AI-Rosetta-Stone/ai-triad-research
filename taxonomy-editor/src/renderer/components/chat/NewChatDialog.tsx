@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useChatStore } from '../../hooks/useChatStore';
-import { useTaxonomyStore, MODELS_BY_BACKEND, AI_BACKENDS } from '../../hooks/useTaxonomyStore';
+import { useTaxonomyStore, AI_BACKENDS } from '../../hooks/useTaxonomyStore';
 import type { AIBackend } from '../../hooks/useTaxonomyStore/slices/settingsSlice';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -16,6 +16,7 @@ import { AI_POVERS } from '@lib/debate/types';
 import type { SeatTag } from '@lib/debate/types/session';
 import { checkTagScope } from '@lib/debate/relevanceSelection';
 import { backendSelectState, type BackendAvailabilityEntry } from '../shared/backendSelectState';
+import { ModelPicker } from '../shared/ModelPicker';
 import { ChatTagPicker, tagBlockedReason } from './ChatTagPicker';
 import './NewChatDialog.css';
 
@@ -50,9 +51,7 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
   }, [initialTopic]);
   const { aiBackend, geminiModel } = useTaxonomyStore();
   const globalModel = geminiModel;
-  const [useCustomModel, setUseCustomModel] = useState(false);
   const [selectedBackend, setSelectedBackend] = useState<AIBackend>(aiBackend);
-  const availableModels = MODELS_BY_BACKEND[selectedBackend] || [];
   const [customModel, setCustomModel] = useState<string>(globalModel);
   const [keyStatus, setKeyStatus] = useState<Record<string, boolean>>({});
   // t/2036: per-backend availability with `reason` (no_key #2 vs tier_restricted #3),
@@ -89,7 +88,7 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
   const handleStart = async () => {
     if (!canStart || creating) return;
     setCreating(true);
-    const chatModelOverride = useCustomModel && customModel !== globalModel ? customModel : undefined;
+    const chatModelOverride = customModel !== globalModel ? customModel : undefined;
     const id = await createChat(mode, pover, topic.trim(), chatModelOverride, chatTag);
     if (onCreated) {
       onCreated(id);
@@ -164,58 +163,28 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
         />
 
         <label className="new-chat-label">AI Model</label>
-        <div className="new-chat-model-row">
-          <label className="new-chat-model-toggle">
-            <input
-              type="checkbox"
-              checked={useCustomModel}
-              onChange={(e) => setUseCustomModel(e.target.checked)}
-            />
-            Use a different model for this chat
-          </label>
-          {useCustomModel && (
-            <div className="new-chat-model-fields">
-              <select
-                className="new-chat-model-select"
-                value={selectedBackend}
-                onChange={(e) => {
-                  const backend = e.target.value as AIBackend;
-                  setSelectedBackend(backend);
-                  const models = MODELS_BY_BACKEND[backend] || [];
-                  if (models.length > 0) setCustomModel(models[0].value);
-                }}
-              >
-                {AI_BACKENDS.map((b) => {
-                  // t/2036: render every backend (no longer filter out non-tier ones).
-                  // Free-tier-pool backends are usable without a key (platform key), so
-                  // keep them plain+selectable; otherwise apply the 3-state helper
-                  // (no-key→"(bring your own key)"; tier-forbidden→disabled "(sign in to use)").
-                  const freeUsable = freeTier && !!tierInfo?.allowedBackends.includes(b.value);
-                  const state = freeUsable
-                    ? { selectable: true, suffix: '' }
-                    : backendSelectState(availByReason[b.value], keyStatus[b.value] === true);
-                  return (
-                    <option key={b.value} value={b.value} disabled={!state.selectable}>
-                      {b.label}{state.suffix}
-                    </option>
-                  );
-                })}
-              </select>
-              <select
-                className="new-chat-model-select"
-                value={customModel}
-                onChange={(e) => setCustomModel(e.target.value)}
-              >
-                {availableModels.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          {!useCustomModel && (
-            <span className="new-chat-model-info">Using global: {globalModel}</span>
-          )}
-        </div>
+        <ModelPicker
+          idPrefix="new-chat"
+          family={selectedBackend}
+          model={customModel}
+          onFamilyChange={setSelectedBackend}
+          onModelChange={setCustomModel}
+          // t/4774: no defaultModelId — the "(default)" suffix is already baked into the model's
+          // own picker.label from ai-models.json (settingsSlice.ts:217); passing it here double-
+          // labelled the default model "(default) (default)" (found live, electron-mcp).
+          backendState={(backend) => {
+            // t/2036: render every backend (no longer filter out non-tier ones). Free-tier-pool
+            // backends are usable without a key (platform key), so keep them plain+selectable;
+            // otherwise apply the 3-state helper (no-key -> "(bring your own key)"; tier-forbidden
+            // -> disabled "(sign in to use)").
+            const freeUsable = freeTier && !!tierInfo?.allowedBackends.includes(backend);
+            return freeUsable
+              ? { selectable: true, suffix: '' }
+              : backendSelectState(availByReason[backend], keyStatus[backend] === true);
+          }}
+          // t/4774: temperature slider holds until the store field (t/4770/Rosetta Stone) lands —
+          // never render a slider that doesn't do anything.
+        />
 
         <div className="dialog-actions">
           <button className="btn" onClick={onClose}>Cancel</button>
