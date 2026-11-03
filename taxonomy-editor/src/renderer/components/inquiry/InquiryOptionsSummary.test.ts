@@ -6,12 +6,9 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('./InquiryTagPicker', () => ({
   tagSummaryLabel: (sel: { tag: string }) => (sel.tag === 'critical' ? 'Critical' : sel.tag),
 }));
-// Avoids pulling in the real store's heavy dependency graph (@bridge, ai-models.json, …) just
-// for this one constant.
-vi.mock('../../hooks/useInquiryStore', () => ({ DEFAULT_FIDELITY: 'standard' }));
 
 const {
-  truncateLabel, modelLabel, modelSummarySegment, tagSummarySegment, fidelitySummarySegment, optionsChangeCount,
+  truncateLabel, modelLabel, modelSummarySegment, tagSummarySegment, optionsChangeCount,
 } = await import('./InquiryOptionsSummary');
 
 const OPTIONS = [
@@ -71,32 +68,22 @@ describe('tagSummarySegment', () => {
   });
 });
 
-describe('fidelitySummarySegment', () => {
-  it('returns the display label', () => {
-    expect(fidelitySummarySegment('standard')).toBe('Standard');
-  });
-});
-
+// t/4770: fidelity is hardwired to Quick now — fidelitySummarySegment is gone, and
+// optionsChangeCount no longer reads fidelity or takes separate debater/evaluator models.
 describe('optionsChangeCount', () => {
-  // p/29#186 fix 1: the store's default fidelity is Standard, not Quick (Design's own spec error).
   it('is 0 at every default', () => {
-    expect(optionsChangeCount('standard', undefined, undefined, undefined)).toBe(0);
+    expect(optionsChangeCount(undefined, undefined)).toBe(0);
   });
 
-  it('counts a non-default fidelity', () => {
-    expect(optionsChangeCount('deep', undefined, undefined, undefined)).toBe(1);
-    expect(optionsChangeCount('quick', undefined, undefined, undefined)).toBe(1);
-  });
-
-  it('counts each model override separately', () => {
-    expect(optionsChangeCount('standard', 'claude-sonnet-5', 'gemini-3.5-flash-lite', undefined)).toBe(2);
+  it('counts a model override', () => {
+    expect(optionsChangeCount('claude-sonnet-5', undefined)).toBe(1);
   });
 
   it('counts a tag selection', () => {
-    expect(optionsChangeCount('standard', undefined, undefined, { pov: 'skeptic', tag: 'critical', mode: 'scope' })).toBe(1);
+    expect(optionsChangeCount(undefined, { pov: 'skeptic', tag: 'critical', mode: 'scope' })).toBe(1);
   });
 
-  it('sums all four when everything differs', () => {
-    expect(optionsChangeCount('deep', 'claude-sonnet-5', 'gemini-3.5-flash-lite', { pov: 'skeptic', tag: 'critical', mode: 'scope' })).toBe(4);
+  it('sums both when they differ', () => {
+    expect(optionsChangeCount('claude-sonnet-5', { pov: 'skeptic', tag: 'critical', mode: 'scope' })).toBe(2);
   });
 });
