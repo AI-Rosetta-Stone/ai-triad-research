@@ -327,44 +327,52 @@ jobs:
             // sets that output — a login failure never reached it. Checked at the JOB level
             // (not workflow-run level) so an unrelated job in the same run (e.g.
             // known-good-liveness) failing can't false-positive this check, and vice versa.
+            //
+            // Detection itself (runs -> job conclusions -> alarm or not) is a pure module, unit-
+            // tested in consecutive-failure.test.mjs (t/4340, TL p/331#2582) -- this step is only
+            // the impure shim that fetches runs/jobs and files the issue.
+            const { pathToFileURL } = require('url');
+            const { evaluateWatchList } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/consecutive-failure.mjs`).href);
             const WATCH = [
               { file: 'health-monitor.yml', job: 'health-check', n: 3 },
             ];
-            const failAlarms = [];
-            // t/4340 (TL p/331#2580): simulate the alarm end-to-end -- issue create, "still
-            // alarming" comment on repeat runs, and resolve-on-recovery -- without waiting for 3
-            // real consecutive failures. Short-circuits before any GitHub API query so this can
-            // never misreport a real tracked job's state.
+            let failAlarms;
+            // t/4340 (TL p/331#2580/#2582): simulate the ALERT path end-to-end -- issue create,
+            // "still alarming" comment on repeat runs, resolve-on-recovery -- without waiting for
+            // 3 real consecutive failures. This proves the alert path only; the DETECTION path
+            // (runs -> job conclusions -> alarm) is proven separately by consecutive-failure.test.mjs,
+            // which this short-circuit deliberately bypasses so it can never misreport a real
+            // tracked job's state.
             if (process.env.FORCE_CONSECUTIVE_FAILURE === 'true') {
-              failAlarms.push(
+              failAlarms = [
                 'SIMULATED (force_consecutive_failure gate-verification, t/4340): ' +
                 'health-monitor.yml / health-check: last 3 scheduled runs all failed (failure, failure, failure)',
-              );
+              ];
             } else {
-            for (const w of WATCH) {
-              try {
-                const runsRes = await github.rest.actions.listWorkflowRuns({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  workflow_id: w.file, event: 'schedule', status: 'completed', per_page: w.n,
-                });
-                const runs = (runsRes.data && runsRes.data.workflow_runs) || [];
-                if (runs.length < w.n) continue; // not enough history yet — don't false-alarm a new/young workflow
-                const conclusions = [];
-                for (const run of runs) {
-                  const jobsRes = await github.rest.actions.listJobsForWorkflowRun({
-                    owner: context.repo.owner, repo: context.repo.repo, run_id: run.id,
+              const queryErrors = [];
+              const runsByWatch = [];
+              for (const w of WATCH) {
+                try {
+                  const runsRes = await github.rest.actions.listWorkflowRuns({
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    workflow_id: w.file, event: 'schedule', status: 'completed', per_page: w.n,
                   });
-                  const job = (jobsRes.data.jobs || []).find(j => j.name === w.job);
-                  conclusions.push(job ? job.conclusion : 'job-not-found');
+                  const runs = (runsRes.data && runsRes.data.workflow_runs) || [];
+                  const jobsPerRun = [];
+                  for (const run of runs) {
+                    const jobsRes = await github.rest.actions.listJobsForWorkflowRun({
+                      owner: context.repo.owner, repo: context.repo.repo, run_id: run.id,
+                    });
+                    jobsPerRun.push({ jobs: (jobsRes.data.jobs || []).map(j => ({ name: j.name, conclusion: j.conclusion })) });
+                  }
+                  runsByWatch.push(jobsPerRun);
+                } catch (e) {
+                  // fail-loud, same as the staleness check: a query failure must ALARM, never read as healthy
+                  queryErrors.push(`${w.file} / ${w.job}: QUERY FAILED (${e.status || '?'} ${e.message}) — cannot confirm, treating as UNHEALTHY`);
+                  runsByWatch.push([]); // too few runs for the pure check to alarm on its own; queryErrors covers it
                 }
-                if (conclusions.every(c => c && c !== 'success')) {
-                  failAlarms.push(`${w.file} / ${w.job}: last ${w.n} scheduled runs all failed (${conclusions.join(', ')})`);
-                }
-              } catch (e) {
-                // fail-loud, same as the staleness check: a query failure must ALARM, never read as healthy
-                failAlarms.push(`${w.file} / ${w.job}: QUERY FAILED (${e.status || '?'} ${e.message}) — cannot confirm, treating as UNHEALTHY`);
               }
-            }
+              failAlarms = [...queryErrors, ...evaluateWatchList(WATCH, runsByWatch)];
             }
             const FAIL_LABEL = 'consecutive-run-failure';
             const openFail = await github.rest.issues.listForRepo({
