@@ -63,7 +63,7 @@ function Wait-MountReady {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][scriptblock] $Probe,
-        [ValidateRange(1, 20)][int] $MaxAttempts = 3,
+        [ValidateRange(1, 30)][int] $MaxAttempts = 3,
         [ValidateRange(0, 60)][int] $IntervalSeconds = 5
     )
     $attempt = 0
