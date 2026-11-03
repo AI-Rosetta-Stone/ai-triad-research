@@ -45,12 +45,10 @@ Desktop (≥1024px), split 55 / 45:
 │     First show me evidence the               │  Trouble signing in?       │
 │     premise holds.                           │  Clear session and retry   │
 │                                              │                            │
-│  A research instrument of the Berkman        │                            │
-│  Klein Center, 2026                          │                            │
 └──────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-Tablet (768–1023px): same split at 50/50, specimen tightens (question + voices only, no footer line).
+Tablet (768–1023px): same split at 50/50, specimen tightens (question + voices only).
 
 Phone (<768px): the jacket collapses to a compact header band (eyebrow + project title, tagline and specimen hidden), and the paper panel fills the rest of the viewport. The specimen is a desktop/tablet moment; on phone the door just opens.
 
