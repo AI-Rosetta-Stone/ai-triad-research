@@ -180,6 +180,47 @@ or
   docker compose --profile taxonomy-editor
 ```
 
+### Testing in Development
+
+The full pester test suite takes quite a while to run, and so usually should not
+be used. To run a specific test file, for instance `AICallLog.Tests.ps1`, you
+can do
+
+```pwsh
+Invoke-Pester ./tests/AICallLog.Tests.ps1 -Output Detailed
+```
+
+or, from bash,
+
+```bash
+pwsh -Command "Invoke-Pester ./tests/AICallLog.Tests.ps1 -Output Detailed"
+```
+
+It should be noted that since tests are available through the mounted
+`:/workspaes/ai-triad-research`, they can be used in the `app` service but not
+elsewhere.
+
+Some useful commands for testing from within the containerized development
+environment and PowerShell:
+
+```pwsh
+# Smoke test
+Invoke-Pester ./tests/AITriad.Module.Tests.ps1, ./tests/TriadConfig.Tests.ps1 -Output Detailed
+# Full test, which takes quite a while to run
+./scripts/Invoke-BoundedTestRun.ps1 -OutputLevel Normal
+```
+
+These can also be run via `docker compose exec app pwsh -NoProfile -c "..."`
+
+Or you can let `Test-Scope.ps1` pick the tests to run. This looks at the diff
+between staged and unstaged changes, and scopes testing on the basis of this.
+So you have to do this PRIOR to staging changes.
+
+```pwsh
+./scripts/Test-Scope.ps1 # print recommended
+./scripts/Test-Scope.ps1 -Run # run the tests
+```
+
 ### Data Path Configuration
 
 The file `.aitriad.json` tells the code where to find data:
