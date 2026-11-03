@@ -1,4 +1,4 @@
-/* t/4691 — one-time first-open hint, non-modal, above the in-place debate/community detail. */
+/* t/4691/t/4801 — one-time first-open hint, non-modal, above the in-place debate/community detail. */
 .debate-in-place-hint {
   display: flex;
   align-items: center;
@@ -13,14 +13,16 @@
   color: var(--text-secondary);
 }
 
+.debate-in-place-hint-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  display: inline;
+}
+
 .debate-in-place-hint-dismiss {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  color: var(--text-muted);
-  padding: 0 2px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .debate-in-place-hint-dismiss:hover {
