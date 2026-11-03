@@ -918,22 +918,27 @@ export class GitHubAPIBackend implements StorageBackend {
    *  additionally throws, for callers that need that distinction
    *  (`readFileStrict`). */
   private async readFileFromMainCache(repoPath: string, ref: string, optional: boolean | undefined, strict = false): Promise<string | null> {
-    const cached = await this.readFromDiskCache(repoPath);
-    if (cached !== null) {
-      this.recordEvent({
-        type: 'cache.hit',
-        component: 'cache',
-        level: 'debug',
-        message: `Disk cache hit: ${repoPath}`,
-        data: { path: repoPath, layer: 'main' },
-      });
+    // t/4778: skip disk cache for strict reads — it may serve stale "absent"
+    // markers from a previous revision, causing cold-start 404s on files that
+    // exist on main. Always fetch fresh for strict reads (readFileStrict).
+    if (!strict) {
+      const cached = await this.readFromDiskCache(repoPath);
+      if (cached !== null) {
+        this.recordEvent({
+          type: 'cache.hit',
+          component: 'cache',
+          level: 'debug',
+          message: `Disk cache hit: ${repoPath}`,
+          data: { path: repoPath, layer: 'main' },
+        });
 
-      // Coherency probe — async, doesn't block the read
-      if (Math.random() < this.coherencyProbeRate) {
-        this.runCoherencyProbe(repoPath).catch(() => {});
+        // Coherency probe — async, doesn't block the read
+        if (Math.random() < this.coherencyProbeRate) {
+          this.runCoherencyProbe(repoPath).catch(() => {});
+        }
+
+        return cached;
       }
-
-      return cached;
     }
 
     // Cache miss — fetch from GitHub
