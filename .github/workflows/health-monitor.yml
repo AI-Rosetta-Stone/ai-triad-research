@@ -220,6 +220,12 @@ jobs:
     # ABSENCE case (auto-disable after 60d repo inactivity, rename, broken YAML, disabled cron).
     runs-on: ubuntu-latest
     steps:
+      # t/4340 hotfix: this job never checked out the repo (it used to need only the GitHub API).
+      # #4421 added a dynamic `import()` of operations/devops/consecutive-failure.mjs below,
+      # which needs the file on disk -- every run since has crashed with ERR_MODULE_NOT_FOUND,
+      # silently breaking BOTH the simulated and the real consecutive-failure detection path.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
       - name: Heartbeat — assert tracked scheduled workflows ran within their window
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
