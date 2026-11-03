@@ -287,6 +287,23 @@ export function DebateTab() {
     void fetchCommunityDebates();
   }, [loadSessions, fetchCommunityDebates]);
 
+  // t/4800: clear in-place selection state when navigating back to /debate (no ID).
+  // When history pops from /debate/:id back to /debate, the store's activeDebate is cleared
+  // by DEBATE_ROUTE.restore(), but this component's local state (selectedCommunityDebate,
+  // lastOpenedVariant) must also be cleared so the library view renders.
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      const hasDebateId = /^#.*\/debate\//.test(hash);
+      if (!hasDebateId && (selectedCommunityDebate || lastOpenedVariant === 'community')) {
+        setSelectedCommunityDebate(null);
+        setLastOpenedVariant('my');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [selectedCommunityDebate, lastOpenedVariant]);
+
   // Condition 2 (t/2305): runExport accepts explicit `session` so table rows can pass
   // their own data directly — `activeDebate` from the store is not loaded on row click,
   // so falling back to it would produce a no-op for per-row Export/Share actions.
@@ -679,9 +696,9 @@ function DebateTableMode({
   );
 }
 
-// t/4691: table mode's in-place detail — the desktop detail content (CommunityDebateDetail /
-// DebateDetailSummary, same components DebateDetailPane's own non-phone branch renders) shown
-// full-width in the library's slot once a row opens an item, plus the first-open hint above it.
+// t/4691: table mode's in-place detail — shown full-width in the library's slot once a row opens
+// an item, plus the first-open hint above it. For My debates, render the active workspace (matching
+// phone behavior, t/4799). For Community debates, show the detail card (not yet loaded as workspace).
 function DebateTableDetail({
   activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus,
 }: {
@@ -697,20 +714,7 @@ function DebateTableDetail({
       {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
         <CommunityDebateDetail debate={selectedCommunityDebate} />
       ) : activeDebate ? (
-        <DebateDetailSummary
-          debate={activeDebate}
-          onOpenWindow={() => api.openDebateWindow(activeDebate.id).catch((err) => {
-            getGlobalRecorder()?.record({
-              type: 'system.error',
-              component: 'debate-tab',
-              level: 'warn',
-              message: 'Failed to open debate popout window — debate stays inline',
-              error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-            });
-          })}
-          onExport={handleExport}
-          exportStatus={exportStatus}
-        />
+        <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} />
       ) : null}
     </div>
   );
