@@ -59,6 +59,12 @@
   gap: 0.4rem;
 }
 
+.nav-locbar-share-error {
+  margin: 0 0 0.6rem;
+  color: var(--error-text);
+  font-size: 0.75rem;
+}
+
 /* Screen reader only — no global sr-only in this app yet */
 .sr-only {
   clip: rect(0, 0, 0, 0);

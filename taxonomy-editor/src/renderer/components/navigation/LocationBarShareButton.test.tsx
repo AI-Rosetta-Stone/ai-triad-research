@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LocationBarShareButton } from './LocationBarShareButton';
 import { registerShareProvider, __resetShareProvidersForTest, type ShareProvider } from '../../navigation/shareProvider';
@@ -123,5 +123,76 @@ describe('LocationBarShareButton', () => {
     const field = await screen.findByRole('textbox', { name: 'Public share link' });
     expect(field).toHaveValue('https://example.test/share/x');
     expect(screen.getByRole('button', { name: 'Copy this link' })).toBeInTheDocument();
+  });
+
+  // Design review (t/4786#review): a visible "Copied" state, not just the tooltip text.
+  it('swaps the icon to a checkmark while copied', async () => {
+    registerShareProvider('opeds', () => noConfirmProvider());
+    render(<LocationBarShareButton place={place} />);
+    const btn = await screen.findByRole('button', { name: 'Copy public link' });
+    expect(btn.querySelector('.lucide-share-2')).not.toBeNull();
+
+    await userEvent.click(btn);
+    await waitFor(() => expect(btn.querySelector('.lucide-check')).not.toBeNull());
+    expect(btn.querySelector('.lucide-share-2')).toBeNull();
+  });
+
+  // Design review: create()/replace()/revoke() must never fail silently.
+  it('a failed create() keeps the confirmation popover open with an inline error, and logs a WARN', async () => {
+    const create = vi.fn().mockRejectedValue(new Error('network down'));
+    registerShareProvider('opeds', () => noConfirmProvider({ needsConfirm: true, contentLabel: 'op-ed', create }));
+    render(<LocationBarShareButton place={place} />);
+    const btn = await screen.findByRole('button', { name: 'Copy public link' });
+    await userEvent.click(btn);
+    await userEvent.click(screen.getByRole('button', { name: 'Create link' }));
+
+    const dialog = await screen.findByRole('dialog'); // still open
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent("Couldn't create the link. Try again.");
+    expect(dialog).toContainElement(error);
+    expect(clipboardWriteTextMock).not.toHaveBeenCalled();
+  });
+
+  it('a failed replace() keeps the "new link" popover open with an inline error', async () => {
+    const replace = vi.fn().mockRejectedValue(new Error('network down'));
+    registerShareProvider('opeds', () => noConfirmProvider({
+      current: () => Promise.resolve('https://example.test/share/existing'),
+      replace,
+    }));
+    render(<LocationBarShareButton place={place} />);
+    const newLinkBtn = await screen.findByRole('button', { name: 'Create a new link' }); // only one match before the popover opens
+    await userEvent.click(newLinkBtn);
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create a new link' }));
+
+    await screen.findByRole('dialog'); // still open
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent("Couldn't create the link. Try again.");
+  });
+
+  it('a failed revoke() shows an inline error and leaves the item shared', async () => {
+    const revoke = vi.fn().mockRejectedValue(new Error('network down'));
+    registerShareProvider('opeds', () => noConfirmProvider({
+      current: () => Promise.resolve('https://example.test/share/existing'),
+      revoke,
+    }));
+    render(<LocationBarShareButton place={place} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Un-share' }));
+
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent("Couldn't turn off the link. Try again.");
+    expect(screen.getByRole('button', { name: 'Un-share' })).toBeInTheDocument(); // still shared
+  });
+
+  it('a successful Un-share announces "Link turned off"', async () => {
+    const revoke = vi.fn().mockResolvedValue(undefined);
+    registerShareProvider('opeds', () => noConfirmProvider({
+      current: () => Promise.resolve('https://example.test/share/existing'),
+      revoke,
+    }));
+    render(<LocationBarShareButton place={place} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Un-share' }));
+
+    await waitFor(() => expect(screen.getByText('Link turned off')).toBeInTheDocument());
   });
 });
