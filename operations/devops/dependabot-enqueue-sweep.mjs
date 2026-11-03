@@ -50,7 +50,13 @@ export function selectSweepCandidates(prs) {
   const skip = [];
   for (const pr of prs) {
     let reason = null;
-    if (pr.isInMergeQueue) reason = 'already in merge queue';
+    // Security (t/4779, TL p/331#2578): Dependabot's author is { __typename: "Bot", login: "dependabot" }
+    // (verified live on #4280–4282). Exact-match only — reject lookalike accounts (e.g. dependabot-helper).
+    if (pr.author?.typename !== 'Bot' || pr.author?.login !== 'dependabot') reason = `author is not Bot/dependabot (was ${JSON.stringify(pr.author)})`;
+    // isCrossRepository fails closed: any fork PR is rejected (defense-in-depth). GitHub's current behavior
+    // never produces fork PRs from Dependabot, but this must not rely on that forever.
+    else if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
+    else if (pr.isInMergeQueue) reason = 'already in merge queue';
     else if (pr.isDraft) reason = 'draft';
     else if (!pr.autoMergeRequest) reason = 'not armed by dependabot-auto-merge (outside minor/patch policy)';
     else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
@@ -70,22 +76,29 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 }
 
-function listOpenDependabotPRs(repo) {
-  const query = `query($q:String!){search(query:$q,type:ISSUE,first:50){nodes{... on PullRequest{
-    number headRefOid isDraft isInMergeQueue mergeStateStatus autoMergeRequest{enabledAt}
-    commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
-      ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}}`;
-  const out = JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`,
-    '-f', `q=repo:${repo} is:pr is:open author:app/dependabot`]));
-  return out.data.search.nodes.map((n) => ({
+export function normalizePR(n) {
+  return {
     number: n.number,
     headRefOid: n.headRefOid,
     isDraft: n.isDraft,
     isInMergeQueue: n.isInMergeQueue,
     mergeStateStatus: n.mergeStateStatus,
     autoMergeRequest: n.autoMergeRequest,
-    contexts: n.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],
-  }));
+    isCrossRepository: n.isCrossRepository,
+    author: n.author ? { typename: n.author.__typename, login: n.author.login } : {},
+    contexts: n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
+  };
+}
+
+function listOpenDependabotPRs(repo) {
+  const query = `query($q:String!){search(query:$q,type:ISSUE,first:50){nodes{... on PullRequest{
+    number headRefOid isDraft isInMergeQueue mergeStateStatus autoMergeRequest{enabledAt} isCrossRepository
+    author{__typename login}
+    commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
+      ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}}`;
+  const out = JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`,
+    '-f', `q=repo:${repo} is:pr is:open author:app/dependabot`]));
+  return out.data.search.nodes.map(normalizePR);
 }
 
 export async function sweep(repo, { dryRun = false } = {}) {
