@@ -77,6 +77,20 @@ export function extractTier(body) {
   return m ? `T${m[1]}` : null;
 }
 
+/**
+ * Found via PR #4395: diagnostic only, NEVER used for R1-R4's pass/fail -- those stay strict
+ * to the first-line requirement (root AGENTS.md). Finds a `Tier:` line anywhere in the body,
+ * so the advisory comment can distinguish "no tier declared at all" from "tier declared, just
+ * not on the first line" -- the exact confusion that left a real T1 PR reading as "declared
+ * tier: (none)" with no clue why.
+ */
+const TIER_LINE_ANYWHERE_RE = /^Tier:\s*T([012])\b/m;
+export function extractTierAnywhere(body) {
+  if (!body) return null;
+  const m = TIER_LINE_ANYWHERE_RE.exec(body);
+  return m ? `T${m[1]}` : null;
+}
+
 export function extractSchemaChange(body) {
   if (!body) return null;
   const m = SCHEMA_CHANGE_RE.exec(body);
@@ -265,7 +279,12 @@ export function evaluateTierCheck(input) {
   if (r2c && tier !== 'T2') failures.push({ rule: 'R2c', detail: `raises lint severity to error (${r2c.map((h) => h.path).join(', ')}), must declare Tier: T2` });
   if (r3?.kind === 'missing_line') failures.push({ rule: 'R3', detail: `touches ${r3.path}, needs a Schema-change: additive|breaking line` });
   if (r3?.kind === 'breaking_no_t2') failures.push({ rule: 'R3', detail: `Schema-change: breaking in ${r3.path} must declare Tier: T2` });
-  if (r4) failures.push({ rule: 'R4', detail: 'no Tier: T0|T1|T2 line in the PR body' });
+  if (r4) {
+    const misplaced = extractTierAnywhere(body);
+    failures.push(misplaced
+      ? { rule: 'R4', detail: `Tier: ${misplaced} is declared in the body but not on the first line (required by root AGENTS.md) -- tooling can't find it there; move it to line 1` }
+      : { rule: 'R4', detail: 'no Tier: T0|T1|T2 line in the PR body' });
+  }
 
   const comments = failures.map((f) => `${f.rule}: ${f.detail}`);
   if (r5) comments.push('R5 (advisory): declared Tier: T2 but the consult-hold label is missing');
