@@ -11,7 +11,7 @@ Five themes via `[data-theme="xxx"]` on `<html>`. Default: `harvard`.
 |---|---|---|
 | Light | `light` | General use, high contrast |
 | Dark | `dark` | Low-light environments |
-| BKC | `bkc` | Berkman Klein Center branding |
+| BKC | `bkc` | Alternate dark palette |
 | Harvard | `harvard` | Harvard library aesthetic (default) |
 | System | `system` | Follows OS preference (resolves to light or dark) |
 
