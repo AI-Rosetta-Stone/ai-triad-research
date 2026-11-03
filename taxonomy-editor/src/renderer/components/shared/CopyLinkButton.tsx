@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useCopyWithFeedback } from '../../hooks/useCopyWithFeedback';
+import './CopyLinkButton.css';
 
 const ICON_SIZES = { sm: 16, md: 20 } as const;
 
@@ -33,7 +35,7 @@ interface CopyLinkButtonProps {
 
 export function CopyLinkButton({ hash, title, size = 'sm', className }: CopyLinkButtonProps) {
   const [baseUrl, setBaseUrl] = useState<string | null | undefined>(undefined);
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useCopyWithFeedback();
   const iconSize = ICON_SIZES[size];
 
   useEffect(() => {
@@ -49,43 +51,39 @@ export function CopyLinkButton({ hash, title, size = 'sm', className }: CopyLink
     });
   }, []);
 
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
   if (baseUrl === undefined) return null;
 
   const disabled = baseUrl === null;
   const label = title ?? 'Copy link';
+  const url = `${baseUrl}${hash}`;
   const tooltipText = disabled
     ? 'Deep links require the web app'
     : copied
       ? 'Copied!'
       : label;
 
-  const handleClick = async () => {
-    if (disabled) return;
-    const url = `${baseUrl}${hash}`;
-    try {
-      await api.clipboardWriteText(url);
-      setCopied(true);
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'copy-link-button',
-        level: 'error',
-        message: 'Failed to copy link to clipboard',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-    }
-  };
+  // t/4786 (TL point 4): a failed clipboard write is never silent — a read-only, pre-selected
+  // field stands in for the icon button so the user can still copy the link by hand.
+  if (failed) {
+    return (
+      <span className={`copy-link-fallback${className ? ` ${className}` : ''}`}>
+        <input
+          className="copy-link-fallback-url"
+          type="text"
+          readOnly
+          value={url}
+          aria-label={label}
+          onFocus={e => e.currentTarget.select()}
+        />
+        <button type="button" className="btn-xs btn-ghost" onClick={() => void copy(url)}>Copy this link</button>
+      </span>
+    );
+  }
 
   return (
     <button
       className={`btn-xs btn-ghost${disabled ? ' btn-disabled' : ''}${className ? ` ${className}` : ''}`}
-      onClick={handleClick}
+      onClick={() => { if (!disabled) void copy(url); }}
       title={tooltipText}
       aria-label={label}
       disabled={disabled}
