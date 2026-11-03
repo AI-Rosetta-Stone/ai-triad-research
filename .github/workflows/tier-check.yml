@@ -12,9 +12,18 @@ name: tier-check
 # head is read through the API (PR files/content), never git-diffed or git-shown locally. The
 # self-test suite that used to run inline here now runs in ci.yml's gate-self-health job under
 # plain `pull_request` with zero permissions (t/4266) -- this job never executes PR code at all.
+#
+# t/4266 P2 fix 4 (TL t/4266#13): without issue_comment/pull_request_review triggers, R6 only
+# re-evaluates on a push -- but a push invalidates R6's head-bound approval evidence, so a PR
+# that gets approved AFTER its last push would stay red forever once R6 is promoted to blocking
+# (a deadlock). Re-run on the same events t1-approval-guard.yml already triggers on.
 on:
   pull_request_target:
     types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   pull-requests: write
@@ -40,7 +49,14 @@ jobs:
             const path = require('path');
 
             const owner = context.repo.owner, repo = context.repo.repo;
-            const prNumber = context.payload.pull_request.number;
+            // t/4266 P2 fix 4: issue_comment fires on every issue, not just PRs -- filter to PRs
+            // only (same check t1-approval-guard.yml's resolvePrNumber already applies).
+            function resolvePrNumber() {
+              if (context.payload.pull_request) return context.payload.pull_request.number;
+              if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
+              return null;
+            }
+            const prNumber = resolvePrNumber();
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const MARKER = '<!-- tier-check:verdict -->';
 
@@ -55,7 +71,11 @@ jobs:
             }
 
             try {
-              await run();
+              if (!prNumber) {
+                core.info('tier-check: not a PR event (a plain issue comment) -- nothing to do.');
+              } else {
+                await run();
+              }
             } catch (err) {
               // A crash must never read as a verdict, and silence must never read as a pass
               // (t/4103, Lead review on PR #3155 run 37804716313 -- continue-on-error hid a
@@ -264,13 +284,16 @@ jobs:
             const headCiGateNeeds = paths.includes('.github/workflows/ci.yml')
               ? ciGateNeedsFromText(await readFromHead('.github/workflows/ci.yml')) : null;
 
-            // R6 (t/4266 P2): same "effective time" (updatedAt ?? createdAt) and push-time
-            // inputs t1-approval-guard already uses for its own freshness rule.
+            // R6 (t/4266 P2, fixed per t/4266#13): evidence is bound to headSha, never to a
+            // timestamp -- `created_at` only (fix 3: never `updated_at`, which would let editing
+            // an old comment fake freshness after a later push).
             const rawComments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
-            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.updated_at ?? c.created_at }));
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 });
-            const lastCommit = commits[commits.length - 1];
-            const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
+            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
+            // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
+            // trusts): the TL's T2 approval is a reviewer-App review, not a PI comment alone.
+            const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
+            const rawReviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const reviews = rawReviews.map((r) => ({ state: r.state, commitId: r.commit_id, login: r.user?.login, body: r.body }));
 
             const result = evaluateTierCheck({
               body: pr.body,
@@ -285,7 +308,9 @@ jobs:
               baseCiGateNeeds,
               headCiGateNeeds,
               approvalComments,
-              lastPushAt,
+              reviews,
+              headSha,
+              reviewerAppLogin: REVIEWER_APP_LOGIN,
             });
 
             core.info(`tier-check verdict: pass=${result.pass} tier=${result.tier} comments=${JSON.stringify(result.comments)}`);

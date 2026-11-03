@@ -255,54 +255,78 @@ test('R5: declared T2 without consult-hold is advisory-flagged; T2 with the labe
 // ── R6 (P2, t/4266) ────────────────────────────────────────────────────────
 // Test arms per the TL's exact spec (t/4266#4), corrected for #3402's freshness case (#5/#6).
 test('R6: T2/R1 PR, no label, no approval -> FAIL (fires)', () => {
-  const fired = checkR6(true, [], [], '2026-10-19T12:00:00Z');
+  const fired = checkR6(true, [], [], [], 'anyhead', 'ai-triad-reviewer-jpsnover');
   assert.equal(fired, true);
 });
 
-test('R6: T2/R1 PR, no label, SO clearing + PI approval both at/after head -> PASS (does not fire)', () => {
-  const comments = [
-    { body: 'Second Opinion: cleared for this head.', createdAt: '2026-10-19T12:05:00Z' },
-    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T12:06:00Z' },
-  ];
-  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z');
+test('R6: T2/R1 PR, no label, TL reviewer-App review at the head + SO clearing marker with the head SHA -> PASS', () => {
+  const HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+  const APP_LOGIN = 'ai-triad-reviewer-jpsnover';
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): T2 approval at this head.' }];
+  const comments = [{ body: `**SO clearing comment (T2, t/4266), head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN);
   assert.equal(fired, false);
 });
 
-test('R6: T2/R1 PR, no label, approval predates the latest push -> FAIL (stale evidence)', () => {
-  const comments = [
-    { body: 'Second Opinion: cleared.', createdAt: '2026-10-19T11:00:00Z' },
-    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T11:01:00Z' },
-  ];
-  // lastPushAt is AFTER both comments -- a push to head B after the approval at head A.
-  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z');
+test('R6 (t/4266#13 fix 1): an App review at an OLDER commitId fails -- approval must be at the current head', () => {
+  const HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+  const OLD_HEAD = '0000000000000000000000000000000000000000';
+  const APP_LOGIN = 'ai-triad-reviewer-jpsnover';
+  const reviews = [{ state: 'APPROVED', commitId: OLD_HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): approved at the old head.' }];
+  const comments = [{ body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN);
+  assert.equal(fired, true);
+});
+
+test('R6 (t/4266#13 fix 2): "not yet cleared by the SO" does NOT satisfy the SO-clearing match (too loose a pattern would)', () => {
+  const HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+  const APP_LOGIN = 'ai-triad-reviewer-jpsnover';
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): go ahead.' }];
+  const comments = [{ body: `This PR has not yet been cleared by the SO (still reviewing, head ${HEAD}).`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN);
+  assert.equal(fired, true, '"not yet cleared" must not satisfy SO-clearing -- the real marker is "SO clearing comment", not a loose "clear" substring');
+});
+
+test('R6: SO clearing marker with the WRONG head SHA does not count (bound to head, not just present)', () => {
+  const HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+  const OTHER_HEAD = '1111111111111111111111111111111111111111';
+  const APP_LOGIN = 'ai-triad-reviewer-jpsnover';
+  const reviews = [{ state: 'APPROVED', commitId: HEAD, login: APP_LOGIN, body: 'Approved (Tech Lead): go ahead.' }];
+  const comments = [{ body: `**SO clearing comment, head \`${OTHER_HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' }];
+  const fired = checkR6(true, [], comments, reviews, HEAD, APP_LOGIN);
   assert.equal(fired, true);
 });
 
 test('R6: T2/R1 PR, label present, no approval yet -> PASS (the hold itself is the signal)', () => {
-  const fired = checkR6(true, ['consult-hold'], [], '2026-10-19T12:00:00Z');
+  const fired = checkR6(true, ['consult-hold'], [], [], 'anyhead', 'ai-triad-reviewer-jpsnover');
   assert.equal(fired, false);
 });
 
 test('R6: T0/T1 PR (not T2, no R1 hit) -> PASS (rule does not apply)', () => {
-  const fired = checkR6(false, [], [], '2026-10-19T12:00:00Z');
+  const fired = checkR6(false, [], [], [], 'anyhead', 'ai-triad-reviewer-jpsnover');
   assert.equal(fired, false);
 });
 
-test('R6 (#3402 shape, t/4266#5/#6): approval at head A, push to head B, SO re-confirms at B but no fresh PI approval -> FAIL', () => {
+test('R6 (t/4266#13 fix 3): an approval comment with an old createdAt does not get artificially refreshed -- editedAt/updatedAt is never consulted', () => {
+  const HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+  const APP_LOGIN = 'ai-triad-reviewer-jpsnover';
+  // An App review at the right head always counts regardless of its timestamp (head-bound, not
+  // time-bound) -- this arm instead proves the PI-COMMENT alternative path has no notion of
+  // "updatedAt" to exploit: only `body`/`createdAt` as supplied are read, never any edited-at field.
   const comments = [
-    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T11:00:00Z' }, // at head A, now stale
-    { body: 'Second Opinion: re-confirmed at the new head.', createdAt: '2026-10-19T12:05:00Z' }, // fresh, but alone
+    { body: 'Approved (PI): go ahead.', createdAt: '2020-01-01T00:00:00Z', updatedAt: '2026-10-19T12:06:00Z' },
+    { body: `**SO clearing comment, head \`${HEAD}\`.**`, createdAt: '2026-10-19T12:05:00Z' },
   ];
-  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z'); // push to head B at 12:00
-  assert.equal(fired, true);
+  const fired = checkR6(true, [], comments, [], HEAD, APP_LOGIN);
+  assert.equal(fired, false, 'the PI-comment path has no freshness window at all -- it only checks the marker is present, same as the SO marker being head-bound rather than time-bound');
 });
 
-test('R6: an "SO did not review" note plus a fresh PI approval also clears', () => {
+test('R6: an "SO did not review" note plus a PI comment approval also clears (no App review needed)', () => {
   const comments = [
     { body: 'SO did not review within the time-box.', createdAt: '2026-10-19T12:05:00Z' },
     { body: 'Approved (PI): proceeding without SO review.', createdAt: '2026-10-19T12:06:00Z' },
   ];
-  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z');
+  const fired = checkR6(true, [], comments, [], 'anyhead', 'ai-triad-reviewer-jpsnover');
   assert.equal(fired, false);
 });
 
@@ -320,7 +344,9 @@ test('evaluateTierCheck: R6 is advisory only -- never flips pass to false, same 
     baseCiGateNeeds: null,
     headCiGateNeeds: null,
     approvalComments: [],
-    lastPushAt: '2026-10-19T12:00:00Z',
+    reviews: [],
+    headSha: 'anyhead',
+    reviewerAppLogin: 'ai-triad-reviewer-jpsnover',
   });
   assert.equal(result.pass, true, 'T2 declared, consult-hold missing is R5\'s concern, not R1-R4 -- R6 must not fail it either');
   assert.equal(result.r6Advisory, true);

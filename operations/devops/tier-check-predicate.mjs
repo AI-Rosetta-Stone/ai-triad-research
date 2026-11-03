@@ -254,41 +254,61 @@ export function checkR5(tier, labels) {
   return !(labels ?? []).includes('consult-hold');
 }
 
-const PI_APPROVAL_RE = /^Approved \(PI\):/m;
+// `Approved (PI):` as a COMMENT remains a valid alternative approval path (the PI sometimes
+// approves by comment, t/4266#3) -- but, like t1-approval-guard's own identity limit, this
+// predicate can prove the marker's presence, never who actually wrote it (every agent posts
+// under one shared identity until t/4096's per-agent rollout finishes).
+const PI_COMMENT_APPROVAL_RE = /^Approved \(PI\):/m;
 const SO_DID_NOT_REVIEW_RE = /\bSO did not review\b/i;
-// "An SO clearing comment" (t/4266#3/#4, TL): no fixed marker exists elsewhere in the codebase
-// for this phrase (unlike `Approved (<role>):`, which t1-approval-guard-predicate.mjs already
-// anchors on) -- matched here as a comment mentioning the Second Opinion/SO clearing the
-// change. Flagged in the PR for TL review/adjustment during the warn-only cycle, same as every
-// other heuristic in this module that started as a best first guess (e.g. R2c's severity regex).
-const SO_CLEARING_RE = /\b(second opinion|SO)\b.*\bclear(ed|s)?\b/i;
+// The SO's real marker (t/4412, t/4266#13 TL review): "**SO clearing comment ..., head `<sha>`.**"
+// -- matched generically (any text before "head", not a fixed ticket/e-mail reference) and
+// REQUIRES the literal current headSha in the body, binding the evidence to the head itself
+// rather than to a timestamp (closes the push-after-clearing gap without relying on clocks).
+const SO_CLEARING_PREFIX_RE = /\bSO clearing comment\b/i;
 
 /**
- * P2 / R6 (t/4266, TL t/4266#2-4): a PR that declares `Tier: T2` or touches an R1 path needs
- * EITHER the `consult-hold` label OR fresh clearing evidence for the CURRENT head -- the gap
- * that let #3380 merge T1-declared on an R1 path with no hold at all. "Fresh" means posted
- * at/after `lastPushAt` (same post-push freshness rule as t1-approval-guard's own approval
- * check, t/4266#5/#6's #3402 arm: an approval that predates a later push doesn't count).
- * Clearing evidence is (an SO-clearing comment AND an `Approved (PI):` comment) OR (an
- * "SO did not review" note AND an `Approved (PI):` comment) -- both halves fresh.
+ * P2 / R6 (t/4266, TL t/4266#2-4, fixed per t/4266#13): a PR that declares `Tier: T2` or
+ * touches an R1 path needs EITHER the `consult-hold` label OR head-bound clearing evidence --
+ * the gap that let #3380 merge T1-declared on an R1 path with no hold at all. Evidence is
+ * bound to `headSha`, not to time (t/4266#13 fix 2+3: a stale approval edited after a push, or
+ * a loose time window, must not count):
+ *   - a reviewer-App review, `state === 'APPROVED'`, `commitId === headSha`, body starting
+ *     `Approved (Tech Lead):` or `Approved (PI):`, from `reviewerAppLogin` (t/4096#58: T2
+ *     approvals are TL reviewer-App reviews, same identity t1-approval-guard already trusts)
+ *     -- OR a comment starting `Approved (PI):` (no head-binding available for a comment, so
+ *     this alternative alone still needs the SO half below to be head-bound);
+ *   AND
+ *   - a comment containing the SO's own "SO clearing comment" marker with the literal
+ *     `headSha` inside it, OR a comment matching "SO did not review" (createdAt only --
+ *     t/4266#13 fix 3: never `updatedAt`, which would let editing an old comment fake freshness).
  * Advisory only for now (ships T1, warn-only cycle first, per Gate Promotion Discipline);
  * folded into `comments` the same way R5 is, never into `pass`, until promoted.
  * @param {boolean} tierOrR1 whether the PR declares Tier: T2 or has an R1 hit
  * @param {string[]} labels
- * @param {Array<{body: string, createdAt: string}>} comments effective-time comments (createdAt = updatedAt ?? created_at upstream)
- * @param {string|Date} lastPushAt
+ * @param {Array<{body: string, createdAt: string}>} comments issues.listComments shape (created_at only)
+ * @param {Array<{state: string, commitId: string, login: string, body: string}>} reviews pulls.listReviews shape
+ * @param {string} headSha
+ * @param {string} reviewerAppLogin
  */
-export function checkR6(tierOrR1, labels, comments, lastPushAt) {
+export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAppLogin) {
   if (!tierOrR1) return false;
   if ((labels ?? []).includes('consult-hold')) return false;
-  const pushMs = new Date(lastPushAt).getTime();
-  const fresh = (comments ?? []).filter((c) => {
-    const t = new Date(c.createdAt).getTime();
-    return Number.isFinite(t) && t >= pushMs;
+
+  const appApproved = (reviews ?? []).some((r) =>
+    r.state === 'APPROVED' &&
+    r.commitId === headSha &&
+    r.login === reviewerAppLogin &&
+    /^Approved \((Tech Lead|PI)\):/.test(String(r.body ?? '').trim()));
+  const piCommentApproved = (comments ?? []).some((c) => PI_COMMENT_APPROVAL_RE.test(c.body ?? ''));
+  const approved = appApproved || piCommentApproved;
+
+  const soCleared = (comments ?? []).some((c) => {
+    const body = c.body ?? '';
+    if (SO_DID_NOT_REVIEW_RE.test(body)) return true;
+    return SO_CLEARING_PREFIX_RE.test(body) && body.includes(headSha);
   });
-  const soCleared = fresh.some((c) => SO_CLEARING_RE.test(c.body ?? '') || SO_DID_NOT_REVIEW_RE.test(c.body ?? ''));
-  const piApproved = fresh.some((c) => PI_APPROVAL_RE.test(c.body ?? ''));
-  return !(soCleared && piApproved);
+
+  return !(approved && soCleared);
 }
 
 /**
@@ -296,7 +316,7 @@ export function checkR6(tierOrR1, labels, comments, lastPushAt) {
  * the check). `comments` lists human-readable advisory text for any hit, including R5.
  */
 export function evaluateTierCheck(input) {
-  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds, approvalComments, lastPushAt } = input;
+  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds, approvalComments, reviews, headSha, reviewerAppLogin } = input;
   const tier = extractTier(body);
   const schemaChange = extractSchemaChange(body);
   const dependabot = isDependabot(headRefName);
@@ -308,10 +328,12 @@ export function evaluateTierCheck(input) {
   const r3 = checkR3(paths, schemaChange, tier, config);
   const r4 = checkR4(tier, dependabot, prCreatedAt, graceCutoff);
   const r5 = checkR5(tier, labels);
-  // R6 only evaluates when the caller supplies lastPushAt -- callers that don't track PR
-  // comments/push times (e.g. offline replay) simply don't get this advisory, same as R5
+  // R6 only evaluates when the caller supplies headSha -- callers that don't track PR
+  // comments/reviews/head (e.g. offline replay) simply don't get this advisory, same as R5
   // being skipped by omitting labels.
-  const r6 = lastPushAt !== undefined ? checkR6(tier === 'T2' || Boolean(r1), labels, approvalComments ?? [], lastPushAt) : false;
+  const r6 = headSha !== undefined
+    ? checkR6(tier === 'T2' || Boolean(r1), labels, approvalComments ?? [], reviews ?? [], headSha, reviewerAppLogin)
+    : false;
 
   const failures = [];
   if (r1 && tier !== 'T2') failures.push({ rule: 'R1', detail: `touches ${r1}, must declare Tier: T2` });

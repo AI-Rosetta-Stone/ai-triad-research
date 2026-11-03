@@ -146,6 +146,16 @@ test('P1: R2a/R2c diff lines come from the already-fetched pulls.listFiles patch
 // zero permissions). This job must have no knowledge of it at all -- a PR that rewrites its own
 // predicate's test file to always pass cannot influence THIS verdict, because this job never
 // reads any test result and never executes any PR-authored test file in the first place ──────
+test('P2 fix 4 (t/4266#13): issue_comment and pull_request_review are triggers, so R6 re-evaluates once approval arrives (no deadlock)', () => {
+  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created\]/m);
+  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted\]/m);
+});
+
+test('P2 fix 4: issue_comment is filtered to PRs via resolvePrNumber, same shape as t1-approval-guard.yml', () => {
+  const code = scriptCodeLines();
+  assert.match(code, /context\.payload\.issue && context\.payload\.issue\.pull_request/);
+});
+
 test('ATTACK ARM (t/4266): fully decoupled from gate-self-health -- rewriting the self-test to always pass cannot touch the verdict', () => {
   assert.ok(!/needs:\s*\[[^\]]*gate-self-health/.test(workflow), 'tier-check.yml\'s job must not declare a `needs:` on the self-test job');
   assert.ok(!/needs\.gate-self-health/.test(workflow), 'the step must not read gate-self-health\'s outcome');
