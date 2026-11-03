@@ -78,13 +78,18 @@ export function scheduledWorkflowFiles(files) {
  * line at all) -- exactly the silent-miss shape this gate exists to catch. This instead finds the
  * top-level `on:` key and only matches a `schedule` key that is a DIRECT CHILD of it (same
  * indentation as `on:`'s other first-level children), in either block or flow-value form.
+ *
+ * t/4784 (SO follow-up to t/4780): also match a quoted key (`"on":` / `'on':`) -- valid YAML some
+ * editors produce, and the exact silent-miss shape this gate exists to catch if left unmatched.
  */
+const ON_KEY_LINE_RE = /^(?:"on"|'on'|on):(.*)$/;
+
 function hasScheduleTrigger(text) {
   const lines = text.split(/\r?\n/);
-  const onIdx = lines.findIndex(l => /^on:/.test(l));
+  const onIdx = lines.findIndex(l => ON_KEY_LINE_RE.test(l));
   if (onIdx === -1) return false;
 
-  const afterColon = lines[onIdx].slice(lines[onIdx].indexOf('on:') + 3).trim();
+  const afterColon = lines[onIdx].match(ON_KEY_LINE_RE)[1].trim();
   if (afterColon.startsWith('{')) {
     // Single-line flow mapping: on: { schedule: [...], workflow_dispatch: {} }
     return /(^|[,{]\s*)schedule\s*:/.test(afterColon);

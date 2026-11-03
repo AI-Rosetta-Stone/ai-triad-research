@@ -102,6 +102,18 @@ test('scheduledWorkflowFiles: a single bare trigger (`on: pull_request`) is NOT 
   assert.deepEqual(scheduledWorkflowFiles(files), []);
 });
 
+// t/4784 (SO follow-up to t/4780): a quoted `"on":`/`'on':` key is valid YAML and would otherwise
+// be silently missed -- the exact class this gate exists to catch.
+test('scheduledWorkflowFiles: a quoted `"on":` key with a schedule child IS flagged', () => {
+  const files = [{ name: 'g.yml', text: '"on":\n  schedule:\n    - cron: "0 2 * * *"\n' }];
+  assert.deepEqual(scheduledWorkflowFiles(files), ['g.yml']);
+});
+
+test("scheduledWorkflowFiles: a single-quoted 'on': key with a schedule child IS flagged", () => {
+  const files = [{ name: 'h.yml', text: "'on':\n  schedule:\n    - cron: \"0 2 * * *\"\n" }];
+  assert.deepEqual(scheduledWorkflowFiles(files), ['h.yml']);
+});
+
 // ── t/4347: a zero-job push-failure run means GitHub rejected the file structurally ──────────────
 test('invalidWorkflowFileVerdict: 0 jobs + conclusion failure is INVALID (t/4347, PR #3527 / run 39478983829)', () => {
   const v = invalidWorkflowFileVerdict({ file: 'environment-branch-policy-check.yml', runs: [{ conclusion: 'failure', jobCount: 0, runId: 39478983829 }] });
