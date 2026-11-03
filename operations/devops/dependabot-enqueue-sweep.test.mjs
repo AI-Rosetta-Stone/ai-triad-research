@@ -11,7 +11,7 @@ const green = [
   { name: 'CodeQL Analysis', status: 'COMPLETED', conclusion: 'SUCCESS' },
 ];
 const pr = (over = {}) => ({
-  number: 1, headRefOid: 'abc', isDraft: false, isInMergeQueue: false,
+  number: 1, headRefOid: 'abc', isDraft: false, isInMergeQueue: false, isCrossRepository: false,
   mergeStateStatus: 'BLOCKED', autoMergeRequest: { enabledAt: 't' }, contexts: green, ...over,
 });
 
@@ -63,4 +63,19 @@ test('selectSweepCandidates: skips each disqualifying state with a reason', () =
   assert.match(skip.find((s) => s.number === 4).reason, /minor\/patch policy/);
   assert.match(skip.find((s) => s.number === 6).reason, /CodeQL Analysis is missing/);
   assert.match(skip.find((s) => s.number === 7).reason, /ci-gate is failed/);
+});
+
+// t/4779 (matching t0-enqueue-sweep.mjs's fix, #4390): Dependabot itself never opens a
+// cross-repo/fork PR, so this can't currently fire, but the App-enqueue path must fail
+// closed on the field regardless -- not rely on Dependabot's own behavior holding forever.
+test('selectSweepCandidates: a fork PR is never enqueued, even if otherwise fully green and armed', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ isCrossRepository: true })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /fork PR/);
+});
+
+test('selectSweepCandidates: an unknown (missing) isCrossRepository value fails closed as a fork', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ isCrossRepository: undefined })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /fork PR/);
 });
