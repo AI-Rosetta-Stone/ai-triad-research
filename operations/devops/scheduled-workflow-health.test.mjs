@@ -77,6 +77,31 @@ test('scheduledWorkflowFiles detects a `schedule:` trigger and ignores mentions 
   assert.deepEqual(scheduledWorkflowFiles(files), ['a.yml']);
 });
 
+// t/4780 SO condition C2: the whole-file bare-line regex this replaced had both a false-positive
+// and a false-negative gap -- these three cases pin the fix.
+test('scheduledWorkflowFiles: a workflow_dispatch input literally named `schedule` is NOT flagged (false-positive shape)', () => {
+  const files = [{
+    name: 'c.yml',
+    text: 'on:\n  workflow_dispatch:\n    inputs:\n      schedule:\n        description: "not a cron trigger"\n        required: false\n',
+  }];
+  assert.deepEqual(scheduledWorkflowFiles(files), []);
+});
+
+test('scheduledWorkflowFiles: flow-style `schedule: [...]` IS flagged (the prior regex missed this -- no bare `schedule:` line)', () => {
+  const files = [{ name: 'd.yml', text: 'on:\n  schedule: [{cron: "*/10 * * * *"}]\n  workflow_dispatch:\n' }];
+  assert.deepEqual(scheduledWorkflowFiles(files), ['d.yml']);
+});
+
+test('scheduledWorkflowFiles: single-line flow mapping `on: { schedule: [...], ... }` IS flagged', () => {
+  const files = [{ name: 'e.yml', text: 'on: { schedule: [{cron: "0 * * * *"}], workflow_dispatch: {} }\n' }];
+  assert.deepEqual(scheduledWorkflowFiles(files), ['e.yml']);
+});
+
+test('scheduledWorkflowFiles: a single bare trigger (`on: pull_request`) is NOT flagged', () => {
+  const files = [{ name: 'f.yml', text: 'on: pull_request\n' }];
+  assert.deepEqual(scheduledWorkflowFiles(files), []);
+});
+
 // ── t/4347: a zero-job push-failure run means GitHub rejected the file structurally ──────────────
 test('invalidWorkflowFileVerdict: 0 jobs + conclusion failure is INVALID (t/4347, PR #3527 / run 39478983829)', () => {
   const v = invalidWorkflowFileVerdict({ file: 'environment-branch-policy-check.yml', runs: [{ conclusion: 'failure', jobCount: 0, runId: 39478983829 }] });
