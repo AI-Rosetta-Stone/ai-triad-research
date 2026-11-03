@@ -4,6 +4,10 @@
 import type { NavHistory, HistoryEntry, PlaceInfo } from './types';
 import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
 import { placeOf, type AppState } from './placeOf';
+import { recordNav } from './navRecord';
+
+/** Why the subscriber wrote an entry — recorded with each write (t/4769). */
+type WriteReason = 'boot' | 'user' | 'expected' | 'label' | 'view' | 'no-entry' | 'resync';
 
 /**
  * Global restoring guard: when true, store subscribers skip pushing/replacing.
@@ -103,13 +107,15 @@ export function installNavSubscriber(
   // True while this subscriber writes to the history itself, so its own push/replace
   // notifications aren't mistaken for a history move to restore.
   let writing = false;
-  const write = (kind: 'push' | 'replace', entry: Omit<HistoryEntry, 'timestamp'>) => {
+  const write = (kind: 'push' | 'replace', entry: Omit<HistoryEntry, 'timestamp'>, reason: WriteReason) => {
+    const from = navHistory.current()?.placeKey ?? null;
     writing = true;
     try {
       navHistory[kind](entry);
     } finally {
       writing = false;
     }
+    recordNav(kind === 'push' ? 'nav.push' : 'nav.replace', { from, to: entry.placeKey, path: entry.path, reason });
   };
 
   /** A restore that landed synchronously has nothing left to wait for — drop the expectation. */
@@ -118,7 +124,8 @@ export function installNavSubscriber(
   };
 
   const initialPlace = placeOf(readAppState(stores));
-  write('replace', { path: initialPlace.path, placeKey: initialPlace.placeKey, label: initialPlace.label });
+  recordNav('nav.install', { placeKey: initialPlace.placeKey, path: initialPlace.path, expectedPlaceKey });
+  write('replace', { path: initialPlace.path, placeKey: initialPlace.placeKey, label: initialPlace.label }, 'boot');
   clearExpectedIfReached();
 
   resyncHook = () => {
@@ -126,7 +133,7 @@ export function installNavSubscriber(
     const place = placeOf(readAppState(stores));
     const currentEntry = navHistory.current();
     if (currentEntry && currentEntry.placeKey !== place.placeKey) {
-      write('replace', { path: place.path, placeKey: place.placeKey, label: place.label });
+      write('replace', { path: place.path, placeKey: place.placeKey, label: place.label }, 'resync');
     }
   };
 
@@ -136,7 +143,7 @@ export function installNavSubscriber(
     const entry = { path: newPlace.path, placeKey: newPlace.placeKey, label: newPlace.label };
     const currentEntry = navHistory.current();
     if (!currentEntry) {
-      write('replace', entry);
+      write('replace', entry, 'no-entry');
       return;
     }
 
@@ -152,23 +159,26 @@ export function installNavSubscriber(
     if (newPlace.placeKey !== currentEntry.placeKey) {
       if (newPlace.placeKey === expectedPlaceKey) {
         expectedPlaceKey = null;
-        write('replace', entry);
+        write('replace', entry, 'expected');
       } else {
         expectedPlaceKey = null;
-        write('push', entry);
+        write('push', entry, 'user');
       }
       return;
     }
     if (newPlace.placeKey === expectedPlaceKey) expectedPlaceKey = null;
     const keepPath = samePath(newPlace, currentEntry);
     if (!keepPath || newPlace.label !== currentEntry.label) {
-      write('replace', { ...entry, path: keepPath ? currentEntry.path : newPlace.path });
+      write('replace', { ...entry, path: keepPath ? currentEntry.path : newPlace.path }, keepPath ? 'label' : 'view');
     }
   };
 
   const onHistoryMove = (moved: HistoryEntry) => {
     if (writing) return;
-    if (moved.placeKey === placeOf(readAppState(stores)).placeKey) return;
+    const here = placeOf(readAppState(stores)).placeKey;
+    const restored = moved.placeKey !== here;
+    recordNav('nav.move', { from: here, to: moved.placeKey, path: moved.path, restored });
+    if (!restored) return;
     restorePath(moved.path);
     clearExpectedIfReached();
   };
