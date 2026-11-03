@@ -142,42 +142,6 @@
   border-color: var(--focus-ring);
 }
 
-.new-chat-model-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.new-chat-model-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.new-chat-model-select {
-  padding: 4px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-}
-
-.new-chat-model-info {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-
 /* ─── Monolith-extracted new-chat styles (Phase 3 co-location, t/2989) ─── */
 
 /* NewChatDialog — inline-style migration (t/1868). Values verbatim; no theme change. */
-
-.new-chat-model-fields {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 6px;
-}
