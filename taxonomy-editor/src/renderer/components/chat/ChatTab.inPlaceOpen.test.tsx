@@ -120,11 +120,33 @@ describe('ChatTab — table mode in-place open (t/4690)', () => {
     const { unmount } = render(<ChatTab />);
     expect(screen.getByText(/Opens here now/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    fireEvent.click(screen.getByRole('button', { name: /got it/i }));
     expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
     unmount();
 
     render(<ChatTab />);
     expect(screen.queryByText(/Opens here now/)).toBeNull();
+  });
+
+  // t/4802 (Design): dismiss on Esc, matching DebateInPlaceHint/t/4801.
+  it('dismisses the hint on Escape', () => {
+    chatStoreState.activeChatId = 'chat-1';
+    render(<ChatTab />);
+    expect(screen.getByText(/Opens here now/)).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+  });
+
+  // t/4802 (Design): dismiss on the first navigation away from the item place. ChatDetailContent
+  // only renders while an item is open, so leaving the chat unmounts ChatInPlaceHint.
+  it('dismisses the hint on navigating away without using Got it', () => {
+    chatStoreState.activeChatId = 'chat-1';
+    const { unmount } = render(<ChatTab />);
+    expect(screen.getByText(/Opens here now/)).toBeTruthy();
+    expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBeNull();
+
+    unmount();
+    expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
   });
 });
