@@ -1,0 +1,10 @@
+name: t4780 live-fire dummy (THROWAWAY, never merged)
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "throwaway, proves t/4780's lint catches an unregistered schedule: workflow"
