@@ -227,10 +227,12 @@ describe('Toolbar — Rosetta Stone topmost rail button (t/4543, PI decision t/4
   });
 });
 
-// t/4689: the rail running-indicator dot on Chat/Debate. Exercised against the real
-// runningSignal module (not mocked) — same pattern as runningSignal.test.ts — since the
-// behavior under test IS the subscription wiring, not a stub of it.
-describe('Toolbar — running-indicator dot (t/4689)', () => {
+// t/4772 (was t/4689's boolean dot): the rail running-indicator dot on Chat/Debate, now counting
+// only runs elsewhere. Exercised against the real runningSignal module (not mocked) — same
+// pattern as runningSignal.test.ts — since the behavior under test IS the subscription wiring.
+// navHistory isn't mocked in this file, so its default `current()` never matches a registered
+// run's placeKey — every registered run here is "elsewhere" by construction.
+describe('Toolbar — running-indicator dot (t/4772)', () => {
   beforeEach(async () => {
     const { __resetRunningSignalForTest } = await import('../../navigation/runningSignal');
     __resetRunningSignalForTest();
@@ -242,18 +244,26 @@ describe('Toolbar — running-indicator dot (t/4689)', () => {
     expect(chatBtn.querySelector('.toolbar-nav-running-dot')).toBeNull();
   });
 
-  it('shows the dot and an augmented aria-label on Chat while a chat run is registered', async () => {
+  it('shows the dot and a counted aria-label on Chat while a chat run is registered elsewhere', async () => {
     const { registerRun } = await import('../../navigation/runningSignal');
     registerRun('chat', 'chat-1', 'My chat');
     render(<Toolbar />);
-    expect(screen.getByRole('button', { name: 'Chat — running' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chat, 1 running' })).toBeInTheDocument();
+  });
+
+  it('counts more than one run elsewhere', async () => {
+    const { registerRun } = await import('../../navigation/runningSignal');
+    registerRun('chat', 'chat-1', 'My chat');
+    registerRun('chat', 'chat-2', 'Other chat');
+    render(<Toolbar />);
+    expect(screen.getByRole('button', { name: 'Chat, 2 running' })).toBeInTheDocument();
   });
 
   it('shows the dot on Debate independently of Chat', async () => {
     const { registerRun } = await import('../../navigation/runningSignal');
     registerRun('debate', 'debate-1', 'My debate');
     render(<Toolbar />);
-    expect(screen.getByRole('button', { name: 'Debate — running' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Debate, 1 running' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument(); // unaffected
   });
 
@@ -261,7 +271,7 @@ describe('Toolbar — running-indicator dot (t/4689)', () => {
     const { registerRun } = await import('../../navigation/runningSignal');
     const finish = registerRun('chat', 'chat-1', 'My chat');
     render(<Toolbar />);
-    expect(screen.getByRole('button', { name: 'Chat — running' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chat, 1 running' })).toBeInTheDocument();
 
     act(() => { finish('done'); });
     expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();

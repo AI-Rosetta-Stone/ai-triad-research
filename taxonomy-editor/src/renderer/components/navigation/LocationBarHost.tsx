@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, ExternalLink } from 'lucide-react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useChatStore } from '../../hooks/useChatStore';
@@ -13,6 +13,7 @@ import { navHistory } from '../../navigation';
 import { goToPath } from '../../navigation/restore';
 import type { Crumb, HistoryEntry } from '../../navigation/types';
 import { isRunning, subscribeRunning, type RunningToolId } from '../../navigation/runningSignal';
+import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace, type ItemToolId } from '../../navigation/openInWindow';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { LocationBar } from './LocationBar';
 import { backAction, historyButtonName, type BackAction } from './backAction';
@@ -21,6 +22,10 @@ import './LocationBarHost.css';
 const isElectron = import.meta.env.VITE_TARGET !== 'web';
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 const RECENT_MAX = 15;
+
+// t/4772: the four tools with item places (Tool › item). Any other place (a library, taxonomy,
+// conflicts, …) never shows ⧉.
+const ITEM_TOOLS: ReadonlySet<string> = new Set<ItemToolId>(['chat', 'debate', 'opeds', 'inquiry']);
 
 const TOOL_NAMES: Record<string, string> = {
   'rosetta-stone': 'Rosetta Stone', chat: 'Chat', opeds: 'Op-Ed Studies', inquiry: 'Ask a Question',
@@ -45,6 +50,31 @@ function entryIsRunning(placeKey: string): boolean {
 function toolNameOf(placeKey: string): string {
   const tool = placeKey.startsWith('taxonomy:') ? 'taxonomy' : placeKey.split(':')[0];
   return TOOL_NAMES[tool] ?? '';
+}
+
+/** t/4772: null on a library or any non-item place (`placeKey` ends in `:none`, or the tool has
+ *  no item concept at all). */
+function itemPlaceOf(tool: string, placeKey: string, path: string): ItemPlace | null {
+  if (!ITEM_TOOLS.has(tool)) return null;
+  const id = placeKey.slice(placeKey.indexOf(':') + 1);
+  if (!id || id === 'none') return null;
+  return { tool: tool as ItemToolId, id, path };
+}
+
+/** ⧉ at the location bar's right end, item places only (§ spec "⧉ Open in new window"). */
+function NewWindowButton({ place }: { place: ItemPlace }) {
+  const label = isElectron ? 'Open in new window' : 'Open in new tab';
+  return (
+    <button
+      type="button"
+      className="nav-locbar-btn nav-locbar-newwin"
+      onClick={() => openPlaceInNewWindow(place)}
+      aria-label={label}
+      title={label}
+    >
+      <ExternalLink aria-hidden="true" />
+    </button>
+  );
 }
 
 interface RecentMenuProps {
@@ -239,6 +269,9 @@ export function LocationBarHost() {
   const back = backAction({ isPhone, canGoBack, backDest: entries[index - 1], crumbs });
   const forwardName = historyButtonName('Forward', canGoForward ? entries[index + 1] : undefined);
 
+  const itemPlace = itemPlaceOf(place.tool, place.placeKey, place.path);
+  const showNewWindow = !isPhone && itemPlace !== null && canOpenInNewWindow(itemPlace);
+
   return (
     <div className="nav-locbar location-bar-host">
       <div className="nav-locbar-history" role="group" aria-label="History">
@@ -265,6 +298,8 @@ export function LocationBarHost() {
       </div>
 
       <LocationBar crumbs={crumbs} tool={place.tool} onUp={href => navigate(() => goToPath(href))} />
+
+      {showNewWindow && itemPlace && <NewWindowButton place={itemPlace} />}
 
       <div className="nav-locbar-live" aria-live="polite">{announcement}</div>
     </div>

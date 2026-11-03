@@ -211,6 +211,52 @@ describe('crumbs per place (§ Breadcrumb table)', () => {
   });
 });
 
+// t/4772: ⧉ Open in new window/tab. `@bridge` isn't mocked in this file, so `isElectronMode()`
+// reads false (no `window.electronAPI` in jsdom) — canOpenInNewWindow's web path, true for all
+// four item tools. Electron/web gating itself is unit-tested in openInWindow.test.ts; this file
+// only covers placement (item place vs. library) and the phone breakpoint.
+describe('⧉ Open in new window (§ "⧉ Open in new window")', () => {
+  it('renders on an item place', () => {
+    stores({ activeTab: 'chat' }, { chat: { activeChat: { id: 'c1', topic: 'Compute caps' } } });
+    historyAt([entry('/chat/c1', 'chat:c1', 'Compute caps')], 0);
+    render(<LocationBarHost />);
+    expect(screen.getByRole('button', { name: 'Open in new window' })).toBeInTheDocument();
+  });
+
+  it('does not render on a library (no item open)', () => {
+    stores({ activeTab: 'chat' }); // activeChat: null — the library
+    render(<LocationBarHost />);
+    expect(screen.queryByRole('button', { name: 'Open in new window' })).toBeNull();
+  });
+
+  it('does not render on a non-item place (taxonomy)', () => {
+    stores({ activeTab: 'accelerationist' });
+    render(<LocationBarHost />);
+    expect(screen.queryByRole('button', { name: 'Open in new window' })).toBeNull();
+  });
+
+  it('is hidden at phone width even on an item place', () => {
+    vi.mocked(useBreakpoint).mockReturnValue('phone');
+    stores({ activeTab: 'chat' }, { chat: { activeChat: { id: 'c1', topic: 'Compute caps' } } });
+    historyAt([entry('/chat/c1', 'chat:c1', 'Compute caps')], 0);
+    render(<LocationBarHost />);
+    expect(screen.queryByRole('button', { name: 'Open in new window' })).toBeNull();
+    vi.mocked(useBreakpoint).mockReturnValue(undefined); // vi.clearAllMocks doesn't undo mockReturnValue
+  });
+
+  it('clicking it opens the item in a new tab and leaves history untouched', async () => {
+    vi.mocked(useBreakpoint).mockReturnValue(undefined); // not phone — doesn't rely on prior-test order
+    const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    stores({ activeTab: 'chat' }, { chat: { activeChat: { id: 'c1', topic: 'Compute caps' } } });
+    historyAt([entry('/chat/c1', 'chat:c1', 'Compute caps')], 0);
+    render(<LocationBarHost />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open in new window' }));
+    expect(windowOpenSpy).toHaveBeenCalledWith(`${location.origin}/chat/c1`, 'aitriad-chat-c1', 'noopener');
+    expect(navHistory.push).not.toHaveBeenCalled();
+    windowOpenSpy.mockRestore();
+  });
+});
+
 describe('phone up (§ Phone "up")', () => {
   beforeEach(() => {
     vi.mocked(useBreakpoint).mockReturnValue('phone');
