@@ -109,31 +109,41 @@ $block | Select-String -Pattern $literalPattern -AllMatches | ForEach-Object {
 if ($ForStaging) {
     if ($content -match '(?s)var stagingEnvOverrides\s*=\s*\[(.*?)\]') {
         $stagingBlock = $Matches[1]
-        $stagingBlock | Select-String -Pattern $literalPattern -AllMatches | ForEach-Object {
-            foreach ($m in $_.Matches) {
-                $result[$m.Groups[1].Value] = $m.Groups[2].Value
-            }
-        }
 
-        # t/4794 incident: an override entry whose value is a bare PARAM reference (e.g.
-        # `{ name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }`,
-        # t/4738) does NOT match $literalPattern (no quotes), so it was silently skipped here --
-        # baseEnv's own (prod) literal for that same key then survived untouched, and staging
-        # served prod's blob containers for ~15h. Resolve a bare-identifier override value against
-        # this file's own `param <name> ... = '<literal>'` declarations (a param with a non-literal
-        # default, e.g. a resource reference, still can't be resolved and is left unmatched --
-        # this only closes the specific "override points at a param with a literal default" shape).
+        # Param literal defaults, needed to resolve a bare-identifier override value (below).
         $paramLiteralPattern = "param\s+([A-Za-z_][A-Za-z0-9_]*)\s+string\s*=\s*'([^'\$\{\}]*)'"
         $paramDefaults = @{}
         $content | Select-String -Pattern $paramLiteralPattern -AllMatches | ForEach-Object {
             foreach ($m in $_.Matches) { $paramDefaults[$m.Groups[1].Value] = $m.Groups[2].Value }
         }
-        $identifierOverridePattern = "\{\s*name:\s*'([^']+)',\s*value:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}"
-        $stagingBlock | Select-String -Pattern $identifierOverridePattern -AllMatches | ForEach-Object {
-            foreach ($m in $_.Matches) {
-                $name = $m.Groups[1].Value
-                $paramName = $m.Groups[2].Value
-                if ($paramDefaults.ContainsKey($paramName)) { $result[$name] = $paramDefaults[$paramName] }
+
+        # t/4794 incident, fail-closed per t/4794#4 (TL): walk EVERY override entry (not just the
+        # ones a pattern happens to match), one per line -- every real stagingEnvOverrides entry in
+        # this file is single-line `{ name: 'X', value: <expr> }`. An entry whose <expr> can't be
+        # resolved to a literal (not a quoted non-interpolated string, not a bare identifier naming
+        # a param with a literal default) is fine to leave unmanaged IF baseEnv never exposed that
+        # key as a literal either (e.g. ALLOWED_ORIGINS -- interpolated on both sides, by design,
+        # t/4794#4 scoping). But if baseEnv DID supply a literal for that key, an unresolvable
+        # override can never shadow it -- silently leaving baseEnv's (prod) value in place is
+        # exactly the incident. THROW, naming the key and the unresolved expression, rather than
+        # repeat the silent skip for the next shape of this bug.
+        $entryLinePattern = "^\{\s*name:\s*'([^']+)',\s*value:\s*(.+?)\s*\}$"
+        foreach ($rawLine in ($stagingBlock -split "`n")) {
+            $line = $rawLine.Trim()
+            if ($line -notmatch $entryLinePattern) { continue }  # comment, blank line, or not a single-line entry
+            $name = $Matches[1]
+            $rawValue = $Matches[2]
+
+            if ($rawValue -match "^'([^'\$\{\}]*)'$") {
+                $result[$name] = $Matches[1]
+                continue
+            }
+            if ($rawValue -match '^[A-Za-z_][A-Za-z0-9_]*$' -and $paramDefaults.ContainsKey($rawValue)) {
+                $result[$name] = $paramDefaults[$rawValue]
+                continue
+            }
+            if ($result.ContainsKey($name)) {
+                throw "Get-BicepBaseEnv.ps1 -ForStaging: stagingEnvOverrides entry '$name' = $rawValue cannot be resolved to a literal value, but baseEnv already supplies a literal for this key -- the override would silently fail to apply, and baseEnv's value would ship to staging unchanged. Aborting (t/4794)."
             }
         }
     } else {

@@ -86,6 +86,26 @@ Describe 'Get-BicepBaseEnv -ForStaging override merge (t/4794 incident regressio
         $env['AZURE_COMMUNITY_CONTAINER']     | Should -Be 'staging-community'
         $env['AZURE_BRIEF_EXPORTS_CONTAINER'] | Should -Be 'staging-brief-exports'
     }
+
+    It 'FAIL-CLOSED (t/4794#4, TL): an unresolvable override that would shadow a baseEnv literal THROWS, naming the key' {
+        $fixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/unresolvable-override-shadows-literal.bicep'
+        { & $getEnvScript -BicepPath $fixture -ForStaging } | Should -Throw '*AI_TRIAD_DATA_ROOT*'
+    }
+
+    It 'FAIL-CLOSED: the thrown error names the unresolved expression too, not just the key' {
+        $fixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/unresolvable-override-shadows-literal.bicep'
+        { & $getEnvScript -BicepPath $fixture -ForStaging } | Should -Throw '*someResource.properties.unresolvableThing*'
+    }
+
+    It 'CONTROL: an unresolvable override for a key baseEnv never exposed as a literal does NOT throw (the ALLOWED_ORIGINS shape, t/4794#4 scoping)' {
+        $fixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/unresolvable-override-no-baseline-literal.bicep'
+        { & $getEnvScript -BicepPath $fixture -ForStaging } | Should -Not -Throw
+    }
+
+    It 'Real main.bicep: -ForStaging does not throw (every override in production bicep is resolvable or non-shadowing)' {
+        $realBicep = Join-Path $scriptRoot 'deploy/azure/main.bicep'
+        { & $getEnvScript -BicepPath $realBicep -ForStaging } | Should -Not -Throw
+    }
 }
 
 Describe 'Get-BicepBaseEnv -NamesOnly against real main.bicep' {
