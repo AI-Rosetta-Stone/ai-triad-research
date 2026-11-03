@@ -63,7 +63,7 @@ vi.mock('@bridge', () => ({
 }));
 
 vi.mock('./NewDebateDialog', () => ({ NewDebateDialog: () => null }));
-vi.mock('../debate-workspace', () => ({ DebateWorkspace: () => null }));
+vi.mock('../debate-workspace', () => ({ DebateWorkspace: ({ onExport }: { onExport?: (format?: string) => void; exportStatus?: string | null }) => <div data-testid="debate-workspace">Debate Workspace</div> }));
 vi.mock('../shared/TheoryLink', () => ({ TheoryLink: () => null }));
 vi.mock('../edge-browser/SearchPreview', () => ({ SearchPreview: () => null }));
 vi.mock('../chat/PromptsPanel', () => ({ PromptDetailPanel: () => null }));
@@ -128,13 +128,21 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
     expect(mockOpenDebateWindow).not.toHaveBeenCalled();
   });
 
-  it('renders the debate detail in place (not the library) once activeDebate is set', () => {
+  it('renders the debate workspace in place (not the library) once activeDebate is set (t/4799)', () => {
     debateStoreState.activeDebateId = 'debate-1';
     debateStoreState.activeDebate = makeSession();
     render(<DebateTab />);
 
-    expect(screen.getByRole('button', { name: 'Open in Window' })).toBeInTheDocument();
+    expect(screen.getByTestId('debate-workspace')).toBeInTheDocument();
     expect(screen.queryByText('+ New Debate')).toBeNull();
+  });
+
+  it('does not render the summary card on desktop (t/4799)', () => {
+    debateStoreState.activeDebateId = 'debate-1';
+    debateStoreState.activeDebate = makeSession();
+    render(<DebateTab />);
+
+    expect(screen.queryByRole('button', { name: 'Open in Window' })).toBeNull();
   });
 
   it('shows the first-open hint once, and never again after it is dismissed', () => {
@@ -149,5 +157,21 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
 
     render(<DebateTab />);
     expect(screen.queryByText(/Opens here now/)).toBeNull();
+  });
+
+  it('returns to the library when activeDebate is cleared (t/4800)', () => {
+    debateStoreState.activeDebateId = 'debate-1';
+    debateStoreState.activeDebate = makeSession();
+    const { rerender } = render(<DebateTab />);
+    expect(screen.getByTestId('debate-workspace')).toBeInTheDocument();
+
+    // Simulate Back navigation: store clears activeDebate
+    debateStoreState.activeDebateId = null;
+    debateStoreState.activeDebate = null;
+    rerender(<DebateTab />);
+
+    // Library should now be visible
+    expect(screen.queryByTestId('debate-workspace')).toBeNull();
+    expect(screen.getByText('+ New Debate')).toBeInTheDocument();
   });
 });
