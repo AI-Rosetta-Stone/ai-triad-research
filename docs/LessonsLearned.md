@@ -1237,6 +1237,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 2. To verify a worktree commit: run verify in the main tree and prove byte-identity via `git diff <worktree-sha> <main-sha>`.
 3. If isolation is essential: `npm ci` inside the worktree (clean install, no junction needed).
 4. If a junction is already in place: `git worktree remove --force` + `git worktree prune` cleans safely.
+5. **This is the exact hazard class behind #420's shared-state corruption incident (t/4815)** — #345 once prescribed junctioning `node_modules` INTO a fresh worktree (the reverse direction of this entry's symlink-main-tree case), which carries the same risk: anything that writes through the junction (a `pnpm install` triggered from inside the worktree) lands in whichever side of the junction is the real directory. #345 has been amended to match this entry's prevention — if either entry's guidance is cited, cite both together.
 
 **Status:** Active
 
@@ -7044,9 +7045,11 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #345 [Build] Fresh Worktree Has No `node_modules` — `mklink /J` Fails in Git Bash; Use PowerShell `New-Item -ItemType Junction`
+## #345 [Build] Fresh Worktree Has No `node_modules` — AMENDED: Never Junction It to the Shared Checkout; Run `pnpm install` in the Worktree Instead
 
-**Pattern:** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). Fix: create `node_modules` junctions from PowerShell and run tools from there.
+**AMENDMENT (2026-11-03, Tech Lead p/335#282, t/4815):** This entry's ORIGINAL prevention — junction a fresh worktree's `node_modules` to the shared checkout's via PowerShell `New-Item -ItemType Junction` — is the exact hazard that caused #420's shared-state corruption incident. On pnpm 11, `pnpm exec` (which the pre-push hook calls) auto-installs the whole workspace and writes new links straight through the junction into the shared directory. Three other worktrees had followed this entry's original advice and were unlinked as part of the incident cleanup. **The corrected guidance is: run `pnpm install` inside the worktree — never junction `node_modules` to the shared checkout in either direction.** See #420 (the incident this entry's original advice caused) and the Windows Junction Trap entry (the sibling hazard in the reverse direction — junctioning a worktree's `node_modules` FROM the shared tree instead of TO it). The original pattern/root-cause text below is kept for history; follow the amended prevention, not the original.
+
+**Pattern (as originally observed, now superseded by the amendment above):** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). The ORIGINAL fix — create `node_modules` junctions from PowerShell and run tools from there — is now known to be unsafe; see the amendment above.
 
 **Instances:**
 - 2026-10-21 — Tech Lead (p/335#180): fresh worktree, `ls eslint.config.*` exited 2; `cmd //c mklink /J` from Git Bash → "Invalid switch". Resolved by creating junctions with `New-Item -ItemType Junction` (repo root, `lib/`, `taxonomy-editor/`) in PowerShell, then running eslint, tsc and vitest.
@@ -7054,21 +7057,16 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating OR removing Windows junctions from Git Bash fails because Git Bash rewrites `//c` prefixes and backslash paths (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` and junction removal are not subject to MSYS translation.
 
-**Prevention:**
-1. **In a fresh worktree, create `node_modules` junctions before running any JS/TS tools:**
-   ```powershell
-   $wt = "C:\Users\jsnov\repos\ai-triad-research\.worktrees\<name>"
-   New-Item -ItemType Junction "$wt\node_modules" -Target "$root\node_modules"
-   New-Item -ItemType Junction "$wt\lib\node_modules" -Target "$root\lib\node_modules"
-   New-Item -ItemType Junction "$wt\taxonomy-editor\node_modules" -Target "$root\taxonomy-editor\node_modules"
-   ```
-2. **Never use `cmd //c mklink` OR `cmd //c rmdir` from Git Bash on a junction path** — MSYS rewrites the path either direction. Use PowerShell `New-Item -ItemType Junction` to create, and PowerShell `rmdir`/`Remove-Item` (guarded by `Test-Path`) to remove.
-3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file.
-4. **Never chain a junction create/remove with a commit/push in one `&&` call** — if the junction operation fails (as it will from Git Bash), the chain cuts before the commit/push ever runs, same as #96. Run the junction operation and the git operations as separate commands.
+**Prevention (AMENDED — follow this, not the original junction-based advice):**
+1. **In a fresh worktree, run `pnpm install` (or `npm ci`) inside the worktree itself.** This is slower than a junction but is the only safe option — a junctioned `node_modules` lets anything that installs inside the worktree (including an auto-install triggered by `pnpm exec` from a pre-push hook) write through the junction into the shared checkout's `node_modules`, corrupting it for every other agent. See #420 for the full incident this caused.
+2. **Never create a `node_modules` junction between a worktree and the shared checkout, in EITHER direction** — not worktree-to-shared (this entry's original, now-retracted advice) and not shared-to-worktree (the Windows Junction Trap entry's case). Both directions let a write on one side corrupt the other.
+3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file — the fix is `pnpm install` in the worktree, not a junction.
+4. **(Historical, still valid for any OTHER junction use, not `node_modules`) Never use `cmd //c mklink` OR `cmd //c rmdir` from Git Bash on a junction path** — MSYS rewrites the path either direction. Use PowerShell `New-Item -ItemType Junction` to create, and PowerShell `rmdir`/`Remove-Item` (guarded by `Test-Path`) to remove, for any junction that isn't `node_modules`.
+5. **Never chain a junction create/remove with a commit/push in one `&&` call** — if the junction operation fails (as it will from Git Bash), the chain cuts before the commit/push ever runs, same as #96. Run the junction operation and the git operations as separate commands.
 
-**Status:** Active — 2 instances (Tech Lead p/335#180; Tech Lead p/335#271 — rmdir counterpart).
+**Status:** Amended (2026-11-03, t/4815) — original junction-based prevention retracted as actively harmful; 2 instances of the original pattern remain on record (Tech Lead p/335#180; Tech Lead p/335#271 — rmdir counterpart), plus the incident that prompted this amendment (#420, Tech Lead p/335#273/#282).
 
-**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; create `node_modules` junctions via PowerShell before running any JS/TS toolchain.
+**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; run `pnpm install`/`npm ci` inside the worktree — never junction `node_modules` to or from the shared checkout.
 
 ---
 
@@ -8566,10 +8564,11 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ## #420 [Build] Junctioning a Worktree's `node_modules` to the Shared Checkout's Lets a `pnpm install` Inside the Worktree Corrupt the Shared Directory — Anchor t/4815
 
-**Pattern:** An agent, wanting to run tests in a worktree without a full `pnpm install`, junctions the worktree's `taxonomy-editor/node_modules` to the SHARED checkout's `node_modules` (rather than the reverse — this entry is distinct from #345, which junctions a worktree to an existing good copy and doesn't write back through it). If anything later runs `pnpm install` INSIDE that worktree (e.g. a pre-push hook's `pnpm exec` path), pnpm writes its new links straight through the junction into the SHARED directory — corrupting it with dozens of links pointing into `.worktrees/<name>/node_modules/.pnpm`. Once that worktree is removed, every OTHER agent using the shared checkout hits `MODULE_NOT_FOUND` from vitest/eslint, because the shared `node_modules` now contains links into a directory that no longer exists.
+**Pattern:** An agent, wanting to run tests in a worktree without a full `pnpm install`, junctions the worktree's `taxonomy-editor/node_modules` to the SHARED checkout's `node_modules`. **Correction (2026-11-03, Tech Lead p/335#282): this is not distinct from #345 — #345's original advice (junction a fresh worktree's `node_modules` via PowerShell) IS this exact hazard, confirmed by reproduction, and #345 has been amended to retract it.** If anything later runs `pnpm install` INSIDE that worktree (confirmed on pnpm 11: `pnpm exec`, which the pre-push hook calls, auto-installs the whole workspace), pnpm writes its new links straight through the junction into the SHARED directory — corrupting it with dozens of links pointing into `.worktrees/<name>/node_modules/.pnpm`. Once that worktree is removed, every OTHER agent using the shared checkout hits `MODULE_NOT_FOUND` from vitest/eslint, because the shared `node_modules` now contains links into a directory that no longer exists. **Confirmed spread: 3 other worktrees had independently followed #345's original advice and were unlinked as part of this incident's cleanup.**
 
 **Instances:**
-- 2026-11-03 — Tech Lead (p/335#273, t/4815): junctioned a worktree's `taxonomy-editor/node_modules` to the shared checkout's to run tests without installing. A `pnpm install` inside the worktree — likely triggered through the pre-push `pnpm exec` path, though not confirmed — wrote 57 links through the junction into the shared directory. After the worktree was removed, Chat (p/513) hit `MODULE_NOT_FOUND` from vitest/eslint on the shared checkout. `pnpm install --frozen-lockfile` (with or without `--force`) reported "Already up to date" and did NOT relink or fix the corruption — the actual fix was moving `taxonomy-editor/node_modules` aside entirely, then running `pnpm install --frozen-lockfile --prefer-offline` fresh. Verified vitest and eslint working afterward.
+- 2026-11-03 — Tech Lead (p/335#273, t/4815): junctioned a worktree's `taxonomy-editor/node_modules` to the shared checkout's to run tests without installing. A `pnpm install` inside the worktree wrote 57 links through the junction into the shared directory. After the worktree was removed, Chat (p/513) hit `MODULE_NOT_FOUND` from vitest/eslint on the shared checkout. `pnpm install --frozen-lockfile` (with or without `--force`) reported "Already up to date" and did NOT relink or fix the corruption — the actual fix was moving `taxonomy-editor/node_modules` aside entirely, then running `pnpm install --frozen-lockfile --prefer-offline` fresh. Verified vitest and eslint working afterward.
+- 2026-11-03 — Tech Lead (p/335#282, **mechanism confirmed, spread identified**): confirmed on pnpm 11 that `pnpm exec` — called by the pre-push hook — is what auto-installs the whole workspace and writes through the junction. Found and unlinked 3 other worktrees that had independently followed #345's original (now-retracted) junction advice.
 
 **Root Cause:** A junction makes a worktree's `node_modules` path resolve to the SAME physical directory as the shared checkout's — there is no isolation between them. `pnpm install` running inside the worktree has no way to know it's writing through a junction into shared state; it writes exactly as if the worktree had its own real `node_modules`. The resulting links point into `.worktrees/<name>/node_modules/.pnpm`, a path that only exists while that specific worktree does — once removed, the shared `node_modules` is left holding dangling references. `pnpm install --frozen-lockfile` doesn't detect or repair this because it sees an already-populated `node_modules` tree and considers its job done ("Already up to date"), never inspecting whether the existing links point somewhere that still exists or somewhere worktree-scoped.
 
