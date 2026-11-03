@@ -52,13 +52,17 @@ function toolNameOf(placeKey: string): string {
   return TOOL_NAMES[tool] ?? '';
 }
 
-/** t/4772: null on a library or any non-item place (`placeKey` ends in `:none`, or the tool has
- *  no item concept at all). */
-function itemPlaceOf(tool: string, placeKey: string, path: string): ItemPlace | null {
-  if (!ITEM_TOOLS.has(tool)) return null;
-  const id = placeKey.slice(placeKey.indexOf(':') + 1);
+/** t/4772: the ⧉ target for `place`, or null when ⧉ shouldn't show — a library or any
+ *  non-item place (`placeKey` ends in `:none`, or the tool has no item concept at all),
+ *  phone width, or `canOpenInNewWindow` itself declines (Electron: opeds/inquiry have no
+ *  popout window type). Folded into one function, rather than inline in LocationBarHost, to
+ *  keep that component's own branching under the complexity budget. */
+function newWindowPlaceFor(place: { tool: string; placeKey: string; path: string }, isPhone: boolean): ItemPlace | null {
+  if (isPhone || !ITEM_TOOLS.has(place.tool)) return null;
+  const id = place.placeKey.slice(place.placeKey.indexOf(':') + 1);
   if (!id || id === 'none') return null;
-  return { tool: tool as ItemToolId, id, path };
+  const itemPlace: ItemPlace = { tool: place.tool as ItemToolId, id, path: place.path };
+  return canOpenInNewWindow(itemPlace) ? itemPlace : null;
 }
 
 /** ⧉ at the location bar's right end, item places only (§ spec "⧉ Open in new window"). */
@@ -269,8 +273,7 @@ export function LocationBarHost() {
   const back = backAction({ isPhone, canGoBack, backDest: entries[index - 1], crumbs });
   const forwardName = historyButtonName('Forward', canGoForward ? entries[index + 1] : undefined);
 
-  const itemPlace = itemPlaceOf(place.tool, place.placeKey, place.path);
-  const showNewWindow = !isPhone && itemPlace !== null && canOpenInNewWindow(itemPlace);
+  const newWindowPlace = newWindowPlaceFor(place, isPhone);
 
   return (
     <div className="nav-locbar location-bar-host">
@@ -299,7 +302,7 @@ export function LocationBarHost() {
 
       <LocationBar crumbs={crumbs} tool={place.tool} onUp={href => navigate(() => goToPath(href))} />
 
-      {showNewWindow && itemPlace && <NewWindowButton place={itemPlace} />}
+      {newWindowPlace && <NewWindowButton place={newWindowPlace} />}
 
       <div className="nav-locbar-live" aria-live="polite">{announcement}</div>
     </div>
