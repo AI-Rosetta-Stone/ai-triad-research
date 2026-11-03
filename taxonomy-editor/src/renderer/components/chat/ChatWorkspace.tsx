@@ -365,12 +365,6 @@ type ActiveChat = NonNullable<ReturnType<typeof useChatStore.getState>['activeCh
 type ShareState = 'idle' | 'sharing' | 'success' | 'error';
 type ResizePanel = ReturnType<typeof useResizableRightPanel>;
 
-/** t/4724: back to the chat list — same store reset the phone-only "← Chats" button
- *  (ChatTab.tsx) already uses, now also reachable from the always-visible header chevron. */
-function goBackToList() {
-  useChatStore.setState({ activeChatId: null, activeChat: null, chatModel: null });
-}
-
 function ChatHeader({ activeChat, shareState, onShare }: {
   activeChat: ActiveChat;
   shareState: ShareState;
@@ -379,9 +373,8 @@ function ChatHeader({ activeChat, shareState, onShare }: {
   const poverInfo = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO];
   return (
     <div className="chat-header">
-      <button type="button" className="chat-header-back" onClick={goBackToList} aria-label="Back to chats" title="Back to chats">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
-      </button>
+      {/* t/4690: the in-page back chevron is removed — the location bar (t/4640/t/4689) is now
+         the one way up to the collection, per Design (t/4690#11). */}
       <div className="chat-header-titles">
         <span className="chat-header-eyebrow">Individual Chat</span>
         <h1 className="chat-header-title">{activeChat.title}</h1>
