@@ -7,7 +7,8 @@ import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
-import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
+import { getStorageUserId, isAnonymousUser, getStableId } from '../security/userContext.js';
+import { idp } from '../security/userContext.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
@@ -33,15 +34,42 @@ function communityInquiriesDir(): string { return resolveDataPath('community/inq
 function submissionsDir(): string { return resolveDataPath('community/_submissions'); }
 function removalsDir(): string { return resolveDataPath('community/_removals'); }
 
-// ── Admin ──
+// ── Admin (t/4328: SO C1-C3 conditions) ──
 
+/** Get configured admin entries from env var (required — no defaults). */
 export function getAdminUsers(): string[] {
-  return (process.env.ADMIN_USERS || 'jpsnover,jsnover13-at-gmail-com').split(',').map(s => s.trim());
+  if (!process.env.ADMIN_USERS) {
+    log.warn('ADMIN_USERS env var unset — no admins configured');
+    return [];
+  }
+  return process.env.ADMIN_USERS.split(',').map(s => s.trim());
 }
 
-export function isAdmin(userId?: string): boolean {
-  const uid = userId ?? getStorageUserId();
-  return uid !== '_local' && getAdminUsers().includes(uid);
+/** Check if principal is admin by exact stableId match against idp-qualified entries.
+ *  C1: Match idp-qualified entries (github:<id>, aad:<tid>-<oid>) only.
+ *  Bare entries don't match. Undefined stableId is not admin.
+ */
+export function isAdmin(): boolean {
+  const stableId = getStableId();
+  if (!stableId) return false; // Undefined stableId is never admin (C1)
+
+  const userIdp = idp(); // e.g., 'github', 'aad'
+  if (!userIdp) return false;
+
+  const qualifiedEntry = `${userIdp.toLowerCase()}:${stableId.toLowerCase()}`;
+  return getAdminUsers().includes(qualifiedEntry);
+}
+
+/** Boot-time validation: warn on bare (unmatchable) ADMIN_USERS entries. */
+export function validateAdminEntries(entries: string[]): void {
+  for (const entry of entries) {
+    // Bare entries (no idp: prefix) are ignored for matching
+    if (!entry.includes(':') && entry.includes('@')) {
+      // Contains @ but no idp: prefix — unmatchable (per C3: count only, no values)
+      log.warn('ADMIN_USERS has unmatchable bare entry (no idp: prefix, t/4328)');
+      break; // Log once per session
+    }
+  }
 }
 
 // ── Desktop Ask validation (t/4612, t/4744) ──
