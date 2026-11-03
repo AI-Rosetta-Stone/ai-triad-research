@@ -114,6 +114,28 @@ if ($ForStaging) {
                 $result[$m.Groups[1].Value] = $m.Groups[2].Value
             }
         }
+
+        # t/4794 incident: an override entry whose value is a bare PARAM reference (e.g.
+        # `{ name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }`,
+        # t/4738) does NOT match $literalPattern (no quotes), so it was silently skipped here --
+        # baseEnv's own (prod) literal for that same key then survived untouched, and staging
+        # served prod's blob containers for ~15h. Resolve a bare-identifier override value against
+        # this file's own `param <name> ... = '<literal>'` declarations (a param with a non-literal
+        # default, e.g. a resource reference, still can't be resolved and is left unmatched --
+        # this only closes the specific "override points at a param with a literal default" shape).
+        $paramLiteralPattern = "param\s+([A-Za-z_][A-Za-z0-9_]*)\s+string\s*=\s*'([^'\$\{\}]*)'"
+        $paramDefaults = @{}
+        $content | Select-String -Pattern $paramLiteralPattern -AllMatches | ForEach-Object {
+            foreach ($m in $_.Matches) { $paramDefaults[$m.Groups[1].Value] = $m.Groups[2].Value }
+        }
+        $identifierOverridePattern = "\{\s*name:\s*'([^']+)',\s*value:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}"
+        $stagingBlock | Select-String -Pattern $identifierOverridePattern -AllMatches | ForEach-Object {
+            foreach ($m in $_.Matches) {
+                $name = $m.Groups[1].Value
+                $paramName = $m.Groups[2].Value
+                if ($paramDefaults.ContainsKey($paramName)) { $result[$name] = $paramDefaults[$paramName] }
+            }
+        }
     } else {
         Write-Warning "stagingEnvOverrides block not found in $BicepPath — only baseEnv entries returned"
     }

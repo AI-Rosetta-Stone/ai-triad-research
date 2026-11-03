@@ -1,8 +1,8 @@
 [
-  { "name": "AI_TRIAD_DATA_ROOT",   "value": "/mnt/shared" },
+  { "name": "AI_TRIAD_DATA_ROOT",   "value": "/mnt/staging-shared" },
   { "name": "TAXONOMY_CACHE_DIR",   "value": "/mnt/shared" },
   { "name": "HOME",                 "value": "/home/aitriad" },
-  { "name": "NODE_ENV",             "value": "production" },
+  { "name": "NODE_ENV",             "value": "staging" },
   { "name": "WEBSITE_AUTH_ENABLED", "value": "true" },
   { "name": "ALLOWED_ORIGINS",      "value": "https://taxonomy-editor.example.com" },
   { "name": "AZURE_KEYVAULT_URL",   "secretRef": "kv-url" }
