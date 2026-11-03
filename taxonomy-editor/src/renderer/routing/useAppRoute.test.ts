@@ -17,6 +17,9 @@ vi.mock('@bridge', () => ({ isElectronMode: () => mockIsElectronMode() }));
 const mockRestorePath = vi.fn();
 vi.mock('../navigation/restore', () => ({ restorePath: (p: string) => mockRestorePath(p) }));
 
+const mockRecordNav = vi.fn();
+vi.mock('../navigation/navRecord', () => ({ recordNav: (...a: unknown[]) => mockRecordNav(...a) }));
+
 vi.mock('./appRoutes', () => ({
   findRoute: (pathname: string) => (pathname === '/chat/c-1' ? { route: {}, params: { chatId: 'c-1' } } : null),
 }));
@@ -47,6 +50,20 @@ describe('useAppRoute', () => {
     goTo('/share/pov/1');
     renderHook(() => useAppRoute());
     expect(mockRestorePath).not.toHaveBeenCalled();
+  });
+
+  it('records its boot decision for each case (t/4769)', () => {
+    goTo('/chat/c-1', '?x=1');
+    renderHook(() => useAppRoute());
+    goTo('/');
+    renderHook(() => useAppRoute());
+    goTo('/share/pov/1');
+    renderHook(() => useAppRoute());
+    expect(mockRecordNav.mock.calls).toEqual([
+      ['nav.boot', { path: '/chat/c-1?x=1', decision: 'matched' }],
+      ['nav.boot', { path: '/', decision: 'skipped-root' }],
+      ['nav.boot', { path: '/share/pov/1', decision: 'skipped-no-route' }],
+    ]);
   });
 
   it('does not handle popstate — the nav subscriber owns history moves', () => {

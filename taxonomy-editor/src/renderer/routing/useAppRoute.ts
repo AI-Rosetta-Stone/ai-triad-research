@@ -10,6 +10,7 @@
 import { useEffect } from 'react';
 import { isElectronMode } from '@bridge';
 import { restorePath } from '../navigation/restore';
+import { recordNav } from '../navigation/navRecord';
 import { findRoute } from './appRoutes';
 
 export function useAppRoute(): void {
@@ -19,7 +20,10 @@ export function useAppRoute(): void {
     // session's own boot defaults for no gain. A path no route owns (served by another
     // page) is left alone, as before.
     const { pathname, search } = window.location;
-    if (pathname === '/' || !findRoute(pathname)) return;
-    restorePath(pathname + search);
+    const path = pathname + search;
+    if (pathname === '/') { recordNav('nav.boot', { path, decision: 'skipped-root' }); return; }
+    if (!findRoute(pathname)) { recordNav('nav.boot', { path, decision: 'skipped-no-route' }); return; }
+    recordNav('nav.boot', { path, decision: 'matched' });
+    restorePath(path);
   }, []);
 }
