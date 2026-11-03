@@ -850,8 +850,15 @@ jobs:
           # case) and is caught here, once, and reported as a gate defect distinctly from a real
           # not-ready mount.
           try {
+            # t/4760: MaxAttempts raised 13->22 (130s->220s). #4357 (t/4760) made the
+            # in-process data-root validation retry for up to DATA_ROOT_MOUNT_WAIT_MS
+            # (default 180s) on the github-api path (entities/organizations/edges via
+            # readFileStrict), not just the filesystem path this probe was originally
+            # sized for. This external probe must outlast that in-process budget with
+            # margin, or it gives up and rolls back a revision that would have become
+            # ready a few seconds later. 220s > 180s + ~40s margin.
             $Probe = { (Test-TaxEditorMountReadiness -BaseUrl $BaseUrl -TimeoutSec 15).Ready }
-            $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 13 -IntervalSeconds 10
+            $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 22 -IntervalSeconds 10
             $ElapsedSec = [math]::Round(((Get-Date) - $RevisionCreatedAt).TotalSeconds, 1)
             if ($Verdict.Verdict -eq 'ready') {
               Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=true"
