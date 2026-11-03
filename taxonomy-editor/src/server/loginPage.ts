@@ -192,8 +192,6 @@ export function buildLoginPage(showAnonymous: boolean): string {
   .voice-acc{animation:fadeIn 150ms ease-out 370ms both;}
   .voice-saf{animation:fadeIn 150ms ease-out 490ms both;}
   .voice-skp{animation:fadeIn 150ms ease-out 610ms both;}
-  .jacket-footer{margin-top:40px;font-size:12px;color:rgba(255,255,255,0.35);
-    animation:fadeIn 150ms ease-out 610ms both;}
 
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
   @media(prefers-reduced-motion:reduce){
@@ -209,7 +207,7 @@ export function buildLoginPage(showAnonymous: boolean): string {
     .split{flex-direction:column-reverse;}
     .jacket{flex:none;padding:28px 24px;align-items:center;text-align:center;}
     .jacket-content{max-width:none;}
-    .specimen,.specimen-sep,.jacket-footer{display:none;}
+    .specimen,.specimen-sep{display:none;}
     .project-title{font-size:24px;}
     .tagline{display:none;}
     .paper{flex:1;padding:32px 24px;}
@@ -248,7 +246,6 @@ export function buildLoginPage(showAnonymous: boolean): string {
         <div class="question">&ldquo;${escapeHtml(INTRO_QUESTION)}&rdquo;</div>${heroVoicesHtml()}
         <div class="coda">${segmentsHtml(INTRO_CODA)}</div>
       </div>
-      <div class="jacket-footer">A research instrument of the Berkman Klein Center, 2026</div>
     </div>
   </section>
 </div>
