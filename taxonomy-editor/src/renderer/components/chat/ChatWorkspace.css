@@ -248,26 +248,6 @@
   flex-shrink: 0;
 }
 
-.chat-header-back {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.chat-header-back:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
 .chat-header-titles {
   display: flex;
   flex-direction: column;

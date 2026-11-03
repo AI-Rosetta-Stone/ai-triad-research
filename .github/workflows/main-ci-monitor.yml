@@ -98,6 +98,10 @@ jobs:
             const { heartbeatGap, ESCALATED_LABEL } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/main-ci-monitor.mjs`).href);
             const label = process.env.HEARTBEAT_LABEL;
             const owner = context.repo.owner, repo = context.repo.repo;
+            // t/4661 (t/4096 regression): owner resolves to the ORG post-move; GitHub refuses to
+            // assign an issue to an org, only to a member. HUMAN_LOGIN is the shared human account
+            // (same convention as pr-triage.yml's HUMAN_LOGIN) -- the @-mention below still uses owner.
+            const HUMAN_LOGIN = 'jpsnover';
             const now = new Date();
             const list = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: label, per_page: 1,
@@ -131,7 +135,7 @@ jobs:
                   const created = await github.rest.issues.create({ owner, repo,
                     title: `main-ci-monitor: liveness gap of ${gap.gapMin}m`, body: msg,
                     labels: ['main-ci-monitor-stale', ESCALATED_LABEL, 'bug'] });
-                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [HUMAN_LOGIN] }); }
                   catch (e) { core.warning(`could not assign ${owner} to #${created.data.number}: ${e.message}`); }
                 }
               }
@@ -157,6 +161,10 @@ jobs:
             const { heartbeatGap, ESCALATED_LABEL } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/main-ci-monitor.mjs`).href);
             const label = process.env.SCHEDULE_HEARTBEAT_LABEL;
             const owner = context.repo.owner, repo = context.repo.repo;
+            // t/4661 (t/4096 regression): owner resolves to the ORG post-move; GitHub refuses to
+            // assign an issue to an org, only to a member. HUMAN_LOGIN is the shared human account
+            // (same convention as pr-triage.yml's HUMAN_LOGIN) -- the @-mention below still uses owner.
+            const HUMAN_LOGIN = 'jpsnover';
             const now = new Date();
             const list = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label, per_page: 1 });
             const note = 'Updated ONLY by `schedule`-triggered runs (t/4173) — unlike the main heartbeat, push-triggered (workflow_run) runs do NOT refresh this. A stale timestamp here means GitHub\'s cron stopped firing this workflow, even if push traffic kept the other heartbeat looking healthy.';
@@ -185,7 +193,7 @@ jobs:
                   const created = await github.rest.issues.create({ owner, repo,
                     title: `main-ci-monitor: schedule-cron stall of ${gap.gapMin}m`, body: msg,
                     labels: ['main-ci-monitor-schedule-stale', ESCALATED_LABEL, 'bug'] });
-                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [HUMAN_LOGIN] }); }
                   catch (e) { core.warning(`could not assign ${owner} to #${created.data.number}: ${e.message}`); }
                 }
               }
@@ -205,6 +213,10 @@ jobs:
             catch { v = { ok: false, error: 'verdict.json missing/empty — the classifier shim did not produce output' }; }
 
             const owner = context.repo.owner, repo = context.repo.repo;
+            // t/4661 (t/4096 regression): owner resolves to the ORG post-move; GitHub refuses to
+            // assign an issue to an org, only to a member. HUMAN_LOGIN is the shared human account
+            // (same convention as pr-triage.yml's HUMAN_LOGIN) -- the @-mention below still uses owner.
+            const HUMAN_LOGIN = 'jpsnover';
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const ts = new Date().toISOString();
 
@@ -222,7 +234,7 @@ jobs:
                 if (d.escalate) {
                   // ONE distinguishable event per episode: the label is the latch, the assignment + @mention notify.
                   await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [ESCALATED_LABEL] });
-                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: issue.number, assignees: [owner] }); }
+                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: issue.number, assignees: [HUMAN_LOGIN] }); }
                   catch (e) { core.warning(`could not assign ${owner} to #${issue.number}: ${e.message}`); }
                   await github.rest.issues.createComment({ owner, repo, issue_number: issue.number,
                     body: `@${owner} 🔺 **ESCALATED** — this alert is ${d.reason}; it has not cleared on its own. Labelled \`${ESCALATED_LABEL}\` (DevOps is pinged via the local escalation bridge). This fires once per episode.` });
@@ -308,6 +320,10 @@ jobs:
             try { v = JSON.parse(fs.readFileSync('/tmp/push-liveness-verdict.json', 'utf8')); }
             catch { v = { ok: false, error: 'push-liveness-verdict.json missing/empty' }; }
             const owner = context.repo.owner, repo = context.repo.repo;
+            // t/4661 (t/4096 regression): owner resolves to the ORG post-move; GitHub refuses to
+            // assign an issue to an org, only to a member. HUMAN_LOGIN is the shared human account
+            // (same convention as pr-triage.yml's HUMAN_LOGIN) -- the @-mention below still uses owner.
+            const HUMAN_LOGIN = 'jpsnover';
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const LABEL = 'main-push-liveness';
             const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
@@ -335,7 +351,7 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Still present at ${new Date().toISOString()}.` });
             } else {
               const created = await github.rest.issues.create({ owner, repo, title: `main push-liveness: ${violations.length} uncovered commit(s)`, body, labels: [LABEL, ESCALATED_LABEL, 'bug'] });
-              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [HUMAN_LOGIN] }); }
               catch (e) { core.warning(`could not assign ${owner}: ${e.message}`); }
             }
 
@@ -427,6 +443,10 @@ jobs:
               await import(pathToFileURL(`${ws}/operations/devops/scheduled-workflow-health.mjs`).href);
             const { ESCALATED_LABEL } = await import(pathToFileURL(`${ws}/operations/devops/main-ci-monitor.mjs`).href);
             const owner = context.repo.owner, repo = context.repo.repo;
+            // t/4661 (t/4096 regression): owner resolves to the ORG post-move; GitHub refuses to
+            // assign an issue to an org, only to a member. HUMAN_LOGIN is the shared human account
+            // (same convention as pr-triage.yml's HUMAN_LOGIN) -- the @-mention below still uses owner.
+            const HUMAN_LOGIN = 'jpsnover';
             const LABEL = 'scheduled-workflow-alert', ACK = 'owner-acked';
             const declared = JSON.parse(fs.readFileSync(`${ws}/operations/devops/scheduled-workflows.json`, 'utf8')).workflows;
             const wfDir = path.join(ws, '.github', 'workflows');
@@ -477,7 +497,7 @@ jobs:
             const body = `<!-- fp:${fp} -->\n@${owner} **Scheduled workflows failing, silent, or unmonitored** (t/4058). main-ci-monitor does not watch these otherwise.\n\n${summary}\n\nFix each, or record why it is accepted. This issue updates in place and closes itself when all are healthy.\n\n- **Run:** ${runUrl}`;
             if (!open.data.length) {
               const created = await github.rest.issues.create({ owner, repo, title: `Scheduled workflow health: ${problems.length} problem(s)`, body, labels: [LABEL, ESCALATED_LABEL] });
-              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [HUMAN_LOGIN] }); }
               catch (e) { core.warning(`could not assign ${owner}: ${e.message}`); }
               return;
             }
@@ -528,6 +548,10 @@ jobs:
             const { invalidWorkflowFileVerdict } = await import(pathToFileURL(`${ws}/operations/devops/scheduled-workflow-health.mjs`).href);
             const { ESCALATED_LABEL } = await import(pathToFileURL(`${ws}/operations/devops/main-ci-monitor.mjs`).href);
             const owner = context.repo.owner, repo = context.repo.repo;
+            // t/4661 (t/4096 regression): owner resolves to the ORG post-move; GitHub refuses to
+            // assign an issue to an org, only to a member. HUMAN_LOGIN is the shared human account
+            // (same convention as pr-triage.yml's HUMAN_LOGIN) -- the @-mention below still uses owner.
+            const HUMAN_LOGIN = 'jpsnover';
             const LABEL = 'invalid-workflow-file';
             const wfDir = path.join(ws, '.github', 'workflows');
             const files = fs.readdirSync(wfDir).filter(n => /\.ya?ml$/.test(n));
@@ -575,7 +599,7 @@ jobs:
             const body = `<!-- fp:${fp} -->\n@${owner} **${verdicts.length} workflow file(s) GitHub rejected structurally** (t/4347) -- 0 jobs + \`conclusion: failure\` on a push-event run means the YAML itself is invalid (bad key, bad structure), not a job failing inside it. Every trigger the file declares is silently dead until this is fixed.\n\n${rows}\n\nFix the YAML (check \`permissions:\` keys first -- workflow-lint's Check 4 now catches that specific cause at PR time) and push; this closes automatically.\n\n- **Run:** ${runUrl}`;
             if (!open.data.length) {
               const created = await github.rest.issues.create({ owner, repo, title: `Invalid workflow file(s): ${verdicts.length}`, body, labels: [LABEL, ESCALATED_LABEL] });
-              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [HUMAN_LOGIN] }); }
               catch (e) { core.warning(`could not assign ${owner}: ${e.message}`); }
               return;
             }

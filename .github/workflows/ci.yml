@@ -2838,7 +2838,12 @@ jobs:
       (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # t/4796: the serial per-file gh issue file/comment loop ran 64 ops in 5m before this
+    # job was cancelled by the old 5-minute budget — cancellation (not the intentionally
+    # advisory step failure) was what made the overall run conclusion 'cancelled' and broke
+    # Invoke-ContainerBuild.ps1's green-CI check on every recent main push. 15m gives headroom;
+    # batching the loop itself is a follow-up, not this fix.
+    timeout-minutes: 15
     permissions:
       contents: read
       issues: write

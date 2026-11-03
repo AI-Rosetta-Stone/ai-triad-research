@@ -46,6 +46,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# t/4794 TL follow-up 2: a local minimal helper, not a hard dependency on AITriad.psm1 -- this
+# script is invoked from many other scripts/CI steps that may not have imported that module
+# (same convention as Rotate-SignInSecret.ps1's own local New-ActionableError).
+function New-ActionableError {
+    param([string]$Goal, [string]$Problem, [string]$Location, [string]$NextSteps)
+    "Goal: $Goal`nProblem: $Problem`nLocation: $Location`nResolve: $NextSteps"
+}
+
 if (-not $BicepPath) {
     $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $BicepPath = Join-Path $repoRoot 'deploy/azure/main.bicep'
@@ -109,9 +117,58 @@ $block | Select-String -Pattern $literalPattern -AllMatches | ForEach-Object {
 if ($ForStaging) {
     if ($content -match '(?s)var stagingEnvOverrides\s*=\s*\[(.*?)\]') {
         $stagingBlock = $Matches[1]
-        $stagingBlock | Select-String -Pattern $literalPattern -AllMatches | ForEach-Object {
-            foreach ($m in $_.Matches) {
-                $result[$m.Groups[1].Value] = $m.Groups[2].Value
+
+        # Param literal defaults, needed to resolve a bare-identifier override value (below).
+        $paramLiteralPattern = "param\s+([A-Za-z_][A-Za-z0-9_]*)\s+string\s*=\s*'([^'\$\{\}]*)'"
+        $paramDefaults = @{}
+        $content | Select-String -Pattern $paramLiteralPattern -AllMatches | ForEach-Object {
+            foreach ($m in $_.Matches) { $paramDefaults[$m.Groups[1].Value] = $m.Groups[2].Value }
+        }
+
+        # t/4794 incident, fail-closed per t/4794#4 (TL): walk EVERY override entry (not just the
+        # ones a pattern happens to match), one per line -- every real stagingEnvOverrides entry in
+        # this file is single-line `{ name: 'X', value: <expr> }`. An entry whose <expr> can't be
+        # resolved to a literal (not a quoted non-interpolated string, not a bare identifier naming
+        # a param with a literal default) is fine to leave unmanaged IF baseEnv never exposed that
+        # key as a literal either (e.g. ALLOWED_ORIGINS -- interpolated on both sides, by design,
+        # t/4794#4 scoping). But if baseEnv DID supply a literal for that key, an unresolvable
+        # override can never shadow it -- silently leaving baseEnv's (prod) value in place is
+        # exactly the incident. THROW, naming the key and the unresolved expression, rather than
+        # repeat the silent skip for the next shape of this bug.
+        $entryLinePattern = "^\{\s*name:\s*'([^']+)',\s*value:\s*(.+?)\s*\}$"
+        foreach ($rawLine in ($stagingBlock -split "`n")) {
+            $line = $rawLine.Trim()
+            if ($line -eq '' -or $line.StartsWith('//')) { continue }  # blank line or comment -- always safe to skip
+
+            if ($line -notmatch $entryLinePattern) {
+                # t/4794 TL follow-up 1: a line that LOOKS like an override entry (has a quoted
+                # `name:`) but doesn't match the single-line shape -- e.g. it spans multiple lines
+                # -- must THROW, not silently skip. Silently skipping an entry we can't even parse
+                # the shape of is the same mechanism as the incident, just a different trigger.
+                if ($line -match "name:\s*'([^']+)'") {
+                    throw (New-ActionableError -Goal 'Resolve stagingEnvOverrides for the staging reconcile' `
+                        -Problem "an entry near `"$line`" does not match the expected single-line { name: 'X', value: <expr> } shape (it may span multiple lines)" `
+                        -Location 'Get-BicepBaseEnv.ps1, -ForStaging override walk' `
+                        -NextSteps 'Rewrite the entry in main.bicep as a single line, or extend the parser deliberately -- never let an unparseable entry silently fall through (t/4794).')
+                }
+                continue
+            }
+            $name = $Matches[1]
+            $rawValue = $Matches[2]
+
+            if ($rawValue -match "^'([^'\$\{\}]*)'$") {
+                $result[$name] = $Matches[1]
+                continue
+            }
+            if ($rawValue -match '^[A-Za-z_][A-Za-z0-9_]*$' -and $paramDefaults.ContainsKey($rawValue)) {
+                $result[$name] = $paramDefaults[$rawValue]
+                continue
+            }
+            if ($result.ContainsKey($name)) {
+                throw (New-ActionableError -Goal 'Resolve stagingEnvOverrides for the staging reconcile' `
+                    -Problem "entry '$name' = $rawValue cannot be resolved to a literal value, but baseEnv already supplies a literal for this key" `
+                    -Location 'Get-BicepBaseEnv.ps1, -ForStaging override walk' `
+                    -NextSteps 'The override would silently fail to apply and baseEnv (prod)''s value would ship to staging unchanged -- give the param a literal default, or make the override a quoted literal (t/4794).')
             }
         }
     } else {

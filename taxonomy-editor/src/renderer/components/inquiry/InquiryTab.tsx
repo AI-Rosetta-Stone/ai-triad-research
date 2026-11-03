@@ -22,6 +22,7 @@ import { InquiryAnswerPanel } from './InquiryAnswerPanel';
 import { LibraryListPage } from '../shared/LibraryListPage';
 import type { LibraryListPageConfig, LibraryVariant } from '../shared/LibraryListPage.types';
 import { InquiryGettingStarted } from './InquiryGettingStarted';
+import './inquiryShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
 import './InquiryTab.css';
 
 // LibraryListPage requires `{ id: string }`; InquiryResultSummary's own key is `jobId`.
