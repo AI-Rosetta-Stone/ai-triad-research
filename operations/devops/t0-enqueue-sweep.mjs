@@ -28,6 +28,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
+import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 
 export const IDLE_MINUTES = 15;
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
@@ -156,6 +157,13 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
 
     for (const pr of enqueue) {
       if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+      // Search results lag: re-read the PR directly right before acting (see live-pr-state.mjs).
+      const before = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+      if (!before.ok) {
+        console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
+          (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
+        continue;
+      }
       try {
         // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
         // re-arm, so clear it first.
@@ -164,6 +172,13 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
         console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
         failures.delete(pr.number);
       } catch (err) {
+        // The PR may have moved on in the seconds since the check above (merged by the queue,
+        // queued by its author, closed). That is a race, not a failure.
+        const after = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+        if (after.raced) {
+          console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
+          continue;
+        }
         failures.add(pr.number);
         console.error(`::error::#${pr.number}: ${err.message ?? err}`);
       }
