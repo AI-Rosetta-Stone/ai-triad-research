@@ -6,6 +6,20 @@
   overflow-y: auto;
 }
 
+/* t/4774 follow-up (Design, PR #4410 review): the always-visible ModelPicker added ~140px over
+   the old checkbox, pushing Start Chat below the fold at ordinary laptop heights (1154x671: 779px
+   of content, only 602px visible). .new-chat-dialog is the scroll region (max-height/overflow-y
+   above), so pinning the footer here keeps Cancel/Start Chat visible while the rest scrolls under
+   it, instead of scrolling the footer out of view with everything else. */
+.new-chat-dialog .dialog-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 12px -24px -24px;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
 .new-chat-label {
   display: block;
   margin: 12px 0 4px;
