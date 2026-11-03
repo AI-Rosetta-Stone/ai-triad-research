@@ -52,6 +52,62 @@ Describe 'Get-BicepBaseEnv -NamesOnly' {
     }
 }
 
+Describe 'Get-BicepBaseEnv -ForStaging override merge (t/4794 incident regression)' {
+    BeforeAll {
+        $scriptRoot  = Split-Path $PSScriptRoot -Parent
+        $getEnvScript = Join-Path $scriptRoot 'operations/devops/Get-BicepBaseEnv.ps1'
+        $bicepFixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/good-main.bicep'
+    }
+
+    It 'A literal stagingEnvOverrides entry wins over baseEnv (the already-working shape)' {
+        $env = & $getEnvScript -BicepPath $bicepFixture -ForStaging
+        $env['NODE_ENV'] | Should -Be 'staging'
+    }
+
+    It 'REGRESSION (t/4794): a param-reference stagingEnvOverrides entry resolves to the param''s literal default, winning over baseEnv' {
+        # Production shape: stagingEnvOverrides had `{ name: 'AZURE_USER_CONTENT_CONTAINER',
+        # value: azureUserContentContainerStaging }` -- a bare param identifier, not a quoted
+        # literal. The override was silently skipped, so baseEnv's prod literal ('user-content')
+        # survived untouched and staging served prod's blob container for ~15h.
+        $env = & $getEnvScript -BicepPath $bicepFixture -ForStaging
+        $env['AI_TRIAD_DATA_ROOT'] | Should -Be '/mnt/staging-shared' -Because 'the param-ref override must win, not baseEnv''s prod literal (/mnt/shared)'
+    }
+
+    It 'Without -ForStaging, baseEnv''s own literal is returned unmodified (no cross-contamination)' {
+        $env = & $getEnvScript -BicepPath $bicepFixture
+        $env['AI_TRIAD_DATA_ROOT'] | Should -Be '/mnt/shared'
+        $env['NODE_ENV'] | Should -Be 'production'
+    }
+
+    It 'Real main.bicep: the three t/4738 container vars resolve to staging-* under -ForStaging (live incident regression)' {
+        $realBicep = Join-Path $scriptRoot 'deploy/azure/main.bicep'
+        $env = & $getEnvScript -BicepPath $realBicep -ForStaging
+        $env['AZURE_USER_CONTENT_CONTAINER']  | Should -Be 'staging-user-content'
+        $env['AZURE_COMMUNITY_CONTAINER']     | Should -Be 'staging-community'
+        $env['AZURE_BRIEF_EXPORTS_CONTAINER'] | Should -Be 'staging-brief-exports'
+    }
+
+    It 'FAIL-CLOSED (t/4794#4, TL): an unresolvable override that would shadow a baseEnv literal THROWS, naming the key' {
+        $fixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/unresolvable-override-shadows-literal.bicep'
+        { & $getEnvScript -BicepPath $fixture -ForStaging } | Should -Throw '*AI_TRIAD_DATA_ROOT*'
+    }
+
+    It 'FAIL-CLOSED: the thrown error names the unresolved expression too, not just the key' {
+        $fixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/unresolvable-override-shadows-literal.bicep'
+        { & $getEnvScript -BicepPath $fixture -ForStaging } | Should -Throw '*someResource.properties.unresolvableThing*'
+    }
+
+    It 'CONTROL: an unresolvable override for a key baseEnv never exposed as a literal does NOT throw (the ALLOWED_ORIGINS shape, t/4794#4 scoping)' {
+        $fixture = Join-Path $PSScriptRoot 'fixtures/bicep-env-drift/unresolvable-override-no-baseline-literal.bicep'
+        { & $getEnvScript -BicepPath $fixture -ForStaging } | Should -Not -Throw
+    }
+
+    It 'Real main.bicep: -ForStaging does not throw (every override in production bicep is resolvable or non-shadowing)' {
+        $realBicep = Join-Path $scriptRoot 'deploy/azure/main.bicep'
+        { & $getEnvScript -BicepPath $realBicep -ForStaging } | Should -Not -Throw
+    }
+}
+
 Describe 'Get-BicepBaseEnv -NamesOnly against real main.bicep' {
     BeforeAll {
         $scriptRoot   = Split-Path $PSScriptRoot -Parent

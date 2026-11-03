@@ -508,8 +508,41 @@ jobs:
             Write-Host "::warning::t/4587 quota preflight CRASHED before producing a verdict: $($_.Exception.Message) -- treat as unknown, never a silent pass."
           }
 
-      - name: Promote traffic to new revision
+      - name: Assert staging container isolation before traffic shift (t/4794 incident prevention)
+        # BLOCKING -- no continue-on-error. t/4794: staging served prod's blob containers for
+        # ~15h because Sync-StagingEnv.ps1 silently failed to apply the staging overrides (fixed
+        # separately, t/4794 PR #4431). This is the "containment verified" check becoming a
+        # per-deploy assertion instead of a point-in-time one (t/4794's Class 8 callout) -- it
+        # must fail closed and refuse to promote traffic the moment isolation breaks again, by
+        # whatever future mechanism, not rely on the sync logic staying correct forever.
+        id: isolation_gate
         if: steps.smoke.outputs.passed == 'true' && steps.warm_gate.outputs.warm == 'true'
+        shell: pwsh
+        run: |
+          $BaseUrl = '${{ steps.smoke.outputs.base_url }}'
+          if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+            Write-Host "::error::t/4794 isolation gate: base_url was unexpectedly empty -- cannot verify container isolation, NOT promoting (fail-closed)."
+            exit 1
+          }
+          try {
+            $Resp = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 15
+          } catch {
+            Write-Host "::error::t/4794 isolation gate: /health request failed ($($_.Exception.Message)) -- cannot verify container isolation, NOT promoting (fail-closed)."
+            exit 1
+          }
+          $Container = if ($Resp.PSObject.Properties['freePoolBudget']) { $Resp.freePoolBudget.container } else { $null }
+          if ([string]::IsNullOrWhiteSpace($Container)) {
+            Write-Host "::error::t/4794 isolation gate: /health has no freePoolBudget.container field -- cannot verify container isolation, NOT promoting (fail-closed)."
+            exit 1
+          }
+          if (-not $Container.StartsWith('staging-')) {
+            Write-Host "::error::t/4794 isolation gate: freePoolBudget.container is '$Container', not staging-prefixed -- this revision would serve PROD'S blob containers. NOT promoting traffic (fail-closed)."
+            exit 1
+          }
+          Write-Host "t/4794 isolation gate PASSED: freePoolBudget.container = '$Container' (staging-prefixed)."
+
+      - name: Promote traffic to new revision
+        if: steps.smoke.outputs.passed == 'true' && steps.warm_gate.outputs.warm == 'true' && steps.isolation_gate.outcome == 'success'
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
