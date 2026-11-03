@@ -166,6 +166,10 @@ function ShareButtonInner({ provider }: { provider: ShareProvider }) {
         message: 'Failed to create a public share link',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
+      // InquiryShareDialog (the 'preview' popover) has no error slot of its own — close it so
+      // the fallback alert below the button (popover === 'none') can show instead (Design
+      // review t/4786#9: a failed publish through the preview dialog was otherwise silent).
+      if (popover === 'preview') setPopover('none');
       setActionError("Couldn't create the link. Try again.");
     }
   };

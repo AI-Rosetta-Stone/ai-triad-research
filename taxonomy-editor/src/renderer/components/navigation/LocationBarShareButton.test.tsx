@@ -195,4 +195,30 @@ describe('LocationBarShareButton', () => {
 
     await waitFor(() => expect(screen.getByText('Link turned off')).toBeInTheDocument());
   });
+
+  // Design re-review (t/4786#9): a failed publish through the preview dialog (inquiry's
+  // renderPreview, which has no error slot of its own) was silent — the popover stayed open
+  // at 'preview' while the error only rendered when popover === 'none'.
+  it('a failed create() through the preview dialog closes it and shows the inline error', async () => {
+    const create = vi.fn().mockRejectedValue(new Error('network down'));
+    registerShareProvider('opeds', () => noConfirmProvider({
+      needsConfirm: true,
+      contentLabel: 'question',
+      create,
+      renderPreview: (onConfirm, onCancel) => (
+        <div>
+          <button type="button" onClick={onConfirm}>Preview Confirm</button>
+          <button type="button" onClick={onCancel}>Preview Cancel</button>
+        </div>
+      ),
+    }));
+    render(<LocationBarShareButton place={place} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Copy public link' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Preview Confirm' }));
+
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent("Couldn't create the link. Try again.");
+    // The preview dialog (no error slot of its own) is gone — the error shows by the button.
+    expect(screen.queryByRole('button', { name: 'Preview Confirm' })).toBeNull();
+  });
 });
