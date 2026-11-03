@@ -541,8 +541,53 @@ jobs:
           }
           Write-Host "t/4794 isolation gate PASSED: freePoolBudget.container = '$Container' (staging-prefixed)."
 
+      - name: Assert EVERY AZURE_*_CONTAINER on the new revision is staging-prefixed (t/4797)
+        # BLOCKING -- no continue-on-error. Prevention follow-up for t/4794 (filed from the #4433
+        # SO consult, e/416#2): the gate above checks only freePoolBudget.container (one var,
+        # AZURE_USER_CONTENT_CONTAINER). A regression in any OTHER AZURE_*_CONTAINER var -- present
+        # or future -- would still have passed it. Read the revision's env array LIVE from Azure
+        # (authoritative source, not /health and not Get-BicepBaseEnv's computed expectation --
+        # that computation was itself the thing that silently resolved wrong in t/4794), and
+        # enumerate by NAME PATTERN so a future container var is covered with no code change here.
+        id: all_containers_isolation_gate
+        if: steps.smoke.outputs.passed == 'true' && steps.warm_gate.outputs.warm == 'true'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $Rev = '${{ steps.new_revision.outputs.revision }}'
+          $RevEnvJson = az containerapp revision show `
+            --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev `
+            --query 'properties.template.containers[0].env' -o json 2>&1
+          # Fail closed on the read itself (TL condition 2, p/404#165): a non-zero az exit, empty
+          # output, or invalid JSON must NEVER reach the predicate as a bare empty array -- that
+          # would be indistinguishable from "revision genuinely has no container vars", which the
+          # predicate itself also fails (vacuous-pass guard), but conflating "read failed" with
+          # "read succeeded and found nothing" would misreport the cause to on-call.
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::t/4797 isolation gate: az containerapp revision show exited $LASTEXITCODE for revision '$Rev' -- cannot read container env, NOT promoting (fail-closed). Output: $RevEnvJson"
+            exit 1
+          }
+          if ([string]::IsNullOrWhiteSpace(($RevEnvJson | Out-String))) {
+            Write-Host "::error::t/4797 isolation gate: az containerapp revision show returned empty output for revision '$Rev' -- cannot read container env, NOT promoting (fail-closed)."
+            exit 1
+          }
+          try {
+            $RevEnv = ($RevEnvJson | Out-String) | ConvertFrom-Json -ErrorAction Stop
+          } catch {
+            Write-Host "::error::t/4797 isolation gate: az output for revision '$Rev' was not valid JSON ($($_.Exception.Message)) -- cannot read container env, NOT promoting (fail-closed)."
+            exit 1
+          }
+          . ./operations/devops/azure/Test-StagingContainerEnvIsolation.ps1
+          try {
+            Assert-StagingContainerEnvIsolation -EnvVars @($RevEnv)
+          } catch {
+            Write-Host "::error::t/4797 isolation gate FAILED for revision '$Rev': $($_.Exception.Message)"
+            exit 1
+          }
+          Write-Host "t/4797 isolation gate PASSED: every AZURE_*_CONTAINER on '$Rev' is staging-prefixed and all known vars are present."
+
       - name: Promote traffic to new revision
-        if: steps.smoke.outputs.passed == 'true' && steps.warm_gate.outputs.warm == 'true' && steps.isolation_gate.outcome == 'success'
+        if: steps.smoke.outputs.passed == 'true' && steps.warm_gate.outputs.warm == 'true' && steps.isolation_gate.outcome == 'success' && steps.all_containers_isolation_gate.outcome == 'success'
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
