@@ -22,12 +22,36 @@ export const VISIBLE_RECHECK_MIN_MS = 60_000;
 const recordSw = (message: string, level: 'info' | 'warn' = 'info', data?: Record<string, unknown>) =>
   getGlobalRecorder()?.record({ type: 'state.change', component: 'service-worker', level, message, data });
 
-/** Start the update checks for a registration. Returns a stop function. */
-export function startUpdateChecks(registration: ServiceWorkerRegistration): () => void {
+const isInvalidState = (err: unknown) => err instanceof Error && err.name === 'InvalidStateError';
+
+/**
+ * Start the update checks for a registration. Returns a stop function.
+ *
+ * t/4767: `update()` rejects with InvalidStateError (script 'Unknown') once the registration has no worker —
+ * unregistered from another tab (the login page's SW_HEAL_SCRIPT clears every registration) or a first install
+ * that never finished. That error never clears on its own, so the tab kept serving its old bundle; re-register
+ * `swUrl` (idempotent) and check the fresh registration from then on.
+ */
+export function startUpdateChecks(registration: ServiceWorkerRegistration, swUrl?: string): () => void {
+  let current = registration;
   let lastCheck = 0;
+  let reregistering = false;
+  const reregister = (err: unknown) => {
+    if (reregistering || !swUrl || !('serviceWorker' in navigator)) {
+      recordSw('service worker update check failed', 'warn', { error: String(err) });
+      return;
+    }
+    reregistering = true;
+    recordSw('service worker registration has no worker; re-registering it', 'warn', { error: String(err), swUrl });
+    navigator.serviceWorker.register(swUrl, { scope: current.scope })
+      .then((fresh) => { current = fresh; recordSw('service worker re-registered', 'info', { scope: fresh.scope }); })
+      .catch((regErr: unknown) => recordSw('service worker re-register failed; retrying at the next check', 'warn', { error: String(regErr) }))
+      .finally(() => { reregistering = false; });
+  };
   const check = () => {
     lastCheck = Date.now();
-    registration.update().catch((err: unknown) => {
+    current.update().catch((err: unknown) => {
+      if (isInvalidState(err)) { reregister(err); return; }
       // Offline or a transient network error: the next check retries. Recorded, not shown to the user.
       recordSw('service worker update check failed', 'warn', { error: String(err) });
     });
@@ -43,9 +67,9 @@ export function startUpdateChecks(registration: ServiceWorkerRegistration): () =
 export function UpdatePrompt() {
   const stopChecks = useRef<(() => void) | null>(null);
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
-    onRegisteredSW(_swUrl, registration) {
+    onRegisteredSW(swUrl, registration) {
       if (!registration || stopChecks.current) return;
-      stopChecks.current = startUpdateChecks(registration);
+      stopChecks.current = startUpdateChecks(registration, swUrl);
     },
   });
   const hasUnsavedEdits = useTaxonomyStore(s => s.dirty.size > 0);
