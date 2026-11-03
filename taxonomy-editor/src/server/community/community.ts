@@ -7,7 +7,7 @@ import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
-import { getStorageUserId, isAnonymousUser, getStableId, getCurrentUser } from '../security/userContext.js';
+import { getStorageUserId, isAnonymousUser, getStableId } from '../security/userContext.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
@@ -35,52 +35,54 @@ function removalsDir(): string { return resolveDataPath('community/_removals'); 
 
 // ── Admin (t/4328: SO C1-C3 conditions) ──
 
-/** Get configured admin entries from env var (required — no defaults). */
+/** Get configured admin entries from env var (required — no defaults). Lowercased for matching.
+ *  Silent: it runs on every quota check; the unset/bare warnings live in validateAdminEntries() at boot. */
 export function getAdminUsers(): string[] {
-  if (!process.env.ADMIN_USERS) {
-    log.warn('ADMIN_USERS env var unset — no admins configured');
-    return [];
-  }
-  return process.env.ADMIN_USERS.split(',').map(s => s.trim());
+  return (process.env.ADMIN_USERS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 }
 
-/** Check if principal is admin by exact stableId match against idp-qualified entries.
- *  C1: Match idp-qualified entries (github:<id>, aad:<tid>-<oid>) only.
- *  Bare entries don't match. Undefined stableId is not admin.
+/** An entry is idp-qualified (`github:<id>`, `aad:<tid>-<oid>`) iff it contains ':'. Bare entries never match (C1). */
+function isQualifiedEntry(entry: string): boolean {
+  return entry.includes(':');
+}
+
+/** True when `stableId` (already `<idp>:<id>`, see UserContext.stableId) exactly matches an
+ *  idp-qualified ADMIN_USERS entry. For callers outside the per-request context (the terminal WS
+ *  upgrade), which derive the stableId from the request headers. */
+export function isAdminStableId(stableId: string | undefined): boolean {
+  if (!stableId || !isQualifiedEntry(stableId)) return false; // undefined/unqualified stableId is never admin (C1)
+  const sid = stableId.toLowerCase();
+  return getAdminUsers().some(e => isQualifiedEntry(e) && e === sid);
+}
+
+function isCurrentPrincipalAdmin(): boolean {
+  return isAdminStableId(getStableId());
+}
+
+/**
+ * Admin check (t/4328, SO C1-C3). Matches only the current request's stableId against
+ * idp-qualified ADMIN_USERS entries; bare entries never match.
+ *
+ * `userId` is accepted for the existing call sites (featureFlags, quotas, session, server.ts), which
+ * all pass the current user's storageUserId. Admin status can only be established for the current
+ * principal (a stableId exists only for the request's own identity), so any other userId — a third
+ * party, or '_local' — is never admin. That fails closed rather than falling back to bare matching.
  */
 export function isAdmin(userId?: string): boolean {
-  // When called with no args (new pattern per SO C1-C3): match stableId against idp-qualified entries.
-  // When called with userId (legacy): check storageUserId against bare ADMIN_USERS entries (backward compat).
-  // TODO(t/4328 follow-up): Deprecate userId parameter; fix call sites with proper third-party admin design.
-
-  if (!userId) {
-    // New SO-required pattern: match current user's stableId against idp-qualified entries
-    const stableId = getStableId();
-    if (!stableId) return false; // Undefined stableId is never admin (C1)
-
-    const userIdp = getCurrentUser()?.idp;
-    if (!userIdp) return false;
-
-    const qualifiedEntry = `${userIdp.toLowerCase()}:${stableId.toLowerCase()}`;
-    return getAdminUsers().includes(qualifiedEntry);
-  }
-
-  // Legacy: check arbitrary userId against bare entries (for featureFlags, quotas, session call sites)
-  const uid = userId;
-  if (uid === '_local') return false;
-  return getAdminUsers().includes(uid);
+  if (userId !== undefined && (userId === '_local' || userId !== getStorageUserId())) return false;
+  return isCurrentPrincipalAdmin();
 }
 
-/** Boot-time validation: warn on bare (unmatchable) ADMIN_USERS entries. */
-export function validateAdminEntries(entries: string[]): void {
-  for (const entry of entries) {
-    // Bare entries (no idp: prefix) are ignored for matching
-    if (!entry.includes(':') && entry.includes('@')) {
-      // Contains @ but no idp: prefix — unmatchable (per C3: count only, no values)
-      log.warn('ADMIN_USERS has unmatchable bare entry (no idp: prefix, t/4328)');
-      break; // Log once per session
-    }
+/** Boot-time validation (C3): warn, with counts only and never the values, when ADMIN_USERS is unset,
+ *  has bare entries that can never match, or has no idp-qualified entry at all. */
+export function validateAdminEntries(entries: string[] = getAdminUsers()): void {
+  if (entries.length === 0) {
+    log.security.warn('ADMIN_USERS unset or empty — no admins configured (t/4328)');
+    return;
   }
+  const bare = entries.filter(e => !isQualifiedEntry(e)).length;
+  if (bare > 0) log.security.warn({ bareEntries: bare }, 'ADMIN_USERS has bare entries with no idp: prefix — they never match (t/4328)');
+  if (bare === entries.length) log.security.warn('ADMIN_USERS has no idp-qualified entries — no admins can match (t/4328)');
 }
 
 // ── Desktop Ask validation (t/4612, t/4744) ──

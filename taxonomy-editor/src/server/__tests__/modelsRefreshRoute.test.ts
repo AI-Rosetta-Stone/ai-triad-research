@@ -58,7 +58,7 @@ import { registerDataRoutes } from '../routes/data.js';
 interface InvokeResult { status: number; body: unknown }
 
 function asUser<T>(storageUserId: string, fn: () => T): T {
-  const c: UserContext = { principalName: storageUserId, idp: 'github', storageUserId, isAnonymous: false };
+  const c: UserContext = { principalName: storageUserId, idp: 'github', storageUserId, stableId: `github:${storageUserId}`, isAnonymous: false };
   return runWithUser(c, fn);
 }
 
@@ -92,7 +92,7 @@ beforeEach(() => {
   refreshAIModelsMock.mockClear();
   storageModeMock.current = 'filesystem';
   prevAdminUsers = process.env.ADMIN_USERS;
-  process.env.ADMIN_USERS = ADMIN_ID;
+  process.env.ADMIN_USERS = `github:${ADMIN_ID}`; // t/4328: idp-qualified entry
 });
 afterEach(() => { if (prevAdminUsers === undefined) delete process.env.ADMIN_USERS; else process.env.ADMIN_USERS = prevAdminUsers; });
 

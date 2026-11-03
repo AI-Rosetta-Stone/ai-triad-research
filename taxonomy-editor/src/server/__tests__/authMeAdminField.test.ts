@@ -13,6 +13,11 @@ vi.mock('../logger.js', () => ({ log: { server: { warn: warnMock, info: infoMock
 
 import { createRouter } from '../httpKit.js';
 import { registerSessionRoutes } from '../routes/session.js';
+import { runWithUser, deriveStorageUserId } from '../security/userContext.js';
+
+// t/4328: admin keys on the request's idp-qualified stableId. In production every route runs
+// inside runWithUser (server.ts), so the admin case runs inside an equivalent context.
+const ADMIN_STABLE_ID = 'github:1001';
 
 let prevAuth: string | undefined;
 let prevAdmin: string | undefined;
@@ -39,7 +44,7 @@ function handlerFor(method: string, path: string) {
 
 beforeEach(() => {
   prevAuth = process.env.WEBSITE_AUTH_ENABLED; process.env.WEBSITE_AUTH_ENABLED = 'true';
-  prevAdmin = process.env.ADMIN_USERS; process.env.ADMIN_USERS = 'jpsnover';
+  prevAdmin = process.env.ADMIN_USERS; process.env.ADMIN_USERS = ADMIN_STABLE_ID;
   // The temporary auth-presence diagnostic (t/4409) also logs INFO on /api/auth/me
   // whenever WEBSITE_AUTH_ENABLED is true; switch it off so these exact counts see only
   // t/4327's own line. Its behaviour is covered in authPresenceDiag.test.ts.
@@ -56,9 +61,10 @@ afterEach(() => {
 describe('t/4327 — GET /api/auth/me admin + storageUserId', () => {
   it('admin principal (jpsnover) → admin:true, storageUserId present, no non-admin log', async () => {
     const res = mockRes();
-    await handlerFor('GET', '/api/auth/me')(
+    const ctx = { principalName: 'jpsnover', idp: 'github', storageUserId: deriveStorageUserId('jpsnover', 'github'), isAnonymous: false, stableId: ADMIN_STABLE_ID };
+    await runWithUser(ctx, () => handlerFor('GET', '/api/auth/me')(
       mockReq({ 'x-ms-client-principal-name': 'jpsnover', 'x-ms-client-principal-idp': 'github' }), res, undefined,
-    );
+    ));
     const body = JSON.parse(res.body);
     expect(body.admin).toBe(true);
     expect(typeof body.storageUserId).toBe('string');
