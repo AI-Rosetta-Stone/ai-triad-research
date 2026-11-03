@@ -92,6 +92,18 @@ export function runningCountByTool(tool: RunningToolId): number {
   return count;
 }
 
+/** t/4772: the rail dot shows only for runs elsewhere, not every running count. */
+export function elsewhereCountByTool(tool: RunningToolId): number {
+  let count = 0;
+  const prefix = `${tool}:`;
+  for (const k of running.keys()) {
+    if (!k.startsWith(prefix)) continue;
+    const itemId = k.slice(prefix.length);
+    if (isElsewhere(tool, itemId)) count++;
+  }
+  return count;
+}
+
 /** For the rail dot and the Recent row's "Running…" state. */
 export function subscribeRunning(listener: () => void): () => void {
   runningListeners.add(listener);

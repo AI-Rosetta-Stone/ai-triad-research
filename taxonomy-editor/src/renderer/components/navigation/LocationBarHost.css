@@ -118,6 +118,11 @@
   font-size: 0.75rem;
 }
 
+.nav-locbar-newwin {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .nav-locbar-live {
   position: absolute;
   width: 1px;

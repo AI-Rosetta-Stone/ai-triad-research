@@ -21,13 +21,14 @@ import { useTierInfo } from '../../hooks/useTierInfo';
 import { FeedbackPopover } from './FeedbackPopover';
 import { NAV_ITEMS, RosetteIcon, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
 import { usePreferencesStore } from '../../store/preferencesStore';
-import { subscribeRunning, runningCountByTool } from '../../navigation/runningSignal';
+import { subscribeRunning, elsewhereCountByTool } from '../../navigation/runningSignal';
 import './Toolbar.css';
 
-/** t/4689: rail dot for a tool with a run finishing elsewhere. useSyncExternalStore keeps this
- *  isolated to the two buttons that need it — Toolbar itself doesn't re-render per tick. */
-function useToolRunning(tool: 'chat' | 'debate'): boolean {
-  return useSyncExternalStore(subscribeRunning, () => runningCountByTool(tool) > 0);
+/** t/4772: rail dot for a tool with a run elsewhere — count, not just a boolean, so the
+ *  aria-label can say how many. useSyncExternalStore keeps this isolated to the two buttons
+ *  that need it — Toolbar itself doesn't re-render per tick. */
+function useToolRunningElsewhere(tool: 'chat' | 'debate'): number {
+  return useSyncExternalStore(subscribeRunning, () => elsewhereCountByTool(tool));
 }
 
 type ToolbarPanel = 'search' | 'related' | 'attrFilter' | 'attrInfo' | 'lineage' | 'prompts' | 'console' | 'fallacy' | 'edges' | 'policyAlignment' | 'policyDashboard' | 'vocabulary' | 'calibration';
@@ -204,22 +205,23 @@ interface PrimaryNavButtonProps {
   activeTab: string;
   toolbarPanel: string | null;
   onClick: () => void;
-  /** t/4689: a dot + augmented aria-label when this tool has a run finishing elsewhere.
-   *  Omit for tools with no running concept (Rosetta Stone, Op-Eds, Taxonomy). */
-  running?: boolean;
+  /** t/4772: a dot + augmented aria-label when this tool has N runs elsewhere (not the current
+   *  place). Omit/0 for tools with no running concept (Rosetta Stone, Op-Eds, Taxonomy). */
+  running?: number;
 }
 
 function PrimaryNavButton({ id, ariaLabel, label, icon: Icon, activeTab, toolbarPanel, onClick, running }: PrimaryNavButtonProps) {
   const active = activeTab === id && toolbarPanel === null;
+  const hasRunningElsewhere = !!running && running > 0;
   return (
     <button
       className={`toolbar-nav${active ? ' toolbar-nav-active' : ''}`}
       onClick={onClick}
-      aria-label={running ? `${ariaLabel} — running` : ariaLabel}
+      aria-label={hasRunningElsewhere ? `${ariaLabel}, ${running} running` : ariaLabel}
     >
       <span className="toolbar-nav-icon-wrap">
         <Icon size="1.25em" />
-        {running && <span className="toolbar-nav-running-dot" aria-hidden="true" />}
+        {hasRunningElsewhere && <span className="toolbar-nav-running-dot" aria-hidden="true" />}
       </span>
       <span className="toolbar-nav-label">{label}</span>
     </button>
@@ -282,8 +284,8 @@ export function Toolbar() {
   const moreHasActive = secondaryGroups.flatMap(g => g.items).some(i => isNavItemActive(i));
   const viewMode = usePreferencesStore(state => state.viewMode);
   const setViewMode = usePreferencesStore(state => state.setViewMode);
-  const chatRunning = useToolRunning('chat');
-  const debateRunning = useToolRunning('debate');
+  const chatRunning = useToolRunningElsewhere('chat');
+  const debateRunning = useToolRunningElsewhere('debate');
 
   const clearCurrentPanel = () => {
     if (toolbarPanel === 'search') clearSimilarSearch();
