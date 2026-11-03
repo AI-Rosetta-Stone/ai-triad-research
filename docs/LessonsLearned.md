@@ -7048,8 +7048,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-21 — Tech Lead (p/335#180): fresh worktree, `ls eslint.config.*` exited 2; `cmd //c mklink /J` from Git Bash → "Invalid switch". Resolved by creating junctions with `New-Item -ItemType Junction` (repo root, `lib/`, `taxonomy-editor/`) in PowerShell, then running eslint, tsc and vitest.
+- 2026-11-03 — Tech Lead (p/335#271, **rmdir counterpart, chain-cut consequence**): removing a temporary `node_modules` junction via `cmd //c rmdir poviewer\\node_modules` from Git Bash failed "The system cannot find the file specified" — MSYS mangled the backslash path passed to `cmd //c`. Because it was the first link of an `&&` chain, the following commit and push never ran (same chain-cut genus as #96). Resolved by removing the junction from PowerShell (guarded by `Test-Path`), then committing and pushing as a separate command.
 
-**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating Windows junctions from Git Bash fails because Git Bash rewrites `//c` path prefixes (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` is not subject to MSYS translation.
+**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating OR removing Windows junctions from Git Bash fails because Git Bash rewrites `//c` prefixes and backslash paths (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` and junction removal are not subject to MSYS translation.
 
 **Prevention:**
 1. **In a fresh worktree, create `node_modules` junctions before running any JS/TS tools:**
@@ -7059,10 +7060,11 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
    New-Item -ItemType Junction "$wt\lib\node_modules" -Target "$root\lib\node_modules"
    New-Item -ItemType Junction "$wt\taxonomy-editor\node_modules" -Target "$root\taxonomy-editor\node_modules"
    ```
-2. **Never use `cmd //c mklink` from Git Bash** — MSYS rewrites the path. Use PowerShell `New-Item -ItemType Junction` instead.
+2. **Never use `cmd //c mklink` OR `cmd //c rmdir` from Git Bash on a junction path** — MSYS rewrites the path either direction. Use PowerShell `New-Item -ItemType Junction` to create, and PowerShell `rmdir`/`Remove-Item` (guarded by `Test-Path`) to remove.
 3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file.
+4. **Never chain a junction create/remove with a commit/push in one `&&` call** — if the junction operation fails (as it will from Git Bash), the chain cuts before the commit/push ever runs, same as #96. Run the junction operation and the git operations as separate commands.
 
-**Status:** Active — 1 instance (Tech Lead p/335#180).
+**Status:** Active — 2 instances (Tech Lead p/335#180; Tech Lead p/335#271 — rmdir counterpart).
 
 **Applies To:** All agents running lint/tsc/vitest in fresh worktrees; create `node_modules` junctions via PowerShell before running any JS/TS toolchain.
 
@@ -8326,6 +8328,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-11-02 — DevOps Lead (p/26#352): `pwsh -Command "<script>" | pwsh -Command "$input | Format-List"` errored on an empty pipe element. Resolved by combining both steps into one `pwsh -Command` invocation (`& script.ps1 ... | Format-List`) instead of splitting the pipeline across two separate `pwsh` processes via a Bash pipe.
 - 2026-11-02 — DevOps Lead (p/26#367): same shape again — `pwsh.exe -Command` piped into a second `pwsh.exe -Command "$input | Format-List"` via Bash, same "An empty pipe element is not allowed" error. Resolved the same way: both commands combined into one `pwsh.exe -Command "... | Format-List"` invocation.
+- 2026-11-03 — DevOps Lead (p/26#399): `pwsh -NoProfile -File ... | pwsh -NoProfile -Command "$input | Format-List"` errored the same way. Resolved identically: ran it as one `pwsh -Command '... | Format-List'` call instead of two nested processes.
 
 **Root Cause:** Splitting a single logical PowerShell pipeline across two separate `pwsh` processes connected by Bash's `|` creates two independent pipe layers — the OS-level Bash pipe AND whatever pipe syntax appears inside the second process's own `-Command` string. When the second `-Command` string is written assuming it receives piped input via a leading `$input |`, that leading `|` has no left-hand operand from PowerShell's own parser's perspective (the OS-level connection is invisible to it), so it misparses.
 
@@ -8334,7 +8337,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **If a `-Command` string needs to start with a pipe-dependent construct like `$input |`, that's a signal the pipeline should be unified into one invocation instead** — `$input` inside `-Command` does not connect to an external Bash-level pipe the way a normal PowerShell pipeline stage does.
 3. **Use the PowerShell tool for any multi-stage PowerShell pipeline** — it runs the whole pipeline natively in one process, avoiding both this failure and #271's cmdlet-leak failure.
 
-**Status:** Active — 2 instances (DevOps Lead p/26#352; DevOps Lead p/26#367 — same mechanism, same day).
+**Status:** Active — 3 instances (DevOps Lead p/26#352; DevOps Lead p/26#367 — same mechanism, same day; DevOps Lead p/26#399 — same mechanism again, next day).
 
 **Applies To:** All agents invoking `pwsh` from the Bash tool with multi-stage pipelines; keep the entire pipeline inside one `-Command` string or use the PowerShell tool.
 
@@ -8558,3 +8561,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#392).
 
 **Applies To:** All agents relying on r/11's `SyncBlocked` predicate before a shared-checkout `--ff-only` sync; verify against git's actual refusal, not just the predicate.
+
+## #420 [Build] Junctioning a Worktree's `node_modules` to the Shared Checkout's Lets a `pnpm install` Inside the Worktree Corrupt the Shared Directory — Anchor t/4815
+
+**Pattern:** An agent, wanting to run tests in a worktree without a full `pnpm install`, junctions the worktree's `taxonomy-editor/node_modules` to the SHARED checkout's `node_modules` (rather than the reverse — this entry is distinct from #345, which junctions a worktree to an existing good copy and doesn't write back through it). If anything later runs `pnpm install` INSIDE that worktree (e.g. a pre-push hook's `pnpm exec` path), pnpm writes its new links straight through the junction into the SHARED directory — corrupting it with dozens of links pointing into `.worktrees/<name>/node_modules/.pnpm`. Once that worktree is removed, every OTHER agent using the shared checkout hits `MODULE_NOT_FOUND` from vitest/eslint, because the shared `node_modules` now contains links into a directory that no longer exists.
+
+**Instances:**
+- 2026-11-03 — Tech Lead (p/335#273, t/4815): junctioned a worktree's `taxonomy-editor/node_modules` to the shared checkout's to run tests without installing. A `pnpm install` inside the worktree — likely triggered through the pre-push `pnpm exec` path, though not confirmed — wrote 57 links through the junction into the shared directory. After the worktree was removed, Chat (p/513) hit `MODULE_NOT_FOUND` from vitest/eslint on the shared checkout. `pnpm install --frozen-lockfile` (with or without `--force`) reported "Already up to date" and did NOT relink or fix the corruption — the actual fix was moving `taxonomy-editor/node_modules` aside entirely, then running `pnpm install --frozen-lockfile --prefer-offline` fresh. Verified vitest and eslint working afterward.
+
+**Root Cause:** A junction makes a worktree's `node_modules` path resolve to the SAME physical directory as the shared checkout's — there is no isolation between them. `pnpm install` running inside the worktree has no way to know it's writing through a junction into shared state; it writes exactly as if the worktree had its own real `node_modules`. The resulting links point into `.worktrees/<name>/node_modules/.pnpm`, a path that only exists while that specific worktree does — once removed, the shared `node_modules` is left holding dangling references. `pnpm install --frozen-lockfile` doesn't detect or repair this because it sees an already-populated `node_modules` tree and considers its job done ("Already up to date"), never inspecting whether the existing links point somewhere that still exists or somewhere worktree-scoped.
+
+**Prevention:**
+1. **Never junction a worktree's `node_modules` to the shared checkout's `node_modules`.** Run `pnpm install` inside the worktree itself (real directories, no junction) — slower but isolated and safe. (This is the opposite direction from #345's junction, which points a worktree AT an existing shared/root copy and is fine as long as nothing writes through it from inside the worktree — but even that carries the same risk if anything later installs inside the worktree.)
+2. **If `node_modules` ever needs sharing across a worktree boundary, treat it as read-only from the worktree's side** — confirm nothing (pre-push hooks, postinstall scripts, CI steps) will run `pnpm install`/`npm install` inside the worktree while the junction is in place.
+3. **`pnpm install --frozen-lockfile` is NOT a repair tool for this corruption** — it reports "Already up to date" and leaves dangling worktree-scoped links in place. The actual fix is moving the corrupted `node_modules` aside and reinstalling fresh (`pnpm install --frozen-lockfile --prefer-offline` into a clean directory).
+4. **If vitest/eslint suddenly report `MODULE_NOT_FOUND` on the shared checkout with no corresponding local change, suspect this corruption** — check whether `node_modules/.pnpm` contains any links resolving into a `.worktrees/` path that no longer exists.
+5. **Follow-ups opened (t/4815 anchor, DevOps Lead):** t/4816 — prevention: make pnpm refuse to run inside a worktree whose `node_modules` links out of the worktree. t/4817 — observability: a detector for shared `node_modules` links that point into `.worktrees/`. t/4815 stays open until both land.
+
+**Status:** Active — 1 instance (Tech Lead p/335#273, affecting Chat p/513). Anchor ticket t/4815; prevention (t/4816) and observability (t/4817) follow-ups filed, both with DevOps Lead.
+
+**Applies To:** All agents working in worktrees who are tempted to junction `node_modules` for speed; never junction a worktree's `node_modules` to the shared checkout's — install fresh inside the worktree instead.
