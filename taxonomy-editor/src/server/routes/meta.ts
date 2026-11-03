@@ -25,6 +25,7 @@ import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
 import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
+import { areBlobBackendsWired } from '../storage/blobBackendBoot.js';
 
 /** `/health`'s free-pool block (t/4677, t/4733): wiring and enforcement, plus the container and
  *  daily cap this process actually uses, so a staging/prod store share or a wrong cap is visible
@@ -37,6 +38,11 @@ export function freePoolBudgetHealth(): { wired: boolean; enforced: boolean; con
     container: cfg?.container ?? null,
     callsCap: cfg?.callsCap ?? null,
   };
+}
+
+/** `/health`'s blob backend block (t/4756): wiring status, visible in both /health and /readyz. */
+export function blobBackendHealth(): { wired: boolean } {
+  return { wired: areBlobBackendsWired() };
 }
 import { log } from '../logger.js';
 import { LLMS_TXT } from '../llmsTxt.js';
@@ -166,6 +172,13 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       json(res, { status: 'warming', reason: 'data-root-validating' }, 503);
       return;
     }
+    // t/4756: blob backend boot validation. If AZURE_STORAGE_ACCOUNT_URL is set but required
+    // container vars are missing in hosted mode, backends are not wired and the deploy warm-gate
+    // blocks promotion.
+    if (!areBlobBackendsWired()) {
+      json(res, { status: 'failed', reason: 'container-config-missing' }, 503);
+      return;
+    }
     const { present, nodeCount, resolves, canaryId } = getEmbeddingsResolution();
     if (present && (nodeCount ?? 0) > 0 && resolves) {
       json(res, { status: 'ready', nodeCount, resolves: true });
@@ -218,6 +231,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
         githubRateLimitRemaining, githubRateLimitResetsAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
+        blobBackend: blobBackendHealth(),
       });
       return;
     }
@@ -249,6 +263,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     };
 
     base.freePoolBudget = freePoolBudgetHealth();
+    base.blobBackend = blobBackendHealth();
 
     // t/3086: embeddings cache probe result — surfaces t/3085 condition in /health without FR access.
     const embeddingsStatus = getEmbeddingsCacheStatus();

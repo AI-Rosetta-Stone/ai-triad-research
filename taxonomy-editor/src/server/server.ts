@@ -43,6 +43,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
+import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
@@ -264,32 +265,8 @@ if (STORAGE_MODE === 'github-api') {
 
   // User content (chats, debates, community) lives in Azure Blob Storage.
   // Taxonomy/conflicts/calibration stay on the GitHub backend.
-  const blobAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  if (blobAccountUrl) {
-    const [{ AzureBlobBackend }, { userContentContainer }] = await Promise.all([import('./storage/azureBlobBackend.js'), import('./storage/userContentContainer.js')]);
-    fileIO.setUserContentBackend(new AzureBlobBackend({
-      accountUrl: blobAccountUrl,
-      userContentContainer: userContentContainer(), // t/4733: single env-resolved source, staging isolation
-      communityContainer: process.env.AZURE_COMMUNITY_CONTAINER || 'community',
-    }));
-    const briefExportsContainer = process.env.AZURE_BRIEF_EXPORTS_CONTAINER || 'brief-exports';
-    fileIO.setBriefExportBackend(new AzureBlobBackend({
-      accountUrl: blobAccountUrl,
-      userContentContainer: briefExportsContainer,
-      communityContainer: briefExportsContainer,
-    }));
-    serverRecorder.record({
-      type: 'storage.mode', component: 'storage', level: 'info',
-      message: 'User content storage: azure-blob',
-      data: { accountUrl: blobAccountUrl },
-    });
-  } else {
-    log.storage.warn('AZURE_STORAGE_ACCOUNT_URL is unset — Blob backend not initialized; user content will fall back to the primary GitHub backend.');
-    serverRecorder.record({
-      type: 'storage.mode', component: 'storage', level: 'warn',
-      message: 'User content storage: github-api fallback (Azure Blob not configured)',
-    });
-  }
+  // t/4756: initialize blob backends with fail-closed validation (extracted to blobBackendInit.ts)
+  await initAzureBlobBackends(serverRecorder);
 } else {
   // FilesystemBackend is the default in fileIO.ts — no action needed
   serverRecorder.record({

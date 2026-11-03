@@ -28,7 +28,7 @@ import { InquiryRequestSchema, type InquiryRequest, type InquiryResult } from '.
 import {
   startInquiryJob, getInquiryJob, hasInquiryJob, countRunningInquiryJobs,
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView,
-  MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob,
+  MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
 import { loadInquiryResult, listInquiryResults } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
@@ -36,12 +36,14 @@ import { isSafeId } from '../storage/fileIO.js';
 import { buildInquiryRunPipeline } from '../inquiryPipelineDeps.js';
 
 /** Map an in-memory job to the shared poll projection (tier-1 path for buildPollView). */
-function jobProjection(job: InquiryJob) {
-  return {
+function jobProjection(job: InquiryJob): InquiryPollProjection {
+  const projection: InquiryPollProjection = {
     jobId: job.jobId, status: job.status, resultId: job.resultId,
     error: job.error, debateId: job.debateId,
     terminationReason: job.terminationReason ?? null,
   };
+  if (job.currentStageDetail) projection.stageDetail = job.currentStageDetail;
+  return projection;
 }
 
 /** Idempotency key from the standard header (kept OUT of the strict request body schema). */
