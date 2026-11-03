@@ -254,12 +254,49 @@ export function checkR5(tier, labels) {
   return !(labels ?? []).includes('consult-hold');
 }
 
+const PI_APPROVAL_RE = /^Approved \(PI\):/m;
+const SO_DID_NOT_REVIEW_RE = /\bSO did not review\b/i;
+// "An SO clearing comment" (t/4266#3/#4, TL): no fixed marker exists elsewhere in the codebase
+// for this phrase (unlike `Approved (<role>):`, which t1-approval-guard-predicate.mjs already
+// anchors on) -- matched here as a comment mentioning the Second Opinion/SO clearing the
+// change. Flagged in the PR for TL review/adjustment during the warn-only cycle, same as every
+// other heuristic in this module that started as a best first guess (e.g. R2c's severity regex).
+const SO_CLEARING_RE = /\b(second opinion|SO)\b.*\bclear(ed|s)?\b/i;
+
+/**
+ * P2 / R6 (t/4266, TL t/4266#2-4): a PR that declares `Tier: T2` or touches an R1 path needs
+ * EITHER the `consult-hold` label OR fresh clearing evidence for the CURRENT head -- the gap
+ * that let #3380 merge T1-declared on an R1 path with no hold at all. "Fresh" means posted
+ * at/after `lastPushAt` (same post-push freshness rule as t1-approval-guard's own approval
+ * check, t/4266#5/#6's #3402 arm: an approval that predates a later push doesn't count).
+ * Clearing evidence is (an SO-clearing comment AND an `Approved (PI):` comment) OR (an
+ * "SO did not review" note AND an `Approved (PI):` comment) -- both halves fresh.
+ * Advisory only for now (ships T1, warn-only cycle first, per Gate Promotion Discipline);
+ * folded into `comments` the same way R5 is, never into `pass`, until promoted.
+ * @param {boolean} tierOrR1 whether the PR declares Tier: T2 or has an R1 hit
+ * @param {string[]} labels
+ * @param {Array<{body: string, createdAt: string}>} comments effective-time comments (createdAt = updatedAt ?? created_at upstream)
+ * @param {string|Date} lastPushAt
+ */
+export function checkR6(tierOrR1, labels, comments, lastPushAt) {
+  if (!tierOrR1) return false;
+  if ((labels ?? []).includes('consult-hold')) return false;
+  const pushMs = new Date(lastPushAt).getTime();
+  const fresh = (comments ?? []).filter((c) => {
+    const t = new Date(c.createdAt).getTime();
+    return Number.isFinite(t) && t >= pushMs;
+  });
+  const soCleared = fresh.some((c) => SO_CLEARING_RE.test(c.body ?? '') || SO_DID_NOT_REVIEW_RE.test(c.body ?? ''));
+  const piApproved = fresh.some((c) => PI_APPROVAL_RE.test(c.body ?? ''));
+  return !(soCleared && piApproved);
+}
+
 /**
  * Combine R1-R5 into one verdict. `pass` reflects R1-R4 only (R5 is advisory and never fails
  * the check). `comments` lists human-readable advisory text for any hit, including R5.
  */
 export function evaluateTierCheck(input) {
-  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds } = input;
+  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds, approvalComments, lastPushAt } = input;
   const tier = extractTier(body);
   const schemaChange = extractSchemaChange(body);
   const dependabot = isDependabot(headRefName);
@@ -271,6 +308,10 @@ export function evaluateTierCheck(input) {
   const r3 = checkR3(paths, schemaChange, tier, config);
   const r4 = checkR4(tier, dependabot, prCreatedAt, graceCutoff);
   const r5 = checkR5(tier, labels);
+  // R6 only evaluates when the caller supplies lastPushAt -- callers that don't track PR
+  // comments/push times (e.g. offline replay) simply don't get this advisory, same as R5
+  // being skipped by omitting labels.
+  const r6 = lastPushAt !== undefined ? checkR6(tier === 'T2' || Boolean(r1), labels, approvalComments ?? [], lastPushAt) : false;
 
   const failures = [];
   if (r1 && tier !== 'T2') failures.push({ rule: 'R1', detail: `touches ${r1}, must declare Tier: T2` });
@@ -288,6 +329,7 @@ export function evaluateTierCheck(input) {
 
   const comments = failures.map((f) => `${f.rule}: ${f.detail}`);
   if (r5) comments.push('R5 (advisory): declared Tier: T2 but the consult-hold label is missing');
+  if (r6) comments.push('R6 (advisory, t/4266): T2/R1 change with no consult-hold and no fresh SO+PI clearing evidence for this head');
 
-  return { tier, pass: failures.length === 0, failures, r5Advisory: r5, comments };
+  return { tier, pass: failures.length === 0, failures, r5Advisory: r5, r6Advisory: r6, comments };
 }

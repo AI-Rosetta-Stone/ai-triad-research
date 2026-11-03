@@ -12,6 +12,7 @@ import {
   checkR3,
   checkR4,
   checkR5,
+  checkR6,
   evaluateTierCheck,
   factsFromListFiles,
   checkApiVersion,
@@ -249,6 +250,81 @@ test('R5: declared T2 without consult-hold is advisory-flagged; T2 with the labe
   assert.equal(checkR5('T2', []), true);
   assert.equal(checkR5('T2', ['consult-hold']), false);
   assert.equal(checkR5('T1', []), false);
+});
+
+// ── R6 (P2, t/4266) ────────────────────────────────────────────────────────
+// Test arms per the TL's exact spec (t/4266#4), corrected for #3402's freshness case (#5/#6).
+test('R6: T2/R1 PR, no label, no approval -> FAIL (fires)', () => {
+  const fired = checkR6(true, [], [], '2026-10-19T12:00:00Z');
+  assert.equal(fired, true);
+});
+
+test('R6: T2/R1 PR, no label, SO clearing + PI approval both at/after head -> PASS (does not fire)', () => {
+  const comments = [
+    { body: 'Second Opinion: cleared for this head.', createdAt: '2026-10-19T12:05:00Z' },
+    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T12:06:00Z' },
+  ];
+  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z');
+  assert.equal(fired, false);
+});
+
+test('R6: T2/R1 PR, no label, approval predates the latest push -> FAIL (stale evidence)', () => {
+  const comments = [
+    { body: 'Second Opinion: cleared.', createdAt: '2026-10-19T11:00:00Z' },
+    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T11:01:00Z' },
+  ];
+  // lastPushAt is AFTER both comments -- a push to head B after the approval at head A.
+  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z');
+  assert.equal(fired, true);
+});
+
+test('R6: T2/R1 PR, label present, no approval yet -> PASS (the hold itself is the signal)', () => {
+  const fired = checkR6(true, ['consult-hold'], [], '2026-10-19T12:00:00Z');
+  assert.equal(fired, false);
+});
+
+test('R6: T0/T1 PR (not T2, no R1 hit) -> PASS (rule does not apply)', () => {
+  const fired = checkR6(false, [], [], '2026-10-19T12:00:00Z');
+  assert.equal(fired, false);
+});
+
+test('R6 (#3402 shape, t/4266#5/#6): approval at head A, push to head B, SO re-confirms at B but no fresh PI approval -> FAIL', () => {
+  const comments = [
+    { body: 'Approved (PI): go ahead.', createdAt: '2026-10-19T11:00:00Z' }, // at head A, now stale
+    { body: 'Second Opinion: re-confirmed at the new head.', createdAt: '2026-10-19T12:05:00Z' }, // fresh, but alone
+  ];
+  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z'); // push to head B at 12:00
+  assert.equal(fired, true);
+});
+
+test('R6: an "SO did not review" note plus a fresh PI approval also clears', () => {
+  const comments = [
+    { body: 'SO did not review within the time-box.', createdAt: '2026-10-19T12:05:00Z' },
+    { body: 'Approved (PI): proceeding without SO review.', createdAt: '2026-10-19T12:06:00Z' },
+  ];
+  const fired = checkR6(true, [], comments, '2026-10-19T12:00:00Z');
+  assert.equal(fired, false);
+});
+
+test('evaluateTierCheck: R6 is advisory only -- never flips pass to false, same as R5', () => {
+  const result = evaluateTierCheck({
+    body: 'Tier: T2\n\nsome body',
+    headRefName: 'feat/x',
+    paths: ['README.md'],
+    prCreatedAt: new Date('2026-10-19T12:00:00Z'),
+    graceCutoff: new Date('2026-10-08T00:00:00Z'),
+    labels: [],
+    config: CONFIG,
+    workflowDiffs: [],
+    lintDiffs: [],
+    baseCiGateNeeds: null,
+    headCiGateNeeds: null,
+    approvalComments: [],
+    lastPushAt: '2026-10-19T12:00:00Z',
+  });
+  assert.equal(result.pass, true, 'T2 declared, consult-hold missing is R5\'s concern, not R1-R4 -- R6 must not fail it either');
+  assert.equal(result.r6Advisory, true);
+  assert.ok(result.comments.some((c) => c.startsWith('R6')));
 });
 
 // ── evaluateTierCheck: full integration, R5 never affects pass/fail ───────

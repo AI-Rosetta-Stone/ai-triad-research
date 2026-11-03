@@ -38,9 +38,17 @@ name: t1-approval-guard
 # after the job id) doesn't collide with the explicit one, which keeps the canonical name
 # `t1-approval-guard` everywhere already documented (this file's own comments, t/4247, a future
 # required-context promotion).
+#
+# t/4266 P1 (TL p/331#2585): `pull_request` -> `pull_request_target`, same as tier-check.yml and
+# for the same reason -- GitHub sources THIS FILE from `main`, so a PR can no longer disable or
+# weaken evaluation by editing t1-approval-guard.yml itself. `issue_comment`/`pull_request_review`
+# are unaffected (those events have no "target" variant and never implied a PR-ref checkout to
+# begin with -- this job already only ever reads the predicate from `main`'s explicitly-fetched
+# tip, never from the checked-out tree). The self-test suite moved to ci.yml's gate-self-health
+# job (plain pull_request, zero permissions, t/4266) -- this job never executes PR code at all.
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     types: [opened, synchronize, edited, labeled]
   issue_comment:
@@ -59,12 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          fetch-depth: 0
-
-      - name: Self-health — predicate unit suite
-        # Same principle as tier-check.yml: re-run the unit suite on every event, so a regression
-        # that breaks detection fails this job loudly instead of letting the check go quietly blind.
-        run: node --test operations/devops/t1-approval-guard-predicate.test.mjs
+          persist-credentials: false  # never leave a git credential lying around for anything run later in this job
 
       - name: Evaluate T1 approval
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
