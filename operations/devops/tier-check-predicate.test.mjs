@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   extractTier,
+  extractTierAnywhere,
   extractSchemaChange,
   isDependabot,
   checkR1,
@@ -32,6 +33,17 @@ test('extractTier: matches with and without trailing text, rejects wrong positio
   assert.equal(extractTier('some other first line\nTier: T1'), null);
   assert.equal(extractTier(''), null);
   assert.equal(extractTier(null), null);
+});
+
+// Found via PR #4395 (a real T1 PR that declared the line at the bottom of the body): confirms
+// the diagnostic helper finds it anywhere, strictly for the advisory message, while extractTier
+// above stays strict to the first line for R1-R4's actual pass/fail.
+test('extractTierAnywhere: finds a misplaced Tier: line anywhere in the body', () => {
+  assert.equal(extractTierAnywhere('some other first line\nTier: T1'), 'T1');
+  assert.equal(extractTierAnywhere('Tier: T2\n\nbody'), 'T2');
+  assert.equal(extractTierAnywhere('no tier line anywhere'), null);
+  assert.equal(extractTierAnywhere(''), null);
+  assert.equal(extractTierAnywhere(null), null);
 });
 
 test('extractSchemaChange: additive and breaking, missing is null', () => {
@@ -261,6 +273,30 @@ test('evaluateTierCheck: R1 hit without T2 fails; R5 alone never flips pass to f
   const t2WithoutHold = evaluateTierCheck({ ...base, body: 'Tier: T2\n\nsome body' });
   assert.equal(t2WithoutHold.pass, true);
   assert.equal(t2WithoutHold.r5Advisory, true);
+});
+
+// Found via PR #4395: R4's failure message now distinguishes "declared, wrong position" from
+// "not declared at all" instead of collapsing both into the same opaque "(none)".
+test('evaluateTierCheck: R4 names a misplaced Tier: line distinctly from a genuinely missing one', () => {
+  const base = {
+    headRefName: 'feat/x',
+    paths: ['README.md'],
+    prCreatedAt: new Date('2026-10-09T00:00:00Z'),
+    graceCutoff: new Date('2026-10-08T00:00:00Z'),
+    labels: [],
+    config: CONFIG,
+    workflowDiffs: [],
+    lintDiffs: [],
+    baseCiGateNeeds: null,
+    headCiGateNeeds: null,
+  };
+  const misplaced = evaluateTierCheck({ ...base, body: '# Summary\n\nsome body\n\nTier: T1' });
+  const r4Misplaced = misplaced.failures.find((f) => f.rule === 'R4');
+  assert.match(r4Misplaced.detail, /Tier: T1 is declared .* not on the first line/);
+
+  const missing = evaluateTierCheck({ ...base, body: '# Summary\n\nno tier anywhere' });
+  const r4Missing = missing.failures.find((f) => f.rule === 'R4');
+  assert.equal(r4Missing.detail, 'no Tier: T0|T1|T2 line in the PR body');
 });
 
 test('evaluateTierCheck: a clean T0 PR with no rule hits passes with no comments', () => {
