@@ -44,6 +44,7 @@ Describe 'Get-EnvDriftVerdict' {
         @{ Key = 'AZURE_USER_CONTENT_CONTAINER'; Prod = 'user-content'; Staging = 'staging-user-content' }
         @{ Key = 'AZURE_COMMUNITY_CONTAINER'; Prod = 'community'; Staging = 'staging-community' }
         @{ Key = 'AZURE_BRIEF_EXPORTS_CONTAINER'; Prod = 'brief-exports'; Staging = 'staging-brief-exports' }
+        @{ Key = 'AZURE_ANALYTICS_CONTAINER'; Prod = 'analytics'; Staging = 'staging-analytics' }
     ) {
         $v = Get-EnvDriftVerdict -App 'taxonomy-editor-staging' -Key $_.Key -LiveValue $_.Prod -BicepValue $_.Staging
         $v.Outcome | Should -Be 'Mismatch' -Because "this is exactly the t/4738 incident shape for $($_.Key)"
@@ -53,6 +54,7 @@ Describe 'Get-EnvDriftVerdict' {
         @{ Key = 'AZURE_USER_CONTENT_CONTAINER'; Staging = 'staging-user-content' }
         @{ Key = 'AZURE_COMMUNITY_CONTAINER'; Staging = 'staging-community' }
         @{ Key = 'AZURE_BRIEF_EXPORTS_CONTAINER'; Staging = 'staging-brief-exports' }
+        @{ Key = 'AZURE_ANALYTICS_CONTAINER'; Staging = 'staging-analytics' }
     ) {
         $v = Get-EnvDriftVerdict -App 'taxonomy-editor-staging' -Key $_.Key -LiveValue $_.Staging -BicepValue $_.Staging
         $v.Outcome | Should -Be 'Match'
@@ -70,6 +72,7 @@ Describe 'Get-BicepParamDefault' {
         @{ ParamName = 'azureUserContentContainerStaging'; Expected = 'staging-user-content' }
         @{ ParamName = 'azureCommunityContainerStaging'; Expected = 'staging-community' }
         @{ ParamName = 'azureBriefExportsContainerStaging'; Expected = 'staging-brief-exports' }
+        @{ ParamName = 'azureAnalyticsContainerStaging'; Expected = 'staging-analytics' }
     ) {
         $bicepPath = Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep'
         $text = Get-Content $bicepPath -Raw
