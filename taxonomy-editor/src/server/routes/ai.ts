@@ -885,7 +885,7 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
   });
 
   post('/api/nli/classify', (req, res, body) => withEndpointTimeout(res, 35_000, 'nli-classify', async () => {
-    const { pairs } = body as { pairs: { text_a: string; text_b: string }[] };
+    const { pairs, apiKey: clientKey } = body as { pairs: { text_a: string; text_b: string }[]; apiKey?: string };
     try {
       // t/3061: embed gate for RPM (separate "embed:<ip>" bucket, not the API bucket).
       // t/1650: classifyNli needs the free-tier key pool because the local Python venv was
@@ -893,14 +893,21 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // anon callers get [] → fail. Embeddings stay key-free (true local ONNX, no fallback).
       const gate = freeTierEmbeddingGate(req, res);
       if (gate.blocked) return;
-      // t/4486: the ONLY other injection site besides resolveExplicitAiKey — must go through
-      // the same geo-gated accessor (TL review, t/4486#2: this route bypassed
-      // resolveGenerationContext entirely, so a guard placed only there would miss it).
+      // t/4489: BYOK user with their own Gemini key should use it directly, not the free pool.
+      // If no BYOK key provided, fall back to free pool (same as before).
       let nliKeys: string[] | undefined;
-      if (proxyTiers.freeTierEnabled()) {
-        const poolResult = await getFreePoolKeys(req, res);
-        if (!poolResult.ok) return; // 403 free_pool_region already written
-        nliKeys = poolResult.keys;
+      if (clientKey) {
+        // t/4489: BYOK user with their own key — use it, skip free pool entirely (and its geo gate).
+        nliKeys = [clientKey];
+      } else {
+        // t/4486: the ONLY other injection site besides resolveExplicitAiKey — must go through
+        // the same geo-gated accessor (TL review, t/4486#2: this route bypassed
+        // resolveGenerationContext entirely, so a guard placed only there would miss it).
+        if (proxyTiers.freeTierEnabled()) {
+          const poolResult = await getFreePoolKeys(req, res);
+          if (!poolResult.ok) return; // 403 free_pool_region already written
+          nliKeys = poolResult.keys;
+        }
       }
       const results = await ai.classifyNli(pairs, nliKeys && nliKeys.length > 0 ? nliKeys : undefined);
       json(res, { results });
