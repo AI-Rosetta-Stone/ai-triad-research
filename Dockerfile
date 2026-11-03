@@ -12,6 +12,9 @@ RUN . /etc/os-release \
   && apt-get update && apt-get install -y --no-install-recommends powershell \
   && rm -rf /var/lib/apt/lists/*
 
+# Make tests available
+RUN pwsh -NoProfile -c "Install-Module Pester -Force -Scope AllUsers"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
   pandoc ghostscript \
   && rm -rf /var/lib/apt/lists/*
@@ -26,6 +29,3 @@ WORKDIR /workspaces/ai-triad-research
 # Copy just the lockfile so this layer only rebuilds when deps change
 COPY pnpm-lock.yaml ./
 RUN pnpm fetch --store-dir /pnpm/store && chown -R node:node /pnpm/store
-
-# Make tests available
-RUN pwsh -NoProfile -c "Install-Module Pester -Force -Scope AllUsers"
