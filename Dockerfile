@@ -22,10 +22,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-RUN pip install --no-cache-dir sentence-transformers numpy
 
 RUN npm install -g pnpm@11.20.0
 WORKDIR /workspaces/ai-triad-research
-# Copy just the lockfile so this layer only rebuilds when deps change
-COPY pnpm-lock.yaml ./
-RUN pnpm fetch --store-dir /pnpm/store && chown -R node:node /pnpm/store
+# Mount point for the pnpm-store volume
+RUN mkdir -p /pnpm/store && chown node:node /pnpm/store
+
+# Do this first with CPU-only torch, so that layer comes first
+# Note that this doesn't read the version from requirements.txt, so a change
+# to the torch version needs to be carried over here
+RUN --mount=type=cache,target=/root/.cache/pip \
+      pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
+
+# Rebuild only when requirements.txt changes
+COPY scripts/requirements.txt /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+      pip install -r /tmp/requirements.txt
+
+
