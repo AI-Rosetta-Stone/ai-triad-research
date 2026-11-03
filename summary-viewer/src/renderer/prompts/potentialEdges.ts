@@ -7,7 +7,7 @@
  */
 
 export function buildPotentialEdgesSystemPrompt(): string {
-  return `You are a research analyst for the AI Triad project at the Berkman Klein Center.
+  return `You are a research analyst for the AI Triad project.
 
 Your task is to discover potential typed, directed edges between an UNMAPPED CONCEPT
 (a concept found in a source document that has not yet been added to the taxonomy) and

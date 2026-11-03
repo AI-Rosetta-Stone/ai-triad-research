@@ -94,7 +94,7 @@
   --highlight-match-border: rgba(255, 170, 0, 0.5);
 }
 
-/* === BKC Theme (Berkman Klein Center Transparency Hub) === */
+/* === BKC Theme === */
 [data-theme="bkc"] {
   --bg-app: #1f1f1f;
   --bg-primary: #281f29;
