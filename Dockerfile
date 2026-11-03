@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/javascript-node:22
+FROM mcr.microsoft.com/devcontainers/javascript-node:26-trixie
 
 # Pin Python to 3.12 — Debian trixie's own apt repo only ships 3.13. Copy the
 # official python:3.12-slim-trixie image's self-contained /usr/local instead
