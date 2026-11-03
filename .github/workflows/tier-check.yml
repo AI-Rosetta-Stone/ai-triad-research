@@ -2,10 +2,28 @@ name: tier-check
 
 # Advisory tier-declaration check (t/4103, t/4092 SO dissent 2). Never blocks a merge, never
 # touches labels or merge state — comment-only. Promotion to required is a separate T2 PR.
-
+#
+# t/4266 P1 (TL p/331#2585): runs as `pull_request_target` so GitHub sources THIS FILE from
+# `main`, never the PR's own copy -- a PR can no longer disable or weaken evaluation by editing
+# tier-check.yml itself (proven live, PR #3447: a pull_request_target check-run attaches to the
+# PR's head SHA while the job's own code is base-branch code -- github.sha here is main's tip,
+# not the PR). Hardening, per the TL's checklist: minimal permissions, never checkout the PR
+# head with credentials (default checkout under pull_request_target fetches BASE only), and the
+# head is read through the API (PR files/content), never git-diffed or git-shown locally. The
+# self-test suite that used to run inline here now runs in ci.yml's gate-self-health job under
+# plain `pull_request` with zero permissions (t/4266) -- this job never executes PR code at all.
+#
+# t/4266 P2 fix 4 (TL t/4266#13): without issue_comment/pull_request_review triggers, R6 only
+# re-evaluates on a push -- but a push invalidates R6's head-bound approval evidence, so a PR
+# that gets approved AFTER its last push would stay red forever once R6 is promoted to blocking
+# (a deadlock). Re-run on the same events t1-approval-guard.yml already triggers on.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   pull-requests: write
@@ -18,13 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          fetch-depth: 0
-
-      - name: Self-health — predicate unit suite
-        # t/3737#4 principle: re-run the unit suite on every PR event, so a regression that
-        # breaks detection fails this job loudly instead of letting the check go quietly blind.
-        # tier-check-workflow.test.mjs runs THIS file's inline R1 fallback (t/4103, e/291).
-        run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
+          persist-credentials: false  # never leave a git credential lying around for anything run later in this job
 
       - name: Evaluate tier declaration
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
@@ -37,7 +49,14 @@ jobs:
             const path = require('path');
 
             const owner = context.repo.owner, repo = context.repo.repo;
-            const prNumber = context.payload.pull_request.number;
+            // t/4266 P2 fix 4: issue_comment fires on every issue, not just PRs -- filter to PRs
+            // only (same check t1-approval-guard.yml's resolvePrNumber already applies).
+            function resolvePrNumber() {
+              if (context.payload.pull_request) return context.payload.pull_request.number;
+              if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
+              return null;
+            }
+            const prNumber = resolvePrNumber();
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const MARKER = '<!-- tier-check:verdict -->';
 
@@ -52,7 +71,11 @@ jobs:
             }
 
             try {
-              await run();
+              if (!prNumber) {
+                core.info('tier-check: not a PR event (a plain issue comment) -- nothing to do.');
+              } else {
+                await run();
+              }
             } catch (err) {
               // A crash must never read as a verdict, and silence must never read as a pass
               // (t/4103, Lead review on PR #3155 run 37804716313 -- continue-on-error hid a
@@ -84,9 +107,6 @@ jobs:
             const headSha = pr.head.sha;
             execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
-            // R2a/R2b/R2c diff against the PR's actual base commit (unchanged semantics), not
-            // the live tip, since the diff must reflect only this PR's own changes.
-            const baseSha = pr.base.sha;
 
             function showFromBase(repoPath) {
               try {
@@ -99,20 +119,33 @@ jobs:
             const baseConfigText = showFromBase('.github/ci/tier-paths.json');
             const basePredicateText = showFromBase('operations/devops/tier-check-predicate.mjs');
 
-            // The HEAD copy of the predicate is NOT trusted: under `pull_request` it is the PR's own
-            // code. It is NEVER imported (e/291 SO C1): an import runs the head's top-level code in
-            // this step's realm, where it could patch Array.prototype.some, RegExp.prototype.test or
-            // github.paginate before the fallback runs. Its expected TIER_CHECK_API is read from the
-            // file's TEXT with a fixed regex; anything unparseable reads as null and forces the skew
-            // path, which then runs the self-contained inlineR1Fallback below, so an R1 path is
-            // still flagged (t/4103: the #3172 fallback had called headModule.evaluateR1Only).
+            // t/4266 P1: under `pull_request_target`, the checked-out tree is BASE only -- the
+            // head is read exclusively through the API, never via a local checkout or git-fetch
+            // of the PR's ref (which would pull untrusted content into this job's working tree).
+            async function readFromHead(repoPath) {
+              try {
+                const { data } = await github.rest.repos.getContent({ owner, repo, path: repoPath, ref: headSha });
+                if (Array.isArray(data) || !data.content) return null;
+                return Buffer.from(data.content, data.encoding ?? 'base64').toString('utf8');
+              } catch {
+                return null;
+              }
+            }
+
+            // The HEAD copy of the predicate is NOT trusted: under `pull_request_target` the
+            // workflow FILE is base's, but the repo's other files at the head commit are still
+            // whatever the PR wrote. It is NEVER imported (e/291 SO C1): an import runs the
+            // head's top-level code in this step's realm, where it could patch
+            // Array.prototype.some, RegExp.prototype.test or github.paginate before the fallback
+            // runs. Its expected TIER_CHECK_API is read from the file's TEXT (via the API, not a
+            // local checkout) with a fixed regex; anything unparseable reads as null and forces
+            // the skew path, which then runs the self-contained inlineR1Fallback below, so an R1
+            // path is still flagged (t/4103: the #3172 fallback had called headModule.evaluateR1Only).
             let headApi = null;
-            try {
-              const headText = fs.readFileSync(path.join(process.env.GITHUB_WORKSPACE, 'operations', 'devops', 'tier-check-predicate.mjs'), 'utf8');
+            const headText = await readFromHead('operations/devops/tier-check-predicate.mjs');
+            if (headText !== null) {
               const apiMatch = /^export const TIER_CHECK_API\s*=\s*(\d+)\s*;/m.exec(headText);
               headApi = apiMatch ? Number(apiMatch[1]) : null;
-            } catch {
-              headApi = null;
             }
 
             async function postSkippedVerdict(reason) {
@@ -201,16 +234,22 @@ jobs:
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
             const { paths } = factsFromListFiles(files);
 
+            // t/4266 P1: R2a/R2c's added/removed lines come from `pulls.listFiles`'s own
+            // `.patch` (a unified-diff hunk string, already fetched above via the API) --
+            // never from a local `git diff` against the head commit, which `pull_request_target`
+            // never checks out. A file with no `.patch` (binary, or too large -- GitHub omits it
+            // past a size threshold) reads as no added/removed lines, same fail-safe shape as a
+            // `git diff` that found nothing.
+            const filesByPath = new Map();
+            for (const f of files) {
+              if (f && typeof f.filename === 'string') filesByPath.set(f.filename, f);
+            }
             function diffLines(path) {
-              let raw;
-              try {
-                raw = execSync(`git diff ${baseSha} ${headSha} -- ${JSON.stringify(path)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', maxBuffer: 1024 * 1024 * 16 });
-              } catch {
-                return { addedLines: [], removedLines: [] };
-              }
+              const patch = filesByPath.get(path)?.patch;
+              if (!patch) return { addedLines: [], removedLines: [] };
               const addedLines = [], removedLines = [];
-              for (const line of raw.split('\n')) {
-                if (line.startsWith('+++') || line.startsWith('---')) continue;
+              for (const line of patch.split('\n')) {
+                if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue;
                 if (line.startsWith('+')) addedLines.push(line.slice(1));
                 else if (line.startsWith('-')) removedLines.push(line.slice(1));
               }
@@ -232,19 +271,34 @@ jobs:
               .map((p) => ({ path: p, ...diffLines(p) }));
 
             // R2b: parse ci-gate's `needs:` at base and head, compare sets (not diff lines).
-            function ciGateNeeds(sha) {
-              let content;
-              try {
-                content = execSync(`git show ${sha}:.github/workflows/ci.yml`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', maxBuffer: 1024 * 1024 * 16 });
-              } catch {
-                return null;
-              }
+            // Base is read locally (base.ref was fetched above, trusted content); head is read
+            // through the API only (t/4266 P1 -- never a local git-show of the head commit).
+            function ciGateNeedsFromText(content) {
+              if (content === null) return null;
               const m = /^\s*ci-gate:\s*\n\s*name:.*\n\s*needs:\s*\[([^\]]*)\]/m.exec(content);
               if (!m) return null;
               return m[1].split(',').map((s) => s.trim()).filter(Boolean);
             }
-            const baseCiGateNeeds = paths.includes('.github/workflows/ci.yml') ? ciGateNeeds(baseSha) : null;
-            const headCiGateNeeds = paths.includes('.github/workflows/ci.yml') ? ciGateNeeds(headSha) : null;
+            const baseCiGateNeeds = paths.includes('.github/workflows/ci.yml')
+              ? ciGateNeedsFromText(showFromBase('.github/workflows/ci.yml')) : null;
+            const headCiGateNeeds = paths.includes('.github/workflows/ci.yml')
+              ? ciGateNeedsFromText(await readFromHead('.github/workflows/ci.yml')) : null;
+
+            // R6 (t/4266 P2, fixed per t/4266#13/#15): the App review and the SO clearing
+            // marker are head-bound (commitId/headSha text) and need no timestamp. The two
+            // comment-only paths (Approved (PI): / "SO did not review") have no SHA-binding of
+            // their own, so they still need `lastPushAt` freshness (created_at only -- fix 3:
+            // never updated_at) or an old one of either would clear every future head forever.
+            const rawComments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
+            // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
+            // trusts): the TL's T2 approval is a reviewer-App review, not a PI comment alone.
+            const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
+            const rawReviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const reviews = rawReviews.map((r) => ({ state: r.state, commitId: r.commit_id, login: r.user?.login, body: r.body }));
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const lastCommit = commits[commits.length - 1];
+            const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
             const result = evaluateTierCheck({
               body: pr.body,
@@ -258,6 +312,11 @@ jobs:
               lintDiffs,
               baseCiGateNeeds,
               headCiGateNeeds,
+              approvalComments,
+              reviews,
+              headSha,
+              reviewerAppLogin: REVIEWER_APP_LOGIN,
+              lastPushAt,
             });
 
             core.info(`tier-check verdict: pass=${result.pass} tier=${result.tier} comments=${JSON.stringify(result.comments)}`);
