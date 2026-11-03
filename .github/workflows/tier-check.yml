@@ -284,9 +284,11 @@ jobs:
             const headCiGateNeeds = paths.includes('.github/workflows/ci.yml')
               ? ciGateNeedsFromText(await readFromHead('.github/workflows/ci.yml')) : null;
 
-            // R6 (t/4266 P2, fixed per t/4266#13): evidence is bound to headSha, never to a
-            // timestamp -- `created_at` only (fix 3: never `updated_at`, which would let editing
-            // an old comment fake freshness after a later push).
+            // R6 (t/4266 P2, fixed per t/4266#13/#15): the App review and the SO clearing
+            // marker are head-bound (commitId/headSha text) and need no timestamp. The two
+            // comment-only paths (Approved (PI): / "SO did not review") have no SHA-binding of
+            // their own, so they still need `lastPushAt` freshness (created_at only -- fix 3:
+            // never updated_at) or an old one of either would clear every future head forever.
             const rawComments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
             const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
             // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
@@ -294,6 +296,9 @@ jobs:
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
             const rawReviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 });
             const reviews = rawReviews.map((r) => ({ state: r.state, commitId: r.commit_id, login: r.user?.login, body: r.body }));
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const lastCommit = commits[commits.length - 1];
+            const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
             const result = evaluateTierCheck({
               body: pr.body,
@@ -311,6 +316,7 @@ jobs:
               reviews,
               headSha,
               reviewerAppLogin: REVIEWER_APP_LOGIN,
+              lastPushAt,
             });
 
             core.info(`tier-check verdict: pass=${result.pass} tier=${result.tier} comments=${JSON.stringify(result.comments)}`);

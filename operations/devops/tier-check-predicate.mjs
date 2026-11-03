@@ -283,28 +283,41 @@ const SO_CLEARING_PREFIX_RE = /\bSO clearing comment\b/i;
  *     t/4266#13 fix 3: never `updatedAt`, which would let editing an old comment fake freshness).
  * Advisory only for now (ships T1, warn-only cycle first, per Gate Promotion Discipline);
  * folded into `comments` the same way R5 is, never into `pass`, until promoted.
+ * t/4266#15 (TL regression catch): dropping all timestamps broke the TWO comment-based paths
+ * that have no head-binding of their own (`Approved (PI):` and "SO did not review" are plain
+ * prose, not SHA-stamped) -- without a freshness check, any old one of these comments would
+ * clear every future head forever. `lastPushAt` freshness (`created_at >= lastPushAt`) is
+ * restored for exactly those two; the App review (`commitId === headSha`) and the SO clearing
+ * marker (`body.includes(headSha)`) stay head-bound and need no timestamp at all.
  * @param {boolean} tierOrR1 whether the PR declares Tier: T2 or has an R1 hit
  * @param {string[]} labels
  * @param {Array<{body: string, createdAt: string}>} comments issues.listComments shape (created_at only)
  * @param {Array<{state: string, commitId: string, login: string, body: string}>} reviews pulls.listReviews shape
  * @param {string} headSha
  * @param {string} reviewerAppLogin
+ * @param {string|Date} lastPushAt
  */
-export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAppLogin) {
+export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAppLogin, lastPushAt) {
   if (!tierOrR1) return false;
   if ((labels ?? []).includes('consult-hold')) return false;
+
+  const pushMs = new Date(lastPushAt).getTime();
+  const isFresh = (c) => {
+    const t = new Date(c.createdAt).getTime();
+    return Number.isFinite(t) && Number.isFinite(pushMs) && t >= pushMs;
+  };
 
   const appApproved = (reviews ?? []).some((r) =>
     r.state === 'APPROVED' &&
     r.commitId === headSha &&
     r.login === reviewerAppLogin &&
     /^Approved \((Tech Lead|PI)\):/.test(String(r.body ?? '').trim()));
-  const piCommentApproved = (comments ?? []).some((c) => PI_COMMENT_APPROVAL_RE.test(c.body ?? ''));
+  const piCommentApproved = (comments ?? []).some((c) => PI_COMMENT_APPROVAL_RE.test(c.body ?? '') && isFresh(c));
   const approved = appApproved || piCommentApproved;
 
   const soCleared = (comments ?? []).some((c) => {
     const body = c.body ?? '';
-    if (SO_DID_NOT_REVIEW_RE.test(body)) return true;
+    if (SO_DID_NOT_REVIEW_RE.test(body)) return isFresh(c);
     return SO_CLEARING_PREFIX_RE.test(body) && body.includes(headSha);
   });
 
@@ -316,7 +329,7 @@ export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAp
  * the check). `comments` lists human-readable advisory text for any hit, including R5.
  */
 export function evaluateTierCheck(input) {
-  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds, approvalComments, reviews, headSha, reviewerAppLogin } = input;
+  const { body, headRefName, paths, prCreatedAt, graceCutoff, labels, config, workflowDiffs, lintDiffs, baseCiGateNeeds, headCiGateNeeds, approvalComments, reviews, headSha, reviewerAppLogin, lastPushAt } = input;
   const tier = extractTier(body);
   const schemaChange = extractSchemaChange(body);
   const dependabot = isDependabot(headRefName);
@@ -332,7 +345,7 @@ export function evaluateTierCheck(input) {
   // comments/reviews/head (e.g. offline replay) simply don't get this advisory, same as R5
   // being skipped by omitting labels.
   const r6 = headSha !== undefined
-    ? checkR6(tier === 'T2' || Boolean(r1), labels, approvalComments ?? [], reviews ?? [], headSha, reviewerAppLogin)
+    ? checkR6(tier === 'T2' || Boolean(r1), labels, approvalComments ?? [], reviews ?? [], headSha, reviewerAppLogin, lastPushAt)
     : false;
 
   const failures = [];
