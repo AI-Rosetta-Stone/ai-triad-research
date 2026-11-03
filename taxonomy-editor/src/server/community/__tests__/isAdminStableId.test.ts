@@ -7,7 +7,7 @@ import { isAdmin, getAdminUsers, validateAdminEntries } from '../community.js';
 // Mock UserContext functions
 vi.mock('../../security/userContext.js', () => ({
   getStableId: vi.fn(),
-  idp: vi.fn(),
+  getCurrentUser: vi.fn(),
   getStorageUserId: vi.fn(),
   isAnonymousUser: vi.fn(),
 }));
@@ -27,19 +27,19 @@ describe('isAdmin() stableId matching (t/4328, SO C1-C3)', () => {
   describe('C1: Exact stableId match against idp-qualified entries', () => {
     it('matches github:<stableId>', () => {
       userContext.getStableId.mockReturnValue('12345');
-      userContext.idp.mockReturnValue('github');
+      userContext.getCurrentUser.mockReturnValue({ idp: 'github' } as any);
       expect(isAdmin()).toBe(true);
     });
 
     it('matches aad:<tid>-<oid>', () => {
       userContext.getStableId.mockReturnValue('tenant-oid-123');
-      userContext.idp.mockReturnValue('aad');
+      userContext.getCurrentUser.mockReturnValue({ idp: 'aad' } as any);
       expect(isAdmin()).toBe(true);
     });
 
     it('case-insensitive (lowercased)', () => {
       userContext.getStableId.mockReturnValue('TENANT-OID-123');
-      userContext.idp.mockReturnValue('AAD');
+      userContext.getCurrentUser.mockReturnValue({ idp: 'AAD' } as any);
       expect(isAdmin()).toBe(true);
     });
   });
@@ -48,13 +48,13 @@ describe('isAdmin() stableId matching (t/4328, SO C1-C3)', () => {
     it('bare entry does not match GitHub principal', () => {
       vi.stubEnv('ADMIN_USERS', 'jpsnover,github:12345');
       userContext.getStableId.mockReturnValue('54321');
-      userContext.idp.mockReturnValue('github');
+      userContext.getCurrentUser.mockReturnValue({ idp: 'github' } as any);
       expect(isAdmin()).toBe(false);
     });
 
     it('unknown idp not admin', () => {
       userContext.getStableId.mockReturnValue('12345');
-      userContext.idp.mockReturnValue('google');
+      userContext.getCurrentUser.mockReturnValue({ idp: 'google' } as any);
       expect(isAdmin()).toBe(false);
     });
   });
@@ -62,13 +62,13 @@ describe('isAdmin() stableId matching (t/4328, SO C1-C3)', () => {
   describe('C1: Undefined stableId never admin', () => {
     it('undefined stableId → not admin', () => {
       userContext.getStableId.mockReturnValue(undefined);
-      userContext.idp.mockReturnValue('github');
+      userContext.getCurrentUser.mockReturnValue({ idp: 'github' } as any);
       expect(isAdmin()).toBe(false);
     });
 
     it('missing idp → not admin', () => {
       userContext.getStableId.mockReturnValue('12345');
-      userContext.idp.mockReturnValue(undefined);
+      userContext.getCurrentUser.mockReturnValue({ idp: undefined } as any);
       expect(isAdmin()).toBe(false);
     });
   });

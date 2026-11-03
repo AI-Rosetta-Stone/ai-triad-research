@@ -7,8 +7,7 @@ import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
-import { getStorageUserId, isAnonymousUser, getStableId } from '../security/userContext.js';
-import { idp } from '../security/userContext.js';
+import { getStorageUserId, isAnonymousUser, getStableId, getCurrentUser } from '../security/userContext.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
@@ -53,7 +52,7 @@ export function isAdmin(): boolean {
   const stableId = getStableId();
   if (!stableId) return false; // Undefined stableId is never admin (C1)
 
-  const userIdp = idp(); // e.g., 'github', 'aad'
+  const userIdp = getCurrentUser()?.idp;
   if (!userIdp) return false;
 
   const qualifiedEntry = `${userIdp.toLowerCase()}:${stableId.toLowerCase()}`;
@@ -624,7 +623,7 @@ export async function submitToCommunity(type: 'chat' | 'debate' | 'oped' | 'inqu
   log.server.info({ submissionId, type, userId }, 'Community submission created');
 
   // Admin submissions are auto-approved — skip the pending queue.
-  if (isAdmin(userId)) {
+  if (isAdmin()) {
     await approveSubmission(submissionId);
     log.server.info({ submissionId, type, userId }, 'Admin submission auto-approved');
   }
