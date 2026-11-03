@@ -7,16 +7,18 @@
 .DESCRIPTION
     Guards against two known dispatch failure modes before triggering container.yml:
       1. Short or malformed SHA — resolves via GH API; fails fast if unresolvable.
-      2. CI not green — polls the full ci.yml run for the resolved SHA to a terminal
-         'success' conclusion. Any non-success conclusion fails immediately.
+      2. CI not green — polls the `ci-gate` check-run for the resolved SHA to a terminal
+         'success' conclusion (t/4796: the single required status context, not the raw
+         ci.yml workflow-run conclusion — an advisory job elsewhere on that run can time
+         out or fail and flip the overall run red while ci-gate itself stays green).
 
     The in-workflow ci-gate in container.yml remains as defense-in-depth. This script
     is the operator-facing layer — errors surface before consuming workflow minutes.
 
-    Three-arm proof (t/2487):
+    Three-arm proof (t/2487, re-verified t/4796):
       Arm 1 (bad SHA)  : pass garbage string → fails at step 1
-      Arm 2 (no CI run): pass a known SHA with no ci.yml run → fails at step 2
-      Arm 3 (clean)    : pass main HEAD with green CI → dispatches, returns run URL
+      Arm 2 (no CI run): pass a known SHA with no ci-gate check-run → fails at step 2
+      Arm 3 (clean)    : pass main HEAD with green ci-gate → dispatches, returns run URL
 .PARAMETER Sha
     Commit SHA to build. 7-40 lowercase hex chars; shorter SHAs are resolved to 40-char
     via the GitHub API.
@@ -89,56 +91,59 @@ if ($Sha.Length -lt 40) {
     $Sha = $resolved
 }
 
-# ── Step 2: Wait for full ci.yml run to succeed ────────────────────────────────
-Write-Host "Checking ci.yml run for $Sha..."
-$runId = gh api "repos/$Repo/actions/workflows/ci.yml/runs?head_sha=$Sha&per_page=1" `
-    --jq '.workflow_runs[0].id // empty' 2>$null
-
-if (-not $runId) {
-    Fail -Goal     'Dispatch container build' `
-         -Problem  "No ci.yml run found for commit $Sha." `
-         -Location 'Invoke-ContainerBuild.ps1 step 2 (CI run lookup)' `
-         -NextSteps @(
-             "Push the commit to origin/main to trigger CI",
-             "Wait for CI to complete, then retry"
-         )
-}
+# ── Step 2: Wait for the ci-gate check-run to succeed ──────────────────────────
+# t/4796: gate on the `ci-gate` check-run specifically, not the raw ci.yml workflow-run
+# conclusion. ci-gate IS the single required status context (t/1962) branch protection
+# actually enforces; other jobs on the same run (e.g. complexity-tickets, advisory,
+# continue-on-error) can time out or fail and flip the overall run conclusion to
+# 'cancelled'/'failure' while ci-gate itself is green — which used to fail this script
+# closed on a condition that doesn't actually block merges (t/4796 evidence: run
+# 41622024606 on commit 483f0340, ci-gate=success, overall run=cancelled).
+Write-Host "Checking ci-gate check-run for $Sha..."
 
 $deadline   = (Get-Date).AddMinutes($WaitTimeoutMinutes)
 $conclusion = ''
 $status     = ''
 do {
-    $run        = gh api "repos/$Repo/actions/runs/$runId" --jq '{status: .status, conclusion: .conclusion}' | ConvertFrom-Json
-    $status     = $run.status
-    $conclusion = if ($run.conclusion) { $run.conclusion } else { '' }
+    $checkRuns = gh api "repos/$Repo/commits/$Sha/check-runs" --jq '[.check_runs[] | select(.name == "ci-gate")]' | ConvertFrom-Json
+    $gate      = $checkRuns | Sort-Object -Property started_at -Descending | Select-Object -First 1
+
+    if (-not $gate) {
+        Write-Host "  no ci-gate check-run yet for $Sha — waiting..."
+        Start-Sleep -Seconds 30
+        continue
+    }
+
+    $status     = $gate.status
+    $conclusion = if ($gate.conclusion) { $gate.conclusion } else { '' }
 
     if ($status -eq 'completed') { break }
 
-    Write-Host "  ci.yml run ${runId}: $status — waiting..."
+    Write-Host "  ci-gate: $status — waiting..."
     Start-Sleep -Seconds 30
 } while ((Get-Date) -lt $deadline)
 
 if ($status -ne 'completed') {
     Fail -Goal     'Dispatch container build' `
-         -Problem  "ci.yml run $runId did not complete within $WaitTimeoutMinutes min (status: $status)." `
+         -Problem  "ci-gate for $Sha did not complete within $WaitTimeoutMinutes min (status: $status)." `
          -Location 'Invoke-ContainerBuild.ps1 step 2 (poll timeout)' `
          -NextSteps @(
              "Wait for CI to finish, then retry",
-             "Watch the run: gh run watch $runId --exit-status"
+             "Check runs for the commit: gh api repos/$Repo/commits/$Sha/check-runs --jq '.check_runs[] | {name, status, conclusion}'"
          )
 }
 
 if ($conclusion -ne 'success') {
     Fail -Goal     'Dispatch container build' `
-         -Problem  "ci.yml run $runId concluded '$conclusion' — full CI must be green before building." `
+         -Problem  "ci-gate for $Sha concluded '$conclusion' — the required gate must be green before building." `
          -Location 'Invoke-ContainerBuild.ps1 step 2 (CI not green)' `
          -NextSteps @(
              "Fix failing CI jobs, push a fix commit, and retry with the new SHA",
-             "Inspect failures: gh run view $runId --log-failed"
+             "Inspect the ci-gate run: gh api repos/$Repo/commits/$Sha/check-runs --jq '.check_runs[] | select(.name == `"ci-gate`")'"
          )
 }
 
-Write-Host "  ci.yml run ${runId}: success — green."
+Write-Host "  ci-gate for ${Sha}: success — green."
 
 # ── Step 3: Dispatch ───────────────────────────────────────────────────────────
 $pushVal = if ($Push) { 'true' } else { 'false' }

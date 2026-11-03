@@ -60,6 +60,9 @@ $script:TrackedKeys = @(
     [PSCustomObject]@{ Name = 'AZURE_USER_CONTENT_CONTAINER'; BicepParam = 'azureUserContentContainerStaging' }
     [PSCustomObject]@{ Name = 'AZURE_COMMUNITY_CONTAINER'; BicepParam = 'azureCommunityContainerStaging' }
     [PSCustomObject]@{ Name = 'AZURE_BRIEF_EXPORTS_CONTAINER'; BicepParam = 'azureBriefExportsContainerStaging' }
+    # t/4794: a fourth container (analytics) nobody wired — same class as the three above, caught
+    # live when staging's events landed in prod's analytics container for ~15 hours.
+    [PSCustomObject]@{ Name = 'AZURE_ANALYTICS_CONTAINER'; BicepParam = 'azureAnalyticsContainerStaging' }
 )
 
 function Write-EnvDriftWarning([string]$msg) {

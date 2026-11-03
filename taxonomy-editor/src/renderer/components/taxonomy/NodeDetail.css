@@ -1078,6 +1078,13 @@
   padding: 0 14px;
 }
 
+/* Design t/4641 review: the row's own bottom margin (var(--sp-3)) and this rule's top margin
+   add up to 24px instead of the spec's 12px — they don't collapse away since the row is a
+   flex container. Zero this side only; the row's margin still accounts for it. */
+.nd-accent-description-row + .nd-description {
+  margin-top: 0;
+}
+
 .nd-description-prose,
 .nd-description-lead {
   font-family: 'Source Serif 4', Georgia, serif;
@@ -1299,6 +1306,18 @@
     flex-wrap: wrap;
     justify-content: flex-start;
     row-gap: var(--sp-2);
+    /* Design t/4641 review: flex-wrap on the row only wraps the toolbar when it doesn't fit
+       next to the rule — at exactly 767px it still fits and stays on the rule's row.
+       flex-basis: 100% forces it onto its own line unconditionally. */
+    flex-basis: 100%;
+  }
+
+  /* t/4641 AC5: without this, the row's own nowrap keeps the toolbar on the rule's row —
+     the toolbar's internal flex-wrap above only wraps its OWN buttons, it doesn't move the
+     whole toolbar under the rule. The rule (48px, flex-shrink:0) stays first and alone;
+     the wider toolbar wraps to its own line below it, left-aligned per spec §4. */
+  .nd-accent-description-row {
+    flex-wrap: wrap;
   }
 }
 

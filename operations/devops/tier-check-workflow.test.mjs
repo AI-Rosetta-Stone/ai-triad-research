@@ -116,9 +116,50 @@ function structureIssues(code) {
 test('C1: the whole step imports only the BASE copy (a temp file), never the head predicate', () => {
   const code = scriptCodeLines();
   assert.deepEqual(structureIssues(code), []);
-  assert.match(code, /readFileSync\(path\.join\(process\.env\.GITHUB_WORKSPACE, 'operations', 'devops', 'tier-check-predicate\.mjs'\), 'utf8'\)/,
-    'the head predicate is read as TEXT');
+  assert.match(code, /readFromHead\('operations\/devops\/tier-check-predicate\.mjs'\)/,
+    'the head predicate is read as TEXT, through the API (t/4266 P1 -- never a local checkout of the head)');
   assert.match(code, /baseModule\.checkApiVersion\(baseModule\.TIER_CHECK_API, headApi\)/, 'the version check runs base code');
+});
+
+// ── t/4266 P1: pull_request_target migration -- the workflow file itself is sourced from
+// `main`, never the PR, and the job never checks out or git-diffs the PR's head commit ──────
+test('P1: triggers on pull_request_target, not pull_request (a PR can no longer disable evaluation by editing this file)', () => {
+  assert.match(workflow, /^on:\s*\n\s*pull_request_target:/m);
+  assert.ok(!/^\s*pull_request:\s*\n\s*types:/m.test(workflow), 'must not also trigger on plain pull_request');
+});
+
+test('P1: checkout never persists credentials, and the step never shells `git diff`/`git show` against the head SHA', () => {
+  assert.match(workflow, /persist-credentials:\s*false/);
+  const code = scriptCodeLines();
+  assert.ok(!/git (diff|show) \$\{?headSha/.test(code) && !code.includes('git diff ${baseSha} ${headSha}'),
+    'the head commit must never be passed to a local git diff/show -- only to the API (readFromHead/getContent)');
+  assert.match(code, /repos\.getContent\(\{ owner, repo, path: repoPath, ref: headSha \}\)/, 'the head is read via the Contents API');
+});
+
+test('P1: R2a/R2c diff lines come from the already-fetched pulls.listFiles patch, never a local git diff', () => {
+  const code = scriptCodeLines();
+  assert.match(code, /filesByPath\.get\(path\)\?\.patch/);
+  assert.ok(!code.includes('git diff'), 'no git diff invocation may remain in the step');
+});
+
+// ── t/4266: the self-test suite moved to ci.yml's gate-self-health job (plain pull_request,
+// zero permissions). This job must have no knowledge of it at all -- a PR that rewrites its own
+// predicate's test file to always pass cannot influence THIS verdict, because this job never
+// reads any test result and never executes any PR-authored test file in the first place ──────
+test('P2 fix 4 (t/4266#13): issue_comment and pull_request_review are triggers, so R6 re-evaluates once approval arrives (no deadlock)', () => {
+  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created\]/m);
+  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted\]/m);
+});
+
+test('P2 fix 4: issue_comment is filtered to PRs via resolvePrNumber, same shape as t1-approval-guard.yml', () => {
+  const code = scriptCodeLines();
+  assert.match(code, /context\.payload\.issue && context\.payload\.issue\.pull_request/);
+});
+
+test('ATTACK ARM (t/4266): fully decoupled from gate-self-health -- rewriting the self-test to always pass cannot touch the verdict', () => {
+  assert.ok(!/needs:\s*\[[^\]]*gate-self-health/.test(workflow), 'tier-check.yml\'s job must not declare a `needs:` on the self-test job');
+  assert.ok(!/needs\.gate-self-health/.test(workflow), 'the step must not read gate-self-health\'s outcome');
+  assert.ok(!scriptCodeLines().includes('node --test'), 'tier-check.yml must never execute a test suite itself (moved to ci.yml, t/4266)');
 });
 
 test('CONTROL: legitimate require() of node builtins in the step preamble does not false-positive', () => {

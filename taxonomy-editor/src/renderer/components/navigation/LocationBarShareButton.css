@@ -1,0 +1,77 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* Licensed under the MIT License. See LICENSE file in the project root. */
+
+.nav-locbar-share-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto; /* t/4786: pushes to the right end of .nav-locbar, same as ⧉ (t/4772) */
+}
+
+.nav-locbar-share-revoke {
+  width: auto;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+}
+
+.nav-locbar-share-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.4rem;
+}
+
+.nav-locbar-share-fallback input {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  width: 15rem;
+  max-width: 34vw;
+}
+
+.nav-locbar-share-popover {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 20;
+  width: min(20rem, calc(100vw - 1rem));
+  padding: 0.75rem;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  font-size: 0.8rem;
+}
+
+.nav-locbar-share-popover p {
+  margin: 0 0 0.6rem;
+  color: var(--text-primary);
+}
+
+.nav-locbar-share-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.nav-locbar-share-error {
+  margin: 0 0 0.6rem;
+  color: var(--error-text);
+  font-size: 0.75rem;
+}
+
+/* Screen reader only — no global sr-only in this app yet */
+.sr-only {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}

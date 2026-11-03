@@ -112,6 +112,12 @@ param azureUserContentContainerStaging string = 'staging-user-content'
 param azureCommunityContainerStaging string = 'staging-community'
 @description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
 param azureBriefExportsContainerStaging string = 'staging-brief-exports'
+// t/4794: same gap as t/4738, a fourth instance — AZURE_ANALYTICS_CONTAINER was never wired for
+// either app, so staging fell back to server.ts's `|| 'analytics'` default and wrote into prod's
+// analytics container (213 staging-origin events found, 11-02 incident window). `staging-analytics`
+// and its RBAC grant (t/2701) already existed; only the env var was missing.
+@description('AZURE_ANALYTICS_CONTAINER override for staging only (t/4794). Isolates staging analytics events from prod.')
+param azureAnalyticsContainerStaging string = 'staging-analytics'
 
 // t/4752: cae-aitriad's defaultDomain, hardcoded instead of read via containerAppEnv.properties.*.
 // A managed environment's default domain is fixed at creation and never changes without
@@ -664,6 +670,9 @@ var baseEnv = [
   { name: 'AZURE_USER_CONTENT_CONTAINER', value: 'user-content' }
   { name: 'AZURE_COMMUNITY_CONTAINER', value: 'community' }
   { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: 'brief-exports' }
+  // t/4794: same reasoning as the three above — explicit, not relying on server.ts's
+  // `|| 'analytics'` default. Staging overrides to its own staging-analytics container below.
+  { name: 'AZURE_ANALYTICS_CONTAINER', value: 'analytics' }
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
@@ -766,6 +775,9 @@ var stagingEnvOverrides = [
   { name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }
   { name: 'AZURE_COMMUNITY_CONTAINER', value: azureCommunityContainerStaging }
   { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: azureBriefExportsContainerStaging }
+  // t/4794: a fourth container nobody wired — same incident class as the three above.
+  // staging-analytics and its RBAC grant (t/2701) already existed; only this line was missing.
+  { name: 'AZURE_ANALYTICS_CONTAINER', value: azureAnalyticsContainerStaging }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this

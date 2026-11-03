@@ -104,16 +104,17 @@
   color: var(--text-secondary);
 }
 
+/* t/4802 (Design): the × read 3.19-3.33 contrast as text; btn-ghost's --text-secondary (shared
+   class, OverflowMenu.css) clears 4.5:1 and matches DebateInPlaceHint's "Got it" button. */
 .chat-in-place-hint-dismiss {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  color: var(--text-muted);
-  padding: 0 2px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  padding: 2px 8px;
 }
 
-.chat-in-place-hint-dismiss:hover {
-  color: var(--text-primary);
+/* t/4802 (Design): inline at 1em, nudged to sit on the text baseline. */
+.chat-in-place-hint-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
 }

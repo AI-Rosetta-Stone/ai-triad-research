@@ -46,6 +46,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# t/4794 TL follow-up 2: a local minimal helper, not a hard dependency on AITriad.psm1 -- this
+# script is invoked from many other scripts/CI steps that may not have imported that module
+# (same convention as Rotate-SignInSecret.ps1's own local New-ActionableError).
+function New-ActionableError {
+    param([string]$Goal, [string]$Problem, [string]$Location, [string]$NextSteps)
+    "Goal: $Goal`nProblem: $Problem`nLocation: $Location`nResolve: $NextSteps"
+}
+
 if (-not $BicepPath) {
     $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $BicepPath = Join-Path $repoRoot 'deploy/azure/main.bicep'
@@ -130,7 +138,21 @@ if ($ForStaging) {
         $entryLinePattern = "^\{\s*name:\s*'([^']+)',\s*value:\s*(.+?)\s*\}$"
         foreach ($rawLine in ($stagingBlock -split "`n")) {
             $line = $rawLine.Trim()
-            if ($line -notmatch $entryLinePattern) { continue }  # comment, blank line, or not a single-line entry
+            if ($line -eq '' -or $line.StartsWith('//')) { continue }  # blank line or comment -- always safe to skip
+
+            if ($line -notmatch $entryLinePattern) {
+                # t/4794 TL follow-up 1: a line that LOOKS like an override entry (has a quoted
+                # `name:`) but doesn't match the single-line shape -- e.g. it spans multiple lines
+                # -- must THROW, not silently skip. Silently skipping an entry we can't even parse
+                # the shape of is the same mechanism as the incident, just a different trigger.
+                if ($line -match "name:\s*'([^']+)'") {
+                    throw (New-ActionableError -Goal 'Resolve stagingEnvOverrides for the staging reconcile' `
+                        -Problem "an entry near `"$line`" does not match the expected single-line { name: 'X', value: <expr> } shape (it may span multiple lines)" `
+                        -Location 'Get-BicepBaseEnv.ps1, -ForStaging override walk' `
+                        -NextSteps 'Rewrite the entry in main.bicep as a single line, or extend the parser deliberately -- never let an unparseable entry silently fall through (t/4794).')
+                }
+                continue
+            }
             $name = $Matches[1]
             $rawValue = $Matches[2]
 
@@ -143,7 +165,10 @@ if ($ForStaging) {
                 continue
             }
             if ($result.ContainsKey($name)) {
-                throw "Get-BicepBaseEnv.ps1 -ForStaging: stagingEnvOverrides entry '$name' = $rawValue cannot be resolved to a literal value, but baseEnv already supplies a literal for this key -- the override would silently fail to apply, and baseEnv's value would ship to staging unchanged. Aborting (t/4794)."
+                throw (New-ActionableError -Goal 'Resolve stagingEnvOverrides for the staging reconcile' `
+                    -Problem "entry '$name' = $rawValue cannot be resolved to a literal value, but baseEnv already supplies a literal for this key" `
+                    -Location 'Get-BicepBaseEnv.ps1, -ForStaging override walk' `
+                    -NextSteps 'The override would silently fail to apply and baseEnv (prod)''s value would ship to staging unchanged -- give the param a literal default, or make the override a quoted literal (t/4794).')
             }
         }
     } else {

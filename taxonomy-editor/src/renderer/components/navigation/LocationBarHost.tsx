@@ -16,7 +16,9 @@ import { isRunning, subscribeRunning, type RunningToolId } from '../../navigatio
 import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace, type ItemToolId } from '../../navigation/openInWindow';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { LocationBar } from './LocationBar';
+import { LocationBarShareButton } from './LocationBarShareButton';
 import { backAction, historyButtonName, type BackAction } from './backAction';
+import '../../navigation/povShareProvider'; // t/4786: side-effect registration for the ⧉ share button
 import './LocationBarHost.css';
 
 const isElectron = import.meta.env.VITE_TARGET !== 'web';
@@ -303,6 +305,7 @@ export function LocationBarHost() {
       <LocationBar crumbs={crumbs} tool={place.tool} onUp={href => navigate(() => goToPath(href))} />
 
       {newWindowPlace && <NewWindowButton place={newWindowPlace} />}
+      <LocationBarShareButton place={place} />
 
       <div className="nav-locbar-live" aria-live="polite">{announcement}</div>
     </div>
