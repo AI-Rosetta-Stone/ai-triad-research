@@ -17,16 +17,17 @@ BeforeAll {
 
 Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
 
-    # Hermetic default OutputPath. Without -OutputPath the cmdlet reads the REAL data repo's
-    # taxonomy/Origin/issue-type-proposals.json, and once the full run committed that file
-    # (2026-11-04) every CI run failed with "already holds run_id ...". A per-test TestDrive
-    # path keeps tests off real data; tests that pass -OutputPath explicitly still win.
+    # Hermetic default OutputPath. Without -OutputPath the cmdlet writes beside the REAL data
+    # repo's taxonomy (Join-Path (Get-TaxonomyDir) 'issue-type-proposals.json'), and once the
+    # full run committed that file (2026-11-04) every CI run failed with "already holds run_id
+    # ...". Point Get-TaxonomyDir at a fresh per-test directory instead. (PSDefaultParameterValues
+    # does not reach calls made inside InModuleScope, so it can't be used here.) Tests that pass
+    # -OutputPath explicitly are unaffected.
     BeforeEach {
-        $global:PSDefaultParameterValues['Invoke-IssueTypeClassification:OutputPath'] =
-            Join-Path $TestDrive "default-proposals-$([guid]::NewGuid()).json"
-    }
-    AfterAll {
-        $global:PSDefaultParameterValues.Remove('Invoke-IssueTypeClassification:OutputPath')
+        $script:HermeticTaxDir = Join-Path $TestDrive "tax-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $script:HermeticTaxDir -Force | Out-Null
+        $dir = $script:HermeticTaxDir
+        Mock Get-TaxonomyDir -ModuleName AITriad { $dir }.GetNewClosure()
     }
 
     It 'rejects an out-of-enum response and skips the node without writing it' {
