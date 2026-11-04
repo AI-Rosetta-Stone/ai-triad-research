@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Registry of issue-type category labels and definitions for the taxonomy (t/4828). Slug is the canonical identifier; label is the display name. Consumed by UI (taxonomy-editor) and PowerShell (Invoke-IssueTypeClassification).",
+  "labels": {
+    "loss_of_control": {
+      "label": "Loss of Control",
+      "definition": "Concerns about inability to govern or predict AI system behavior as capabilities scale."
+    },
+    "misuse": {
+      "label": "Misuse",
+      "definition": "Risks from intentional harmful use of AI systems by human actors."
+    },
+    "power_concentration": {
+      "label": "Power Concentration",
+      "definition": "Consolidation of economic or political power through AI capabilities."
+    },
+    "economic": {
+      "label": "Economic",
+      "definition": "Effects on labor markets, resource allocation, wealth distribution, or economic stability."
+    },
+    "political": {
+      "label": "Political",
+      "definition": "Impacts on governance, institutional capacity, democratic processes, or international relations."
+    },
+    "social": {
+      "label": "Social",
+      "definition": "Effects on human relationships, social cohesion, cultural norms, or quality of life."
+    }
+  }
+}
