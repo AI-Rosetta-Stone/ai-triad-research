@@ -8,17 +8,18 @@
 # Overrides (visible in the command): AITRIAD_PREPUSH=skip git push   or   git push --no-verify
 # Activation: git config core.hooksPath .githooks (root AGENTS.md).
 
-if [ "${AITRIAD_PREPUSH:-}" = "skip" ]; then
-  echo "pre-push: WARN checks skipped by AITRIAD_PREPUSH=skip; CI will still run them." >&2
-  exit 0
-fi
-
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 CHECKS="$ROOT/operations/devops/pre-push-checks.sh"
 QUEUE_GUARD="$ROOT/operations/devops/check-queued-push-guard.sh"
-if [ ! -f "$CHECKS" ]; then
+# t/4858 TL review: AITRIAD_PREPUSH=skip must only skip the (slower) TypeScript checks
+# below, never the queued-push guard -- a queued PR's head can race a push regardless of
+# whether the pusher wants the TS checks run, so the guard is not an optional check.
+SKIP_TS="${AITRIAD_PREPUSH:-}"
+if [ "$SKIP_TS" = "skip" ]; then
+  echo "pre-push: WARN TypeScript checks skipped by AITRIAD_PREPUSH=skip; CI will still run them. The queued-push guard still runs." >&2
+fi
+if [ ! -f "$CHECKS" ] && [ "$SKIP_TS" != "skip" ]; then
   echo "pre-push: WARN $CHECKS not found (branch predates it?); skipping TypeScript checks." >&2
-  exit 0
 fi
 ZERO=0000000000000000000000000000000000000000
 # The checks read the working tree, so they only describe a pushed commit that is the
@@ -40,6 +41,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   if [ -f "$QUEUE_GUARD" ]; then
     branch=${remote_ref#refs/heads/}
     sh "$QUEUE_GUARD" "$branch" || { status=1; continue; }
+  fi
+  if [ "$SKIP_TS" = "skip" ] || [ ! -f "$CHECKS" ]; then
+    continue
   fi
   base=$(git merge-base "$local_sha" origin/main 2>/dev/null)
   if [ -z "$base" ] && [ "$remote_sha" != "$ZERO" ]; then base=$remote_sha; fi
