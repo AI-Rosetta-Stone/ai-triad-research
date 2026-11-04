@@ -27,10 +27,10 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
 
     It 'a taxonomy-editor src .tsx change runs eslint, both tsc projects and vitest related' {
         $plan = Get-Plan @('taxonomy-editor/src/renderer/components/Foo.tsx')
-        $plan | Should -Contain 'taxonomy-editor|eslint| src/renderer/components/Foo.tsx'
+        $plan | Should -Contain "taxonomy-editor|eslint|`tsrc/renderer/components/Foo.tsx"
         $plan | Should -Contain 'taxonomy-editor|tsc|tsconfig.json'
         $plan | Should -Contain 'taxonomy-editor|tsc|tsconfig.main.json'
-        $plan | Should -Contain "taxonomy-editor|vitest-related| $($script:Root)/taxonomy-editor/src/renderer/components/Foo.tsx"
+        $plan | Should -Contain "taxonomy-editor|vitest-related|`t$($script:Root)/taxonomy-editor/src/renderer/components/Foo.tsx"
     }
 
     It 'passes vitest related an ABSOLUTE path (relative paths match no tests under root src/renderer)' {
@@ -41,7 +41,7 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
 
     It 'a lib .ts change runs lib eslint and type checks, and its tests via taxonomy-editor vitest' {
         $plan = Get-Plan @('lib/debate/engine.ts')
-        $plan | Should -Contain 'lib|eslint| debate/engine.ts'
+        $plan | Should -Contain "lib|eslint|`tdebate/engine.ts"
         $plan | Should -Contain 'lib|tsc|debate/tsconfig.json'
         $plan | Should -Contain 'lib|script|typecheck:brief-nodenext'
         @($plan | Where-Object { $_ -like 'taxonomy-editor|vitest-related|*lib/debate/engine.ts' }).Count | Should -Be 1
@@ -54,7 +54,7 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
 
     It 'a src .css or .js change lints only what eslint covers and skips type checks' {
         $plan = Get-Plan @('taxonomy-editor/src/renderer/Foo.css', 'taxonomy-editor/src/renderer/legacy.js')
-        $plan | Should -Be @('taxonomy-editor|eslint| src/renderer/legacy.js')
+        $plan | Should -Be @("taxonomy-editor|eslint|`tsrc/renderer/legacy.js")
     }
 
     It 'docs, PowerShell and workflow changes plan no TypeScript checks' {
@@ -63,8 +63,16 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
 
     It 'groups several changed files into one invocation per check' {
         $plan = Get-Plan @('taxonomy-editor/src/a.ts', 'taxonomy-editor/src/b.tsx')
-        @($plan | Where-Object { $_ -like 'taxonomy-editor|eslint|*' }) | Should -Be @('taxonomy-editor|eslint| src/a.ts src/b.tsx')
+        @($plan | Where-Object { $_ -like 'taxonomy-editor|eslint|*' }) | Should -Be @("taxonomy-editor|eslint|`tsrc/a.ts`tsrc/b.tsx")
         @($plan | Where-Object { $_ -like '*|tsc|tsconfig.json' }).Count | Should -Be 1
+    }
+
+    It 'keeps a changed path containing spaces as ONE file in the TAB-separated list' {
+        $plan = Get-Plan @('taxonomy-editor/src/my dir/a b.ts', 'taxonomy-editor/src/c.ts')
+        $lint = @($plan | Where-Object { $_ -like 'taxonomy-editor|eslint|*' })
+        $lint.Count | Should -Be 1
+        $files = @((($lint[0] -split '\|', 3)[2]) -split "`t" | Where-Object { $_ })
+        $files | Should -Be @('src/my dir/a b.ts', 'src/c.ts')
     }
 }
 

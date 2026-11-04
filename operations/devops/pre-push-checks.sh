@@ -35,6 +35,11 @@
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "pre-push: WARN cannot find repo root; skipping checks." >&2; exit 0; }
 cd "$ROOT" || exit 0
 
+# File lists in a plan line are TAB-separated, so a path containing spaces stays one argument
+# (splitting an unquoted list on spaces broke such paths, and globbing could expand a path
+# containing * or ?). The runner below splits on TAB only, with globbing off.
+TAB=$(printf '\t')
+
 is_ts() { case "$1" in *.ts|*.tsx|*.mts|*.cts) return 0 ;; esac; return 1; }
 is_lintable() { case "$1" in *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs) return 0 ;; esac; return 1; }
 
@@ -45,13 +50,13 @@ plan_for() {
     [ -z "$f" ] && continue
     case "$f" in
       taxonomy-editor/src/*)
-        is_lintable "$f" && te_lint="$te_lint ${f#taxonomy-editor/}"
-        is_ts "$f" && { te_ts=1; related="$related $ROOT/$f"; } ;;
+        is_lintable "$f" && te_lint="$te_lint$TAB${f#taxonomy-editor/}"
+        is_ts "$f" && { te_ts=1; related="$related$TAB$ROOT/$f"; } ;;
       taxonomy-editor/*)
         is_ts "$f" && te_ts=1 ;;
       lib/*)
-        is_lintable "$f" && lib_lint="$lib_lint ${f#lib/}"
-        is_ts "$f" && { lib_ts=1; related="$related $ROOT/$f"; } ;;
+        is_lintable "$f" && lib_lint="$lib_lint$TAB${f#lib/}"
+        is_ts "$f" && { lib_ts=1; related="$related$TAB$ROOT/$f"; } ;;
     esac
   done
   [ -n "$te_lint" ] && echo "taxonomy-editor|eslint|$te_lint"
@@ -108,12 +113,14 @@ for step in $PLAN; do
 '
     continue
   fi
+  # File lists become positional args: split on TAB only, globbing off, then "$@" below.
+  set -f; IFS=$TAB; set -- $arg; IFS=$OLDIFS; set +f
   start=$(date +%s)
   case "$kind" in
-    eslint)         label="$pkg: eslint (changed files)"; ( cd "$ROOT/$pkg" && pnpm exec eslint --no-warn-ignored $arg ) ;;
+    eslint)         label="$pkg: eslint (changed files)"; ( cd "$ROOT/$pkg" && pnpm exec eslint --no-warn-ignored "$@" ) ;;
     tsc)            label="$pkg: tsc -p $arg";            ( cd "$ROOT/$pkg" && pnpm exec tsc --noEmit -p "$arg" ) ;;
     script)         label="$pkg: pnpm run $arg";          ( cd "$ROOT/$pkg" && pnpm run --silent "$arg" ) ;;
-    vitest-related) label="$pkg: vitest related";         ( cd "$ROOT/$pkg" && pnpm exec vitest related --run --passWithNoTests $arg ) ;;
+    vitest-related) label="$pkg: vitest related";         ( cd "$ROOT/$pkg" && pnpm exec vitest related --run --passWithNoTests "$@" ) ;;
   esac
   rc=$?
   secs=$(( $(date +%s) - start ))
