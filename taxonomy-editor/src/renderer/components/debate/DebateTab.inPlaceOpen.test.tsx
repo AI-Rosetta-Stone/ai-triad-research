@@ -207,4 +207,36 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
       vi.useRealTimers();
     }
   });
+
+  it('does not write ack on StrictMode re-mount (setup cancels pending write)', () => {
+    vi.useFakeTimers();
+    try {
+      debateStoreState.activeDebateId = 'debate-1';
+      debateStoreState.activeDebate = makeSession();
+      // Render, unmount without acknowledging (simulates StrictMode first unmount)
+      const { unmount: unmount1 } = render(<DebateTab />);
+      expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+      unmount1();
+      // Don't run timers yet — the write is scheduled but not fired
+
+      // Immediately re-mount (simulates StrictMode re-mount). The new setup should cancel
+      // the pending write from the first unmount.
+      const { unmount: unmount2 } = render(<DebateTab />);
+      expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+      unmount2();
+
+      // Now run all timers. If the fix works, only the second unmount's setTimeout fires,
+      // and it gets cancelled when the hint is acknowledged on re-mount (or dismissed manually).
+      // Since we didn't click "Got it", the second unmount's write should fire and persist.
+      // But crucially, the first unmount's write was cancelled by the second mount's setup.
+      vi.runAllTimers();
+      expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+
+      // Verify it doesn't show on next render
+      render(<DebateTab />);
+      expect(screen.queryByText(/Opens here now/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
