@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
@@ -126,5 +128,27 @@ describe('RelatedEdgesPanel (t/2446)', () => {
 
       expect(screen.queryByText('superseded')).not.toBeInTheDocument();
     });
+  });
+
+  // t/4827 — jsdom doesn't apply the imported CSS or compute layout, so assert
+  // the min-width:0/flex-wrap rules that let the toolbar shrink instead of
+  // overflowing once the Related tab stacks to full width on a narrow pane.
+  describe('toolbar filter-row shrink (t/4827)', () => {
+    const css = readFileSync(join(import.meta.dirname, 'RelatedEdgesPanel.css'), 'utf8');
+
+    it('lets the toolbar wrap instead of overflowing', () => {
+      const block = css.slice(css.indexOf('.related-edges-toolbar {'), css.indexOf('.related-edges-threshold {'));
+      expect(block).toMatch(/flex-wrap:\s*wrap;/);
+    });
+
+    it.each(['.related-edges-threshold', '.related-edges-threshold-slider', '.related-edges-filter'])(
+      'removes the content-size floor on %s so it can shrink below its intrinsic width',
+      (selector) => {
+        const start = css.indexOf(`${selector} {`);
+        expect(start).toBeGreaterThan(-1);
+        const block = css.slice(start, css.indexOf('}', start));
+        expect(block).toMatch(/min-width:\s*0;/);
+      },
+    );
   });
 });
