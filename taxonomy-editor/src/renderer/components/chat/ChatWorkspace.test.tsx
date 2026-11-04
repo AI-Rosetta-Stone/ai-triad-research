@@ -177,6 +177,41 @@ describe('ChatWorkspace', () => {
     expect(screen.getByText('Greetings!')).toBeInTheDocument();
   });
 
+  // t/4855 (t/4848 follow-up): the How panel's Raw Prompt/Response read the real ChatEntry
+  // fields when the server has captured them, falling back to "not available" otherwise.
+  it('shows the real raw prompt/response in the How panel when captured', async () => {
+    const user = userEvent.setup();
+    mockChatStoreState = {
+      activeChat: makeChat({
+        transcript: [
+          {
+            id: 'm1', speaker: 'accelerationist', content: 'Answer', taxonomy_refs: [],
+            timestamp: '2026-01-01T00:00:00Z', raw_prompt: 'The full prompt text', raw_response: 'The raw model text',
+          },
+        ],
+      }),
+    };
+    render(<ChatWorkspace />);
+    await user.click(screen.getByRole('button', { name: 'How' }));
+    expect(screen.getByText('The full prompt text')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Raw Response' }));
+    expect(screen.getByText('The raw model text')).toBeInTheDocument();
+  });
+
+  it('shows "not available" in the How panel when raw prompt/response are absent', async () => {
+    const user = userEvent.setup();
+    mockChatStoreState = {
+      activeChat: makeChat({
+        transcript: [
+          { id: 'm1', speaker: 'accelerationist', content: 'Answer', taxonomy_refs: [], timestamp: '2026-01-01T00:00:00Z' },
+        ],
+      }),
+    };
+    render(<ChatWorkspace />);
+    await user.click(screen.getByRole('button', { name: 'How' }));
+    expect(screen.getAllByText('Not available for this response yet.').length).toBeGreaterThanOrEqual(1);
+  });
+
   it('renders input bar with textarea and send button', () => {
     mockChatStoreState = { activeChat: makeChat() };
     render(<ChatWorkspace />);
