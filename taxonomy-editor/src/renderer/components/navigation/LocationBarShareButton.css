@@ -65,6 +65,13 @@
   font-size: 0.75rem;
 }
 
+/* t/4838: `.nav-locbar-share-popover p` (0,1,1) outranks `.nav-locbar-share-error` (0,1,0) on
+   specificity alone, regardless of source order, so the error <p> rendered in body-text color
+   instead of red. Matches on the popover ancestor too, raising specificity to 0,2,0. */
+.nav-locbar-share-popover .nav-locbar-share-error {
+  color: var(--error-text);
+}
+
 /* Screen reader only — no global sr-only in this app yet */
 .sr-only {
   clip: rect(0, 0, 0, 0);
