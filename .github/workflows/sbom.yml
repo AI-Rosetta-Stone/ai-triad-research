@@ -45,6 +45,8 @@ jobs:
       - name: Get latest image digest
         id: latest_image
         run: |
+          # Pull image locally so docker inspect can access it
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           # Fetch the latest :latest tag's digest
           DIGEST=$(docker inspect --format='{{.RepoDigests}}' ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>/dev/null | grep -oP 'sha256:[a-f0-9]{64}' | head -1)
           if [ -z "$DIGEST" ]; then

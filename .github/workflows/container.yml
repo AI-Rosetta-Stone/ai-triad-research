@@ -148,7 +148,10 @@ jobs:
           # WP1 (t/4840): remove dirs in background to parallelize with checkout/lint.
           # /usr/local/lib/android takes ~70s; run async so it completes during lint step.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
+          CLEANUP_PID=$!
           df -h /
+          # Wait for cleanup to complete before step ends
+          wait $CLEANUP_PID
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
