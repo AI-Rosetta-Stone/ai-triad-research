@@ -168,8 +168,39 @@
   border-bottom: 1px solid var(--lib-border-header);
   display: flex;
   align-items: center;
+  position: relative;
 }
 .lib-header-cell.lib-align-right { justify-content: flex-end; }
+
+/* t/4830: opt-in drag-to-resize handle, anchored to the resizable column's right edge. */
+.lib-header-cell-resizable { padding-right: 10px; }
+.lib-col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -8px;
+  bottom: 0;
+  width: 16px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.lib-col-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 7px;
+  width: 2px;
+  background: transparent;
+  border-radius: 1px;
+}
+.lib-col-resize-handle:hover::after,
+.lib-col-resize-handle:focus-visible::after {
+  background: var(--lib-border-header);
+}
+.lib-col-resize-handle:focus-visible {
+  outline: 2px solid var(--lib-accent);
+  outline-offset: -2px;
+}
 
 .lib-header-sort-btn {
   /* t/3702#11 F3: the visible text lives on this <button>, not .lib-header-cell — `font: inherit`

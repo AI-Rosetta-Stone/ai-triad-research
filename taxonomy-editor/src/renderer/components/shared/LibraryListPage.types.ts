@@ -45,6 +45,12 @@ export interface LibraryColumn<TMy, TCommunity> {
    *  the column's rendered text if omitted — supply this when the column needs numeric/date
    *  ordering (e.g. Debates' Turns, right-aligned numeric). */
   compare?: (a: TMy | TCommunity, b: TMy | TCommunity, variant: LibraryVariant) => number;
+  /** t/4830 (TL design, t/4830#2): opt-in drag-to-resize on this column's header edge. Omit it
+   *  and the column is completely unaffected — still exactly `width`, no handle rendered. When
+   *  set, the column renders at `width` until the user drags or keyboard-steps it, at which
+   *  point it becomes a clamped `[min, max]` px value, persisted per page (see
+   *  `useResizableColumns`). */
+  resizable?: { min: number; max: number };
 }
 
 export interface LibraryExportFormat {
@@ -130,6 +136,13 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
   /** Default: `/^https?:\/\//i.test(title)`. Override only if a page's "title" needs different
    *  web-address detection than the default regex. */
   isWebAddressTitle?: (row: TMy | TCommunity, variant: LibraryVariant) => boolean;
+
+  /** t/4830: same opt-in resizable affordance as `LibraryColumn.resizable`, for the title
+   *  column specifically. The title column is never declared in `columns` (always first,
+   *  always `1fr`) — this is its own field for the same reason `titleHeader`/`titleSortable`
+   *  are. Debates opts in on Motion (the title column for that page) via this field, not
+   *  `LibraryColumn.resizable` — there is no `LibraryColumn` entry for the title. */
+  titleResizable?: { min: number; max: number };
 
   /** Optional content beside the title text, same line, on both the desktop and phone layouts
    *  (t/4720, Chat's first consumer at t/4718 — a camp chip). Omit it and nothing renders; every

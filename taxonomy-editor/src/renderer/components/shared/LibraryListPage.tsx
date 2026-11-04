@@ -14,6 +14,7 @@ import { useIsAdmin } from '../../hooks/useIsAdmin';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace } from '../../navigation/openInWindow';
 import { getLastVariant, setLastVariant } from '../../navigation/lastVariant';
+import { useResizableColumns, type ResizableSpec, type ResizeHandleProps } from './useResizableColumns';
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -35,6 +36,26 @@ function nextDir(dir: SortDir): SortDir {
 function ariaSortFor(state: SortState, key: string): 'ascending' | 'descending' | 'none' {
   if (state.key !== key || state.dir === 'none') return 'none';
   return state.dir === 'asc' ? 'ascending' : 'descending';
+}
+
+/** t/4830: gathers every opt-in resizable column on this page into the id->spec map
+ *  `useResizableColumns` wants — 'title' for `titleResizable`, `col.key` for each column's own
+ *  `resizable`. Extracted so a page with neither (every page before this ticket) contributes no
+ *  complexity to the main component. */
+function collectResizableSpecs<TMy extends { id: string }, TCommunity extends { id: string }>(
+  titleResizable: { min: number; max: number } | undefined,
+  columns: LibraryColumn<TMy, TCommunity>[],
+): Record<string, ResizableSpec> {
+  const specs: Record<string, ResizableSpec> = {};
+  if (titleResizable) specs.title = titleResizable;
+  for (const col of columns) if (col.resizable) specs[col.key] = col.resizable;
+  return specs;
+}
+
+/** t/4830: resolved px width for a resizable column, falling back to its declared default
+ *  (unresized, or not resizable at all) — same extraction reason as `collectResizableSpecs`. */
+function resolvedColWidth(px: number | null | undefined, fallback: string): string {
+  return px != null ? `${px}px` : fallback;
 }
 
 /** t/4561 (t/4689: + remembered): extracted so the branching lives in its own function, not
@@ -339,7 +360,7 @@ function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string
 // ── Sortable header cell ──
 
 function HeaderCell({
-  label, sortKey, sortable, sort, onSort, width, align,
+  label, sortKey, sortable, sort, onSort, width, align, cellRef, resizeHandle,
 }: {
   label: string;
   sortKey: string;
@@ -348,14 +369,19 @@ function HeaderCell({
   onSort: (key: string) => void;
   width: string;
   align?: 'left' | 'right';
+  /** t/4830: only set for a resizable column \u2014 measures its rendered width on first drag/keypress. */
+  cellRef?: (el: HTMLDivElement | null) => void;
+  /** t/4830: only set for a resizable column \u2014 renders the drag/keyboard resize handle. */
+  resizeHandle?: ResizeHandleProps;
 }) {
   const isSorted = sort.key === sortKey && sort.dir !== 'none';
   const dirGlyph = sort.dir === 'asc' ? '\u25B4' : '\u25BE';
   return (
     <div
+      ref={cellRef}
       role="columnheader"
       aria-sort={ariaSortFor(sort, sortKey)}
-      className={`lib-cell lib-header-cell${align === 'right' ? ' lib-align-right' : ''}${isSorted ? ' sorted' : ''}`}
+      className={`lib-cell lib-header-cell${align === 'right' ? ' lib-align-right' : ''}${isSorted ? ' sorted' : ''}${resizeHandle ? ' lib-header-cell-resizable' : ''}`}
       // eslint-disable-next-line local/no-inline-style -- per-column width from page config, not a static class
       style={{ width }}
     >
@@ -370,6 +396,7 @@ function HeaderCell({
           {sortable && <span className="lib-sort-caret" aria-hidden="true">{isSorted ? dirGlyph : '\u25BE'}</span>}
         </button>
       )}
+      {resizeHandle && <div className="lib-col-resize-handle" {...resizeHandle} />}
     </div>
   );
 }
@@ -479,20 +506,49 @@ function HeaderRow2({
 // ── Grid column-header row ──
 
 function GridHeaderRow<TMy extends { id: string }, TCommunity extends { id: string }>({
-  config, sort, onSort, editModeActive,
+  config, sort, onSort, editModeActive, columnWidths, registerCell, getHandleProps,
 }: {
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   sort: SortState;
   onSort: (key: string) => void;
   editModeActive: boolean;
+  /** t/4830: resolved px per resizable column id ('title' or col.key); absent = use the
+   *  column's own declared width (unresized, or not resizable at all). */
+  columnWidths: Record<string, number | null>;
+  registerCell: (id: string) => (el: HTMLElement | null) => void;
+  getHandleProps: (id: string, label: string) => ResizeHandleProps;
 }) {
+  const titleWidth = resolvedColWidth(columnWidths.title, '1fr');
   return (
     <div className="lib-row" role="row">
       {editModeActive && <div className="lib-cell lib-header-cell lib-col-cb" role="columnheader" aria-label="Select row" />}
-      <HeaderCell label={config.titleHeader} sortKey={TITLE_SORT_KEY} sortable={!!config.titleSortable} sort={sort} onSort={onSort} width="1fr" />
-      {config.columns.map((col: LibraryColumn<TMy, TCommunity>) => (
-        <HeaderCell key={col.key} label={col.header} sortKey={col.key} sortable={!!col.sortable} sort={sort} onSort={onSort} width={col.width} align={col.align} />
-      ))}
+      <HeaderCell
+        label={config.titleHeader}
+        sortKey={TITLE_SORT_KEY}
+        sortable={!!config.titleSortable}
+        sort={sort}
+        onSort={onSort}
+        width={titleWidth}
+        cellRef={config.titleResizable ? registerCell('title') : undefined}
+        resizeHandle={config.titleResizable ? getHandleProps('title', `Resize ${config.titleHeader} column`) : undefined}
+      />
+      {config.columns.map((col: LibraryColumn<TMy, TCommunity>) => {
+        const resolvedWidth = resolvedColWidth(columnWidths[col.key], col.width);
+        return (
+          <HeaderCell
+            key={col.key}
+            label={col.header}
+            sortKey={col.key}
+            sortable={!!col.sortable}
+            sort={sort}
+            onSort={onSort}
+            width={resolvedWidth}
+            align={col.align}
+            cellRef={col.resizable ? registerCell(col.key) : undefined}
+            resizeHandle={col.resizable ? getHandleProps(col.key, `Resize ${col.header || col.key} column`) : undefined}
+          />
+        );
+      })}
       {/* eslint-disable-next-line local/no-inline-style -- fixed actions-column width, same value as every page's spec table */}
       <div className="lib-cell lib-header-cell lib-align-right" role="columnheader" style={{ width: ACTIONS_COL_WIDTH } as React.CSSProperties} />
     </div>
@@ -951,10 +1007,20 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   // t/4643: Edit is admin-only on Community. "The shell gates this once" per the ticket — any
   // tool that turns on config.showEdit later inherits the rule automatically.
   const canShowEdit = canShowEditFor(!!config.showEdit, listView, isAdmin);
+
+  // t/4830: opt-in resizable columns — 'title' for config.titleResizable, col.key for each
+  // LibraryColumn.resizable. A page with neither (every page before this ticket) gets an empty
+  // `specs` map, so `widths` is always `{}` and gridCols below is byte-for-byte unchanged.
+  const resizableSpecs = useMemo(
+    () => collectResizableSpecs(config.titleResizable, config.columns),
+    [config.titleResizable, config.columns],
+  );
+  const { widths: columnWidths, registerCell, getHandleProps } = useResizableColumns(restoreKey, resizableSpecs);
+
   const gridCols = [
     editModeActive ? CHECKBOX_COL_WIDTH : null,
-    '1fr',
-    ...config.columns.map(c => c.width),
+    resolvedColWidth(columnWidths.title, '1fr'),
+    ...config.columns.map(c => resolvedColWidth(columnWidths[c.key], c.width)),
     ACTIONS_COL_WIDTH,
   ].filter(Boolean).join(' ');
 
@@ -998,7 +1064,15 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
       <div className="lib-table-wrap">
         {/* eslint-disable-next-line local/no-inline-style -- per-page grid-template-columns, not a static class */}
         <div className="lib-grid" role="table" aria-label={`${config.title} ${listView === 'my' ? 'My' : 'Community'} table`} style={{ '--lib-cols': gridCols } as React.CSSProperties}>
-          <GridHeaderRow config={config} sort={sort} onSort={onSort} editModeActive={editModeActive} />
+          <GridHeaderRow
+            config={config}
+            sort={sort}
+            onSort={onSort}
+            editModeActive={editModeActive}
+            columnWidths={columnWidths}
+            registerCell={registerCell}
+            getHandleProps={getHandleProps}
+          />
 
           <EmptyStateRow loading={loading} hasSortedRows={sortedRows.length > 0} hasRows={rows.length > 0} hasQuery={!!q} query={searchQuery} emptyLabel={emptyLabel} />
 
