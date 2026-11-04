@@ -36,6 +36,11 @@ export interface ChatSession {
   transcript: ChatEntry[];
   /** Chat-specific AI model override. If set, used instead of the global model. */
   chat_model?: string;
+  /** t/4774: chosen at chat creation from the shared ModelPicker's temperature slider, 0-2.
+   *  Absent means "not set" — the two useChatStore.ts call sites fall back to the mode's
+   *  default (CHAT_MODE_TEMPERATURE), so an old chat created before this field existed behaves
+   *  exactly as it did before (AC4). Never recomputed after creation. */
+  temperature?: number;
   /** POV tag the chat is set to (t/3995, spec §2). Both fields are set together; absent = untagged. */
   pov_tag?: string;
   tag_mode?: TagMode;

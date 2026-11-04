@@ -183,6 +183,60 @@ describe('useChatStore', () => {
       expect(saved.title.length).toBeLessThanOrEqual(60);
       expect(saved.title).toContain('...');
     });
+
+    // t/4774: temperature is chosen from the shared ModelPicker's slider at creation.
+    it('stores the chosen temperature on the session', async () => {
+      mockApi.listChatSessions.mockResolvedValueOnce([]);
+      await useChatStore.getState().createChat('brainstorm', 'accelerationist', 'T', undefined, undefined, 1.5);
+      const saved = mockApi.saveChatSession.mock.calls[0][0];
+      expect(saved.temperature).toBe(1.5);
+    });
+
+    it('omits temperature (absent, not undefined-valued) when not provided — old-shaped sessions serialize as before', async () => {
+      mockApi.listChatSessions.mockResolvedValueOnce([]);
+      await useChatStore.getState().createChat('brainstorm', 'accelerationist', 'T');
+      const saved = mockApi.saveChatSession.mock.calls[0][0];
+      expect('temperature' in saved).toBe(false);
+    });
+  });
+
+  // t/4774: temperature is new for chat — was fixed per mode (CHAT_MODE_TEMPERATURE), now an
+  // optional per-session override that both generation call sites must respect.
+  describe('temperature (t/4774)', () => {
+    it('generateOpening uses the chat\'s stored temperature over the mode default', async () => {
+      useChatStore.setState({ activeChat: makeChatSession({ mode: 'brainstorm', temperature: 1.7 }) as never });
+      await useChatStore.getState().generateOpening();
+      expect(mockApi.startChatStream.mock.calls[0][3]).toBe(1.7);
+    });
+
+    it('generateOpening falls back to the mode default when temperature is absent (old chat, AC4)', async () => {
+      useChatStore.setState({ activeChat: makeChatSession({ mode: 'brainstorm' }) as never });
+      await useChatStore.getState().generateOpening();
+      expect(mockApi.startChatStream.mock.calls[0][3]).toBe(0.9); // CHAT_MODE_TEMPERATURE.brainstorm (mocked)
+    });
+
+    it('sendMessage uses the chat\'s stored temperature over the mode default', async () => {
+      useChatStore.setState({
+        activeChat: makeChatSession({
+          mode: 'decide',
+          temperature: 0.1,
+          transcript: [{ id: 'e1', timestamp: '2026-01-01T00:00:00Z', speaker: 'accelerationist', content: 'Opening', taxonomy_refs: [] }],
+        }) as never,
+      });
+      await useChatStore.getState().sendMessage('follow-up');
+      expect(mockApi.startChatStream.mock.calls[0][3]).toBe(0.1);
+    });
+
+    it('sendMessage falls back to the mode default when temperature is absent (old chat, AC4)', async () => {
+      useChatStore.setState({
+        activeChat: makeChatSession({
+          mode: 'decide',
+          transcript: [{ id: 'e1', timestamp: '2026-01-01T00:00:00Z', speaker: 'accelerationist', content: 'Opening', taxonomy_refs: [] }],
+        }) as never,
+      });
+      await useChatStore.getState().sendMessage('follow-up');
+      expect(mockApi.startChatStream.mock.calls[0][3]).toBe(0.5); // CHAT_MODE_TEMPERATURE.decide (mocked)
+    });
   });
 
   // t/3995: a chat can carry one POV tag (spec §2). Scope sends only tagged nodes; Prioritize is recorded
