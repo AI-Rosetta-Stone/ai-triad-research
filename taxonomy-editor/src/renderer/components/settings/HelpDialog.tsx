@@ -484,7 +484,6 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             </table>
             <p className="helpdialog-about-desc">
               AI Triad Research — multi-perspective research platform for AI policy/safety literature.
-              Berkman Klein Center, 2026.
             </p>
             <p className="helpdialog-about-stack">
               Built with Electron 35, React 19, TypeScript, Vite, and Zustand.
