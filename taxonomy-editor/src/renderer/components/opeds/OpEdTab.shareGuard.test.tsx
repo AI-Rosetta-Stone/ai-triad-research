@@ -65,6 +65,18 @@ describe('OpEdReaderView Share guard (t/2987 + t/3315)', () => {
     expect(container.querySelector('.oped-reader-bar')).not.toBeNull();
   });
 
+  // t/4803 (Design review, PR #4505): with the bar gone, the camp tab strip still pinned at the
+  // bar's height, leaving a scrolling gap above it — the modifier class zeroes that gap.
+  it("t/4803: adds oped-reader-shell-no-bar when the bar isn't rendered", () => {
+    const { container } = renderReader(null);
+    expect(container.querySelector('.oped-reader-shell')).toHaveClass('oped-reader-shell-no-bar');
+  });
+
+  it("t/4803: omits oped-reader-shell-no-bar when the bar is rendered", () => {
+    const { container } = renderReader('my');
+    expect(container.querySelector('.oped-reader-shell')).not.toHaveClass('oped-reader-shell-no-bar');
+  });
+
   it("renders '🔗 Share' for the user's own op-ed (shareSource='my')", () => {
     renderReader('my');
     expect(screen.queryByLabelText(SHARE_LABEL_MY)).not.toBeNull();

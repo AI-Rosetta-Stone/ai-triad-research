@@ -234,6 +234,12 @@ function ShareOpEdControl({ setId, source = 'my' }: { setId: string; source?: 'm
 
 // ── Reader view (back bar + article/loading/error) ────────────────────────────
 
+/** t/4803 (Design review, PR #4505): extracted so the conditional doesn't add to
+ *  OpEdReaderView's own complexity count. */
+function opedReaderShellClassName(showReaderBar: boolean): string {
+  return showReaderBar ? 'oped-reader-shell' : 'oped-reader-shell oped-reader-shell-no-bar';
+}
+
 export function OpEdReaderView({
   readerSet, readerLoading, readerError, status, shareSource, communityId, initialPov, onPovChange,
 }: {
@@ -265,7 +271,7 @@ export function OpEdReaderView({
   const showReaderBar = !!status || showShareControl;
   return (
     <div className="two-column oped-tab-table-mode">
-      <div className="oped-reader-shell">
+      <div className={opedReaderShellClassName(showReaderBar)}>
         {showReaderBar && (
           <div className="oped-reader-bar">
             {status && <span className="oped-status">{status}</span>}

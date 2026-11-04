@@ -37,8 +37,12 @@
 /* t/4803 (Design, measured live): the up crumb is the one way up, so it must always be
    readable. Without this, a long current crumb (e.g. a debate topic) shrinks the ancestor
    crumb too, truncating it ("Debate" -> "Debat"). Desktop only — the phone block below
-   already hides every non-current crumb. */
-.nav-locbar-crumb:not(.nav-locbar-current) {
+   already hides every non-current crumb.
+   t/4803 (Design review, PR #4505): scoped to :first-child, not every non-current crumb — the
+   first crumb is always the up-to-collection one (AC1), but a middle crumb (e.g. Op-Ed's
+   topic, "Op-Ed Studies › <topic> › ● Camp") still needs to shrink/ellipsize, or the bar
+   overflows at narrow desktop widths. */
+.nav-locbar-crumb:first-child:not(.nav-locbar-current) {
   flex-shrink: 0;
 }
 
