@@ -6,7 +6,8 @@
 // Read/write pattern matches ChatInPlaceHint (t/4690) / FreeTierDisclosure.tsx — a storage
 // failure shows the hint again next visit, the safe failure for a one-time disclosure.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import './DebateInPlaceHint.css';
 
@@ -37,19 +38,43 @@ function writeDebateHintAcknowledged(): void {
   }
 }
 
+const isWeb = import.meta.env.VITE_TARGET === 'web';
+const windowPhrase = isWeb ? 'a new tab' : 'a separate window';
+
 export function DebateInPlaceHint() {
   const [acknowledged, setAcknowledged] = useState(readDebateHintAcknowledged);
+
+  useEffect(() => {
+    if (acknowledged) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        writeDebateHintAcknowledged();
+        setAcknowledged(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [acknowledged]);
+
+  useEffect(() => {
+    return () => {
+      if (!acknowledged) writeDebateHintAcknowledged();
+    };
+  }, [acknowledged]);
+
   if (acknowledged) return null;
   return (
     <div className="debate-in-place-hint" role="status">
-      <span><strong>Opens here now.</strong> Use ⧉ to open it in a separate window.</span>
+      <span>
+        <strong>Opens here now.</strong> Use{' '}
+        <ExternalLink aria-hidden="true" className="debate-in-place-hint-icon" /> to open it in {windowPhrase}.
+      </span>
       <button
         type="button"
-        className="debate-in-place-hint-dismiss"
-        aria-label="Dismiss"
+        className="debate-in-place-hint-dismiss btn-xs btn-ghost"
         onClick={() => { writeDebateHintAcknowledged(); setAcknowledged(true); }}
       >
-        &times;
+        Got it
       </button>
     </div>
   );

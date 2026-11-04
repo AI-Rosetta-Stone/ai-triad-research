@@ -199,7 +199,7 @@ Unicode symbols used for lightweight indicators: `▸`/`▾` (collapse arrows), 
 
 ## Node Detail Tabs
 
-Current tab set (from `NodeDetail.tsx`). Simple view shows only Content and Related; the rest are Advanced-only. Content is renamed **Analysis** by the node detail redesign (t/4574, pending; see `node-detail-redesign.md`).
+Current tab set (from `NodeDetail.tsx`). Simple view shows only Content and Related; the rest are Advanced-only. Content is labelled **Analysis** (t/4574). **Pending t/4826:** `[What | Why | How]` groups replace Simple/Advanced, and Analysis splits into `steelman` + `lineage`; see `node-detail-tab-groups.md`.
 
 | ID | Label | Notes |
 |---|---|---|
@@ -233,15 +233,17 @@ Current tab set (from `SituationDetail.tsx`):
 
 | ID | Label |
 |---|---|
-| `about` | About |
-| `changelog` | What's New |
-| `overview` | Overview |
+| `overview` | Overview (default) |
 | `documentation` | Documentation |
 | `methods` | Methods |
 | `shortcuts` | Shortcuts |
+| `changelog` | What's New |
 | `sbom` | SBOM |
 | `licenses` | Licenses |
+| `about` | About |
 | `my-cases` | My Cases (web build only) |
+
+Order per the PI (t/4829). The dialog opens on the first tab, Overview, unless a caller passes `initialTab`.
 
 The Welcome Tour tab is retired. Its content moved to the Rosetta Stone home page (see `onboarding.md`).
 
