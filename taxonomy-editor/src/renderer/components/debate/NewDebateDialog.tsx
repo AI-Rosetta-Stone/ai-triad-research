@@ -137,12 +137,11 @@ function computeDebateModelOverride(multiProvider: boolean, useCustomModel: bool
 function buildDebateCreatedData(p: {
   id: string; sourceType: DebateSourceType; povers: SpeakerId[]; userIsPover: boolean;
   effectiveModel: string; protocolId: string; temperature: number; audience: DebateAudience;
-  stepMode: boolean; multiProvider: boolean; modelTier: 'basic' | 'advanced';
-  speakerModels: Record<string, string> | undefined;
+  stepMode: boolean;
   stageModels: { brief: string; plan: string; cite: string };
   creationWeights: ReturnType<typeof buildCreationWeights>;
 }): Record<string, unknown> {
-  return { debate_id: p.id, source_type: p.sourceType, povers: p.povers, user_is_pover: p.userIsPover, model: p.effectiveModel, protocol: p.protocolId, temperature: p.temperature, audience: p.audience || null, adaptive_staging: true, step_mode: p.stepMode || undefined, multi_provider: p.multiProvider || undefined, model_tier: p.multiProvider ? p.modelTier : undefined, speaker_models: p.speakerModels || undefined, stage_models: (p.stageModels.brief || p.stageModels.plan || p.stageModels.cite) ? p.stageModels : undefined, ...p.creationWeights && { adaptive_config: p.creationWeights } };
+  return { debate_id: p.id, source_type: p.sourceType, povers: p.povers, user_is_pover: p.userIsPover, model: p.effectiveModel, protocol: p.protocolId, temperature: p.temperature, audience: p.audience || null, adaptive_staging: true, step_mode: p.stepMode || undefined, stage_models: (p.stageModels.brief || p.stageModels.plan || p.stageModels.cite) ? p.stageModels : undefined, ...p.creationWeights && { adaptive_config: p.creationWeights } };
 }
 
 function computeActiveModel(freeTier: boolean, tierInfo: TierInfo | null, useCustomModel: boolean, customModel: string, globalModel: string): string {
@@ -164,11 +163,11 @@ type PresetId = BuiltInPresetId | 'custom';
 export const PRESET_DEFAULTS: Record<BuiltInPresetId, {
   protocolId: string; dialecticalStyle: DialecticalStyle;
   confrontationRounds: number; argumentationRounds: number; concludingRounds: number;
-  stepMode: boolean; modelTier: 'basic' | 'advanced';
+  stepMode: boolean;
 }> = {
-  quick:    { protocolId: 'structured',   dialecticalStyle: 'adversarial',  confrontationRounds: 1, argumentationRounds: 1, concludingRounds: 1, stepMode: false, modelTier: 'basic'    },
-  deep:     { protocolId: 'deliberation', dialecticalStyle: 'deliberative', confrontationRounds: 1, argumentationRounds: 3, concludingRounds: 1, stepMode: false, modelTier: 'advanced' },
-  socratic: { protocolId: 'socratic',     dialecticalStyle: 'integrative',  confrontationRounds: 2, argumentationRounds: 4, concludingRounds: 2, stepMode: true,  modelTier: 'basic'    },
+  quick:    { protocolId: 'structured',   dialecticalStyle: 'adversarial',  confrontationRounds: 1, argumentationRounds: 1, concludingRounds: 1, stepMode: false },
+  deep:     { protocolId: 'deliberation', dialecticalStyle: 'deliberative', confrontationRounds: 1, argumentationRounds: 3, concludingRounds: 1, stepMode: false },
+  socratic: { protocolId: 'socratic',     dialecticalStyle: 'integrative',  confrontationRounds: 2, argumentationRounds: 4, concludingRounds: 2, stepMode: true  },
 };
 
 const SCREEN_A_PRESETS: { id: BuiltInPresetId; label: string; summary: string; estimatedMinutes?: number }[] = [
