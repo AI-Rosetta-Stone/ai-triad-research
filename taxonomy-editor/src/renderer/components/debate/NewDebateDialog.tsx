@@ -6,7 +6,7 @@ import type { TextareaHTMLAttributes, Dispatch, SetStateAction, ReactNode } from
 import { useFocusTrap, useMediaQuery } from './NewDebateDialog.hooks';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useTaxonomyStore, AI_BACKENDS, MODELS_BY_BACKEND, FALLBACK_CHAINS, backendForModelWithFallback, initAIModels, type AIBackend } from '../../hooks/useTaxonomyStore';
+import { useTaxonomyStore, AI_BACKENDS, FALLBACK_CHAINS, backendForModelWithFallback, initAIModels, type AIBackend } from '../../hooks/useTaxonomyStore';
 import { POVER_INFO, DEBATE_AUDIENCES } from '../../types/debate';
 import type { SpeakerId, DebateSourceType, DebateAudience, SeatTag } from '../../types/debate';
 import { DEBATE_PROTOCOLS } from '../../data/debateProtocols';
@@ -27,6 +27,8 @@ import { buildDebateOptions } from './newDebateOptions';
 import { SettingsToggleRow } from './SettingsToggleRow';
 import { SeatTagPicker, seatTagLabel, seatTagRefusal, seatTagIssueMessage, registryOrNull } from './SeatTagPicker';
 
+// t/4773: matches ModelPicker's own "Default 0.8." hint, so the slider's stated default is true.
+const DEFAULT_DEBATE_TEMPERATURE = 0.8;
 const DEBATE_EXCLUDED_BACKENDS = new Set(['ollama']); // can't reliably produce structured JSON for debates — capability gap, not an oversight
 
 const LS_LAST_AUDIENCE = 'taxonomy-editor-last-debate-audience';
@@ -277,6 +279,7 @@ interface SettingsApply {
   narrativeVoicing: boolean;
   useCustomModel: boolean;
   customModel: string;
+  temperature: number;
   titleOverride: string;
   background: string; seatTags: Partial<Record<SpeakerId, SeatTag>>;
 }
@@ -298,6 +301,7 @@ interface DebateSettingsProps {
   narrativeVoicing: boolean;
   // Model (t/4773: a single ModelPicker; tier and multi-provider controls removed)
   customModel: string;
+  temperature: number;
   globalModel: string;
   // Argument sourcing
   excludeGreatestHits: boolean;
@@ -314,7 +318,7 @@ type PresetDef = typeof PRESET_DEFAULTS[BuiltInPresetId];
 type SectionDiffState = {
   protocolId: string; dialecticalStyle: DialecticalStyle;
   confrontationRounds: number; argumentationRounds: number; concludingRounds: number;
-  stepMode: boolean; narrativeVoicing: boolean; useCustomModel: boolean;
+  stepMode: boolean; narrativeVoicing: boolean; useCustomModel: boolean; temperature: number;
   selected: Set<SpeakerId>; userIsPover: boolean; audience: DebateAudience;
   excludeGreatestHits: boolean; titleOverride: string; background: string;
 };
@@ -329,7 +333,7 @@ function voicesDiff(s: SectionDiffState): boolean {
     s.userIsPover || s.audience !== 'policymakers';
 }
 function modelDiff(s: SectionDiffState): boolean {
-  return s.useCustomModel;
+  return s.useCustomModel || s.temperature !== DEFAULT_DEBATE_TEMPERATURE;
 }
 function materialDiff(s: SectionDiffState): boolean {
   return s.titleOverride !== '' || s.background !== '';
@@ -498,35 +502,24 @@ function VoicesAudienceSection({ isSocratic, localSelected, setLocalSelected, to
 interface ModelProvidersProps {
   localCustomFamily: AIBackend; setLocalCustomFamily: (v: AIBackend) => void;
   localCustomModel: string; setLocalCustomModel: (v: string) => void;
+  localTemperature: number; setLocalTemperature: (v: number) => void;
   globalModel: string;
 }
-function ModelProvidersSection({ localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, globalModel }: ModelProvidersProps) {
+// t/4773 AC1 (Design, p/376#141): the picker is always shown — no "Custom model" gate. The
+// global default is marked "(default)"; choosing any other model is what makes it custom.
+function ModelProvidersSection({ localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, localTemperature, setLocalTemperature, globalModel }: ModelProvidersProps) {
   return (
     <>
       <h3 className="ndd-settings-section-title">Model &amp; providers</h3>
-      <label className="ndd-settings-toggle-row">
-        <input type="checkbox" id="ndd-use-custom-model" checked={localCustomModel !== globalModel} onChange={e => setLocalCustomModel(e.target.checked ? MODELS_BY_BACKEND[localCustomFamily]?.[0]?.value ?? localCustomModel : globalModel)} />
-        <div>
-          <span className="ndd-toggle-name">Custom model</span>
-          <span className="ndd-step-help">Override the default model for this debate</span>
-        </div>
-      </label>
-      {localCustomModel !== globalModel && (
-        <div style={{ marginTop: 'var(--sp-2)' }}>
-          <ModelPicker
-            idPrefix="ndd-model"
-            family={localCustomFamily}
-            model={localCustomModel}
-            onFamilyChange={fam => { setLocalCustomFamily(fam); setLocalCustomModel(MODELS_BY_BACKEND[fam]?.[0]?.value ?? localCustomModel); }}
-            onModelChange={setLocalCustomModel}
-          />
-        </div>
-      )}
-      {localCustomModel === globalModel && (
-        <p className="ndd-settings-field-hint" style={{ marginTop: 'var(--sp-2)' }}>
-          Using default model: <code>{globalModel}</code>
-        </p>
-      )}
+      <ModelPicker
+        idPrefix="ndd-model"
+        family={localCustomFamily}
+        model={localCustomModel}
+        onFamilyChange={setLocalCustomFamily}
+        onModelChange={setLocalCustomModel}
+        defaultModelId={globalModel}
+        temperature={{ value: localTemperature, onChange: setLocalTemperature }}
+      />
     </>
   );
 }
@@ -591,6 +584,7 @@ function DebateSettingsDialog({
   stepMode: initStepMode,
   narrativeVoicing: initNarrativeVoicing,
   customModel: initCustomModel,
+  temperature: initTemperature,
   globalModel,
   excludeGreatestHits: initExcludeGreatestHits,
   titleOverride: initTitleOverride,
@@ -614,11 +608,12 @@ function DebateSettingsDialog({
   const [localConcluding, setLocalConcluding] = useState(initConcludingRounds);
   const [localStepMode, setLocalStepMode] = useState(initStepMode);
   const [localNarrativeVoicing, setLocalNarrativeVoicing] = useState(initNarrativeVoicing);
-  // Model. "Custom" is derived, not stored: the picker's checkbox already reads
-  // localCustomModel !== globalModel, so a separate flag would drift from what's shown (t/4773).
+  // Model. "Custom" is derived, not stored: picking any model other than the global default
+  // is what makes it custom, so a separate flag would drift from what's shown (t/4773).
   const [localCustomModel, setLocalCustomModel] = useState(initCustomModel);
   const [localCustomFamily, setLocalCustomFamily] = useState<AIBackend>(() => backendForModelWithFallback(initCustomModel));
   const localUseCustomModel = localCustomModel !== globalModel;
+  const [localTemperature, setLocalTemperature] = useState(initTemperature);
   // Sourcing
   const [localExcludeGreatestHits, setLocalExcludeGreatestHits] = useState(initExcludeGreatestHits);
   // Material
@@ -649,13 +644,13 @@ function DebateSettingsDialog({
     protocolId: localProtocolId, dialecticalStyle: localStyle,
     confrontationRounds: localConfrontation, argumentationRounds: localArgumentation,
     concludingRounds: localConcluding, stepMode: localStepMode, narrativeVoicing: localNarrativeVoicing,
-    useCustomModel: localUseCustomModel, selected: localSelected,
+    useCustomModel: localUseCustomModel, temperature: localTemperature, selected: localSelected,
     userIsPover: localUserIsPover, audience: localAudience,
     excludeGreatestHits: localExcludeGreatestHits,
     titleOverride: localTitleOverride, background: localBackground,
   }), [
     localProtocolId, localStyle, localConfrontation, localArgumentation, localConcluding,
-    localStepMode, localNarrativeVoicing, localUseCustomModel, localSelected,
+    localStepMode, localNarrativeVoicing, localUseCustomModel, localTemperature, localSelected,
     localUserIsPover, localAudience, localExcludeGreatestHits, localTitleOverride, localBackground,
   ]);
 
@@ -672,7 +667,7 @@ function DebateSettingsDialog({
     protocolId: localProtocolId, dialecticalStyle: localStyle,
     confrontationRounds: localConfrontation, argumentationRounds: localArgumentation,
     concludingRounds: localConcluding, stepMode: localStepMode, narrativeVoicing: localNarrativeVoicing,
-    useCustomModel: localUseCustomModel, customModel: localCustomModel,
+    useCustomModel: localUseCustomModel, customModel: localCustomModel, temperature: localTemperature,
     excludeGreatestHits: localExcludeGreatestHits,
     titleOverride: localTitleOverride, background: localBackground, seatTags: localSeatTags,
   });
@@ -690,6 +685,8 @@ function DebateSettingsDialog({
     setLocalStepMode(p.stepMode);
     setLocalNarrativeVoicing(false);
     setLocalCustomModel(globalModel);
+    setLocalCustomFamily(backendForModelWithFallback(globalModel));
+    setLocalTemperature(DEFAULT_DEBATE_TEMPERATURE);
     setLocalExcludeGreatestHits(false);
     setLocalTitleOverride('');
     setLocalBackground(''); setLocalSeatTags({});
@@ -747,7 +744,7 @@ function DebateSettingsDialog({
               activeSection,
               formatProps: { localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing },
               voicesProps: { isSocratic, localSelected, setLocalSelected, toggleDebater, localSeatTags, setLocalSeatTags, povTagRegistry, localUserIsPover, setLocalUserIsPover, localAudience, setLocalAudience, localSeatTagIssue },
-              modelProps: { localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, globalModel },
+              modelProps: { localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, localTemperature, setLocalTemperature, globalModel },
               sourcingProps: { localExcludeGreatestHits, setLocalExcludeGreatestHits },
               materialProps: { localTitleOverride, setLocalTitleOverride, localBackground, setLocalBackground },
             })}
@@ -980,7 +977,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   const [stepMode, setStepMode] = useState(PRESET_DEFAULTS.quick.stepMode);
 
   // Settings managed via Screen B
-  const temperature = 0.7;
+  const [temperature, setTemperature] = useState(DEFAULT_DEBATE_TEMPERATURE);
   const evaluatorModel = '';
   const [excludeGreatestHits, setExcludeGreatestHits] = useState(false);
   const [narrativeVoicing, setNarrativeVoicing] = useState(false);
@@ -1126,6 +1123,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
     setExcludeGreatestHits(changes.excludeGreatestHits);
     setUseCustomModel(changes.useCustomModel);
     setCustomModel(changes.customModel);
+    setTemperature(changes.temperature);
     setTitleOverride(changes.titleOverride);
     setBackground(changes.background); setSeatTags(changes.seatTags);
     setShowSettings(false);
@@ -1311,6 +1309,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
           concludingRounds={concludingRounds}
           stepMode={stepMode}
           customModel={customModel}
+          temperature={temperature}
           globalModel={globalModel}
           excludeGreatestHits={excludeGreatestHits}
           narrativeVoicing={narrativeVoicing}
