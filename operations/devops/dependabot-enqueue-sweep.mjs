@@ -21,6 +21,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
+import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 
 /** Required contexts that must have passed before a PR is enqueued (root AGENTS.md). */
 export const REQUIRED_GREEN = ['ci-gate', 'CodeQL Analysis'];
@@ -110,6 +111,14 @@ export async function sweep(repo, { dryRun = false } = {}) {
   const failures = [];
   for (const pr of enqueue) {
     if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+    // Search results lag: re-read the PR directly before touching it (see live-pr-state.mjs).
+    // Checked BEFORE the disarm, so a PR that has moved on keeps its policy arm.
+    const before = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+    if (!before.ok) {
+      console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
+        (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
+      continue;
+    }
     try {
       // Disarm first: re-arming an already-armed PR is a no-op, which leaves the original
       // GITHUB_TOKEN arm in place (the state that never enqueues).
@@ -118,6 +127,14 @@ export async function sweep(repo, { dryRun = false } = {}) {
       console.log(`enqueued #${pr.number} (usedFallback=${result.usedFallback})`);
       enqueued++;
     } catch (err) {
+      // The PR may have moved on in the seconds since the check above (merged or queued, or
+      // Dependabot rebased it). That is a race, not a failure, and no re-arm is needed: a
+      // rebase re-runs dependabot-auto-merge.yml, which arms the new head itself.
+      const after = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+      if (after.raced) {
+        console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
+        continue;
+      }
       failures.push(pr.number);
       console.error(`::error::#${pr.number}: ${err.message ?? err}`);
       // Restore the policy marker so the next sweep retries this PR instead of dropping it.

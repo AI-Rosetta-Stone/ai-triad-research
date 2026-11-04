@@ -1197,12 +1197,10 @@ jobs:
 
       - name: Merge shard reports and enforce coverage thresholds
         working-directory: taxonomy-editor
+        # The count check lives in a script so its "fewer than 3 blobs" arm is unit-tested
+        # (operations/devops/test-check-vitest-shard-blobs.sh, run in the devops job below).
         run: |
-          COUNT=$(find "$RUNNER_TEMP/vitest-blobs" -maxdepth 1 -name 'blob-*.json' | wc -l)
-          if [ "$COUNT" -ne 3 ]; then
-            echo "::error::test-electron-coverage: expected 3 vitest shard blobs, found $COUNT -- a shard failed to produce its report, so merged coverage would be incomplete. See test-electron-vitest."
-            exit 1
-          fi
+          sh ../operations/devops/check-vitest-shard-blobs.sh "$RUNNER_TEMP/vitest-blobs" 3
           pnpm exec vitest run --merge-reports="$RUNNER_TEMP/vitest-blobs" --coverage
 
   # ── render-smoke: "surface renders styled" gate (t/3026 / t/3059) ──
@@ -2859,6 +2857,21 @@ jobs:
         # >=1 green cycle (SO + TL GV), same discipline as its neighbors.
         continue-on-error: true
         run: node --test operations/devops/stuck-pr-classifier.test.mjs
+
+      - name: Enqueue sweep unit suites (WARN-FIRST)
+        # Same t/3871 wiring discipline: enqueue-sweep.yml re-runs these before every sweep, but it
+        # always runs MAIN's copy, so a PR that breaks a sweep was only caught after it merged, by
+        # the next sweep failing. Running them here checks the change before merge. WARN-FIRST:
+        # flip by removing continue-on-error after >=1 green cycle (SO + TL GV), like its neighbors.
+        continue-on-error: true
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs
+
+      - name: Vitest shard-blob count check arms (WARN-FIRST)
+        # test-electron-coverage refuses to merge unless all 3 shard blobs arrived. That refusal
+        # only runs when a shard fails to upload, so it had never been exercised; these arms cover
+        # 0/1/2/4 blobs, a missing directory and bad input, with a floor so an empty harness fails.
+        continue-on-error: true
+        run: sh operations/devops/test-check-vitest-shard-blobs.sh
 
   # ── complexity-tickets: refactor issues for over-budget files (advisory) ─────
   # Collects the complexity-violations-* artifacts that test-electron (ESLint
