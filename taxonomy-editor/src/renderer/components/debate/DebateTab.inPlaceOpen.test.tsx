@@ -151,7 +151,7 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
     const { unmount } = render(<DebateTab />);
     expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    fireEvent.click(screen.getByRole('button', { name: /got it/i }));
     expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
     unmount();
 
@@ -173,5 +173,31 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
     // Library should now be visible
     expect(screen.queryByTestId('debate-workspace')).toBeNull();
     expect(screen.getByText('+ New Debate')).toBeInTheDocument();
+  });
+
+  it('dismisses the hint on Escape key', () => {
+    debateStoreState.activeDebateId = 'debate-1';
+    debateStoreState.activeDebate = makeSession();
+    render(<DebateTab />);
+    expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+    expect(screen.queryByText(/Opens here now/)).toBeNull();
+  });
+
+  it('dismisses the hint on unmount (navigation away)', () => {
+    debateStoreState.activeDebateId = 'debate-1';
+    debateStoreState.activeDebate = makeSession();
+    const { unmount } = render(<DebateTab />);
+    expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+
+    // Simulate navigation away by unmounting without clicking "Got it"
+    unmount();
+    expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+
+    // Hint should not show on next render
+    render(<DebateTab />);
+    expect(screen.queryByText(/Opens here now/)).toBeNull();
   });
 });
