@@ -3,7 +3,8 @@
 
 // Regression tests for t/2142: Zustand inline-object selector caused infinite
 // render loop. Scalar selectors fix it; a successful render() call proves the
-// fix holds. Also asserts Simple/Advanced tab visibility gate works correctly.
+// fix holds. Also covers t/4826's What/Why/How tab-group filter, which replaced
+// the per-node Simple/Advanced toggle and the old Analysis/Content tab.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -46,33 +47,23 @@ vi.mock('../../hooks/useDebateStore', () => ({
   useDebateStore: () => ({ activeDebate: null }),
 }));
 
-// t/4574: the panel-local per-node mode replaces the global viewMode read in NodeDetail.
-// mockPrefsState.viewMode is kept so other consumers (DescriptionSection's search-highlight
-// guard) and existing tests about the *global* control continue to compile, but NodeDetail
-// itself now reads/writes nodeDetailModes, keyed by node id.
+// t/4826: the per-node nodeDetailModes override is retired. NodeDetail now reads the rail's
+// global `viewMode` directly for tool-gating (header icons, description toolbar, Pin), and the
+// panel-wide `nodeDetailTabGroup` drives which tabs are reachable.
 const mockPrefsState = {
   viewMode: 'simple' as 'simple' | 'advanced',
   setViewMode: vi.fn(),
   hydrate: vi.fn(),
-  nodeDetailModes: {} as Record<string, 'simple' | 'advanced'>,
-  setNodeDetailMode: vi.fn(async (nodeId: string, mode: 'simple' | 'advanced') => {
-    mockPrefsState.nodeDetailModes = { ...mockPrefsState.nodeDetailModes, [nodeId]: mode };
+  nodeDetailTabGroup: 'what' as 'what' | 'why' | 'how',
+  setNodeDetailTabGroup: vi.fn(async (group: 'what' | 'why' | 'how') => {
+    mockPrefsState.nodeDetailTabGroup = group;
   }),
-  // t/4736: NodeDetail reads through the getter (not a reimplemented fallback), so the mock
-  // must mirror the real one — falls back to the mocked global viewMode, not a hard-coded 'simple'.
-  getNodeDetailMode: (nodeId: string): 'simple' | 'advanced' =>
-    mockPrefsState.nodeDetailModes[nodeId] ?? mockPrefsState.viewMode,
 };
 
 vi.mock('../../store/preferencesStore', () => ({
   usePreferencesStore: (selector: (s: typeof mockPrefsState) => unknown) =>
     selector(mockPrefsState),
 }));
-
-/** Sets the panel-local mode for a node — the t/4574 replacement for the old `mockPrefsState.viewMode = ...`. */
-function setNodeMode(nodeId: string, mode: 'simple' | 'advanced') {
-  mockPrefsState.nodeDetailModes = { ...mockPrefsState.nodeDetailModes, [nodeId]: mode };
-}
 
 // ── Bridge / lib mocks ───────────────────────────────────────────────────────
 
@@ -161,17 +152,23 @@ const mockNode: PovNode = {
   situation_refs: [],
 };
 
+/** Opens the Attributes tab — the metrics row, label error and POV tags now live there (t/4826 §3). */
+function openAttributesTab() {
+  fireEvent.click(screen.getByRole('tab', { name: /attributes/i }));
+}
+
 // ── Component under test ──────────────────────────────────────────────────────
 
 import { NodeDetail } from './NodeDetail';
 
 describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
   beforeEach(() => {
-    mockPrefsState.nodeDetailModes = {};
+    mockPrefsState.viewMode = 'simple';
+    mockPrefsState.nodeDetailTabGroup = 'what';
     vi.clearAllMocks();
   });
 
-  it('renders without infinite loop in simple mode', () => {
+  it('renders without infinite loop in the What group', () => {
     // Pre-fix: inline `{ viewMode }` object selector created new ref each render
     // → Zustand re-subscribed → re-render → "Maximum update depth exceeded"
     expect(() =>
@@ -188,8 +185,8 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     ).not.toThrow();
   });
 
-  it('renders without infinite loop in advanced mode', () => {
-    setNodeMode(mockNode.id, 'advanced');
+  it('renders without infinite loop in the How group', () => {
+    mockPrefsState.nodeDetailTabGroup = 'how';
     expect(() =>
       render(
         <NodeDetail
@@ -204,7 +201,7 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     ).not.toThrow();
   });
 
-  it('surfaces Content and Related in simple mode; Attributes and other advanced tabs stay hidden (t/4559, reverses t/3003)', () => {
+  it('the What group shows Steelman Vulnerability, Related and Attributes only', () => {
     render(
       <NodeDetail
         pov="acc"
@@ -215,52 +212,51 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
         onRelated={vi.fn()}
       />,
     );
-    expect(screen.getByRole('tab', { name: /analysis/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /steelman vulnerability/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /related/i })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /attributes/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /intellectual lineage/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /research/i })).not.toBeInTheDocument();
   });
 
-  it('shows all four tabs in advanced mode', () => {
-    setNodeMode(mockNode.id, 'advanced');
+  it('the Why group shows Intellectual Lineage, Sources, Conflicts and Cruxes only', () => {
+    mockPrefsState.nodeDetailTabGroup = 'why';
     render(
-      <NodeDetail
-        pov="acc"
-        node={mockNode}
-        readOnly={false}
-        onPin={vi.fn()}
-        onSimilarSearch={vi.fn()}
-        onRelated={vi.fn()}
-      />,
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
     );
-    expect(screen.getByRole('tab', { name: /analysis/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /related/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /attributes/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /intellectual lineage/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^sources$/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /conflicts/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /cruxes/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /steelman vulnerability/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /^related$/i })).not.toBeInTheDocument();
+  });
+
+  it('the How group shows Sources, Facts, Phrases, History and Research only', () => {
+    mockPrefsState.nodeDetailTabGroup = 'how';
+    render(
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+    expect(screen.getByRole('tab', { name: /^sources$/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /facts/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /phrases/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /history/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /research/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /conflicts/i })).not.toBeInTheDocument();
+  });
+
+  it('every tab in a group is reachable regardless of the rail viewMode (t/4826 §2 — gating retired)', () => {
+    mockPrefsState.nodeDetailTabGroup = 'how';
+    mockPrefsState.viewMode = 'simple';
+    render(
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+    expect(screen.getByRole('tab', { name: /history/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /research/i })).toBeInTheDocument();
   });
 
-  // t/4559 — Attributes is now Advanced-only; a user on it who drops to Simple lands on Content.
-  it('resets the active tab to Content when switching advanced→simple while on Attributes', () => {
-    setNodeMode(mockNode.id, 'advanced');
-    const { rerender } = render(
-      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-
-    const attributesTab = screen.getByRole('tab', { name: /attributes/i });
-    fireEvent.click(attributesTab);
-    expect(attributesTab.className).toContain('node-detail-tab-active');
-
-    mockPrefsState.nodeDetailModes = {};
-    rerender(
-      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-
-    expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /analysis/i }).className).toContain('node-detail-tab-active');
-  });
-
-  // t/2826 — the Pin-for-comparison ("bookmark") control is Advanced-view only.
-  it('omits Pin for Comparison from the actions menu in simple mode', () => {
+  // t/2826 — the Pin-for-comparison ("bookmark") control is Advanced-view only (rail viewMode).
+  it('omits Pin for Comparison from the actions menu when the rail is Simple', () => {
     render(
       <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
     );
@@ -268,8 +264,8 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     expect(screen.queryByRole('menuitem', { name: /pin for comparison/i })).not.toBeInTheDocument();
   });
 
-  it('includes Pin for Comparison in the actions menu in advanced mode', () => {
-    setNodeMode(mockNode.id, 'advanced');
+  it('includes Pin for Comparison in the actions menu when the rail is Advanced', () => {
+    mockPrefsState.viewMode = 'advanced';
     render(
       <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
     );
@@ -279,7 +275,7 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
 
   // t/4200 — the soul-doc button hands the node's pov_tags to the dialog, which opens on that tag's soul.
   it('the soul-doc button passes the node pov_tags to onOpenSoulDoc', () => {
-    setNodeMode(mockNode.id, 'advanced');
+    mockPrefsState.viewMode = 'advanced';
     const onOpenSoulDoc = vi.fn();
     render(
       <NodeDetail pov="skeptic" node={{ ...mockNode, pov_tags: ['institutional'] }} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} onOpenSoulDoc={onOpenSoulDoc} />,
@@ -289,170 +285,70 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
   });
 });
 
-// ── t/4574: the panel-local Simple/Advanced toggle is per-node and isolated from the
-// global `viewMode` control in both directions, and the panel drops to Analysis when
-// the effective mode is Simple and the active tab is Advanced-only (on toggle or on
-// node change) — docs/ux/node-detail-redesign.md §1, §2.5.
+// ── t/4826: the What/Why/How tab-group toggle replaces the retired per-node Simple/Advanced
+// toggle. It's panel-wide (not per-node), independent of the rail's global viewMode, and
+// switching groups keeps the active tab when it's still in the new group, otherwise opens the
+// new group's first tab (Design spec §1-§2).
 
-describe('NodeDetail — panel-local Simple/Advanced toggle isolation and persistence (t/4574)', () => {
+describe('NodeDetail — What/Why/How tab-group toggle (t/4826)', () => {
   beforeEach(() => {
-    mockPrefsState.nodeDetailModes = {};
     mockPrefsState.viewMode = 'simple';
+    mockPrefsState.nodeDetailTabGroup = 'what';
     vi.clearAllMocks();
   });
 
-  it('clicking Advanced writes only the per-node mode — the global setViewMode is never called', () => {
+  it('is a radiogroup labeled "Tab group" with three options, defaulting to What', () => {
     render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('radio', { name: 'Advanced' }));
-    expect(mockPrefsState.setNodeDetailMode).toHaveBeenCalledWith(mockNode.id, 'advanced');
+    expect(screen.getByRole('radiogroup', { name: 'Tab group' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'What' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'Why' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: 'How' })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('clicking Why calls setNodeDetailTabGroup, not setViewMode — the group is panel-wide, not per-node', () => {
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Why' }));
+    expect(mockPrefsState.setNodeDetailTabGroup).toHaveBeenCalledWith('why');
     expect(mockPrefsState.setViewMode).not.toHaveBeenCalled();
-    expect(mockPrefsState.viewMode).toBe('simple');
   });
 
-  // t/4736 reverses this: the panel now DOES follow the global default when the node has no
-  // per-node override of its own (getNodeDetailMode falls back to viewMode, not 'simple').
-  it('an untoggled node follows the global viewMode default (t/4736)', () => {
+  // Header icons / Pin gating read the rail's global viewMode directly now (t/4826 §4) — not any
+  // per-node state, and not the tab group.
+  it('header icons show when the rail viewMode is Advanced, independent of the tab group', () => {
     mockPrefsState.viewMode = 'advanced';
-    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.getByRole('tab', { name: /attributes/i })).toBeInTheDocument();
-  });
-
-  it('a per-node override still wins over the global viewMode, in either direction (t/4736)', () => {
-    mockPrefsState.viewMode = 'advanced';
-    setNodeMode(mockNode.id, 'simple');
-    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
-  });
-
-  it('each node remembers its own mode independently, and an untoggled node opens in Simple', () => {
-    const otherNode: PovNode = { ...mockNode, id: 'acc-beliefs-777' };
-    setNodeMode(mockNode.id, 'advanced');
-    const { rerender } = render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.getByRole('tab', { name: /attributes/i })).toBeInTheDocument();
-
-    rerender(<NodeDetail pov="acc" node={otherNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
-  });
-
-  it('drops to Analysis when toggling to Simple while an Advanced-only tab is active', () => {
-    setNodeMode(mockNode.id, 'advanced');
-    const { rerender } = render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('tab', { name: /attributes/i }));
-    expect(screen.getByRole('tab', { name: /attributes/i }).className).toContain('node-detail-tab-active');
-
-    // The toggle's own store write isn't reactive in this lightweight mock (see
-    // mockPrefsState), so the drop-to-Analysis rule is driven the same way the rest of
-    // this suite drives a mode change: write the store, then rerender.
-    setNodeMode(mockNode.id, 'simple');
-    rerender(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /analysis/i }).className).toContain('node-detail-tab-active');
-  });
-
-  it('drops to Analysis on node change when the new node is Simple and an Advanced-only tab was active', () => {
-    const otherNode: PovNode = { ...mockNode, id: 'acc-beliefs-778' };
-    setNodeMode(mockNode.id, 'advanced');
-    const { rerender } = render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('tab', { name: /attributes/i }));
-    expect(screen.getByRole('tab', { name: /attributes/i }).className).toContain('node-detail-tab-active');
-
-    // otherNode has never been toggled — its mode defaults to Simple.
-    rerender(<NodeDetail pov="acc" node={otherNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /analysis/i }).className).toContain('node-detail-tab-active');
-  });
-
-  it('the toggle is a radiogroup with aria-checked reflecting the current mode', () => {
-    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.getByRole('radiogroup', { name: 'Detail view' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Simple' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('radio', { name: 'Advanced' })).toHaveAttribute('aria-checked', 'false');
-  });
-
-  // t/4574#15 item 1 (Design): these vanished because TheoryLink's own gate reads the
-  // *global* viewMode, not this panel's local mode — the global control defaults to
-  // Simple, so the icons silently no-op'd even though the panel itself was Advanced.
-  it('the ontology-guide and Soul-analysis icons show in Advanced, independent of the global viewMode', () => {
-    mockPrefsState.viewMode = 'simple'; // the global control stays Simple throughout
-    setNodeMode(mockNode.id, 'advanced');
+    mockPrefsState.nodeDetailTabGroup = 'how';
     render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Help: taxonomy ontology guide' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Soul documents analysis' })).toBeInTheDocument();
   });
-});
 
-// ── History tab viewMode gating (t/3021) ──────────────────────────────────────
-// Locks the current policy: History is an Advanced-only tab (NodeDetail.tsx:670,
-// advanced: true → filtered out of the tab bar in Simple view) and the activeTab
-// reset effect forces 'content' whenever the view drops to Simple off a hidden
-// tab. The t/3022 Option-3 ruling keeps this gating (it adds a *separate* Simple
-// last-edited line, not the tab), so these assertions stay valid.
+  it('switching to a group that still contains the active tab keeps it selected', () => {
+    mockPrefsState.nodeDetailTabGroup = 'why';
+    const { rerender } = render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('tab', { name: /^sources$/i }));
+    expect(screen.getByRole('tab', { name: /^sources$/i }).className).toContain('node-detail-tab-active');
 
-describe('NodeDetail — History tab viewMode gating (t/3021)', () => {
-  const nodeWithHistory: PovNode = {
-    ...mockNode,
-    _edit_history: [
-      { user: 'first@test.com', timestamp: '2026-01-01T00:00:00Z', fields_changed: ['label'] },
-      { user: 'second@test.com', timestamp: '2026-01-02T00:00:00Z', fields_changed: ['description'] },
-    ],
-  };
-
-  beforeEach(() => {
-    mockPrefsState.nodeDetailModes = {};
-    vi.clearAllMocks();
+    // 'how' also contains 'sources' (TAB_GROUPS table) — it should stay active.
+    mockPrefsState.nodeDetailTabGroup = 'how';
+    rerender(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /^sources$/i }).className).toContain('node-detail-tab-active');
   });
 
-  it('shows the History tab in advanced mode when edit history exists', () => {
-    setNodeMode(mockNode.id, 'advanced');
-    render(
-      <NodeDetail pov="acc" node={nodeWithHistory} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-    expect(screen.getByRole('tab', { name: /history/i })).toBeInTheDocument();
-  });
+  it('switching to a group without the active tab opens that group\'s first tab', () => {
+    const { rerender } = render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('tab', { name: /attributes/i }));
+    expect(screen.getByRole('tab', { name: /attributes/i }).className).toContain('node-detail-tab-active');
 
-  it('hides the History tab in simple mode even when edit history exists', () => {
-    mockPrefsState.nodeDetailModes = {};
-    render(
-      <NodeDetail pov="acc" node={nodeWithHistory} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-    expect(screen.queryByRole('tab', { name: /history/i })).not.toBeInTheDocument();
-  });
-
-  it('hides the History tab in simple mode when there is no edit history', () => {
-    mockPrefsState.nodeDetailModes = {};
-    render(
-      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-    expect(screen.queryByRole('tab', { name: /history/i })).not.toBeInTheDocument();
-  });
-
-  it('resets the active tab to Content when switching advanced→simple while on History', () => {
-    setNodeMode(mockNode.id, 'advanced');
-    const { rerender } = render(
-      <NodeDetail pov="acc" node={nodeWithHistory} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-
-    // Open the History tab — it becomes the active tab.
-    const historyTab = screen.getByRole('tab', { name: /history/i });
-    fireEvent.click(historyTab);
-    expect(historyTab.className).toContain('node-detail-tab-active');
-
-    // Drop to Simple view. The reset effect keys on viewMode → forces activeTab back to 'content'.
-    mockPrefsState.nodeDetailModes = {};
-    rerender(
-      <NodeDetail pov="acc" node={nodeWithHistory} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
-    );
-
-    // History tab is gone, and Content is now the active tab (not a stale hidden 'history').
-    expect(screen.queryByRole('tab', { name: /history/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /analysis/i }).className).toContain('node-detail-tab-active');
+    // 'why' doesn't contain 'attributes' — its first tab (lineage) opens instead.
+    mockPrefsState.nodeDetailTabGroup = 'why';
+    rerender(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /intellectual lineage/i }).className).toContain('node-detail-tab-active');
   });
 });
 
 // ── Simple-view last-edited line (t/3022, Option 3) ───────────────────────────
-// The full History tab stays Advanced-only; Simple view surfaces just the
-// who/when last-edited datum inline. Sourced from _edit_meta, falling back to the
-// most-recent _edit_history entry.
+// The full History tab stays reachable from the How group; the footer shows the
+// who/when last-edited datum inline regardless of rail viewMode (t/4574 spec §2.6).
 
 describe('NodeDetail — Simple-view last-edited line (t/3022)', () => {
   const nodeWithMeta: PovNode = {
@@ -465,11 +361,12 @@ describe('NodeDetail — Simple-view last-edited line (t/3022)', () => {
   };
 
   beforeEach(() => {
-    mockPrefsState.nodeDetailModes = {};
+    mockPrefsState.viewMode = 'simple';
+    mockPrefsState.nodeDetailTabGroup = 'what';
     vi.clearAllMocks();
   });
 
-  it('shows the last-edited line in Simple view from _edit_meta (username, domain stripped)', () => {
+  it('shows the last-edited line from _edit_meta (username, domain stripped)', () => {
     render(<NodeDetail pov="acc" node={nodeWithMeta} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
     expect(screen.getByText(/last edited by/i)).toBeInTheDocument();
     expect(screen.getByText('editor')).toBeInTheDocument();
@@ -481,9 +378,8 @@ describe('NodeDetail — Simple-view last-edited line (t/3022)', () => {
     expect(screen.getByText('histuser')).toBeInTheDocument();
   });
 
-  // t/4574 spec §2.6: the footer now shows in Advanced too (History still has the full log).
-  it('shows the last-edited line in Advanced view too (t/4574 — was Simple-only)', () => {
-    setNodeMode(mockNode.id, 'advanced');
+  it('shows the last-edited line in Advanced rail viewMode too', () => {
+    mockPrefsState.viewMode = 'advanced';
     render(<NodeDetail pov="acc" node={nodeWithMeta} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
     expect(screen.getByText(/last edited by/i)).toBeInTheDocument();
   });
@@ -501,7 +397,8 @@ describe('NodeDetail — Simple-view last-edited line (t/3022)', () => {
 
 describe('NodeDetail — Debate Tested chip renders on every BDI category (t/3393)', () => {
   beforeEach(() => {
-    mockPrefsState.nodeDetailModes = {};
+    mockPrefsState.viewMode = 'simple';
+    mockPrefsState.nodeDetailTabGroup = 'what';
     vi.clearAllMocks();
   });
 
@@ -524,7 +421,8 @@ describe('NodeDetail — Debate Tested chip renders on every BDI category (t/339
 
 describe('NodeDetail — delete flow warns of dangling references and logs the deletion (t/3852)', () => {
   beforeEach(() => {
-    mockPrefsState.nodeDetailModes = {};
+    mockPrefsState.viewMode = 'simple';
+    mockPrefsState.nodeDetailTabGroup = 'what';
     vi.clearAllMocks();
     mockTaxonomyStore.accelerationist = null;
     mockTaxonomyStore.safetyist = null;
@@ -596,16 +494,23 @@ describe('NodeDetail — delete flow warns of dangling references and logs the d
 });
 
 // ── POV tags are admin-only (t/4167) ─────────────────────────────────────────
+// t/4826 §3: the metrics row, label error and POV tags moved to the top of the Attributes tab
+// (from the retired Analysis/Content tab) — these tests now open Attributes first.
 describe('NodeDetail — POV tag editing is admin-only (t/4167)', () => {
   const renderTagged = () => render(
     <NodeDetail pov="skeptic" node={{ ...mockNode, pov_tags: ['critical'] }} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
   );
 
-  beforeEach(() => { tagPerm.canEdit = true; });
+  beforeEach(() => {
+    tagPerm.canEdit = true;
+    mockPrefsState.viewMode = 'simple';
+    mockPrefsState.nodeDetailTabGroup = 'what';
+  });
 
   it('without tag permission the chips show but there is no remove or add control', () => {
     tagPerm.canEdit = false;
     renderTagged();
+    openAttributesTab();
     expect(screen.getByText('Critical')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Remove tag/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Add POV tag' })).not.toBeInTheDocument();
@@ -619,6 +524,7 @@ describe('NodeDetail — POV tag editing is admin-only (t/4167)', () => {
 
   it('with tag permission the remove and add controls show', () => {
     renderTagged();
+    openAttributesTab();
     expect(screen.getByRole('button', { name: 'Remove tag Critical' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Add POV tag' })).toBeInTheDocument();
   });
@@ -631,17 +537,18 @@ describe('NodeDetail — POV tag editing is admin-only (t/4167)', () => {
 describe('NodeDetail — "..." menu and Pin fallback are admin-only (t/4559)', () => {
   beforeEach(() => {
     adminState.isAdmin = true;
-    setNodeMode(mockNode.id, 'advanced');
+    mockPrefsState.viewMode = 'advanced';
+    mockPrefsState.nodeDetailTabGroup = 'what';
   });
 
-  it('admin: sees the "..." menu (editable) in advanced mode', () => {
+  it('admin: sees the "..." menu (editable) when the rail is Advanced', () => {
     render(
       <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
     );
     expect(screen.getByTitle('More actions')).toBeInTheDocument();
   });
 
-  it('non-admin: the "..." menu is hidden (editable) in advanced mode', () => {
+  it('non-admin: the "..." menu is hidden (editable) when the rail is Advanced', () => {
     adminState.isAdmin = false;
     render(
       <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
@@ -650,7 +557,7 @@ describe('NodeDetail — "..." menu and Pin fallback are admin-only (t/4559)', (
   });
 
   // t/4574 spec §2.2: the read-only Pin fallback is now a "⋯" menu item, not a separate button.
-  it('admin: sees Pin for Comparison in the "⋯" menu in read-only advanced mode', () => {
+  it('admin: sees Pin for Comparison in the "⋯" menu in read-only Advanced rail mode', () => {
     render(
       <NodeDetail pov="acc" node={mockNode} readOnly onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
     );
@@ -658,7 +565,7 @@ describe('NodeDetail — "..." menu and Pin fallback are admin-only (t/4559)', (
     expect(screen.getByRole('menuitem', { name: /pin for comparison/i })).toBeInTheDocument();
   });
 
-  it('non-admin: the "⋯" menu (and its Pin entry) is hidden in read-only advanced mode', () => {
+  it('non-admin: the "⋯" menu (and its Pin entry) is hidden in read-only Advanced rail mode', () => {
     adminState.isAdmin = false;
     render(
       <NodeDetail pov="acc" node={mockNode} readOnly onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
@@ -667,9 +574,10 @@ describe('NodeDetail — "..." menu and Pin fallback are admin-only (t/4559)', (
   });
 });
 
-// ── t/4532: Steelman Vulnerability / Intellectual Lineage, collapsed by default ──
+// ── t/4826: Steelman Vulnerability and Intellectual Lineage, promoted to standalone
+// always-expanded tabs (retiring the t/4532 collapsible sections of the old Analysis tab).
 
-describe('t/4532: Steelman Vulnerability and Intellectual Lineage collapse', () => {
+describe('NodeDetail — Steelman Vulnerability and Intellectual Lineage tabs (t/4826)', () => {
   const nodeWithBoth: PovNode = {
     ...mockNode,
     graph_attributes: {
@@ -679,22 +587,19 @@ describe('t/4532: Steelman Vulnerability and Intellectual Lineage collapse', () 
   };
 
   beforeEach(() => {
-    setNodeMode(mockNode.id, 'advanced');
+    mockPrefsState.viewMode = 'advanced';
+    mockPrefsState.nodeDetailTabGroup = 'what';
     vi.clearAllMocks();
   });
 
-  it('both sections are collapsed when the node opens', () => {
+  it('Steelman Vulnerability is the default tab in the What group and renders expanded with no disclosure control', () => {
     render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: /Intellectual Lineage/ })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('A real vulnerability.')).toBeNull();
-    expect(screen.queryByText('Rawls')).toBeNull();
+    expect(screen.getByRole('tab', { name: /steelman vulnerability/i }).className).toContain('node-detail-tab-active');
+    expect(screen.getByDisplayValue('A real vulnerability.')).toBeInTheDocument();
   });
 
-  it('toggling Steelman Vulnerability expands it, and editing still writes through updatePovNode', () => {
+  it('editing the Steelman Vulnerability textarea writes through updatePovNode', () => {
     render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /Steelman Vulnerability/ }));
-    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'true');
     const textarea = screen.getByDisplayValue('A real vulnerability.');
     fireEvent.change(textarea, { target: { value: 'An updated vulnerability.' } });
     expect(mockTaxonomyStore.updatePovNode).toHaveBeenCalledWith(
@@ -703,33 +608,32 @@ describe('t/4532: Steelman Vulnerability and Intellectual Lineage collapse', () 
     );
   });
 
-  it('toggling Intellectual Lineage expands it, and the chip drill-down still works', () => {
+  it('shows the empty state with an Add Vulnerability affordance when the node has graph_attributes but no vulnerability', () => {
+    const nodeWithEmptyAttrs: PovNode = { ...mockNode, graph_attributes: {} as never };
+    render(<NodeDetail pov="acc" node={nodeWithEmptyAttrs} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('No steelman analysis yet')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add Vulnerability' })).toBeInTheDocument();
+  });
+
+  it('shows the empty state with no Add affordance when the node has no graph_attributes at all', () => {
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('No steelman analysis yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Add Vulnerability' })).not.toBeInTheDocument();
+  });
+
+  it('the Intellectual Lineage tab (Why group) renders expanded, and the chip drill-down still works', () => {
+    mockPrefsState.nodeDetailTabGroup = 'why';
     render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /Intellectual Lineage/ }));
+    expect(screen.getByRole('tab', { name: /intellectual lineage/i }).className).toContain('node-detail-tab-active');
     expect(screen.getByText('Rawls')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Rawls'));
     // getLineageInfo is mocked to return null (module mock above) — the "no detail" arm still proves the drill-down fired.
     expect(screen.getByText('No detailed information available for this lineage.')).toBeInTheDocument();
   });
 
-  it('collapsing after expanding hides the content again', () => {
-    render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    const header = screen.getByRole('button', { name: /Steelman Vulnerability/ });
-    fireEvent.click(header);
-    expect(screen.queryByText('A real vulnerability.')).toBeInTheDocument();
-    fireEvent.click(header);
-    expect(screen.queryByText('A real vulnerability.')).toBeNull();
-  });
-
-  it('switching to a different node re-collapses both sections', () => {
-    const { rerender } = render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /Steelman Vulnerability/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Intellectual Lineage/ }));
-    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'true');
-
-    const otherNode: PovNode = { ...nodeWithBoth, id: 'acc-beliefs-002' };
-    rerender(<NodeDetail pov="acc" node={otherNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: /Intellectual Lineage/ })).toHaveAttribute('aria-expanded', 'false');
+  it('shows the empty state on the Intellectual Lineage tab when the node has none', () => {
+    mockPrefsState.nodeDetailTabGroup = 'why';
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('No intellectual lineage recorded')).toBeInTheDocument();
   });
 });
