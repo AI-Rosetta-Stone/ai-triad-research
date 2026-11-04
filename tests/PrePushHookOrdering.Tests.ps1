@@ -40,6 +40,21 @@ Describe '.githooks/pre-push ordering' -Tag 'devops' {
             return $repo
         }
 
+        # Vars that must NEVER leak in from whatever else ran earlier in this same
+        # PowerShell process (Pester runs many test files in one process in CI) --
+        # ProcessStartInfo otherwise inherits the full current environment by default,
+        # so a sibling test file that sets one of these via `$env:` and never restores
+        # it would silently poison every test here that doesn't override it itself.
+        # GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_CEILING_DIRECTORIES/GIT_COMMON_DIR
+        # would make the hook's own `git rev-parse --show-toplevel` resolve to the REAL
+        # checkout instead of the throwaway stub repo, running the real guard/checks
+        # scripts instead of the stubs -- exactly the shape of a CI-only, order-dependent
+        # failure that passes in isolation.
+        $script:IsolatedVars = @(
+            'AITRIAD_PREPUSH', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE',
+            'GIT_CEILING_DIRECTORIES', 'GIT_COMMON_DIR'
+        )
+
         function Invoke-Hook {
             param([string]$Repo, [hashtable]$Env)
             $headSha = (git -C $Repo rev-parse HEAD).Trim()
@@ -52,13 +67,15 @@ Describe '.githooks/pre-push ordering' -Tag 'devops' {
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
             $psi.UseShellExecute = $false
+            foreach ($v in $script:IsolatedVars) { $psi.EnvironmentVariables.Remove($v) }
             foreach ($k in $Env.Keys) { $psi.EnvironmentVariables[$k] = $Env[$k] }
             $proc = [System.Diagnostics.Process]::Start($psi)
             $proc.StandardInput.Write($stdin)
             $proc.StandardInput.Close()
+            $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
             $proc.WaitForExit()
-            return [PSCustomObject]@{ ExitCode = $proc.ExitCode; StdErr = $stderr }
+            return [PSCustomObject]@{ ExitCode = $proc.ExitCode; StdErr = $stderr; StdOut = $stdout }
         }
     }
 
