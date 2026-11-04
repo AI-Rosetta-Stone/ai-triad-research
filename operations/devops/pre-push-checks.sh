@@ -18,8 +18,10 @@
 # vitest related gets ABSOLUTE paths: taxonomy-editor's vitest root is src/renderer, and
 # relative paths silently match no tests.
 #
-# BLOCKS (exit 1) only when a check fails. FAIL-OPEN with a WARN (exit 0) when it cannot
-# run: pnpm missing, a package without node_modules (fresh worktree: run pnpm install),
+# BLOCKS (exit 1) when a check fails, or when node_modules (root or any checked package)
+# resolves outside this worktree via a symlink/junction (t/4816 -- pnpm through such a link
+# writes into whatever it targets, not this worktree). FAIL-OPEN with a WARN (exit 0) when it
+# cannot run: pnpm missing, a package without node_modules (fresh worktree: run pnpm install),
 # no origin/main to diff against. A broken guard must never block legitimate work.
 #
 # Checks run on the WORKING TREE, which can differ from the pushed commit if you have
