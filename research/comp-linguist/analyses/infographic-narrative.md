@@ -134,4 +134,4 @@ The result is a multi-perspective knowledge structure that has been tested under
 
 ---
 
-*AI Triad Research — Berkman Klein Center, 2026*
+*AI Triad Research, 2026*

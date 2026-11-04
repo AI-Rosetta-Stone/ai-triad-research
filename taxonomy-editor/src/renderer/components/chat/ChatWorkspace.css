@@ -340,7 +340,8 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  /* t/4824 (Design): --text-muted fails AA (3.57/3.31 in harvard/bkc) — --text-secondary clears it (6.00-8.33). */
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -364,6 +365,18 @@
 .chat-reading-column {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* t/4824: The Question used to sit outside .chat-transcript's own scroll container (below), so it
+   never scrolled with the conversation — Design wants it to. One shared scroll region for both,
+   with the input bar staying a sibling outside it so it never scrolls away. */
+.chat-scroll-region {
+  flex: 1;
+  min-height: 0; /* t/4138 pattern — a flex child can't shrink below its content height otherwise */
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -538,13 +551,9 @@
 /* ─── Chat Transcript ────────────────────────────────── */
 
 .chat-transcript {
-  flex: 1;
-  min-height: 0; /* t/4138 — without this a flex child can't shrink below its content height, so overflow-y:auto never triggers */
-  overflow-y: auto;
-  /* t/4538: the UA computes overflow-x as auto once overflow-y is non-visible (CSS Overflow
-     §3), so this was silently auto too — the observed horizontal scrollbar under the
-     transcript at narrow widths. Nothing here should ever need to scroll sideways. */
-  overflow-x: hidden;
+  /* t/4824: scrolling moved up to the shared .chat-scroll-region (now the common ancestor of The
+     Question and the transcript), so this is a plain flex child, not its own scroll container. */
+  flex-shrink: 0;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -578,6 +587,90 @@
   font-size: var(--text-md);
   line-height: 1.6;
   color: var(--text-primary);
+}
+
+/* ─── "Why" eyebrow + "How" panel (t/4824) ──────────── */
+
+.chat-message-why-eyebrow {
+  display: block;
+  font-family: var(--font-prose);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* t/4824 (Design): matches .chat-question-eyebrow's fix — --text-secondary, not --text-muted. */
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.chat-how-panel {
+  margin-top: 8px;
+}
+
+.chat-how-toggle,
+.chat-how-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chat-how-toggle:hover,
+.chat-how-section-toggle:hover {
+  color: var(--text-primary);
+}
+
+.chat-how-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 0.7em;
+}
+
+.chat-how-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.chat-how-body {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-how-section-body {
+  padding: 4px 0 8px 20px;
+}
+
+.chat-how-unavailable {
+  margin: 0;
+  font-size: var(--text-sm);
+  /* t/4824 (Design): --text-muted fails AA here too — --text-secondary clears it. */
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.chat-how-methods-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-how-methods-link {
+  font-size: var(--text-sm);
+  padding: 4px 8px;
 }
 
 .chat-message-content.markdown-body p {

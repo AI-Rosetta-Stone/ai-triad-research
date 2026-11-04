@@ -21,6 +21,8 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
+import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
+import { allContextsFor } from './pr-contexts.mjs';
 
 /** Required contexts that must have passed before a PR is enqueued (root AGENTS.md). */
 export const REQUIRED_GREEN = ['ci-gate', 'CodeQL Analysis'];
@@ -90,15 +92,21 @@ export function normalizePR(n) {
   };
 }
 
+// A full-suite PR has more than 100 contexts; allContextsFor reads past the first page (#4475).
+const CONTEXT_FIELDS = '... on CheckRun{name status conclusion} ... on StatusContext{context state}';
+
 function listOpenDependabotPRs(repo) {
   const query = `query($q:String!){search(query:$q,type:ISSUE,first:50){nodes{... on PullRequest{
     number headRefOid isDraft isInMergeQueue mergeStateStatus autoMergeRequest{enabledAt} isCrossRepository
     author{__typename login}
-    commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
-      ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}}`;
+    commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
+      ${CONTEXT_FIELDS}}}}}}}}}}}`;
   const out = JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`,
     '-f', `q=repo:${repo} is:pr is:open author:app/dependabot`]));
-  return out.data.search.nodes.map(normalizePR);
+  return out.data.search.nodes.map((n) => ({
+    ...normalizePR(n),
+    contexts: allContextsFor(repo, n.number, n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts, CONTEXT_FIELDS),
+  }));
 }
 
 export async function sweep(repo, { dryRun = false } = {}) {
@@ -110,6 +118,14 @@ export async function sweep(repo, { dryRun = false } = {}) {
   const failures = [];
   for (const pr of enqueue) {
     if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+    // Search results lag: re-read the PR directly before touching it (see live-pr-state.mjs).
+    // Checked BEFORE the disarm, so a PR that has moved on keeps its policy arm.
+    const before = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+    if (!before.ok) {
+      console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
+        (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
+      continue;
+    }
     try {
       // Disarm first: re-arming an already-armed PR is a no-op, which leaves the original
       // GITHUB_TOKEN arm in place (the state that never enqueues).
@@ -118,6 +134,14 @@ export async function sweep(repo, { dryRun = false } = {}) {
       console.log(`enqueued #${pr.number} (usedFallback=${result.usedFallback})`);
       enqueued++;
     } catch (err) {
+      // The PR may have moved on in the seconds since the check above (merged or queued, or
+      // Dependabot rebased it). That is a race, not a failure, and no re-arm is needed: a
+      // rebase re-runs dependabot-auto-merge.yml, which arms the new head itself.
+      const after = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
+      if (after.raced) {
+        console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
+        continue;
+      }
       failures.push(pr.number);
       console.error(`::error::#${pr.number}: ${err.message ?? err}`);
       // Restore the policy marker so the next sweep retries this PR instead of dropping it.

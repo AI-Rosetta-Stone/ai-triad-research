@@ -43,10 +43,6 @@ export function buildDebateOptions(p: {
   confrontationRounds: number;
   argumentationRounds: number;
   concludingRounds: number;
-  speakerModels: Record<string, string> | undefined;
-  eligibleBackends: string[] | undefined;
-  multiProvider: boolean;
-  modelTier: 'basic' | 'advanced';
   stepMode: boolean;
   excludeGreatestHits: boolean;
   narrativeVoicing: boolean;
@@ -63,9 +59,9 @@ export function buildDebateOptions(p: {
       maxArgumentationRounds: p.argumentationRounds,
       maxConcludingRounds: p.concludingRounds,
     },
-    speakerModels: p.speakerModels,
-    eligibleBackends: p.eligibleBackends,
-    modelTier: p.multiProvider ? p.modelTier : undefined,
+    // t/4773: the New Debate dialog no longer offers multi-provider runs, so it never sets
+    // speakerModels / eligibleBackends / modelTier. CreateDebateOptions keeps those fields
+    // because sessionSlice still reads them when replaying older multi-provider debates.
     stepMode: p.stepMode || undefined,
     excludeGreatestHits: p.excludeGreatestHits || undefined,
     narrativeVoicing: p.narrativeVoicing || undefined,

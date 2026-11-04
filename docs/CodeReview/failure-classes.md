@@ -140,7 +140,7 @@ This is a **placement defect, not a logic defect** — the code is written corre
 
 - **Reviewing a change:** ask which class(es) it could introduce; require the corresponding contract test, user-type coverage, prod-config check, or gate before approving.
 - **Reviewing a gate specifically:** answer Class 9's question in writing — *what does this gate's green assert, and is that what the system does?* — in addition to the Gate Signal Integrity rules (both arms, co-location, promotion, guard testability, live-fire). Those establish that it works; this establishes that its claim is true.
-- **After an incident:** classify it here, then file a **prevention** ticket (not only observability) that closes that class's gap *for the affected surface* — per the *Prevention-per-incident* rule in the root `AGENTS.md` **Incident Response** section.
+- **After an incident:** classify it here, then file a **prevention** ticket (not only observability) that closes that class's gap *for the affected surface* — per the *Prevention-per-incident* rule in `docs/incident-response.md`.
 - **Gate-touching prevention** routes to **Main (TL)** for a Gate-Verification review (both arms proven, reliable enough to block, config co-located).
 
 Coverage is point-in-time. This checklist exists so it tracks system growth prospectively, rather than waiting for the next prod bug to find the next gap.

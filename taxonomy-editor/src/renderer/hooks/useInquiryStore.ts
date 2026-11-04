@@ -251,8 +251,15 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     screen: () => {
       const { jobId, status, viewingList } = get();
       if (viewingList) return 'list';
-      if (jobId === null) return 'ask';
       if (status === 'done' || status === 'done_truncated' || status === 'failed') return 'answer';
+      // t/4823: 'ask' only means "nothing has been started at all" (status still null, the
+      // fresh/reset state) — NOT "no jobId yet". openCommunityResult() legitimately sets
+      // jobId: null with status: 'queued' while it fetches a community result (there's no
+      // job to poll for a community item), and InquiryTab.tsx's screen-switch has no 'ask'
+      // case (t/4666 retired it in favor of the New Question dialog's own showAskDialog
+      // state) — so the old `jobId === null` check here produced an 'ask' screen() value
+      // nothing renders for, intermittently blanking the panel for the fetch's duration.
+      if (jobId === null && status === null) return 'ask';
       return 'running';
     },
 

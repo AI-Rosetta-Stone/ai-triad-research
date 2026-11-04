@@ -15,6 +15,14 @@ export interface ChatEntry {
   taxonomy_refs: TaxonomyRef[];
   metadata?: Record<string, unknown>;
   url_context_metadata?: UrlContextMetadata;
+  /** t/4848: the full prompt sent to the model for this turn, for the How panel's "Raw Prompt"
+   *  section. Write-once at generation time, same as `content` — never retroactively edited.
+   *  Optional: absent on entries from before this field existed, or any generation path that
+   *  doesn't capture it. ServerAPI populates it in `server/routes/chat.ts`. */
+  raw_prompt?: string;
+  /** t/4848: the model's raw response before rendering/filtering, for the How panel's "Raw
+   *  Response" section. Same write-once/optional contract as `raw_prompt`. */
+  raw_response?: string;
 }
 
 export interface ChatSession {

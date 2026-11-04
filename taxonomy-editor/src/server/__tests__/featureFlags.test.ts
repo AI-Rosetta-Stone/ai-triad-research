@@ -24,7 +24,8 @@ function ctx(p: Partial<FlagUserContext>): FlagUserContext {
   return { storageUserId: '_local', principalName: '', isAdmin: false, env: 'web', ...p };
 }
 function asUser<T>(storageUserId: string, fn: () => T): T {
-  const c: UserContext = { principalName: storageUserId, idp: 'github', storageUserId, isAnonymous: false };
+  // t/4328: admin keys on the idp-qualified stableId, so each test user gets one.
+  const c: UserContext = { principalName: storageUserId, idp: 'github', storageUserId, isAnonymous: false, stableId: `github:${storageUserId}` };
   return runWithUser(c, fn);
 }
 
@@ -61,7 +62,7 @@ describe('feature flag CRUD + resolution (t/899)', () => {
     dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flags-'));
     for (const k of ['AI_TRIAD_DATA_ROOT', 'ADMIN_USERS', 'FEATURE_FLAG_ENV']) SAVED_ENV[k] = process.env[k];
     process.env.AI_TRIAD_DATA_ROOT = dataRoot;
-    process.env.ADMIN_USERS = 'jpsnover';
+    process.env.ADMIN_USERS = 'github:jpsnover'; // t/4328: idp-qualified; bare entries never match
     _resetFlagCache();
   });
   afterEach(() => {

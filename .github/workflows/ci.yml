@@ -442,24 +442,25 @@ jobs:
     # 3 runs on the same head -- fixed per-job overhead dominates and CI runner variance alone
     # spans close to a minute, so shrinking the variable part further buys margin against that
     # variance rather than hitting a precise number.
+    # 6 -> 8 shards: per-job fixed cost (~180s: setup, pnpm, data checkout, Pester import and
+    # discovery) runs in parallel, so only the variable Pester file time (~1370s total) divides by
+    # the shard count. Leave-one-out over 6 green main runs put the slowest shard's file time at
+    # ~259s for 6 shards and ~202s for 8. New-OpEdParity.Tests.ps1 alone takes ~162s, which floors
+    # the slowest shard, so more than 8 shards buys little. SHARD_TOTAL below must equal the
+    # matrix length.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      # Full checkout on purpose. A sparse checkout excluding debates/ subdirectories (PR #4475)
+      # made this step SLOWER (165-204s vs 45-78s for full checkouts in the same run): with
+      # sparse-checkout set, actions/checkout fetches --filter=blob:none and then lazily fetches
+      # every needed blob at checkout, which is far slower than one depth-1 pack.
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       # Node + tsx required by parity tests (-Tag parity) in t/2609.
       # tsx must be available so the no-silent-skip guard fires on absence.
@@ -537,7 +538,8 @@ jobs:
         shell: pwsh
         env:
           SHARD: ${{ matrix.shard }}
-          SHARD_TOTAL: '6'
+          SHARD_TOTAL: '8'  # must equal the matrix length above (checked against MATRIX_JOB_TOTAL)
+          MATRIX_JOB_TOTAL: ${{ strategy.job-total }}
           # t/4454 Phase 1 (TL condition 4, t/4454#3): when set, every real-data-root write hit
           # during the test run appends one line here. PowerShell's side (#3770) owns the writer;
           # this step only consumes the log afterward (see "Report DATA-ROOT-TEST-WRITE hits" below).
@@ -554,6 +556,12 @@ jobs:
           # is then caught by whichever shard would otherwise silently run a wrong/incomplete set,
           # not discovered later from a missing test nobody ran.
           $shard = [int]$env:SHARD; $shardTotal = [int]$env:SHARD_TOTAL
+          # SHARD_TOTAL above the matrix length would assign files to shards no job runs, and they
+          # would never be tested; below it, a shard selects an empty slice. Fail either way.
+          if ($shardTotal -ne [int]$env:MATRIX_JOB_TOTAL) {
+            Write-Host "::error::test-powershell: SHARD_TOTAL=$shardTotal but the matrix runs $($env:MATRIX_JOB_TOTAL) shard jobs -- files assigned to a missing shard would never run. Set SHARD_TOTAL to the matrix length in ci.yml."
+            exit 1
+          }
           $allTests = @(Get-ChildItem ./tests -Recurse -Filter *.Tests.ps1 | Sort-Object FullName)
           $repoRoot = (Get-Location).Path
           $allPaths = @($allTests | ForEach-Object { $_.FullName.Substring($repoRoot.Length + 1) -replace '\\', '/' })
@@ -860,17 +868,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1049,17 +1048,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1197,12 +1187,10 @@ jobs:
 
       - name: Merge shard reports and enforce coverage thresholds
         working-directory: taxonomy-editor
+        # The count check lives in a script so its "fewer than 3 blobs" arm is unit-tested
+        # (operations/devops/test-check-vitest-shard-blobs.sh, run in the devops job below).
         run: |
-          COUNT=$(find "$RUNNER_TEMP/vitest-blobs" -maxdepth 1 -name 'blob-*.json' | wc -l)
-          if [ "$COUNT" -ne 3 ]; then
-            echo "::error::test-electron-coverage: expected 3 vitest shard blobs, found $COUNT -- a shard failed to produce its report, so merged coverage would be incomplete. See test-electron-vitest."
-            exit 1
-          fi
+          sh ../operations/devops/check-vitest-shard-blobs.sh "$RUNNER_TEMP/vitest-blobs" 3
           pnpm exec vitest run --merge-reports="$RUNNER_TEMP/vitest-blobs" --coverage
 
   # ── render-smoke: "surface renders styled" gate (t/3026 / t/3059) ──
@@ -1242,17 +1230,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1389,17 +1368,10 @@ jobs:
       # data repo, the import warns "no valid JSON files loaded" into ModelLiteralLint's emitter
       # stdout and 3 of its tests fail on a polluted JSON array (t/4150#4). Same checkout as the
       # test-powershell shards.
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: jpsnover/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      # (t/4841: repository was still "jpsnover/ai-triad-data", a stale org-move leftover --
+      # every other call site uses AI-Rosetta-Stone/ai-triad-data.)
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1839,17 +1811,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         continue-on-error: true
@@ -1886,17 +1849,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -2186,12 +2140,12 @@ jobs:
           HF_HUB_OFFLINE: '1'
           TRANSFORMERS_OFFLINE: '1'
         run: python .github/ci/assert_embed_stability.py
-      - name: Checkout data repo (composition-drift gate, t/2430)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Checkout data repo (composition-drift gate, t/2430; cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
         with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
+          continue-on-error: 'false'
           token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          symlink: 'false'
       - name: Composition-drift gate — selftest + blocking (t/2430)
         env:
           AI_TRIAD_DATA_ROOT: ${{ github.workspace }}/ai-triad-data
@@ -2470,17 +2424,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -2659,6 +2604,22 @@ jobs:
       - name: Citation-link-integrity leg (c), both arms, against the committed fixture (t/4443)
         shell: pwsh
         run: ./operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1
+
+  # ── Container-var prod/staging isolation (t/4794#9 item 2) ─────────────────────────────────
+  # NOT YET in ci-gate's needs: list (t/4794 incident). This check correctly fails right now --
+  # AZURE_ANALYTICS_CONTAINER has no stagingEnvOverrides entry at all (Azure's fix, t/4794#9 item
+  # 1, hasn't landed yet). Adding it to ci-gate's needs before that lands would red every PR's CI
+  # on an unrelated, already-known incident. Add it to ci-gate's needs in the SAME PR that lands
+  # item 1, or immediately after, once this job itself reports green on main.
+  container-var-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Container var prod/staging isolation (BLOCKING once wired into ci-gate, t/4794)
+        shell: pwsh
+        run: ./operations/devops/Test-ContainerVarIsolation.ps1
 
   agents-md-budget:
     needs: [changes]
@@ -2843,6 +2804,21 @@ jobs:
         # >=1 green cycle (SO + TL GV), same discipline as its neighbors.
         continue-on-error: true
         run: node --test operations/devops/stuck-pr-classifier.test.mjs
+
+      - name: Enqueue sweep unit suites (WARN-FIRST)
+        # Same t/3871 wiring discipline: enqueue-sweep.yml re-runs these before every sweep, but it
+        # always runs MAIN's copy, so a PR that breaks a sweep was only caught after it merged, by
+        # the next sweep failing. Running them here checks the change before merge. WARN-FIRST:
+        # flip by removing continue-on-error after >=1 green cycle (SO + TL GV), like its neighbors.
+        continue-on-error: true
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
+
+      - name: Vitest shard-blob count check arms (WARN-FIRST)
+        # test-electron-coverage refuses to merge unless all 3 shard blobs arrived. That refusal
+        # only runs when a shard fails to upload, so it had never been exercised; these arms cover
+        # 0/1/2/4 blobs, a missing directory and bad input, with a floor so an empty harness fails.
+        continue-on-error: true
+        run: sh operations/devops/test-check-vitest-shard-blobs.sh
 
   # ── complexity-tickets: refactor issues for over-budget files (advisory) ─────
   # Collects the complexity-violations-* artifacts that test-electron (ESLint

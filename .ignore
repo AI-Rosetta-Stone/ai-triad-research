@@ -6,3 +6,12 @@
 .claude/worktrees/
 **/.worktrees/
 node_modules/
+
+# Build output (generated; kept out of search so large/duplicate hits don't
+# time out and push agents into broad reads — Orca Support, p/888). A pattern
+# with no leading slash matches at any depth, so dist/ covers the per-app dirs
+# (taxonomy-editor/, poviewer/, summary-viewer/).
+dist/
+coverage/
+.vite/
+*.tsbuildinfo

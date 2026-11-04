@@ -4950,7 +4950,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 5. **`autoMergeRequest` (and REST's `auto_merge` field) being `null` does NOT mean a PR was dropped from the merge queue** (DebateWorkspace, p/846#6) — those fields only reflect CLASSIC auto-merge-on-green, never merge-queue group entries. A PR can be genuinely queued (`AWAITING_CHECKS` or similar) while `autoMergeRequest` shows `null` the whole time. The authoritative check for queue state is GraphQL `pullRequest { isInMergeQueue, mergeQueueEntry { state position } }` — never infer queue status from the auto-merge fields in either direction.
 6. **Escalated to t/4660 (DevOps) at this recurrence** — this isn't just a point-of-use lesson anymore. PR triage's `approved-not-armed` classifier had the exact same blind spot (reading `autoMergeRequest` instead of actual merge-queue state); DevOps is fixing the classifier to read true merge-queue state directly. The fix closes the automated-tooling instance of this facet; agents should still apply preventions #4/#5 by hand until it lands.
 
-**Status:** Active — 15 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`; Tech Lead p/335#223/#224 — same `autoMergeRequest`-null false negative on PR #4156, self-corrected after Sage independently confirmed via GraphQL; DevOps Lead p/26#309 — `gh pr view --json isInMergeQueue` exit 1, same field-gap; DebateUI p/689#7 — `gh pr view --json ...,isInMergeQueue` exit 1, same field gap, yet another agent; Azure p/105#40 — `gh pr view --json ...,mergeQueueEntry` exit 1, sibling field to `isInMergeQueue`, same gap, broadening the facet to cover both merge-queue-related GraphQL fields; DebateWorkspace p/846#16 — `isInMergeQueue` exit 1 again, resolved via `mergeCommit.oid`; DevOps Lead p/26#355 — `gh pr view --json merged,mergedAt,mergeCommit` exit 1, `merged` isn't a valid field; use `state` with value `MERGED` instead; DevOps Lead p/26#365 — `isInMergeQueue` exit 1 yet again, resolved via `mergeStateStatus`; Tech Lead p/335#255 — `isInMergeQueue` exit 1 once more, resolved via `autoMergeRequest` and inline `--jq`; DevOps Lead p/26#379 — `gh pr list --json ...,isInMergeQueue` exit 1, same gap on `gh pr list` rather than `gh pr view`, broadening which subcommand it applies to; DevOps Lead p/26#388 — `gh pr view --json isInMergeQueue` exit 1 yet again, resolved via `autoMergeRequest`/`mergeStateStatus`). Deterministic usage error. **Prevention escalated to t/4660** (DevOps) — fixing the `approved-not-armed` PR-triage classifier's same blind spot.
+**Status:** Active — 16 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`; Tech Lead p/335#223/#224 — same `autoMergeRequest`-null false negative on PR #4156, self-corrected after Sage independently confirmed via GraphQL; DevOps Lead p/26#309 — `gh pr view --json isInMergeQueue` exit 1, same field-gap; DebateUI p/689#7 — `gh pr view --json ...,isInMergeQueue` exit 1, same field gap, yet another agent; Azure p/105#40 — `gh pr view --json ...,mergeQueueEntry` exit 1, sibling field to `isInMergeQueue`, same gap, broadening the facet to cover both merge-queue-related GraphQL fields; DebateWorkspace p/846#16 — `isInMergeQueue` exit 1 again, resolved via `mergeCommit.oid`; DevOps Lead p/26#355 — `gh pr view --json merged,mergedAt,mergeCommit` exit 1, `merged` isn't a valid field; use `state` with value `MERGED` instead; DevOps Lead p/26#365 — `isInMergeQueue` exit 1 yet again, resolved via `mergeStateStatus`; Tech Lead p/335#255 — `isInMergeQueue` exit 1 once more, resolved via `autoMergeRequest` and inline `--jq`; DevOps Lead p/26#379 — `gh pr list --json ...,isInMergeQueue` exit 1, same gap on `gh pr list` rather than `gh pr view`, broadening which subcommand it applies to; DevOps Lead p/26#388 — `gh pr view --json isInMergeQueue` exit 1 yet again, resolved via `autoMergeRequest`/`mergeStateStatus`; Project Manager p/31#17 — same error, resolved via `autoMergeRequest`). Deterministic usage error. **Prevention escalated to t/4660** (DevOps) — fixing the `approved-not-armed` PR-triage classifier's same blind spot.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -5046,15 +5046,17 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-12 — Conflict (p/540#4): `gh` command not found via Bash tool. Resolved by re-running the same commands via the PowerShell tool.
+- 2026-11-04 — Settings (p/891#1, **new facet — whole-shell breakage, not just `gh` missing**): the Bash tool's underlying shell couldn't resolve `gh` OR `ls` (both exit 127) despite correct PATH entries — confirmed via PowerShell that `gh.exe` was present and working. This is stronger than the original pattern: a basic MSYS coreutil (`ls`) failing rules out "just `gh` isn't on PATH" and points to the Bash tool's shell itself being broken or misconfigured for that session. Resolved by switching to the PowerShell tool for `gh`/`git` commands for the rest of the session — same fix as the original facet, but the diagnosis is different (session-level shell failure, not a missing PATH entry).
 
-**Root Cause:** On Windows, `gh` is installed and configured in the PowerShell (pwsh) environment but is not added to the MSYS/Git Bash PATH. The Bash tool runs in the MSYS2 layer with a different PATH than the native Windows PowerShell session.
+**Root Cause:** On Windows, `gh` is installed and configured in the PowerShell (pwsh) environment but is not added to the MSYS/Git Bash PATH. The Bash tool runs in the MSYS2 layer with a different PATH than the native Windows PowerShell session. **The new facet's root cause is unconfirmed** — it could be the same PATH gap manifesting more broadly, or a distinct session-level MSYS/shell initialization failure; don't assume it's the same mechanism just because the fix (switch to PowerShell) happens to be identical.
 
 **Prevention:**
 1. **On Windows agents, always run `gh` commands via the PowerShell tool**, not the Bash tool.
 2. **Bash tool on Windows is appropriate for POSIX scripts** (awk, sed, file utilities). For GitHub CLI operations, use PowerShell.
 3. **If `gh` fails with exit 127 in Bash:** switch to the PowerShell tool — do not attempt to diagnose `gh` installation.
+4. **If even a basic coreutil (`ls`, `cat`, etc.) fails exit 127 in the Bash tool, suspect the whole shell session, not just a missing PATH entry** — verify via the PowerShell tool that the underlying binaries actually exist before concluding anything is uninstalled. Switch to PowerShell for the rest of the session rather than trying to repair the Bash shell mid-session.
 
-**Status:** Active — 1 instance (Conflict p/540#4). Silent: exit 127 reads as missing tool, not wrong shell.
+**Status:** Active — 2 instances (Conflict p/540#4 — gh-only; Settings p/891#1 — whole-shell breakage, new facet, root cause unconfirmed). Silent: exit 127 reads as missing tool, not wrong shell.
 
 **Applies To:** All agents on Windows using the Bash tool for GitHub CLI operations.
 
@@ -8622,3 +8624,76 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#279). Confirmed transient (GitHub-side outage), not a reproducible bug.
 
 **Applies To:** All agents writing scripts that call `gh api` and parse its output; check the exit code before parsing, every time.
+
+## #423 [Build] A JSON String Field Containing an Unescaped Quote Gets Re-Tokenized When Piped Across a Second `pwsh -Command` Process Boundary
+
+**Pattern:** A script (e.g. a drift-check PowerShell script) emits JSON containing a text field with an unescaped double-quote inside it (e.g. a PDF filename quoted within a `Reasons` string). The JSON is piped into a second, separate `pwsh -Command` invocation to extract fields with `ConvertFrom-Json`. The second process's own command-line parsing re-tokenizes the piped text — the embedded quote, which was valid inside the original JSON string value, gets treated as a new token boundary by the second PowerShell process, and `ConvertFrom-Json` chokes trying to parse the corrupted result. This is distinct from #384 (an already-deserialized object piped into `ConvertFrom-Json`) and #407 (shell-level pipe misparse) — here the JSON text itself is intact and valid at the point it leaves the first process; the corruption happens specifically crossing the second process's own parsing boundary.
+
+**Instances:**
+- 2026-11-03 — DevOps Lead (p/26#409): piped `check-data-checkout-drift.ps1`'s JSON output through a second `pwsh -Command` to extract fields; `ConvertFrom-Json` choked on an unescaped double-quote inside a PDF filename embedded in the `Reasons` text. Resolved by dropping the pipe-through-a-second-pwsh approach entirely and reading the object directly in the same PowerShell session instead.
+
+**Root Cause:** Piping text between two separate PowerShell processes means the second process's command-line parser sees the piped content as part of its own invocation context, not as pure opaque data. A quote character that was perfectly valid inside a JSON string value (properly escaped as `\"` within the JSON) can still interact with the RECEIVING process's own quoting/tokenization rules once it crosses that process boundary, especially when the piping itself goes through an intermediate shell layer. The exact mechanics depend on how the pipe is constructed, but the net effect is the same: valid JSON text gets corrupted purely by virtue of crossing into a second interactive PowerShell invocation.
+
+**Prevention:**
+1. **Prefer staying in ONE PowerShell session/process for JSON extraction** — read the script's output directly (e.g. `$result = & script.ps1; $result.SomeField`) rather than piping its JSON output through a second `pwsh -Command` invocation that re-parses it.
+2. **If JSON genuinely must cross a process boundary, write it to a file and have the second process read the file**, rather than piping it through the shell — this avoids any re-tokenization of the text content during the pipe itself.
+3. **A `ConvertFrom-Json` failure on JSON that was valid when the source script emitted it is a signal to check whether the JSON crossed a process/pipe boundary it shouldn't have**, not to assume the source script emitted malformed JSON.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#409).
+
+**Applies To:** All agents extracting fields from a PowerShell script's JSON output; prefer reading the object in the same session over piping JSON through a second `pwsh -Command` process.
+
+## #424 [Process] A Shared Feature-Branch Name Already Checked Out Live in Another Agent's Worktree Blocks `git switch -c` — Commit to a Different Local Name, Push to the Shared Remote Branch
+
+**Pattern:** Two agents are independently working on the same ticket/feature, intending to land on the same shared branch name (e.g. `fix/t4827-related-tab-stack`). One agent has that branch checked out live in their own worktree. A second agent, trying to create or switch to the same branch name in a DIFFERENT worktree, is blocked — git only allows one worktree to hold a given branch checked out at a time, the same constraint that blocks `main` from being checked out in two places (see the Worktree Isolation Guard / main-captured-by-worktree family), but here it applies to an arbitrary shared feature branch name instead of `main`.
+
+**Instances:**
+- 2026-11-04 — EdgeBrowser (p/828#4, t/4827): `git commit` on a detached HEAD in `.worktrees/t4827-edgebrowser-filter-row` was blocked by the pre-commit hook's detached-HEAD guard (the t/2009 guard). The underlying cause: the shared branch name `fix/t4827-related-tab-stack` was already checked out live in Rosetta Stone's own worktree, so `git switch -c` onto that branch name failed in EdgeBrowser's worktree. Resolved by creating a differently-named local branch (`edgebrowser/t4827-filter-row-fix`) in the local worktree, committing there, then `git push origin HEAD:fix/t4827-related-tab-stack` to land the commit on the shared REMOTE branch name without ever needing a local checkout of that name in this worktree.
+
+**Root Cause:** Git enforces that a given branch can only be checked out in one worktree at a time across the whole repository — this is the same constraint behind the `main`-captured-by-worktree hazard, just triggered here by an ordinary shared feature branch rather than `main`. When two agents coordinate around a shared branch NAME but work in separate worktrees, only one worktree can actually hold that branch checked out locally at once; the other agent's attempt to `git switch -c` (or plain `git switch`) onto the same name fails.
+
+**Prevention:**
+1. **If `git switch -c <shared-branch-name>` fails because that branch is checked out elsewhere, don't fight for the local checkout** — create a differently-named LOCAL branch in your own worktree, commit there, and push directly to the shared REMOTE branch name with `git push origin HEAD:<shared-branch-name>`. This lands your commit on the intended branch without ever needing a local checkout collision.
+2. **This is the ordinary-branch sibling of the `main`-captured-by-worktree hazard** — the underlying git constraint (one worktree per branch, repo-wide) is the same; only the branch involved differs.
+3. **When two agents share a branch name across separate worktrees, coordinate the intent via the remote branch, not via trying to get the same local checkout in both places** — the remote branch is the actual point of coordination; local branch names are disposable as long as they push to the right remote ref.
+
+**Status:** Active — 1 instance (EdgeBrowser p/828#4).
+
+**Applies To:** All agents coordinating on a shared feature branch name across separate worktrees; if the local checkout is blocked, push to the shared remote branch name from a differently-named local branch instead.
+
+## #425 [Process] Two Agents Independently Resolving the Same Main-Conflict Raced Pushes to the Same Branch — `--force-with-lease` Caught It, Deferring to the Already-Landed Fix Resolved It
+
+**Pattern:** Two agents (here, DevOps Lead and DevOps Worker) independently notice and resolve the same conflict against `main` on the same branch, without either claiming the branch first. Both attempt to push their resolution at nearly the same time. `git push --force-with-lease` on the second pusher's attempt is rejected ("cannot lock ref ... is at X but expected Y") because the ref moved underneath it — the other agent's push landed first. This is a genuine race with no claim/lock on the branch itself (only the ticket, if anything, was claimed), not a tooling bug.
+
+**Instances:**
+- 2026-11-04 — DevOps Lead (p/26#411): `git push --force-with-lease` rejected on a branch DevOps Worker was concurrently pushing to — both agents were independently resolving the same main-conflict. Resolved by stopping the force-push, fetching, verifying the Worker's already-pushed merge resolution was correct (tests green), and deferring to it instead of overwriting.
+
+**Root Cause:** No claim or lock existed on the BRANCH itself — Claim Before Implement (as commonly practiced) claims the ticket, not necessarily the specific branch/conflict-resolution action, so two agents converging on the same fix for the same conflict had no mechanism stopping them from both attempting it. `--force-with-lease` is what caught the race (a plain `--force` would have silently clobbered the Worker's work) — the lease check compares the expected remote SHA before overwriting, and refuses when it's moved.
+
+**Prevention:**
+1. **Always use `git push --force-with-lease`, never a bare `--force`, when force-pushing to a shared/collaborative branch** — the lease check is what makes a push-race survivable instead of silently destructive. This incident is direct evidence the mechanism works as intended.
+2. **On a `--force-with-lease` rejection citing an unexpected ref state, don't just retry the force-push** — fetch first and inspect what actually landed. If another agent's resolution is already there and correct (tests green), defer to it rather than overwriting.
+3. **If resolving a conflict against `main` on a shared branch, consider a quick claim/announcement before pushing** (a ping naming the branch) when there's any chance another agent might independently notice and fix the same conflict — this is a narrower claim than the ticket-level Claim Before Implement, specific to "I am about to push to this exact branch."
+
+**Status:** Active — 1 instance (DevOps Lead p/26#411). `--force-with-lease` performed as intended.
+
+**Applies To:** All agents force-pushing to shared/collaborative branches; always use `--force-with-lease`, and on rejection, fetch and verify before retrying rather than assuming the rejection itself is wrong.
+
+## #426 [Build] A Gate's Predicate Tests Passed Without `Set-StrictMode`, But the CI Step Calling Them Ran Under It — Every Staging Deploy Failed Closed for a Day
+
+**Pattern:** A gate's predicate function is tested in isolation, and the tests pass. In CI, the step that actually CALLS the predicate runs under `Set-StrictMode -Version Latest`. Under strict mode, accessing `.Count` on a variable that unrolled to `$null` (an empty function result, not an empty collection) throws — a case the predicate's own tests never exercised because they didn't run under the same strict-mode setting as the real calling context. The gate crashes on its CLEAN arm specifically (the case where there's nothing to report), so every deploy that WOULD have passed cleanly instead fails closed.
+
+**Instances:**
+- 2026-11-03/04 — Tech Lead (p/335#285, t/4797): a gate's predicate passed its own tests but crashed in CI under `Set-StrictMode -Version Latest` — an empty function result unrolled to `$null`, then `.Count` threw on the clean (nothing-to-report) arm. Every staging deploy failed closed from 2026-11-03 until fixed via PR #4500.
+
+**Root Cause:** PowerShell's `Set-StrictMode -Version Latest` changes `.Count`'s behavior on `$null` from "silently returns nothing/0-ish" to "throws." A predicate's unit tests, run without that strict-mode setting active, never surface this: they only fail if the actual calling CONTEXT (the CI workflow step) sets strict mode and the TEST environment doesn't match it. The clean/empty-result arm is exactly the one most likely to be under-tested (it's the "nothing happened, nothing to report" case), making this both easy to introduce and painful to catch — it only manifests once there's genuinely nothing to report, which may not be the common case exercised during development.
+
+**Prevention:**
+1. **Run a gate predicate's tests under the SAME strict-mode setting as the CI step that actually calls it.** If the calling workflow step sets `Set-StrictMode -Version Latest`, the predicate's test harness should too — otherwise the tests are checking a different execution environment than production.
+2. **Explicitly test the empty/clean/nothing-to-report arm of any predicate that aggregates or counts results** — this is the arm most likely to produce `$null` instead of an empty collection, and the one most likely to be skipped during normal development (where there's usually SOMETHING to report).
+3. **A gate that fails closed in CI but passes its own unit tests is a signal to check environment parity (strict mode, locale, other process-level settings) between the test harness and the real calling context** — not just to re-run the same tests again.
+4. **This pairs with the existing strict-mode `.Count` hook/guard** (referenced by the TL as already in place) — the hook catches direct `.Count`-on-possibly-null usage at the point of writing; this incident shows the gap it doesn't cover: a predicate that passes isolated tests but still breaks once its CALLER's strict-mode setting differs from its test harness's.
+
+**Status:** Resolved — 1 instance (Tech Lead p/335#285, t/4797), fixed via PR #4500. Every staging deploy had failed closed from 2026-11-03 until the fix landed.
+
+**Applies To:** All agents writing or testing gate predicates called from a CI step with `Set-StrictMode` active; match the test harness's strict-mode setting to the real calling context, and explicitly test the empty-result arm.

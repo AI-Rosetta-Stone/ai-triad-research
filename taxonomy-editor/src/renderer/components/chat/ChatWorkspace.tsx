@@ -182,6 +182,8 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
       <ChatMessageAvatar isUser={isUser} chatRedesign={chatRedesign} speaker={entry.speaker} camp={camp} />
       <div className="chat-message-body">
         <ChatMessageHeader isUser={isUser} chatRedesign={chatRedesign} speaker={entry.speaker} camp={camp} />
+        {/* t/4824: "Why" labels the POV's answer content, matching The Question's own eyebrow. */}
+        {!isUser && <span className="chat-message-why-eyebrow">Why</span>}
         <MessageBubble role={isUser ? 'user' : 'assistant'} className="chat-message-content markdown-body prose">
           <Markdown remarkPlugins={[remarkGfm, remarkColorizePov, remarkLinkifyRefs]} components={mdComponents}>{entry.content}</Markdown>
         </MessageBubble>
@@ -189,7 +191,81 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
+        {!isUser && <ChatHowPanel />}
       </div>
+    </div>
+  );
+}
+
+// ── "How" panel (t/4824) ─────────────────────────────────
+
+// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
+const CHAT_HOW_METHODS_LINKS = [
+  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
+  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
+];
+
+function ChatHowMethodsLink({ label, url }: { label: string; url: string }) {
+  return (
+    <button
+      type="button"
+      className="btn-ghost chat-how-methods-link"
+      onClick={() => {
+        void api.openExternal(url).catch((err: unknown) => {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'chat-how-panel', level: 'error',
+            message: 'Failed to open methods link',
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+        });
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ChatHowSection({ title, defaultExpanded, children }: { title: string; defaultExpanded: boolean; children: React.ReactNode }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  return (
+    <div className="chat-how-section">
+      <button type="button" className="chat-how-section-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
+        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
+        {title}
+      </button>
+      {expanded && <div className="chat-how-section-body">{children}</div>}
+    </div>
+  );
+}
+
+/** Collapsed by default, below each POV response (t/4824). Raw Prompt/Response aren't captured
+ *  per chat turn yet (t/4827, ServerAPI) — they show an explicit "not available" state rather
+ *  than an empty box, so a missing value never reads as a rendering bug. */
+function ChatHowPanel() {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="chat-how-panel">
+      <button type="button" className="chat-how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
+        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
+        How
+      </button>
+      {expanded && (
+        <div className="chat-how-body">
+          <ChatHowSection title="Raw Prompt" defaultExpanded>
+            <p className="chat-how-unavailable">Not available for this response yet.</p>
+          </ChatHowSection>
+          <ChatHowSection title="Raw Response" defaultExpanded={false}>
+            <p className="chat-how-unavailable">Not available for this response yet.</p>
+          </ChatHowSection>
+          <ChatHowSection title="Methods" defaultExpanded={false}>
+            <ul className="chat-how-methods-list">
+              {CHAT_HOW_METHODS_LINKS.map(link => (
+                <li key={link.url}><ChatHowMethodsLink label={link.label} url={link.url} /></li>
+              ))}
+            </ul>
+          </ChatHowSection>
+        </div>
+      )}
     </div>
   );
 }
@@ -716,17 +792,19 @@ export function ChatWorkspace() {
               <div className="chat-error">{chatError}</div>
             )}
 
-            {/* The Question */}
-            <QuestionCard topic={activeChat.topic} />
+            {/* t/4824: The Question now scrolls with the transcript instead of sitting pinned
+                above it — one shared scroll region for both. */}
+            <div className="chat-scroll-region">
+              <QuestionCard topic={activeChat.topic} />
 
-            {/* Transcript */}
-            <ChatTranscript
-              activeChat={activeChat}
-              chatGenerating={chatGenerating}
-              chatActivity={chatActivity}
-              onSelectRef={setSelectedRef}
-              transcriptEndRef={transcriptEndRef}
-            />
+              <ChatTranscript
+                activeChat={activeChat}
+                chatGenerating={chatGenerating}
+                chatActivity={chatActivity}
+                onSelectRef={setSelectedRef}
+                transcriptEndRef={transcriptEndRef}
+              />
+            </div>
 
             {/* Input bar */}
             <ChatInputBar

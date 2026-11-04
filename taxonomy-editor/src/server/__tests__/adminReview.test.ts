@@ -65,7 +65,7 @@ function mockRes(): { res: http.ServerResponse; status?: number; body?: string }
 const ADMIN_ID = 'test-admin';
 function asAdmin<T>(fn: () => T): T {
   return runWithUser(
-    { principalName: ADMIN_ID, idp: 'github', storageUserId: ADMIN_ID, isAnonymous: false },
+    { principalName: ADMIN_ID, idp: 'github', storageUserId: ADMIN_ID, stableId: `github:${ADMIN_ID}`, isAnonymous: false },
     fn,
   );
 }
@@ -76,7 +76,7 @@ describe('admin review registry', () => {
   beforeEach(() => {
     clearReviewHandlers();
     prevAdminUsers = process.env.ADMIN_USERS;
-    process.env.ADMIN_USERS = ADMIN_ID;
+    process.env.ADMIN_USERS = `github:${ADMIN_ID}`; // t/4328: idp-qualified entry
   });
 
   afterEach(() => {

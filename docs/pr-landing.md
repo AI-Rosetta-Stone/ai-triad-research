@@ -1,6 +1,6 @@
 # PR Landing, Merge Queue and Holds
 
-The full procedure behind root `AGENTS.md` → "Landing Code". This text moved out of the root file unchanged (to cut the instruction tokens every agent loads on every turn). It is still binding. Read it before you arm, enqueue, apply or clear a hold, or jump the queue. Rationale and incident history: `docs/agent-rules-reference.md` (Ref §3, §4, §5). Where this file differs from root `AGENTS.md` → Change Tiers, Change Tiers wins.
+The full procedure behind root `AGENTS.md` → "Landing Code". This text moved out of the root file unchanged (to cut the instruction tokens every agent loads on every turn). It is still binding. Read it before you arm, enqueue, apply or clear a hold, or jump the queue. Rationale and incident history: `docs/agent-rules-reference.md` (Ref §3, §4, §5). Where this file differs from `docs/change-tiers.md`, Change Tiers wins.
 
 ## Pre-Self-Merge Verification
 

@@ -1,7 +1,7 @@
 # Debate-Tested: A Testing-History Instrument for the AI Rosetta Stone Taxonomy
 
 **Prepared for:** external review
-**Prepared by:** Computational Linguist, AI Triad Research (Berkman Klein Center)
+**Prepared by:** Computational Linguist, AI Triad Research
 **Date:** 2026-07-13
 **Companion document:** `corroboration-design.md` (full technical specification: schemas, cmdlet signatures, module layout, phasing)
 **Status of the underlying proposal:** approved by Technical Lead 2026-07-13, Beliefs-only v1 scope confirmed. Three independent external reviews of this document (2026-07-13) are addressed in `corroboration-design.md`'s changelog and in ticket t/1523; the amendments (exclusion-mechanism guardrails, validation-study scope, rollout resequencing, content-increase revision gate, proportional outcome aggregation, era-stamping) are reflected inline below. The instrument was originally named "Corroboration"; a third review found this borrowed Popper's authority for a mechanism (reducing future testing of well-tested claims) his own account explicitly forbids, so this document is renamed throughout to "Debate-Tested." An investigation into a complementary "crux-discovery-density" signal and an external-evidence pointer feature remain open, tracked separately (t/1534, t/1535).

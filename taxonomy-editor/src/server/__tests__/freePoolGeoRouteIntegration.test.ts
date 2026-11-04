@@ -35,6 +35,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUser: vi.fn(() => ({ principalName: 'testuser', idp: 'aad' })),
   getCurrentUserId: vi.fn(() => 'testuser'),
   getStorageUserId: vi.fn(() => 'testuser'),
+  getStableId: vi.fn(() => undefined), // t/4328: isAdmin() reads the stableId; testuser is not an admin
 }));
 
 vi.mock('../logger.js', () => ({

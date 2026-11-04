@@ -64,14 +64,14 @@ const isWeb = import.meta.env.VITE_TARGET === 'web';
 export type HelpTab = 'about' | 'overview' | 'documentation' | 'methods' | 'shortcuts' | 'sbom' | 'licenses' | 'changelog' | 'my-cases';
 
 const TABS: { id: HelpTab; label: string }[] = [
-  { id: 'about', label: 'About' },
-  { id: 'changelog', label: "What's New" },
   { id: 'overview', label: 'Overview' },
   { id: 'documentation', label: 'Documentation' },
   { id: 'methods', label: 'Methods' },
   { id: 'shortcuts', label: 'Shortcuts' },
+  { id: 'changelog', label: "What's New" },
   { id: 'sbom', label: 'SBOM' },
   { id: 'licenses', label: 'Licenses' },
+  { id: 'about', label: 'About' },
   ...(isWeb ? [{ id: 'my-cases' as const, label: 'My Cases' }] : []),
 ];
 
@@ -355,7 +355,7 @@ interface HelpDialogProps {
 }
 
 export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
-  const [activeTab, setActiveTab] = useState<HelpTab>(initialTab ?? 'about');
+  const [activeTab, setActiveTab] = useState<HelpTab>(initialTab ?? 'overview');
   const [showSupportForm, setShowSupportForm] = useState(false);
   const { unreadCount, fetchCases: fetchSupportCases } = useSupportStore();
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -484,10 +484,9 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             </table>
             <p className="helpdialog-about-desc">
               AI Triad Research — multi-perspective research platform for AI policy/safety literature.
-              Berkman Klein Center, 2026.
             </p>
             <p className="helpdialog-about-stack">
-              Built with Electron 35, React 19, TypeScript, Vite, and Zustand.
+              Built with Electron 45, React 19, TypeScript, Vite, and Zustand.
               AI backends: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, Ollama.
             </p>
           </div>

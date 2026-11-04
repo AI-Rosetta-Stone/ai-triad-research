@@ -116,7 +116,10 @@ function Assert-StagingContainerEnvIsolation {
         [string[]] $RequiredNames = $script:KnownContainerVarNames
     )
 
-    $violations = Test-StagingContainerEnvIsolation -EnvVars $EnvVars -RequiredNames $RequiredNames
+    # @(...) is load-bearing: a function returning an empty array unrolls to $null, and the
+    # workflow runs under Set-StrictMode -Version Latest, where $null.Count THROWS. Without it the
+    # CLEAN arm crashed and every staging deploy failed closed (run 41713953738, 2026-11-03).
+    $violations = @(Test-StagingContainerEnvIsolation -EnvVars $EnvVars -RequiredNames $RequiredNames)
     if ($violations.Count -gt 0) {
         $detail = ($violations | ForEach-Object { "$($_.Name)='$($_.Value)' ($($_.Reason))" }) -join ', '
         throw (New-ActionableError -Goal 'Verify staging container isolation before traffic promotion' `

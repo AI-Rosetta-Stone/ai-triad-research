@@ -31,6 +31,18 @@ Describe 'Test-StagingContainerEnvIsolation (t/4797)' {
         }
     }
 
+    Context 'Under Set-StrictMode -Version Latest, as deploy-staging.yml runs it' {
+        # Regression: the clean arm threw "The property 'Count' cannot be found" in the real
+        # workflow (run 41713953738) because the other tests here run without strict mode.
+        It 'Assert- does not throw on the clean env under strict mode' {
+            { Set-StrictMode -Version Latest; Assert-StagingContainerEnvIsolation -EnvVars (script:CleanEnv) } | Should -Not -Throw
+        }
+        It 'Assert- still throws, naming the var, on a missing var under strict mode' {
+            $bad = @(script:CleanEnv | Where-Object { $_.name -ne 'AZURE_ANALYTICS_CONTAINER' })
+            { Set-StrictMode -Version Latest; Assert-StagingContainerEnvIsolation -EnvVars $bad } | Should -Throw '*AZURE_ANALYTICS_CONTAINER*'
+        }
+    }
+
     Context 'Clean arm' {
         It 'returns no violations when every known var is present and staging-prefixed' {
             $violations = Test-StagingContainerEnvIsolation -EnvVars (script:CleanEnv)
