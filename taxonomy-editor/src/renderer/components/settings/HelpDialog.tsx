@@ -355,7 +355,7 @@ interface HelpDialogProps {
 }
 
 export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
-  const [activeTab, setActiveTab] = useState<HelpTab>(initialTab ?? 'about');
+  const [activeTab, setActiveTab] = useState<HelpTab>(initialTab ?? 'overview');
   const [showSupportForm, setShowSupportForm] = useState(false);
   const { unreadCount, fetchCases: fetchSupportCases } = useSupportStore();
   const [pos, setPos] = useState({ x: 0, y: 0 });
