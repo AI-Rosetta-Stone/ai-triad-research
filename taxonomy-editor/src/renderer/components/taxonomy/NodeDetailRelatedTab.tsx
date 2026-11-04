@@ -4,7 +4,7 @@
 // Related tab (extracted from NodeDetail.tsx for complexity AND to stay under its line budget,
 // t/4827).
 
-import { useState, useEffect, type RefObject, type MouseEvent, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type RefObject, type MouseEvent, type CSSProperties } from 'react';
 import { RelatedEdgesPanel } from '../edge-browser/RelatedEdgesPanel';
 import { EdgeDetailPanel } from '../edge-browser/EdgeDetailPanel';
 import { EmptyState } from '../shared/EmptyState';
@@ -22,8 +22,15 @@ interface NodeDetailRelatedTabProps {
 // in landscape too (e.g. a split main view), and a portrait monitor's pane can still be wide.
 const RELATED_STACK_BREAKPOINT_PX = 600;
 
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 export function NodeDetailRelatedTab({ selectedEdge, relatedSplitPct, handleSplitMouseDown, splitContainerRef }: NodeDetailRelatedTabProps) {
   const [containerWidth, setContainerWidth] = useState(0);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const container = splitContainerRef.current;
@@ -43,6 +50,19 @@ export function NodeDetailRelatedTab({ selectedEdge, relatedSplitPct, handleSpli
   // the common (wide) case rather than flashing stacked-then-wide.
   const stacked = containerWidth > 0 && containerWidth < RELATED_STACK_BREAKPOINT_PX;
 
+  // t/4827 (Design review, PR #4481): the Related list is full-height (t/4719), so in stacked
+  // mode the detail pane renders below the whole list — picking an edge near the top otherwise
+  // looks like a no-op. Scroll it into view on selection, never in wide mode (detail's already
+  // beside the list there). Focus follows so keyboard/screen-reader users land on what they
+  // opened (Design: non-blocking, but cheap to do alongside the scroll).
+  useEffect(() => {
+    if (!stacked || !selectedEdge) return;
+    const el = detailRef.current;
+    if (!el) return;
+    el.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    el.focus();
+  }, [stacked, selectedEdge]);
+
   return (
     <div className={`node-detail-related-split${stacked ? ' node-detail-related-split-stacked' : ''}`} ref={splitContainerRef}>
       <div
@@ -55,6 +75,8 @@ export function NodeDetailRelatedTab({ selectedEdge, relatedSplitPct, handleSpli
       {!stacked && <div className="resize-handle" onMouseDown={handleSplitMouseDown} />}
       {(!stacked || !!selectedEdge) && (
         <div
+          ref={detailRef}
+          tabIndex={-1}
           className={`node-detail-related-detail${stacked ? '' : ' nd-split-width'}`}
           /* eslint-disable-next-line local/no-inline-style -- width is a user-dragged split percentage, passed as a CSS custom property; omitted in stacked mode so the stacked CSS rule (100% width) isn't fighting a stale inline value */
           style={stacked ? undefined : ({ '--nd-split-width': `${100 - relatedSplitPct}%` } as CSSProperties)}
