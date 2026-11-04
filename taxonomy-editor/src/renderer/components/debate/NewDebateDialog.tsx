@@ -12,6 +12,7 @@ import type { SpeakerId, DebateSourceType, DebateAudience, SeatTag } from '../..
 import { DEBATE_PROTOCOLS } from '../../data/debateProtocols';
 import { AI_POVERS } from '@lib/debate/types';
 import { CampGlyph, povToCamp } from '../shared/CampGlyph';
+import { ModelPicker } from '../shared/ModelPicker';
 import './NewDebateDialog.css';
 import { generateDebateTitlePrompt } from '../../prompts/newDebateDialog';
 import { api } from '@bridge';
@@ -533,94 +534,36 @@ function VoicesAudienceSection({ isSocratic, localSelected, setLocalSelected, to
 }
 
 interface ModelProvidersProps {
-  localModelTier: 'basic' | 'advanced'; setLocalModelTier: (v: 'basic' | 'advanced') => void;
-  localMultiProvider: boolean; setLocalMultiProvider: (v: boolean) => void;
-  backendsWithKeys: string[];
-  localExcludedBackends: Set<string>; toggleBackend: (id: string) => void;
-  hasApiKey: Record<string, boolean>;
-  localUseCustomModel: boolean; setLocalUseCustomModel: (v: boolean) => void;
-  localCustomModel: string; setLocalCustomModel: (v: string) => void;
   localCustomFamily: AIBackend; setLocalCustomFamily: (v: AIBackend) => void;
+  localCustomModel: string; setLocalCustomModel: (v: string) => void;
   globalModel: string;
-  refreshing: boolean; setRefreshing: (v: boolean) => void;
 }
-function ModelProvidersSection({ localModelTier, setLocalModelTier, localMultiProvider, setLocalMultiProvider, backendsWithKeys, localExcludedBackends, toggleBackend, hasApiKey, localUseCustomModel, setLocalUseCustomModel, localCustomModel, setLocalCustomModel, localCustomFamily, setLocalCustomFamily, globalModel, refreshing, setRefreshing }: ModelProvidersProps) {
+function ModelProvidersSection({ localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, globalModel }: ModelProvidersProps) {
   return (
     <>
       <h3 className="ndd-settings-section-title">Model &amp; providers</h3>
-      <div className="ndd-settings-field">
-        <label className="ndd-field-label">Model tier</label>
-        <div className="ndd-tier-chips">
-          {(['basic', 'advanced'] as const).map(tier => (
-            <button key={tier} type="button" className={`ndd-tier-chip${localModelTier === tier ? ' active' : ''}`} onClick={() => setLocalModelTier(tier)}>
-              {tier === 'basic' ? 'Basic' : 'Frontier'}
-            </button>
-          ))}
-        </div>
-        <p className="ndd-settings-field-hint">
-          {localModelTier === 'basic' ? 'Faster and lower-cost. Good for quick topics.' : 'Most capable model tier. Better for nuanced, complex topics.'}
-        </p>
-      </div>
       <label className="ndd-settings-toggle-row">
-        <input type="checkbox" checked={localMultiProvider} onChange={e => setLocalMultiProvider(e.target.checked)} />
+        <input type="checkbox" id="ndd-use-custom-model" checked={localCustomModel !== globalModel} onChange={e => setLocalCustomModel(e.target.checked ? MODELS_BY_BACKEND[localCustomFamily]?.[0]?.value ?? localCustomModel : globalModel)} />
         <div>
-          <span className="ndd-toggle-name">Multi-provider mode</span>
-          <span className="ndd-step-help">Assign different AI backends to each debater</span>
+          <span className="ndd-toggle-name">Custom model</span>
+          <span className="ndd-step-help">Override the default model for this debate</span>
         </div>
       </label>
-      {localMultiProvider ? (
-        <div className="ndd-settings-field">
-          <label className="ndd-field-label">Active backends</label>
-          <div className="ndd-backend-chips">
-            {backendsWithKeys.map(id => {
-              const info = AI_BACKENDS.find(b => b.value === id);
-              const active = !localExcludedBackends.has(id);
-              return (
-                <button key={id} type="button" className={`ndd-backend-chip${active ? ' active' : ''}`} onClick={() => toggleBackend(id)}>
-                  {info?.label ?? id}
-                  {hasApiKey[id] === false && <span className="ndd-backend-nokey" title="No API key"> !</span>}
-                </button>
-              );
-            })}
-          </div>
-          {backendsWithKeys.length < 2 && <p className="ndd-warning-text">Multi-provider needs at least 2 backends with API keys.</p>}
+      {localCustomModel !== globalModel && (
+        <div style={{ marginTop: 'var(--sp-2)' }}>
+          <ModelPicker
+            idPrefix="ndd-model"
+            family={localCustomFamily}
+            model={localCustomModel}
+            onFamilyChange={fam => { setLocalCustomFamily(fam); setLocalCustomModel(MODELS_BY_BACKEND[fam]?.[0]?.value ?? localCustomModel); }}
+            onModelChange={setLocalCustomModel}
+          />
         </div>
-      ) : (
-        <>
-          <label className="ndd-settings-toggle-row" style={{ marginTop: 'var(--sp-4)' }}>
-            <input type="checkbox" checked={localUseCustomModel} onChange={e => setLocalUseCustomModel(e.target.checked)} />
-            <div>
-              <span className="ndd-toggle-name">Custom model</span>
-              <span className="ndd-step-help">Override the default model for this debate</span>
-            </div>
-          </label>
-          {localUseCustomModel && (
-            <div style={{ marginTop: 'var(--sp-2)' }}>
-              <div className="ndd-custom-model-row">
-                <div className="ndd-custom-model-field">
-                  <label className="ndd-settings-field-hint">Model family</label>
-                  <select className="ndd-input" value={localCustomFamily} onChange={e => { const fam = e.target.value as AIBackend; setLocalCustomFamily(fam); setLocalCustomModel(MODELS_BY_BACKEND[fam]?.[0]?.value ?? localCustomModel); }}>
-                    {AI_BACKENDS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
-                  </select>
-                </div>
-                <button type="button" className="ndd-refresh-btn" disabled={refreshing} onClick={async () => { setRefreshing(true); try { await api.refreshAIModels({ dryRun: true }); await initAIModels(); } catch { /* telemetry — silent by design */ } setRefreshing(false); }}>
-                  {refreshing ? 'Refreshing…' : 'Refresh models'}
-                </button>
-              </div>
-              <div className="ndd-custom-model-field" style={{ marginTop: 'var(--sp-2)' }}>
-                <label className="ndd-settings-field-hint">Model</label>
-                <select className="ndd-input" value={localCustomModel} onChange={e => setLocalCustomModel(e.target.value)}>
-                  {(MODELS_BY_BACKEND[localCustomFamily] ?? []).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-          {!localUseCustomModel && (
-            <p className="ndd-settings-field-hint" style={{ marginTop: 'var(--sp-2)' }}>
-              Using default model: <code>{globalModel}</code>
-            </p>
-          )}
-        </>
+      )}
+      {localCustomModel === globalModel && (
+        <p className="ndd-settings-field-hint" style={{ marginTop: 'var(--sp-2)' }}>
+          Using default model: <code>{globalModel}</code>
+        </p>
       )}
     </>
   );
@@ -866,7 +809,7 @@ function DebateSettingsDialog({
               activeSection,
               formatProps: { localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing },
               voicesProps: { isSocratic, localSelected, setLocalSelected, toggleDebater, localSeatTags, setLocalSeatTags, povTagRegistry, localUserIsPover, setLocalUserIsPover, localAudience, setLocalAudience, localSeatTagIssue },
-              modelProps: { localModelTier, setLocalModelTier, localMultiProvider, setLocalMultiProvider, backendsWithKeys, localExcludedBackends, toggleBackend, hasApiKey, localUseCustomModel, setLocalUseCustomModel, localCustomModel, setLocalCustomModel, localCustomFamily, setLocalCustomFamily, globalModel, refreshing, setRefreshing },
+              modelProps: { localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, globalModel },
               sourcingProps: { localExcludeGreatestHits, setLocalExcludeGreatestHits },
               materialProps: { localTitleOverride, setLocalTitleOverride, localBackground, setLocalBackground },
             })}
