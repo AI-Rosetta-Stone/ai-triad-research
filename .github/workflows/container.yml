@@ -145,7 +145,9 @@ jobs:
     steps:
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # WP1 (t/4840): remove dirs in background to parallelize with checkout/lint.
+          # /usr/local/lib/android takes ~70s; run async so it completes during lint step.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
           df -h /
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -249,9 +251,28 @@ jobs:
             # (t/3679#9 §4); do not mistake them for this tag.
             type=raw,value=sha-${{ inputs.sha || github.sha }}
 
+      - name: Get data repo HEAD (for snapshot cache key)
+        id: data_head
+        continue-on-error: true
+        run: |
+          # WP1 (t/4840): cache snapshot keyed on ai-triad-data HEAD to reuse across builds of the same data state.
+          DATA_HEAD=$(git ls-remote https://github.com/AI-Rosetta-Stone/ai-triad-data.git HEAD | awk '{print $1}')
+          echo "head=${DATA_HEAD}" >> $GITHUB_OUTPUT
+
+      - name: Restore taxonomy snapshot from cache
+        uses: actions/cache/restore@v4
+        id: snapshot_cache
+        if: steps.data_head.outputs.head != ''
+        with:
+          path: taxonomy-snapshot
+          key: taxonomy-snapshot-${{ steps.data_head.outputs.head }}
+          restore-keys: |
+            taxonomy-snapshot-
+
       - name: Fetch taxonomy snapshot for fallback
         id: snapshot
         continue-on-error: true
+        if: steps.snapshot_cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
@@ -271,6 +292,13 @@ jobs:
           }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save taxonomy snapshot to cache
+        uses: actions/cache/save@v4
+        if: steps.snapshot.conclusion != 'skipped' && steps.snapshot.outputs.valid == 'true' && steps.snapshot_cache.outputs.cache-hit != 'true'
+        with:
+          path: taxonomy-snapshot
+          key: taxonomy-snapshot-${{ steps.data_head.outputs.head }}
 
       - name: Ensure snapshot directory exists
         if: always()
@@ -314,7 +342,8 @@ jobs:
           # a misleading marker is worse than none). Keep this expression identical to `ref:`.
           build-args: BUILD_SHA=${{ inputs.sha || github.sha }}
           cache-from: type=gha,scope=shared-docker
-          cache-to: type=gha,scope=shared-docker,mode=min
+          # WP1 (t/4840): change to mode=max for better hit ratio. Monitor cache size against cache-cleanup.yml.
+          cache-to: type=gha,scope=shared-docker,mode=max
 
       # t/4129: fail the BUILD, not a later deploy, if the per-SHA tag the deploys resolve is absent
       # from the registry after the push. Reads the registry (authoritative), not metadata-action output.
@@ -443,20 +472,8 @@ jobs:
           trivyignores: '.trivyignore'
           skip-setup-trivy: true
 
-      - name: Generate SBOM
-        continue-on-error: true
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-
-      - name: Upload SBOM artifact
-        if: hashFiles('sbom.spdx.json') != ''
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: sbom
-          path: sbom.spdx.json
+      # WP2 (t/4840): SBOM moved to async sbom.yml workflow (saved ~94s per build).
+      # sbom.yml triggers on schedule, dispatch, or push to main touching Dockerfile/lockfiles.
 
       - name: Attest build provenance
         if: steps.push_mode.outputs.push == 'true' && steps.build.outputs.digest != ''
