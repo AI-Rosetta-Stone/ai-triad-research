@@ -190,7 +190,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                     [PSCustomObject]@{ Text = '{"types":["social"],"confidence":{"social":0.9},"rationale":"second"}'; Usage = $null }
                 }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-010') -Model 'm1' -SecondModel 'm2' -WarningAction SilentlyContinue
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-010') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -WarningAction SilentlyContinue
             $Result.ReviewQueueCount | Should -Be 1
             $Result.AgreementRate | Should -Be 0
         }
@@ -206,7 +206,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 [PSCustomObject]@{ Text = '{"types":["misuse"],"confidence":{"misuse":0.9},"rationale":"agreement"}'; Usage = $null }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-011') -Model 'm1' -SecondModel 'm2' -WarningAction SilentlyContinue
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-011') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -WarningAction SilentlyContinue
             $Result.ReviewQueueCount | Should -Be 0
             $Result.AgreementRate | Should -Be 1
         }
