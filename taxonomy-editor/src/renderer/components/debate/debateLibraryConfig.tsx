@@ -241,6 +241,7 @@ export function buildDebateLibraryConfig(deps: DebateLibraryConfigDeps): Library
     columns: DEBATE_COLUMNS,
     titleHeader: 'Motion',
     titleSortable: true,
+    titleResizable: { min: 200, max: 900 },
     getTitle: (row) => debateSafeTitle(row as DebateRow),
     onRename: deps.onRename,
     renamingId: deps.renamingId,
