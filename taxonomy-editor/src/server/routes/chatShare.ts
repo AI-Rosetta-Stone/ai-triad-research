@@ -13,9 +13,11 @@ import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param, getClientIp } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 import { checkRate } from '../security/rateLimiter.js';
 import { getCurrentUserId, getStorageUserId, isAnonymousUser } from '../security/userContext.js';
-import { resolveDataPath, getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
+import { resolveDataPath } from '../config.js';
+import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import { log } from '../logger.js';
 
 // ── Configuration (t/4787 P5) ──
@@ -65,7 +67,12 @@ function stripSensitiveKeys(messages: unknown[]): SnapshotMessage[] {
     const role = msg.role as string;
     // Only allow specific speaker values (drop 'cc' per t/4787)
     if (!['user', 'assistant', 'acc', 'saf', 'skp'].includes(role)) {
-      throw new Error(`Invalid speaker: ${role}`);
+      throw new ActionableError({
+        goal: 'Create chat share with valid messages',
+        problem: `Invalid speaker role '${role}' — must be user|assistant|acc|saf|skp`,
+        location: 'stripSensitiveKeys',
+        nextSteps: ['Verify message speaker roles before sharing'],
+      });
     }
     return {
       role: role as SnapshotMessage['role'],
