@@ -6,18 +6,18 @@ import type { TextareaHTMLAttributes, Dispatch, SetStateAction, ReactNode } from
 import { useFocusTrap, useMediaQuery } from './NewDebateDialog.hooks';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useTaxonomyStore, AI_BACKENDS, MODELS_BY_BACKEND, DEBATE_TIERS, FALLBACK_CHAINS, backendForModelWithFallback, initAIModels, type AIBackend } from '../../hooks/useTaxonomyStore';
+import { useTaxonomyStore, AI_BACKENDS, FALLBACK_CHAINS, backendForModelWithFallback, initAIModels, type AIBackend } from '../../hooks/useTaxonomyStore';
 import { POVER_INFO, DEBATE_AUDIENCES } from '../../types/debate';
 import type { SpeakerId, DebateSourceType, DebateAudience, SeatTag } from '../../types/debate';
 import { DEBATE_PROTOCOLS } from '../../data/debateProtocols';
 import { AI_POVERS } from '@lib/debate/types';
 import { CampGlyph, povToCamp } from '../shared/CampGlyph';
+import { ModelPicker } from '../shared/ModelPicker';
 import './NewDebateDialog.css';
 import { generateDebateTitlePrompt } from '../../prompts/newDebateDialog';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { loadProvisionalWeights } from '@lib/debate/phaseTransitions';
-import { resolveMultiProviderModels, eligibleDebateBackends } from '@lib/ai-client/modelRouter';
 import { useTierInfo, isFreeTier, type TierInfo } from '../../hooks/useTierInfo';
 import { useGeminiOnboarding } from '../../hooks/useGeminiOnboarding';
 import { useAuthStatus, useUserProfile } from '../../hooks/useAuthStatus';
@@ -27,6 +27,8 @@ import { buildDebateOptions } from './newDebateOptions';
 import { SettingsToggleRow } from './SettingsToggleRow';
 import { SeatTagPicker, seatTagLabel, seatTagRefusal, seatTagIssueMessage, registryOrNull } from './SeatTagPicker';
 
+// t/4773: matches ModelPicker's own "Default 0.8." hint, so the slider's stated default is true.
+const DEFAULT_DEBATE_TEMPERATURE = 0.8;
 const DEBATE_EXCLUDED_BACKENDS = new Set(['ollama']); // can't reliably produce structured JSON for debates — capability gap, not an oversight
 
 const LS_LAST_AUDIENCE = 'taxonomy-editor-last-debate-audience';
@@ -48,8 +50,6 @@ interface NewDebateDialogProps {
 
 // ── Module-level helpers ──────────────────────────────────────────────────────
 
-const RESOLVE_FAILED = Symbol('resolve-failed');
-
 // t/4563: ?? defaults live here, not in NewDebateDialog's body (local/complexity-budget)
 function seedTopicAndPovers(
   initialTopic: string | undefined,
@@ -66,23 +66,6 @@ async function fetchDebateUrlContent(sourceRef: string): Promise<string> {
   } catch (err) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'new-debate-dialog', level: 'error', message: 'failed to fetch URL content for debate source', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     return `[Failed to fetch URL content: ${err}]`;
-  }
-}
-
-// t/4046: eligibleBackends is the same (tier, availableBackends, registry) triple resolveMultiProviderModels draws from — computed from the one registry built here so the two never disagree (SO e/267#3); threaded into CreateDebateOptions for sessionSlice's model_pool fingerprint.
-function resolveDebateSpeakerModels(
-  modelTier: 'basic' | 'advanced',
-  activeBackends: string[],
-  povers: SpeakerId[],
-): { speakerModels: Record<string, string>; eligibleBackends: string[] } | typeof RESOLVE_FAILED {
-  try {
-    const aiSpeakers = povers.filter(p => p !== 'user');
-    const registry = { backends: AI_BACKENDS.map(b => ({ id: b.value, label: b.label })), models: [], debateTiers: DEBATE_TIERS };
-    const speakerModels = resolveMultiProviderModels(modelTier, activeBackends, aiSpeakers, registry);
-    return { speakerModels, eligibleBackends: eligibleDebateBackends(modelTier, activeBackends, registry) };
-  } catch (err) {
-    getGlobalRecorder()?.record({ type: 'system.error', component: 'new-debate-dialog', level: 'error', message: 'Failed to resolve multi-provider models', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    return RESOLVE_FAILED;
   }
 }
 
@@ -104,12 +87,10 @@ function buildCreationWeights(confrontationRounds: number, argumentationRounds: 
 function computeCanStart(
   hasSource: boolean,
   selectedSize: number,
-  multiProvider: boolean,
-  activeBackendsLen: number,
   activeModelHasKey: boolean,
   seatTagIssue: unknown,
 ): boolean {
-  return hasSource && selectedSize >= 1 && (multiProvider ? activeBackendsLen >= 2 : activeModelHasKey) && !seatTagIssue;
+  return hasSource && selectedSize >= 1 && activeModelHasKey && !seatTagIssue;
 }
 
 function renderSeatTagIssueBanner(
@@ -130,19 +111,14 @@ function buildDebateSourceArgs(sourceType: DebateSourceType, sourceRef: string, 
   };
 }
 
-function computeDebateModelOverride(multiProvider: boolean, useCustomModel: boolean, customModel: string): string | undefined {
-  return multiProvider ? undefined : (useCustomModel ? customModel : undefined);
-}
-
 function buildDebateCreatedData(p: {
   id: string; sourceType: DebateSourceType; povers: SpeakerId[]; userIsPover: boolean;
   effectiveModel: string; protocolId: string; temperature: number; audience: DebateAudience;
-  stepMode: boolean; multiProvider: boolean; modelTier: 'basic' | 'advanced';
-  speakerModels: Record<string, string> | undefined;
+  stepMode: boolean;
   stageModels: { brief: string; plan: string; cite: string };
   creationWeights: ReturnType<typeof buildCreationWeights>;
 }): Record<string, unknown> {
-  return { debate_id: p.id, source_type: p.sourceType, povers: p.povers, user_is_pover: p.userIsPover, model: p.effectiveModel, protocol: p.protocolId, temperature: p.temperature, audience: p.audience || null, adaptive_staging: true, step_mode: p.stepMode || undefined, multi_provider: p.multiProvider || undefined, model_tier: p.multiProvider ? p.modelTier : undefined, speaker_models: p.speakerModels || undefined, stage_models: (p.stageModels.brief || p.stageModels.plan || p.stageModels.cite) ? p.stageModels : undefined, ...p.creationWeights && { adaptive_config: p.creationWeights } };
+  return { debate_id: p.id, source_type: p.sourceType, povers: p.povers, user_is_pover: p.userIsPover, model: p.effectiveModel, protocol: p.protocolId, temperature: p.temperature, audience: p.audience || null, adaptive_staging: true, step_mode: p.stepMode || undefined, stage_models: (p.stageModels.brief || p.stageModels.plan || p.stageModels.cite) ? p.stageModels : undefined, ...p.creationWeights && { adaptive_config: p.creationWeights } };
 }
 
 function computeActiveModel(freeTier: boolean, tierInfo: TierInfo | null, useCustomModel: boolean, customModel: string, globalModel: string): string {
@@ -164,24 +140,24 @@ type PresetId = BuiltInPresetId | 'custom';
 export const PRESET_DEFAULTS: Record<BuiltInPresetId, {
   protocolId: string; dialecticalStyle: DialecticalStyle;
   confrontationRounds: number; argumentationRounds: number; concludingRounds: number;
-  stepMode: boolean; modelTier: 'basic' | 'advanced';
+  stepMode: boolean;
 }> = {
-  quick:    { protocolId: 'structured',   dialecticalStyle: 'adversarial',  confrontationRounds: 1, argumentationRounds: 1, concludingRounds: 1, stepMode: false, modelTier: 'basic'    },
-  deep:     { protocolId: 'deliberation', dialecticalStyle: 'deliberative', confrontationRounds: 1, argumentationRounds: 3, concludingRounds: 1, stepMode: false, modelTier: 'advanced' },
-  socratic: { protocolId: 'socratic',     dialecticalStyle: 'integrative',  confrontationRounds: 2, argumentationRounds: 4, concludingRounds: 2, stepMode: true,  modelTier: 'basic'    },
+  quick:    { protocolId: 'structured',   dialecticalStyle: 'adversarial',  confrontationRounds: 1, argumentationRounds: 1, concludingRounds: 1, stepMode: false },
+  deep:     { protocolId: 'deliberation', dialecticalStyle: 'deliberative', confrontationRounds: 1, argumentationRounds: 3, concludingRounds: 1, stepMode: false },
+  socratic: { protocolId: 'socratic',     dialecticalStyle: 'integrative',  confrontationRounds: 2, argumentationRounds: 4, concludingRounds: 2, stepMode: true  },
 };
 
 const SCREEN_A_PRESETS: { id: BuiltInPresetId; label: string; summary: string; estimatedMinutes?: number }[] = [
-  { id: 'quick',    label: 'Quick take', summary: '1+1 rounds · basic model',                 estimatedMinutes: 4  },
-  { id: 'deep',     label: 'Deep dive',  summary: '1+3 rounds · frontier model',               estimatedMinutes: 12 },
-  { id: 'socratic', label: 'Socratic',   summary: '2+4 rounds · step-by-step · basic model',   estimatedMinutes: 20 },
+  { id: 'quick',    label: 'Quick take', summary: '1+1 rounds',                 estimatedMinutes: 4  },
+  { id: 'deep',     label: 'Deep dive',  summary: '1+3 rounds',               estimatedMinutes: 12 },
+  { id: 'socratic', label: 'Socratic',   summary: '2+4 rounds · step-by-step',   estimatedMinutes: 20 },
 ];
 
 function countSettingsDiff(
   preset: BuiltInPresetId,
   protocolId: string, dialecticalStyle: DialecticalStyle,
   confrontationRounds: number, argumentationRounds: number, concludingRounds: number,
-  stepMode: boolean, modelTier: 'basic' | 'advanced',
+  stepMode: boolean,
 ): number {
   const p = PRESET_DEFAULTS[preset];
   let diff = 0;
@@ -191,7 +167,6 @@ function countSettingsDiff(
   if (argumentationRounds !== p.argumentationRounds) diff++;
   if (concludingRounds !== p.concludingRounds) diff++;
   if (stepMode !== p.stepMode) diff++;
-  if (modelTier !== p.modelTier) diff++;
   return diff;
 }
 
@@ -300,13 +275,11 @@ interface SettingsApply {
   argumentationRounds: number;
   concludingRounds: number;
   stepMode: boolean;
-  modelTier: 'basic' | 'advanced';
-  multiProvider: boolean;
-  excludedBackends: Set<string>;
   excludeGreatestHits: boolean;
   narrativeVoicing: boolean;
   useCustomModel: boolean;
   customModel: string;
+  temperature: number;
   titleOverride: string;
   background: string; seatTags: Partial<Record<SpeakerId, SeatTag>>;
 }
@@ -326,15 +299,10 @@ interface DebateSettingsProps {
   concludingRounds: number;
   stepMode: boolean;
   narrativeVoicing: boolean;
-  // Model & providers
-  modelTier: 'basic' | 'advanced';
-  multiProvider: boolean;
-  excludedBackends: Set<string>;
-  useCustomModel: boolean;
+  // Model (t/4773: a single ModelPicker; tier and multi-provider controls removed)
   customModel: string;
+  temperature: number;
   globalModel: string;
-  backendsWithKeys: string[];
-  hasApiKey: Record<string, boolean>;
   // Argument sourcing
   excludeGreatestHits: boolean;
   // Source material
@@ -350,8 +318,7 @@ type PresetDef = typeof PRESET_DEFAULTS[BuiltInPresetId];
 type SectionDiffState = {
   protocolId: string; dialecticalStyle: DialecticalStyle;
   confrontationRounds: number; argumentationRounds: number; concludingRounds: number;
-  stepMode: boolean; narrativeVoicing: boolean; modelTier: 'basic' | 'advanced';
-  multiProvider: boolean; useCustomModel: boolean;
+  stepMode: boolean; narrativeVoicing: boolean; useCustomModel: boolean; temperature: number;
   selected: Set<SpeakerId>; userIsPover: boolean; audience: DebateAudience;
   excludeGreatestHits: boolean; titleOverride: string; background: string;
 };
@@ -365,8 +332,8 @@ function voicesDiff(s: SectionDiffState): boolean {
   return s.selected.size !== AI_POVERS.length || AI_POVERS.some(id => !s.selected.has(id)) ||
     s.userIsPover || s.audience !== 'policymakers';
 }
-function modelDiff(p: PresetDef, s: SectionDiffState): boolean {
-  return s.modelTier !== p.modelTier || s.multiProvider || s.useCustomModel;
+function modelDiff(s: SectionDiffState): boolean {
+  return s.useCustomModel || s.temperature !== DEFAULT_DEBATE_TEMPERATURE;
 }
 function materialDiff(s: SectionDiffState): boolean {
   return s.titleOverride !== '' || s.background !== '';
@@ -381,7 +348,7 @@ function sectionHasDiff(
   switch (section) {
     case 'format':   return fmtDiff(p, s);
     case 'voices':   return voicesDiff(s);
-    case 'model':    return modelDiff(p, s);
+    case 'model':    return modelDiff(s);
     case 'sourcing': return s.excludeGreatestHits;
     case 'material': return materialDiff(s);
   }
@@ -533,95 +500,26 @@ function VoicesAudienceSection({ isSocratic, localSelected, setLocalSelected, to
 }
 
 interface ModelProvidersProps {
-  localModelTier: 'basic' | 'advanced'; setLocalModelTier: (v: 'basic' | 'advanced') => void;
-  localMultiProvider: boolean; setLocalMultiProvider: (v: boolean) => void;
-  backendsWithKeys: string[];
-  localExcludedBackends: Set<string>; toggleBackend: (id: string) => void;
-  hasApiKey: Record<string, boolean>;
-  localUseCustomModel: boolean; setLocalUseCustomModel: (v: boolean) => void;
-  localCustomModel: string; setLocalCustomModel: (v: string) => void;
   localCustomFamily: AIBackend; setLocalCustomFamily: (v: AIBackend) => void;
+  localCustomModel: string; setLocalCustomModel: (v: string) => void;
+  localTemperature: number; setLocalTemperature: (v: number) => void;
   globalModel: string;
-  refreshing: boolean; setRefreshing: (v: boolean) => void;
 }
-function ModelProvidersSection({ localModelTier, setLocalModelTier, localMultiProvider, setLocalMultiProvider, backendsWithKeys, localExcludedBackends, toggleBackend, hasApiKey, localUseCustomModel, setLocalUseCustomModel, localCustomModel, setLocalCustomModel, localCustomFamily, setLocalCustomFamily, globalModel, refreshing, setRefreshing }: ModelProvidersProps) {
+// t/4773 AC1 (Design, p/376#141): the picker is always shown — no "Custom model" gate. The
+// global default is marked "(default)"; choosing any other model is what makes it custom.
+function ModelProvidersSection({ localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, localTemperature, setLocalTemperature, globalModel }: ModelProvidersProps) {
   return (
     <>
       <h3 className="ndd-settings-section-title">Model &amp; providers</h3>
-      <div className="ndd-settings-field">
-        <label className="ndd-field-label">Model tier</label>
-        <div className="ndd-tier-chips">
-          {(['basic', 'advanced'] as const).map(tier => (
-            <button key={tier} type="button" className={`ndd-tier-chip${localModelTier === tier ? ' active' : ''}`} onClick={() => setLocalModelTier(tier)}>
-              {tier === 'basic' ? 'Basic' : 'Frontier'}
-            </button>
-          ))}
-        </div>
-        <p className="ndd-settings-field-hint">
-          {localModelTier === 'basic' ? 'Faster and lower-cost. Good for quick topics.' : 'Most capable model tier. Better for nuanced, complex topics.'}
-        </p>
-      </div>
-      <label className="ndd-settings-toggle-row">
-        <input type="checkbox" checked={localMultiProvider} onChange={e => setLocalMultiProvider(e.target.checked)} />
-        <div>
-          <span className="ndd-toggle-name">Multi-provider mode</span>
-          <span className="ndd-step-help">Assign different AI backends to each debater</span>
-        </div>
-      </label>
-      {localMultiProvider ? (
-        <div className="ndd-settings-field">
-          <label className="ndd-field-label">Active backends</label>
-          <div className="ndd-backend-chips">
-            {backendsWithKeys.map(id => {
-              const info = AI_BACKENDS.find(b => b.value === id);
-              const active = !localExcludedBackends.has(id);
-              return (
-                <button key={id} type="button" className={`ndd-backend-chip${active ? ' active' : ''}`} onClick={() => toggleBackend(id)}>
-                  {info?.label ?? id}
-                  {hasApiKey[id] === false && <span className="ndd-backend-nokey" title="No API key"> !</span>}
-                </button>
-              );
-            })}
-          </div>
-          {backendsWithKeys.length < 2 && <p className="ndd-warning-text">Multi-provider needs at least 2 backends with API keys.</p>}
-        </div>
-      ) : (
-        <>
-          <label className="ndd-settings-toggle-row" style={{ marginTop: 'var(--sp-4)' }}>
-            <input type="checkbox" checked={localUseCustomModel} onChange={e => setLocalUseCustomModel(e.target.checked)} />
-            <div>
-              <span className="ndd-toggle-name">Custom model</span>
-              <span className="ndd-step-help">Override the default model for this debate</span>
-            </div>
-          </label>
-          {localUseCustomModel && (
-            <div style={{ marginTop: 'var(--sp-2)' }}>
-              <div className="ndd-custom-model-row">
-                <div className="ndd-custom-model-field">
-                  <label className="ndd-settings-field-hint">Model family</label>
-                  <select className="ndd-input" value={localCustomFamily} onChange={e => { const fam = e.target.value as AIBackend; setLocalCustomFamily(fam); setLocalCustomModel(MODELS_BY_BACKEND[fam]?.[0]?.value ?? localCustomModel); }}>
-                    {AI_BACKENDS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
-                  </select>
-                </div>
-                <button type="button" className="ndd-refresh-btn" disabled={refreshing} onClick={async () => { setRefreshing(true); try { await api.refreshAIModels({ dryRun: true }); await initAIModels(); } catch { /* telemetry — silent by design */ } setRefreshing(false); }}>
-                  {refreshing ? 'Refreshing…' : 'Refresh models'}
-                </button>
-              </div>
-              <div className="ndd-custom-model-field" style={{ marginTop: 'var(--sp-2)' }}>
-                <label className="ndd-settings-field-hint">Model</label>
-                <select className="ndd-input" value={localCustomModel} onChange={e => setLocalCustomModel(e.target.value)}>
-                  {(MODELS_BY_BACKEND[localCustomFamily] ?? []).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-          {!localUseCustomModel && (
-            <p className="ndd-settings-field-hint" style={{ marginTop: 'var(--sp-2)' }}>
-              Using default model: <code>{globalModel}</code>
-            </p>
-          )}
-        </>
-      )}
+      <ModelPicker
+        idPrefix="ndd-model"
+        family={localCustomFamily}
+        model={localCustomModel}
+        onFamilyChange={setLocalCustomFamily}
+        onModelChange={setLocalCustomModel}
+        defaultModelId={globalModel}
+        temperature={{ value: localTemperature, onChange: setLocalTemperature }}
+      />
     </>
   );
 }
@@ -685,14 +583,9 @@ function DebateSettingsDialog({
   concludingRounds: initConcludingRounds,
   stepMode: initStepMode,
   narrativeVoicing: initNarrativeVoicing,
-  modelTier: initModelTier,
-  multiProvider: initMultiProvider,
-  excludedBackends: initExcludedBackends,
-  useCustomModel: initUseCustomModel,
   customModel: initCustomModel,
+  temperature: initTemperature,
   globalModel,
-  backendsWithKeys,
-  hasApiKey,
   excludeGreatestHits: initExcludeGreatestHits,
   titleOverride: initTitleOverride,
   background: initBackground, seatTags: initSeatTags,
@@ -715,14 +608,12 @@ function DebateSettingsDialog({
   const [localConcluding, setLocalConcluding] = useState(initConcludingRounds);
   const [localStepMode, setLocalStepMode] = useState(initStepMode);
   const [localNarrativeVoicing, setLocalNarrativeVoicing] = useState(initNarrativeVoicing);
-  // Model
-  const [localModelTier, setLocalModelTier] = useState(initModelTier);
-  const [localMultiProvider, setLocalMultiProvider] = useState(initMultiProvider);
-  const [localExcludedBackends, setLocalExcludedBackends] = useState(() => new Set(initExcludedBackends));
-  const [localUseCustomModel, setLocalUseCustomModel] = useState(initUseCustomModel);
+  // Model. "Custom" is derived, not stored: picking any model other than the global default
+  // is what makes it custom, so a separate flag would drift from what's shown (t/4773).
   const [localCustomModel, setLocalCustomModel] = useState(initCustomModel);
   const [localCustomFamily, setLocalCustomFamily] = useState<AIBackend>(() => backendForModelWithFallback(initCustomModel));
-  const [refreshing, setRefreshing] = useState(false);
+  const localUseCustomModel = localCustomModel !== globalModel;
+  const [localTemperature, setLocalTemperature] = useState(initTemperature);
   // Sourcing
   const [localExcludeGreatestHits, setLocalExcludeGreatestHits] = useState(initExcludeGreatestHits);
   // Material
@@ -753,14 +644,13 @@ function DebateSettingsDialog({
     protocolId: localProtocolId, dialecticalStyle: localStyle,
     confrontationRounds: localConfrontation, argumentationRounds: localArgumentation,
     concludingRounds: localConcluding, stepMode: localStepMode, narrativeVoicing: localNarrativeVoicing,
-    modelTier: localModelTier, multiProvider: localMultiProvider,
-    useCustomModel: localUseCustomModel, selected: localSelected,
+    useCustomModel: localUseCustomModel, temperature: localTemperature, selected: localSelected,
     userIsPover: localUserIsPover, audience: localAudience,
     excludeGreatestHits: localExcludeGreatestHits,
     titleOverride: localTitleOverride, background: localBackground,
   }), [
     localProtocolId, localStyle, localConfrontation, localArgumentation, localConcluding,
-    localStepMode, localNarrativeVoicing, localModelTier, localMultiProvider, localUseCustomModel, localSelected,
+    localStepMode, localNarrativeVoicing, localUseCustomModel, localTemperature, localSelected,
     localUserIsPover, localAudience, localExcludeGreatestHits, localTitleOverride, localBackground,
   ]);
 
@@ -772,22 +662,12 @@ function DebateSettingsDialog({
     });
   };
 
-  const toggleBackend = (id: string) => {
-    setLocalExcludedBackends(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
   const buildApply = (): SettingsApply => ({
     selected: localSelected, userIsPover: localUserIsPover, audience: localAudience,
     protocolId: localProtocolId, dialecticalStyle: localStyle,
     confrontationRounds: localConfrontation, argumentationRounds: localArgumentation,
     concludingRounds: localConcluding, stepMode: localStepMode, narrativeVoicing: localNarrativeVoicing,
-    modelTier: localModelTier, multiProvider: localMultiProvider,
-    excludedBackends: localExcludedBackends,
-    useCustomModel: localUseCustomModel, customModel: localCustomModel,
+    useCustomModel: localUseCustomModel, customModel: localCustomModel, temperature: localTemperature,
     excludeGreatestHits: localExcludeGreatestHits,
     titleOverride: localTitleOverride, background: localBackground, seatTags: localSeatTags,
   });
@@ -804,11 +684,9 @@ function DebateSettingsDialog({
     setLocalConcluding(p.concludingRounds);
     setLocalStepMode(p.stepMode);
     setLocalNarrativeVoicing(false);
-    setLocalModelTier(p.modelTier);
-    setLocalMultiProvider(false);
-    setLocalExcludedBackends(new Set());
-    setLocalUseCustomModel(false);
     setLocalCustomModel(globalModel);
+    setLocalCustomFamily(backendForModelWithFallback(globalModel));
+    setLocalTemperature(DEFAULT_DEBATE_TEMPERATURE);
     setLocalExcludeGreatestHits(false);
     setLocalTitleOverride('');
     setLocalBackground(''); setLocalSeatTags({});
@@ -866,7 +744,7 @@ function DebateSettingsDialog({
               activeSection,
               formatProps: { localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing },
               voicesProps: { isSocratic, localSelected, setLocalSelected, toggleDebater, localSeatTags, setLocalSeatTags, povTagRegistry, localUserIsPover, setLocalUserIsPover, localAudience, setLocalAudience, localSeatTagIssue },
-              modelProps: { localModelTier, setLocalModelTier, localMultiProvider, setLocalMultiProvider, backendsWithKeys, localExcludedBackends, toggleBackend, hasApiKey, localUseCustomModel, setLocalUseCustomModel, localCustomModel, setLocalCustomModel, localCustomFamily, setLocalCustomFamily, globalModel, refreshing, setRefreshing },
+              modelProps: { localCustomFamily, setLocalCustomFamily, localCustomModel, setLocalCustomModel, localTemperature, setLocalTemperature, globalModel },
               sourcingProps: { localExcludeGreatestHits, setLocalExcludeGreatestHits },
               materialProps: { localTitleOverride, setLocalTitleOverride, localBackground, setLocalBackground },
             })}
@@ -931,19 +809,10 @@ async function resolveFinalTopic(
   return { finalTopic, finalContent };
 }
 
-function resolvePoversAndModels(
-  selected: Set<SpeakerId>,
-  userIsPover: boolean,
-  multiProvider: boolean,
-  modelTier: 'basic' | 'advanced',
-  activeBackends: string[],
-): { povers: SpeakerId[]; speakerModels?: Record<string, string>; eligibleBackends?: string[] } | typeof RESOLVE_FAILED {
+function resolvePovers(selected: Set<SpeakerId>, userIsPover: boolean): SpeakerId[] {
   const povers = Array.from(selected);
   if (userIsPover && !povers.includes('user')) povers.push('user');
-  if (!multiProvider) return { povers };
-  const resolved = resolveDebateSpeakerModels(modelTier, activeBackends, povers);
-  if (resolved === RESOLVE_FAILED) return RESOLVE_FAILED;
-  return { povers, speakerModels: resolved.speakerModels, eligibleBackends: resolved.eligibleBackends };
+  return povers;
 }
 
 // ── DebateBodyContent — body of Screen A (local/complexity-budget t/3821) ────
@@ -1061,13 +930,9 @@ function DebateBodyContent({ topic, setTopic, activeAdder, setActiveAdder, sourc
 }
 
 interface DebateStartHintProps {
-  multiProvider: boolean;
   activeModelExcluded: boolean;
 }
-function DebateStartHint({ multiProvider, activeModelExcluded }: DebateStartHintProps) {
-  if (multiProvider) {
-    return <p className="ndd-start-hint" role="status">Select at least 2 active backends with an API key for multi-provider mode.</p>;
-  }
+function DebateStartHint({ activeModelExcluded }: DebateStartHintProps) {
   if (activeModelExcluded) {
     return <p className="ndd-start-hint" role="status">This model is not supported for debates — pick a different model.</p>;
   }
@@ -1110,13 +975,10 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   const [argumentationRounds, setArgumentationRounds] = useState(PRESET_DEFAULTS.quick.argumentationRounds);
   const [concludingRounds, setConcludingRounds] = useState(PRESET_DEFAULTS.quick.concludingRounds);
   const [stepMode, setStepMode] = useState(PRESET_DEFAULTS.quick.stepMode);
-  const [modelTier, setModelTier] = useState<'basic' | 'advanced'>(PRESET_DEFAULTS.quick.modelTier);
 
   // Settings managed via Screen B
-  const temperature = 0.7;
+  const [temperature, setTemperature] = useState(DEFAULT_DEBATE_TEMPERATURE);
   const evaluatorModel = '';
-  const [multiProvider, setMultiProvider] = useState(false);
-  const [excludedBackends, setExcludedBackends] = useState<Set<string>>(new Set());
   const [excludeGreatestHits, setExcludeGreatestHits] = useState(false);
   const [narrativeVoicing, setNarrativeVoicing] = useState(false);
   const stageModels: { brief: string; plan: string; cite: string } = { brief: '', plan: '', cite: '' };
@@ -1130,7 +992,6 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
 
   // API key / tier (needed for canStart)
   const [hasApiKey, setHasApiKey] = useState<Record<string, boolean>>({});
-  const [availableBackends, setAvailableBackends] = useState<Set<string>>(new Set());
   const { tier: tierInfo } = useTierInfo();
   const freeTier = isFreeTier(tierInfo);
   const auth = useAuthStatus();
@@ -1168,20 +1029,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
       }),
     ).then(results => setHasApiKey(Object.fromEntries(results)))
       .catch((err) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'new-debate-dialog', level: 'warn', message: 'hasApiKey check failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); });
-
-    void api.getAvailableBackends()
-      .then(backends => setAvailableBackends(new Set(backends.filter(b => b.available).map(b => b.id))))
-      .catch((err) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'new-debate-dialog', level: 'error', message: 'Failed to load available AI backends', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); });
   }, []);
-
-  const backendsWithKeys = useMemo(
-    () => [...availableBackends].filter(b => !DEBATE_EXCLUDED_BACKENDS.has(b)),
-    [availableBackends],
-  );
-  const activeBackends = useMemo(
-    () => backendsWithKeys.filter(b => !excludedBackends.has(b)),
-    [backendsWithKeys, excludedBackends],
-  );
 
   const activeModel = computeActiveModel(freeTier, tierInfo, useCustomModel, customModel, globalModel);
   const activeModelBackend = backendForModelWithFallback(activeModel);
@@ -1195,7 +1043,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   }, [activeModel, hasApiKey]);
   void fallbackWarnings;
 
-  const settingsDiff = countSettingsDiff(basePreset, protocolId, dialecticalStyle, confrontationRounds, argumentationRounds, concludingRounds, stepMode, modelTier);
+  const settingsDiff = countSettingsDiff(basePreset, protocolId, dialecticalStyle, confrontationRounds, argumentationRounds, concludingRounds, stepMode);
   const isCustom = settingsDiff > 0;
   const diffCount = settingsDiff;
 
@@ -1207,7 +1055,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   }, [activeAdder, sourceType, sourceContent, sourceRef, topic]);
 
   const seatTagIssue = AI_POVERS.map(id => seatTagRefusal(useTaxonomyStore.getState()[id]?.nodes ?? [], seatTags[id])).find(Boolean);
-  const canStart = computeCanStart(hasSource, selected.size, multiProvider, activeBackends.length, activeModelHasKey, seatTagIssue);
+  const canStart = computeCanStart(hasSource, selected.size, activeModelHasKey, seatTagIssue);
 
   const handlePresetSelect = (id: BuiltInPresetId) => {
     setBasePreset(id);
@@ -1218,7 +1066,6 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
     setArgumentationRounds(p.argumentationRounds);
     setConcludingRounds(p.concludingRounds);
     setStepMode(p.stepMode);
-    setModelTier(p.modelTier);
     if (id === 'socratic') { setSelected(new Set([AI_POVERS[0]])); setUserIsPover(false); }
   };
 
@@ -1273,12 +1120,10 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
     setConcludingRounds(changes.concludingRounds);
     setStepMode(changes.stepMode);
     setNarrativeVoicing(changes.narrativeVoicing);
-    setModelTier(changes.modelTier);
-    setMultiProvider(changes.multiProvider);
-    setExcludedBackends(changes.excludedBackends);
     setExcludeGreatestHits(changes.excludeGreatestHits);
     setUseCustomModel(changes.useCustomModel);
     setCustomModel(changes.customModel);
+    setTemperature(changes.temperature);
     setTitleOverride(changes.titleOverride);
     setBackground(changes.background); setSeatTags(changes.seatTags);
     setShowSettings(false);
@@ -1294,7 +1139,6 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
         settings: {
           ...settings,
           selected: [...settings.selected],
-          excludedBackends: [...settings.excludedBackends],
         },
       };
       const idx = existing.findIndex(p => p.name === name);
@@ -1314,21 +1158,19 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
 
     try {
       const { finalTopic, finalContent } = await resolveFinalTopic(activeAdder, sourceType, sourceRef, fileName, sourceContent, topic);
-      const resolved = resolvePoversAndModels(selected, userIsPover, multiProvider, modelTier, activeBackends);
-      if (resolved === RESOLVE_FAILED) { setCreating(false); return; }
-      const { povers, speakerModels, eligibleBackends } = resolved;
+      const povers = resolvePovers(selected, userIsPover);
       const effectiveModel = useCustomModel ? customModel : globalModel;
-      const debateModelOverride = computeDebateModelOverride(multiProvider, useCustomModel, customModel);
+      const debateModelOverride = useCustomModel ? customModel : undefined;
       const { sourceTypeArg, sourceRefArg, contentArg } = buildDebateSourceArgs(activeAdder === 'source' ? sourceType : 'topic', sourceRef, finalContent);
 
       const id = await createDebate(
         finalTopic, povers, userIsPover, sourceTypeArg, sourceRefArg, contentArg,
         debateModelOverride, protocolId, temperature, audience,
-        buildDebateOptions({ debateTitle: titleOverride, background, evaluatorModel, confrontationRounds, argumentationRounds, concludingRounds, speakerModels, eligibleBackends, multiProvider, modelTier, stepMode, excludeGreatestHits, narrativeVoicing, stageModels, seatTags }),
+        buildDebateOptions({ debateTitle: titleOverride, background, evaluatorModel, confrontationRounds, argumentationRounds, concludingRounds, stepMode, excludeGreatestHits, narrativeVoicing, stageModels, seatTags }),
       );
       await loadDebate(id);
       const creationWeights = buildCreationWeights(confrontationRounds, argumentationRounds, concludingRounds);
-      getGlobalRecorder()?.record({ type: 'user.action', component: 'new-debate', level: 'info', message: 'debate.created', data: buildDebateCreatedData({ id, sourceType: sourceTypeArg, povers, userIsPover, effectiveModel, protocolId, temperature, audience, stepMode, multiProvider, modelTier, speakerModels, stageModels, creationWeights }) });
+      getGlobalRecorder()?.record({ type: 'user.action', component: 'new-debate', level: 'info', message: 'debate.created', data: buildDebateCreatedData({ id, sourceType: sourceTypeArg, povers, userIsPover, effectiveModel, protocolId, temperature, audience, stepMode, stageModels, creationWeights }) });
       const store = useDebateStore.getState();
       store.updatePhase('clarification');
       await store.saveDebate('NewDebateDialog:create');
@@ -1447,7 +1289,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
             </div>
           </div>
           {!canStart && !creating && hasSource && selected.size >= 1 && (
-            <DebateStartHint multiProvider={multiProvider} activeModelExcluded={activeModelExcluded} />
+            <DebateStartHint activeModelExcluded={activeModelExcluded} />
           )}
         </div>
       </div>
@@ -1466,14 +1308,9 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
           argumentationRounds={argumentationRounds}
           concludingRounds={concludingRounds}
           stepMode={stepMode}
-          modelTier={modelTier}
-          multiProvider={multiProvider}
-          excludedBackends={excludedBackends}
-          useCustomModel={useCustomModel}
           customModel={customModel}
+          temperature={temperature}
           globalModel={globalModel}
-          backendsWithKeys={backendsWithKeys}
-          hasApiKey={hasApiKey}
           excludeGreatestHits={excludeGreatestHits}
           narrativeVoicing={narrativeVoicing}
           titleOverride={titleOverride}
