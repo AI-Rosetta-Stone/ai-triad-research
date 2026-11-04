@@ -191,13 +191,14 @@ A run "elsewhere" means it's in the main window and its item isn't the current p
 ## First-open hint
 
 - **When:** the first time a user opens a **Chat** or **Debate** item in place after t/4690 / t/4691 ship. It's shown once per tool, per user.
-  - Web: a `localStorage` flag per tool, wrapped in try/catch; if storage fails, don't show the hint.
-  - Electron: user settings.
-- **What:** a small non-modal callout anchored under ⧉, pointing at it. Copy:
+  - Both builds: a `localStorage` flag per tool, wrapped in try/catch. If storage fails, log a WARN; the hint shows again on the next visit. That's the safe failure for a one-time notice, and it matches `FreeTierDisclosure`.
+- **What:** a full-width, non-modal banner at the top of the item, just under the location bar (as shipped in #4447 and #4465; accepted in t/4685#7 in place of a callout anchored under ⧉). Copy:
 
-  > **Opens here now.** Use ⧉ to open it in a separate window.
+  > **Opens here now.** Use [↗] to open it in a separate window.
 
-  On web the end of the copy is "…in a new tab." It has one text button, **"Got it"**.
+  - [↗] is the lucide `ExternalLink` icon inline at 1em, the same icon as the location bar's ⧉ button, with `aria-hidden`.
+  - On web, the end of the copy is "…in a new tab."
+  - It has one text button, **"Got it"** (`btn-xs btn-ghost`, `--text-secondary`).
 - **Behaviour:**
   - it doesn't take focus; announce it with `role="status"`;
   - dismiss on "Got it", Esc, or the first navigation away;
