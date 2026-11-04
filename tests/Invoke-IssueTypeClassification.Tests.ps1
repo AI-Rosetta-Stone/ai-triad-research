@@ -17,6 +17,19 @@ BeforeAll {
 
 Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
 
+    # Hermetic default OutputPath. Without -OutputPath the cmdlet writes beside the REAL data
+    # repo's taxonomy (Join-Path (Get-TaxonomyDir) 'issue-type-proposals.json'), and once the
+    # full run committed that file (2026-11-04) every CI run failed with "already holds run_id
+    # ...". Point Get-TaxonomyDir at a fresh per-test directory instead. (PSDefaultParameterValues
+    # does not reach calls made inside InModuleScope, so it can't be used here.) Tests that pass
+    # -OutputPath explicitly are unaffected.
+    BeforeEach {
+        $script:HermeticTaxDir = Join-Path $TestDrive "tax-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $script:HermeticTaxDir -Force | Out-Null
+        $dir = $script:HermeticTaxDir
+        Mock Get-TaxonomyDir -ModuleName AITriad { $dir }.GetNewClosure()
+    }
+
     It 'rejects an out-of-enum response and skips the node without writing it' {
         InModuleScope AITriad {
             $script:TaxonomyData = @{
@@ -46,7 +59,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.0},{"type":"social","confidence":0.0},{"type":"political","confidence":0.0},{"type":"economic","confidence":0.0}],"rationale":"x"}'; Usage = $null }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-002') -SkipCrossCheck -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'reject-toomany-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-002') -SkipCrossCheck -OutputPath $OutPath -WarningAction SilentlyContinue
             $Result.Skipped | Should -Be 1
         }
     }
@@ -61,7 +75,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.0},{"type":"misuse","confidence":0.0}],"rationale":"x"}'; Usage = $null }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-003') -SkipCrossCheck -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'reject-dupe-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-003') -SkipCrossCheck -OutputPath $OutPath -WarningAction SilentlyContinue
             $Result.Skipped | Should -Be 1
         }
     }
@@ -76,7 +91,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 [PSCustomObject]@{ Text = '{"types":[],"rationale":"method-only, no issue area"}'; Usage = $null }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-004') -SkipCrossCheck -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'accept-zerotag-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-004') -SkipCrossCheck -OutputPath $OutPath -WarningAction SilentlyContinue
             $Result.Proposed | Should -Be 1
             $Result.EmptyCount | Should -Be 1
         }
@@ -190,7 +206,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                     [PSCustomObject]@{ Text = '{"types":[{"type":"social","confidence":0.9}],"rationale":"second"}'; Usage = $null }
                 }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-010') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'crosscheck-disagree-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-010') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -OutputPath $OutPath -WarningAction SilentlyContinue
             $Result.ReviewQueueCount | Should -Be 1
             $Result.AgreementRate | Should -Be 0
         }
@@ -206,7 +223,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"agreement"}'; Usage = $null }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-011') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'crosscheck-agree-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-011') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -OutputPath $OutPath -WarningAction SilentlyContinue
             $Result.ReviewQueueCount | Should -Be 0
             $Result.AgreementRate | Should -Be 1
         }
@@ -228,7 +246,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                     [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"good on retry"}'; Usage = $null }
                 }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-012') -SkipCrossCheck -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'retry-success-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-012') -SkipCrossCheck -OutputPath $OutPath -WarningAction SilentlyContinue
             Should -Invoke Invoke-AIApi -Times 2 -Exactly
             $Result.Skipped | Should -Be 0
             $Result.Proposed | Should -Be 1
@@ -245,7 +264,8 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 [PSCustomObject]@{ Text = '{"types":[{"type":"not_a_real_type","confidence":0.0}],"rationale":"bad"}'; Usage = $null }
             }
-            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-013') -SkipCrossCheck -WarningAction SilentlyContinue
+            $OutPath = Join-Path $TestDrive 'retry-fail-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-013') -SkipCrossCheck -OutputPath $OutPath -WarningAction SilentlyContinue
             Should -Invoke Invoke-AIApi -Times 2 -Exactly
             $Result.Skipped | Should -Be 1
             $Result.Failed | Should -Contain 'acc-beliefs-013'
@@ -275,6 +295,149 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             $RawJson = Get-Content $OutPath -Raw
             $RawJson | Should -Match '"status"\s*:\s*"accepted"'
             $RawJson | Should -Match '"final"\s*:\s*\[\s*\]' -Because 'final must be [] for an accepted 0-tag proposal, never null'
+        }
+    }
+
+    Context '-AdjudicateQueue (t/4835#4)' {
+
+        BeforeAll {
+            # Describe/Context bodies run at Pester's DISCOVERY phase, not the RUN phase that It
+            # blocks execute in -- a bare `function` statement here would only exist during
+            # discovery and vanish by the time any It runs. BeforeAll's body runs in Run phase,
+            # so a function defined here stays visible to every It in this Context.
+            #
+            # Runs OUTSIDE InModuleScope -- pure JSON file I/O, no module internals needed. Passing
+            # a scriptblock or function INTO InModuleScope via -Parameters doesn't survive the hop
+            # (comes back invalid for '&'), so the file is written here and only its path (a plain
+            # string) crosses into the module's session state.
+            function New-AdjQueueFile {
+                param($Path)
+                $Queue = [ordered]@{
+                    version = 1
+                    run_id  = 'issue-types-full-2026-11-04'
+                    proposals = @(
+                        [ordered]@{ node_id = 'acc-adj-001'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r1'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false } }
+                        [ordered]@{ node_id = 'acc-adj-002'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r2'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false } }
+                        [ordered]@{ node_id = 'acc-adj-003'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r3'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false } }
+                        [ordered]@{ node_id = 'acc-adj-004'; proposed = @(); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{}; rationale = 'r4'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @(); agree = $false } }
+                        [ordered]@{ node_id = 'acc-adj-005'; proposed = @('economic'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ economic = 0.4 }; rationale = 'r5'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('power_concentration'); agree = $false } }
+                    )
+                }
+                $Queue | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding utf8NoBOM
+            }
+        }
+
+        BeforeEach {
+            # Shared taxonomy, reused (with per-test overrides) across the adjudication tests below.
+            InModuleScope AITriad {
+                $script:TaxonomyData = @{
+                    acc = [PSCustomObject]@{ nodes = @(
+                        [PSCustomObject]@{ id = 'acc-adj-001'; label = 'Match node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-adj-002'; label = 'No-match node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-adj-003'; label = 'Low-confidence node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-adj-004'; label = 'No-tag-agreement node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-adj-005'; label = 'Untouched node'; description = 'd'; category = 'Beliefs' }
+                    ) }
+                }
+            }
+        }
+
+        It 'auto-accepts when the adjudicator matches a prior primary at confidence >= 0.6' {
+            $OutPath = Join-Path $TestDrive 'adj-match-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.8}],"rationale":"adjudicated"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-001') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedAccepted | Should -Be 1
+                $Result.AdjudicatedStillPending | Should -Be 0
+                $Written = Get-Content $OutPath -Raw | ConvertFrom-Json
+                $Entry = $Written.proposals | Where-Object { $_.node_id -eq 'acc-adj-001' }
+                $Entry.status | Should -Be 'accepted'
+                @($Entry.final) | Should -Be @('misuse')
+                $Entry.provenance.adjudicator_matched_prior | Should -Be 'primary'
+            }
+        }
+
+        It 'leaves the entry pending when the adjudicator matches neither prior model' {
+            $OutPath = Join-Path $TestDrive 'adj-nomatch-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"economic","confidence":0.9}],"rationale":"adjudicated"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-002') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedAccepted | Should -Be 0
+                $Result.AdjudicatedStillPending | Should -Be 1
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-adj-002' }
+                $Entry.status | Should -Be 'pending'
+                $Entry.provenance.adjudicator_matched_prior | Should -Be 'none'
+            }
+        }
+
+        It 'leaves the entry pending when the adjudicator matches a prior primary but confidence is below 0.6' {
+            $OutPath = Join-Path $TestDrive 'adj-lowconf-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.5}],"rationale":"adjudicated"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-003') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedAccepted | Should -Be 0
+                $Result.AdjudicatedStillPending | Should -Be 1
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-adj-003' }
+                $Entry.status | Should -Be 'pending'
+            }
+        }
+
+        It 'auto-accepts a no-tag agreement (adjudicator picks no tag, matching a no-tag prior) with no confidence gate' {
+            $OutPath = Join-Path $TestDrive 'adj-notag-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[],"rationale":"adjudicated"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-004') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedAccepted | Should -Be 1
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-adj-004' }
+                $Entry.status | Should -Be 'accepted'
+                $RawJson = Get-Content $OutPath -Raw
+                ($RawJson | Select-String -Pattern '"node_id"\s*:\s*"acc-adj-004"').Matches.Count | Should -Be 1
+            }
+        }
+
+        It 'leaves the entry pending (unresolved) when the adjudicator call fails twice, and does not touch other entries' {
+            $OutPath = Join-Path $TestDrive 'adj-callfail-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"not_a_real_type","confidence":0.0}],"rationale":"bad"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-005') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedStillPending | Should -Be 1
+                $Written = Get-Content $OutPath -Raw | ConvertFrom-Json
+                @($Written.proposals).Count | Should -Be 5
+                $Entry = $Written.proposals | Where-Object { $_.node_id -eq 'acc-adj-005' }
+                $Entry.status | Should -Be 'pending'
+                $Entry.provenance.adjudicator_matched_prior | Should -Be 'call_failed'
+                # Every OTHER entry's status/proposed is untouched (in-place mutation hit only the target).
+                $Others = $Written.proposals | Where-Object { $_.node_id -ne 'acc-adj-005' }
+                foreach ($o in $Others) { $o.status | Should -Be 'pending' }
+            }
+        }
+
+        It 'dry run (no -WriteProposals) does not mutate the file on disk' {
+            $OutPath = Join-Path $TestDrive 'adj-dryrun-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            $Before = Get-Content $OutPath -Raw
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"adjudicated"}'; Usage = $null }
+                }
+                $null = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-001') -OutputPath $OutPath -WarningAction SilentlyContinue
+            }
+            (Get-Content $OutPath -Raw) | Should -Be $Before
         }
     }
 }

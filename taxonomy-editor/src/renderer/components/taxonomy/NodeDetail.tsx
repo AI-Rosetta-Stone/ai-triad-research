@@ -18,8 +18,7 @@ import { FieldHelp } from '../shared/FieldHelp';
 import { TheoryLink } from '../shared/TheoryLink';
 import { LinkedChip } from '../shared/LinkedChip';
 import { GraphAttributesPanel } from './GraphAttributesPanel';
-import { RelatedEdgesPanel } from '../edge-browser/RelatedEdgesPanel';
-import { EdgeDetailPanel } from '../edge-browser/EdgeDetailPanel';
+import { NodeDetailRelatedTab } from './NodeDetailRelatedTab';
 import { researchPrompt } from '../../prompts/research';
 import { SourcesPanel } from '../policy/SourcesPanel';
 import { PhrasesPanel } from '../policy/PhrasesPanel';
@@ -40,7 +39,6 @@ import { reconstructNodeContainer } from '../shared/mentionText';
 import { EditConflictBadge, type NodeConflict } from '../conflict/edit-conflicts';
 import { useDescriptionMode, resolveDescription } from '../shared/DescriptionToggle';
 import { usePreferencesStore, type NodeDetailTabGroup } from '../../store/preferencesStore';
-import { EmptyState } from '../shared/EmptyState';
 import { OverflowMenu } from '../shared/OverflowMenu';
 import { buildOverflowEntries, buildReadOnlyOverflowEntries, type MoveTarget, type RelocatedMenuItems } from './NodeDetailOverflowMenu';
 import { InlineEditTitle } from '../shared/InlineEditTitle';
@@ -943,41 +941,6 @@ function NodeMetricsRow({ node }: NodeMetricsRowProps) {
 // of the retired Analysis tab to standalone always-expanded tabs — extracted to
 // NodeDetailSteelmanTab.tsx and NodeDetailLineageTab.tsx (see those files for the former
 // SteelmanVulnerabilitySection / IntellectualLineageSection / LineageChip implementations).
-
-// ── Related tab (extracted from NodeDetail for complexity) ──
-
-interface NodeDetailRelatedTabProps {
-  selectedEdge: unknown;
-  relatedSplitPct: number;
-  handleSplitMouseDown: (e: React.MouseEvent) => void;
-  splitContainerRef: React.RefObject<HTMLDivElement | null>;
-}
-
-function NodeDetailRelatedTab({ selectedEdge, relatedSplitPct, handleSplitMouseDown, splitContainerRef }: NodeDetailRelatedTabProps) {
-  return (
-    <div className="node-detail-related-split" ref={splitContainerRef}>
-      <div
-        className="node-detail-related-list nd-split-width"
-        /* eslint-disable-next-line local/no-inline-style -- width is a user-dragged split percentage, passed as a CSS custom property */
-        style={{ '--nd-split-width': `${relatedSplitPct}%` } as React.CSSProperties}
-      >
-        <RelatedEdgesPanel />
-      </div>
-      <div className="resize-handle" onMouseDown={handleSplitMouseDown} />
-      <div
-        className="node-detail-related-detail nd-split-width"
-        /* eslint-disable-next-line local/no-inline-style -- width is a user-dragged split percentage, passed as a CSS custom property */
-        style={{ '--nd-split-width': `${100 - relatedSplitPct}%` } as React.CSSProperties}
-      >
-        {selectedEdge ? (
-          <EdgeDetailPanel width={0} />
-        ) : (
-          <EmptyState headline="No edge selected" direction="Select an edge to view details" />
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Attributes tab (extracted from NodeDetail for complexity) ──
 
