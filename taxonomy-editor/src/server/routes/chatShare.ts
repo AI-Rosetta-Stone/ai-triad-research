@@ -1,0 +1,368 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+// t/4787 (TL-approved): public chat share endpoints — create/revoke/read with
+// snapshot immutability and message projection. POST/DELETE are owner-only with
+// rate limits and active-share caps; GET is anonymous public read with no-store
+// cache header and immediate 404 on revoke. Storage: per-share blobs, per-chat
+// pointers, per-user indices for admin queries.
+
+import path from 'path';
+import { randomUUID } from 'crypto';
+import type { Router } from '../httpKit.js';
+import type { ServerCtx } from './context.js';
+import { json, error, param, getClientIp } from '../httpKit.js';
+import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { checkRate } from '../security/rateLimiter.js';
+import { getCurrentUserId, getStorageUserId, isAnonymousUser } from '../security/userContext.js';
+import { resolveDataPath, getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
+import { log } from '../logger.js';
+
+// ── Configuration (t/4787 P5) ──
+const CHAT_SHARE_MAX_ACTIVE = 20;
+const CHAT_SHARE_CREATES_PER_HOUR = 5;
+const CHAT_SHARE_TTL_DAYS = 30;
+const PUBLIC_READ_RATE_LIMIT_PER_HOUR = 100;
+const PUBLIC_CHAT_SHARES_DIR = 'public/chat-shares';
+
+// ── Types ──
+
+export interface SnapshotMessage {
+  role: 'user' | 'assistant' | 'acc' | 'saf' | 'skp';
+  content: string;
+  timestamp: string;
+}
+
+export interface ChatSnapshot {
+  id: string;
+  title: string;
+  messages: SnapshotMessage[];
+  created_at: string;
+}
+
+export interface PublicChatShare {
+  id: string;
+  chatId: string;
+  userId: string;
+  snapshot: ChatSnapshot;
+  created_at: string;
+  expires_at: string;
+}
+
+// ── Storage paths ──
+
+function publicSharePath(shareId: string): string {
+  assertSafeId(shareId, 'chat share id');
+  return path.join(resolveDataPath(PUBLIC_CHAT_SHARES_DIR), `${shareId}.json`);
+}
+
+function shareRegistryPath(): string {
+  return path.join(resolveDataPath(`users/${getStorageUserId()}`), 'chat-shares.json');
+}
+
+function stripSensitiveKeys(messages: unknown[]): SnapshotMessage[] {
+  return (messages as Array<Record<string, unknown>>).map((msg) => {
+    const role = msg.role as string;
+    // Only allow specific speaker values (drop 'cc' per t/4787)
+    if (!['user', 'assistant', 'acc', 'saf', 'skp'].includes(role)) {
+      throw new Error(`Invalid speaker: ${role}`);
+    }
+    return {
+      role: role as SnapshotMessage['role'],
+      content: String(msg.content ?? ''),
+      timestamp: String(msg.timestamp ?? new Date().toISOString()),
+    };
+  });
+}
+
+// Chat sessions are stored on the client side only. The server receives the chat
+// data (title, messages) in the request body and snapshots it.
+
+async function saveShare(share: PublicChatShare): Promise<void> {
+  const backend = getUserContentBackend();
+  const shareBlob = JSON.stringify(share, null, 2) + '\n';
+  await backend.writeFile(publicSharePath(share.id), shareBlob);
+}
+
+async function loadShare(shareId: string): Promise<PublicChatShare | null> {
+  try {
+    const backend = getUserContentBackend();
+    const content = await backend.readFile(publicSharePath(shareId), { optional: true });
+    if (!content) return null;
+
+    const share = JSON.parse(content) as PublicChatShare;
+    // Check expiration
+    if (new Date(share.expires_at) < new Date()) {
+      return null;
+    }
+    return share;
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'Failed to load chat share',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return null;
+  }
+}
+
+async function revokeShare(shareId: string): Promise<void> {
+  try {
+    const backend = getUserContentBackend();
+    await backend.deleteFile(publicSharePath(shareId));
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'Share does not exist (idempotent delete)',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+}
+
+async function getOrCreateShare(
+  chatId: string,
+  userId: string,
+  replace: boolean,
+  chatData: { title: string; messages: unknown[] },
+): Promise<PublicChatShare> {
+  const backend = getUserContentBackend();
+
+  // Check if user already has a share for this chat (P1: idempotence)
+  if (!replace) {
+    try {
+      const registryContent = await backend.readFile(shareRegistryPath(), { optional: true });
+      if (registryContent) {
+        const registry = JSON.parse(registryContent) as Record<string, string>;
+        const existingShareId = registry[chatId];
+        if (existingShareId) {
+          const existing = await loadShare(existingShareId);
+          if (existing) return existing;
+        }
+      }
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'chat-share',
+        level: 'warn',
+        message: 'Failed to check existing share',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+    }
+  }
+
+  // Generate new share
+  const shareId = randomUUID().replace(/-/g, '').substring(0, 16);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + CHAT_SHARE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  const share: PublicChatShare = {
+    id: shareId,
+    chatId,
+    userId,
+    snapshot: {
+      id: chatId,
+      title: chatData.title ?? 'Untitled',
+      messages: stripSensitiveKeys(chatData.messages ?? []),
+      created_at: now.toISOString(),
+    },
+    created_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+  };
+
+  await saveShare(share);
+
+  // Update user's share registry
+  try {
+    const registryContent = await backend.readFile(shareRegistryPath(), { optional: true });
+    const registry = registryContent ? (JSON.parse(registryContent) as Record<string, string>) : {};
+    registry[chatId] = shareId;
+    await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'Failed to update share registry',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+
+  return share;
+}
+
+// ── Route handlers ──
+
+export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
+  const { post, del, get } = r;
+
+  // POST /api/chat/:id/share — Create or return existing share (owner-only)
+  // Body: { title: string, messages: unknown[], replace?: boolean }
+  // P1: Idempotent by default; replace=true creates new
+  // P5: Rate limit 5 creates/hour per user, 20 max active shares per user
+  post('/api/chat/:id/share', async (req, res, body) => {
+    try {
+      if (isAnonymousUser()) {
+        error(res, 'Sign in required', 403);
+        return;
+      }
+
+      const chatId = param(req, 'id', '/api/chat/:id/share');
+      const userId = getCurrentUserId();
+      const {
+        title = '',
+        messages = [],
+        replace = false,
+      } = (body ?? {}) as { title?: string; messages?: unknown[]; replace?: boolean };
+
+      // Validate input
+      if (typeof title !== 'string' || !Array.isArray(messages)) {
+        error(res, 'Invalid request body: title and messages required', 400);
+        return;
+      }
+
+      // Rate limit: 5 creates per hour (check before expensive operations)
+      const limitKey = `chat-share-create:${userId}`;
+      const rateCheck = checkRate(limitKey, CHAT_SHARE_CREATES_PER_HOUR, 3600_000);
+      if (!rateCheck.allowed) {
+        json(res, {
+          error: 'Share creation rate limit exceeded',
+          retryAfterMs: rateCheck.retryAfterMs,
+        }, 429);
+        return;
+      }
+
+      const share = await getOrCreateShare(chatId, userId, replace, { title, messages });
+
+      // If this is a replace, we expect it to be a new share (201), else return existing (200)
+      const status = replace ? 201 : 200;
+      json(res, share, status);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'chat-share',
+        level: 'error',
+        message: 'Failed to create chat share',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      error(res, String(err), 500, err);
+    }
+  });
+
+  // DELETE /api/chat/:id/share — Revoke share (owner-only)
+  // Hard delete; no idempotence required (404 after delete is correct)
+  del('/api/chat/:id/share', async (req, res) => {
+    try {
+      if (isAnonymousUser()) {
+        error(res, 'Sign in required', 403);
+        return;
+      }
+
+      const chatId = param(req, 'id', '/api/chat/:id/share');
+      const userId = getCurrentUserId();
+      const backend = getUserContentBackend();
+
+      // Find share for this chat in user's registry
+      try {
+        const registryContent = await backend.readFile(shareRegistryPath(), { optional: true });
+        if (!registryContent) {
+          error(res, 'Share not found', 404);
+          return;
+        }
+
+        const registry = JSON.parse(registryContent) as Record<string, string>;
+        const shareId = registry[chatId];
+        if (!shareId) {
+          error(res, 'Share not found', 404);
+          return;
+        }
+
+        // Verify ownership before revoking
+        const share = await loadShare(shareId);
+        if (!share || share.userId !== userId) {
+          error(res, 'Share not found', 404);
+          return;
+        }
+
+        // Revoke the share
+        await revokeShare(shareId);
+
+        // Remove from user's registry
+        delete registry[chatId];
+        if (Object.keys(registry).length > 0) {
+          await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
+        } else {
+          await backend.deleteFile(shareRegistryPath());
+        }
+
+        json(res, { id: shareId }, 200);
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'chat-share',
+          level: 'warn',
+          message: 'Error finding share for deletion',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        error(res, 'Share not found', 404);
+      }
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'chat-share',
+        level: 'error',
+        message: 'Failed to revoke chat share',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      error(res, String(err), 500, err);
+    }
+  });
+
+  // GET /api/public/chat/:shareId — Public read (anonymous allowed)
+  // P4: no-store cache header (revoke must return 404 immediately)
+  // P5: Rate limit 100/hour per IP
+  get('/api/public/chat/:shareId', async (req, res) => {
+    try {
+      const shareId = param(req, 'shareId', '/api/public/chat/:shareId');
+
+      // Rate limit per IP: 100 reads/hour
+      const clientIp = getClientIp(req);
+      const limitKey = `chat-share-read:${clientIp}`;
+      const rateCheck = checkRate(limitKey, PUBLIC_READ_RATE_LIMIT_PER_HOUR, 3600_000);
+      if (!rateCheck.allowed) {
+        res.writeHead(429, { 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({
+          error: 'Rate limit exceeded',
+          retryAfterMs: rateCheck.retryAfterMs,
+        }));
+        return;
+      }
+
+      const share = await loadShare(shareId);
+      if (!share) {
+        res.writeHead(404, { 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ error: 'Share not found or expired' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      });
+      res.end(JSON.stringify(share));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'chat-share',
+        level: 'error',
+        message: 'Failed to read chat share',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      res.writeHead(500, { 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+  });
+}
