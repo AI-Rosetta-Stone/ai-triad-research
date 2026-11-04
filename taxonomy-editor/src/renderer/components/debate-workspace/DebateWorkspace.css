@@ -117,11 +117,13 @@
   font-weight: 600;
 }
 /* Not strikethrough: a sat-out debater's earlier turns stay visible, so a
-   crossed-out look wrongly reads as a hide-turns filter (t/4748). */
+   crossed-out look wrongly reads as a hide-turns filter (t/4748). The dashed
+   border and "sitting out" label carry the state, so no opacity dimming is
+   needed — text-muted at 0.6 opacity fell to 1.94-2.88:1 in some themes,
+   below the 4.5:1 an operable toggle's label needs (t/4851). */
 .debate-debater-pill-inactive {
-  opacity: 0.6;
   border-style: dashed;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .debate-debater-pill-status {
   font-style: italic;
