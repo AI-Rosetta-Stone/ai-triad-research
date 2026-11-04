@@ -25,7 +25,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":["not_a_real_type"],"confidence":{},"rationale":"x"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"not_a_real_type","confidence":0.0}],"rationale":"x"}'; Usage = $null }
             }
             $OutPath = Join-Path $TestDrive 'reject-enum-proposals.json'
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-001') -SkipCrossCheck -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
@@ -44,7 +44,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":["misuse","social","political","economic"],"confidence":{},"rationale":"x"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.0},{"type":"social","confidence":0.0},{"type":"political","confidence":0.0},{"type":"economic","confidence":0.0}],"rationale":"x"}'; Usage = $null }
             }
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-002') -SkipCrossCheck -WarningAction SilentlyContinue
             $Result.Skipped | Should -Be 1
@@ -59,7 +59,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":["misuse","misuse"],"confidence":{},"rationale":"x"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.0},{"type":"misuse","confidence":0.0}],"rationale":"x"}'; Usage = $null }
             }
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-003') -SkipCrossCheck -WarningAction SilentlyContinue
             $Result.Skipped | Should -Be 1
@@ -74,7 +74,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":[],"confidence":{},"rationale":"method-only, no issue area"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[],"rationale":"method-only, no issue area"}'; Usage = $null }
             }
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-004') -SkipCrossCheck -WarningAction SilentlyContinue
             $Result.Proposed | Should -Be 1
@@ -90,7 +90,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":["power_concentration"],"confidence":{"power_concentration":0.9},"rationale":"about power"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"power_concentration","confidence":0.9}],"rationale":"about power"}'; Usage = $null }
             }
             $NodeFilePath = Join-Path $TestDrive 'accelerationist.json'
             $NodeFileContent = '{"nodes":[{"id":"acc-beliefs-005","label":"Power node"}]}'
@@ -119,7 +119,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":["economic"],"confidence":{"economic":0.8},"rationale":"economic effects"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"economic","confidence":0.8}],"rationale":"economic effects"}'; Usage = $null }
             }
             $OutPath = Join-Path $TestDrive 'dry-run-proposals.json'
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-006') -SkipCrossCheck -OutputPath $OutPath -WarningAction SilentlyContinue
@@ -140,7 +140,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             $script:CallCount = 0
             Mock Invoke-AIApi {
                 $script:CallCount++
-                [PSCustomObject]@{ Text = '{"types":["misuse"],"confidence":{"misuse":0.9},"rationale":"misuse"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"misuse"}'; Usage = $null }
             }
             $OutPath = Join-Path $TestDrive 'resume-proposals.json'
             $Rid = 'resume-test-run-1'
@@ -166,7 +166,7 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":[],"confidence":{},"rationale":"x"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[],"rationale":"x"}'; Usage = $null }
             }
             $OutPath = Join-Path $TestDrive 'conflict-proposals.json'
             $null = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-009') -SkipCrossCheck -OutputPath $OutPath -WriteProposals -RunId 'run-a' -WarningAction SilentlyContinue
@@ -185,9 +185,9 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             Mock Invoke-AIApi {
                 $script:callN++
                 if ($script:callN -eq 1) {
-                    [PSCustomObject]@{ Text = '{"types":["misuse"],"confidence":{"misuse":0.9},"rationale":"primary"}'; Usage = $null }
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"primary"}'; Usage = $null }
                 } else {
-                    [PSCustomObject]@{ Text = '{"types":["social"],"confidence":{"social":0.9},"rationale":"second"}'; Usage = $null }
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"social","confidence":0.9}],"rationale":"second"}'; Usage = $null }
                 }
             }
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-010') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -WarningAction SilentlyContinue
@@ -204,11 +204,77 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 ) }
             }
             Mock Invoke-AIApi {
-                [PSCustomObject]@{ Text = '{"types":["misuse"],"confidence":{"misuse":0.9},"rationale":"agreement"}'; Usage = $null }
+                [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"agreement"}'; Usage = $null }
             }
             $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-011') -Model 'gemini-3.5-flash-lite' -SecondModel 'groq-openai-gpt-oss-20b' -WarningAction SilentlyContinue
             $Result.ReviewQueueCount | Should -Be 0
             $Result.AgreementRate | Should -Be 1
+        }
+    }
+
+    It 'retries once on a failed/invalid response and succeeds on the retry (TL condition, t/4833#5)' {
+        InModuleScope AITriad {
+            $script:TaxonomyData = @{
+                acc = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id = 'acc-beliefs-012'; label = 'Retry-success node'; description = 'About misuse.'; category = 'Beliefs' }
+                ) }
+            }
+            $script:retryCallN = 0
+            Mock Invoke-AIApi {
+                $script:retryCallN++
+                if ($script:retryCallN -eq 1) {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"not_a_real_type","confidence":0.0}],"rationale":"bad"}'; Usage = $null }
+                } else {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9}],"rationale":"good on retry"}'; Usage = $null }
+                }
+            }
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-012') -SkipCrossCheck -WarningAction SilentlyContinue
+            Should -Invoke Invoke-AIApi -Times 2 -Exactly
+            $Result.Skipped | Should -Be 0
+            $Result.Proposed | Should -Be 1
+        }
+    }
+
+    It 'skips only after BOTH the original attempt and the retry fail, with exactly 2 calls made' {
+        InModuleScope AITriad {
+            $script:TaxonomyData = @{
+                acc = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id = 'acc-beliefs-013'; label = 'Retry-fail node'; description = 'Always invalid.'; category = 'Beliefs' }
+                ) }
+            }
+            Mock Invoke-AIApi {
+                [PSCustomObject]@{ Text = '{"types":[{"type":"not_a_real_type","confidence":0.0}],"rationale":"bad"}'; Usage = $null }
+            }
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-013') -SkipCrossCheck -WarningAction SilentlyContinue
+            Should -Invoke Invoke-AIApi -Times 2 -Exactly
+            $Result.Skipped | Should -Be 1
+            $Result.Failed | Should -Contain 'acc-beliefs-013'
+            # The TL's invariant: every requested node ends up either proposed or skipped.
+            ($Result.Proposed + $Result.Skipped) | Should -Be 1
+        }
+    }
+
+    It 'accepts a 0-tag response and writes final=[] (not null) for the accepted proposal' {
+        InModuleScope AITriad {
+            $script:TaxonomyData = @{
+                acc = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id = 'acc-beliefs-014'; label = 'Build node'; description = 'A build-system refactor, no stated stake.'; category = 'Beliefs' }
+                ) }
+            }
+            Mock Invoke-AIApi {
+                [PSCustomObject]@{ Text = '{"types":[],"rationale":"method-only"}'; Usage = $null }
+            }
+            $OutPath = Join-Path $TestDrive 'zero-tag-final-proposals.json'
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-014') -SkipCrossCheck -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+            $Result.Proposed | Should -Be 1
+            # Check the raw JSON TEXT, not a re-parsed object: ConvertFrom-Json on an empty JSON
+            # array can itself come back as $null (the same collapse this suite guards against
+            # inside the cmdlet), so round-tripping through it here would mask the real bug this
+            # test exists to catch. "final":[] (not "final":null) proves accepted+0-tags wrote an
+            # empty array, not null -- t/4832: null means "not yet classified".
+            $RawJson = Get-Content $OutPath -Raw
+            $RawJson | Should -Match '"status"\s*:\s*"accepted"'
+            $RawJson | Should -Match '"final"\s*:\s*\[\s*\]' -Because 'final must be [] for an accepted 0-tag proposal, never null'
         }
     }
 }

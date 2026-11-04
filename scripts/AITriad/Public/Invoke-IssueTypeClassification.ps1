@@ -175,14 +175,34 @@ function Invoke-IssueTypeClassification {
         }
     }
 
+    # Array-of-objects, not a dynamic {type: confidence} map (t/4833 pilot finding): a schema
+    # map with no fixed property set either gets coerced to {} under Gemini's constrained
+    # decoding (every confidence silently read back as 0.0), or is rejected outright by Groq's
+    # stricter structured-output mode ("additionalProperties:false must be set on every
+    # object" -- impossible to satisfy for a genuinely open key set). A fixed-shape array of
+    # {type, confidence} entries works under both backends; converted to the proposals file's
+    # own {type: confidence} map shape after parsing (that shape is t/4832's spec, not the AI
+    # protocol's problem to solve).
     $ResponseSchema = @{
         type       = 'object'
         properties = @{
-            types      = @{ type = 'array'; items = @{ type = 'string'; enum = $ValidTypes }; maxItems = 3 }
-            confidence = @{ type = 'object' }
-            rationale  = @{ type = 'string' }
+            types = @{
+                type     = 'array'
+                items    = @{
+                    type       = 'object'
+                    properties = @{
+                        type       = @{ type = 'string'; enum = $ValidTypes }
+                        confidence = @{ type = 'number' }
+                    }
+                    required             = @('type', 'confidence')
+                    additionalProperties = $false
+                }
+                maxItems = 3
+            }
+            rationale = @{ type = 'string' }
         }
-        required   = @('types', 'confidence', 'rationale')
+        required             = @('types', 'rationale')
+        additionalProperties = $false
     }
 
     # ── Classify one node with one model. Returns $null on any invalid/failed response (WARNed). ──
@@ -199,6 +219,14 @@ function Invoke-IssueTypeClassification {
         $Category = if ($Node.PSObject.Properties['category'] -and $Node.category) { [string]$Node.category } else { 'none' }
         $Description = if ($Node.PSObject.Properties['description']) { [string]$Node.description } else { '' }
 
+        # Always returns a result (never $null): .Success distinguishes a usable classification
+        # from a failed one, and .InputTokens/.OutputTokens are recorded whenever the AI call
+        # itself succeeded, even if the response later fails validation -- those are real tokens
+        # spent and must still be costed (t/4835 TL condition, t/4833#5).
+        $Result = [PSCustomObject]@{
+            Success = $false; Types = @(); Confidence = [ordered]@{}; Rationale = ''
+            InputTokens = 0; OutputTokens = 0; Model = $M
+        }
         try {
             $Prompt = Get-Prompt -Name 'issue-type-classification' -Replacements @{
                 pov           = $Pov
@@ -208,41 +236,55 @@ function Invoke-IssueTypeClassification {
                 description   = $Description
             }
             $Ai = Invoke-AIApi -Prompt $Prompt -Model $M -ApiKey $ApiKey `
-                -Temperature 0.1 -MaxTokens 400 -ResponseSchema $ResponseSchema -TimeoutSec 30
+                -Temperature 0.1 -MaxTokens 700 -ResponseSchema $ResponseSchema -TimeoutSec 30
+            if ($Ai -and $Ai.Usage) { $Result.InputTokens = [int]$Ai.Usage.InputTokens; $Result.OutputTokens = [int]$Ai.Usage.OutputTokens }
             if (-not $Ai -or -not $Ai.Text) { throw 'empty response' }
 
             $CleanText = $Ai.Text -replace '(?s)^```json\s*', '' -replace '(?s)\s*```$', ''
             $Parsed = $CleanText.Trim() | ConvertFrom-Json
 
-            $Types = if ($Parsed.PSObject.Properties['types'] -and $null -ne $Parsed.types) { @($Parsed.types | ForEach-Object { [string]$_ }) } else { @() }
-            if (@($Types).Count -gt 3) { throw "too many types ($(@($Types).Count) > 3)" }
+            # Unary comma on BOTH branches: an if/else used as an expression collapses an empty
+            # array result to $null on capture (same unrolling class as t/4742's postmortem,
+            # confirmed empirically -- `$x = if (c) { @($y) } else { @() }` loses a genuinely
+            # empty $y). Without this, a valid "types": [] response throws ".Count cannot be
+            # found on this object" further down and the node is wrongly skipped.
+            $TypeEntries = if ($Parsed.PSObject.Properties['types'] -and $null -ne $Parsed.types) { , @($Parsed.types) } else { , @() }
+            if (@($TypeEntries).Count -gt 3) { throw "too many types ($(@($TypeEntries).Count) > 3)" }
+            $Types = @($TypeEntries | ForEach-Object { if ($_.PSObject.Properties['type']) { [string]$_.type } else { '' } })
             $Dupes = @($Types | Group-Object | Where-Object { $_.Count -gt 1 })
             if ($Dupes.Count -gt 0) { throw "duplicate type(s): $(($Dupes | ForEach-Object { $_.Name }) -join ', ')" }
             $Unknown = @($Types | Where-Object { $ValidTypes -notcontains $_ })
             if ($Unknown.Count -gt 0) { throw "unknown type(s): $($Unknown -join ', ')" }
 
-            $ConfidenceRaw = if ($Parsed.PSObject.Properties['confidence']) { $Parsed.confidence } else { $null }
             $Confidence = [ordered]@{}
-            foreach ($t in $Types) {
-                $v = if ($ConfidenceRaw -and $ConfidenceRaw.PSObject.Properties[$t]) { [double]$ConfidenceRaw.$t } else { 0.0 }
-                $Confidence[$t] = $v
+            for ($ti = 0; $ti -lt $TypeEntries.Count; $ti++) {
+                $v = if ($TypeEntries[$ti].PSObject.Properties['confidence']) { [double]$TypeEntries[$ti].confidence } else { 0.0 }
+                $Confidence[$Types[$ti]] = $v
             }
             $Rationale = if ($Parsed.PSObject.Properties['rationale']) { [string]$Parsed.rationale } else { '' }
             if ($Rationale.Length -gt 300) { $Rationale = $Rationale.Substring(0, 300) }
 
-            [PSCustomObject]@{
-                Types       = @($Types)
-                Confidence  = $Confidence
-                Rationale   = $Rationale
-                InputTokens = if ($Ai.Usage) { [int]$Ai.Usage.InputTokens } else { 0 }
-                OutputTokens = if ($Ai.Usage) { [int]$Ai.Usage.OutputTokens } else { 0 }
-                Model       = $M
-            }
+            $Result.Types = @($Types)
+            $Result.Confidence = $Confidence
+            $Result.Rationale = $Rationale
+            $Result.Success = $true
         }
         catch {
-            Write-Warning "Invoke-IssueTypeClassification: classification failed for '$NodeId' with model '$M' — skipping this node this call: $($_.Exception.Message)"
-            $null
+            Write-Warning "Invoke-IssueTypeClassification: classification failed for '$NodeId' with model '$M': $($_.Exception.Message)"
         }
+        $Result
+    }
+
+    # One retry on failure (TL condition, t/4833#5): an invalid/failed response is retried once
+    # before being counted as skipped, so a transient parse/response hiccup doesn't drop a node
+    # from the run. Both attempts' token usage (if any) are returned for costing.
+    $ClassifyWithRetry = {
+        param($Node, [string]$M)
+        $Attempt1 = & $Classify $Node $M
+        if ($Attempt1.Success) { return , @($Attempt1) }
+        Write-Warning "Invoke-IssueTypeClassification: retrying '$([string]$Node.id)' with model '$M' once"
+        $Attempt2 = & $Classify $Node $M
+        return , @($Attempt1, $Attempt2)
     }
 
     # ── Cost tracking (actual, not estimated — t/4835 report requirement) ───
@@ -269,16 +311,25 @@ function Invoke-IssueTypeClassification {
     foreach ($Node in $Targets) {
         $NodeId = [string]$Node.id
 
-        $Primary = & $Classify $Node $Model
-        if (-not $Primary) { $Skipped++; $Failed.Add($NodeId); continue }
-        $CostEntries.Add([PSCustomObject]@{ modelId = $Model; promptTokens = $Primary.InputTokens; completionTokens = $Primary.OutputTokens })
+        # No @()-wrap here: $ClassifyWithRetry already returns `,@(...)`, a single protected
+        # pipeline object -- wrapping the CALL in @() nests it one level deeper (same class of
+        # bug as t/4742's postmortem). Assign directly; it unrolls correctly.
+        $PrimaryAttempts = & $ClassifyWithRetry $Node $Model
+        foreach ($a in $PrimaryAttempts) { $CostEntries.Add([PSCustomObject]@{ modelId = $Model; promptTokens = $a.InputTokens; completionTokens = $a.OutputTokens }) }
+        $Primary = $PrimaryAttempts[-1]
+        if (-not $Primary.Success) {
+            $Skipped++; $Failed.Add($NodeId)
+            Write-Warning "Invoke-IssueTypeClassification: '$NodeId' failed classification twice (original + 1 retry) — skipping"
+            continue
+        }
 
         $SecondTypes = $null
         $Agree = $null
         if (-not $SkipCrossCheck) {
-            $Second = & $Classify $Node $SecondModel
-            if ($Second) {
-                $CostEntries.Add([PSCustomObject]@{ modelId = $SecondModel; promptTokens = $Second.InputTokens; completionTokens = $Second.OutputTokens })
+            $SecondAttempts = & $ClassifyWithRetry $Node $SecondModel
+            foreach ($a in $SecondAttempts) { $CostEntries.Add([PSCustomObject]@{ modelId = $SecondModel; promptTokens = $a.InputTokens; completionTokens = $a.OutputTokens }) }
+            $Second = $SecondAttempts[-1]
+            if ($Second.Success) {
                 $SecondTypes = @($Second.Types)
                 $PrimaryTop = if (@($Primary.Types).Count -gt 0) { $Primary.Types[0] } else { $null }
                 $SecondTop  = if (@($SecondTypes).Count -gt 0) { $SecondTypes[0] } else { $null }
@@ -293,7 +344,12 @@ function Invoke-IssueTypeClassification {
         $LowConfidence = @($Primary.Confidence.Values | Where-Object { $_ -lt 0.5 }).Count -gt 0
         $NeedsReview = ($Agree -eq $false) -or ($null -eq $Agree -and -not $SkipCrossCheck) -or $LowConfidence
         $Status = if ($NeedsReview) { 'pending' } else { 'accepted' }
-        $Final = if ($Status -eq 'accepted') { @($Primary.Types) } else { $null }
+        # Unary comma: an accepted 0-tag node's @($Primary.Types) is a genuinely empty array,
+        # and the if/else-as-expression capture would otherwise collapse it to $null -- which
+        # would wrongly read as "not yet reviewed" (t/4832's own meaning for a null final)
+        # instead of "accepted with no tags" (same collapse class just fixed above for
+        # $TypeEntries).
+        $Final = if ($Status -eq 'accepted') { , @($Primary.Types) } else { $null }
 
         $NewProposals.Add([PSCustomObject]@{
             node_id     = $NodeId

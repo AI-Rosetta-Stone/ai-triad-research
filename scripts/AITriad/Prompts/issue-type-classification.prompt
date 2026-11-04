@@ -51,7 +51,9 @@ NODE TO CLASSIFY:
 
 Return ONLY a JSON object matching this exact shape:
 {
-  "types": ["<0 to 3 unique values from: loss_of_control, misuse, power_concentration, economic, political, social, ordered PRIMARY FIRST>"],
-  "confidence": {"<each type you listed>": <0.0-1.0>},
+  "types": [
+    {"type": "<one of: loss_of_control, misuse, power_concentration, economic, political, social>", "confidence": <0.0-1.0>}
+  ],
   "rationale": "<<=300 chars: why these types, citing the node's actual content, not just its topic>"
 }
+"types" holds 0 to 3 entries, ordered PRIMARY FIRST, each a unique type with its own confidence. An empty array ("types": []) is valid.
