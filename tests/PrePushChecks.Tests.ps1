@@ -125,10 +125,15 @@ Describe 'pre-push-checks.sh --check-link (t/4816)' -Tag 'devops' {
     It 'refuses (exit 1) when node_modules is a symlink/junction resolving outside the root' {
         New-Item -ItemType Directory -Force -Path $script:Scratch | Out-Null
         New-Item -ItemType Directory -Force -Path $script:Outside | Out-Null
-        # New-Item -ItemType SymbolicLink (PS7+) works cross-platform -- a real Windows
-        # junction via cmd /c mklink only runs on Windows, and this suite's test-powershell
-        # matrix includes a Linux shard (t/4816 CI failure).
-        New-Item -ItemType SymbolicLink -Path (Join-Path $script:Scratch 'node_modules') -Target $script:Outside | Out-Null
+        $linkPath = Join-Path $script:Scratch 'node_modules'
+        if ($IsWindows) {
+            # New-Item -ItemType SymbolicLink needs admin/Developer Mode on Windows and fails
+            # silently through Out-Null without it (observed on this machine and plausibly on
+            # CI runners); a junction needs no elevation and is the real-world t/4815 shape.
+            cmd /c "mklink /J `"$linkPath`" `"$script:Outside`"" | Out-Null
+        } else {
+            New-Item -ItemType SymbolicLink -Path $linkPath -Target $script:Outside | Out-Null
+        }
         Test-Link 'scratch_t4816_nm_test/node_modules' | Should -Be 1
     }
 }
