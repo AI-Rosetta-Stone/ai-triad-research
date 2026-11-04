@@ -486,7 +486,7 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
               AI Triad Research — multi-perspective research platform for AI policy/safety literature.
             </p>
             <p className="helpdialog-about-stack">
-              Built with Electron 35, React 19, TypeScript, Vite, and Zustand.
+              Built with Electron 45, React 19, TypeScript, Vite, and Zustand.
               AI backends: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, Ollama.
             </p>
           </div>
