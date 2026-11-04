@@ -64,14 +64,14 @@ const isWeb = import.meta.env.VITE_TARGET === 'web';
 export type HelpTab = 'about' | 'overview' | 'documentation' | 'methods' | 'shortcuts' | 'sbom' | 'licenses' | 'changelog' | 'my-cases';
 
 const TABS: { id: HelpTab; label: string }[] = [
-  { id: 'about', label: 'About' },
-  { id: 'changelog', label: "What's New" },
   { id: 'overview', label: 'Overview' },
   { id: 'documentation', label: 'Documentation' },
   { id: 'methods', label: 'Methods' },
   { id: 'shortcuts', label: 'Shortcuts' },
+  { id: 'changelog', label: "What's New" },
   { id: 'sbom', label: 'SBOM' },
   { id: 'licenses', label: 'Licenses' },
+  { id: 'about', label: 'About' },
   ...(isWeb ? [{ id: 'my-cases' as const, label: 'My Cases' }] : []),
 ];
 
