@@ -48,7 +48,7 @@ The Analysis tab (`'content'`) holds four things today. They move as follows:
 - **Tab ids:** use `'steelman'` and `'lineage'`, and retire `'content'`.
 - **Attributes** is unchanged below the two moved blocks.
 
-## 4. What the old toggle also controlled (open question for the PI)
+## 4. What the old toggle also controlled (decided by the PI, 2026-11-04)
 
 Simple/Advanced also gated the panel's tools:
 - the header icons 📖 ↗ 📜;
@@ -56,7 +56,7 @@ Simple/Advanced also gated the panel's tools:
 - the formal vs plain default for the description;
 - Pin in the `⋯` menu.
 
-With the toggle gone, those need a rule. **My recommendation, and the default until the PI says otherwise:** they follow the **rail's** Simple/Advanced control.
+With the toggle gone, those need a rule. **PI decision (2026-11-04):** they follow the **rail's** Simple/Advanced control.
 - **Simple:** plain description, no description toolbar, no header icons, no Pin. This matches today's Simple view.
 - **Advanced:** the full t/4574 Advanced chrome.
 
@@ -70,7 +70,7 @@ The tab filter (What / Why / How) stays independent of the rail, as the PI asked
 - AC4: switching groups keeps the active tab if the new group has it, and otherwise opens the group's first tab.
 - AC5: an entry point that targets a tab outside the current group switches to the first group that has it.
 - AC6: the Analysis tab is gone. Steelman Vulnerability and Intellectual Lineage render expanded, with the §3 empty states. The metrics row and POV tags appear at the top of Attributes.
-- AC7: tools follow §4 (pending the PI's answer).
+- AC7: the header icons, description toolbar, formal/plain default and Pin follow the rail's Simple/Advanced control, as described in §4. The rail never changes the selected group.
 - AC8: Design review (`/design-review-workflow`) in both builds, all 4 themes and at 390px, before Done.
 
 ## 6. Implementation notes
