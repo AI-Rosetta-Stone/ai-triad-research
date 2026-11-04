@@ -455,12 +455,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      # Sparse: everything except the SUBDIRECTORIES of debates/ (archived pilot and calibration
-      # batches, ~2.4 GB of the repo's ~5.8 GB working tree). Measured at 63-85s per shard for the
-      # full checkout on green runs, and 166-532s on slow days. No Pester test or code path under
-      # test reads a debates/ subdirectory; the one test that reads real debates
-      # (Get-DebateSessionState.Tests.ps1) uses a top-level debates/debate-*.json, which stays.
-      # Exclusion, not an allowlist, so a new top-level data dir is checked out by default.
+      # Full checkout on purpose. A sparse checkout excluding debates/ subdirectories (PR #4475)
+      # made this step SLOWER (165-204s vs 45-78s for full checkouts in the same run): with
+      # sparse-checkout set, actions/checkout fetches --filter=blob:none and then lazily fetches
+      # every needed blob at checkout, which is far slower than one depth-1 pack.
       - name: Checkout data repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
@@ -468,10 +466,6 @@ jobs:
           repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/debates/*/
 
       - name: Symlink data repo to expected location
         run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
