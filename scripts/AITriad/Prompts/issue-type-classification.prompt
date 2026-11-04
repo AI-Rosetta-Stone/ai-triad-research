@@ -1,0 +1,57 @@
+You are classifying one taxonomy node by ISSUE TYPE for the AI Triad Research platform (t/4828, PI-approved 2026-11-04).
+
+An issue-type tag names THE KIND OF PROBLEM AREA a node is about. It is NOT the node's stance: two nodes on opposite sides of the same issue (one risk, one remedy) still get the same tag. A tag applies whether the node treats the issue as a risk, a benefit, or a remedy.
+
+RULES:
+1. Choose 0 to 3 tags, PRIMARY FIRST. Add a second or third only if the node genuinely makes a claim in that area, not just because it mentions the area.
+2. No tags ([]) when the node is about none of the six areas below: a method, a technical mechanism with no stated stake, or epistemics.
+3. Tag by the ISSUE, not the instrument. A node about a regulatory tool is tagged by the harm the tool addresses. It is political ONLY when the node is about who governs, or how governing works.
+4. Situations (no POV camp) use the same rules, tagged by what the situation is about.
+
+THE SIX TYPES:
+
+loss_of_control — AI systems acting beyond, against, or outside meaningful human direction: misalignment, deception, power-seeking, uncorrectable autonomy, loss of oversight.
+  Includes: alignment failures; deceptive/scheming behaviour; autonomous agents without enforceable limits; shutdown and corrigibility; oversight that can't keep pace.
+  Excludes: humans deliberately using AI to cause harm (misuse); ordinary reliability bugs with no question of control (often []).
+
+misuse — People or groups DELIBERATELY using AI to cause harm: weapons, cyberattacks, fraud, deepfakes, disinformation operations, surveillance used against people.
+  Includes: malicious actors; dual-use capability; attacks on AI supply chains and data; deniability of harmful use.
+  Excludes: harm the system causes on its own (loss_of_control); harm from careless but non-malicious deployment (usually social or economic).
+
+power_concentration — AI shifting control, capability, or advantage toward a few actors, or the remedies for that: monopoly, compute chokepoints, incumbent capture, centralisation, and decentralisation/open weights as counter-moves.
+  Includes: market or compute concentration; gatekeeping; capture of regulators by incumbents; open release and decentralisation AS A DISTRIBUTION-OF-POWER ARGUMENT.
+  Excludes: general market efficiency arguments with no claim about who holds power (economic); state-versus-state competition (political).
+
+economic — AI's effects on work, production, markets, and prosperity: jobs and wages, productivity and growth, costs, market structure as economics, liability and insurance as economic mechanisms.
+  Includes: labour displacement and augmentation; growth and productivity claims; pricing, liability capitalisation, levies; firm-level adoption.
+  Excludes: who ends up with market power (power_concentration); distributional fairness and inequality as a social harm (social, often as a second tag).
+
+political — AI and governance, the state, and the political order: democracy and elections, geopolitics and arms races, sovereignty, the structure and legitimacy of AI regulation itself, AI used in government decision-making.
+  Includes: state-versus-state competition (China, sovereign AI); federal-versus-state and other jurisdictional fights; whether and how to regulate as a question of governance; democratic process and accountability of the state.
+  Excludes: a regulation whose point is a specific harm (tag by that harm instead, e.g. "Mandate Child Protection..." is social, not political, even though it is a mandate); market power (power_concentration).
+
+social — AI's effects on people, communities, and social life: bias and discrimination, privacy, mental health and addiction, children, education, trust, culture, misinformation's effect on the public, human rights and dignity.
+  Includes: fairness; privacy and identity rights (voice, likeness, digital resurrection); child safety; wellbeing; the information ecosystem AS EXPERIENCED BY THE PUBLIC.
+  Excludes: organised disinformation operations (misuse); election integrity as governance (political).
+
+BOUNDARY RULES FOR THE OVERLAPPING PAIRS:
+- misuse vs loss_of_control: is the harmful intent a PERSON's (misuse) or the SYSTEM's behaviour beyond human direction (loss_of_control)?
+- power_concentration vs political: private/corporate concentration (power_concentration) or states and the governance order (political)? Regulatory capture by incumbents -> power_concentration first, political second.
+- power_concentration vs economic: does the node claim something about WHO HOLDS POWER? If yes, power_concentration; if it's about efficiency or growth only, economic.
+- economic vs social: is the harm/benefit material/financial (economic) or to people's rights, wellbeing, or fairness (social)? Job loss is economic; the dignity of being fired by a machine is social.
+- political vs social: the state/governance process (political) or people's experience (social)? Misinformation harming public trust -> social. Misinformation in an election -> political (primary), social.
+- Regulation nodes: tag by the harm being regulated. Add political only if the node is about the governance structure itself.
+
+NODE TO CLASSIFY:
+- POV camp: {{pov}}
+- BDI category: {{category}}
+- Parent node label: {{parent_label}}
+- Label: {{label}}
+- Description: {{description}}
+
+Return ONLY a JSON object matching this exact shape:
+{
+  "types": ["<0 to 3 unique values from: loss_of_control, misuse, power_concentration, economic, political, social, ordered PRIMARY FIRST>"],
+  "confidence": {"<each type you listed>": <0.0-1.0>},
+  "rationale": "<<=300 chars: why these types, citing the node's actual content, not just its topic>"
+}

@@ -31,6 +31,7 @@ Get-Help <CmdletName> -Full                     # full docs for any cmdlet
 | `Test-SituationBdiCompliance` | Data-boundary gate validator: assert situations carry full per-POV BDI decomposition (belief+desire+intention across acc/saf/skp). `-ChangedOnly -BaseRef <ref>` scopes to new/modified situations vs a git baseline; `-FailOnViolation` throws (non-zero exit) for CI/hook gate use (t/3011) |
 | `Get-NodeTestingRecord` | Debate-Tested Phase 2 research surface — filter/sort POV nodes by tier, stale-hash, or importance×deficit (t/1579) |
 | `Update-NodeTestingRecord -RecomputeOnly` | Recompute tier + sort_key across all nodes after a constant change; historical record[] never touched; idempotent (t/1579) |
+| `Invoke-IssueTypeClassification` | Classify taxonomy nodes by issue type (loss_of_control/misuse/power_concentration/economic/political/social, 0-3 tags) with an optional cross-check model; writes PROPOSALS ONLY to `issue-type-proposals.json`, never node files; resumable per `-RunId` (t/4828-C) |
 
 ### Organizations (t/1224)
 | Cmdlet | Use when |

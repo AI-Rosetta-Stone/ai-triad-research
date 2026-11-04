@@ -52,4 +52,7 @@ export const PROMPT_CATALOG_EXCLUDED: PromptExclusion[] = [
   //    vernacularPrompt + aphorismPrompt ruled EXPOSE (now catalogued); this is the one
   //    permanent INTERNAL exclusion replacing the provisional t/2859 block.
   { name: 'generateDebateTitlePrompt', reason: 'Trivial UI utility — distils a debate topic into a <60-char title; no tunable substance, no data sources, no version. Utility micro-prompt class (CL ruling t/2859).' },
+
+  // t/4828-C: backend-only PowerShell batch-classification prompt, not user-inspected.
+  { name: 'issue-type-classification', reason: 'Backend-only batch issue-type classifier called by Invoke-IssueTypeClassification (t/4833/t/4828). Not exposed in taxonomy-editor UI.' },
 ];
