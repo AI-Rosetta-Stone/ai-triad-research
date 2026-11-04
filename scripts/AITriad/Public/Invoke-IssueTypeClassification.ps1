@@ -298,8 +298,13 @@ function Invoke-IssueTypeClassification {
                 label         = [string]$Node.label
                 description   = $Description
             }
+            # 700 was enough for gemini/groq (t/4833) but claude-sonnet-5 (t/4835#4's adjudicator)
+            # routinely hit max_tokens with no usable text -- Anthropic models run more verbose
+            # before landing structured output. 1800 gives real headroom for all three backends;
+            # cost impact is negligible since output is still schema-capped at 3 types + a
+            # 300-char rationale.
             $Ai = Invoke-AIApi -Prompt $Prompt -Model $M -ApiKey $ApiKey `
-                -Temperature 0.1 -MaxTokens 700 -ResponseSchema $ResponseSchema -TimeoutSec 30
+                -Temperature 0.1 -MaxTokens 1800 -ResponseSchema $ResponseSchema -TimeoutSec 30
             if ($Ai -and $Ai.Usage) { $Result.InputTokens = [int]$Ai.Usage.InputTokens; $Result.OutputTokens = [int]$Ai.Usage.OutputTokens }
             if (-not $Ai -or -not $Ai.Text) { throw 'empty response' }
 
