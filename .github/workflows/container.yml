@@ -145,7 +145,13 @@ jobs:
     steps:
       - name: Free disk space
         run: |
+          echo "=== Disk space before cleanup ==="
+          df -h /
+          echo "=== Directory sizes ==="
+          sudo du -sh /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL 2>/dev/null | sort -h
+          echo "=== Deleting: CodeQL, dotnet, android, ghc ==="
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          echo "=== Disk space after cleanup ==="
           df -h /
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -249,6 +255,17 @@ jobs:
             # (t/3679#9 §4); do not mistake them for this tag.
             type=raw,value=sha-${{ inputs.sha || github.sha }}
 
+      - name: Get data repo HEAD SHA for snapshot cache key
+        id: data_sha
+        shell: bash
+        run: |
+          # Fetch ai-triad-data HEAD to create cache key; snapshot is deterministic on data HEAD
+          DATA_SHA=$(git ls-remote https://github.com/ai-rosetta-stone/ai-triad-data.git HEAD | awk '{print $1}')
+          echo "data_head=${DATA_SHA:0:12}" >> $GITHUB_OUTPUT
+          echo "Data repo HEAD (short): ${DATA_SHA:0:12}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Fetch taxonomy snapshot for fallback
         id: snapshot
         continue-on-error: true
@@ -314,7 +331,7 @@ jobs:
           # a misleading marker is worse than none). Keep this expression identical to `ref:`.
           build-args: BUILD_SHA=${{ inputs.sha || github.sha }}
           cache-from: type=gha,scope=shared-docker
-          cache-to: type=gha,scope=shared-docker,mode=min
+          cache-to: type=gha,scope=shared-docker,mode=max
 
       # t/4129: fail the BUILD, not a later deploy, if the per-SHA tag the deploys resolve is absent
       # from the registry after the push. Reads the registry (authoritative), not metadata-action output.
@@ -442,21 +459,6 @@ jobs:
           exit-code: '1'
           trivyignores: '.trivyignore'
           skip-setup-trivy: true
-
-      - name: Generate SBOM
-        continue-on-error: true
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-
-      - name: Upload SBOM artifact
-        if: hashFiles('sbom.spdx.json') != ''
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: sbom
-          path: sbom.spdx.json
 
       - name: Attest build provenance
         if: steps.push_mode.outputs.push == 'true' && steps.build.outputs.digest != ''

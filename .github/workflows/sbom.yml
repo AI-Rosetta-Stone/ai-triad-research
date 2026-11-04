@@ -1,0 +1,133 @@
+# ─── SBOM Generation ───
+# What:  Generates SBOM (Software Bill of Materials) for the published container image.
+#        Decoupled from container.yml to reduce critical-path time (~94s savings).
+# When:  Monthly schedule, manual dispatch, or on main pushes touching lockfiles/Dockerfiles.
+# How:   Pulls the latest published image by digest, generates SPDX SBOM, stores as release asset.
+
+name: SBOM Generation
+run-name: SBOM (sha-${{ inputs.sha || github.sha }})
+
+on:
+  schedule:
+    # Monthly SBOM generation as a backstop
+    - cron: '17 6 1 * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit SHA for which to generate SBOM (must have a published image). Defaults to latest on main.'
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'pnpm-lock.yaml'
+      - 'requirements.txt'
+      - 'requirements-*.txt'
+      - 'taxonomy-editor/Dockerfile'
+      - 'deploy/azure/Dockerfile.base'
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ai-rosetta-stone/taxonomy-editor
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+
+      - name: Resolve image SHA for SBOM generation
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ inputs.sha || github.sha }}
+        run: |
+          # Normalize short SHA to full 40-char SHA
+          if [ ${#TARGET_SHA} -lt 40 ]; then
+            FULL_SHA=$(gh api "repos/${{ github.repository }}/commits/${TARGET_SHA}" --jq '.sha' 2>/dev/null || echo "")
+            if [ -z "$FULL_SHA" ]; then
+              echo "::error::Cannot resolve '${TARGET_SHA}' to a commit."
+              exit 1
+            fi
+            TARGET_SHA="$FULL_SHA"
+          fi
+
+          # Fetch the per-SHA tag from GHCR to get the image digest
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${TARGET_SHA}"
+          echo "Resolving image digest for $IMAGE_REF..."
+
+          # Use docker buildx imagetools to get the digest
+          if DIGEST=$(docker buildx imagetools inspect "$IMAGE_REF" --raw 2>/dev/null | jq -r '.config.digest' 2>/dev/null); then
+            if [ -z "$DIGEST" ]; then
+              # Fallback: use the sha tag itself (GHCR will resolve it to digest on pull)
+              DIGEST="$IMAGE_REF"
+            fi
+          else
+            DIGEST="$IMAGE_REF"
+          fi
+
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "sha=${TARGET_SHA}" >> $GITHUB_OUTPUT
+          echo "Resolved digest: ${DIGEST}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull published image by digest
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve.outputs.digest }}"
+          echo "Pulling $IMAGE for SBOM generation..."
+          docker pull "$IMAGE"
+
+      - name: Generate SBOM (SPDX JSON)
+        id: sbom
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Rename SBOM with digest for durability
+        id: sbom_file
+        run: |
+          # Extract digest hash for filename
+          DIGEST_HASH=$(echo "${{ steps.resolve.outputs.digest }}" | grep -oP 'sha256:\K[a-f0-9]{12}' || echo "unknown")
+          SBOM_NAME="sbom-${DIGEST_HASH}.spdx.json"
+          mv sbom.spdx.json "$SBOM_NAME"
+          echo "sbom_file=${SBOM_NAME}" >> $GITHUB_OUTPUT
+          echo "Generated: $SBOM_NAME"
+
+      - name: Upload SBOM as release asset (if on a tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85261ab73898b580f237  # v2.0.8
+        with:
+          files: ${{ steps.sbom_file.outputs.sbom_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SBOM as artifact (for all runs)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: sbom-artifacts
+          path: ${{ steps.sbom_file.outputs.sbom_file }}
+          retention-days: 90
+
+      - name: Post SBOM summary
+        run: |
+          echo "## SBOM Generation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Digest:** \`${{ steps.resolve.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit SHA:** \`${{ steps.resolve.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SBOM File:** \`${{ steps.sbom_file.outputs.sbom_file }}\`" >> $GITHUB_STEP_SUMMARY
