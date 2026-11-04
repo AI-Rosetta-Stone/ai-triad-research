@@ -91,6 +91,14 @@ export function buildChatLibraryListConfig(
 
     columns: [
       {
+        // t/4824: moved out of the title line into its own column (was `titleBadge` since t/4718).
+        key: 'camp',
+        header: 'Camp',
+        width: '160px',
+        phone: 'meta',
+        render: rowCampChip,
+      },
+      {
         key: 'mode',
         header: 'Mode',
         width: '100px',
@@ -116,7 +124,6 @@ export function buildChatLibraryListConfig(
     titleHeader: 'Title',
     titleSortable: true,
     getTitle: (row) => row.title,
-    titleBadge: rowCampChip,
 
     onRename: deps.onRename,
     renamingId: deps.renamingId,
