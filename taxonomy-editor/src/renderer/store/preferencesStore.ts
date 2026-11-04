@@ -19,6 +19,10 @@ interface PreferencesState {
    *  toggle. */
   nodeDetailTabGroup: NodeDetailTabGroup;
   setNodeDetailTabGroup: (group: NodeDetailTabGroup) => Promise<void>;
+  /** True once the reader has picked a tab group this session. hydrate() must not overwrite a
+   *  choice made before it resolves — the same race t/4574#11 guarded for the retired
+   *  per-node modes. Internal; never persisted. */
+  nodeDetailTabGroupTouched: boolean;
   /** Load persisted preferences from the bridge and hydrate the store. */
   hydrate: () => Promise<void>;
 }
@@ -26,6 +30,7 @@ interface PreferencesState {
 export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   viewMode: 'simple',
   nodeDetailTabGroup: 'what',
+  nodeDetailTabGroupTouched: false,
 
   setViewMode: async (mode: ViewMode) => {
     set({ viewMode: mode });
@@ -39,7 +44,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   },
 
   setNodeDetailTabGroup: async (group: NodeDetailTabGroup) => {
-    set({ nodeDetailTabGroup: group });
+    set({ nodeDetailTabGroup: group, nodeDetailTabGroupTouched: true });
     try {
       const { api } = await import('@bridge');
       const state = get();
@@ -59,8 +64,12 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       // t/4826: passthrough field (UserPreferencesSchema.passthrough()), so it's `unknown` on
       // the inferred type — validate before trusting it, same pattern the retired
       // nodeDetailModes read used.
-      if (typeof prefs?.nodeDetailTabGroup === 'string' && VALID_TAB_GROUPS.includes(prefs.nodeDetailTabGroup as NodeDetailTabGroup)) {
-        set({ nodeDetailTabGroup: prefs.nodeDetailTabGroup as NodeDetailTabGroup });
+      const saved = prefs?.nodeDetailTabGroup;
+      if (typeof saved === 'string' && VALID_TAB_GROUPS.includes(saved as NodeDetailTabGroup)) {
+        // A choice made since app start wins over the persisted one (t/4574#11 race).
+        if (!get().nodeDetailTabGroupTouched) set({ nodeDetailTabGroup: saved as NodeDetailTabGroup });
+      } else if (saved !== undefined) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'warn', message: `Ignoring invalid persisted nodeDetailTabGroup (${JSON.stringify(saved)}); falling back to '${get().nodeDetailTabGroup}'` });
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to hydrate preferences from bridge', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });

@@ -12,7 +12,7 @@ vi.mock('@bridge', () => ({
 
 describe('preferencesStore', () => {
   beforeEach(() => {
-    usePreferencesStore.setState({ viewMode: 'simple', nodeDetailTabGroup: 'what' });
+    usePreferencesStore.setState({ viewMode: 'simple', nodeDetailTabGroup: 'what', nodeDetailTabGroupTouched: false });
     mockGetPreferences.mockReset();
     mockSetPreferences.mockReset();
   });
@@ -70,6 +70,17 @@ describe('preferencesStore', () => {
       mockGetPreferences.mockResolvedValue({ viewMode: 'simple', nodeDetailTabGroup: 'garbage' });
       await usePreferencesStore.getState().hydrate();
       expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('what'); // untouched default
+    });
+
+    it('hydrate() resolving after the reader picked a tab group does not overwrite that choice (t/4574#11 race)', async () => {
+      let resolvePrefs: (v: unknown) => void = () => {};
+      mockGetPreferences.mockReturnValue(new Promise(r => { resolvePrefs = r; }));
+      mockSetPreferences.mockResolvedValue(undefined);
+      const pending = usePreferencesStore.getState().hydrate();
+      await usePreferencesStore.getState().setNodeDetailTabGroup('why');
+      resolvePrefs({ viewMode: 'simple', nodeDetailTabGroup: 'how' });
+      await pending;
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('why');
     });
 
     it('hydrate() with no persisted tab group leaves the default untouched', async () => {
