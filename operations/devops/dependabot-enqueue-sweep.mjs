@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
+import { allContextsFor } from './pr-contexts.mjs';
 
 /** Required contexts that must have passed before a PR is enqueued (root AGENTS.md). */
 export const REQUIRED_GREEN = ['ci-gate', 'CodeQL Analysis'];
@@ -91,15 +92,21 @@ export function normalizePR(n) {
   };
 }
 
+// A full-suite PR has more than 100 contexts; allContextsFor reads past the first page (#4475).
+const CONTEXT_FIELDS = '... on CheckRun{name status conclusion} ... on StatusContext{context state}';
+
 function listOpenDependabotPRs(repo) {
   const query = `query($q:String!){search(query:$q,type:ISSUE,first:50){nodes{... on PullRequest{
     number headRefOid isDraft isInMergeQueue mergeStateStatus autoMergeRequest{enabledAt} isCrossRepository
     author{__typename login}
-    commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
-      ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}}`;
+    commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
+      ${CONTEXT_FIELDS}}}}}}}}}}}`;
   const out = JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`,
     '-f', `q=repo:${repo} is:pr is:open author:app/dependabot`]));
-  return out.data.search.nodes.map(normalizePR);
+  return out.data.search.nodes.map((n) => ({
+    ...normalizePR(n),
+    contexts: allContextsFor(repo, n.number, n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts, CONTEXT_FIELDS),
+  }));
 }
 
 export async function sweep(repo, { dryRun = false } = {}) {

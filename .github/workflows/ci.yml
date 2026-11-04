@@ -2864,7 +2864,7 @@ jobs:
         # the next sweep failing. Running them here checks the change before merge. WARN-FIRST:
         # flip by removing continue-on-error after >=1 green cycle (SO + TL GV), like its neighbors.
         continue-on-error: true
-        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
 
       - name: Vitest shard-blob count check arms (WARN-FIRST)
         # test-electron-coverage refuses to merge unless all 3 shard blobs arrived. That refusal

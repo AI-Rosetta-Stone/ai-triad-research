@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
+import { allContextsFor } from './pr-contexts.mjs';
 
 export const IDLE_MINUTES = 15;
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
@@ -108,14 +109,17 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 }
 
+// A full-suite PR has more than 100 contexts; allContextsFor reads past the first page (#4475).
+const CONTEXT_FIELDS = '... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}';
+
 function listOpenPRs(repo) {
   const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:50,after:$cursor){
     pageInfo{hasNextPage endCursor}
     nodes{... on PullRequest{
       number body headRefOid baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
       author{login} labels(first:30){nodes{name}} autoMergeRequest{enabledAt}
-      commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
-        ... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}}}}}}}}}}}`;
+      commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
+        ${CONTEXT_FIELDS}}}}}}}}}}}`;
   const prs = [];
   let cursor = null;
   for (let page = 0; page < 10; page++) {
@@ -129,7 +133,7 @@ function listOpenPRs(repo) {
         isCrossRepository: n.isCrossRepository,
         author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
         autoMergeRequest: n.autoMergeRequest,
-        contexts: n.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],
+        contexts: allContextsFor(repo, n.number, n.commits.nodes[0]?.commit.statusCheckRollup?.contexts, CONTEXT_FIELDS),
       });
     }
     if (!r.pageInfo.hasNextPage) break;
