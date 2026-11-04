@@ -100,7 +100,7 @@ export const GraphAttributesSchema = z.strictObject({
   steelman_vulnerability: SteelmanVulnerabilitySchema.optional(),
   possible_fallacies: z.array(PossibleFallacySchema).optional(),
   node_scope: NodeScopeSchema.optional(),
-  issue_types: z.array(IssueTypeSchema).min(1).max(3)
+  issue_types: z.array(IssueTypeSchema).max(3)
     .refine(arr => new Set(arr).size === arr.length, 'issue_types must not contain duplicates')
     .optional(),
   issue_types_provenance: IssueTypeProvenanceSchema.optional(),

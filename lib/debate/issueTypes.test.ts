@@ -46,8 +46,9 @@ describe('GraphAttributesSchema.issue_types', () => {
     expect(result.issue_types).toEqual(['loss_of_control', 'economic', 'political']);
   });
 
-  it('rejects empty array (0 tags)', () => {
-    expect(() => GraphAttributesSchema.parse(createGraphAttrs([]))).toThrow();
+  it('accepts empty array (0 tags, valid state)', () => {
+    const result = GraphAttributesSchema.parse(createGraphAttrs([]));
+    expect(result.issue_types).toEqual([]);
   });
 
   it('rejects more than 3 issue types', () => {
