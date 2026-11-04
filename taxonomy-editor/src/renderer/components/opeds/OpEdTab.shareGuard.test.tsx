@@ -53,6 +53,30 @@ describe('OpEdReaderView Share guard (t/2987 + t/3315)', () => {
     expect(screen.queryByLabelText(SHARE_LABEL_COMMUNITY)).toBeNull();
   });
 
+  // t/4803 (Design): the "‹ Op-Ed Studies" link that used to always fill .oped-reader-bar is
+  // gone (t/4689) — don't leave a blank strip when nothing else is in it either.
+  it("t/4803: doesn't render the empty .oped-reader-bar when there's no status and no share control", () => {
+    const { container } = renderReader(null);
+    expect(container.querySelector('.oped-reader-bar')).toBeNull();
+  });
+
+  it('t/4803: renders .oped-reader-bar when the share control is present', () => {
+    const { container } = renderReader('my');
+    expect(container.querySelector('.oped-reader-bar')).not.toBeNull();
+  });
+
+  // t/4803 (Design review, PR #4505): with the bar gone, the camp tab strip still pinned at the
+  // bar's height, leaving a scrolling gap above it — the modifier class zeroes that gap.
+  it("t/4803: adds oped-reader-shell-no-bar when the bar isn't rendered", () => {
+    const { container } = renderReader(null);
+    expect(container.querySelector('.oped-reader-shell')).toHaveClass('oped-reader-shell-no-bar');
+  });
+
+  it("t/4803: omits oped-reader-shell-no-bar when the bar is rendered", () => {
+    const { container } = renderReader('my');
+    expect(container.querySelector('.oped-reader-shell')).not.toHaveClass('oped-reader-shell-no-bar');
+  });
+
   it("renders '🔗 Share' for the user's own op-ed (shareSource='my')", () => {
     renderReader('my');
     expect(screen.queryByLabelText(SHARE_LABEL_MY)).not.toBeNull();
