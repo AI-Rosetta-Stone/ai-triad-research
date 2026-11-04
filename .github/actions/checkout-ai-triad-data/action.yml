@@ -1,0 +1,66 @@
+name: Checkout ai-triad-data (cached)
+description: >
+  Checks out AI-Rosetta-Stone/ai-triad-data into ./ai-triad-data and symlinks it to
+  ../ai-triad-data, restoring from an actions/cache keyed on the data repo's own HEAD SHA
+  when possible (t/4841). The data repo changes far less often than this repo's CI runs, so a
+  warm cache turns a ~78s checkout into a cache restore on every run between data-repo pushes.
+
+inputs:
+  continue-on-error:
+    description: >
+      Whether a cache-miss checkout failure is tolerated (fail-open, matching most call
+      sites' existing behavior) or fails the job. 'true' or 'false'.
+    required: false
+    default: 'true'
+  token:
+    description: >
+      Token for the checkout step. Defaults to github.token (actions/checkout's own
+      default) so the 8 call sites that never set one keep that implicit behavior; one
+      call site overrides it with DATA_REPO_TOKEN.
+    required: false
+    default: ${{ github.token }}
+  symlink:
+    description: >
+      Whether to symlink ./ai-triad-data to ../ai-triad-data after checkout. 'true' or
+      'false' -- one call site (python-embed-smoke) reads AI_TRIAD_DATA_ROOT directly against
+      $GITHUB_WORKSPACE/ai-triad-data instead and needs no symlink.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    # ai-triad-data is public, so this needs no auth and is a network round-trip, not a clone
+    # (~1s) -- it is the ONLY per-run cost once the cache is warm.
+    - name: Resolve ai-triad-data HEAD SHA
+      id: data-sha
+      shell: bash
+      run: |
+        SHA=$(git ls-remote https://github.com/AI-Rosetta-Stone/ai-triad-data.git HEAD | cut -f1)
+        if [ -z "$SHA" ]; then
+          echo "::warning::checkout-ai-triad-data: ls-remote returned no SHA; caching disabled for this run, falling through to a direct checkout." >&2
+          SHA="no-sha-$(date +%s)"
+        fi
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+    - name: Restore ai-triad-data cache
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ai-triad-data
+        key: ai-triad-data-${{ steps.data-sha.outputs.sha }}
+
+    - name: Checkout data repo (cache miss)
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      continue-on-error: ${{ inputs.continue-on-error == 'true' }}
+      with:
+        repository: AI-Rosetta-Stone/ai-triad-data
+        path: ai-triad-data
+        fetch-depth: 1
+        token: ${{ inputs.token }}
+
+    - name: Symlink data repo to expected location
+      if: inputs.symlink == 'true'
+      shell: bash
+      run: ln -sfn "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
