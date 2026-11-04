@@ -5046,15 +5046,17 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-12 — Conflict (p/540#4): `gh` command not found via Bash tool. Resolved by re-running the same commands via the PowerShell tool.
+- 2026-11-04 — Settings (p/891#1, **new facet — whole-shell breakage, not just `gh` missing**): the Bash tool's underlying shell couldn't resolve `gh` OR `ls` (both exit 127) despite correct PATH entries — confirmed via PowerShell that `gh.exe` was present and working. This is stronger than the original pattern: a basic MSYS coreutil (`ls`) failing rules out "just `gh` isn't on PATH" and points to the Bash tool's shell itself being broken or misconfigured for that session. Resolved by switching to the PowerShell tool for `gh`/`git` commands for the rest of the session — same fix as the original facet, but the diagnosis is different (session-level shell failure, not a missing PATH entry).
 
-**Root Cause:** On Windows, `gh` is installed and configured in the PowerShell (pwsh) environment but is not added to the MSYS/Git Bash PATH. The Bash tool runs in the MSYS2 layer with a different PATH than the native Windows PowerShell session.
+**Root Cause:** On Windows, `gh` is installed and configured in the PowerShell (pwsh) environment but is not added to the MSYS/Git Bash PATH. The Bash tool runs in the MSYS2 layer with a different PATH than the native Windows PowerShell session. **The new facet's root cause is unconfirmed** — it could be the same PATH gap manifesting more broadly, or a distinct session-level MSYS/shell initialization failure; don't assume it's the same mechanism just because the fix (switch to PowerShell) happens to be identical.
 
 **Prevention:**
 1. **On Windows agents, always run `gh` commands via the PowerShell tool**, not the Bash tool.
 2. **Bash tool on Windows is appropriate for POSIX scripts** (awk, sed, file utilities). For GitHub CLI operations, use PowerShell.
 3. **If `gh` fails with exit 127 in Bash:** switch to the PowerShell tool — do not attempt to diagnose `gh` installation.
+4. **If even a basic coreutil (`ls`, `cat`, etc.) fails exit 127 in the Bash tool, suspect the whole shell session, not just a missing PATH entry** — verify via the PowerShell tool that the underlying binaries actually exist before concluding anything is uninstalled. Switch to PowerShell for the rest of the session rather than trying to repair the Bash shell mid-session.
 
-**Status:** Active — 1 instance (Conflict p/540#4). Silent: exit 127 reads as missing tool, not wrong shell.
+**Status:** Active — 2 instances (Conflict p/540#4 — gh-only; Settings p/891#1 — whole-shell breakage, new facet, root cause unconfirmed). Silent: exit 127 reads as missing tool, not wrong shell.
 
 **Applies To:** All agents on Windows using the Bash tool for GitHub CLI operations.
 
@@ -8622,3 +8624,39 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#279). Confirmed transient (GitHub-side outage), not a reproducible bug.
 
 **Applies To:** All agents writing scripts that call `gh api` and parse its output; check the exit code before parsing, every time.
+
+## #423 [Build] A JSON String Field Containing an Unescaped Quote Gets Re-Tokenized When Piped Across a Second `pwsh -Command` Process Boundary
+
+**Pattern:** A script (e.g. a drift-check PowerShell script) emits JSON containing a text field with an unescaped double-quote inside it (e.g. a PDF filename quoted within a `Reasons` string). The JSON is piped into a second, separate `pwsh -Command` invocation to extract fields with `ConvertFrom-Json`. The second process's own command-line parsing re-tokenizes the piped text — the embedded quote, which was valid inside the original JSON string value, gets treated as a new token boundary by the second PowerShell process, and `ConvertFrom-Json` chokes trying to parse the corrupted result. This is distinct from #384 (an already-deserialized object piped into `ConvertFrom-Json`) and #407 (shell-level pipe misparse) — here the JSON text itself is intact and valid at the point it leaves the first process; the corruption happens specifically crossing the second process's own parsing boundary.
+
+**Instances:**
+- 2026-11-03 — DevOps Lead (p/26#409): piped `check-data-checkout-drift.ps1`'s JSON output through a second `pwsh -Command` to extract fields; `ConvertFrom-Json` choked on an unescaped double-quote inside a PDF filename embedded in the `Reasons` text. Resolved by dropping the pipe-through-a-second-pwsh approach entirely and reading the object directly in the same PowerShell session instead.
+
+**Root Cause:** Piping text between two separate PowerShell processes means the second process's command-line parser sees the piped content as part of its own invocation context, not as pure opaque data. A quote character that was perfectly valid inside a JSON string value (properly escaped as `\"` within the JSON) can still interact with the RECEIVING process's own quoting/tokenization rules once it crosses that process boundary, especially when the piping itself goes through an intermediate shell layer. The exact mechanics depend on how the pipe is constructed, but the net effect is the same: valid JSON text gets corrupted purely by virtue of crossing into a second interactive PowerShell invocation.
+
+**Prevention:**
+1. **Prefer staying in ONE PowerShell session/process for JSON extraction** — read the script's output directly (e.g. `$result = & script.ps1; $result.SomeField`) rather than piping its JSON output through a second `pwsh -Command` invocation that re-parses it.
+2. **If JSON genuinely must cross a process boundary, write it to a file and have the second process read the file**, rather than piping it through the shell — this avoids any re-tokenization of the text content during the pipe itself.
+3. **A `ConvertFrom-Json` failure on JSON that was valid when the source script emitted it is a signal to check whether the JSON crossed a process/pipe boundary it shouldn't have**, not to assume the source script emitted malformed JSON.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#409).
+
+**Applies To:** All agents extracting fields from a PowerShell script's JSON output; prefer reading the object in the same session over piping JSON through a second `pwsh -Command` process.
+
+## #424 [Process] A Shared Feature-Branch Name Already Checked Out Live in Another Agent's Worktree Blocks `git switch -c` — Commit to a Different Local Name, Push to the Shared Remote Branch
+
+**Pattern:** Two agents are independently working on the same ticket/feature, intending to land on the same shared branch name (e.g. `fix/t4827-related-tab-stack`). One agent has that branch checked out live in their own worktree. A second agent, trying to create or switch to the same branch name in a DIFFERENT worktree, is blocked — git only allows one worktree to hold a given branch checked out at a time, the same constraint that blocks `main` from being checked out in two places (see the Worktree Isolation Guard / main-captured-by-worktree family), but here it applies to an arbitrary shared feature branch name instead of `main`.
+
+**Instances:**
+- 2026-11-04 — EdgeBrowser (p/828#4, t/4827): `git commit` on a detached HEAD in `.worktrees/t4827-edgebrowser-filter-row` was blocked by the pre-commit hook's detached-HEAD guard (the t/2009 guard). The underlying cause: the shared branch name `fix/t4827-related-tab-stack` was already checked out live in Rosetta Stone's own worktree, so `git switch -c` onto that branch name failed in EdgeBrowser's worktree. Resolved by creating a differently-named local branch (`edgebrowser/t4827-filter-row-fix`) in the local worktree, committing there, then `git push origin HEAD:fix/t4827-related-tab-stack` to land the commit on the shared REMOTE branch name without ever needing a local checkout of that name in this worktree.
+
+**Root Cause:** Git enforces that a given branch can only be checked out in one worktree at a time across the whole repository — this is the same constraint behind the `main`-captured-by-worktree hazard, just triggered here by an ordinary shared feature branch rather than `main`. When two agents coordinate around a shared branch NAME but work in separate worktrees, only one worktree can actually hold that branch checked out locally at once; the other agent's attempt to `git switch -c` (or plain `git switch`) onto the same name fails.
+
+**Prevention:**
+1. **If `git switch -c <shared-branch-name>` fails because that branch is checked out elsewhere, don't fight for the local checkout** — create a differently-named LOCAL branch in your own worktree, commit there, and push directly to the shared REMOTE branch name with `git push origin HEAD:<shared-branch-name>`. This lands your commit on the intended branch without ever needing a local checkout collision.
+2. **This is the ordinary-branch sibling of the `main`-captured-by-worktree hazard** — the underlying git constraint (one worktree per branch, repo-wide) is the same; only the branch involved differs.
+3. **When two agents share a branch name across separate worktrees, coordinate the intent via the remote branch, not via trying to get the same local checkout in both places** — the remote branch is the actual point of coordination; local branch names are disposable as long as they push to the right remote ref.
+
+**Status:** Active — 1 instance (EdgeBrowser p/828#4).
+
+**Applies To:** All agents coordinating on a shared feature branch name across separate worktrees; if the local checkout is blocked, push to the shared remote branch name from a differently-named local branch instead.
