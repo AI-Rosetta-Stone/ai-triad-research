@@ -88,13 +88,18 @@ The containerized version of the platform is a multi-container application
 (since Neo4j runs in its own container). The project source code is accessed via
 a volume rather than being copied into a container, which allows for live edits.
 
-Before starting the container, set at least one AI API key in a `.env` file next
-to `compose.yaml` (docker compose loads it automatically):
+Before starting the container, copy `.env.example` to `.env` next to `compose.yaml`
+(docker compose loads it automatically) and set a Neo4j password of your own plus at
+least one AI API key. Compose refuses to start without `NEO4J_PASSWORD`:
 
 ```bash
 # .env
+NEO4J_PASSWORD=choose-your-own
 GEMINI_API_KEY=your-key-here
 ```
+
+All ports are published on `127.0.0.1` only, because the dev server runs with
+`AUTH_DISABLED`.
 
 `Register-AIBackend`'s browser-based setup UI doesn't work from inside the
 container — it binds to `127.0.0.1`, which inside a container is only reachable
@@ -312,7 +317,7 @@ Show-AITriadHelp
 | `AI_API_KEY` | No | Fallback key. PowerShell uses it for gemini models only; other backends need their own variable (t/4102) |
 | `AI_MODEL` | No | Default model override |
 | `AI_TRIAD_DATA_ROOT` | No | Override data directory path |
-| `NEO4J_PASSWORD` | No | Neo4j password (default: aitriad2026) |
+| `NEO4J_PASSWORD` | For docker compose | Neo4j password. Required by `compose.yaml` (no default). `Install-GraphDatabase` generates one if unset. |
 
 Use `Register-AIBackend` to configure keys via a GUI, or set them manually.
 Settings are persisted to `~/.aitriad-env` — add `. ~/.aitriad-env` to your shell profile.

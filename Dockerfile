@@ -13,7 +13,7 @@ RUN . /etc/os-release \
   && rm -rf /var/lib/apt/lists/*
 
 # Make tests available
-RUN pwsh -NoProfile -c "Install-Module Pester -Force -Scope AllUsers"
+RUN pwsh -NoProfile -c "Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope AllUsers"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   pandoc ghostscript \

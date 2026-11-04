@@ -13,14 +13,16 @@ services:
       - .:/workspaces/ai-triad-research:cached
       - ../ai-triad-data/:/workspaces/ai-triad-data:cached
       - pnpm-store:/pnpm/store
+    # Published on the host loopback only: the app runs with AUTH_DISABLED and Neo4j holds
+    # data, so neither may be reachable from the rest of the network (#4459 review).
     ports:
-      - "5173:5173"
-      - "5174:5174"
-      - "5175:5175"
-      - "7862:7862"
+      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:5174:5174"
+      - "127.0.0.1:5175:5175"
+      - "127.0.0.1:7862:7862"
     environment:
       NEO4J_URI: bolt://neo4j:7687
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-aitriad2026}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env (see .env.example)}
       AUTH_DISABLED: "1"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -36,11 +38,11 @@ services:
     image: neo4j:community
     profiles: ["graph", "all"]
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-aitriad2026}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env (see .env.example)}
       NEO4J_PLUGINS: '["apoc"]'
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
     volumes:
       - neo4j-data:/data
       - neo4j-logs:/logs
@@ -59,7 +61,7 @@ services:
       dockerfile: taxonomy-editor/Dockerfile
     profiles: ["taxonomy-editor", "all"]
     ports:
-      - "7862:7862"
+      - "127.0.0.1:7862:7862"
     environment:
       # AUTH_DISABLED="1" is a no-op if NODE_ENV == "production"
       # One would need to change this (perhaps create another service

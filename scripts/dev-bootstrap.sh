@@ -5,9 +5,24 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [ ! -d "../ai-triad-data/taxonomy" ]; then
-  echo "==> Sibling data repo (../ai-triad-data) is missing"
-  exit 1
+DATA_DIR="../ai-triad-data"
+if [ ! -d "$DATA_DIR/taxonomy" ]; then
+  # Codespaces and fresh machines have no sibling data repo. The old devcontainer post-create
+  # cloned it; keep doing that when the directory is absent or empty (compose creates an empty
+  # mount point when the host side doesn't exist yet) and writable.
+  if [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ] && mkdir -p "$DATA_DIR" 2>/dev/null && [ -w "$DATA_DIR" ]; then
+    echo "==> Sibling data repo (../ai-triad-data) missing; cloning it"
+    if ! { command -v gh >/dev/null 2>&1 && gh repo clone AI-Rosetta-Stone/ai-triad-data "$DATA_DIR"; } \
+       && ! git clone https://github.com/AI-Rosetta-Stone/ai-triad-data.git "$DATA_DIR"; then
+      echo "==> ERROR: could not clone AI-Rosetta-Stone/ai-triad-data into $DATA_DIR." >&2
+      echo "    Clone it next to this repo yourself (or set AI_TRIAD_DATA_ROOT), then re-run." >&2
+      exit 1
+    fi
+  else
+    echo "==> ERROR: sibling data repo (../ai-triad-data) is missing and the directory is not empty or not writable." >&2
+    echo "    Clone AI-Rosetta-Stone/ai-triad-data next to this repo on the host, then restart the container." >&2
+    exit 1
+  fi
 fi
 
 # Load powershell module (and make cmdlets available), then use cmdlets
