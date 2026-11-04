@@ -15,6 +15,7 @@ fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 CHECKS="$ROOT/operations/devops/pre-push-checks.sh"
+QUEUE_GUARD="$ROOT/operations/devops/check-queued-push-guard.sh"
 if [ ! -f "$CHECKS" ]; then
   echo "pre-push: WARN $CHECKS not found (branch predates it?); skipping TypeScript checks." >&2
   exit 0
@@ -33,6 +34,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   if [ "$local_sha" != "$HEAD_SHA" ]; then
     echo "pre-push: WARN $local_ref is not the checked-out commit; skipping checks for it (they read the working tree)." >&2
     continue
+  fi
+  # t/4858: refuse pushing to a branch whose PR is queued or auto-merge-armed, before the
+  # (slower) TS checks run -- a queued PR can merge the OLD head while this push races it.
+  if [ -f "$QUEUE_GUARD" ]; then
+    branch=${remote_ref#refs/heads/}
+    sh "$QUEUE_GUARD" "$branch" || { status=1; continue; }
   fi
   base=$(git merge-base "$local_sha" origin/main 2>/dev/null)
   if [ -z "$base" ] && [ "$remote_sha" != "$ZERO" ]; then base=$remote_sha; fi
