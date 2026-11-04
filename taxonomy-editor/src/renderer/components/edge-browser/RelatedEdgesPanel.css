@@ -118,11 +118,17 @@
   opacity: 0.85;
 }
 
+/* t/4827: a flex row's children default to min-width: auto, floored at their own content size —
+   on a narrow pane (the Related tab stacked to full width on a narrow container) that floor is
+   wider than the pane, and the row overflows it instead of shrinking. flex-wrap is the fallback
+   once shrinking alone isn't enough; min-width: 0 (here and on the slider below) is what lets the
+   row actually shrink first. */
 .related-edges-toolbar {
   padding: 8px 14px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -131,7 +137,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
+  flex: 1 1 140px;
+  min-width: 0;
 }
 
 .related-edges-threshold-label {
@@ -141,7 +148,8 @@
 }
 
 .related-edges-threshold-slider {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   height: 4px;
   cursor: pointer;
   accent-color: var(--focus-ring);
@@ -154,6 +162,8 @@
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .related-edges-body {

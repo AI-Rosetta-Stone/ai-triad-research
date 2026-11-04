@@ -358,6 +358,20 @@
   min-height: 200px;
 }
 
+/* t/4827 (PI-reported, portrait monitors): below RELATED_STACK_BREAKPOINT_PX, the side-by-side
+   split squeezes the list to an unusable sliver and wastes most of the detail pane on an empty
+   "No edge selected" state. Stack instead: list full-width on top, detail full-width below (only
+   rendered once an edge is selected — see NodeDetailRelatedTab). No resize handle in this mode. */
+.node-detail-related-split-stacked {
+  flex-direction: column;
+}
+
+.node-detail-related-split-stacked .node-detail-related-list,
+.node-detail-related-split-stacked .node-detail-related-detail {
+  width: 100%;
+  flex: none;
+}
+
 /* t/4719 (p/29#202): RelatedEdgesPanel is shared (edge-browser/) — scoped here, not touched
    in RelatedEdgesPanel.css, since its own fixed-height scroll is correct standing alone. */
 .node-detail-related-list .related-edges-panel {
