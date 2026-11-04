@@ -34,6 +34,14 @@
   color: var(--text-secondary);
 }
 
+/* t/4803 (Design, measured live): the up crumb is the one way up, so it must always be
+   readable. Without this, a long current crumb (e.g. a debate topic) shrinks the ancestor
+   crumb too, truncating it ("Debate" -> "Debat"). Desktop only — the phone block below
+   already hides every non-current crumb. */
+.nav-locbar-crumb:not(.nav-locbar-current) {
+  flex-shrink: 0;
+}
+
 /* Middle crumbs cap and ellipsize; the last crumb shrinks first. Full text is in `title`. */
 .nav-locbar-link,
 .nav-locbar-text {

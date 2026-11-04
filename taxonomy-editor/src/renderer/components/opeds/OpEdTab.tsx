@@ -258,19 +258,24 @@ export function OpEdReaderView({
   onPovChange?: (pov: string) => void;
 }) {
   const shareId = shareSource === 'community' ? communityId : (readerSet?.set_id ?? null);
+  // t/4803 (Design): don't render the bar at all once it has nothing left in it — the
+  // "‹ Op-Ed Studies" link that used to always fill it is gone (t/4689), so an empty bar
+  // leaves a blank strip above the camp tabs.
+  const showShareControl = !!(readerSet && shareSource && shareId && !isElectronMode());
+  const showReaderBar = !!status || showShareControl;
   return (
     <div className="two-column oped-tab-table-mode">
       <div className="oped-reader-shell">
-        <div className="oped-reader-bar">
-          {/* t/4689: the "‹ Op-Ed Studies" link is removed — the shared location-bar crumb
-              (LocationBarHost) now provides the same up-navigation. */}
-          {status && <span className="oped-status">{status}</span>}
-          {/* Share is web-only (electron-bridge rejects, t/2728). Own op-eds use the own-share endpoint;
-              community op-eds use the community-share endpoint (t/3315 — community is public). Both mint
-              a public /share/oped link. shareId (not readerSet.set_id) is what's sent — see communityId
-              doc above for why those two ids can differ for community op-eds (t/3426). */}
-          {readerSet && shareSource && shareId && !isElectronMode() && <ShareOpEdControl setId={shareId} source={shareSource} />}
-        </div>
+        {showReaderBar && (
+          <div className="oped-reader-bar">
+            {status && <span className="oped-status">{status}</span>}
+            {/* Share is web-only (electron-bridge rejects, t/2728). Own op-eds use the own-share endpoint;
+                community op-eds use the community-share endpoint (t/3315 — community is public). Both mint
+                a public /share/oped link. shareId (not readerSet.set_id) is what's sent — see communityId
+                doc above for why those two ids can differ for community op-eds (t/3426). */}
+            {showShareControl && <ShareOpEdControl setId={shareId!} source={shareSource!} />}
+          </div>
+        )}
         {readerLoading && <p className="oped-reader-loading">Loading op-ed…</p>}
         {readerError && <p className="oped-reader-error">{readerError}</p>}
         {readerSet && !readerLoading && <OpEdReader set={readerSet} initialPov={initialPov} onPovChange={onPovChange} />}
