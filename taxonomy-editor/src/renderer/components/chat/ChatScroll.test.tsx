@@ -11,9 +11,13 @@ import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 describe('chat scroll containers (t/4138)', () => {
-  it('.chat-transcript can shrink below its content height (min-height: 0) so overflow-y:auto triggers', () => {
+  // t/4824: the scroll container moved from .chat-transcript to .chat-scroll-region (its new
+  // parent, now also holding The Question) so The Question scrolls with the conversation instead
+  // of sitting pinned above it. The t/4138 fix this test guards still has to hold on whichever
+  // element is the real scroll container.
+  it('.chat-scroll-region can shrink below its content height (min-height: 0) so overflow-y:auto triggers', () => {
     const css = readFileSync(join(import.meta.dirname, 'ChatWorkspace.css'), 'utf8');
-    const block = css.slice(css.indexOf('.chat-transcript {'), css.indexOf('.chat-transcript {') + 400);
+    const block = css.slice(css.indexOf('.chat-scroll-region {'), css.indexOf('.chat-scroll-region {') + 400);
     expect(block).toMatch(/min-height:\s*0/);
     expect(block).toMatch(/overflow-y:\s*auto/);
   });
