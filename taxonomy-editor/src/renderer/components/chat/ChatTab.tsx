@@ -1,13 +1,10 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-// t/4802 (Design): the hint's closing phrase differs by target, matching the ⧉ button's own label
-// (LocationBarHost.tsx) — "a separate window" in Electron, "a new tab" on web.
-const isElectron = import.meta.env.VITE_TARGET !== 'web';
 import { useChatStore } from '../../hooks/useChatStore';
 import { expectReplace } from '../../navigation';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
@@ -40,6 +37,10 @@ const MODE_LABELS: Record<ChatMode, string> = {
   inform: 'Inform',
   decide: 'Decide',
 };
+
+// t/4802 (Design): the hint's closing phrase differs by target, matching the ⧉ button's own label
+// (LocationBarHost.tsx) — "a separate window" in Electron, "a new tab" on web.
+const isElectron = import.meta.env.VITE_TARGET !== 'web';
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -79,6 +80,7 @@ function writeHintAcknowledged(): void {
 
 function ChatInPlaceHint() {
   const [acknowledged, setAcknowledged] = useState(readHintAcknowledged);
+  const pendingUnmountWriteRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const dismiss = useCallback(() => {
     writeHintAcknowledged();
@@ -88,15 +90,21 @@ function ChatInPlaceHint() {
   // t/4802 (Design, matching DebateInPlaceHint/t/4801): dismiss on Esc, or on the first navigation
   // away from the item place. ChatDetailContent only renders while an item is open, so this
   // component's own unmount *is* "navigated away" — no separate navigation listener needed.
+  //
+  // t/4818: the unmount write is debounced through a ref-held timeout rather than fired straight
+  // from the cleanup. React StrictMode's dev-only double-invoke (mount -> cleanup -> mount) runs
+  // the re-mount synchronously, before a 0ms timeout fires, so it cancels the phantom write; a
+  // genuine unmount has no following re-mount to cancel it, so the real write still lands.
   useEffect(() => {
     if (acknowledged) return;
+    clearTimeout(pendingUnmountWriteRef.current);
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') dismiss();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      writeHintAcknowledged();
+      pendingUnmountWriteRef.current = setTimeout(writeHintAcknowledged, 0);
     };
   }, [acknowledged, dismiss]);
 

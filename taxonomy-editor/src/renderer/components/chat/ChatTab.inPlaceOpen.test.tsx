@@ -7,6 +7,7 @@
 // only confirm ChatTab doesn't intercept or duplicate it. Also covers the detail-vs-library branch
 // and the one-time first-open hint.
 
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
@@ -141,12 +142,39 @@ describe('ChatTab — table mode in-place open (t/4690)', () => {
   // t/4802 (Design): dismiss on the first navigation away from the item place. ChatDetailContent
   // only renders while an item is open, so leaving the chat unmounts ChatInPlaceHint.
   it('dismisses the hint on navigating away without using Got it', () => {
-    chatStoreState.activeChatId = 'chat-1';
-    const { unmount } = render(<ChatTab />);
-    expect(screen.getByText(/Opens here now/)).toBeTruthy();
-    expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBeNull();
+    vi.useFakeTimers();
+    try {
+      chatStoreState.activeChatId = 'chat-1';
+      const { unmount } = render(<ChatTab />);
+      expect(screen.getByText(/Opens here now/)).toBeTruthy();
+      expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBeNull();
 
-    unmount();
-    expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+      unmount();
+      // t/4818: the unmount write is debounced (setTimeout(0)) so StrictMode's dev-only
+      // double-invoke can cancel a phantom write — a real unmount still writes once the timer fires.
+      vi.runAllTimers();
+      expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // t/4818: React.StrictMode's dev-only double-invoke (effect -> cleanup -> effect, synchronously
+  // within one render) must not persist "ack" while the hint is still mounted and showing.
+  it('does not persist ack under StrictMode double-invoke while still mounted', () => {
+    vi.useFakeTimers();
+    try {
+      chatStoreState.activeChatId = 'chat-1';
+      render(
+        <StrictMode>
+          <ChatTab />
+        </StrictMode>,
+      );
+      expect(screen.getByText(/Opens here now/)).toBeTruthy();
+      vi.runAllTimers();
+      expect(localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
