@@ -11,6 +11,7 @@ const { mockApi } = vi.hoisted(() => ({
     startInquiry: vi.fn(),
     getInquiry: vi.fn(),
     listInquiries: vi.fn(),
+    loadCommunityInquiry: vi.fn(),
   },
 }));
 
@@ -230,6 +231,36 @@ describe('useInquiryStore', () => {
 
       expect(useInquiryStore.getState().status).toBe('failed');
       expect(useInquiryStore.getState().error).toBe('not found');
+    });
+  });
+
+  describe('openCommunityResult() (t/4823 regression — blank panel)', () => {
+    const result = { schemaVersion: 1, request: { question: 'q', fidelity: 'standard' }, campVerdicts: [], convergences: [], evidenceLayers: [], unresolvedGaps: [], calibration: [], derivation: { fidelity: 'standard', models: {}, rounds: 4, callBudget: 150 }, grounding: {}, singleRunCaveat: 'n=1' };
+
+    it('while the fetch is in flight, jobId is null but screen() is "running" — never the unrendered "ask" value', async () => {
+      let resolveFetch: (v: unknown) => void = () => {};
+      mockApi.loadCommunityInquiry.mockReturnValueOnce(new Promise((resolve) => { resolveFetch = resolve; }));
+
+      const promise = useInquiryStore.getState().openCommunityResult('community-1');
+
+      // InquiryTab.tsx's screen-switch has no 'ask' case (t/4666) — if screen() ever reports
+      // 'ask' here, the panel renders a bare empty div. jobId is genuinely null for a community
+      // result (there's no job to poll), so screen() must key off status, not jobId, to land on
+      // a case the switch actually handles.
+      expect(useInquiryStore.getState().jobId).toBeNull();
+      expect(useInquiryStore.getState().screen()).toBe('running');
+
+      resolveFetch(result);
+      await promise;
+      expect(useInquiryStore.getState().screen()).toBe('answer');
+    });
+
+    it('a failed fetch still leaves screen() off "ask" (status becomes failed, not null)', async () => {
+      mockApi.loadCommunityInquiry.mockRejectedValue(new Error('not found'));
+
+      await useInquiryStore.getState().openCommunityResult('community-missing');
+
+      expect(useInquiryStore.getState().screen()).not.toBe('ask');
     });
   });
 });
