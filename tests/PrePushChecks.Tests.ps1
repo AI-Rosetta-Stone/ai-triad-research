@@ -68,6 +68,61 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
     }
 }
 
+Describe 'pre-push-checks.sh --check-link (t/4816)' -Tag 'devops' {
+    <#
+    .DESCRIPTION
+        check_node_modules_link refuses a node_modules that resolves (symlink/junction) outside
+        the repo root -- the t/4815 shape, where a worktree's node_modules linked to the shared
+        checkout's and a pnpm invocation there rewrote the shared links.
+    #>
+
+    BeforeAll {
+        $script:Sh = (Get-Command sh -ErrorAction SilentlyContinue).Source
+        if (-not $script:Sh -and (Test-Path 'C:\Program Files\Git\bin\sh.exe')) { $script:Sh = 'C:\Program Files\Git\bin\sh.exe' }
+        $script:Checks = Join-Path $PSScriptRoot '../operations/devops/pre-push-checks.sh'
+        $script:Root = (& git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
+        $script:Scratch = Join-Path $script:Root 'scratch_t4816_nm_test'
+        $script:Outside = Join-Path $env:TEMP 't4816_outside_nm'
+        function Test-Link([string]$RelPath) {
+            Push-Location $script:Root
+            try { & $script:Sh $script:Checks --check-link $RelPath 2>&1 | Out-Null; return $LASTEXITCODE }
+            finally { Pop-Location }
+        }
+        function Remove-ScratchPaths {
+            # A junction whose target was already removed can make Remove-Item throw a
+            # PSArgumentException that -ErrorAction SilentlyContinue does not suppress; this
+            # cleanup is best-effort, so swallow it rather than fail the test run over it.
+            try { Remove-Item -Recurse -Force $script:Scratch -ErrorAction Stop } catch {}
+            try { Remove-Item -Recurse -Force $script:Outside -ErrorAction Stop } catch {}
+        }
+    }
+
+    BeforeEach {
+        if (-not $script:Sh) { Set-ItResult -Skipped -Because 'no POSIX sh available' }
+        Remove-ScratchPaths
+    }
+
+    AfterAll {
+        Remove-ScratchPaths
+    }
+
+    It 'passes (exit 0) when node_modules is absent' {
+        Test-Link 'scratch_t4816_nm_test/node_modules' | Should -Be 0
+    }
+
+    It 'passes (exit 0) when node_modules is a real directory inside the root' {
+        New-Item -ItemType Directory -Force -Path (Join-Path $script:Scratch 'node_modules') | Out-Null
+        Test-Link 'scratch_t4816_nm_test/node_modules' | Should -Be 0
+    }
+
+    It 'refuses (exit 1) when node_modules is a junction resolving outside the root' {
+        New-Item -ItemType Directory -Force -Path $script:Scratch | Out-Null
+        New-Item -ItemType Directory -Force -Path $script:Outside | Out-Null
+        cmd /c "mklink /J `"$($script:Scratch)\node_modules`" `"$($script:Outside)`"" | Out-Null
+        Test-Link 'scratch_t4816_nm_test/node_modules' | Should -Be 1
+    }
+}
+
 Describe '.githooks/pre-push ref handling' -Tag 'devops' {
 
     BeforeAll {

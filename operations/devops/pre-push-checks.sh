@@ -38,6 +38,31 @@ cd "$ROOT" || exit 0
 is_ts() { case "$1" in *.ts|*.tsx|*.mts|*.cts) return 0 ;; esac; return 1; }
 is_lintable() { case "$1" in *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs) return 0 ;; esac; return 1; }
 
+# check_node_modules_link <node_modules dir> -> 0 if absent or resolves inside $ROOT, 1 if it
+# resolves outside (symlink/junction to another checkout). A pnpm invocation through such a
+# link writes through it into whatever it targets -- t/4815 was a worktree's node_modules
+# junctioned to the shared checkout's, so `pnpm exec` in the worktree rewrote shared links.
+#
+# Both sides are re-resolved via `pwd -P` (not compared against $ROOT directly): git
+# rev-parse's path style (e.g. C:/Users/...) can differ from pwd -P's (e.g. /c/Users/...
+# under Git Bash) for the SAME directory, which falsely flagged a real, non-linked directory
+# as "outside" when compared against $ROOT as-is (t/4816).
+check_node_modules_link() {
+  nm="$1"
+  [ -d "$nm" ] || return 0
+  real=$(cd "$nm" 2>/dev/null && pwd -P) || return 0
+  rootreal=$(cd "$ROOT" 2>/dev/null && pwd -P) || return 0
+  case "$real" in
+    "$rootreal"/*|"$rootreal") return 0 ;;
+    *)
+      echo "pre-push: ERROR $nm resolves to '$real', outside this worktree root '$ROOT' (symlink/junction?)." >&2
+      echo "pre-push:   Running pnpm here would write through the link into whatever it points at (t/4815)." >&2
+      echo "pre-push:   Fix: remove the link and run 'pnpm install' directly inside this worktree." >&2
+      return 1
+      ;;
+  esac
+}
+
 # plan_for <file list on stdin> -> prints one check per line: "<pkg>|<kind>|<arg>"
 plan_for() {
   te_lint=""; te_ts=0; lib_lint=""; lib_ts=0; related=""
@@ -68,6 +93,13 @@ if [ "$1" = "--plan" ]; then
   exit 0
 fi
 
+# Test-only entry point for check_node_modules_link (t/4816): exercises the guard without a
+# full base/head run, so a scratch junction/symlink can be asserted refused or passed directly.
+if [ "$1" = "--check-link" ]; then
+  check_node_modules_link "$2"
+  exit $?
+fi
+
 BASE=$1; HEAD=$2
 if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
   echo "usage: pre-push-checks.sh <base-sha> <head-sha> | --plan <path>..." >&2; exit 0
@@ -81,6 +113,11 @@ PLAN=$(echo "$CHANGED" | plan_for)
 if ! command -v pnpm >/dev/null 2>&1; then
   echo "pre-push: WARN pnpm not found; skipping TypeScript checks (CI will still run them)." >&2; exit 0
 fi
+
+# Root node_modules link check (t/4816), before any pnpm call: 2 of 3 real instances found
+# alongside t/4815 were root-level junctions, not per-package ones, and pnpm reads the root
+# workspace link store on every invocation regardless of which package's checks run.
+check_node_modules_link "$ROOT/node_modules" || exit 1
 
 # Uncommitted code anywhere under the checked packages (pushed files or not, tracked or
 # untracked) makes a failure unattributable: tsc and vitest check the whole tree, so another
@@ -108,6 +145,7 @@ for step in $PLAN; do
 '
     continue
   fi
+  check_node_modules_link "$ROOT/$pkg/node_modules" || exit 1
   start=$(date +%s)
   case "$kind" in
     eslint)         label="$pkg: eslint (changed files)"; ( cd "$ROOT/$pkg" && pnpm exec eslint --no-warn-ignored $arg ) ;;
