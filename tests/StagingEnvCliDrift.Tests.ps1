@@ -65,7 +65,7 @@ Describe 'Get-BicepParamDefault' {
     It 'extracts freePoolDailyCallsCapStaging''s declared default from the real main.bicep' {
         $bicepPath = Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep'
         $text = Get-Content $bicepPath -Raw
-        Get-BicepParamDefault -BicepText $text -ParamName 'freePoolDailyCallsCapStaging' | Should -Be '5'
+        Get-BicepParamDefault -BicepText $text -ParamName 'freePoolDailyCallsCapStaging' | Should -Be '1500'
     }
 
     It "extracts each t/4738 container param's declared default from the real main.bicep" -ForEach @(
