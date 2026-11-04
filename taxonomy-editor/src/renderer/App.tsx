@@ -11,6 +11,7 @@ import { initDebateSessions, useDebateStore } from './hooks/useDebateStore';
 import { useChatStore } from './hooks/useChatStore';
 import { useOpEdStore } from './hooks/useOpEdStore';
 import { useInquiryStore } from './hooks/useInquiryStore';
+import { usePreferencesStore } from './store/preferencesStore';
 import { useAppRoute } from './routing/useAppRoute';
 import { installNavSubscriber } from './navigation/subscriber';
 import { restorePath } from './navigation/restore';
@@ -408,6 +409,16 @@ function MainApp() {
         void initAIModels().then(() => bootstrapAfterModelsLoaded(() => useTaxonomyStore.getState().loadAll()));
       }
     });
+  }, []);
+
+  // t/4863: hydrate() was never called in production, so saved preferences (the rail's
+  // Simple/Advanced, node-detail's What/Why/How tab group) always reset to their defaults on
+  // every launch — only the write side (set-preferences) ever ran. Independent of the
+  // data-availability bootstrap above: preferences aren't data-root dependent. The store's own
+  // startup race guard (nodeDetailTabGroupTouched, t/4574#11) already covers a choice made
+  // before this resolves.
+  useEffect(() => {
+    void usePreferencesStore.getState().hydrate();
   }, []);
 
   // Poll copy status while showFirstRun is true in web mode
