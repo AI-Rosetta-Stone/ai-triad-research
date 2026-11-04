@@ -14,6 +14,20 @@ export type Category = 'Desires' | 'Beliefs' | 'Intentions';
 
 export type FallacyTier = 'formal' | 'informal_structural' | 'informal_contextual' | 'cognitive_bias';
 
+export type IssueType = 'loss_of_control' | 'misuse' | 'power_concentration' | 'economic' | 'political' | 'social';
+
+export type ClassificationMethod = 'llm' | 'human' | 'llm+human_review';
+
+export interface IssueTypeProvenance {
+  method: ClassificationMethod;
+  model: string;
+  prompt_version: string;
+  run_id: string;
+  classified_at: string;
+  confidence: Record<string, number>;
+  rationale: string;
+}
+
 export interface PossibleFallacy {
   fallacy: string;
   /** Fallacy tier — required on new entries, absent on pre-standard data. */
@@ -56,6 +70,10 @@ export interface GraphAttributes {
    *  to route ai-retrieved/unverified nodes to the RETRIEVED CONTEXT block instead of the
    *  debater's grounding block, preventing false-claim laundering via structural authority. */
   verification_status?: 'curated' | 'ai-retrieved' | 'unverified';
+  /** Issue-type category tags (1–3 values). Optional until corpus write lands (t/4828-F). */
+  issue_types?: IssueType[];
+  /** Classification metadata for issue_types (method, model, confidence, rationale). */
+  issue_types_provenance?: IssueTypeProvenance;
 }
 
 // ── Debate-Tested (t/1523, Phase 0) ──────────────────────────────────────
