@@ -37,7 +37,7 @@ function mockRes(): http.ServerResponse & { statusCode: number; body: string } {
   return r as unknown as http.ServerResponse & { statusCode: number; body: string };
 }
 function asUser<T>(storageUserId: string, fn: () => T): T {
-  const c: UserContext = { principalName: storageUserId, idp: 'github', storageUserId, isAnonymous: false };
+  const c: UserContext = { principalName: storageUserId, idp: 'github', storageUserId, stableId: `github:${storageUserId}`, isAnonymous: false };
   return runWithUser(c, fn);
 }
 function handlerFor(method: string, path: string): (req: unknown, res: unknown, body: unknown) => Promise<void> {
@@ -46,7 +46,7 @@ function handlerFor(method: string, path: string): (req: unknown, res: unknown, 
   return routes.find(r => r.method === method && r.path === path)!.handler;
 }
 
-beforeEach(() => { prevAdminUsers = process.env.ADMIN_USERS; process.env.ADMIN_USERS = ADMIN_ID; });
+beforeEach(() => { prevAdminUsers = process.env.ADMIN_USERS; process.env.ADMIN_USERS = `github:${ADMIN_ID}` /* t/4328: idp-qualified entry */; });
 afterEach(() => { if (prevAdminUsers === undefined) delete process.env.ADMIN_USERS; else process.env.ADMIN_USERS = prevAdminUsers; });
 
 describe('t/2645 — data mutation routes require admin (before any git op)', () => {

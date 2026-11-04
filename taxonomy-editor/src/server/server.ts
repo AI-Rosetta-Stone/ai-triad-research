@@ -1089,18 +1089,16 @@ function isWebSocketAuthorized(req: http.IncomingMessage): boolean {
 // admins. AUTH_DISABLED is single-operator local/dev mode (L1 forbids it in
 // production), so the local operator keeps terminal access; every authenticated
 // deployment requires an admin user. Runs outside the per-request ALS context,
-// so the userId is derived from the principal headers directly.
+// so the stableId is derived from the principal headers directly (t/4328: admin
+// matches the idp-qualified stableId only, never a bare storage id).
 function isTerminalWebSocketAllowed(req: http.IncomingMessage): boolean {
   const principalName = AZURE_AUTH_ENABLED
     ? (req.headers['x-ms-client-principal-name'] as string) || ''
     : '';
-  const idp = AZURE_AUTH_ENABLED
-    ? (req.headers['x-ms-client-principal-idp'] as string) || ''
-    : '';
   return isTerminalAccessAllowed({
     authDisabled: process.env.AUTH_DISABLED === '1',
     principalName,
-    isAdmin: !!principalName && community.isAdmin(deriveStorageUserId(principalName, idp)),
+    isAdmin: !!principalName && community.isAdminStableId(getRequestStableId(req)),
   });
 }
 
@@ -1347,6 +1345,7 @@ server.listen(PORT, BIND_HOST, () => {
   if (isNonLoopbackDevBind(process.env)) {
     log.security.warn({ host: BIND_HOST }, 'HOST override → binding a non-loopback interface in dev; the REST API is exposed beyond localhost');
   }
+  community.validateAdminEntries(); // t/4328 C3: warn (counts only) on bare ADMIN_USERS entries that can never match
   serverRecorder.record({ type: 'lifecycle', component: 'server', level: 'info', message: 'Server started', data: { port: PORT, host: BIND_HOST, version: SERVER_VERSION, dataRoot: getDataRoot(), platform: process.platform, arch: process.arch, storageMode: STORAGE_MODE } });
   log.server.info({ port: PORT, host: BIND_HOST }, 'Taxonomy Editor running');
   log.server.info({ dataRoot: getDataRoot() }, 'Data root');

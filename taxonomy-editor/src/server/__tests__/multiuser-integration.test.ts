@@ -60,6 +60,7 @@ function makeUserCtx(
     idp,
     storageUserId: deriveStorageUserId(principalName, idp),
     isAnonymous: false,
+    stableId: `${idp}:${principalName}`, // t/4328: admin keys on the idp-qualified stableId
   };
 }
 
@@ -398,7 +399,7 @@ describe('Community Library workflow (integration)', () => {
     mem = new MemoryBackend();
     DATA_ROOT = path.resolve(process.cwd(), '__test_data__');
     vi.stubEnv('AI_TRIAD_DATA_ROOT', DATA_ROOT);
-    vi.stubEnv('ADMIN_USERS', 'jpsnover');
+    vi.stubEnv('ADMIN_USERS', 'github:jpsnover'); // t/4328: idp-qualified; bare entries never match
 
     vi.resetModules();
     userContext = await import('../security/userContext.js');

@@ -39,7 +39,7 @@ function mockRes(): http.ServerResponse & { statusCode: number; body: string } {
   return r as unknown as http.ServerResponse & { statusCode: number; body: string };
 }
 function asAdmin<T>(fn: () => T): T {
-  const c: UserContext = { principalName: ADMIN_ID, idp: 'github', storageUserId: ADMIN_ID, isAnonymous: false };
+  const c: UserContext = { principalName: ADMIN_ID, idp: 'github', storageUserId: ADMIN_ID, stableId: `github:${ADMIN_ID}`, isAnonymous: false };
   return runWithUser(c, fn);
 }
 function setRootHandler(): (req: unknown, res: unknown, body: unknown) => Promise<void> {
@@ -50,7 +50,7 @@ function setRootHandler(): (req: unknown, res: unknown, body: unknown) => Promis
 
 beforeEach(() => {
   prevAdminUsers = process.env.ADMIN_USERS;
-  process.env.ADMIN_USERS = ADMIN_ID;
+  process.env.ADMIN_USERS = `github:${ADMIN_ID}`; // t/4328: idp-qualified entry
   prevNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = 'test'; // non-production baseline
   cfgMock.storageMode = 'filesystem';
