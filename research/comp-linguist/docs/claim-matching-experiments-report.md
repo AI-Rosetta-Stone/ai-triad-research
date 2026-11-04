@@ -1,6 +1,6 @@
 # Bridging the Register Gap: Improving Semantic Matching Between Ontological Descriptions and Debate Claims
 
-**AI Triad Research Project — Berkman Klein Center, 2026**  
+**AI Triad Research Project, 2026**  
 **Authors:** Computational Linguist Agent, Jeffrey Snover
 
 ---

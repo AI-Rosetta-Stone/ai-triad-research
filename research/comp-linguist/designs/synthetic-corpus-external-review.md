@@ -4,7 +4,7 @@
 
 ## 1. Project Context
 
-AI Triad Research is a multi-perspective research platform for AI policy and safety discourse, developed at the Berkman Klein Center (2026). The project maintains a **taxonomy** of positions organized by three points of view (POVs):
+AI Triad Research is a multi-perspective research platform for AI policy and safety discourse (2026). The project maintains a **taxonomy** of positions organized by three points of view (POVs):
 
 - **Accelerationist** (acc) — pro-development, techno-optimist positions
 - **Safetyist** (saf) — safety-first, risk-mitigation positions  
