@@ -211,4 +211,46 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             $Result.AgreementRate | Should -Be 1
         }
     }
+
+    It 'retries once on a failed/invalid response and succeeds on the retry (TL condition, t/4833#5)' {
+        InModuleScope AITriad {
+            $script:TaxonomyData = @{
+                acc = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id = 'acc-beliefs-012'; label = 'Retry-success node'; description = 'About misuse.'; category = 'Beliefs' }
+                ) }
+            }
+            $script:retryCallN = 0
+            Mock Invoke-AIApi {
+                $script:retryCallN++
+                if ($script:retryCallN -eq 1) {
+                    [PSCustomObject]@{ Text = '{"types":["not_a_real_type"],"confidence":{},"rationale":"bad"}'; Usage = $null }
+                } else {
+                    [PSCustomObject]@{ Text = '{"types":["misuse"],"confidence":{"misuse":0.9},"rationale":"good on retry"}'; Usage = $null }
+                }
+            }
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-012') -SkipCrossCheck -WarningAction SilentlyContinue
+            Should -Invoke Invoke-AIApi -Times 2 -Exactly
+            $Result.Skipped | Should -Be 0
+            $Result.Proposed | Should -Be 1
+        }
+    }
+
+    It 'skips only after BOTH the original attempt and the retry fail, with exactly 2 calls made' {
+        InModuleScope AITriad {
+            $script:TaxonomyData = @{
+                acc = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id = 'acc-beliefs-013'; label = 'Retry-fail node'; description = 'Always invalid.'; category = 'Beliefs' }
+                ) }
+            }
+            Mock Invoke-AIApi {
+                [PSCustomObject]@{ Text = '{"types":["not_a_real_type"],"confidence":{},"rationale":"bad"}'; Usage = $null }
+            }
+            $Result = Invoke-IssueTypeClassification -NodeIds @('acc-beliefs-013') -SkipCrossCheck -WarningAction SilentlyContinue
+            Should -Invoke Invoke-AIApi -Times 2 -Exactly
+            $Result.Skipped | Should -Be 1
+            $Result.Failed | Should -Contain 'acc-beliefs-013'
+            # The TL's invariant: every requested node ends up either proposed or skipped.
+            ($Result.Proposed + $Result.Skipped) | Should -Be 1
+        }
+    }
 }

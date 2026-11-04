@@ -199,6 +199,14 @@ function Invoke-IssueTypeClassification {
         $Category = if ($Node.PSObject.Properties['category'] -and $Node.category) { [string]$Node.category } else { 'none' }
         $Description = if ($Node.PSObject.Properties['description']) { [string]$Node.description } else { '' }
 
+        # Always returns a result (never $null): .Success distinguishes a usable classification
+        # from a failed one, and .InputTokens/.OutputTokens are recorded whenever the AI call
+        # itself succeeded, even if the response later fails validation -- those are real tokens
+        # spent and must still be costed (t/4835 TL condition, t/4833#5).
+        $Result = [PSCustomObject]@{
+            Success = $false; Types = @(); Confidence = [ordered]@{}; Rationale = ''
+            InputTokens = 0; OutputTokens = 0; Model = $M
+        }
         try {
             $Prompt = Get-Prompt -Name 'issue-type-classification' -Replacements @{
                 pov           = $Pov
@@ -209,6 +217,7 @@ function Invoke-IssueTypeClassification {
             }
             $Ai = Invoke-AIApi -Prompt $Prompt -Model $M -ApiKey $ApiKey `
                 -Temperature 0.1 -MaxTokens 400 -ResponseSchema $ResponseSchema -TimeoutSec 30
+            if ($Ai -and $Ai.Usage) { $Result.InputTokens = [int]$Ai.Usage.InputTokens; $Result.OutputTokens = [int]$Ai.Usage.OutputTokens }
             if (-not $Ai -or -not $Ai.Text) { throw 'empty response' }
 
             $CleanText = $Ai.Text -replace '(?s)^```json\s*', '' -replace '(?s)\s*```$', ''
@@ -230,19 +239,27 @@ function Invoke-IssueTypeClassification {
             $Rationale = if ($Parsed.PSObject.Properties['rationale']) { [string]$Parsed.rationale } else { '' }
             if ($Rationale.Length -gt 300) { $Rationale = $Rationale.Substring(0, 300) }
 
-            [PSCustomObject]@{
-                Types       = @($Types)
-                Confidence  = $Confidence
-                Rationale   = $Rationale
-                InputTokens = if ($Ai.Usage) { [int]$Ai.Usage.InputTokens } else { 0 }
-                OutputTokens = if ($Ai.Usage) { [int]$Ai.Usage.OutputTokens } else { 0 }
-                Model       = $M
-            }
+            $Result.Types = @($Types)
+            $Result.Confidence = $Confidence
+            $Result.Rationale = $Rationale
+            $Result.Success = $true
         }
         catch {
-            Write-Warning "Invoke-IssueTypeClassification: classification failed for '$NodeId' with model '$M' — skipping this node this call: $($_.Exception.Message)"
-            $null
+            Write-Warning "Invoke-IssueTypeClassification: classification failed for '$NodeId' with model '$M': $($_.Exception.Message)"
         }
+        $Result
+    }
+
+    # One retry on failure (TL condition, t/4833#5): an invalid/failed response is retried once
+    # before being counted as skipped, so a transient parse/response hiccup doesn't drop a node
+    # from the run. Both attempts' token usage (if any) are returned for costing.
+    $ClassifyWithRetry = {
+        param($Node, [string]$M)
+        $Attempt1 = & $Classify $Node $M
+        if ($Attempt1.Success) { return , @($Attempt1) }
+        Write-Warning "Invoke-IssueTypeClassification: retrying '$([string]$Node.id)' with model '$M' once"
+        $Attempt2 = & $Classify $Node $M
+        return , @($Attempt1, $Attempt2)
     }
 
     # ── Cost tracking (actual, not estimated — t/4835 report requirement) ───
@@ -269,16 +286,25 @@ function Invoke-IssueTypeClassification {
     foreach ($Node in $Targets) {
         $NodeId = [string]$Node.id
 
-        $Primary = & $Classify $Node $Model
-        if (-not $Primary) { $Skipped++; $Failed.Add($NodeId); continue }
-        $CostEntries.Add([PSCustomObject]@{ modelId = $Model; promptTokens = $Primary.InputTokens; completionTokens = $Primary.OutputTokens })
+        # No @()-wrap here: $ClassifyWithRetry already returns `,@(...)`, a single protected
+        # pipeline object -- wrapping the CALL in @() nests it one level deeper (same class of
+        # bug as t/4742's postmortem). Assign directly; it unrolls correctly.
+        $PrimaryAttempts = & $ClassifyWithRetry $Node $Model
+        foreach ($a in $PrimaryAttempts) { $CostEntries.Add([PSCustomObject]@{ modelId = $Model; promptTokens = $a.InputTokens; completionTokens = $a.OutputTokens }) }
+        $Primary = $PrimaryAttempts[-1]
+        if (-not $Primary.Success) {
+            $Skipped++; $Failed.Add($NodeId)
+            Write-Warning "Invoke-IssueTypeClassification: '$NodeId' failed classification twice (original + 1 retry) — skipping"
+            continue
+        }
 
         $SecondTypes = $null
         $Agree = $null
         if (-not $SkipCrossCheck) {
-            $Second = & $Classify $Node $SecondModel
-            if ($Second) {
-                $CostEntries.Add([PSCustomObject]@{ modelId = $SecondModel; promptTokens = $Second.InputTokens; completionTokens = $Second.OutputTokens })
+            $SecondAttempts = & $ClassifyWithRetry $Node $SecondModel
+            foreach ($a in $SecondAttempts) { $CostEntries.Add([PSCustomObject]@{ modelId = $SecondModel; promptTokens = $a.InputTokens; completionTokens = $a.OutputTokens }) }
+            $Second = $SecondAttempts[-1]
+            if ($Second.Success) {
                 $SecondTypes = @($Second.Types)
                 $PrimaryTop = if (@($Primary.Types).Count -gt 0) { $Primary.Types[0] } else { $null }
                 $SecondTop  = if (@($SecondTypes).Count -gt 0) { $SecondTypes[0] } else { $null }
