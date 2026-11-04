@@ -57,9 +57,17 @@ export function DebateInPlaceHint() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [acknowledged]);
 
+  // Always cancel pending writes on unmount, regardless of acknowledged state (Ref: p/376#157).
+  // In StrictMode double-unmount, this ensures the first unmount's setTimeout(0) is cancelled
+  // before the component re-mounts, preventing a stale write.
   useEffect(() => {
     return () => {
       if (pendingWriteRef.current !== null) clearTimeout(pendingWriteRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
       if (!acknowledged) {
         pendingWriteRef.current = setTimeout(() => {
           writeDebateHintAcknowledged();
