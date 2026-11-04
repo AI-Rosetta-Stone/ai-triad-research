@@ -340,7 +340,8 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  /* t/4824 (Design): --text-muted fails AA (3.57/3.31 in harvard/bkc) — --text-secondary clears it (6.00-8.33). */
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -597,7 +598,8 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  /* t/4824 (Design): matches .chat-question-eyebrow's fix — --text-secondary, not --text-muted. */
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -652,7 +654,8 @@
 .chat-how-unavailable {
   margin: 0;
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  /* t/4824 (Design): --text-muted fails AA here too — --text-secondary clears it. */
+  color: var(--text-secondary);
   font-style: italic;
 }
 
