@@ -459,17 +459,8 @@ jobs:
       # made this step SLOWER (165-204s vs 45-78s for full checkouts in the same run): with
       # sparse-checkout set, actions/checkout fetches --filter=blob:none and then lazily fetches
       # every needed blob at checkout, which is far slower than one depth-1 pack.
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       # Node + tsx required by parity tests (-Tag parity) in t/2609.
       # tsx must be available so the no-silent-skip guard fires on absence.
@@ -877,17 +868,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1066,17 +1048,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1257,17 +1230,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1404,17 +1368,10 @@ jobs:
       # data repo, the import warns "no valid JSON files loaded" into ModelLiteralLint's emitter
       # stdout and 3 of its tests fail on a polluted JSON array (t/4150#4). Same checkout as the
       # test-powershell shards.
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: jpsnover/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      # (t/4841: repository was still "jpsnover/ai-triad-data", a stale org-move leftover --
+      # every other call site uses AI-Rosetta-Stone/ai-triad-data.)
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1854,17 +1811,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         continue-on-error: true
@@ -1901,17 +1849,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -2201,12 +2140,12 @@ jobs:
           HF_HUB_OFFLINE: '1'
           TRANSFORMERS_OFFLINE: '1'
         run: python .github/ci/assert_embed_stability.py
-      - name: Checkout data repo (composition-drift gate, t/2430)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Checkout data repo (composition-drift gate, t/2430; cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
         with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
+          continue-on-error: 'false'
           token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          symlink: 'false'
       - name: Composition-drift gate — selftest + blocking (t/2430)
         env:
           AI_TRIAD_DATA_ROOT: ${{ github.workspace }}/ai-triad-data
@@ -2485,17 +2424,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout data repo
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        continue-on-error: true
-        with:
-          repository: AI-Rosetta-Stone/ai-triad-data
-          path: ai-triad-data
-          fetch-depth: 1
-
-      - name: Symlink data repo to expected location
-        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
-        continue-on-error: true
+      - name: Checkout data repo (cached, t/4841)
+        uses: ./.github/actions/checkout-ai-triad-data
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
