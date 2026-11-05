@@ -42,6 +42,12 @@ export const ParentRelationshipSchema = z.enum(['is_a', 'part_of', 'specializes'
 
 export const DisagreementTypeSchema = z.enum(['definitional', 'interpretive', 'structural']);
 
+export const IssueTypeSchema = z.enum([
+  'loss_of_control', 'misuse', 'power_concentration', 'economic', 'political', 'social',
+]);
+
+export const ClassificationMethodSchema = z.enum(['llm', 'human', 'llm+human_review']);
+
 // ── Genus-differentia description patterns ────────────────
 
 /** POV node descriptions must follow: "A [Category] within [POV] discourse that [differentia]..." */
@@ -68,6 +74,16 @@ export const SteelmanVulnerabilitySchema = z.union([
   }),
 ]);
 
+export const IssueTypeProvenanceSchema = z.object({
+  method: ClassificationMethodSchema,
+  model: z.string(),
+  prompt_version: z.string(),
+  run_id: z.string().uuid(),
+  classified_at: z.string().datetime(),
+  confidence: z.record(z.string(), z.number().min(0).max(1)),
+  rationale: z.string().max(300),
+});
+
 export const GraphAttributesSchema = z.strictObject({
   epistemic_type: z.string().optional(),
   rhetorical_strategy: z.string().optional(),
@@ -84,6 +100,10 @@ export const GraphAttributesSchema = z.strictObject({
   steelman_vulnerability: SteelmanVulnerabilitySchema.optional(),
   possible_fallacies: z.array(PossibleFallacySchema).optional(),
   node_scope: NodeScopeSchema.optional(),
+  issue_types: z.array(IssueTypeSchema).max(3)
+    .refine(arr => new Set(arr).size === arr.length, 'issue_types must not contain duplicates')
+    .optional(),
+  issue_types_provenance: IssueTypeProvenanceSchema.optional(),
 });
 
 // ── Taxonomy node schemas ─────────────────────────────────
