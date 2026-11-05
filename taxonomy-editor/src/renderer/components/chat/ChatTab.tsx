@@ -24,6 +24,7 @@ import { ToolbarPaneRenderer, isFullWidthPanel, PhoneToolClose } from '../shared
 import { CopyLinkButton } from '../shared/CopyLinkButton';
 import { LineageDetailView } from '../shared/LineageDetailView';
 import { LibraryListPage } from '../shared/LibraryListPage';
+import type { LibraryEditModeAction } from '../shared/LibraryListPage.types';
 import { POVER_INFO } from '../../types/debate';
 import type { ChatSessionSummary, ChatMode, ChatSession } from '../../types/chat';
 import { api } from '@bridge';
@@ -576,6 +577,24 @@ function useNewChatDialog() {
   return { show, prefill, pickStarter, openUnprefilled, close };
 }
 
+// t/4896: All/None/Delete N/Done — same set as Debate's editModeActions minus Reset Order.
+// Pulled out of ChatTab (complexity-budget) rather than inlined, same reasoning as
+// ChatTableMode/NewChatDialogHost elsewhere in this file.
+function buildChatEditModeActions({ sessions, selectedIds, setSelectedIds, setShowBulkDeleteConfirm, exitEditMode }: {
+  sessions: ChatSessionSummary[];
+  selectedIds: Set<string>;
+  setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
+  setShowBulkDeleteConfirm: Dispatch<SetStateAction<boolean>>;
+  exitEditMode: () => void;
+}): LibraryEditModeAction[] {
+  return [
+    { label: 'All', onClick: () => setSelectedIds(new Set(sessions.map(s => s.id))) },
+    { label: 'None', onClick: () => setSelectedIds(new Set()) },
+    ...(selectedIds.size > 0 ? [{ label: `Delete ${selectedIds.size}`, variant: 'danger' as const, onClick: () => setShowBulkDeleteConfirm(true) }] : []),
+    { label: 'Done', onClick: exitEditMode },
+  ];
+}
+
 export function ChatTab() {
   const {
     sessions, sessionsLoading, loadSessions,
@@ -591,6 +610,12 @@ export function ChatTab() {
     pickStarter: handlePickStarter, openUnprefilled: handleNewChat, close: closeNewChatDialog,
   } = useNewChatDialog();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // t/4896: table-view edit mode (select + bulk delete), My rows only — mirrors DebateTab's
+  // editMode/selectedIds/showBulkDeleteConfirm state, minus Reset Order (Chat has no custom
+  // ordering).
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [selectedPromptEntry, setSelectedPromptEntry] = useState<PromptCatalogEntry | null>(PROMPT_CATALOG[0]);
   const [promptInspectorActive, setPromptInspectorActive] = useState(false);
   const [searchPreviewId, setSearchPreviewId] = useState<string | null>(null);
@@ -648,6 +673,15 @@ export function ChatTab() {
     });
   }, [copyItem, loadSessions]);
 
+  const exitEditMode = useCallback(() => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const editModeActions = buildChatEditModeActions({
+    sessions, selectedIds, setSelectedIds, setShowBulkDeleteConfirm, exitEditMode,
+  });
+
   const chatLibraryConfig = useMemo(() => buildChatLibraryListConfig({
     onRename: (id, newTitle) => { void renameChat(id, newTitle); },
     renamingId,
@@ -657,7 +691,18 @@ export function ChatTab() {
     onExportCommunity: handleExportChat,
     onShare: handleShareChat,
     onCopy: handleCopyChat,
-  }), [renameChat, renamingId, handleExportChat, handleShareChat, handleCopyChat]);
+    editModeActive: editMode,
+    onEditModeEnter: () => setEditMode(true),
+    onEditModeExit: exitEditMode,
+    editModeActions,
+    selectedIds,
+    onToggleSelect: (id) => setSelectedIds(prev => {
+      if (!sessions.some(s => s.id === id)) return prev; // guard: stray id can't reach bulk delete
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    }),
+  }), [renameChat, renamingId, handleExportChat, handleShareChat, handleCopyChat, editMode, exitEditMode, editModeActions, selectedIds, sessions]);
 
   useEffect(() => {
     void loadSessions();
@@ -789,6 +834,99 @@ export function ChatTab() {
       {showNewDialog && (
         <NewChatDialogHost prefill={chatPrefill} onClose={closeNewChatDialog} />
       )}
+
+      {showBulkDeleteConfirm && (
+        <ChatBulkDeleteDialog
+          sessions={sessions}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          setShowBulkDeleteConfirm={setShowBulkDeleteConfirm}
+          exitEditMode={exitEditMode}
+          deleteChat={deleteChat}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Table-view bulk delete confirmation (t/4896, mirrors DebateTab's BulkDeleteDialog) ──
+
+function ChatBulkDeleteDialog({
+  sessions, selectedIds, setSelectedIds, setShowBulkDeleteConfirm, exitEditMode, deleteChat,
+}: {
+  sessions: ChatSessionSummary[];
+  selectedIds: Set<string>;
+  setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
+  setShowBulkDeleteConfirm: Dispatch<SetStateAction<boolean>>;
+  exitEditMode: () => void;
+  deleteChat: (id: string) => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  // t/4896 (Design): a failed delete must not strand the dialog on "Deleting…" or hide which
+  // ones succeeded — track per-id outcome, keep the dialog open and the failed ids selected on
+  // any failure so the user can see what happened and retry just those.
+  const [partialError, setPartialError] = useState<{ deletedCount: number; total: number; failedTitles: string } | null>(null);
+
+  const handleConfirm = async () => {
+    setDeleting(true);
+    setPartialError(null);
+    const ids = Array.from(selectedIds);
+    const failedIds: string[] = [];
+    let deletedCount = 0;
+    for (const id of ids) {
+      try {
+        await deleteChat(id);
+        deletedCount++;
+      } catch (err) {
+        failedIds.push(id);
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'chat-tab', level: 'warn',
+          message: `Failed to delete chat ${id} during bulk delete (WARN: continuing with the remaining selected chats)`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+      }
+    }
+    setDeleting(false);
+    if (failedIds.length === 0) {
+      setShowBulkDeleteConfirm(false);
+      exitEditMode();
+      return;
+    }
+    setSelectedIds(new Set(failedIds));
+    const failedTitles = failedIds.map(id => sessions.find(s => s.id === id)?.title ?? id).join(', ');
+    setPartialError({ deletedCount, total: ids.length, failedTitles });
+  };
+
+  return (
+    <div className="dialog-overlay" onClick={() => !deleting && setShowBulkDeleteConfirm(false)}>
+      <div className="dialog chat-bulk-delete-dialog" onClick={e => e.stopPropagation()}>
+        <h3>Delete {selectedIds.size} chat{selectedIds.size !== 1 ? 's' : ''}?</h3>
+        <div className="chat-bulk-delete-list">
+          {sessions.filter(s => selectedIds.has(s.id)).map(s => (
+            <div key={s.id} className="chat-bulk-delete-item">
+              <span className="chat-bulk-delete-item-title">{s.title}</span>
+              <span className="chat-bulk-delete-item-meta">{MODE_LABELS[s.mode] || s.mode} &middot; {formatDate(s.updated_at)}</span>
+            </div>
+          ))}
+        </div>
+        {partialError ? (
+          <div className="chat-bulk-delete-error" role="alert">
+            Deleted {partialError.deletedCount} of {partialError.total}. Couldn't delete: {partialError.failedTitles}.
+          </div>
+        ) : (
+          <div className="chat-bulk-delete-note">This can't be undone.</div>
+        )}
+        <div className="dialog-actions">
+          <button className="btn" onClick={() => setShowBulkDeleteConfirm(false)} disabled={deleting}>Cancel</button>
+          <button
+            className="btn btn-danger"
+            disabled={deleting}
+            onClick={() => void handleConfirm()}
+          >
+            {deleting ? 'Deleting…' : `Delete ${selectedIds.size} chat${selectedIds.size !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@
 // set, and the data source/handlers. Header, tabs, search, row interaction, and the entire
 // actions column (Export ▾ / Share / Copy / toast) come from LibraryListPage itself.
 
-import type { LibraryListPageConfig, LibraryVariant } from '../shared/LibraryListPage.types';
+import type { LibraryListPageConfig, LibraryVariant, LibraryEditModeAction } from '../shared/LibraryListPage.types';
 import type { ChatSessionSummary, ChatMode } from '../../types/chat';
 import type { CommunityChat } from '../../hooks/useCommunityStore';
 import { CampGlyph, povToCamp } from '../shared/CampGlyph';
@@ -73,6 +73,14 @@ export interface ChatLibraryListDeps {
   onExportCommunity: (id: string, format: string) => void;
   onShare: (session: ChatSessionSummary) => void;
   onCopy: (chat: CommunityChat) => void;
+  // t/4896: table-view delete, My rows only (edit mode never applies to Community — same
+  // restriction Debates/Op-Eds already follow).
+  editModeActive: boolean;
+  onEditModeEnter: () => void;
+  onEditModeExit: () => void;
+  editModeActions: LibraryEditModeAction[];
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }
 
 export function buildChatLibraryListConfig(
@@ -82,7 +90,17 @@ export function buildChatLibraryListConfig(
     title: 'Chats',
     newLabel: '+ New Chat',
     onNew: deps.onNew,
-    showEdit: false,
+    showEdit: true,
+    editMode: {
+      active: deps.editModeActive,
+      onEnter: deps.onEditModeEnter,
+      onExit: deps.onEditModeExit,
+      actions: deps.editModeActions,
+      selectedIds: deps.selectedIds,
+      onToggleSelect: deps.onToggleSelect,
+      // No per-row rowActions — rename stays on the existing double-click-title flow, unaffected
+      // by edit mode (t/4896, unlike Debates' rename+reorder-in-edit-mode).
+    },
 
     // t/3703#8: anon sessions can save/delete their own ephemeral chats (accessControl.ts
     // isAnonUserContentRoute allows anon POST/PUT/DELETE on /api/chats*) — same shape as Op-Eds,
