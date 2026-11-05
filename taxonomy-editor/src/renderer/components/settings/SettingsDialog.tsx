@@ -10,6 +10,7 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { ColorScheme, AIBackend, AIModel } from '../../hooks/useTaxonomyStore';
 import { AI_BACKENDS, MODELS_BY_BACKEND, initAIModels } from '../../hooks/useTaxonomyStore';
 import { KeySharingDialog } from './KeySharingDialog';
+import { THEME_OPTIONS } from './themeOptions';
 import { useDescriptionMode, type DescriptionMode } from '../shared/DescriptionToggle';
 import { backendSelectState, type BackendAvailabilityEntry } from '../shared/backendSelectState';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
@@ -1019,11 +1020,9 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                 value={colorScheme}
                 onChange={(e) => setColorScheme(e.target.value as ColorScheme)}
               >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="bkc">BKC</option>
-                <option value="harvard">Harvard</option>
-                <option value="system">System</option>
+                {THEME_OPTIONS.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </div>
 
