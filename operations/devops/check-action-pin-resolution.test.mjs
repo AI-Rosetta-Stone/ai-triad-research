@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseActionPins } from './check-action-pin-resolution.mjs';
+import { parseActionPins, DEFINITIVE_NOT_FOUND_RE } from './check-action-pin-resolution.mjs';
 
 test('plain-key `uses:` form is parsed', () => {
   const pins = parseActionPins(new Map([['a.yml', '      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n']]));
@@ -58,4 +58,29 @@ test('different SHAs for the same action are both reported (not deduped by owner
 test('a line with no uses: key produces nothing', () => {
   const pins = parseActionPins(new Map([['a.yml', 'run: echo hi\n']]));
   assert.equal(pins.length, 0);
+});
+
+// t/4867 acceptance criterion: a transient API error must fail OPEN, not read as a
+// confirmed-bad pin. These pin the exact classification boundary against real `gh api`
+// error text (captured live against actions/cache, actions/checkout and a nonexistent
+// repo -- see the PR description), so a future regex edit can't silently widen or narrow
+// what counts as "definitely does not exist".
+test('DEFINITIVE_NOT_FOUND_RE: a 422 "no commit found" (real SHA-doesn\'t-exist shape) is definitive', () => {
+  assert.match('gh: No commit found for SHA: cf430e03... (HTTP 422)', DEFINITIVE_NOT_FOUND_RE);
+});
+
+test('DEFINITIVE_NOT_FOUND_RE: a 404 "not found" (nonexistent repo shape) is definitive', () => {
+  assert.match('gh: Not Found (HTTP 404)', DEFINITIVE_NOT_FOUND_RE);
+});
+
+test('DEFINITIVE_NOT_FOUND_RE: a rate-limit (403) is NOT definitive -- must fail open', () => {
+  assert.doesNotMatch('gh: API rate limit exceeded (HTTP 403)', DEFINITIVE_NOT_FOUND_RE);
+});
+
+test('DEFINITIVE_NOT_FOUND_RE: a 5xx server error is NOT definitive -- must fail open', () => {
+  assert.doesNotMatch('gh: Internal Server Error (HTTP 500)', DEFINITIVE_NOT_FOUND_RE);
+});
+
+test('DEFINITIVE_NOT_FOUND_RE: gh missing entirely (ENOENT, no HTTP status at all) is NOT definitive -- must fail open', () => {
+  assert.doesNotMatch('spawnSync gh ENOENT', DEFINITIVE_NOT_FOUND_RE);
 });

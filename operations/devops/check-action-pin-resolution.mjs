@@ -59,18 +59,29 @@ export function readWorkflowFiles(dir) {
   return map;
 }
 
+// t/4867 acceptance criterion: a transient API error (rate limit, timeout, 5xx, or `gh`
+// itself unavailable) must NOT read the same as a confirmed-bad pin -- only a definitive
+// "this SHA doesn't exist" response (404 repo-not-found, or 422 "No commit found for SHA"
+// on a real repo) is real drift. Anything else is INDETERMINATE: fail open, flag it as an
+// advisory, never block on it.
+export const DEFINITIVE_NOT_FOUND_RE = /HTTP 404|HTTP 422|No commit found for SHA/;
+
 /**
  * Impure shim: confirms a SHA exists on the given owner/repo via the GitHub API.
- * @returns {Promise<boolean>}
+ * @returns {Promise<{status: 'resolved'|'unresolved'|'indeterminate', detail?: string}>}
  */
 export async function resolvesOnGitHub(ownerRepo, sha) {
   try {
     execFileSync('gh', ['api', `repos/${ownerRepo}/commits/${sha}`], {
-      stdio: ['ignore', 'ignore', 'ignore'],
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
-    return true;
-  } catch {
-    return false;
+    return { status: 'resolved' };
+  } catch (err) {
+    const stderr = String(err.stderr ?? err.message ?? '');
+    if (DEFINITIVE_NOT_FOUND_RE.test(stderr)) {
+      return { status: 'unresolved', detail: stderr.trim() };
+    }
+    return { status: 'indeterminate', detail: stderr.trim() || '(no detail captured)' };
   }
 }
 
@@ -78,13 +89,15 @@ export async function scan(dir) {
   const files = readWorkflowFiles(dir);
   const pins = parseActionPins(files);
   const unresolved = [];
+  const indeterminate = [];
   for (const pin of pins) {
     // eslint-disable-next-line no-await-in-loop -- sequential by design: gh api is rate-
     // limited per-token, and this runs against a few dozen unique pins, not hundreds.
-    const ok = await resolvesOnGitHub(pin.ownerRepo, pin.sha);
-    if (!ok) unresolved.push(pin);
+    const { status, detail } = await resolvesOnGitHub(pin.ownerRepo, pin.sha);
+    if (status === 'unresolved') unresolved.push({ ...pin, detail });
+    else if (status === 'indeterminate') indeterminate.push({ ...pin, detail });
   }
-  return { checked: pins.length, filesScanned: files.size, unresolved };
+  return { checked: pins.length, filesScanned: files.size, unresolved, indeterminate };
 }
 
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
@@ -92,14 +105,21 @@ if (isCliEntry) {
   const dirArg = process.argv.find((a) => a.startsWith('--dir='));
   const dir = dirArg ? dirArg.split('=')[1] : '.github/workflows';
   scan(dir).then(
-    ({ checked, filesScanned, unresolved }) => {
+    ({ checked, filesScanned, unresolved, indeterminate }) => {
       console.log(`check-action-pin-resolution: checked ${checked} unique action pin(s) across ${filesScanned} workflow file(s).`);
       for (const u of unresolved) {
-        console.log(`::error::${u.file}:${u.line}: '${u.ref}@${u.sha}' does not resolve -- SHA ${u.sha} does not exist on ${u.ownerRepo} (wrong repo, or the SHA was mistyped/copy-pasted from a different action). See t/4866.`);
+        console.log(`::error::${u.file}:${u.line}: '${u.ref}@${u.sha}' does not resolve -- SHA ${u.sha} does not exist on ${u.ownerRepo} (wrong repo, or the SHA was mistyped/copy-pasted from a different action). See t/4866. (${u.detail})`);
+      }
+      for (const u of indeterminate) {
+        console.log(`::warning::${u.file}:${u.line}: '${u.ref}@${u.sha}' could not be checked (API error, not a confirmed bad pin) -- retry this run before treating it as drift. (${u.detail})`);
       }
       if (unresolved.length) {
-        console.log(`check-action-pin-resolution: ${unresolved.length} unresolved pin(s).`);
+        console.log(`check-action-pin-resolution: ${unresolved.length} unresolved pin(s), ${indeterminate.length} indeterminate (not counted as failures).`);
         process.exit(1);
+      }
+      if (indeterminate.length) {
+        console.log(`check-action-pin-resolution: ${indeterminate.length} pin(s) could not be checked (API error) -- failing OPEN, not treating as drift. Retry advisory: re-run this check.`);
+        return;
       }
       console.log('check-action-pin-resolution: clean -- every SHA-pinned action resolves on its declared repo.');
     },
