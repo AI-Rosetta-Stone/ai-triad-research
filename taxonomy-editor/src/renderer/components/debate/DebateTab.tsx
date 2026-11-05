@@ -1161,22 +1161,24 @@ function isMobilePlatform(): boolean {
 }
 
 function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
-  const [full, setFull] = useState<DebateSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeDebate = useDebateStore(s => s.activeDebate);
 
   useEffect(() => {
     let cancelled = false;
-    setFull(null);
     setError(null);
     setLoading(true);
     api.loadCommunityDebateSession(debate.id).then(raw => {
       if (cancelled) return;
       if (raw && typeof raw === 'object' && 'found' in (raw as Record<string, unknown>) && !(raw as Record<string, unknown>).found) {
         setError('Debate not found — it may have been removed.');
+        setLoading(false);
         return;
       }
-      setFull(raw as DebateSession);
+      // t/4899: load community debates in-place (read-only), not as an interstitial
+      useDebateStore.getState().loadDebateFromData(raw, { readOnly: true });
+      setLoading(false);
     }).catch(err => {
       if (cancelled) return;
       getGlobalRecorder()?.record({
@@ -1184,11 +1186,10 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
         component: 'community-debate-detail',
         level: 'error',
         message: 'Failed to load community debate detail',
-        error: { name: (err as Error).name ?? 'Error', message: String(err) },
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      setError('Could not load debate details.');
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
+      setError('Could not load debate.');
+      setLoading(false);
     });
     return () => { cancelled = true; };
   }, [debate.id]);
@@ -1206,88 +1207,36 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
 
   // t/4672 (PI): on mobile, tapping a community debate should land directly in the debate
   // view, not an interstitial requiring a manual "Open in Window" tap — mirrors the My-debates
-  // path, which already renders DebateWorkspace directly on phone (DebateDetailPane). Desktop
-  // keeps the manual button (opening an un-requested new tab without a user gesture would be a
-  // behavior change there, and is commonly popup-blocked anyway).
+  // path, which already renders DebateWorkspace directly on phone (DebateDetailPane).
   useEffect(() => {
     if (isMobilePlatform()) handleOpenWindow();
   }, [handleOpenWindow]);
 
-  const topic = full?.topic ? (full.topic.final || full.topic.refined || full.topic.original) : null;
-
-  return (
-    <div className="debate-detail-summary">
-      <div className="debate-detail-header">
-        <div>
+  // Render the loaded debate in-place (read-only workspace) if successfully loaded.
+  // Loading/error states show inline feedback without blocking the UI.
+  if (error) {
+    return (
+      <div className="debate-detail-summary debate-detail-error-state">
+        <div className="debate-detail-header">
           <h2 className="debate-detail-title">{debate.title}</h2>
-          <span className="debate-tab-detail-id">{debate.id}</span>
         </div>
-        {debate.phase && (
-          <span className={`debate-phase-badge phase-${debate.phase}`}>
-            {PHASE_LABELS[debate.phase] || debate.phase}
-          </span>
-        )}
+        <p className="debate-tab-error-text">{error}</p>
       </div>
+    );
+  }
 
-      <div className="debate-detail-actions">
-        <button className="btn btn-primary" onClick={handleOpenWindow} disabled={loading || !!error}>
-          Open in Window
-        </button>
-        {full?.active_povers && full.active_povers.length > 0 && (
-          <div className="debate-detail-povers">
-            {full.active_povers.map(p => {
-              const info = POVER_LABELS[p] ?? { label: p, color: 'var(--text-muted)' };
-              return (
-                // eslint-disable-next-line local/no-inline-style -- dynamic: pover accent border color
-                <span key={p} className="debate-detail-pover" style={{ borderColor: info.color }}>
-                  {info.label}
-                </span>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {loading && <p className="debate-tab-loading-text">Loading debate details...</p>}
-      {error && <p className="debate-tab-error-text">{error}</p>}
-
-      {/* Topic */}
-      {topic && (
-        <div className="debate-detail-topic-row">
-          <h3>Topic</h3>
-          <div className="debate-detail-topic-scroll">
-            <p className="debate-detail-topic">{topic}</p>
-          </div>
+  if (loading || !activeDebate || activeDebate.id !== debate.id) {
+    return (
+      <div className="debate-detail-summary debate-detail-loading-state">
+        <div className="debate-detail-header">
+          <h2 className="debate-detail-title">{debate.title}</h2>
         </div>
-      )}
-
-      <div className="debate-detail-grid">
-        {/* Statistics */}
-        <CommunityStatsSection full={full} />
-
-        <div className="debate-detail-section">
-          <h3>Timestamps</h3>
-          <div className="debate-detail-meta-row">
-            <span className="debate-detail-label">Created:</span>
-            <span>{formatDateLong(debate.created_at)}</span>
-          </div>
-          <div className="debate-detail-meta-row">
-            <span className="debate-detail-label">Updated:</span>
-            <span>{formatDateLong(debate.updated_at)}</span>
-          </div>
-        </div>
-
-        {/* Source */}
-        <CommunitySourceSection full={full} />
-
-        {/* Configuration */}
-        <CommunityConfigSection full={full} />
-
-        {/* Community Info */}
-        <CommunityInfoSection debate={debate} />
+        {loading && <p className="debate-tab-loading-text">Loading debate...</p>}
       </div>
-    </div>
-  );
+    );
+  }
+
+  return <DebateWorkspace onExport={() => {}} exportStatus={null} />;
 }
 
 function CommunityStatsSection({ full }: { full: DebateSession | null }) {
