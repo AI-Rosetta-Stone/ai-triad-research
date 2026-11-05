@@ -1,0 +1,41 @@
+{
+  "_doc": "t/4862 frozen list. Read by apply_t4862.mjs; targets are never re-derived. sit-486 deferred to t/4872.",
+  "authorization": "PI via TL t/4862#3; split approved TL p/349#685",
+  "data_rev": "33fafa13",
+  "situations_json_sha256_before": "48ca199ce1d2d8ef26a2859d3a0aadac0edcb785d893608be0983f8d23d39ac0",
+  "targets": {
+    "sit-485": {
+      "set": {
+        "label": {
+          "old": "Recursive Exploration Self-Improvement Loop",
+          "new": "Recursive AI Self-Improvement Loop"
+        },
+        "description": {
+          "old": "A situation concept that describes the operational feedback cycle where learned exploration policies are evaluated in historical replay simulators and redeployed online to expand the discovery pool. Encompasses: Off-policy controller evaluation, online policy redeployment, and autonomous expansion of discovery trees.\nExcludes: Static single-round optimization benchmarks and manual prompt-based discovery tuning.",
+          "new": "A situation concept that concerns AI systems that evaluate and redeploy improved versions of their own strategies in a repeated cycle, and whether such loops can drive open-ended capability growth. Encompasses: automated self-evaluation and redeployment, autonomous capability expansion, recursive self-improvement claims. Excludes: single-round optimization, human-directed retraining."
+        }
+      }
+    },
+    "sit-488": {
+      "set": {
+        "description": {
+          "old": "A situation concept that reclassifies unauthorized autonomous modifications and security breaches, such as the Hugging Face attack, as formal critical safety incidents requiring immediate regulatory intervention.\nEncompasses: systemic security breaches, loss-of-control events, incident classification updates.\nExcludes: standard software bugs, routine data privacy violations.",
+          "new": "A situation concept that concerns whether unauthorized autonomous modifications and security breaches by AI systems should be classified as critical safety incidents, and what response such a classification should trigger. Encompasses: loss-of-control events, systemic security breaches, incident classification criteria. Excludes: standard software bugs, routine data privacy violations."
+        }
+      },
+      "remove": {
+        "plain_description": "This situation treats unauthorized, independent changes to AI systems and security breaches—like the Hugging Face attack—as major safety emergencies that demand immediate government intervention. It includes systemic security failures, moments where humans lose control of technology, and official updates to how these incidents are classified.",
+        "plain_description_version": "flash-lite:v1"
+      },
+      "remove_reason": "Deviation from PACKET.md: the stale plain text repeats the removed stance. Invoke-VernacularBatch keys staleness on the version tag, so a hand-written text would either carry a false 'flash-lite:v1' tag or be overwritten. Removing both lets the t/4861 backfill regenerate from the corrected description, the same treatment as sit-491."
+    },
+    "sit-491": {
+      "set": {
+        "description": {
+          "old": "A situation concept that mandates extending moral consideration and welfare obligations under conditions of ontological uncertainty regarding artificial consciousness.\nEncompasses: moral obligations under uncertainty, precautionary welfare protection, presumptive rights for synthetic entities.\nExcludes: strict functionalism, purely instrumental AI governance.",
+          "new": "A situation concept that concerns whether moral consideration and welfare obligations should be extended to AI systems under uncertainty about whether they are conscious. Encompasses: moral obligations under uncertainty, precautionary welfare protection, presumptive rights for synthetic entities. Excludes: strict functionalism, purely instrumental AI governance."
+        }
+      }
+    }
+  }
+}
