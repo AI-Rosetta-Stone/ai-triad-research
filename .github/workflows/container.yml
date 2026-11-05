@@ -409,6 +409,11 @@ jobs:
           severity: 'CRITICAL,HIGH'
           trivyignores: '.trivyignore'
           skip-setup-trivy: true
+          # Use the DB the warm-up step downloaded. trivy-action's own cache-dir input defaults to
+          # $GITHUB_WORKSPACE/.cache/trivy and overrides TRIVY_CACHE_DIR, so with skip-db-update it
+          # found no DB once its private actions/cache entry was evicted (run 41947512450).
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          cache: false
 
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4
@@ -474,6 +479,11 @@ jobs:
           exit-code: '1'
           trivyignores: '.trivyignore'
           skip-setup-trivy: true
+          # Use the DB the warm-up step downloaded. trivy-action's own cache-dir input defaults to
+          # $GITHUB_WORKSPACE/.cache/trivy and overrides TRIVY_CACHE_DIR, so with skip-db-update it
+          # found no DB once its private actions/cache entry was evicted (run 41947512450).
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          cache: false
 
       # WP2 (t/4840): SBOM moved to async sbom.yml workflow (saved ~94s per build).
       # sbom.yml triggers on schedule, dispatch, or push to main touching Dockerfile/lockfiles.
