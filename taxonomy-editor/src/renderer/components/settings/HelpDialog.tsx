@@ -487,7 +487,7 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             </p>
             <p className="helpdialog-about-stack">
               Built with Electron 45, React 19, TypeScript, Vite, and Zustand.
-              AI backends: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, Ollama.
+              AI backends: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, Azure OpenAI, Z.AI (GLM), Moonshot (Kimi), xAI (Grok), Ollama (local).
             </p>
           </div>
         )}
@@ -524,7 +524,7 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
 
             <h4>AI &amp; Backends</h4>
             <p>
-              Six AI backends are supported: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, and Ollama (local).
+              Ten AI backends are supported: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, Azure OpenAI, Z.AI (GLM), Moonshot (Kimi), xAI (Grok), and Ollama (local).
               Models are configured in <code>ai-models.json</code> with per-backend defaults, debate tier assignments, and fallback chains.
               Models without a configured API key are auto-disabled in debate setup.
             </p>
