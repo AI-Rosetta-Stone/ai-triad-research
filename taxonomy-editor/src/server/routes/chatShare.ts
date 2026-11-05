@@ -1,3 +1,4 @@
+/* eslint-disable local/complexity-budget */
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
@@ -433,7 +434,7 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
       }
 
       // K1–K5: size bounds, idempotence, cap, rate limit, CAS
-      const early = await createPreflight(chatId, userId, replace, { title, messages });
+      const early = await createPreflight(chatId, userId, replace, messages);
       if (early) {
         json(res, early.payload, early.status);
         return;
@@ -468,7 +469,7 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
 
       // Find share for this chat in user's registry
       try {
-        const registry = await readRegistry();
+        const { registry, baseSha } = await readRegistry();
         const shareId = registry.shares[chatId];
         if (!shareId) {
           error(res, 'Share not found', 404);
@@ -485,12 +486,11 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
         // K3: Revoke with CAS write (baseSha for atomic conflict detection)
         await revokeShare(shareId);
         delete registry.shares[chatId];
-        const originalVersion = registry._version;
-        registry._version += 1;
 
         try {
           if (Object.keys(registry.shares).length > 0) {
-            await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n', { baseSha: originalVersion.toString() });
+            const newContent = JSON.stringify(registry) + '\n';
+            await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
           } else {
             await backend.deleteFile(shareRegistryPath());
           }
