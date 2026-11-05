@@ -427,7 +427,8 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
 
 /** Multi-turn Gemini SSE streaming with optional url_context grounding (t/2457).
  *  Delegates SSE parsing to generateViaGeminiStream (t/2456) via geminiContents option
- *  (t/2456#3). Emits chunk→chat-stream-url-metadata→done per t/2458#2 contract. */
+ *  (t/2456#3). Emits chunk→chat-stream-url-metadata→done per t/2458#2 contract. t/4848:
+ *  emits raw_prompt and raw_response for the How panel's Raw Prompt/Raw Response sections. */
 async function streamGeminiChat(
   res: http.ServerResponse,
   opts: {
@@ -441,6 +442,12 @@ async function streamGeminiChat(
 ): Promise<void> {
   const { messages, systemInstruction, apiModelId, apiKey, temperature, urlContext } = opts;
   const geminiContents: GeminiContent[] = messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
+
+  // t/4848: reconstruct raw_prompt for the How panel
+  const rawPrompt = [
+    systemInstruction && `System: ${systemInstruction}`,
+    ...messages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`),
+  ].filter(Boolean).join('\n\n');
 
   let fullText = '';
   let urlContextMetadata: UrlContextMetadata | undefined;
@@ -478,7 +485,8 @@ async function streamGeminiChat(
   if (urlContextMetadata) {
     writeSse(res, { type: 'chat-stream-url-metadata', urlContextMetadata });
   }
-  writeSse(res, { type: 'done', fullText });
+  // t/4848: emit raw_prompt and raw_response for How panel
+  writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText });
 }
 
 /** Non-Gemini chat (t/2457 fallback + t/2483 app-fetch): optionally fetch-and-inject
@@ -513,5 +521,6 @@ async function streamNonGeminiChat(
   if (urlMeta.length) {
     writeSse(res, { type: 'chat-stream-url-metadata', urlContextMetadata: { urlMetadata: urlMeta }, source: 'app-fetch' });
   }
-  writeSse(res, { type: 'done', fullText: result.text });
+  // t/4848: emit raw_prompt and raw_response for How panel
+  writeSse(res, { type: 'done', fullText: result.text, raw_prompt: combinedPrompt, raw_response: result.text });
 }

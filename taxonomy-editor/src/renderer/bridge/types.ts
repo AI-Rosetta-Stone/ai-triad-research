@@ -525,6 +525,8 @@ export interface AppAPI {
   /** url_context grounding metadata (t/2462). Both bridges implement it; a no-op unsubscribe
    *  when the backend never emits metadata, so consumers need no optional-chaining. */
   onChatStreamUrlMetadata: (callback: (metadata: unknown) => void) => () => void;
+  /** t/4848: raw prompt and response from generation for the How panel's Raw Prompt/Raw Response sections. */
+  onChatStreamGenerationContext: (callback: (context: { raw_prompt?: string; raw_response?: string }) => void) => () => void;
   setDebateTemperature: (temp: number | null) => Promise<void>;
 
   // --- Proxy tier & usage ---

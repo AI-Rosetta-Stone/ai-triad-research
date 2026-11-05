@@ -70,9 +70,11 @@ async function streamChatWithProgress(
   onChunk: (chunk: string) => void,
   urlContext?: boolean,
   chatSessionId?: string,
-): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata }> {
+): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata; raw_prompt?: string; raw_response?: string }> {
   set({ chatActivity: activity, chatStreamingText: null });
   let urlContextMetadata: UrlContextMetadata | undefined;
+  let raw_prompt: string | undefined;
+  let raw_response: string | undefined;
   const unsubChunk = api.onChatStreamChunk(onChunk);
   const unsubMeta = api.onChatStreamUrlMetadata?.((payload) => {
     if (isUrlContextMetadata(payload)) {
@@ -91,12 +93,18 @@ async function streamChatWithProgress(
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'debug', message: 'onChatStreamUrlMetadata payload did not match UrlContextMetadata shape', error: { name: 'TypeError', message: 'Non-conforming url-context metadata', stack: '' } });
     }
   });
+  // t/4848: subscribe to generation context for raw prompt and response
+  const unsubGenContext = api.onChatStreamGenerationContext?.((context) => {
+    raw_prompt = context.raw_prompt;
+    raw_response = context.raw_response;
+  });
   try {
     const text = await api.startChatStream(systemInstruction, messages, model, temperature, urlContext, chatSessionId ? { chatSessionId } : undefined);
-    return { text, urlContextMetadata };
+    return { text, urlContextMetadata, raw_prompt, raw_response };
   } finally {
     unsubChunk();
     unsubMeta?.();
+    unsubGenContext?.();
     set({ chatStreamingText: null, chatActivity: null });
   }
 }
@@ -567,7 +575,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const activity = urlContext
         ? `Fetching page for ${info.label}…`
         : `${info.label} is thinking…`;
-      const { text: fullText, urlContextMetadata } = await streamChatWithProgress(
+      const { text: fullText, urlContextMetadata, raw_prompt, raw_response } = await streamChatWithProgress(
         systemInstruction,
         [{ role: 'user', content: userContent }],
         model,
@@ -583,6 +591,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       const { response, taxonomyRefs } = parseChatResponse(fullText, model);
 
+      // t/4848: include raw_prompt and raw_response for the How panel
       const poverEntry: ChatEntry = {
         id: generateId(),
         timestamp: nowISO(),
@@ -590,6 +599,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: response,
         taxonomy_refs: taxonomyRefs,
         ...(urlContextMetadata && { url_context_metadata: urlContextMetadata }),
+        ...(raw_prompt && { raw_prompt }),
+        ...(raw_response && { raw_response }),
       };
 
       const updated = {
