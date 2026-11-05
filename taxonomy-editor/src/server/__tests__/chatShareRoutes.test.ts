@@ -47,7 +47,11 @@ vi.mock('../storage/fileIO.js', () => {
   };
 
   // K3: Atomic in-memory backend with synchronous CAS (no await between compare and store).
+  // Exposed on globalThis so beforeEach can clear it — this closure's Map would otherwise
+  // outlive and leak state across tests regardless of the hoisted `h.files` reset (that Map
+  // is a distinct, unused object), causing idempotence (P1) to mask every test after the first.
   const fileVersions = new Map<string, {content: string, sha: string}>();
+  (globalThis as any).__chatShareFileVersions = fileVersions;
 
   return {
     assertSafeId: (id: string) => { if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`unsafe id ${id}`); },
@@ -111,6 +115,7 @@ async function read(shareId: string): Promise<Res> {
 
 beforeEach(() => {
   h.anonymous = false; h.userId = 'alice'; h.createAllowed = true; h.readAllowed = true; h.files.clear();
+  (globalThis as any).__chatShareFileVersions?.clear();
 });
 
 describe('POST /api/chat/:id/share', () => {

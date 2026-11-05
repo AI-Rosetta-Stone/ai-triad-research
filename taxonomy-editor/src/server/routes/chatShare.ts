@@ -180,7 +180,12 @@ interface RegistryRead {
 async function readRegistry(): Promise<RegistryRead> {
   const backend = getUserContentBackend();
   const content = await backend.readFile(shareRegistryPath(), { optional: true });
-  if (!content) return { registry: { shares: {} }, baseSha: gitBlobSha('') };
+  // K3: baseSha '' is the CAS precondition for "file does not exist" (matches
+  // FilesystemBackend.writeFile: currentSha = current === null ? '' : gitBlobSha(current)).
+  // Using gitBlobSha('') here instead made every first write on an absent registry
+  // conflict against the real on-disk '' sentinel, forcing it through the retry loop
+  // until it exhausted — the root cause of the K1-K7 PR's 500s (verified via CI logs).
+  if (!content) return { registry: { shares: {} }, baseSha: '' };
 
   try {
     const parsed = JSON.parse(content) as any;
