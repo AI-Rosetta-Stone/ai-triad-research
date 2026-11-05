@@ -19,7 +19,6 @@ import { getCurrentUserId, getStorageUserId, isAnonymousUser } from '../security
 import { resolveDataPath } from '../config.js';
 import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import { gitBlobSha } from '../storage/gitBlobSha.js';
-import * as chatShareStore from '../storage/chatShareStore.js';
 import { log } from '../logger.js';
 import { CHAT_SHARE_CONFIG } from '../config/chatShareConfig.js';
 
@@ -433,10 +432,14 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
         return;
       }
 
-      // Delegate to chatShareStore (K1–K5 logic: size bounds, idempotence, cap, rate limit, CAS)
-      const result = await chatShareStore.createShare(chatId, userId, replace, { title, messages });
-      const status = result.conflict ? 200 : 201;
-      json(res, result.share, status);
+      // K1–K5: size bounds, idempotence, cap, rate limit, CAS
+      const early = await createPreflight(chatId, userId, replace, { title, messages });
+      if (early) {
+        json(res, early.payload, early.status);
+        return;
+      }
+      const share = await createShare(chatId, userId, { title, messages });
+      json(res, share, 201);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
