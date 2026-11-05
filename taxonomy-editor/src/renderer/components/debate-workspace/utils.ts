@@ -216,14 +216,18 @@ export function renderedOffsetOf(container: HTMLElement, node: Node, offset: num
  *  the active "mode" (Text vs Analysis) without a second store field. 'why' (t/4625) is
  *  deliberately NOT in this set — it gets its own render branch and its own mode, not the
  *  Plan/Claims/etc. sub-tier machinery this set otherwise drives. */
-export const META_TIERS = new Set(['reasoning', 'terms', 'lineage', 'claims', 'convergence']);
+export const META_TIERS = new Set(['reasoning', 'lineage', 'claims', 'convergence']);
+
+/** Why-mode tiers: 'why' is the BDI tab, 'terms' the Vocabulary tab. 'terms' moved here from
+ *  How, keeping its id so a saved per-entry 'terms' override opens on Why → Vocabulary. */
+export const WHY_TIERS = new Set(['why', 'terms']);
 
 /** Human-readable labels for every tier — single source of truth for both
  *  per-statement controls and the global toolbar (consolidates the previously
  *  duplicated maps; labels updated: Med→Medium, Detail→Detailed per t/2172). */
 export const TIER_LABELS: Record<string, string> = {
   brief: 'Brief', medium: 'Medium', detailed: 'Detailed', reasoning: 'Plan',
-  claims: 'Claims', terms: 'Terms', lineage: 'Lineage', convergence: 'Conv', why: 'Why',
+  claims: 'Claims', terms: 'Vocabulary', lineage: 'Lineage', convergence: 'Conv', why: 'BDI',
 };
 
 /** The three-way mode a display tier belongs to (t/4625: Text | Why | How — "How" is the
@@ -232,7 +236,7 @@ export const TIER_LABELS: Record<string, string> = {
  *  Single source of truth for both StatementTierPills (per-statement) and GlobalModeControl. */
 export type DisplayMode = 'text' | 'why' | 'analysis';
 export function modeOfTier(tier: string): DisplayMode {
-  if (tier === 'why') return 'why';
+  if (WHY_TIERS.has(tier)) return 'why';
   return META_TIERS.has(tier) ? 'analysis' : 'text';
 }
 
