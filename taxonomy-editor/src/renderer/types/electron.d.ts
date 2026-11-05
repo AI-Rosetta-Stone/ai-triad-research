@@ -173,6 +173,7 @@ export interface ElectronAPI {
   onChatStreamDone: (callback: (fullText: string) => void) => () => void;
   onChatStreamError: (callback: (error: string) => void) => () => void;
   onChatStreamUrlMetadata: (callback: (metadata: unknown) => void) => () => void;
+  onChatStreamGenerationContext: (callback: (context: { raw_prompt?: string; raw_response?: string }) => void) => () => void;
   setDebateTemperature: (temp: number | null) => Promise<void>;
   onGenerateTextProgress: (callback: (progress: { attempt: number; maxRetries: number; backoffSeconds: number; limitType: string; limitMessage: string }) => void) => () => void;
   // onBriefTimeout / onBriefRetriesExhausted removed (t/2307) — brief-timeout now

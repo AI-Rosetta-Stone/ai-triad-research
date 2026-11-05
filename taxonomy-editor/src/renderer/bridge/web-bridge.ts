@@ -970,14 +970,14 @@ const rawApi: AppAPI = {
     });
     return post('/api/ai/generate', body, undefined, { 'x-request-id': requestId });
   },
-  // Chat streaming (SSE) — transport lives in ./chatStream (leaf module, t/2462). Shape-identical
-  // to the Electron preload so useChatStore consumes one contract from both bridges.
+  // Chat streaming (SSE): transport in ./chatStream (t/2462), shape-identical to the Electron preload.
   startChatStream: (systemInstruction, messages, model, temperature, urlContext, context) =>
     runChatStream(fetchWithSessionRecovery, { systemInstruction, messages, model, temperature, urlContext, chatSessionId: context?.chatSessionId, linkedDebateId: context?.linkedDebateId }),
   onChatStreamChunk: (cb) => chatStreamBus.onChunk(cb),
   onChatStreamDone: (cb) => chatStreamBus.onDone(cb),
   onChatStreamError: (cb) => chatStreamBus.onError(cb),
   onChatStreamUrlMetadata: (cb) => chatStreamBus.onUrlMetadata(cb),
+  onChatStreamGenerationContext: (cb) => chatStreamBus.onGenerationContext(cb),
   setDebateTemperature: (temp) => post('/api/ai/temperature', { temp }).then(() => {}),
 
   // Proxy tier & usage

@@ -399,7 +399,7 @@ export function registerAiHandlers(): void {
       }
     }
 
-    const { text: fullText, urlContextMetadata } = await generateChatStream(
+    const { text: fullText, urlContextMetadata, raw_prompt, raw_response } = await generateChatStream(
       effectiveSystem,
       messages,
       (chunk: string) => send('chat-stream-chunk', chunk),
@@ -410,6 +410,10 @@ export function registerAiHandlers(): void {
     console.log('[IPC:chat-stream] done, returning', fullText.length, 'chars');
     if (urlContextMetadata) send('chat-stream-url-metadata', urlContextMetadata);
     if (appFetchEvent) send('chat-stream-url-metadata', appFetchEvent);
+    // t/4848: before 'done', matching the web transport, so the store has it when the stream resolves.
+    if (raw_prompt !== undefined || raw_response !== undefined) {
+      send('chat-stream-generation-context', { raw_prompt, raw_response });
+    }
     send('chat-stream-done', fullText);
     return fullText;
   });

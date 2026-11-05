@@ -268,6 +268,7 @@ export const api: AppAPI = {
   onChatStreamDone: (cb) => window.electronAPI.onChatStreamDone(cb),
   onChatStreamError: (cb) => window.electronAPI.onChatStreamError(cb),
   onChatStreamUrlMetadata: (cb) => window.electronAPI.onChatStreamUrlMetadata(cb),
+  onChatStreamGenerationContext: (cb) => window.electronAPI.onChatStreamGenerationContext(cb),
   setDebateTemperature: (temp) => window.electronAPI.setDebateTemperature(temp),
 
   // Embeddings & NLI — local WebNN/WASM first, IPC fallback

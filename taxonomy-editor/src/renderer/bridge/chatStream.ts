@@ -9,10 +9,10 @@
  * Shape-identical to the Electron preload: startChatStream resolves with the accumulated
  * fullText or rejects with an ActionableError; onChatStream* callbacks fire as events arrive.
  *
- * Server contract (POST /api/ai/chat-stream, t/2457):
+ * Server contract (POST /api/ai/chat-stream, t/2457, t/4848):
  *   data: {type:'chunk',text}                              → chunk listeners
  *   data: {type:'chat-stream-url-metadata',urlContextMetadata} → url-metadata listeners
- *   data: {type:'done',fullText}                           → resolve + done listeners
+ *   data: {type:'done',fullText,raw_prompt?,raw_response?} → resolve + done listeners, generation context listeners
  *   data: {type:'error',message,code}                      → reject + error listeners
  * Pre-SSE failures (auth / rate limit / missing key) arrive instead as a non-200 JSON body.
  */
@@ -27,11 +27,14 @@ type ChatChunkCb = (chunk: string) => void;
 type ChatDoneCb = (fullText: string) => void;
 type ChatErrorCb = (error: string) => void;
 type ChatUrlMetadataCb = (metadata: unknown) => void;
+// t/4848: callback for raw prompt and response from generation
+type ChatGenerationContextCb = (context: { raw_prompt?: string; raw_response?: string }) => void;
 
 const chunkCbs = new Set<ChatChunkCb>();
 const doneCbs = new Set<ChatDoneCb>();
 const errorCbs = new Set<ChatErrorCb>();
 const urlMetadataCbs = new Set<ChatUrlMetadataCb>();
+const generationContextCbs = new Set<ChatGenerationContextCb>();
 
 /** Subscription surface exposed via the bridge's onChatStream* methods. */
 export const chatStreamBus = {
@@ -39,6 +42,8 @@ export const chatStreamBus = {
   onDone: (cb: ChatDoneCb): (() => void) => { doneCbs.add(cb); return () => { doneCbs.delete(cb); }; },
   onError: (cb: ChatErrorCb): (() => void) => { errorCbs.add(cb); return () => { errorCbs.delete(cb); }; },
   onUrlMetadata: (cb: ChatUrlMetadataCb): (() => void) => { urlMetadataCbs.add(cb); return () => { urlMetadataCbs.delete(cb); }; },
+  // t/4848: expose generation context callback
+  onGenerationContext: (cb: ChatGenerationContextCb): (() => void) => { generationContextCbs.add(cb); return () => { generationContextCbs.delete(cb); }; },
 };
 
 const CHAT_STREAM_TIMEOUT_MS = 180_000;
@@ -129,6 +134,15 @@ export interface ChatStreamArgs {
   linkedDebateId?: string;
 }
 
+/** t/4848: hand the done event's string raw_prompt/raw_response to the How panel listeners;
+ *  non-string values are dropped, and nothing fires when neither is present (older servers). */
+function emitGenerationContext(evt: Record<string, unknown>): void {
+  const raw_prompt = typeof evt.raw_prompt === 'string' ? evt.raw_prompt : undefined;
+  const raw_response = typeof evt.raw_response === 'string' ? evt.raw_response : undefined;
+  if (raw_prompt === undefined && raw_response === undefined) return;
+  for (const cb of generationContextCbs) cb({ raw_prompt, raw_response });
+}
+
 /** The web bridge's session-recovering fetch (injected to avoid a circular import). */
 type ChatFetch = (path: string, init: RequestInit, opts: ResilientFetchOptions) => Promise<Response>;
 
@@ -190,6 +204,8 @@ export async function runChatStream(fetchFn: ChatFetch, args: ChatStreamArgs): P
           break;
         case 'done':
           if (typeof evt.fullText === 'string') fullText = evt.fullText;
+          // t/4848: dispatch generation context (raw prompt and response) for the How panel
+          emitGenerationContext(evt);
           break;
         case 'error': {
           const evtProblem = typeof evt.problem === 'string' ? evt.problem : (typeof evt.message === 'string' ? evt.message : 'The chat stream failed on the server.');
