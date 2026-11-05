@@ -1,57 +1,88 @@
 name: Checkout ai-triad-data (cached)
 description: >
-  Checks out AI-Rosetta-Stone/ai-triad-data into ./ai-triad-data and symlinks it to
-  ../ai-triad-data, restoring from an actions/cache keyed on the data repo's own HEAD SHA
-  when possible (t/4841). The data repo changes far less often than this repo's CI runs, so a
-  warm cache turns a ~78s checkout into a cache restore on every run between data-repo pushes.
+  Checks out AI-Rosetta-Stone/ai-triad-data at its current HEAD into ./ai-triad-data and
+  symlinks it to ../ai-triad-data, warm-starting from an actions/cache entry when one exists
+  (t/4841) and updating it incrementally to the exact HEAD (t/4870).
+
+# t/4870: the t/4841 version keyed the cache on the data repo's HEAD SHA and saved from every
+# ref. The data repo moves several times an hour and each move minted a new ~1.5 GB entry,
+# duplicated per ref (main, merge-queue refs, PR merge refs) -- 7.35 GB of a 10 GB repo budget,
+# which evicted other caches (Trivy's DB among them, breaking every container build).
+# Now: one entry per UTC day, saved only from main (every other ref can read main's entries),
+# and each run fetches the exact current HEAD on top of whatever it restored and verifies it.
+# The tree is never stale: any update failure falls back to a fresh full checkout.
 
 inputs:
   continue-on-error:
     description: >
-      Whether a cache-miss checkout failure is tolerated (fail-open, matching most call
-      sites' existing behavior) or fails the job. 'true' or 'false'.
+      Whether a fresh-checkout failure is tolerated (fail-open, matching most call sites'
+      existing behavior) or fails the job. 'true' or 'false'.
     required: false
     default: 'true'
   token:
     description: >
-      Token for the checkout step. Defaults to github.token (actions/checkout's own
-      default) so the 8 call sites that never set one keep that implicit behavior; one
-      call site overrides it with DATA_REPO_TOKEN.
+      Token for the fresh-checkout fallback. Defaults to github.token (actions/checkout's own
+      default); one call site overrides it with DATA_REPO_TOKEN.
     required: false
     default: ${{ github.token }}
   symlink:
     description: >
       Whether to symlink ./ai-triad-data to ../ai-triad-data after checkout. 'true' or
-      'false' -- one call site (python-embed-smoke) reads AI_TRIAD_DATA_ROOT directly against
-      $GITHUB_WORKSPACE/ai-triad-data instead and needs no symlink.
+      'false' -- python-embed-smoke reads AI_TRIAD_DATA_ROOT directly and needs no symlink.
     required: false
     default: 'true'
 
 runs:
   using: composite
   steps:
-    # ai-triad-data is public, so this needs no auth and is a network round-trip, not a clone
-    # (~1s) -- it is the ONLY per-run cost once the cache is warm.
-    - name: Resolve ai-triad-data HEAD SHA
+    # ai-triad-data is public: no auth, one round-trip (~1s).
+    - name: Resolve ai-triad-data HEAD SHA and cache key
       id: data-sha
       shell: bash
       run: |
         SHA=$(git ls-remote https://github.com/AI-Rosetta-Stone/ai-triad-data.git HEAD | cut -f1)
         if [ -z "$SHA" ]; then
-          echo "::warning::checkout-ai-triad-data: ls-remote returned no SHA; caching disabled for this run, falling through to a direct checkout." >&2
-          SHA="no-sha-$(date +%s)"
+          echo "::warning::checkout-ai-triad-data: ls-remote returned no SHA; skipping the cache and doing a fresh checkout." >&2
         fi
         echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        echo "key=ai-triad-data-v2-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
     - name: Restore ai-triad-data cache
-      id: cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      id: restore
+      if: steps.data-sha.outputs.sha != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: ai-triad-data
-        key: ai-triad-data-${{ steps.data-sha.outputs.sha }}
+        key: ${{ steps.data-sha.outputs.key }}
+        restore-keys: ai-triad-data-v2-
 
-    - name: Checkout data repo (cache miss)
-      if: steps.cache.outputs.cache-hit != 'true'
+    # A restored entry may be hours old. Bring it to the exact current HEAD and prove it;
+    # on any failure, discard it so the fresh checkout below runs instead.
+    - name: Update restored checkout to current HEAD
+      id: update
+      if: steps.restore.outputs.cache-matched-key != ''
+      shell: bash
+      env:
+        SHA: ${{ steps.data-sha.outputs.sha }}
+      run: |
+        set +e
+        (
+          cd ai-triad-data &&
+          git fetch --quiet --depth=1 https://github.com/AI-Rosetta-Stone/ai-triad-data.git "$SHA" &&
+          git reset --quiet --hard FETCH_HEAD &&
+          git clean -ffdxq &&
+          [ "$(git rev-parse HEAD)" = "$SHA" ]
+        )
+        if [ $? -eq 0 ]; then
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::checkout-ai-triad-data: could not update the restored cache to $SHA; discarding it and doing a fresh checkout." >&2
+          rm -rf ai-triad-data
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Checkout data repo (no usable cache)
+      if: steps.update.outputs.ok != 'true'
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       continue-on-error: ${{ inputs.continue-on-error == 'true' }}
       with:
@@ -59,6 +90,38 @@ runs:
         path: ai-triad-data
         fetch-depth: 1
         token: ${{ inputs.token }}
+        # The cached .git must never carry a credential. (actions/checkout's post step would
+        # strip it before a post-step save, but the save below runs mid-job.)
+        persist-credentials: false
+
+    # Never cache a tree that isn't verifiably at the resolved HEAD (e.g. a fail-open checkout
+    # that left nothing behind).
+    - name: Verify checkout is at resolved HEAD
+      id: verify
+      if: steps.data-sha.outputs.sha != ''
+      shell: bash
+      env:
+        SHA: ${{ steps.data-sha.outputs.sha }}
+      run: |
+        if [ "$(git -C ai-triad-data rev-parse HEAD 2>/dev/null)" = "$SHA" ]; then
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # Main only, once per UTC day (an exact-key hit means today's entry already exists).
+    # Saved immediately after checkout, before any test can touch the tree. A concurrent
+    # job reserving the same key is a race, not a failure.
+    - name: Save ai-triad-data cache (main only)
+      if: >-
+        github.ref == 'refs/heads/main' &&
+        steps.restore.outputs.cache-hit != 'true' &&
+        steps.verify.outputs.ok == 'true'
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ai-triad-data
+        key: ${{ steps.data-sha.outputs.key }}
 
     - name: Symlink data repo to expected location
       if: inputs.symlink == 'true'
