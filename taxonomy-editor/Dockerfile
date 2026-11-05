@@ -297,9 +297,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ("Essential packages were removed and -y was used without --allow-remove-essential").
 RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
     && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
-    && if command -v apt >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; then \
-         echo "[t/4874] ERROR: apt still on PATH after purge" && exit 1; \
-       fi \
+    && for b in apt apt-get; do \
+         p="$(command -v "$b" || true)"; \
+         if [ -n "$p" ]; then \
+           echo "[t/4874] ERROR: $b still on PATH after purge: $p -> $(readlink -f "$p") (owner: $(dpkg -S "$(readlink -f "$p")" 2>&1 | head -n1))"; \
+           exit 1; \
+         fi; \
+       done \
     && node -e "require('onnxruntime-node'); require('node-pty')" \
     && pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion' \
     && python3 -c 'import numpy' \
