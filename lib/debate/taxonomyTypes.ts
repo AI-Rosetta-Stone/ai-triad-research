@@ -356,6 +356,11 @@ export interface SituationNode {
   plain_description?: string | null;
   /** Model+prompt version string (e.g., "flash-lite:v1") for staleness detection. */
   plain_description_version?: string | null;
+  /** ID of the situation node that supersedes this one (t/4872 — mirrors PovNode.superseded_by).
+   *  Selection skips superseded situations; resolveNode still returns them. Chains resolve to
+   *  the final non-superseded situation; cycles, dangling targets, and a cross-kind target
+   *  (pointing at a POV node id) resolve to the node itself. See taxonomyLoader.ts › loadTaxonomy. */
+  superseded_by?: string;
   _edit_meta?: NodeEditMeta;
 }
 

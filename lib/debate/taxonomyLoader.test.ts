@@ -165,10 +165,21 @@ function makeAccNode(id: string, label: string, superseded_by?: string): object 
   };
 }
 
+function makeSitNode(id: string, label: string, superseded_by?: string): object {
+  return {
+    id, label,
+    description: 'A situation that involves something.',
+    interpretations: { accelerationist: '', safetyist: '', skeptic: '' },
+    linked_nodes: [], conflict_ids: [],
+    ...(superseded_by !== undefined ? { superseded_by } : {}),
+  };
+}
+
 function setupTaxonomyMocks(
   accNodes: object[],
   embeddings: Record<string, { pov: string; vector: number[] }> = {},
   edges: object[] = [],
+  sitNodes: object[] = [],
 ) {
   const taxDir = '/fake/data/taxonomy';
   mockExistsSync.mockImplementation((p: string) => {
@@ -177,12 +188,14 @@ function setupTaxonomyMocks(
     if (p.endsWith('accelerationist.json')) return true;
     if (p.endsWith('embeddings.json')) return true;
     if (p.endsWith('edges.json')) return edges.length > 0;
-    return false; // safetyist, skeptic, situations, policy, lineage, synthetic — all missing
+    if (p.endsWith('situations.json')) return sitNodes.length > 0;
+    return false; // safetyist, skeptic, policy, lineage, synthetic — all missing
   });
   mockReadFileSync.mockImplementation((p: string) => {
     if (p.endsWith('.aitriad.json')) return JSON.stringify(FAKE_CONFIG);
     if (p.endsWith('accelerationist.json')) return JSON.stringify({ nodes: accNodes });
     if (p.endsWith('embeddings.json')) return JSON.stringify({ nodes: embeddings });
+    if (p.endsWith('situations.json')) return JSON.stringify({ nodes: sitNodes });
     if (p.endsWith('edges.json')) return JSON.stringify({
       _schema_version: '1', _doc: '', last_modified: '', edge_types: [],
       edges,
@@ -336,5 +349,83 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     expect(result.embeddings['sit-001']).toBeDefined();
     expect(result.embeddings['pol-001']).toBeDefined();
     expect(Object.keys(result.embeddings)).toHaveLength(3);
+  });
+
+  // ── Situation supersession (t/4872) ───────────────────────────────────────
+
+  it('superseded situation is absent from selectable situations and embeddings, present in allNodesById', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active')],
+      { 'sit-157': { pov: 'situations', vector: [1, 0] }, 'sit-486': { pov: 'situations', vector: [0, 1] } },
+      [],
+      [makeSitNode('sit-157', 'Survivor'), makeSitNode('sit-486', 'Retired', 'sit-157')],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    const selectableSitIds = result.situations.nodes.map(n => n.id);
+    expect(selectableSitIds).toContain('sit-157');
+    expect(selectableSitIds).not.toContain('sit-486');
+    expect(result.allNodesById.has('sit-486')).toBe(true);
+    expect(result.embeddings['sit-157']).toBeDefined();
+    expect(result.embeddings['sit-486']).toBeUndefined();
+  });
+
+  it('resolveNode follows a situation supersession chain to the final non-superseded situation', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active')],
+      {},
+      [],
+      [makeSitNode('sit-157', 'Survivor'), makeSitNode('sit-486', 'Retired', 'sit-157')],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.resolveNode('sit-486')?.id).toBe('sit-157');
+    expect(result.resolveNode('sit-157')?.id).toBe('sit-157');
+  });
+
+  it('a situation superseded_by a POV node id resolves to no survivor, with a cross-kind WARN (t/4872)', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active')],
+      {},
+      [],
+      [makeSitNode('sit-486', 'Retired', 'acc-beliefs-001')],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.situations.nodes.map(n => n.id)).not.toContain('sit-486');
+    expect(result.resolveNode('sit-486')?.id).toBe('sit-486');
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('different node kind'))).toBe(true);
+  });
+
+  it('a POV node superseded_by a situation id resolves to no survivor, with a cross-kind WARN (t/4872)', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Retired', 'sit-157')],
+      {},
+      [],
+      [makeSitNode('sit-157', 'Survivor')],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.accelerationist.nodes.map(n => n.id)).not.toContain('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('different node kind'))).toBe(true);
+  });
+
+  it('edges touching a superseded situation are excluded from the selectable edge set', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active')],
+      {},
+      [
+        { source: 'acc-beliefs-001', target: 'sit-486', type: 'CONVERGES_WITH', bidirectional: false, confidence: 0.7, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+        { source: 'acc-beliefs-001', target: 'sit-157', type: 'CONVERGES_WITH', bidirectional: false, confidence: 0.7, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      ],
+      [makeSitNode('sit-157', 'Survivor'), makeSitNode('sit-486', 'Retired', 'sit-157')],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.edges!.edges).toHaveLength(1);
+    expect(result.edges!.edges[0].target).toBe('sit-157');
+    expect(result.allEdges!.edges).toHaveLength(2);
   });
 });

@@ -53,8 +53,9 @@ export const ClassificationMethodSchema = z.enum(['llm', 'human', 'llm+human_rev
 /** POV node descriptions must follow: "A [Category] within [POV] discourse that [differentia]..." */
 const povDescriptionPattern = /^A\s+(Desires|Beliefs|Intentions)\s+within\s+(accelerationist|safetyist|skeptic)\s+discourse\s+that\s+/i;
 
-/** Situation node descriptions must follow: "A situation that [differentia]..." */
-const situationDescriptionPattern = /^A\s+situation\s+that\s+/i;
+/** Situation node descriptions must follow: "A situation that [differentia]..." or "A situation
+ *  concept that [differentia]..." (t/4872, t/4860 F3 — ~250 corpus entries use "concept"). */
+const situationDescriptionPattern = /^A\s+situation(\s+concept)?\s+that\s+/i;
 
 // ── Graph attributes ──────────────────────────────────────
 
@@ -174,7 +175,7 @@ export const PovNodeSchema = z.object({
 export const SituationNodeSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  description: z.string().regex(situationDescriptionPattern, 'Must follow genus-differentia pattern: "A situation that..."'),
+  description: z.string().regex(situationDescriptionPattern, 'Must follow genus-differentia pattern: "A situation that..." or "A situation concept that..."'),
   interpretations: z.object({
     accelerationist: z.union([z.string(), z.object({ belief: z.string().optional(), desire: z.string().optional(), intention: z.string().optional(), summary: z.string().optional() })]),
     safetyist: z.union([z.string(), z.object({ belief: z.string().optional(), desire: z.string().optional(), intention: z.string().optional(), summary: z.string().optional() })]),
@@ -188,6 +189,9 @@ export const SituationNodeSchema = z.object({
   // Situations never carry POV tags (t/3955; spec §2.2). Declared as never so a present value is
   // REJECTED rather than silently stripped by z.object's unknown-key handling.
   pov_tags: z.never({ error: 'pov_tags is only allowed on POV nodes; situations ignore tags (t/3955)' }).optional(),
+  // Selection skips superseded situations; resolveNode still returns them (t/4872, mirrors
+  // PovNodeSchema's superseded_by exactly). See taxonomyLoader.ts › loadTaxonomy.
+  superseded_by: z.string().optional(),
 });
 
 // ── Edge schemas ──────────────────────────────────────────
