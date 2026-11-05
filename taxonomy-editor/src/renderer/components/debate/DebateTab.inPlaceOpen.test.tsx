@@ -32,16 +32,46 @@ vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => ({ anonymous:
 
 let debateStoreState: Record<string, unknown>;
 const mockLoadDebate = vi.hoisted(() => vi.fn());
+// t/4888#3: asserting this is NEVER called is the regression guard — DebateTab used to null
+// activeDebate/activeDebateId here on a Community open, risking a round in flight.
+const mockDebateStoreSetState = vi.hoisted(() => vi.fn());
 
 vi.mock('../../hooks/useDebateStore', () => ({
   useDebateStore: Object.assign(
     (selector: (s: Record<string, unknown>) => unknown) => selector(debateStoreState),
-    { getState: () => debateStoreState },
+    { getState: () => debateStoreState, setState: mockDebateStoreSetState },
   ),
 }));
 
+let communityDebatesState: Array<{ id: string; title: string }>;
 vi.mock('../../hooks/useCommunityStore', () => ({
-  useCommunityStore: () => ({ debates: [], loading: false, fetchDebates: vi.fn().mockResolvedValue(undefined), copyItem: vi.fn() }),
+  useCommunityStore: () => ({ debates: communityDebatesState, loading: false, fetchDebates: vi.fn().mockResolvedValue(undefined), copyItem: vi.fn() }),
+}));
+
+// A minimal stand-in exposing exactly what DebateTab wires to it — the real LibraryListPage's
+// own My/Community tab gating isn't under test here (mirrors ChatTab.inPlaceOpen.test.tsx).
+vi.mock('../shared/LibraryListPage', () => ({
+  LibraryListPage: ({ myRows, onOpenMy, communityRows, onOpenCommunity, intro, config }: {
+    myRows: { id: string; title: string }[]; onOpenMy: (id: string) => void;
+    communityRows?: { id: string }[]; onOpenCommunity?: (id: string) => void;
+    intro?: React.ReactNode;
+    config?: { newLabel: string; onNew?: () => void };
+  }) => (
+    <div data-testid="library-list-page">
+      {config?.onNew && <button onClick={config.onNew}>{config.newLabel}</button>}
+      {intro}
+      {myRows.map(row => (
+        <button key={row.id} data-testid={`row-${row.id}`} onClick={() => onOpenMy(row.id)}>
+          {row.title}
+        </button>
+      ))}
+      {(communityRows ?? []).map(row => (
+        <button key={row.id} data-testid={`community-row-${row.id}`} onClick={() => onOpenCommunity?.(row.id)}>
+          {row.id}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('../../hooks/useTaxonomyStore', () => ({ useTaxonomyStore: () => ({ toolbarPanel: null }) }));
@@ -55,7 +85,7 @@ vi.mock('@bridge', () => ({
     getDebateQuotaStatus: vi.fn().mockResolvedValue({ allowed: true, current: 0, limit: 5 }),
     openDebateWindow: mockOpenDebateWindow,
     loadDebateSession: vi.fn(),
-    loadCommunityDebateSession: vi.fn(),
+    loadCommunityDebateSession: vi.fn().mockResolvedValue({ found: false }),
     submitToCommunity: vi.fn(),
     exportDebateToFile: vi.fn(),
     openExternal: vi.fn(),
@@ -114,6 +144,7 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
       renameDebate: vi.fn(),
       setActiveCommunityDebate: vi.fn(),
     };
+    communityDebatesState = [{ id: 'cd-1', title: 'A shared debate' }];
     try { localStorage.clear(); } catch { /* jsdom always has localStorage in this suite */ }
   });
 
@@ -128,6 +159,19 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
 
     expect(mockLoadDebate).toHaveBeenCalledWith('debate-1');
     expect(mockOpenDebateWindow).not.toHaveBeenCalled();
+  });
+
+  // t/4888#3 (Design review): clearing activeDebate/activeDebateId on a Community open risks
+  // a round in flight. DebateTab's own detail-vs-library gate also keys off `activeDebate`, so a
+  // generating debate can't be rendered alongside the reachable library in this harness — the
+  // regression guard instead asserts the store's setState (the only way DebateTab used to null
+  // activeDebate) is never invoked by a Community open, from any state.
+  it('opening a community debate never clears the debate store (t/4888)', () => {
+    render(<DebateTab />);
+    fireEvent.click(screen.getByTestId('community-row-cd-1'));
+
+    expect(mockDebateStoreSetState).not.toHaveBeenCalled();
+    expect(debateStoreState.setActiveCommunityDebate).toHaveBeenCalledWith({ id: 'cd-1', title: 'A shared debate' });
   });
 
   it('renders the debate workspace in place (not the library) once activeDebate is set (t/4799)', () => {

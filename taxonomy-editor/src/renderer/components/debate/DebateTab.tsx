@@ -429,12 +429,13 @@ export function DebateTab() {
     if (isPhone) nav.push({ view: 'debate', id });
   }, [isPhone, activeDebateId, loadDebate, nav]);
 
-  // t/4888: the two selections are mutually exclusive — placeOf.ts's debate resolver prefers
-  // activeDebate, so a stale one left set after switching to Community would shadow the item
-  // that's actually open.
+  // t/4888 (Design review): opening Community must NOT null activeDebate/activeDebateId — it
+  // risks a debate round in flight. placeOf.ts's debate resolver instead gives
+  // activeCommunityDebate precedence when set; only opening a My item clears the community
+  // selection (above), not the other direction. (Also: #4581/DebateUI must not write a community
+  // debate into activeDebate either — Design flagged the same hazard there.)
   const handleOpenCommunity = useCallback((id: string) => {
     const cd = communityDebates.find(c => c.id === id) ?? null;
-    if (cd) useDebateStore.setState({ activeDebateId: null, activeDebate: null });
     setSelectedCommunityDebate(cd);
     setLastOpenedVariant('community');
     if (isPhone && cd) nav.push({ view: 'detail', id });

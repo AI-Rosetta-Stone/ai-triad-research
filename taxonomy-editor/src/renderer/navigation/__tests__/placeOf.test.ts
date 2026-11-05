@@ -54,7 +54,10 @@ describe('placeOf - per-tool open item resolvers', () => {
       expect(place.crumbs[0]).toEqual({ text: 'Debate', href: '/debate' });
     });
 
-    it('prefers activeDebate over a stale activeCommunityDebate', () => {
+    // t/4888#3 (Design review): opening Community must not clear activeDebate (a round could
+    // still be in flight there), so the resolver — not a clear-on-select side effect — is what
+    // picks the right one: activeCommunityDebate wins when set.
+    it('prefers activeCommunityDebate over a coexisting activeDebate', () => {
       const mockDebate = { id: 'debate-123', topic: topic('Should AI be regulated?') };
       const mockCommunityDebate = { id: 'community-3', title: 'Should labs self-regulate?' };
       const state = {
@@ -63,7 +66,7 @@ describe('placeOf - per-tool open item resolvers', () => {
         debateStore: { activeDebate: mockDebate, activeCommunityDebate: mockCommunityDebate } as any,
       };
       const place = placeOf(state as any);
-      expect(place.path).toBe('/debate/debate-123');
+      expect(place.path).toBe('/debate/community-3?community=1');
     });
 
     it('opening two different debates generates different placeKeys (pushes history)', () => {
@@ -120,7 +123,10 @@ describe('placeOf - per-tool open item resolvers', () => {
       expect(place.crumbs[0]).toEqual({ text: 'Chat', href: '/chat' });
     });
 
-    it('prefers activeChat over a stale activeCommunityChat', () => {
+    // t/4888#3 (Design review): opening Community must not clear activeChat (a reply could
+    // still be generating there, t/4687#1), so the resolver — not a clear-on-select side
+    // effect — is what picks the right one: activeCommunityChat wins when set.
+    it('prefers activeCommunityChat over a coexisting activeChat', () => {
       const mockChat = { id: 'conv-42', topic: 'AI Safety' };
       const mockCommunityChat = { id: 'community-7', title: 'A shared debate recap' };
       const state = {
@@ -129,7 +135,7 @@ describe('placeOf - per-tool open item resolvers', () => {
         chatStore: { activeChat: mockChat, activeCommunityChat: mockCommunityChat } as any,
       };
       const place = placeOf(state as any);
-      expect(place.path).toBe('/chat/conv-42');
+      expect(place.path).toBe('/chat/community-7?community=1');
     });
   });
 

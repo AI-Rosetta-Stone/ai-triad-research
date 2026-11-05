@@ -65,11 +65,15 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
   'chat': (state) => {
     // `activeCommunityChat` (t/4888) mirrors ChatTab's own local Community selection, which
     // placeOf.ts otherwise has no visibility into — see useChatStore.ts's comment on the field.
+    // Community wins when set (Design review, t/4888#3): opening Community must not clear
+    // activeChat, since that would silently drop a reply still generating in the user's own
+    // chat (t/4687#1) — so a stale activeChat can coexist with a fresh activeCommunityChat, and
+    // the resolver (not a clear-on-select side effect) is what picks the one that's actually open.
     const store = state.chatStore;
-    const chat = store?.activeChat;
-    if (chat) return collectionPlace('chat', 'Chat', '/chat', { id: chat.id, title: chat.topic });
     const cc = store?.activeCommunityChat;
-    return collectionPlace('chat', 'Chat', '/chat', cc ? { id: cc.id, title: cc.title, community: true } : null);
+    if (cc) return collectionPlace('chat', 'Chat', '/chat', { id: cc.id, title: cc.title, community: true });
+    const chat = store?.activeChat;
+    return collectionPlace('chat', 'Chat', '/chat', chat ? { id: chat.id, title: chat.topic } : null);
   },
 
   'opeds': (state) => {
@@ -97,11 +101,14 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
   'debate': (state) => {
     // `activeCommunityDebate` (t/4888) mirrors DebateTab's own local Community selection,
     // which placeOf.ts otherwise has no visibility into — see sessionSlice.ts's comment.
+    // Community wins when set (Design review, t/4888#3): opening Community must not clear
+    // activeDebate, since that risks a round in flight — so a stale activeDebate can coexist
+    // with a fresh activeCommunityDebate, and the resolver picks the one that's actually open.
     const store = state.debateStore;
-    const debate = store?.activeDebate;
-    if (debate) return collectionPlace('debate', 'Debate', '/debate', { id: debate.id, title: debate.topic.final || debate.topic.original });
     const cd = store?.activeCommunityDebate;
-    return collectionPlace('debate', 'Debate', '/debate', cd ? { id: cd.id, title: cd.title, community: true } : null);
+    if (cd) return collectionPlace('debate', 'Debate', '/debate', { id: cd.id, title: cd.title, community: true });
+    const debate = store?.activeDebate;
+    return collectionPlace('debate', 'Debate', '/debate', debate ? { id: debate.id, title: debate.topic.final || debate.topic.original } : null);
   },
 
   'accelerationist': (state) => resolveTaxonomy('accelerationist', state.taxonomyStore),

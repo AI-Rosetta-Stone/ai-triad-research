@@ -609,14 +609,10 @@ export function ChatTab() {
   // t/4690: table mode's row click now opens in place (as a t/4640 place, /chat/:id), matching
   // split mode's handleSelect below — ⧉/Ctrl-click still goes through the shell's
   // openPlaceInNewWindow via chatLibraryListConfig's itemPlace, unaffected by this.
-  // t/4888: the two selections are mutually exclusive — placeOf.ts's chat resolver prefers
-  // activeChat, so a stale one left set after switching to Community would shadow the item
-  // that's actually open (and "selected" styling in the Community list would lag too).
-  const selectCommunityChat = useCallback((chat: CommunityChat | null) => {
-    if (chat) useChatStore.setState({ activeChatId: null, activeChat: null });
-    setSelectedCommunityChat(chat);
-  }, [setSelectedCommunityChat]);
-
+  // t/4888 (Design review): opening Community must NOT null activeChat/activeChatId — a reply
+  // still generating in the user's own chat would silently drop (t/4687#1). placeOf.ts's chat
+  // resolver instead gives activeCommunityChat precedence when set; only opening a My item
+  // clears the community selection (below), not the other direction.
   const openChatInPlace = useCallback((id: string, source: 'my' | 'community') => {
     setListView(source);
     if (source === 'my') {
@@ -627,8 +623,8 @@ export function ChatTab() {
       return;
     }
     const cc = communityChats.find(c => c.id === id);
-    if (cc) selectCommunityChat(cc);
-  }, [activeChatId, loadChat, communityChats, setSelectedCommunityChat, selectCommunityChat]);
+    if (cc) setSelectedCommunityChat(cc);
+  }, [activeChatId, loadChat, communityChats, setSelectedCommunityChat]);
 
   const handleExportChat = useCallback((id: string, format: string) => {
     void api.loadChatSession(id).then((raw) => {
@@ -775,7 +771,7 @@ export function ChatTab() {
           communityChats={communityChats}
           communityLoading={communityLoading}
           selectedCommunityChat={selectedCommunityChat}
-          setSelectedCommunityChat={selectCommunityChat}
+          setSelectedCommunityChat={setSelectedCommunityChat}
           copyingId={copyingId}
           setCopyingId={setCopyingId}
           copyItem={copyItem}
