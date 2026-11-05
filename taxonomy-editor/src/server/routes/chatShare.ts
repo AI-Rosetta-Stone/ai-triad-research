@@ -188,17 +188,20 @@ async function pruneExpiredRegistry(): Promise<void> {
     const backend = getUserContentBackend();
     const registry = await readRegistry();
     let dirty = false;
-    for (const [chatId, shareId] of Object.entries(registry)) {
+    for (const [chatId, shareId] of Object.entries(registry.shares)) {
       const share = await loadShare(shareId);
       if (!share) {
-        delete registry[chatId];
+        delete registry.shares[chatId];
         dirty = true;
       }
     }
-    if (dirty && Object.keys(registry).length > 0) {
-      await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
-    } else if (dirty) {
-      await backend.deleteFile(shareRegistryPath());
+    if (dirty) {
+      registry._version += 1;
+      if (Object.keys(registry.shares).length > 0) {
+        await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
+      } else {
+        await backend.deleteFile(shareRegistryPath());
+      }
     }
   } catch (err) {
     getGlobalRecorder()?.record({
@@ -229,45 +232,6 @@ async function findExistingShare(chatId: string): Promise<PublicChatShare | null
   }
 }
 
-/** K3: CAS (Compare-And-Swap) write to registry with version check. On conflict, delete
- *  the newly written blob so no orphan share survives. Returns true on success, false on conflict. */
-async function casRegistryWrite(
-  registry: VersionedRegistry,
-  updates: Record<string, string>,
-  shareIdToDeleteOnConflict?: string,
-): Promise<boolean> {
-  try {
-    const backend = getUserContentBackend();
-    const newVersion = registry._version + 1;
-    const newRegistry: VersionedRegistry = { _version: newVersion, ...registry, ...updates };
-
-    // Read current registry to check if version matches (simulated CAS)
-    const current = await readRegistry();
-    if (current._version !== registry._version) {
-      // Version mismatch: we lost the race. Delete our own blob if we wrote one.
-      if (shareIdToDeleteOnConflict) {
-        await revokeShare(shareIdToDeleteOnConflict);
-      }
-      return false; // Conflict
-    }
-
-    // Write succeeded
-    await backend.writeFile(shareRegistryPath(), JSON.stringify(newRegistry) + '\n');
-    return true;
-  } catch (err) {
-    if (shareIdToDeleteOnConflict) {
-      await revokeShare(shareIdToDeleteOnConflict);
-    }
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'chat-share',
-      level: 'warn',
-      message: 'CAS registry write failed; deleted orphan blob',
-      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-    });
-    return false;
-  }
-}
 
 /** Returns a reason the content can't be shared, or null when it's within bounds. */
 export function contentTooLarge(messages: unknown[]): string | null {
@@ -318,8 +282,6 @@ async function createShare(
   userId: string,
   chatData: { title: string; messages: unknown[] },
 ): Promise<PublicChatShare> {
-  const backend = getUserContentBackend();
-
   // K1: Generate new share with 128-bit ID
   const shareId = generateShareId();
   const now = new Date();
@@ -341,17 +303,28 @@ async function createShare(
 
   await saveShare(share);
 
-  // K3: Registry write with retry on race, orphan cleanup. K5: assertSafeId on registry key.
+  // K3: Registry write with CAS (version check) + retry, orphan cleanup. K5: assertSafeId on registry key.
+  assertSafeId(chatId, 'chat id for registry key');
+  const backend = getUserContentBackend();
+
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      assertSafeId(chatId, 'chat id for registry key');
       const registry = await readRegistry();
       const previousShareId = registry.shares[chatId];
       if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
-      registry.shares[chatId] = shareId;
-      registry._version += 1;
-      const backend = getUserContentBackend();
-      await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
+
+      // K3: CAS (Compare-And-Swap) write: re-read to check if version changed during our operations
+      const current = await readRegistry();
+      if (current._version !== registry._version) {
+        // Version mismatch: another POST succeeded. Delete our blob and retry.
+        await revokeShare(shareId);
+        continue; // Retry
+      }
+
+      // Version still matches: write with incremented version
+      current.shares[chatId] = shareId;
+      current._version += 1;
+      await backend.writeFile(shareRegistryPath(), JSON.stringify(current) + '\n');
       return share;
     } catch (err) {
       if (attempt === 2) {
@@ -369,12 +342,18 @@ async function createShare(
           problem: 'Registry write conflict after 3 attempts',
           location: 'createShare',
           nextSteps: ['Retry the request'],
+          innerError: err,
         });
       }
     }
   }
 
-  return share;
+  throw new ActionableError({
+    goal: 'Create chat share',
+    problem: 'Registry write exceeded max retries',
+    location: 'createShare',
+    nextSteps: ['Retry the request'],
+  });
 }
 
 // ── Route handlers ──
@@ -444,14 +423,8 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
 
       // Find share for this chat in user's registry
       try {
-        const registryContent = await backend.readFile(shareRegistryPath(), { optional: true });
-        if (!registryContent) {
-          error(res, 'Share not found', 404);
-          return;
-        }
-
-        const registry = JSON.parse(registryContent) as Record<string, string>;
-        const shareId = registry[chatId];
+        const registry = await readRegistry();
+        const shareId = registry.shares[chatId];
         if (!shareId) {
           error(res, 'Share not found', 404);
           return;
@@ -464,12 +437,12 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
           return;
         }
 
-        // Revoke the share
+        // K3: Revoke with CAS write (version check)
         await revokeShare(shareId);
+        delete registry.shares[chatId];
+        registry._version += 1;
 
-        // Remove from user's registry
-        delete registry[chatId];
-        if (Object.keys(registry).length > 0) {
+        if (Object.keys(registry.shares).length > 0) {
           await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
         } else {
           await backend.deleteFile(shareRegistryPath());
