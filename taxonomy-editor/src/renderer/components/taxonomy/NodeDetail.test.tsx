@@ -637,3 +637,88 @@ describe('NodeDetail — Steelman Vulnerability and Intellectual Lineage tabs (t
     expect(screen.getByText('No intellectual lineage recorded')).toBeInTheDocument();
   });
 });
+
+describe('NodeDetail — issue-type chips (t/4834)', () => {
+  beforeEach(() => {
+    mockPrefsState.nodeDetailTabGroup = 'what';
+    vi.clearAllMocks();
+  });
+
+  it('renders no chips when issue_types is absent', () => {
+    mockPrefsState.viewMode = 'simple';
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.queryByText('Loss of Control')).not.toBeInTheDocument();
+    expect(screen.queryByText('No issue type')).not.toBeInTheDocument();
+  });
+
+  it('renders a single chip with its label', () => {
+    mockPrefsState.viewMode = 'simple';
+    const node: PovNode = { ...mockNode, graph_attributes: { issue_types: ['misuse'] } as never };
+    render(<NodeDetail pov="acc" node={node} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('Misuse')).toBeInTheDocument();
+  });
+
+  it('renders three chips in array (primary-first) order', () => {
+    mockPrefsState.viewMode = 'simple';
+    const node: PovNode = {
+      ...mockNode,
+      graph_attributes: { issue_types: ['power_concentration', 'economic', 'social'] } as never,
+    };
+    render(<NodeDetail pov="acc" node={node} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    const chips = screen.getAllByText(/Power Concentration|Economic|Social/);
+    expect(chips.map((el) => el.textContent)).toEqual(['Power Concentration', 'Economic', 'Social']);
+  });
+
+  it('Advanced mode shows confidence and method per chip', () => {
+    mockPrefsState.viewMode = 'advanced';
+    const node: PovNode = {
+      ...mockNode,
+      graph_attributes: {
+        issue_types: ['loss_of_control'],
+        issue_types_provenance: {
+          method: 'llm',
+          model: 'gemini-3.5-flash-lite',
+          prompt_version: 'v1',
+          run_id: 'issue-types-full-2026-11-04',
+          classified_at: '2026-11-04T00:00:00Z',
+          confidence: { loss_of_control: 0.87 },
+          rationale: 'Discusses AI systems acting outside human oversight.',
+        },
+      } as never,
+    };
+    render(<NodeDetail pov="acc" node={node} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('Loss of Control')).toBeInTheDocument();
+    expect(screen.getByText('87% · llm')).toBeInTheDocument();
+  });
+
+  it('Simple mode does not show confidence/method even when provenance is present', () => {
+    mockPrefsState.viewMode = 'simple';
+    const node: PovNode = {
+      ...mockNode,
+      graph_attributes: {
+        issue_types: ['loss_of_control'],
+        issue_types_provenance: {
+          method: 'llm', model: 'm', prompt_version: 'v1', run_id: 'r1',
+          classified_at: '2026-11-04T00:00:00Z', confidence: { loss_of_control: 0.87 }, rationale: 'x',
+        },
+      } as never,
+    };
+    render(<NodeDetail pov="acc" node={node} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('Loss of Control')).toBeInTheDocument();
+    expect(screen.queryByText('87% · llm')).not.toBeInTheDocument();
+  });
+
+  it('Advanced mode shows "No issue type" when issue_types is an empty array', () => {
+    mockPrefsState.viewMode = 'advanced';
+    const node: PovNode = { ...mockNode, graph_attributes: { issue_types: [] } as never };
+    render(<NodeDetail pov="acc" node={node} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('No issue type')).toBeInTheDocument();
+  });
+
+  it('Simple mode renders nothing when issue_types is an empty array', () => {
+    mockPrefsState.viewMode = 'simple';
+    const node: PovNode = { ...mockNode, graph_attributes: { issue_types: [] } as never };
+    render(<NodeDetail pov="acc" node={node} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.queryByText('No issue type')).not.toBeInTheDocument();
+  });
+});
