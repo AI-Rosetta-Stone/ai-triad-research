@@ -13,7 +13,7 @@ type IntroPov = 'accelerationist' | 'safetyist' | 'skeptic';
 // t/4632: the PI asked to remove the eyebrow from both consumers' display. Kept exported rather
 // than deleted — taxonomy-editor/src/server/loginPage.ts (ServerAPI, t/4638) still imports it as
 // of this commit; t/4638 drops that import in its own PR. Remove this export once both land.
-export const INTRO_EYEBROW = 'AI Triad Research · Berkman Klein Center';
+export const INTRO_EYEBROW = 'AI Triad Research';
 export const INTRO_TITLE = 'AI Rosetta Stone';
 
 /** A run of copy, optionally rendered bold. Each consumer escapes `text` and wraps `strong`

@@ -11,6 +11,7 @@ import type {
 import type { SpeakerId, TaxonomyRef } from '../types/debate';
 import type { PovNode, CrossCuttingNode as SituationNode } from '../types/taxonomy';
 import { useTaxonomyStore, getStoredModel } from './useTaxonomyStore';
+import type { CommunityChat } from './useCommunityStore';
 import { extractHttpUrls } from '../../../../lib/url-fetch/extractHttpUrls';
 import { mapErrorToUserMessage } from '../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -47,6 +48,12 @@ function getConfiguredModel(): string {
   const chatModel = useChatStore.getState().chatModel;
   if (chatModel) return chatModel;
   return getStoredModel();
+}
+
+/** t/4774: the chat's chosen temperature, falling back to its mode's default — extracted so the
+ *  fallback doesn't add to generateOpening's/sendMessage's own complexity count. */
+function resolveChatTemperature(chat: Pick<ChatSession, 'temperature' | 'mode'>): number {
+  return chat.temperature ?? CHAT_MODE_TEMPERATURE[chat.mode];
 }
 
 function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
@@ -269,10 +276,16 @@ interface ChatStore {
   chatActivity: string | null;
   chatModel: string | null;
 
+  /** t/4888: ChatTab's Community selection, lifted from local state into the store so
+   *  placeOf.ts (store-only visibility) can give an open community chat an up-crumb. */
+  activeCommunityChat: CommunityChat | null;
+  setActiveCommunityChat: (chat: CommunityChat | null) => void;
+
   // Actions
   loadSessions: () => Promise<void>;
-  /** `tag`: the chat's POV tag (t/3995); omit for an untagged chat. */
-  createChat: (mode: ChatMode, pover: Exclude<SpeakerId, 'user'>, topic: string, chatModel?: string, tag?: SeatTag) => Promise<string>;
+  /** `tag`: the chat's POV tag (t/3995); omit for an untagged chat. `temperature`: t/4774, chosen
+   *  from the shared ModelPicker's slider at creation; omit to use the mode's default. */
+  createChat: (mode: ChatMode, pover: Exclude<SpeakerId, 'user'>, topic: string, chatModel?: string, tag?: SeatTag, temperature?: number) => Promise<string>;
   loadChat: (id: string) => Promise<void>;
   deleteChat: (id: string) => Promise<void>;
   renameChat: (id: string, newTitle: string) => Promise<void>;
@@ -293,6 +306,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   chatError: null,
   chatStreamingText: null,
   chatActivity: null,
+  activeCommunityChat: null,
+  setActiveCommunityChat: (chat) => set({ activeCommunityChat: chat }),
   chatModel: null,
 
   loadSessions: async () => {
@@ -307,7 +322,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  createChat: async (mode, pover, topic, chatModel, tag) => {
+  createChat: async (mode, pover, topic, chatModel, tag, temperature) => {
     const id = generateId();
     const now = nowISO();
     const session: ChatSession = {
@@ -320,8 +335,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       pover,
       transcript: [],
       chat_model: chatModel,
-      // Absent (not undefined-valued) when untagged, so untagged sessions serialize as before.
+      // Absent (not undefined-valued) when untagged/unset, so old-shaped sessions serialize as before.
       ...(tag ? { pov_tag: tag.pov_tag, tag_mode: tag.tag_mode } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
     };
     await api.saveChatSession(session);
     api.trackEvent('chat_start', 'chat', { mode, pover });
@@ -427,7 +443,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const info = chatSoul(activeChat);
       const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
       const model = getConfiguredModel();
-      const temperature = CHAT_MODE_TEMPERATURE[activeChat.mode];
+      const temperature = resolveChatTemperature(activeChat);
 
       const systemInstruction = chatSystemPrompt(
         info.label, info.pov, info.personality,
@@ -535,7 +551,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const info = chatSoul(activeChat);
       const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
       const model = getConfiguredModel();
-      const temperature = CHAT_MODE_TEMPERATURE[activeChat.mode];
+      const temperature = resolveChatTemperature(activeChat);
 
       const detectedUrls = extractHttpUrls(message.trim());
       const urlDetected = detectedUrls.length > 0;

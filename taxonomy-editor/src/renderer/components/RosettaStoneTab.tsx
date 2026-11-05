@@ -58,6 +58,7 @@ export function RosettaStoneTab() {
       heading: 'Ask a Question',
       body: 'Ask a plain-language research question and get a grounded answer broken out by camp — Accelerationist, Safetyist, Skeptic — with the full debate replay one click away.',
       cta: 'Open Ask a Question',
+      image: { src: publicAsset('onboarding/onboarding-inquiry.png'), alt: 'New question dialog showing a research question box and model options' },
       onOpen: () => setActiveTab('inquiry'),
     },
     {
@@ -91,6 +92,15 @@ export function RosettaStoneTab() {
       cta: 'Open Settings',
       image: { src: publicAsset('onboarding/onboarding-settings.png'), alt: 'Settings dialog showing the API Keys panel with a Google Gemini API key field' },
       onOpen: () => openSettings('apiKeys'),
+    },
+    // PI request (2026-11-05): last, because it asks for feedback after the reader has used the tool.
+    {
+      id: 'survey',
+      heading: 'User Survey',
+      body: 'Once you’ve tried the tool, please help the project by filling out a short survey (about 3–4 minutes). Your feedback shapes what we improve next.',
+      cta: 'Take the Survey',
+      image: { src: publicAsset('onboarding/onboarding-survey.png'), alt: 'Survey form titled “AI Rosetta Stone — System Demonstration Feedback”' },
+      onOpen: () => { void api.openExternal('https://jsnover.com/Survey'); },
     },
   ];
 

@@ -25,6 +25,7 @@
 
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
+import vitestPlugin from '@vitest/eslint-plugin';
 import requireFlightRecorderInCatch from '../lib/eslint-rules/require-flight-recorder-in-catch.js';
 import requireWarnOnDegradedCatchReturn from '../lib/eslint-rules/require-warn-on-degraded-catch-return.js';
 import noActionableErrorMessageNesting from '../lib/eslint-rules/no-actionable-error-message-nesting.js';
@@ -216,11 +217,18 @@ export default tseslint.config(
     plugins: { local: { rules: {
       'require-windows-hide': requireWindowsHide,
       'require-windows-hide-unverifiable': requireWindowsHide,
-    } } },
+    } }, vitest: vitestPlugin },
     rules: {
       'max-lines': MAX_LINES_TEST,
       'local/require-windows-hide': ['warn', { report: 'missing' }],
       'local/require-windows-hide-unverifiable': ['warn', { report: 'unverifiable' }],
+      // t/4735: warn-only for now, same reasoning as the require-windows-hide rules above —
+      // existing offenders (174 of them are eslint-rules/__tests__'s RuleTester-based files,
+      // which assert via RuleTester.run() and never call expect(), a structural false
+      // positive this plugin can't see around) land as visibility, not new gate noise.
+      // Promoting to error and excluding RuleTester files is t/4735 step 3, separately gated.
+      'vitest/expect-expect': 'warn',
+      'vitest/no-standalone-expect': 'warn',
     },
   },
 

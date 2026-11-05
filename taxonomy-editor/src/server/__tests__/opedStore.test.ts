@@ -58,6 +58,13 @@ vi.mock('../storage/fileIO.js', () => ({
   },
 }));
 
+const { unpublishOpedShareMock } = vi.hoisted(() => ({
+  unpublishOpedShareMock: vi.fn(async () => false),
+}));
+vi.mock('../storage/opedShareStore.js', () => ({
+  unpublishOpedShare: (...args: unknown[]) => unpublishOpedShareMock(...args),
+}));
+
 import {
   listOpedSets,
   loadOpedSet,
@@ -195,6 +202,16 @@ describe('delete round-trip (t/2572)', () => {
     expect(await loadOpedSet('set-006')).toBeNull();
     const list = await listOpedSets();
     expect(list.find(e => e.set_id === 'set-006')).toBeUndefined();
+  });
+
+  it('deleteOpedSet revokes any share before deletion (t/4893)', async () => {
+    const set = makeSet('set-share-revoke');
+    await finalizeOpedSet(set);
+    unpublishOpedShareMock.mockClear();
+    await deleteOpedSet('set-share-revoke');
+
+    expect(unpublishOpedShareMock).toHaveBeenCalledWith('set-share-revoke');
+    expect(await loadOpedSet('set-share-revoke')).toBeNull();
   });
 });
 

@@ -82,6 +82,7 @@
         'Assert-CleanDataTree'
         'Save-JsonNodeFieldEdits'
         'Set-PovNodeTags'
+        'Set-IssueTypeTags'
         'Invoke-HierarchyProposal'
         'Set-TaxonomyHierarchy'
         'Invoke-SchemaMigration'

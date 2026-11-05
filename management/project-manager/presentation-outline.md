@@ -16,7 +16,7 @@ The AI policy landscape is fractured among accelerationists, safety advocates, a
 
 #### Slide 1: Title
 **Applying Computational Dialectics to Understand the AI Triad**
-Jeffrey Snover | Berkman Klein Center Fellow | 2026
+Jeffrey Snover | 2026
 
 ---
 
@@ -87,7 +87,7 @@ The result: 565 taxonomy nodes across 3 POVs + cross-cutting situations, each BD
 
 #### Slide 6: The Insight — Generator and Selector Functions
 
-A while back, the Chief Privacy Officer from Microsoft was interviewed by a Harvard professor here at Berkman Klein Center. The professor said: *"We're Harvard Law. We believe truth emerges through argumentation."*
+A while back, the Chief Privacy Officer from Microsoft was interviewed by a Harvard Law professor. The professor said: *"We're Harvard Law. We believe truth emerges through argumentation."*
 
 That was profoundly impactful. It made me realize:
 

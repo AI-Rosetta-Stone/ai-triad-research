@@ -8,8 +8,8 @@
 name: SBOM Generation
 on:
   schedule:
-    # First Sunday of the month at 00:00 UTC (monthly compliance audit)
-    - cron: '0 0 * * 0'
+    # First day of the month at 00:00 UTC (monthly compliance audit)
+    - cron: '0 0 1 * *'
   workflow_dispatch:
   push:
     branches:
@@ -65,7 +65,7 @@ jobs:
           output-file: sbom-${{ steps.latest_image.outputs.digest_short }}.spdx.json
 
       - name: Upload SBOM as release asset
-        uses: softprops/action-gh-release@4c11bfe087a313e4564f3314da2a3f9e9ce5c77d  # v2.0.9
+        uses: softprops/action-gh-release@e7a8f85e1c67a31e6ed99a94b41bd0b71bbee6b8  # v2.0.9
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         with:
           files: sbom-${{ steps.latest_image.outputs.digest_short }}.spdx.json

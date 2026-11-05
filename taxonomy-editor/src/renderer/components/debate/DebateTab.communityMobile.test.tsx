@@ -27,16 +27,20 @@ vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => ({ anonymous:
 vi.mock('../../hooks/useBreakpoint', () => ({ useBreakpoint: () => 'phone' }));
 
 vi.mock('../../hooks/useDebateStore', () => ({
-  useDebateStore: (selector: (s: Record<string, unknown>) => unknown) => selector({
-    sessions: [],
-    sessionsLoading: false,
-    loadSessions: vi.fn().mockResolvedValue(undefined),
-    activeDebateId: null,
-    activeDebate: null,
-    loadDebate: vi.fn(),
-    deleteDebate: vi.fn(),
-    renameDebate: vi.fn(),
-  }),
+  useDebateStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector({
+      sessions: [],
+      sessionsLoading: false,
+      loadSessions: vi.fn().mockResolvedValue(undefined),
+      activeDebateId: null,
+      activeDebate: null,
+      loadDebate: vi.fn(),
+      deleteDebate: vi.fn(),
+      renameDebate: vi.fn(),
+      setActiveCommunityDebate: vi.fn(),
+    }),
+    { setState: vi.fn() },
+  ),
 }));
 
 const COMMUNITY_DEBATE = { id: 'cd-1', title: 'A community debate', created_at: '2026-01-01', updated_at: '2026-01-01' };
@@ -117,7 +121,9 @@ describe('DebateTab — mobile tapping a community debate (t/4672)', () => {
     expect(window.location.hash).toBe(`#debate-window?id=${COMMUNITY_DEBATE.id}&source=community`);
   });
 
-  it('on a desktop user agent, still shows the manual "Open in Window" button and does not auto-navigate', async () => {
+  // t/4899: desktop no longer shows the "Open in Window" interstitial; it opens in place
+  // (DebateTab.communityInPlace.test.tsx). Here we pin only that desktop does not hash-navigate.
+  it('on a desktop user agent, does not auto-navigate to the popout and shows no "Open in Window" interstitial', async () => {
     Object.defineProperty(navigator, 'userAgent', {
       value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       configurable: true,
@@ -126,6 +132,6 @@ describe('DebateTab — mobile tapping a community debate (t/4672)', () => {
     await selectTheCommunityDebate();
 
     expect(window.location.hash).toBe('');
-    expect(screen.getByRole('button', { name: 'Open in Window' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in Window' })).not.toBeInTheDocument();
   });
 });

@@ -57,12 +57,25 @@ const isBackgroundSave = (caller: string): boolean =>
 
 declare const __APP_VERSION__: string;
 
+/** t/4888: the minimal shape placeOf.ts's chat resolver needs from a community debate —
+ *  deliberately not the full `CommunityDebate` (useCommunityStore.ts), to avoid coupling this
+ *  slice to that module for what's purely inert navigation display data. */
+export interface CommunityDebateRef {
+  id: string;
+  title: string;
+}
+
 export interface SessionSlice {
   sessions: DebateSessionSummary[];
   sessionsLoading: boolean;
   activeDebateId: string | null;
   activeDebate: DebateSession | null;
   debateLoading: boolean;
+  /** t/4888: DebateTab's Community selection, lifted from local state into the store so
+   *  placeOf.ts (store-only visibility) can give an open community debate an up-crumb. Inert
+   *  navigation metadata only — never read by the generation/save pipeline. */
+  activeCommunityDebate: CommunityDebateRef | null;
+  setActiveCommunityDebate: (debate: CommunityDebateRef | null) => void;
 
   loadSessions: () => Promise<void>;
   createDebate: (topic: string, povers: SpeakerId[], userIsPover: boolean, sourceType?: DebateSourceType, sourceRef?: string, sourceContent?: string, debateModel?: string, protocolId?: string, debateTemperature?: number, debateAudience?: DebateAudience, options?: { title?: string; evaluatorModel?: string; pacing?: string; useAdaptiveStaging?: boolean; phaseBoundsOverride?: { maxConfrontationRounds?: number; maxArgumentationRounds?: number; maxConcludingRounds?: number }; speakerModels?: Record<string, string>; modelTier?: 'basic' | 'advanced'; /** t/4046: backends eligible for a multi-provider run; keys model_pool (t/4044). */ eligibleBackends?: string[]; stepMode?: boolean; stageModels?: { brief?: string; plan?: string; cite?: string }; background?: string; excludeGreatestHits?: boolean; narrativeVoicing?: boolean; /** t/3958: absent ⇒ every seat untagged. Never pass `{}` — t/3975's seatSouls treats any key presence as "tagged". */ seatTags?: Partial<Record<SpeakerId, SeatTag>> }) => Promise<string>;
@@ -480,6 +493,8 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
   activeDebateId: null,
   activeDebate: null,
   debateLoading: false,
+  activeCommunityDebate: null,
+  setActiveCommunityDebate: (debate) => set({ activeCommunityDebate: debate }),
   _saveInFlight: false,
   _saveDirty: false,
   _loadInFlight: {},

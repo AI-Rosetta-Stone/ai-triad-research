@@ -382,7 +382,7 @@ export function PublicOpEdView() {
   const { doc } = state;
   return (
     <div className="pov-oped-root">
-      <div className="pov-oped-card" aria-label="Shared op-ed">
+      <div className={`pov-oped-card${doc.outlet ? '' : ' pov-oped-card-no-head'}`} aria-label="Shared op-ed">
         {doc.outlet ? (
           <header className="pov-oped-head">
             <p className="pov-oped-outlet">For {doc.outlet}</p>

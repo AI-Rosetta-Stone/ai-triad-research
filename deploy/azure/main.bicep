@@ -89,11 +89,16 @@ param stagingLoadTestSize bool = false
 // apply (t/4728, p/868#31 — exactly what happened on 2026-10-31), because the deploy re-applies
 // this template's declared value. Declaring it here means an apply KEEPS the override instead of
 // silently reverting it.
-// TEMPORARY, default '5', for the t/4677 AC3/AC4 low-cap staging proof. TODO(t/4732): once that
-// proof closes, change this default back (omit the entry, or set it to '1500' to match
-// freePoolBudget.ts's own code default) in a Bicep PR — never by CLI.
-@description('FREE_POOL_DAILY_CALLS_CAP override for staging only. TEMPORARY for the t/4677 proof — revert via t/4732, in Bicep, not CLI.')
-param freePoolDailyCallsCapStaging string = '5'
+// t/4732: the t/4677 AC3/AC4 low-cap staging proof (ticket Done, 2026-11-02) closed, but
+// restoring the code default (1500) here would NOT be safe -- SO (e/419) found that prod and
+// staging share one Gemini free-tier key pool (same `free-tier-gemini-key` secret, see
+// freeTierSecretName below), so 1500 (staging) + 1500 (prod) risks exhausting the provider's real
+// daily quota, which this repo doesn't document. TL recommendation (p/404#172, PI's decision
+// pending): an interim cap of '200' -- enough for staging's smoke/acceptance runs, well under
+// prod's budget -- until staging gets its own free-tier key in its own GCP project (t/4587's
+// pattern, tracked separately). Revisit once that lands or the PI sets a different number.
+@description('FREE_POOL_DAILY_CALLS_CAP override for staging. INTERIM value (t/4732/e/419) while staging shares the prod Gemini free-tier key pool -- not the code default (1500), which would risk exhausting the shared provider quota. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
+param freePoolDailyCallsCapStaging string = '200'
 
 // ── Staging blob-container isolation (t/4738 incident) ──
 // PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
@@ -767,8 +772,9 @@ var stagingEnvOverrides = [
   // live exposure the SO found (t/4446#5), broader than the already-closed direct-write-to-main
   // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
   { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
-  // t/4728: staging's TEMPORARY low-cap override for the t/4677 proof. See the
-  // freePoolDailyCallsCapStaging param above (near stagingLoadTestSize) for the revert note.
+  // t/4728: staging's free-pool calls cap, declared so it survives a prod Bicep apply instead
+  // of drifting via CLI. t/4732: the t/4677 low-cap proof closed, but the shared-key-pool risk
+  // (e/419) keeps this at an interim 200, not prod's 1500 default -- see the param above.
   { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
   // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
   // (near freePoolDailyCallsCapStaging) for the incident history and rationale.

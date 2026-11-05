@@ -138,7 +138,7 @@ add_textbox(slide, Inches(1.2), Inches(1.5), Inches(11), Inches(1.5),
 add_accent_bar(slide, Inches(1.2), Inches(3.5), Inches(3), Inches(0.05), ACCENT_GOLD)
 
 add_textbox(slide, Inches(1.2), Inches(3.8), Inches(11), Inches(0.6),
-            "Jeffrey Snover  |  Berkman Klein Center Fellow  |  2026",
+            "Jeffrey Snover  |  2026",
             font_size=22, color=LIGHT_GRAY, alignment=PP_ALIGN.LEFT)
 
 add_textbox(slide, Inches(1.2), Inches(5.2), Inches(10), Inches(1.5),
@@ -403,7 +403,7 @@ add_textbox(slide, Inches(0.8), Inches(1.7), Inches(11), Inches(1.2),
             font_size=26, color=MED_GRAY, alignment=PP_ALIGN.CENTER,
             font_name="Calibri Light")
 add_textbox(slide, Inches(0.8), Inches(2.6), Inches(11), Inches(0.5),
-            "— Harvard Professor, Berkman Klein Center interview",
+            "— Harvard Law Professor, in conversation",
             font_size=16, color=MED_GRAY, alignment=PP_ALIGN.CENTER)
 
 # Two boxes

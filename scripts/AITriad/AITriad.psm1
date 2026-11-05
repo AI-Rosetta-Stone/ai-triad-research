@@ -631,6 +631,16 @@ class PovTagAssignment {
     [string[]] $Tags
 }
 
+# One batch entry for Set-IssueTypeTags (t/4836). Provenance is a loose [hashtable] rather than
+# a typed class -- its shape (method/model/prompt_version/run_id/classified_at/confidence/
+# rationale) is schema-defined in docs/issue-type-taxonomy.md and lib/schema/issueTypes.ts, not
+# PowerShell-defined, and confidence's keys vary per node (one per chosen type).
+class IssueTypeAssignment {
+    [string]    $NodeId
+    [string[]]  $Types
+    [hashtable] $Provenance
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Module-scoped taxonomy store
 # ─────────────────────────────────────────────────────────────────────────────
@@ -897,6 +907,7 @@ Export-ModuleMember -Function @(
     'Save-JsonNodeFieldEdits'
     # t/3969 — validatePovTags-enforcing pov_tags batch writer (the t/3962 writer)
     'Set-PovNodeTags'
+    'Set-IssueTypeTags'
     'Invoke-HierarchyProposal'
     'Set-TaxonomyHierarchy'
     'Invoke-SchemaMigration'

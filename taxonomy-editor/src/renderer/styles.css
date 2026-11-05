@@ -158,7 +158,7 @@
   --chip-bg: #293548;
 }
 
-/* ─── BKC theme (Berkman Klein Center Transparency Hub) ─── */
+/* ─── BKC theme ─── */
 
 [data-theme="bkc"] {
   /* POV colors — orange/blue/violet triad (Phase 2, WCAG AA verified) */
@@ -1277,7 +1277,7 @@ body {
   min-height: 28px;
 }
 
-[data-pane-spacing="concise"] .node-item {
+[data-pane-spacing="concise"] { /* t/4723: scoped to the root so --node-item-font reaches NodeDetail.css's description too */
   --node-item-padding: 3px 10px;
   --node-item-gap: 0px;
   --node-item-font: 0.8rem;

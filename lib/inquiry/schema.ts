@@ -70,6 +70,8 @@ const requestFields = {
   models: ModelOverrideSchema.optional(),
   /** Optional temperature override for debater calls only (0–2, t/4771). Absent: fidelity tier default. */
   temperature: z.number().min(0).max(2).optional(),
+  /** Optional display title for the inquiry; when absent, question is used (t/4891). */
+  title: z.string().max(200).optional(),
 };
 
 export const InquiryRequestSchema = z
@@ -219,6 +221,9 @@ export const ResolvedDerivationSchema = z.object({
   /** Temperature actually passed to debater calls (0–2, t/4771). Includes default if request was absent.
    *  Provenance field: records the resolved fact, like models and fidelity. */
   temperature: z.number().min(0).max(2).optional(),
+  /** The resolved title used for the inquiry (request.title if provided, else null).
+   *  Provenance field: records what display title was used, like fidelity and models. */
+  title: z.string().max(200).nullable().optional(),
 });
 export type ResolvedDerivation = z.infer<typeof ResolvedDerivationSchema>;
 

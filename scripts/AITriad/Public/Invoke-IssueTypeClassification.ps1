@@ -422,7 +422,14 @@ function Invoke-IssueTypeClassification {
                 & $SetAdjudicatorFields $Entry $AdjudicatorModel $AdjTypes $Adj.Confidence $Adj.Rationale $Matched
                 if ($AutoAccept) {
                     $Entry.status = 'accepted'
-                    $Entry.final = , @($AdjTypes)
+                    # No unary comma here: this is a plain property assignment, not a scriptblock
+                    # return or an if/else-expression capture, so @() alone preserves a genuinely
+                    # empty array AND a non-empty one correctly. `, @($AdjTypes)` (the pattern
+                    # used elsewhere in this file to protect an if/else EXPRESSION's empty-array
+                    # branch from collapsing to $null) wraps the array in an extra, spurious layer
+                    # here instead -- e.g. ["political","misuse"] became [["political","misuse"]]
+                    # on every accepted adjudication (TL-reported via t/4835's 30-item spot-check).
+                    $Entry.final = @($AdjTypes)
                     $Entry.confidence = $Adj.Confidence
                     $Entry.rationale = $Adj.Rationale
                     $Entry.provenance | Add-Member -NotePropertyName 'method' -NotePropertyValue 'llm-adjudicated' -Force

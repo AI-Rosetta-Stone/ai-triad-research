@@ -32,8 +32,13 @@ COPY lib/ ./lib/
 # Use isolated linker (not hoisted) so the .pnpm/ virtual store is created — required for
 # `pnpm licenses list` (called by `npm run licenses` in build:container). The prod-deps stage
 # still uses hoisted linker (from .npmrc) for native-module compatibility.
+# No pnpm-store cache mount in this stage: `pnpm licenses list` (step below) reads package
+# index files from the store, so the store has to live in the same layer as node_modules.
+# With a cache mount, a layer-cache hit on this install restores node_modules but leaves the
+# mount empty on a fresh runner, and licenses fails with ERR_PNPM_MISSING_PACKAGE_INDEX_FILE
+# (container.yml 41957003986, all 3 attempts). This stage isn't shipped, so size doesn't matter.
 WORKDIR /build/taxonomy-editor
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --config.node-linker=isolated
+RUN pnpm install --frozen-lockfile --config.node-linker=isolated
 
 # Install shared-lib deps too (t/2035): lib/ is a self-contained package with its
 # own package.json, and the sanitizer core's renderer-parity decoders must resolve
@@ -43,7 +48,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --froze
 # Use isolated linker to match the taxonomy-editor install above — mixed linkers across
 # workspace packages corrupt the virtual store, breaking `pnpm licenses list`.
 WORKDIR /build/lib
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --config.node-linker=isolated
+RUN pnpm install --frozen-lockfile --config.node-linker=isolated
 
 # Copy source and build
 WORKDIR /build
@@ -66,8 +71,8 @@ WORKDIR /build/taxonomy-editor
 ARG BUILD_SHA
 ENV BUILD_SHA=$BUILD_SHA
 
-# Cache mount required: pnpm store not in image layer — `pnpm licenses list` reads
-# package index files from the store.
+# The pnpm store is in the image layer (the installs above have no cache mount), so
+# `pnpm licenses list` always finds the package index files it reads from the store.
 # pnpm shim: in workspace mode, `pnpm licenses list --prod` (called by generate-license-file)
 # enumerates ALL workspace packages including workflow-app's @google/genai, @modelcontextprotocol/sdk
 # etc. that are NOT installed in this stage → ERR_PNPM_MISSING_PACKAGE_INDEX_FILE.
@@ -77,8 +82,7 @@ ENV BUILD_SHA=$BUILD_SHA
 # Fix: intercept the `pnpm licenses list` call via a PATH shim that appends
 # --filter taxonomy-editor, scoping the listing to only installed packages.
 # The workspace virtual store paths remain valid (no workspace marker deleted).
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    REAL_PNPM="$(which pnpm)" && \
+RUN REAL_PNPM="$(which pnpm)" && \
     printf '%s\n' '#!/bin/sh' \
         "REAL_PNPM=${REAL_PNPM}" \
         'if [ "$1" = "licenses" ]; then' \
@@ -278,6 +282,36 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install --only-upgrade -y libbrotli1
+
+# 7c. Strip apt from the runtime image (t/4874, hardening after CVE-2026-109518 blocked the
+# container Trivy gate). Everything above that needs apt (numpy, PowerShell, the libbrotli1
+# bump) has already run; apt/dpkg tooling has no runtime purpose from here on but keeps its own
+# CVE surface in the shipped image. Same strip-then-guard shape as npm below (t/3135).
+#
+# DevOps review (t/4874): no --auto-remove. node, onnxruntime-node and node-pty link
+# libstdc++6/libgcc-s1, but those come from the base image's node tarball, not a .deb, so dpkg
+# doesn't know they're used -- if apt is their last dpkg-visible dependent, --auto-remove would
+# pull them too and the server would die at start with "libstdc++.so.6: cannot open shared
+# object". Purge apt and libapt-pkg7.0 explicitly instead.
+#
+# Guarded in-build (same RUN, so a broken image fails the build, not staging): the node native
+# modules that'd break first (onnxruntime-node, node-pty), pwsh (the web console), and numpy
+# (the grounding reconciler) all still load after the purge.
+# apt is Essential/Protected on Debian 13, so -y alone refuses with exit 100
+# ("Essential packages were removed and -y was used without --allow-remove-essential").
+# `hash -r` before the guard: this shell ran apt-get above, so `command -v apt-get` would
+# return the remembered path even though the file is gone (run 42003978248: ls found no
+# /usr/bin/apt*, command -v still printed /usr/bin/apt-get).
+RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
+    && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
+    && hash -r \
+    && if dpkg -s apt >/dev/null 2>&1 || command -v apt >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; then \
+         echo "[t/4874] ERROR: apt still present after purge" && exit 1; \
+       fi \
+    && node -e "require('onnxruntime-node'); require('node-pty')" \
+    && pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion' \
+    && python3 -c 'import numpy' \
+    && echo "[t/4874] apt stripped from runtime image; native deps, pwsh and numpy still load"
 
 # 8. Strip global npm from the runtime image (t/3135). npm is NOT reachable at
 # runtime — CMD is a direct `node`; npm/pnpm are used only in the discarded

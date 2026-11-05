@@ -11,6 +11,7 @@ import type { InquiryRequest, ResolvedDerivation, Fidelity } from '../inquiry/in
 import type { ModelRegistry } from '../ai-client/registry.js';
 import { ActionableError } from './errors.js';
 import { loadProvisionalWeights } from './phaseTransitions.js';
+import { DEFAULT_TEMPERATURE } from '../ai-client/defaults.js';
 
 // t/4598: was a hardcoded duplicate of phaseTransitions.ts's budget.hard_multiplier — the exact
 // shape of drift the PI's truncation report traced back to (two independent copies of the same
@@ -107,6 +108,14 @@ export function deriveDebateConfig(
 
   const callBudget = profile.maxTotalRounds * HARD_MULTIPLIER;
 
+  // t/4771: debater-only sampling temperature. Stamped as the EFFECTIVE value (request
+  // override, else the same DEFAULT_TEMPERATURE debateEngine.ts itself falls back to when
+  // config.temperature is unset) rather than left to drift between two independent
+  // defaults — same anti-drift shape as t/4598's HARD_MULTIPLIER fix. The evaluator never
+  // reads config.temperature (debateEngine.ts uses its own fixed EVALUATOR_TEMPERATURE),
+  // so this can't touch evaluator sampling.
+  const effectiveTemperature = request.temperature ?? DEFAULT_TEMPERATURE;
+
   const config: DebateConfig = {
     topic: request.question,
     sourceType: 'topic',
@@ -117,6 +126,7 @@ export function deriveDebateConfig(
     pacing: profile.pacing,
     useAdaptiveStaging: profile.useAdaptiveStaging,
     maxTotalRounds: profile.maxTotalRounds,
+    temperature: effectiveTemperature,
     turnValidation: { enabled: true },
     stageModels: { evaluator: evaluatorModel },
     ...(profile.phaseBoundsOverride ? { phaseBoundsOverride: profile.phaseBoundsOverride } : {}),
@@ -137,6 +147,7 @@ export function deriveDebateConfig(
     models: { debaters: debaterModel, evaluator: evaluatorModel },
     rounds: profile.rounds,
     callBudget,
+    temperature: effectiveTemperature,
   };
 
   return { config, derivation };

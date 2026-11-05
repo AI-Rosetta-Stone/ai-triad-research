@@ -311,6 +311,8 @@ jobs:
               # soundness rule, every Dockerfile COPY input must gate test-container, or a
               # reconciler-only change false-greens a SKIPPED container job.
               - 'research/comp-linguist/scripts/**'
+              # t/4883 guard script + tests, run by test-container (t/2094 soundness rule).
+              - 'operations/devops/check-dockerfile-store-mounts*'
               - '.dockerignore'
               - 'lib/**'
               - 'scripts/**'
@@ -1977,6 +1979,14 @@ jobs:
               -t "ghcr.io/ai-rosetta-stone/ai-triad-base:$BASE_TAG" .
           fi
 
+      # t/4883 fast tripwire: the builder stage must not mount the pnpm store as a cache. A
+      # layer-cache hit on the install restores node_modules but not the store, and
+      # `pnpm licenses list` fails (container.yml 41957003986, fixed by #4565).
+      - name: Lint — no pnpm-store cache mount in the builder stage (t/4883)
+        run: |
+          node --test operations/devops/check-dockerfile-store-mounts.test.mjs
+          node operations/devops/check-dockerfile-store-mounts.mjs lint taxonomy-editor/Dockerfile
+
       - name: Build app container image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7
         with:
@@ -1985,6 +1995,42 @@ jobs:
           push: false
           load: true
           tags: ai-triad-test:ci
+
+      # t/4883 behavioural proof. A NEW builder has empty BuildKit cache mounts (the cold pnpm
+      # store), seeded only with the builder-stage layer cache exported from the build above
+      # (a builder-only re-run, fully cached, so the export is cheap; exporting the whole image
+      # cache from the main build cost ~3 min). A different BUILD_SHA (ARG declared after the
+      # installs) keeps the builder `pnpm install` CACHED but forces build:container + licenses
+      # to execute. The checker passes only on exactly that shape; a fully cached or
+      # fresh-install log is "inconclusive", never a pass.
+      # ADVISORY (TL, t/4883#2): continue-on-error with a ::warning:: verdict for >=5 real
+      # runs, then promotion to blocking is a separate T2 PR. The lint step above stays blocking.
+      - name: Warm-layer / cold-store rebuild — licenses (advisory, t/4883)
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -uo pipefail
+          docker buildx build --progress=quiet --target builder \
+            --cache-to "type=local,dest=${RUNNER_TEMP}/layer-cache,mode=max" \
+            -f taxonomy-editor/Dockerfile . || exit 1
+          docker buildx create --name coldstore --driver docker-container \
+            --driver-opt image=moby/buildkit:buildx-stable-1 >/dev/null || exit 1
+          docker buildx build --builder coldstore --progress=plain \
+            --target builder \
+            --cache-from "type=local,src=${RUNNER_TEMP}/layer-cache" \
+            --build-arg "BUILD_SHA=t4883-coldstore-${GITHUB_RUN_ID}" \
+            -f taxonomy-editor/Dockerfile . 2>&1 | tee "${RUNNER_TEMP}/coldstore.log"
+          build_rc=${PIPESTATUS[0]}
+          # The checker runs even when the build failed, so the step says WHY (regression vs
+          # a run that never exercised the warm-layer path) instead of just "exit 1".
+          node operations/devops/check-dockerfile-store-mounts.mjs log "${RUNNER_TEMP}/coldstore.log" --advisory
+          check_rc=$?
+          [ "$build_rc" -eq 0 ] && [ "$check_rc" -eq 0 ]
+
+      - name: Remove the cold-store builder
+        if: always()
+        run: docker buildx rm coldstore 2>/dev/null || true
 
       - name: Reconciler --selftest INSIDE the prod image (t/3213)
         # Proves reconcile_grounding.py + its numpy dep are actually present and
@@ -2403,6 +2449,28 @@ jobs:
         run: |
           node --test .github/scripts/check-filter-coverage.test.mjs
           node .github/scripts/check-filter-coverage.mjs
+
+  # ── action-pin-resolution: every SHA-pinned `uses:` actually resolves on its repo (t/4866) ──
+  # Prevention for the #4498 incident: container.yml pinned actions/cache/restore and
+  # actions/cache/save to a commit SHA that belongs to actions/upload-artifact, not
+  # actions/cache -- workflow-lint.py's existing check only confirms the SHAPE of a `uses:`
+  # ref (40-hex), never that the SHA actually exists on the declared repo. This does.
+  # NO path filter of its own -- any workflow edit can introduce a bad pin, same reasoning as
+  # workflow-lint/ci-filter-coverage above. Warn-only (continue-on-error): promotion to
+  # blocking is T2.
+  action-pin-resolution:
+    needs: [changes]
+    if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Check every SHA-pinned action resolves on its declared repo
+        run: |
+          node --test operations/devops/check-action-pin-resolution.test.mjs
+          node operations/devops/check-action-pin-resolution.mjs
 
   # ── pov-tag-orphan-check: differential POV-tag orphan scan (t/3987, SO e/253#2/#4) ──
   # A POV-tag registry change must show what it orphans before it merges. Runs the taxonomy
