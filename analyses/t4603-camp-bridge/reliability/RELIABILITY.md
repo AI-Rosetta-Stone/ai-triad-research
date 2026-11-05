@@ -2,6 +2,8 @@
 
 **Question:** can the t/4600 off-tag AC (stretched + unsupported share ≤ 33%) be judged from one rater's labels? **No.** The verdict changes depending on who labels.
 
+> **Update, rubric v2 (see the "Rubric v2 result" section below):** with node descriptions on the sheet, two fresh blind raters reach binary κ 0.79 with a prevalence gap of 0.08, which **meets** the reliability criterion. Both v2 raters put the t/4742 new off-tag bad share above 33% (39% and 57%), so **the AC fails reliably.**
+
 ## Raters
 - **R1 (CL):** the original t/4603 and t/4742 labels (`../labels_t4603.json`, `../labels.json`). Made before the rubric existed.
 - **R2:** a blind agent (Sonnet) working from `../RUBRIC.md` and the blind sheets only (`rater2_labels_*.json`, notes in `rater2_notes.md`).
@@ -51,3 +53,36 @@ After that, re-rate a fresh blind sample with two raters and check the criterion
 
 ## Embedding probe (t/4880)
 `t4880_embedding_probe.py`: point-to-node cosine similarity gives AUC 0.505 on t/4742 new off-tag items (21 genuine / 31 bad on R1 labels). It is not usable as a check; see t/4880#1.
+
+## Rubric v2 result (t/4742 sheet, n=88)
+
+`../RUBRIC_v2.md` puts the node **description** on the sheet (`v2_sheet_t4742.txt`) and adds rules 5 to 8. The two raters are fresh blind agents: A is Sonnet (`v2_raterA_labels_t4742.json`) and B is Opus (`v2_raterB_labels_t4742.json`). Neither had seen any earlier labels. All figures are observed.
+
+| | value |
+|---|---|
+| 3-class agreement / κ | 0.90 / 0.82 |
+| binary agreement / κ (p_e) | 0.90 / **0.79** (0.50) |
+| bad prevalence A / B, gap | 0.51 / 0.59, **0.08** |
+
+**The criterion is met** (binary κ ≥ 0.6 and prevalence gap ≤ 0.10). Eight of the nine disagreements go the same way: A `genuine`, B `stretched`.
+
+| arm | A bad | B bad | both bad | either bad |
+|---|---|---|---|---|
+| new off-tag (n=28) | 11 (39%) | 16 (57%) | 11 | 16 |
+| saved off-tag (n=30) | 24 (80%) | 26 (87%) | 24 | 26 |
+| new on-tag (n=30) | 10 (33%) | 10 (33%) | 9 | 11 |
+
+- **AC (≤33% off-tag bad): FAIL under both raters**, even on the lenient "both bad" count (11/28 = 39%). It is a reliable fail, in a range of 39% to 57%.
+- **The filter's effect is reliable:** filtered vs saved is −41 points for A and −30 for B.
+- **On-tag points are a third bad** under both raters.
+- **Caveats:**
+  - 5 of the 9 disagreements fall in the new off-tag arm, so agreement there (n=28) is weaker than the pooled figure.
+  - v2's rules were written from R2's notes on these same sheets. The anchors are still constructed and the raters were fresh, but the next round should confirm on a new sample.
+
+**For a rubric v3**, from both v2 raters' notes:
+- Split `stretched` into *topic-only* and *polarity inversion* (B found 4 confident inversions).
+- Add a cue for content that falls in the node's own `Excludes:` list.
+- Rule 5 (`neutral-node`) never fired, because every description takes a side, so drop it.
+- Avoid repeating the same verbatim span across items on one sheet.
+
+The polarity split also feeds the t/4880 judge, which uses `argues_against` as an output class.
