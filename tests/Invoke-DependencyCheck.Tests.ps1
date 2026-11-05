@@ -22,6 +22,7 @@
 #>
 
 BeforeAll {
+    $script:SavedNeo4jUri = $env:NEO4J_URI
     Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
 
     # Pulls one Result's Message by Status+substring, for substring assertions (not full-text
@@ -115,6 +116,13 @@ Describe 'Invoke-DependencyCheck (t/3910)' -Tag 'summary' {
         $env:ANTHROPIC_API_KEY = $null
         $env:GROQ_API_KEY = $null
         $env:AI_API_KEY = $null
+        # docker compose sets NEO4J_URI to a non-local host, which flips the Docker/Neo4j section
+        # into its "managed externally" branch; start every test from the local-Neo4j baseline.
+        $env:NEO4J_URI = $null
+    }
+
+    AfterAll {
+        $env:NEO4J_URI = $script:SavedNeo4jUri
     }
 
     Context 'happy path (test mode, everything present and clean)' {
@@ -308,6 +316,36 @@ Describe 'Invoke-DependencyCheck (t/3910)' -Tag 'summary' {
             InModuleScope AITriad { Mock docker { if ($args[0] -eq '--version') { return 'Docker version 27.0.0, build abc' }; if ($args[0] -eq 'info') { $global:LASTEXITCODE = 1; return 'not running' } } }
             $Ctx = InModuleScope AITriad -Parameters @{ RepoDir = $script:RepoDir } { param($RepoDir) Invoke-DependencyCheck -Mode test -Quiet -RepoRoot $RepoDir }
             Find-DepResult $Ctx 'warn' 'daemon not running' | Should -Not -BeNullOrEmpty
+        }
+
+        It 'external NEO4J_URI skips the local container check instead of probing docker ps' {
+            $env:GEMINI_API_KEY = 'fake-key'
+            $env:NEO4J_URI = 'bolt://neo4j:7687'
+            # `docker ps` would report a running container; if the check wrongly runs, a PASS shows up.
+            InModuleScope AITriad { Mock docker { if ($args[0] -eq '--version') { return 'Docker version 27.0.0, build abc' }; if ($args[0] -eq 'info') { $global:LASTEXITCODE = 0; return 'ok' }; if ($args[0] -eq 'ps') { $global:LASTEXITCODE = 0; return 'Up 5 minutes' } } }
+            $Ctx = InModuleScope AITriad -Parameters @{ RepoDir = $script:RepoDir } { param($RepoDir) Invoke-DependencyCheck -Mode test -Quiet -RepoRoot $RepoDir }
+            Find-DepResult $Ctx 'pass' 'Docker 27.0.0' | Should -Not -BeNullOrEmpty
+            Find-DepResult $Ctx 'pass' 'Neo4j container running' | Should -BeNullOrEmpty
+        }
+
+        It 'external NEO4J_URI with docker not installed is not a WARN' {
+            $env:GEMINI_API_KEY = 'fake-key'
+            $env:NEO4J_URI = 'bolt://neo4j:7687'
+            InModuleScope AITriad {
+                Mock Get-Command { param($Name) if ($Name -ne 'docker' -and $Name -in @('git','node','npm','pandoc','markitdown','pdftotext','python3')) { [PSCustomObject]@{ Name = $Name } } } -ParameterFilter { $null -ne $Name }
+            }
+            $Ctx = InModuleScope AITriad -Parameters @{ RepoDir = $script:RepoDir } { param($RepoDir) Invoke-DependencyCheck -Mode test -Quiet -RepoRoot $RepoDir }
+            Find-DepResult $Ctx 'warn' 'Docker not installed' | Should -BeNullOrEmpty
+        }
+
+        It 'a local NEO4J_URI still gets the container check' {
+            $env:GEMINI_API_KEY = 'fake-key'
+            $env:NEO4J_URI = 'bolt://localhost:7687'
+            InModuleScope AITriad {
+                Mock Get-Command { param($Name) if ($Name -ne 'docker' -and $Name -in @('git','node','npm','pandoc','markitdown','pdftotext','python3')) { [PSCustomObject]@{ Name = $Name } } } -ParameterFilter { $null -ne $Name }
+            }
+            $Ctx = InModuleScope AITriad -Parameters @{ RepoDir = $script:RepoDir } { param($RepoDir) Invoke-DependencyCheck -Mode test -Quiet -RepoRoot $RepoDir }
+            Find-DepResult $Ctx 'warn' 'Docker not installed' | Should -Not -BeNullOrEmpty
         }
     }
 

@@ -1725,22 +1725,55 @@ function Invoke-AIApi {
     # -- Extract text from backend-specific response envelope -----------------
     # t/4135 B2: dispatched by the profile's ResponseShape; $null means the parser WARNed, or (t/4078 §3)
     # the response had no text.
+    $BuildAIResult = {
+        param($ParsedEnvelope, $RawResp)
+        if ($ParsedEnvelope.Truncated) {
+            Write-Warning "$($Backend): response was truncated (max_tokens reached). Output may be incomplete."
+        }
+        [PSCustomObject]@{
+            Text        = $ParsedEnvelope.Text
+            Backend     = $Backend
+            Model       = $Model
+            Truncated   = $ParsedEnvelope.Truncated
+            Usage       = $ParsedEnvelope.Usage
+            RawResponse = $RawResp
+        }
+    }
     $Parsed = ConvertFrom-AIResponseEnvelope -Backend $Backend -Model $Model -Response $Response
-    if ($null -eq $Parsed) { return $null }
-    $Truncated = $Parsed.Truncated
+    if ($null -ne $Parsed) { return & $BuildAIResult $Parsed $Response }
 
-    if ($Truncated) {
-        Write-Warning "$($Backend): response was truncated (max_tokens reached). Output may be incomplete."
+    # t/4854: Gemini content-block (finishReason not STOP/MAX_TOKENS, e.g. RECITATION) is a
+    # SUCCESSFUL HTTP call the transport-failure branch above never sees -- it used to return
+    # $null here immediately, with no retry and no fallback (CL report: intermittent on
+    # identical input, 2 of 3 runs blocked one day, 0 of 3 the run before). One retry of the
+    # SAME model/backend has a real chance of succeeding, then the existing fallback cascade.
+    # Scoped to exactly this one condition -- every other "no text"/malformed-envelope path
+    # (any backend) keeps its existing pinned single-$null-return behavior (t/4078 §3)
+    # unchanged; this never touches those.
+    $BlockedReason = $null
+    if ($Backend -eq 'gemini' -and $Response -and $Response.PSObject.Properties['candidates']) {
+        $Cand0 = @($Response.candidates)[0]
+        if ($Cand0 -and $Cand0.PSObject.Properties['finishReason'] -and $Cand0.finishReason -and $Cand0.finishReason -notin @('STOP', 'MAX_TOKENS')) {
+            $BlockedReason = $Cand0.finishReason
+        }
+    }
+    if (-not $BlockedReason) { return $null }
+
+    Write-Warning "$($Backend): retrying $Model once after finishReason=$BlockedReason (content may have been blocked)"
+    $RetryCall = Invoke-AIApiRequest -RequestArgs $RequestArgs -TimeoutSec $TimeoutSec -MaxRetries 1 -RetryDelays @(2)
+    if ($null -eq $RetryCall.LastError -and $null -ne $RetryCall.Response) {
+        Invoke-AICallLogHook -CallLogger $CallLogger -Response $RetryCall.Response -LastError $null -Attempt $RetryCall.Attempt `
+            -Model $Model -Backend $Backend -KeySourceLabel $KeySourceLabel -ResolvedKey $ResolvedKey
+        $RetryParsed = ConvertFrom-AIResponseEnvelope -Backend $Backend -Model $Model -Response $RetryCall.Response
+        if ($null -ne $RetryParsed) { return & $BuildAIResult $RetryParsed $RetryCall.Response }
     }
 
-    return [PSCustomObject]@{
-        Text        = $Parsed.Text
-        Backend     = $Backend
-        Model       = $Model
-        Truncated   = $Truncated
-        Usage       = $Parsed.Usage
-        RawResponse = $Response
-    }
+    Write-Warning "$($Backend): retry also blocked ($BlockedReason) for $Model — falling back"
+    $FbResult = Invoke-AIModelCascade -FallbackModels $FallbackModels -Model $Model -Backend $Backend `
+        -StatusCode $null -Prompt $Prompt -SystemInstruction $SystemInstruction -Temperature $Temperature `
+        -MaxTokens $MaxTokens -TimeoutSec $ExplicitTimeoutSec -JsonMode:$JsonMode -ResponseSchema $ResponseSchema `
+        -CallLogger $CallLogger
+    return $FbResult
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

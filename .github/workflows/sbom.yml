@@ -1,0 +1,85 @@
+# ─── SBOM Generation (Async) ───
+# What:  Generates SBOM (Software Bill of Materials) for the latest taxonomy-editor
+#        image, decoupled from the per-build path to save ~94s per container build.
+# When:  Monthly schedule, manual dispatch, or push to main touching Dockerfile/lockfiles.
+# How:   Pulls the latest pushed image by digest, generates SPDX JSON, stores as release asset.
+# Note:  WP2 optimization (t/4840) — moved from container.yml's per-build path.
+
+name: SBOM Generation
+on:
+  schedule:
+    # First Sunday of the month at 00:00 UTC (monthly compliance audit)
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'requirements.txt'
+      - 'taxonomy-editor/Dockerfile'
+      - 'deploy/azure/Dockerfile.base'
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ai-rosetta-stone/taxonomy-editor
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get latest image digest
+        id: latest_image
+        run: |
+          # Pull image locally so docker inspect can access it
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # Fetch the latest :latest tag's digest
+          DIGEST=$(docker inspect --format='{{.RepoDigests}}' ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>/dev/null | grep -oP 'sha256:[a-f0-9]{64}' | head -1)
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve :latest to a digest. Ensure the image exists in GHCR."
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          # Extract short digest for filename
+          echo "digest_short=$(echo ${DIGEST} | cut -d: -f2 | cut -c1-12)" >> $GITHUB_OUTPUT
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.latest_image.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-${{ steps.latest_image.outputs.digest_short }}.spdx.json
+
+      - name: Upload SBOM as release asset
+        uses: softprops/action-gh-release@4c11bfe087a313e4564f3314da2a3f9e9ce5c77d  # v2.0.9
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        with:
+          files: sbom-${{ steps.latest_image.outputs.digest_short }}.spdx.json
+          tag_name: sbom-${{ steps.latest_image.outputs.digest_short }}
+          draft: false
+          prerelease: true
+          body: |
+            SBOM for image digest: ${{ steps.latest_image.outputs.digest }}
+            Generated: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Upload SBOM artifact (for non-release runs)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: github.event_name != 'schedule'
+        with:
+          name: sbom-${{ steps.latest_image.outputs.digest_short }}
+          path: sbom-${{ steps.latest_image.outputs.digest_short }}.spdx.json
+          retention-days: 90

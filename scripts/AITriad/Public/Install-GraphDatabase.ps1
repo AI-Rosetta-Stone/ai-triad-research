@@ -83,6 +83,15 @@ function Install-GraphDatabase {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # If Neo4j is managed externally (docker compose sets NEO4J_URI to a non-local
+    # host), don't run a new container
+    if ($env:NEO4J_URI -and $env:NEO4J_URI -notmatch 'localhost|127\.0\.0\.1') {
+        Write-Host " Neo4j is managed externally ($env:NEO4J_URI) - skipping local container setup." -ForegroundColor Yellow
+        Write-Host " Start it on the host with: docker compose --profile graph up -d neo4j" -ForegroundColor Gray
+        if ($PassThru) { Write-Warning '-PassThru: no credential emitted (Neo4j is managed externally; nothing was authenticated this invocation).' }
+        return
+    }
+
     # Resolve credential → ($Neo4jUser, $Neo4jPassword): -Credential > NEO4J_PASSWORD env > generate once.
     # $Neo4jPassword is the materialized plaintext; it is used ONLY at the docker NEO4J_AUTH point-of-use
     # below (and printed once on the generate branch). See the SECURITY NOTE in the help — this typing

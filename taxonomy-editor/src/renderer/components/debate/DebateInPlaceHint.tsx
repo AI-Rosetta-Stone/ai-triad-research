@@ -6,7 +6,7 @@
 // Read/write pattern matches ChatInPlaceHint (t/4690) / FreeTierDisclosure.tsx — a storage
 // failure shows the hint again next visit, the safe failure for a one-time disclosure.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import './DebateInPlaceHint.css';
@@ -43,6 +43,7 @@ const windowPhrase = isWeb ? 'a new tab' : 'a separate window';
 
 export function DebateInPlaceHint() {
   const [acknowledged, setAcknowledged] = useState(readDebateHintAcknowledged);
+  const pendingWriteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (acknowledged) return;
@@ -57,8 +58,18 @@ export function DebateInPlaceHint() {
   }, [acknowledged]);
 
   useEffect(() => {
+    // Cancel any pending write from previous render/mount (Ref: p/376#157, Design feedback).
+    // On StrictMode re-mount, this ensures the first unmount's setTimeout(0) is cancelled
+    // before the new cleanup is set up, preventing a stale write to localStorage.
+    if (pendingWriteRef.current !== null) clearTimeout(pendingWriteRef.current);
+
     return () => {
-      if (!acknowledged) writeDebateHintAcknowledged();
+      if (!acknowledged) {
+        pendingWriteRef.current = setTimeout(() => {
+          writeDebateHintAcknowledged();
+          pendingWriteRef.current = null;
+        }, 0);
+      }
     };
   }, [acknowledged]);
 

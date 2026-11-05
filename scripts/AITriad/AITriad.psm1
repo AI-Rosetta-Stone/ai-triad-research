@@ -1062,6 +1062,8 @@ Export-ModuleMember -Function @(
     'Invoke-OrgStanceExtraction'
     # t/1553 Stages 2+3 — claim→node matching + edge proposal aggregation
     'Invoke-OrgClaimMatching'
+    # t/4828-C — issue-type classification, writes proposals only
+    'Invoke-IssueTypeClassification'
     # t/1560 Stage 5 — R2 rollup, per-camp derived alignment from approved edges
     'Invoke-OrgDerivedCampScores'
     # t/1500 Phase 3 — blue-green deploy orchestration (e/41)

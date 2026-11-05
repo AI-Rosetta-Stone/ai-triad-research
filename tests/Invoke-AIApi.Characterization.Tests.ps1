@@ -897,14 +897,39 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $out.Warnings | Should -Contain "groq: HTTP 503 $($script:D) retrying in 5s (attempt 1/2)"
         }
 
-        It 'a Gemini blocked finishReason returns $null without cascading' {
+        It 'a Gemini blocked finishReason retries once (same model), then cascades to the fallback model (t/4854)' {
             $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             $blocked = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'SAFETY' }) }
+            # Set-RestSequence-style queue: Set-HostReplies re-peeks the last item once exhausted
+            # (same as script:Set-RestSequence), so one queued blocked envelope covers both the
+            # original call AND the retry -- both see the same block, matching CL's report that
+            # a retry does not ALWAYS clear it (it clears often enough to be worth trying first).
             script:Set-HostReplies 'generativelanguage' @($blocked)
             script:Set-HostReplies 'api.anthropic.com' @((script:New-OkEnvelope 'claude'))
             $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-2.5-flash'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
-            $out.Result | Should -BeNullOrEmpty
-            $script:RestCalls.Count | Should -Be 1
+            $out.Result.Text | Should -BeExactly 'hello'
+            $out.Result.Backend | Should -BeExactly 'claude'
+            @($script:RestCalls | ForEach-Object { ([uri]$_.Uri).Host }) -join ',' | Should -BeExactly 'generativelanguage.googleapis.com,generativelanguage.googleapis.com,api.anthropic.com'
+            $out.Warnings -join "`n" | Should -BeExactly (@(
+                'Gemini: generation stopped with finishReason=SAFETY (content may have been blocked)'
+                'gemini: retrying gemini-2.5-flash once after finishReason=SAFETY (content may have been blocked)'
+                'Gemini: generation stopped with finishReason=SAFETY (content may have been blocked)'
+                'gemini: retry also blocked (SAFETY) for gemini-2.5-flash — falling back'
+                'Cascade: falling back to claude-haiku-4-5 (claude)'
+            ) -join "`n")
+        }
+
+        It 'a Gemini blocked finishReason that clears on retry returns the retried result, no cascade' {
+            $blocked = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'RECITATION' }) }
+            $ok = script:New-OkEnvelope 'gemini' -Text 'cleared on retry'
+            script:Set-RestSequence @($blocked, $ok)
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-2.5-flash'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out.Result.Text | Should -BeExactly 'cleared on retry'
+            $out.Result.Backend | Should -BeExactly 'gemini'
+            $out.Warnings -join "`n" | Should -BeExactly (@(
+                'Gemini: generation stopped with finishReason=RECITATION (content may have been blocked)'
+                'gemini: retrying gemini-2.5-flash once after finishReason=RECITATION (content may have been blocked)'
+            ) -join "`n")
         }
 
         It 'a malformed chat envelope returns $null without cascading' {
@@ -1026,11 +1051,19 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $out.Warnings -join "`n" | Should -BeExactly "Google Gemini: response had no text (backend gemini, model gemini-2.5-flash, finishReason=MAX_TOKENS). Returning `$null so a fallback can be tried."
         }
 
-        It 'Gemini: a blocking finishReason (<Reason>) returns $null with a warning' -ForEach @(@{ Reason = 'SAFETY' }, @{ Reason = 'RECITATION' }, @{ Reason = 'OTHER' }) {
+        It 'Gemini: a blocking finishReason (<Reason>) retries once (t/4854), then returns $null with no fallback configured' -ForEach @(@{ Reason = 'SAFETY' }, @{ Reason = 'RECITATION' }, @{ Reason = 'OTHER' }) {
             $env = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = $Reason; content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = 'x' }) } }) }
+            # script:Invoke-Envelope passes FallbackModels = @() -- the retry (t/4854) still sees the
+            # same blocked envelope (Set-RestSequence re-peeks its last item), so there is still no
+            # fallback chain to try; the net result is unchanged ($null), but two attempts were made.
             $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
             $out.Result | Should -BeNullOrEmpty
-            $out.Warnings -join "`n" | Should -BeExactly "Gemini: generation stopped with finishReason=$Reason (content may have been blocked)"
+            $out.Warnings -join "`n" | Should -BeExactly (@(
+                "Gemini: generation stopped with finishReason=$Reason (content may have been blocked)"
+                "gemini: retrying gemini-2.5-flash once after finishReason=$Reason (content may have been blocked)"
+                "Gemini: generation stopped with finishReason=$Reason (content may have been blocked)"
+                "gemini: retry also blocked ($Reason) for gemini-2.5-flash — falling back"
+            ) -join "`n")
         }
 
         It 'Gemini: no finishReason is treated as complete; no cachedContentTokenCount gives CachedTokens 0' {
@@ -1145,12 +1178,15 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             ) -join "`n")
         }
 
-        It 'fires once (status 200) on the Gemini blocked path, before the envelope is parsed' {
+        It 'fires twice (status 200 each) on the Gemini blocked path -- once per attempt, including the t/4854 retry' {
+            # Set-RestSequence re-peeks the last item once its queue is down to one: the retry sees
+            # the same blocked envelope again, so the hook fires a second time (t/4854).
             script:Set-RestSequence @([pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'SAFETY' }) })
             $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'gemini-2.5-flash'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $script:Logger }
             $out.Result | Should -BeNullOrEmpty
-            $script:Logged.Count | Should -Be 1
+            $script:Logged.Count | Should -Be 2
             $script:Logged[0][1] | Should -BeExactly '200'
+            $script:Logged[1][1] | Should -BeExactly '200'
         }
     }
 }

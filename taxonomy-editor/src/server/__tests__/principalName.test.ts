@@ -14,7 +14,7 @@ vi.mock('../logger.js', async (importOriginal) => {
 
 import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, getIdentityMapKey, getRequestStableId, _resetPrincipalNameForTest } from '../principalName.js';
 import { deriveStorageUserId } from '../security/userContext.js';
-import { isAdmin } from '../community/community.js';
+import { isAdmin, isAdminStableId } from '../community/community.js';
 
 const NAME_TYP = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
 const NAMEID = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier';
@@ -162,13 +162,15 @@ describe('AAD identity keys on tid+oid, not the name/email claim (t/4326 C4)', (
     expect(nameOf(a)).toBe(nameOf(b));
   });
 
-  it('a mapped tid+oid resolves to the legacy principal name (keeps data, admin, tiers)', () => {
+  it('a mapped tid+oid resolves to the legacy principal name (keeps data, tiers); admin keys on the stableId', () => {
     process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jsnover15-at-hotmail-com';
-    process.env.ADMIN_USERS = 'jsnover15-at-hotmail-com';
+    process.env.ADMIN_USERS = 'jsnover15-at-hotmail-com,aad:tenant-1-obj-1';
     const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', name: 'Anything', nameHeader: 'Anything' });
     normalizePrincipalNameHeader(r, true);
     expect(nameOf(r)).toBe('jsnover15-at-hotmail-com');
-    expect(isAdmin(deriveStorageUserId(nameOf(r)!, 'aad'))).toBe(true);
+    // t/4328 Option B: bare ADMIN_USERS entries never match; the request's qualified stableId does.
+    expect(isAdmin(deriveStorageUserId(nameOf(r)!, 'aad'))).toBe(false);
+    expect(isAdminStableId(getRequestStableId(r))).toBe(true);
   });
 
   it('missing oid → anonymous, WARN with claim types only', () => {
@@ -200,12 +202,15 @@ describe('AAD identity keys on tid+oid, not the name/email claim (t/4326 C4)', (
 });
 
 describe('IDENTITY_MAP: explicit legacy mapping', () => {
-  it('a mapped stable id resolves to the legacy principal name (keeps data, admin, tiers)', () => {
+  it('a mapped stable id resolves to the legacy principal name (keeps data, tiers); admin keys on the stableId', () => {
     process.env.IDENTITY_MAP = 'github:1234=jpsnover, github:5678=ai-triad-smoke';
+    process.env.ADMIN_USERS = 'jpsnover,github:1234';
     const r = githubReq({ id: '1234', displayName: 'Anything', nameHeader: 'Anything' });
     normalizePrincipalNameHeader(r, true);
     expect(nameOf(r)).toBe('jpsnover');
-    expect(isAdmin(deriveStorageUserId(nameOf(r)!, 'github'))).toBe(true);
+    // t/4328 Option B: bare ADMIN_USERS entries never match; the request's qualified stableId does.
+    expect(isAdmin(deriveStorageUserId(nameOf(r)!, 'github'))).toBe(false);
+    expect(isAdminStableId(getRequestStableId(r))).toBe(true);
   });
 
   it('only the mapped id gets the legacy name', () => {

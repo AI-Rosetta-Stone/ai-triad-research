@@ -64,6 +64,14 @@
   }
 }
 
+/* t/4803 (Design review, PR #4505): when .oped-reader-bar isn't rendered at all (t/4803 fix 2),
+   the camp tab strip below still pins at --oped-reader-bar-h, leaving a scrolling gap above it.
+   Zero the gap. Two classes (not one) so this beats the phone media query's same-specificity
+   .oped-reader-shell rule above, regardless of source order. */
+.oped-reader-shell.oped-reader-shell-no-bar {
+  --oped-reader-bar-h: 0px;
+}
+
 /* ── Public share control (web-only; t/2728) ── */
 .oped-share {
   display: inline-flex;

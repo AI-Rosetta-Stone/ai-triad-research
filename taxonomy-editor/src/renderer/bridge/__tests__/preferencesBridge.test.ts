@@ -97,8 +97,8 @@ describe('preferencesStore', () => {
     const { usePreferencesStore } = await import('../../store/preferencesStore');
     await usePreferencesStore.getState().setViewMode('advanced');
     expect(usePreferencesStore.getState().viewMode).toBe('advanced');
-    // t/4736: a global change also clears the per-node overrides, and persists that.
-    expect(setFn).toHaveBeenCalledWith({ viewMode: 'advanced', nodeDetailModes: {} });
+    // t/4826: setViewMode persists the tab group alongside it, unchanged.
+    expect(setFn).toHaveBeenCalledWith({ viewMode: 'advanced', nodeDetailTabGroup: 'what' });
   });
 
   it('defaults to simple and does not throw when bridge errors during hydration', async () => {
