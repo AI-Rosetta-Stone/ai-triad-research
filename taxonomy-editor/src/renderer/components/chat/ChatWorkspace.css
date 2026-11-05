@@ -659,13 +659,15 @@
   font-style: italic;
 }
 
-/* t/4855 (t/4848 follow-up): ~15 visible lines at this font-size/line-height before scrolling. */
+/* t/4855 (t/4848 follow-up): ~15 visible lines at this font-size/line-height before scrolling.
+   t/4856 (Design): type tokens instead of a hardcoded 13px, max-height in em so it tracks the
+   token's actual size rather than a number that would drift if --text-sm ever changes. */
 .chat-how-textbox {
   margin: 0;
-  max-height: calc(13px * 1.5 * 15);
+  max-height: calc(1.5em * 15);
   overflow-y: auto;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
