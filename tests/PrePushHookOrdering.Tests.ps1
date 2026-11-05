@@ -40,6 +40,14 @@ Describe '.githooks/pre-push ordering' -Tag 'devops' {
             return $repo
         }
 
+        # Stub scripts must be LF-only. .gitattributes checks *.ps1 out as CRLF on every
+        # platform, so here-strings in this file carry `r; dash then fails on `>&2`r`
+        # ("Bad fd number") and `touch 'x'`r` creates the wrong file name (t/4858).
+        function Set-StubScript {
+            param([string]$Path, [string]$Content)
+            [System.IO.File]::WriteAllText($Path, ($Content -replace "`r`n", "`n"))
+        }
+
         # Vars that must NEVER leak in from whatever else ran earlier in this same
         # PowerShell process (Pester runs many test files in one process in CI) --
         # ProcessStartInfo otherwise inherits the full current environment by default,
@@ -56,17 +64,8 @@ Describe '.githooks/pre-push ordering' -Tag 'devops' {
         )
 
         function Invoke-Hook {
-            # Deliberately PowerShell's native `&` call operator, piping stdin in and
-            # redirecting stderr to a temp file -- the SAME invocation shape as the
-            # already CI-proven-green tests in CheckQueuedPushGuard.Tests.ps1. A raw
-            # .NET ProcessStartInfo with all three streams manually redirected (the
-            # prior version of this function) hit a Linux-only, unreproducible-on-Windows
-            # "Bad fd number" error from the hook's OWN nested `sh "$QUEUE_GUARD"` call --
-            # a double-redirected-pipe nesting none of the other tests in this repo do.
-            # Confirmed NOT reproducible locally even via the real dash.exe binary
-            # through the identical ProcessStartInfo mechanism (t/4858, TL review #2) --
-            # switching invocation style sidesteps the unreproducible interaction instead
-            # of chasing a platform quirk neither environment here can exhibit.
+            # PowerShell's native `&` call operator, piping stdin in and redirecting
+            # stderr to a temp file -- the same invocation shape as CheckQueuedPushGuard.Tests.ps1.
             param([string]$Repo, [hashtable]$Env)
             $errFile = Join-Path ([System.IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N') + '.stderr')
             # Env:<name> drive, not [System.Environment]::SetEnvironmentVariable(name, $null) --
@@ -116,18 +115,18 @@ Describe '.githooks/pre-push ordering' -Tag 'devops' {
         $script:Repo = New-StubRepo
         $script:Marker = Join-Path $script:Repo 'ts-checks-ran.marker'
         # Refusing stub: always exits 1, as the real guard does for a queued PR.
-        @'
+        Set-StubScript -Path (Join-Path $script:Repo 'operations/devops/check-queued-push-guard.sh') -Content @'
 #!/bin/sh
 echo "stub guard: refusing (simulated queued PR)" >&2
 exit 1
-'@ | Set-Content -Path (Join-Path $script:Repo 'operations/devops/check-queued-push-guard.sh') -NoNewline
+'@
         # TS-checks stub: records that it ran, then exits 0.
         $markerPath = $script:Marker -replace '\\', '/'
-        @"
+        Set-StubScript -Path (Join-Path $script:Repo 'operations/devops/pre-push-checks.sh') -Content @"
 #!/bin/sh
 touch '$markerPath'
 exit 0
-"@ | Set-Content -Path (Join-Path $script:Repo 'operations/devops/pre-push-checks.sh') -NoNewline
+"@
     }
 
     AfterEach {
@@ -148,10 +147,10 @@ exit 0
     }
 
     It 'runs the TypeScript checks when AITRIAD_PREPUSH is not set (guard refusal short-circuits, so stub the guard to pass)' {
-        @'
+        Set-StubScript -Path (Join-Path $script:Repo 'operations/devops/check-queued-push-guard.sh') -Content @'
 #!/bin/sh
 exit 0
-'@ | Set-Content -Path (Join-Path $script:Repo 'operations/devops/check-queued-push-guard.sh') -NoNewline
+'@
         $result = Invoke-Hook -Repo $script:Repo -Env @{}
         $result.ExitCode | Should -Be 0
         Test-Path $script:Marker | Should -Be $true
