@@ -18,6 +18,7 @@ import { checkRate } from '../security/rateLimiter.js';
 import { getCurrentUserId, getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { resolveDataPath } from '../config.js';
 import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
+import { gitBlobSha } from '../storage/gitBlobSha.js';
 import { log } from '../logger.js';
 import { CHAT_SHARE_CONFIG } from '../config/chatShareConfig.js';
 
@@ -164,29 +165,44 @@ async function revokeShare(shareId: string): Promise<void> {
   }
 }
 
-/** Registry with version for CAS (K3: race condition prevention). */
-interface VersionedRegistry {
-  _version: number;
+/** Registry shares mapping. */
+interface Registry {
   shares: Record<string, string>; // chatId → shareId
 }
 
-async function readRegistry(): Promise<VersionedRegistry> {
-  const content = await getUserContentBackend().readFile(shareRegistryPath(), { optional: true });
-  if (!content) return { _version: 0, shares: {} };
-  const parsed = JSON.parse(content) as VersionedRegistry;
-  // Upgrade old format (flat registry) to new format (versioned with shares)
-  if (parsed._version === undefined) {
-    const { _version, shares, ...legacy } = parsed as any;
-    return { _version: 0, shares: legacy };
+/** Registry read with baseSha for CAS (K3: race condition prevention). */
+interface RegistryRead {
+  registry: Registry;
+  baseSha: string; // gitBlobSha of the content read (for CAS precondition)
+}
+
+async function readRegistry(): Promise<RegistryRead> {
+  const backend = getUserContentBackend();
+  const content = await backend.readFile(shareRegistryPath(), { optional: true });
+  if (!content) return { registry: { shares: {} }, baseSha: gitBlobSha('') };
+
+  try {
+    const parsed = JSON.parse(content) as any;
+    const registry: Registry = { shares: parsed.shares || parsed };
+    const baseSha = gitBlobSha(content);
+    return { registry, baseSha };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'Failed to parse registry',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { registry: { shares: {} }, baseSha: gitBlobSha(content) };
   }
-  return parsed;
 }
 
 /** K4: Remove expired entries from registry (prune during preflight). */
 async function pruneExpiredRegistry(): Promise<void> {
   try {
     const backend = getUserContentBackend();
-    const registry = await readRegistry();
+    const { registry, baseSha } = await readRegistry();
     let dirty = false;
     for (const [chatId, shareId] of Object.entries(registry.shares)) {
       const share = await loadShare(shareId);
@@ -196,11 +212,10 @@ async function pruneExpiredRegistry(): Promise<void> {
       }
     }
     if (dirty) {
-      const originalVersion = registry._version;
-      registry._version += 1;
       try {
         if (Object.keys(registry.shares).length > 0) {
-          await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n', { baseSha: originalVersion.toString() });
+          const newContent = JSON.stringify(registry) + '\n';
+          await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
         } else {
           await backend.deleteFile(shareRegistryPath());
         }
@@ -233,7 +248,7 @@ async function pruneExpiredRegistry(): Promise<void> {
 /** The caller's live share for this chat, if any (P1: idempotence). */
 async function findExistingShare(chatId: string): Promise<PublicChatShare | null> {
   try {
-    const registry = await readRegistry();
+    const { registry } = await readRegistry();
     const existingShareId = registry.shares[chatId];
     return existingShareId ? await loadShare(existingShareId) : null;
   } catch (err) {
@@ -279,7 +294,7 @@ async function createPreflight(
   // K4: Prune expired entries before checking cap
   await pruneExpiredRegistry();
 
-  const registry = await readRegistry();
+  const { registry } = await readRegistry();
   // K5: Cap violation returns 429 (not 409)
   const chatCount = Object.keys(registry.shares).length;
   if (!(chatId in registry.shares) && chatCount >= CHAT_SHARE_MAX_ACTIVE) {
@@ -325,24 +340,23 @@ async function createShare(
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const registry = await readRegistry();
+      const { registry, baseSha } = await readRegistry();
       const previousShareId = registry.shares[chatId];
       if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
 
-      // K3: CAS with baseSha (SO p/835#13: pass baseSha on write for atomic conflict detection)
-      const baseSha = registry._version === 0 ? '' : registry._version.toString(); // '' means "must not exist", version means "must match"
+      // K3: CAS with baseSha (gitBlobSha of content read, per SO p/835#16)
       registry.shares[chatId] = shareId;
-      registry._version += 1;
+      const newContent = JSON.stringify(registry) + '\n';
 
       try {
-        await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n', { baseSha });
+        await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
         return share;
       } catch (writeErr: unknown) {
         // K3: On WRITE_CONFLICT (409), re-read and check if another writer won
         const err = writeErr as any;
         if (err.code === 'WRITE_CONFLICT' || err.message?.includes('412') || err.message?.includes('WRITE_CONFLICT')) {
           // Conflict: another POST succeeded. Check if they created a share for this chat.
-          const current = await readRegistry();
+          const { registry: current } = await readRegistry();
           const otherShareId = current.shares[chatId];
           if (otherShareId && otherShareId !== shareId) {
             // Winner's share exists: delete our blob and return theirs (200)

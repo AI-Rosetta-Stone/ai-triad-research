@@ -31,9 +31,14 @@ vi.mock('../security/rateLimiter.js', () => ({
 vi.mock('../security/accessControl.js', () => ({ invalidRouteParam: () => null, clientSafeMessage: (m: string) => m }));
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
 vi.mock('../storage/fileIO.js', () => {
+  const crypto = require('crypto');
+  const gitBlobSha = (content: string) => {
+    const blob = `blob ${content.length}\0${content}`;
+    return crypto.createHash('sha1').update(blob).digest('hex');
+  };
+
   // K3: Atomic in-memory backend with synchronous CAS (no await between compare and store).
-  // This allows Promise.all to interleave reads, but the write is atomic.
-  const fileVersions = new Map<string, {content: string, version: number}>();
+  const fileVersions = new Map<string, {content: string, sha: string}>();
 
   return {
     assertSafeId: (id: string) => { if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`unsafe id ${id}`); },
@@ -45,21 +50,17 @@ vi.mock('../storage/fileIO.js', () => {
       },
       writeFile: async (p: string, c: string, opts?: {baseSha?: string}) => {
         const path = p.replace(/\\/g, '/');
-        // K3: Atomic CAS (synchronous — no await between compare and store).
-        // baseSha '' means "must not exist", numeric string means "must match that version".
+        // K3: Atomic CAS with gitBlobSha (baseSha '' for "must not exist", SHA for "must match").
         const entry = fileVersions.get(path);
-        const currentVersion = entry?.version ?? -1;
+        const currentSha = entry ? gitBlobSha(entry.content) : '';
 
-        if (opts?.baseSha !== undefined) {
-          const expectedVersion = opts.baseSha === '' ? -1 : parseInt(opts.baseSha, 10);
-          if (currentVersion !== expectedVersion) {
-            const err = new Error('Write conflict');
-            (err as any).code = 'WRITE_CONFLICT';
-            throw err;
-          }
+        if (opts?.baseSha !== undefined && opts.baseSha !== currentSha) {
+          const err = new Error('Write conflict');
+          (err as any).code = 'WRITE_CONFLICT';
+          throw err;
         }
-        // Write is atomic: set both content and incremented version synchronously
-        fileVersions.set(path, { content: c, version: (currentVersion + 1) });
+        // Write is atomic: set synchronously with new SHA
+        fileVersions.set(path, { content: c, sha: gitBlobSha(c) });
       },
       deleteFile: async (p: string) => { fileVersions.delete(p.replace(/\\/g, '/')); },
     }),
