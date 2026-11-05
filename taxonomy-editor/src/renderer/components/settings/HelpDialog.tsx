@@ -12,6 +12,7 @@ import { useSupportStore } from '../../hooks/useSupportStore';
 import { NAV_ITEMS, type NavItem } from '../../data/navConfig';
 import { AI_BACKENDS } from '../../hooks/useTaxonomyStore';
 import { POV_KEYS, POV_META } from '@lib/electron-shared/povMeta';
+import { ISSUE_TYPES, getLabelForIssueType } from '@lib/schema/issueTypes';
 import { THEME_OPTIONS } from './themeOptions';
 import './HelpDialog.css';
 
@@ -69,12 +70,12 @@ export const OVERVIEW_PANEL_ITEMS: readonly NavItem[] = NAV_ITEMS.filter(
 );
 
 export const OVERVIEW_TAB_DESCRIPTIONS: Record<string, string> = {
-  'rosetta-stone': 'The home tool — opens first on launch and orients you across the whole taxonomy.',
-  chat: 'POVer Chat — brainstorm, inform, and decide conversation modes for free-form AI-assisted exploration.',
+  'rosetta-stone': 'The home page. It opens first and orients you to the tools.',
+  chat: 'Talk a question through with one camp, in Brainstorm, Inform or Decide mode.',
   opeds: 'Draft and review op-eds grounded in the taxonomy.',
   inquiry: 'Pose a question and get a multi-perspective answer.',
   debate: 'Multi-agent debates between Accelerationist, Safetyist, and Skeptic characters using a BDI agent architecture. Debates progress through clarification, argumentation rounds, synthesis, and harvest.',
-  taxonomy: 'Opens the perspective picker — see Camps below.',
+  taxonomy: 'Opens the perspective picker; the camp tabs are described below.',
   situations: 'Cross-cutting concepts showing how each perspective interprets the same issue.',
   conflicts: 'Documented disagreements with source instances and analyst notes.',
   cruxes: 'Core disagreements distilled from debate rounds and cross-perspective analysis.',
@@ -110,6 +111,10 @@ export function overviewPlatformBadge(item: NavItem): string | null {
   if (hasWeb && !hasElectron) return 'web only';
   return null;
 }
+
+// Design review (p/890#10, t/4887): generated from the issue-types registry instead of a
+// hand-written example pair, so the sample labels can't drift from lib/schema/issueTypes.ts.
+const ISSUE_TYPE_SAMPLE = ISSUE_TYPES.slice(0, 2).map(getLabelForIssueType).join(', ');
 
 function OverviewFeatureLine({ item, description }: { item: NavItem; description: string }) {
   const badge = overviewPlatformBadge(item);
@@ -578,9 +583,9 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             </p>
 
             <h4>Libraries &amp; Sharing</h4>
-            <p><strong>My / Community</strong> — Chat, Debate, Op-Ed, and Question each keep a library of saved items; toggle between your own (<strong>My</strong>) and shared (<strong>Community</strong>, web only).</p>
-            <p><strong>Public share links</strong> — Create a link to share a chat, debate, op-ed, or answer publicly (web only).</p>
-            <p><strong>Issue-type tags</strong> — Nodes can carry issue-type chips flagging data-quality concerns, with provenance visible to admins.</p>
+            <p><strong>My / Community</strong> — Chat, Debate, Op-Ed, and Question each keep a library of saved items; toggle between your own (<strong>My</strong>) and shared (<strong>Community</strong>).</p>
+            <p><strong>Public share links</strong> — Create a link to share an op-ed, an answer, or a taxonomy node publicly (web only).</p>
+            <p><strong>Issue types</strong> — Chips under a node's category name the kind of AI issue it concerns ({ISSUE_TYPE_SAMPLE}, &hellip;). Advanced view adds the classifier's confidence and method.</p>
 
             <h4>Toolbar Panels</h4>
             {OVERVIEW_PANEL_ITEMS.map(item => (
