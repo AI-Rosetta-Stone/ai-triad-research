@@ -19,12 +19,13 @@ import { getCurrentUserId, getStorageUserId, isAnonymousUser } from '../security
 import { resolveDataPath } from '../config.js';
 import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import { log } from '../logger.js';
+import { CHAT_SHARE_CONFIG } from '../config/chatShareConfig.js';
 
-// ── Configuration (t/4787 P5) ──
-const CHAT_SHARE_MAX_ACTIVE = 20;
-const CHAT_SHARE_CREATES_PER_HOUR = 5;
-const CHAT_SHARE_TTL_DAYS = 30;
-const PUBLIC_READ_RATE_LIMIT_PER_HOUR = 100;
+// ── Configuration (t/4787 P5, K5: externalized) ──
+const CHAT_SHARE_MAX_ACTIVE = CHAT_SHARE_CONFIG.MAX_ACTIVE;
+const CHAT_SHARE_CREATES_PER_HOUR = CHAT_SHARE_CONFIG.CREATES_PER_HOUR;
+const CHAT_SHARE_TTL_DAYS = CHAT_SHARE_CONFIG.TTL_DAYS;
+const PUBLIC_READ_RATE_LIMIT_PER_HOUR = CHAT_SHARE_CONFIG.PUBLIC_READ_PER_HOUR;
 const PUBLIC_CHAT_SHARES_DIR = 'public/chat-shares';
 // Bounds on what one share may publish, so the public surface can't be used to park
 // arbitrarily large blobs under the app's domain (TL review of #4499).
@@ -163,9 +164,22 @@ async function revokeShare(shareId: string): Promise<void> {
   }
 }
 
-async function readRegistry(): Promise<Record<string, string>> {
+/** Registry with version for CAS (K3: race condition prevention). */
+interface VersionedRegistry {
+  _version: number;
+  shares: Record<string, string>; // chatId → shareId
+}
+
+async function readRegistry(): Promise<VersionedRegistry> {
   const content = await getUserContentBackend().readFile(shareRegistryPath(), { optional: true });
-  return content ? (JSON.parse(content) as Record<string, string>) : {};
+  if (!content) return { _version: 0, shares: {} };
+  const parsed = JSON.parse(content) as VersionedRegistry;
+  // Upgrade old format (flat registry) to new format (versioned with shares)
+  if (parsed._version === undefined) {
+    const { _version, shares, ...legacy } = parsed as any;
+    return { _version: 0, shares: legacy };
+  }
+  return parsed;
 }
 
 /** K4: Remove expired entries from registry (prune during preflight). */
@@ -200,7 +214,8 @@ async function pruneExpiredRegistry(): Promise<void> {
 /** The caller's live share for this chat, if any (P1: idempotence). */
 async function findExistingShare(chatId: string): Promise<PublicChatShare | null> {
   try {
-    const existingShareId = (await readRegistry())[chatId];
+    const registry = await readRegistry();
+    const existingShareId = registry.shares[chatId];
     return existingShareId ? await loadShare(existingShareId) : null;
   } catch (err) {
     getGlobalRecorder()?.record({
@@ -211,6 +226,46 @@ async function findExistingShare(chatId: string): Promise<PublicChatShare | null
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
     return null;
+  }
+}
+
+/** K3: CAS (Compare-And-Swap) write to registry with version check. On conflict, delete
+ *  the newly written blob so no orphan share survives. Returns true on success, false on conflict. */
+async function casRegistryWrite(
+  registry: VersionedRegistry,
+  updates: Record<string, string>,
+  shareIdToDeleteOnConflict?: string,
+): Promise<boolean> {
+  try {
+    const backend = getUserContentBackend();
+    const newVersion = registry._version + 1;
+    const newRegistry: VersionedRegistry = { _version: newVersion, ...registry, ...updates };
+
+    // Read current registry to check if version matches (simulated CAS)
+    const current = await readRegistry();
+    if (current._version !== registry._version) {
+      // Version mismatch: we lost the race. Delete our own blob if we wrote one.
+      if (shareIdToDeleteOnConflict) {
+        await revokeShare(shareIdToDeleteOnConflict);
+      }
+      return false; // Conflict
+    }
+
+    // Write succeeded
+    await backend.writeFile(shareRegistryPath(), JSON.stringify(newRegistry) + '\n');
+    return true;
+  } catch (err) {
+    if (shareIdToDeleteOnConflict) {
+      await revokeShare(shareIdToDeleteOnConflict);
+    }
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'CAS registry write failed; deleted orphan blob',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return false;
   }
 }
 
@@ -246,7 +301,8 @@ async function createPreflight(
 
   const registry = await readRegistry();
   // K5: Cap violation returns 429 (not 409)
-  if (!(chatId in registry) && Object.keys(registry).length >= CHAT_SHARE_MAX_ACTIVE) {
+  const chatCount = Object.keys(registry.shares).length;
+  if (!(chatId in registry.shares) && chatCount >= CHAT_SHARE_MAX_ACTIVE) {
     return { status: 429, payload: { error: `At most ${CHAT_SHARE_MAX_ACTIVE} chats can be shared at once; revoke one first`, retryAfterMs: 3600_000 } };
   }
 
@@ -290,9 +346,11 @@ async function createShare(
     try {
       assertSafeId(chatId, 'chat id for registry key');
       const registry = await readRegistry();
-      const previousShareId = registry[chatId];
+      const previousShareId = registry.shares[chatId];
       if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
-      registry[chatId] = shareId;
+      registry.shares[chatId] = shareId;
+      registry._version += 1;
+      const backend = getUserContentBackend();
       await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
       return share;
     } catch (err) {
