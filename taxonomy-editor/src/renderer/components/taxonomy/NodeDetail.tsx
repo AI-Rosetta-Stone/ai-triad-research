@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } fro
 import { POV_META } from '@lib/electron-shared/povMeta';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { Pov, PovNode, Category, TabId, PovTaxonomyFile, SituationsFile, EdgesFile } from '../../types/taxonomy';
+import { getLabelForIssueType, getDefinitionForIssueType } from '@lib/schema/issueTypes';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { AggregatedCrux } from '../../hooks/useTaxonomyStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
@@ -425,6 +426,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           moveTargets={moveTargets}
           setShowDelete={setShowDelete}
         />
+        <NodeDetailIssueTypeChips node={node} advanced={nodeDetailMode === 'advanced'} />
 
         <NodeDetailAphorismSection
           node={node}
@@ -796,6 +798,47 @@ function NodeDetailMetaLine({ pov, node, readOnly, isAdmin, nodeDetailMode, tabG
       </div>
     </div>
   );
+}
+
+// ── Issue-type chip row (t/4834; part of t/4828-G) ──
+// Under the category/id line. Renders nothing when `issue_types` is absent — only a corpus
+// write (t/4828-F) populates it, so most nodes have none yet. Primary-first order (the
+// schema's array order is the authoritative one, per t/4832). Advanced mode adds confidence
+// (from `issue_types_provenance.confidence`, keyed by issue type) and method per chip.
+
+interface NodeDetailIssueTypeChipsProps {
+  node: PovNode;
+  advanced: boolean;
+}
+
+function NodeDetailIssueTypeChips({ node, advanced }: NodeDetailIssueTypeChipsProps) {
+  const issueTypes = node.graph_attributes?.issue_types;
+  const provenance = node.graph_attributes?.issue_types_provenance;
+  if (!issueTypes) return null;
+  if (issueTypes.length === 0) {
+    // [] is a valid, distinct "classified as none" state (vs. absent = not yet classified) —
+    // only worth surfacing to admins who'd otherwise wonder why no chips show.
+    if (!advanced) return null;
+    return <div className="nd-issue-type-chips nd-issue-type-chips-empty">No issue type</div>;
+  }
+  return (
+    <div className="nd-issue-type-chips">
+      {issueTypes.map((type) => (
+        <span key={type} className="nd-issue-type-chip" title={getDefinitionForIssueType(type)}>
+          {getLabelForIssueType(type)}
+          {advanced && provenance && (
+            <span className="nd-issue-type-chip-meta">
+              {formatIssueTypeConfidence(provenance.confidence[type])} · {provenance.method}
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function formatIssueTypeConfidence(confidence: number | undefined): string {
+  return confidence == null ? '?' : `${Math.round(confidence * 100)}%`;
 }
 
 // ── Aphorism display / editing / regeneration proposal (extracted from NodeDetail for complexity) ──
