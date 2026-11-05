@@ -119,7 +119,7 @@ describe('RosettaStoneTab (t/4543)', () => {
     expect(screen.getByText('Grant-makers / philanthropy program officers')).toBeInTheDocument();
   });
 
-  it('renders the 7 feature cards in rail order, Download Dataset before Bring Your Own AI Key', () => {
+  it('renders the 8 feature cards in rail order, Download Dataset before Bring Your Own AI Key, User Survey last', () => {
     const { container } = render(<RosettaStoneTab />);
     const cardsSection = container.querySelector('.rosetta-tab-cards');
     expect(cardsSection).not.toBeNull();
@@ -127,8 +127,16 @@ describe('RosettaStoneTab (t/4543)', () => {
       .getAllByRole('heading', { level: 3 }).map(h => h.textContent);
     expect(headings).toEqual([
       'Chat with Perspectives', 'Op-Ed Studies', 'Ask a Question',
-      'Run AI Debates', 'Explore the Taxonomy', 'Download Dataset', 'Bring Your Own AI Key',
+      'Run AI Debates', 'Explore the Taxonomy', 'Download Dataset', 'Bring Your Own AI Key', 'User Survey',
     ]);
+  });
+
+  it('routes the User Survey card to the survey via openExternal, with its image', async () => {
+    render(<RosettaStoneTab />);
+    expect(screen.getByAltText(/System Demonstration Feedback/)).toHaveAttribute('src', expect.stringMatching(/onboarding\/onboarding-survey\.png$/));
+    await userEvent.click(screen.getByRole('button', { name: 'Take the Survey' }));
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://jsnover.com/Survey');
+    expect(mockSetActiveTab).not.toHaveBeenCalled();
   });
 
   it('routes the Download Dataset card to the ai-triad-data GitHub repo via openExternal', async () => {
