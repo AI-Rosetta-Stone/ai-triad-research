@@ -46,10 +46,11 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
   backendForModel: () => 'gemini',
 }));
 
+let communityChatsState: Array<{ id: string; title: string }>;
 vi.mock('../../hooks/useCommunityStore', () => ({
   useCommunityStore: Object.assign(
-    () => ({ chats: [], loading: false, fetchChats: vi.fn(), copyItem: vi.fn() }),
-    { getState: () => ({ chats: [], loading: false, fetchChats: vi.fn(), copyItem: vi.fn() }) },
+    () => ({ chats: communityChatsState, loading: false, fetchChats: vi.fn(), copyItem: vi.fn() }),
+    { getState: () => ({ chats: communityChatsState, loading: false, fetchChats: vi.fn(), copyItem: vi.fn() }) },
   ),
 }));
 
@@ -62,10 +63,18 @@ vi.mock('./ChatGettingStarted', () => ({ ChatGettingStarted: () => null }));
 vi.mock('../shared/LibraryListPage', () => ({
   // A minimal stand-in that exposes exactly what ChatTab wires to it — enough to assert the
   // in-place-vs-popout handler choice without re-testing LibraryListPage's own click semantics.
-  LibraryListPage: ({ myRows, onOpenMy }: { myRows: { id: string }[]; onOpenMy: (id: string) => void }) => (
+  LibraryListPage: ({ myRows, onOpenMy, communityRows, onOpenCommunity }: {
+    myRows: { id: string }[]; onOpenMy: (id: string) => void;
+    communityRows?: { id: string }[]; onOpenCommunity?: (id: string) => void;
+  }) => (
     <div data-testid="library-list-page">
       {myRows.map(row => (
         <button key={row.id} data-testid={`row-${row.id}`} onClick={() => onOpenMy(row.id)}>
+          {row.id}
+        </button>
+      ))}
+      {(communityRows ?? []).map(row => (
+        <button key={row.id} data-testid={`community-row-${row.id}`} onClick={() => onOpenCommunity?.(row.id)}>
           {row.id}
         </button>
       ))}
@@ -91,7 +100,10 @@ describe('ChatTab — table mode in-place open (t/4690)', () => {
       chatActivity: null,
       chatError: null,
       chatLoading: false,
+      activeCommunityChat: null,
+      setActiveCommunityChat: vi.fn(),
     };
+    communityChatsState = [{ id: 'cc-1', title: 'A shared chat' }];
     try { localStorage.clear(); } catch { /* jsdom always has localStorage in this suite */ }
   });
 
@@ -106,6 +118,23 @@ describe('ChatTab — table mode in-place open (t/4690)', () => {
 
     expect(loadChatMock).toHaveBeenCalledWith('chat-1');
     expect(mockApi.openChatWindow).not.toHaveBeenCalled();
+  });
+
+  // t/4888#3 (Design review): clearing activeChat/activeChatId on a Community open would
+  // silently drop a reply still generating in the user's own chat (t/4687#1) — opening
+  // Community must leave the My selection alone. activeChatId is left null here (so the
+  // library, not the detail pane, renders and the community row is reachable), but `activeChat`
+  // and `chatGenerating` stand in for a chat still generating in the background, same as the
+  // real store's shape while a send is in flight.
+  it('opening a community chat does not clear a generating My chat (t/4888)', () => {
+    chatStoreState.activeChat = { id: 'chat-1', topic: 'AI Safety' };
+    chatStoreState.chatGenerating = 'accelerationist';
+    render(<ChatTab />);
+    fireEvent.click(screen.getByTestId('community-row-cc-1'));
+
+    expect(chatStoreState.activeChat).toEqual({ id: 'chat-1', topic: 'AI Safety' });
+    expect(chatStoreState.chatGenerating).toBe('accelerationist');
+    expect(chatStoreState.setActiveCommunityChat).toHaveBeenCalledWith({ id: 'cc-1', title: 'A shared chat' });
   });
 
   it('renders ChatWorkspace in place (not the library) once activeChatId is set', () => {

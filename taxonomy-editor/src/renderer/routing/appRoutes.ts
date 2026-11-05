@@ -16,6 +16,7 @@ import { useTaxonomyStore } from '../hooks/useTaxonomyStore';
 import { useOpEdStore } from '../hooks/useOpEdStore';
 import { useDebateStore } from '../hooks/useDebateStore';
 import { useChatStore } from '../hooks/useChatStore';
+import { useCommunityStore } from '../hooks/useCommunityStore';
 import { useInquiryStore } from '../hooks/useInquiryStore';
 import { postNavNotice } from '../navigation/navNotice';
 import { resyncToState } from '../navigation/subscriber';
@@ -133,13 +134,25 @@ export const ROOT_ROUTE = exactRoute('rosetta-stone', '', 'rosetta-stone', () =>
 // ── Chat ──
 export const CHAT_ROUTE = exactRoute('chat', '/chat', 'chat:none', () => {
   taxonomy().setActiveTab('chat');
-  useChatStore.setState({ activeChatId: null, activeChat: null });
+  useChatStore.setState({ activeChatId: null, activeChat: null, activeCommunityChat: null });
 });
-export const CHAT_ITEM_ROUTE = itemRoute('chat-item', 'chat', 'chatId', 'chat', (chatId) => {
+/** `/chat/:chatId?community=1` — t/4888: a community chat shares the My item's URL shape,
+ *  distinguished by the query param, matching TAXONOMY_ROUTE/CONFLICTS_ROUTE's existing pattern.
+ *  There's no single-item fetch for a community chat, so this loads the community list (usually
+ *  already cached from the tab's own mount) and looks the id up in it. */
+export const CHAT_ITEM_ROUTE = itemRoute('chat-item', 'chat', 'chatId', 'chat', (chatId, query) => {
   taxonomy().setActiveTab('chat');
   // Clear first: a failed load must fall back to the library, not leave the previous chat
   // showing under this chat's URL.
-  useChatStore.setState({ activeChatId: null, activeChat: null });
+  useChatStore.setState({ activeChatId: null, activeChat: null, activeCommunityChat: null });
+  if (query.get('community') === '1') {
+    void useCommunityStore.getState().fetchChats().then(() => {
+      const cc = useCommunityStore.getState().chats.find(c => c.id === chatId);
+      if (cc) useChatStore.getState().setActiveCommunityChat(cc);
+      else fallBackToLibrary('chat', chatId, NOT_FOUND.chat);
+    });
+    return;
+  }
   void useChatStore.getState().loadChat(chatId).then(() => {
     if (useChatStore.getState().activeChatId !== chatId) fallBackToLibrary('chat', chatId, NOT_FOUND.chat);
   });
@@ -183,9 +196,12 @@ export const INQUIRY_ROUTE = exactRoute('inquiry', '/inquiry', 'inquiry:none', (
   taxonomy().setActiveTab('inquiry');
   useInquiryStore.getState().openList();
 });
-export const INQUIRY_ITEM_ROUTE = itemRoute('inquiry-item', 'inquiry', 'jobId', 'inquiry', (jobId) => {
+/** `/inquiry/:jobId?community=1` — t/4888: a community answer shares the My item's URL shape,
+ *  distinguished by the query param, matching TAXONOMY_ROUTE/CONFLICTS_ROUTE's existing pattern. */
+export const INQUIRY_ITEM_ROUTE = itemRoute('inquiry-item', 'inquiry', 'jobId', 'inquiry', (jobId, query) => {
   taxonomy().setActiveTab('inquiry');
-  void useInquiryStore.getState().openFromHistory(jobId);
+  if (query.get('community') === '1') void useInquiryStore.getState().openCommunityResult(jobId);
+  else void useInquiryStore.getState().openFromHistory(jobId);
 });
 
 // ── Taxonomy ──

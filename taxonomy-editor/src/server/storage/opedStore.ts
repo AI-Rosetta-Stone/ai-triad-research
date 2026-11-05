@@ -19,6 +19,7 @@ import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { checkQuota, type QuotaCheckResult } from '../security/quotas.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
+import { unpublishOpedShare } from './opedShareStore.js';
 
 // ── Dir helpers ──
 
@@ -203,12 +204,15 @@ export async function finalizeOpedSet(set: OpEdSet): Promise<void> {
     .catch((err) => { log.server.warn({ err, setId: set.set_id }, 'Oped-set .inprogress cleanup failed (best-effort)'); });
 }
 
-/** Delete a finalized oped-set + remove from index. Cleans up .inprogress if present. */
+/** Delete a finalized oped-set + remove from index. Revokes any share first. Cleans up .inprogress if present. */
 export async function deleteOpedSet(setId: string): Promise<void> {
   assertSafeId(setId, 'oped-set id');
   if (isAnonymousUser()) return;
   const backend = getUserContentBackend();
   const dir = getOpedSetsDir();
+  await unpublishOpedShare(setId).catch((err) => {
+    log.server.warn({ err, setId }, 'Oped-set share revocation failed (best-effort); continuing with delete');
+  });
   await backend.deleteFile(path.join(dir, `oped-set-${setId}.json`));
   void removeFromOpedSetIndex(setId).catch((err) => {
     log.server.warn({ err, setId }, 'Oped-set index removal failed (best-effort)');

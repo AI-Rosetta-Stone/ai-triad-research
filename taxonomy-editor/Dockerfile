@@ -283,6 +283,36 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install --only-upgrade -y libbrotli1
 
+# 7c. Strip apt from the runtime image (t/4874, hardening after CVE-2026-109518 blocked the
+# container Trivy gate). Everything above that needs apt (numpy, PowerShell, the libbrotli1
+# bump) has already run; apt/dpkg tooling has no runtime purpose from here on but keeps its own
+# CVE surface in the shipped image. Same strip-then-guard shape as npm below (t/3135).
+#
+# DevOps review (t/4874): no --auto-remove. node, onnxruntime-node and node-pty link
+# libstdc++6/libgcc-s1, but those come from the base image's node tarball, not a .deb, so dpkg
+# doesn't know they're used -- if apt is their last dpkg-visible dependent, --auto-remove would
+# pull them too and the server would die at start with "libstdc++.so.6: cannot open shared
+# object". Purge apt and libapt-pkg7.0 explicitly instead.
+#
+# Guarded in-build (same RUN, so a broken image fails the build, not staging): the node native
+# modules that'd break first (onnxruntime-node, node-pty), pwsh (the web console), and numpy
+# (the grounding reconciler) all still load after the purge.
+# apt is Essential/Protected on Debian 13, so -y alone refuses with exit 100
+# ("Essential packages were removed and -y was used without --allow-remove-essential").
+# `hash -r` before the guard: this shell ran apt-get above, so `command -v apt-get` would
+# return the remembered path even though the file is gone (run 42003978248: ls found no
+# /usr/bin/apt*, command -v still printed /usr/bin/apt-get).
+RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
+    && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
+    && hash -r \
+    && if dpkg -s apt >/dev/null 2>&1 || command -v apt >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; then \
+         echo "[t/4874] ERROR: apt still present after purge" && exit 1; \
+       fi \
+    && node -e "require('onnxruntime-node'); require('node-pty')" \
+    && pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion' \
+    && python3 -c 'import numpy' \
+    && echo "[t/4874] apt stripped from runtime image; native deps, pwsh and numpy still load"
+
 # 8. Strip global npm from the runtime image (t/3135). npm is NOT reachable at
 # runtime — CMD is a direct `node`; npm/pnpm are used only in the discarded
 # builder/prod-deps stages; the web console spawns pwsh (not npm); there is no
