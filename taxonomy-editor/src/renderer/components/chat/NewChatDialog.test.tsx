@@ -14,13 +14,25 @@ import userEvent from '@testing-library/user-event';
 
 const TEST_BACKENDS = ['gemini', 'moonshot', 'azure'] as const;
 
+interface MockTemperature { value: number; onChange: (v: number) => void; hint?: string }
+
 vi.mock('../shared/ModelPicker', () => ({
-  ModelPicker: ({ backendState }: { backendState?: (b: string) => { selectable: boolean; suffix: string } }) => (
+  ModelPicker: ({ backendState, temperature }: {
+    backendState?: (b: string) => { selectable: boolean; suffix: string };
+    temperature?: MockTemperature;
+  }) => (
     <div data-testid="model-picker">
       {TEST_BACKENDS.map((b) => {
         const s = backendState?.(b) ?? { selectable: true, suffix: '' };
         return <div key={b} data-testid={`backend-state-${b}`}>{String(s.selectable)}{s.suffix}</div>;
       })}
+      {temperature && (
+        <div data-testid="temperature">
+          <span data-testid="temperature-value">{temperature.value}</span>
+          <span data-testid="temperature-hint">{temperature.hint}</span>
+          <button onClick={() => temperature.onChange(1.5)}>set temperature</button>
+        </div>
+      )}
     </div>
   ),
 }));
@@ -141,7 +153,7 @@ describe('NewChatDialog POV tag wiring (t/3959)', () => {
     render(<NewChatDialog onClose={vi.fn()} />);
     await user.type(screen.getByPlaceholderText(/explore/i), 'topic');
     await user.click(screen.getByRole('button', { name: /start chat/i }));
-    expect(mockCreateChat).toHaveBeenCalledWith('brainstorm', 'accelerationist', 'topic', undefined, undefined);
+    expect(mockCreateChat).toHaveBeenCalledWith('brainstorm', 'accelerationist', 'topic', undefined, undefined, 0.7);
   });
 
   it('disables Start for Scope below the minimum, and for Prioritize at zero tagged nodes (TL t/3957#7, t/3959#5)', async () => {
@@ -173,7 +185,7 @@ describe('NewChatDialog POV tag wiring (t/3959)', () => {
     await user.click(screen.getByRole('button', { name: /start chat/i }));
     expect(mockCreateChat).toHaveBeenCalledWith(
       'brainstorm', 'accelerationist', 'topic', undefined,
-      { pov_tag: 'critical', tag_mode: 'prioritize' },
+      { pov_tag: 'critical', tag_mode: 'prioritize' }, 0.7,
     );
   });
 
@@ -217,7 +229,51 @@ describe('NewChatDialog starter-chip prefill (t/4536)', () => {
     render(<NewChatDialog onClose={vi.fn()} initialMode="inform" initialTopic="Strongest evidence for the Accelerationist case" />);
     await user.click(screen.getByRole('button', { name: /start chat/i }));
     expect(mockCreateChat).toHaveBeenCalledWith(
-      'inform', 'accelerationist', 'Strongest evidence for the Accelerationist case', undefined, undefined,
+      'inform', 'accelerationist', 'Strongest evidence for the Accelerationist case', undefined, undefined, 0.4,
     );
+  });
+});
+
+// t/4774 AC3/AC4: the temperature slider defaults to the selected mode's value and follows mode
+// changes until the user edits it; the edited value is what's sent to createChat.
+describe('NewChatDialog temperature (t/4774)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTier = null;
+    mockIsFree = false;
+    mockApi.hasApiKey.mockResolvedValue(false);
+    mockRegistry.povs = {};
+    mockCreateChat.mockResolvedValue('chat-1');
+  });
+
+  it('defaults the slider to the initial mode\'s temperature', () => {
+    render(<NewChatDialog onClose={vi.fn()} />);
+    expect(screen.getByTestId('temperature-value')).toHaveTextContent('0.7'); // brainstorm default
+  });
+
+  it('follows the mode default when the mode changes and the slider has not been touched', async () => {
+    const user = userEvent.setup();
+    render(<NewChatDialog onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: /Decide/ }));
+    expect(screen.getByTestId('temperature-value')).toHaveTextContent('0.3'); // decide default
+  });
+
+  it('stops following mode changes once the user edits the slider, and sends the edited value', async () => {
+    const user = userEvent.setup();
+    render(<NewChatDialog onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'set temperature' }));
+    expect(screen.getByTestId('temperature-value')).toHaveTextContent('1.5');
+
+    await user.click(screen.getByRole('button', { name: /Decide/ }));
+    expect(screen.getByTestId('temperature-value')).toHaveTextContent('1.5'); // stays, not decide's 0.3
+
+    await user.type(screen.getByPlaceholderText(/decision/i), 'topic');
+    await user.click(screen.getByRole('button', { name: /start chat/i }));
+    expect(mockCreateChat).toHaveBeenCalledWith('decide', 'accelerationist', 'topic', undefined, undefined, 1.5);
+  });
+
+  it('shows the mode\'s default in the hint, not a fixed value', () => {
+    render(<NewChatDialog onClose={vi.fn()} />);
+    expect(screen.getByTestId('temperature-hint')).toHaveTextContent("Brainstorm's default is 0.7");
   });
 });
