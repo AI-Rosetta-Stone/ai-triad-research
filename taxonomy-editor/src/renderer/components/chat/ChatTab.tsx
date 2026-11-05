@@ -839,6 +839,7 @@ export function ChatTab() {
         <ChatBulkDeleteDialog
           sessions={sessions}
           selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
           setShowBulkDeleteConfirm={setShowBulkDeleteConfirm}
           exitEditMode={exitEditMode}
           deleteChat={deleteChat}
@@ -851,17 +852,53 @@ export function ChatTab() {
 // ── Table-view bulk delete confirmation (t/4896, mirrors DebateTab's BulkDeleteDialog) ──
 
 function ChatBulkDeleteDialog({
-  sessions, selectedIds, setShowBulkDeleteConfirm, exitEditMode, deleteChat,
+  sessions, selectedIds, setSelectedIds, setShowBulkDeleteConfirm, exitEditMode, deleteChat,
 }: {
   sessions: ChatSessionSummary[];
   selectedIds: Set<string>;
+  setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
   setShowBulkDeleteConfirm: Dispatch<SetStateAction<boolean>>;
   exitEditMode: () => void;
   deleteChat: (id: string) => Promise<void>;
 }) {
   const [deleting, setDeleting] = useState(false);
+  // t/4896 (Design): a failed delete must not strand the dialog on "Deleting…" or hide which
+  // ones succeeded — track per-id outcome, keep the dialog open and the failed ids selected on
+  // any failure so the user can see what happened and retry just those.
+  const [partialError, setPartialError] = useState<{ deletedCount: number; total: number; failedTitles: string } | null>(null);
+
+  const handleConfirm = async () => {
+    setDeleting(true);
+    setPartialError(null);
+    const ids = Array.from(selectedIds);
+    const failedIds: string[] = [];
+    let deletedCount = 0;
+    for (const id of ids) {
+      try {
+        await deleteChat(id);
+        deletedCount++;
+      } catch (err) {
+        failedIds.push(id);
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'chat-tab', level: 'warn',
+          message: `Failed to delete chat ${id} during bulk delete (WARN: continuing with the remaining selected chats)`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+      }
+    }
+    setDeleting(false);
+    if (failedIds.length === 0) {
+      setShowBulkDeleteConfirm(false);
+      exitEditMode();
+      return;
+    }
+    setSelectedIds(new Set(failedIds));
+    const failedTitles = failedIds.map(id => sessions.find(s => s.id === id)?.title ?? id).join(', ');
+    setPartialError({ deletedCount, total: ids.length, failedTitles });
+  };
+
   return (
-    <div className="dialog-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
+    <div className="dialog-overlay" onClick={() => !deleting && setShowBulkDeleteConfirm(false)}>
       <div className="dialog chat-bulk-delete-dialog" onClick={e => e.stopPropagation()}>
         <h3>Delete {selectedIds.size} chat{selectedIds.size !== 1 ? 's' : ''}?</h3>
         <div className="chat-bulk-delete-list">
@@ -872,22 +909,21 @@ function ChatBulkDeleteDialog({
             </div>
           ))}
         </div>
-        <div className="chat-bulk-delete-note">This can't be undone.</div>
+        {partialError ? (
+          <div className="chat-bulk-delete-error" role="alert">
+            Deleted {partialError.deletedCount} of {partialError.total}. Couldn't delete: {partialError.failedTitles}.
+          </div>
+        ) : (
+          <div className="chat-bulk-delete-note">This can't be undone.</div>
+        )}
         <div className="dialog-actions">
           <button className="btn" onClick={() => setShowBulkDeleteConfirm(false)} disabled={deleting}>Cancel</button>
           <button
             className="btn btn-danger"
             disabled={deleting}
-            onClick={async () => {
-              setDeleting(true);
-              for (const id of selectedIds) {
-                await deleteChat(id);
-              }
-              setShowBulkDeleteConfirm(false);
-              exitEditMode();
-            }}
+            onClick={() => void handleConfirm()}
           >
-            {deleting ? 'Deleting…' : `Delete ${selectedIds.size} Chat${selectedIds.size !== 1 ? 's' : ''}`}
+            {deleting ? 'Deleting…' : `Delete ${selectedIds.size} chat${selectedIds.size !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>

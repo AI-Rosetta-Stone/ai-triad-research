@@ -129,3 +129,5 @@
 /* t/4824 precedent: --text-muted fails AA in harvard/bkc — --text-secondary clears it. */
 .chat-bulk-delete-item-meta { font-size: var(--text-2xs); color: var(--text-secondary); }
 .chat-bulk-delete-note { font-size: var(--text-xs); color: var(--text-secondary); margin: 8px 0; font-style: italic; }
+/* t/4896 (Design): partial-failure message — --error-text is the AA-paired token for "the red". */
+.chat-bulk-delete-error { font-size: var(--text-xs); color: var(--error-text); margin: 8px 0; }

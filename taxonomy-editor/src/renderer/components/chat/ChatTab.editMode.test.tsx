@@ -150,12 +150,36 @@ describe('ChatTab — table-view edit mode delete (t/4896)', () => {
     expect(screen.getByText('First chat')).toBeInTheDocument();
     expect(screen.getByText('Second chat')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /^Delete 2 Chats$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete 2 chats$/ }));
     await vi.waitFor(() => {
       expect(deleteChatMock).toHaveBeenCalledWith('chat-1');
       expect(deleteChatMock).toHaveBeenCalledWith('chat-2');
     });
     expect(deleteChatMock).toHaveBeenCalledTimes(2);
+  });
+
+  // t/4896 (Design): a failed delete must not strand the dialog on "Deleting…" or hide which ones
+  // succeeded — the dialog stays open, shows a partial-failure message, and keeps only the failed
+  // id(s) selected so the user can see what happened and retry.
+  it('a failed delete keeps the dialog open, reports the partial result, and keeps the failed id selected', async () => {
+    deleteChatMock.mockImplementation((id: string) =>
+      id === 'chat-2' ? Promise.reject(new Error('boom')) : Promise.resolve(undefined),
+    );
+    render(<ChatTab />);
+    fireEvent.click(screen.getByTestId('enter-edit-mode'));
+    fireEvent.click(screen.getByTestId('row-chat-1'));
+    fireEvent.click(screen.getByTestId('row-chat-2'));
+    fireEvent.click(screen.getByTestId('action-Delete 2'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete 2 chats$/ }));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText("Deleted 1 of 2. Couldn't delete: Second chat.")).toBeInTheDocument();
+    });
+    // Dialog stayed open (not auto-closed/exited edit mode) and chat-1 is gone from it, since
+    // only the failed id stays selected.
+    expect(screen.queryByText('First chat')).toBeNull();
+    expect(screen.getByText('Second chat')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-mode-bar')).toBeInTheDocument();
   });
 
   it('cancelling the confirm dialog leaves the selection and edit mode intact, deletes nothing', () => {
