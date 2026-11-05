@@ -478,6 +478,11 @@ function buildElectronApi() {
     ipcRenderer.on('chat-stream-url-metadata', listener);
     return () => { ipcRenderer.removeListener('chat-stream-url-metadata', listener); };
   },
+  onChatStreamGenerationContext: (callback: (context: { raw_prompt?: string; raw_response?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, context: { raw_prompt?: string; raw_response?: string }) => callback(context);
+    ipcRenderer.on('chat-stream-generation-context', listener);
+    return () => { ipcRenderer.removeListener('chat-stream-generation-context', listener); };
+  },
 
   onGenerateTextProgress: (callback: (progress: { attempt: number; maxRetries: number; backoffSeconds: number; limitType: string; limitMessage: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: { attempt: number; maxRetries: number; backoffSeconds: number; limitType: string; limitMessage: string }) => callback(progress);

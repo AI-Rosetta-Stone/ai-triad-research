@@ -841,7 +841,7 @@ export async function generateChatStream(
   model?: string,
   temperature?: number,
   urlContext?: boolean,
-): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata }> {
+): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata; raw_prompt?: string; raw_response?: string }> {
   const friendlyModel = model || DEFAULT_MODEL;
   // registry passed explicitly (t/4141): see generateText's identical comment.
   const backend = resolveBackend(friendlyModel, resolveRegistry());
@@ -877,7 +877,8 @@ export async function generateChatStream(
       ? await generateViaDeepSeekStream(electronFetch, prompt, resolvedModel, apiKey, opts, onChunk)
       : await callProvider(electronFetch, backend, prompt, resolvedModel, apiKey, opts);
     if (backend !== 'deepseek') onChunk(providerResult.text);
-    return { text: providerResult.text };
+    // t/4848: the How panel shows the exact flattened prompt this path sent.
+    return { text: providerResult.text, raw_prompt: prompt, raw_response: providerResult.text };
   }
 
   const geminiContents: GeminiContent[] = messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
@@ -891,7 +892,12 @@ export async function generateChatStream(
   };
   const result = await generateViaGeminiStream(electronFetch, '', resolvedModel, apiKey, opts, onChunk);
   console.log(`[chatStream] Complete, total length: ${result.text.length}`);
-  return { text: result.text, urlContextMetadata: result.urlContextMetadata };
+  // t/4848: Gemini takes structured contents; render them readably (same format as server/routes/chat.ts).
+  const rawPrompt = [
+    systemInstruction && `System: ${systemInstruction}`,
+    ...messages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`),
+  ].filter(Boolean).join('\n\n');
+  return { text: result.text, urlContextMetadata: result.urlContextMetadata, raw_prompt: rawPrompt, raw_response: result.text };
 }
 
 export interface GroundingSegment {

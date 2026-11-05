@@ -624,4 +624,30 @@ describe('useChatStore', () => {
       expect(rec.data.model).toBeNull();
     });
   });
+
+  // t/4848: the How panel reads raw_prompt/raw_response off the saved POV entry.
+  describe('sendMessage — How panel raw fields (t/4848)', () => {
+    const opening = { id: 'e1', timestamp: '2026-01-01T00:00:00Z', speaker: 'accelerationist', content: 'Opening', taxonomy_refs: [] };
+    afterEach(() => { delete (mockApi as Record<string, unknown>).onChatStreamGenerationContext; });
+
+    it('stores the raw prompt and response from the stream on the new POV entry', async () => {
+      (mockApi as Record<string, unknown>).onChatStreamGenerationContext = vi.fn((cb: (c: { raw_prompt?: string; raw_response?: string }) => void) => {
+        cb({ raw_prompt: 'System: s | User: follow-up', raw_response: '{"response":"hello"}' });
+        return () => {};
+      });
+      useChatStore.setState({ activeChat: makeChatSession({ transcript: [opening] }) as never });
+      await useChatStore.getState().sendMessage('follow-up');
+      const last = useChatStore.getState().activeChat!.transcript.at(-1)!;
+      expect(last.raw_prompt).toBe('System: s | User: follow-up');
+      expect(last.raw_response).toBe('{"response":"hello"}');
+    });
+
+    it('leaves the fields absent (not empty) when the stream sends none', async () => {
+      useChatStore.setState({ activeChat: makeChatSession({ transcript: [opening] }) as never });
+      await useChatStore.getState().sendMessage('follow-up');
+      const last = useChatStore.getState().activeChat!.transcript.at(-1)!;
+      expect('raw_prompt' in last).toBe(false);
+      expect('raw_response' in last).toBe(false);
+    });
+  });
 });

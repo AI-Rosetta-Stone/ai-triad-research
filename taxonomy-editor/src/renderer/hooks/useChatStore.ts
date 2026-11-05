@@ -77,11 +77,11 @@ async function streamChatWithProgress(
   onChunk: (chunk: string) => void,
   urlContext?: boolean,
   chatSessionId?: string,
-): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata; raw_prompt?: string; raw_response?: string }> {
+): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata; rawFields: Pick<ChatEntry, 'raw_prompt' | 'raw_response'> }> {
   set({ chatActivity: activity, chatStreamingText: null });
   let urlContextMetadata: UrlContextMetadata | undefined;
-  let raw_prompt: string | undefined;
-  let raw_response: string | undefined;
+  // t/4848: only non-empty raw fields, so the entry spreads them without adding empty keys.
+  const rawFields: Pick<ChatEntry, 'raw_prompt' | 'raw_response'> = {};
   const unsubChunk = api.onChatStreamChunk(onChunk);
   const unsubMeta = api.onChatStreamUrlMetadata?.((payload) => {
     if (isUrlContextMetadata(payload)) {
@@ -102,12 +102,12 @@ async function streamChatWithProgress(
   });
   // t/4848: subscribe to generation context for raw prompt and response
   const unsubGenContext = api.onChatStreamGenerationContext?.((context) => {
-    raw_prompt = context.raw_prompt;
-    raw_response = context.raw_response;
+    if (context.raw_prompt) rawFields.raw_prompt = context.raw_prompt;
+    if (context.raw_response) rawFields.raw_response = context.raw_response;
   });
   try {
     const text = await api.startChatStream(systemInstruction, messages, model, temperature, urlContext, chatSessionId ? { chatSessionId } : undefined);
-    return { text, urlContextMetadata, raw_prompt, raw_response };
+    return { text, urlContextMetadata, rawFields };
   } finally {
     unsubChunk();
     unsubMeta?.();
@@ -591,7 +591,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const activity = urlContext
         ? `Fetching page for ${info.label}…`
         : `${info.label} is thinking…`;
-      const { text: fullText, urlContextMetadata, raw_prompt, raw_response } = await streamChatWithProgress(
+      const { text: fullText, urlContextMetadata, rawFields } = await streamChatWithProgress(
         systemInstruction,
         [{ role: 'user', content: userContent }],
         model,
@@ -615,8 +615,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: response,
         taxonomy_refs: taxonomyRefs,
         ...(urlContextMetadata && { url_context_metadata: urlContextMetadata }),
-        ...(raw_prompt && { raw_prompt }),
-        ...(raw_response && { raw_response }),
+        ...rawFields,
       };
 
       const updated = {
