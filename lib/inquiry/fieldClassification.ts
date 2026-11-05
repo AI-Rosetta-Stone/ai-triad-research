@@ -112,6 +112,11 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
     community: I('Run configuration; comparable run metadata.'),
     export: I(EXPORT_FULL),
   },
+  'request.title': {
+    'public-share': I('Optional display title for the inquiry — when present, it labels the artifact; when absent, the question is used. User-provided metadata, not sensitive.'),
+    community: I('Optional inquiry title; comparable to existing community metadata.'),
+    export: I(EXPORT_FULL),
+  },
 
   // ── campVerdicts ──
   'campVerdicts.camp': { 'public-share': I(PUBLIC_CORE), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
@@ -201,6 +206,11 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   'derivation.temperature': {
     'public-share': I('What actually ran (vs request.temperature, the ask), the way derivation.fidelity pairs with request.fidelity.'),
     community: I('Run configuration; comparable run metadata.'),
+    export: I(EXPORT_FULL),
+  },
+  'derivation.title': {
+    'public-share': I('The resolved title used for the inquiry (request.title if provided, else null) — metadata about what ran.'),
+    community: I('Run metadata, comparable to request.title metadata.'),
     export: I(EXPORT_FULL),
   },
   'derivation.tag.pov': { 'public-share': I('What actually ran (vs request.tagSelection, the ask), the way derivation.fidelity pairs with request.fidelity.'), community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL) },
