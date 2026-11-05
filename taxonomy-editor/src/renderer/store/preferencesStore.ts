@@ -5,62 +5,52 @@ import { create } from 'zustand';
 import type { ViewMode, UserPreferences } from '../bridge/types';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
+export type NodeDetailTabGroup = 'what' | 'why' | 'how';
+
+const VALID_TAB_GROUPS: readonly NodeDetailTabGroup[] = ['what', 'why', 'how'];
+
 interface PreferencesState {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => Promise<void>;
-  /** Per-node Simple/Advanced override, on top of the global `viewMode` default (t/4574, t/4736).
-   *  Plain Record for persist compatibility. Cleared whenever `viewMode` changes. */
-  nodeDetailModes: Record<string, 'simple' | 'advanced'>;
-  /** The mode for a node: its own override if one exists, else the global `viewMode` (t/4736). */
-  getNodeDetailMode: (nodeId: string) => 'simple' | 'advanced';
-  /** Set the mode for a node, with LRU eviction at 500 entries. */
-  setNodeDetailMode: (nodeId: string, mode: 'simple' | 'advanced') => Promise<void>;
+  /** t/4826: the node detail panel's What/Why/How tab-group filter. Independent of `viewMode`
+   *  (never reads or writes it) and panel-wide, not per-node — a reading choice, not a node
+   *  property, so it follows the reader from node to node. Retires the per-node `nodeDetailModes`
+   *  override (t/4736), which existed only to back the now-removed per-node Simple/Advanced
+   *  toggle. */
+  nodeDetailTabGroup: NodeDetailTabGroup;
+  setNodeDetailTabGroup: (group: NodeDetailTabGroup) => Promise<void>;
+  /** True once the reader has picked a tab group this session. hydrate() must not overwrite a
+   *  choice made before it resolves — the same race t/4574#11 guarded for the retired
+   *  per-node modes. Internal; never persisted. */
+  nodeDetailTabGroupTouched: boolean;
   /** Load persisted preferences from the bridge and hydrate the store. */
   hydrate: () => Promise<void>;
 }
 
-const NODE_DETAIL_MODES_CAP = 500;
-
 export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   viewMode: 'simple',
-  nodeDetailModes: {},
+  nodeDetailTabGroup: 'what',
+  nodeDetailTabGroupTouched: false,
 
   setViewMode: async (mode: ViewMode) => {
-    // t/4736: the global toggle sets the default for every POV item view. Clearing the per-node
-    // overrides here (not just changing the fallback) means every ALREADY-OPEN node follows the
-    // new global mode immediately, not just ones opened after the change.
-    set({ viewMode: mode, nodeDetailModes: {} });
+    set({ viewMode: mode });
     try {
       const { api } = await import('@bridge'); // alias — resolves to web-bridge on web, electron-bridge on desktop (t/2651)
-      await api.setPreferences({ viewMode: mode, nodeDetailModes: {} });
+      const state = get();
+      await api.setPreferences({ viewMode: mode, nodeDetailTabGroup: state.nodeDetailTabGroup });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to persist view mode preference', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
   },
 
-  getNodeDetailMode: (nodeId: string): 'simple' | 'advanced' => {
-    const state = get();
-    return state.nodeDetailModes[nodeId] ?? state.viewMode;
-  },
-
-  setNodeDetailMode: async (nodeId: string, mode: 'simple' | 'advanced') => {
-    const current = get().nodeDetailModes;
-    // Delete first to remove from position, then re-add at end (LRU bump)
-    const { [nodeId]: _, ...rest } = current;
-    const updated = { ...rest, [nodeId]: mode };
-
-    // LRU eviction: if we exceed cap, remove oldest entry (by key order)
-    if (Object.keys(updated).length > NODE_DETAIL_MODES_CAP) {
-      const keys = Object.keys(updated);
-      delete updated[keys[0]];
-    }
-
-    set({ nodeDetailModes: updated });
+  setNodeDetailTabGroup: async (group: NodeDetailTabGroup) => {
+    set({ nodeDetailTabGroup: group, nodeDetailTabGroupTouched: true });
     try {
       const { api } = await import('@bridge');
-      const state = get(); await api.setPreferences({ viewMode: state.viewMode, nodeDetailModes: updated });
+      const state = get();
+      await api.setPreferences({ viewMode: state.viewMode, nodeDetailTabGroup: group });
     } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to persist node detail mode', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to persist node detail tab group preference', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
   },
 
@@ -71,19 +61,15 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       if (prefs?.viewMode) {
         set({ viewMode: prefs.viewMode });
       }
-      if (prefs?.nodeDetailModes && typeof prefs.nodeDetailModes === 'object') {
-        // Validate and filter to only valid modes
-        const validated = Object.entries(prefs.nodeDetailModes).reduce((acc, [nodeId, mode]) => {
-          if (mode === 'simple' || mode === 'advanced') {
-            acc[nodeId] = mode;
-          }
-          return acc;
-        }, {} as Record<string, 'simple' | 'advanced'>);
-        // t/4574 (Design, t/4574#11): hydrate() can resolve after the user's first toggle
-        // write, racing with setNodeDetailMode. Persisted data is the base; any entries
-        // already in the live store (written since app start) win over it, so a toggle
-        // made before hydrate resolves is never clobbered.
-        set(state => ({ nodeDetailModes: { ...validated, ...state.nodeDetailModes } }));
+      // t/4826: passthrough field (UserPreferencesSchema.passthrough()), so it's `unknown` on
+      // the inferred type — validate before trusting it, same pattern the retired
+      // nodeDetailModes read used.
+      const saved = prefs?.nodeDetailTabGroup;
+      if (typeof saved === 'string' && VALID_TAB_GROUPS.includes(saved as NodeDetailTabGroup)) {
+        // A choice made since app start wins over the persisted one (t/4574#11 race).
+        if (!get().nodeDetailTabGroupTouched) set({ nodeDetailTabGroup: saved as NodeDetailTabGroup });
+      } else if (saved !== undefined) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'warn', message: `Ignoring invalid persisted nodeDetailTabGroup (${JSON.stringify(saved)}); falling back to '${get().nodeDetailTabGroup}'` });
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to hydrate preferences from bridge', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
@@ -92,6 +78,3 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 }));
 
 ((window as unknown as { __ZUSTAND_STORES__?: Record<string, unknown> }).__ZUSTAND_STORES__ ??= {} as Record<string, unknown>).preferences = usePreferencesStore;
-
-
-

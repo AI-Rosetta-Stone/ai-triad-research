@@ -12,107 +12,81 @@ vi.mock('@bridge', () => ({
 
 describe('preferencesStore', () => {
   beforeEach(() => {
-    // Reset store state
-    usePreferencesStore.setState({ nodeDetailModes: {}, viewMode: 'simple' });
+    usePreferencesStore.setState({ viewMode: 'simple', nodeDetailTabGroup: 'what', nodeDetailTabGroupTouched: false });
     mockGetPreferences.mockReset();
     mockSetPreferences.mockReset();
   });
 
-  it('gets node detail mode with simple default', () => {
-    const mode = usePreferencesStore.getState().getNodeDetailMode('node-1');
-    expect(mode).toBe('simple');
-  });
-
-  it('sets and gets node detail mode', async () => {
-    const store = usePreferencesStore.getState();
-    await store.setNodeDetailMode('node-1', 'advanced');
-    const mode = store.getNodeDetailMode('node-1');
-    expect(mode).toBe('advanced');
-  });
-
-  it('LRU eviction removes oldest entry when cap exceeded', async () => {
-    const store = usePreferencesStore.getState();
-    // Add 501 entries (cap is 500)
-    for (let i = 0; i < 501; i++) {
-      await store.setNodeDetailMode(`node-${i}`, 'advanced');
-    }
-    const modes = usePreferencesStore.getState().nodeDetailModes;
-    expect(Object.keys(modes).length).toBeLessThanOrEqual(500);
-  });
-
-  it('re-toggled key moves to end (LRU)', async () => {
-    const store = usePreferencesStore.getState();
-    await store.setNodeDetailMode('node-1', 'advanced');
-    await store.setNodeDetailMode('node-2', 'advanced');
-    await store.setNodeDetailMode('node-1', 'simple'); // Re-toggle
-    const keys = Object.keys(usePreferencesStore.getState().nodeDetailModes);
-    // node-1 should be last after re-toggle
-    expect(keys[keys.length - 1]).toBe('node-1');
-  });
-
-  it('round-trips through persist: write, hydrate, read back', async () => {
-    mockGetPreferences.mockResolvedValue({ nodeDetailModes: { 'node-1': 'advanced' } });
-    await usePreferencesStore.getState().hydrate();
-    expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
-    expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('simple');
-  });
-
-  it('hydrate never overwrites a mode written since app start (t/4574, Design t/4574#11)', async () => {
-    // hydrate() is in flight (unresolved) while a user write lands first.
-    let resolveHydrate: (v: unknown) => void = () => {};
-    mockGetPreferences.mockReturnValue(new Promise(resolve => { resolveHydrate = resolve; }));
-    mockSetPreferences.mockResolvedValue(undefined);
-
-    const hydratePromise = usePreferencesStore.getState().hydrate();
-    await usePreferencesStore.getState().setNodeDetailMode('node-1', 'advanced');
-
-    // The stale persisted blob (captured before the write) resolves after the write.
-    resolveHydrate({ nodeDetailModes: { 'node-1': 'simple' } });
-    await hydratePromise;
-
-    expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
-  });
-
-  describe('global toggle sync (t/4736)', () => {
-    it('getNodeDetailMode falls back to the global viewMode, not a hard-coded default', () => {
-      usePreferencesStore.setState({ viewMode: 'advanced' });
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
-
-      usePreferencesStore.setState({ viewMode: 'simple' });
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
-    });
-
-    it('a per-node override still wins over the global viewMode', async () => {
-      usePreferencesStore.setState({ viewMode: 'advanced' });
-      await usePreferencesStore.getState().setNodeDetailMode('node-1', 'simple');
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('advanced');
-    });
-
-    it('setViewMode clears every per-node override, so already-open nodes follow it too', async () => {
-      await usePreferencesStore.getState().setNodeDetailMode('node-1', 'advanced');
-      await usePreferencesStore.getState().setNodeDetailMode('node-2', 'advanced');
-      expect(Object.keys(usePreferencesStore.getState().nodeDetailModes)).toHaveLength(2);
-
+  describe('viewMode (the rail control)', () => {
+    it('setViewMode updates the store and persists it', async () => {
       mockSetPreferences.mockResolvedValue(undefined);
       await usePreferencesStore.getState().setViewMode('advanced');
-
-      expect(usePreferencesStore.getState().nodeDetailModes).toEqual({});
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('advanced');
-      expect(mockSetPreferences).toHaveBeenCalledWith({ viewMode: 'advanced', nodeDetailModes: {} });
+      expect(usePreferencesStore.getState().viewMode).toBe('advanced');
+      expect(mockSetPreferences).toHaveBeenCalledWith({ viewMode: 'advanced', nodeDetailTabGroup: 'what' });
     });
 
-    it('a per-node switch made after a global change sticks until the next global change', async () => {
+    it('hydrate() reads the persisted viewMode', async () => {
+      mockGetPreferences.mockResolvedValue({ viewMode: 'advanced' });
+      await usePreferencesStore.getState().hydrate();
+      expect(usePreferencesStore.getState().viewMode).toBe('advanced');
+    });
+  });
+
+  // t/4826: the What/Why/How tab-group filter is panel-wide (not per-node) and independent of
+  // viewMode — it never reads or writes it, and the rail never changes it.
+  describe('nodeDetailTabGroup (t/4826)', () => {
+    it('defaults to "what"', () => {
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('what');
+    });
+
+    it('setNodeDetailTabGroup updates the store and persists it alongside viewMode', async () => {
+      mockSetPreferences.mockResolvedValue(undefined);
+      await usePreferencesStore.getState().setNodeDetailTabGroup('why');
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('why');
+      expect(mockSetPreferences).toHaveBeenCalledWith({ viewMode: 'simple', nodeDetailTabGroup: 'why' });
+    });
+
+    it('setViewMode never changes the tab group', async () => {
+      mockSetPreferences.mockResolvedValue(undefined);
+      await usePreferencesStore.getState().setNodeDetailTabGroup('how');
+      await usePreferencesStore.getState().setViewMode('advanced');
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('how');
+    });
+
+    it('setNodeDetailTabGroup never changes viewMode', async () => {
       mockSetPreferences.mockResolvedValue(undefined);
       await usePreferencesStore.getState().setViewMode('advanced');
-      await usePreferencesStore.getState().setNodeDetailMode('node-1', 'simple');
+      await usePreferencesStore.getState().setNodeDetailTabGroup('why');
+      expect(usePreferencesStore.getState().viewMode).toBe('advanced');
+    });
 
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('advanced');
+    it('hydrate() reads a valid persisted tab group', async () => {
+      mockGetPreferences.mockResolvedValue({ viewMode: 'simple', nodeDetailTabGroup: 'how' });
+      await usePreferencesStore.getState().hydrate();
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('how');
+    });
 
-      await usePreferencesStore.getState().setViewMode('simple');
-      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
+    it('hydrate() ignores an invalid persisted tab group rather than crashing', async () => {
+      mockGetPreferences.mockResolvedValue({ viewMode: 'simple', nodeDetailTabGroup: 'garbage' });
+      await usePreferencesStore.getState().hydrate();
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('what'); // untouched default
+    });
+
+    it('hydrate() resolving after the reader picked a tab group does not overwrite that choice (t/4574#11 race)', async () => {
+      let resolvePrefs: (v: unknown) => void = () => {};
+      mockGetPreferences.mockReturnValue(new Promise(r => { resolvePrefs = r; }));
+      mockSetPreferences.mockResolvedValue(undefined);
+      const pending = usePreferencesStore.getState().hydrate();
+      await usePreferencesStore.getState().setNodeDetailTabGroup('why');
+      resolvePrefs({ viewMode: 'simple', nodeDetailTabGroup: 'how' });
+      await pending;
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('why');
+    });
+
+    it('hydrate() with no persisted tab group leaves the default untouched', async () => {
+      mockGetPreferences.mockResolvedValue({ viewMode: 'simple' });
+      await usePreferencesStore.getState().hydrate();
+      expect(usePreferencesStore.getState().nodeDetailTabGroup).toBe('what');
     });
   });
 });
