@@ -12,6 +12,7 @@ import { POVER_INFO } from '../../types/debate';
 import type { SpeakerId } from '../../types/debate';
 import type { ChatMode } from '../../types/chat';
 import { CHAT_MODE_INFO } from '../../types/chat';
+import { CHAT_MODE_TEMPERATURE } from '../../prompts/chat';
 import { AI_POVERS } from '@lib/debate/types';
 import type { SeatTag } from '@lib/debate/types/session';
 import { checkTagScope } from '@lib/debate/relevanceSelection';
@@ -40,6 +41,11 @@ const MODE_ICONS: Record<ChatMode, string> = {
 export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }: NewChatDialogProps) {
   const { createChat } = useChatStore();
   const [mode, setMode] = useState<ChatMode>(initialMode ?? 'brainstorm');
+  // t/4774 AC3: the slider follows the selected mode's default until the user moves it — a dirty
+  // flag, not a derived value, since "follow mode until edited" needs to remember whether the user
+  // touched it (a plain `CHAT_MODE_TEMPERATURE[mode]` derivation would also reset an edited value).
+  const [temperature, setTemperature] = useState<number>(CHAT_MODE_TEMPERATURE[initialMode ?? 'brainstorm']);
+  const [temperatureDirty, setTemperatureDirty] = useState(false);
   const [pover, setPover] = useState<Exclude<SpeakerId, 'user'>>('accelerationist');
   const [chatTag, setChatTag] = useState<SeatTag | undefined>(undefined);
   const [topic, setTopic] = useState(initialTopic ?? '');
@@ -80,6 +86,11 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
   const tagBlocked = !!tagBlockedReason(tagScope, chatTag?.tag_mode);
   const canStart = topic.trim().length > 0 && !tagBlocked;
 
+  const handleModeChange = (m: ChatMode) => {
+    setMode(m);
+    if (!temperatureDirty) setTemperature(CHAT_MODE_TEMPERATURE[m]);
+  };
+
   const handlePoverChange = (id: Exclude<SpeakerId, 'user'>) => {
     setPover(id);
     setChatTag(undefined); // tags are POV-specific
@@ -89,7 +100,7 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
     if (!canStart || creating) return;
     setCreating(true);
     const chatModelOverride = customModel !== globalModel ? customModel : undefined;
-    const id = await createChat(mode, pover, topic.trim(), chatModelOverride, chatTag);
+    const id = await createChat(mode, pover, topic.trim(), chatModelOverride, chatTag, temperature);
     if (onCreated) {
       onCreated(id);
     } else {
@@ -112,7 +123,7 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
                 key={m}
                 className={`new-chat-mode-card${mode === m ? ' selected' : ''}`}
                 data-mode={m}
-                onClick={() => setMode(m)}
+                onClick={() => handleModeChange(m)}
               >
                 <span className="new-chat-mode-icon">{MODE_ICONS[m]}</span>
                 <span className="new-chat-mode-label">{info.label}</span>
@@ -182,8 +193,12 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
               ? { selectable: true, suffix: '' }
               : backendSelectState(availByReason[backend], keyStatus[backend] === true);
           }}
-          // t/4774: temperature slider holds until the store field (t/4770/Rosetta Stone) lands —
-          // never render a slider that doesn't do anything.
+          temperature={{
+            value: temperature,
+            onChange: (v) => { setTemperature(v); setTemperatureDirty(true); },
+            // t/4774 AC3: shows the mode's default, not a fixed "0.8".
+            hint: `0 = deterministic, 2 = most varied. ${CHAT_MODE_INFO[mode].label}'s default is ${CHAT_MODE_TEMPERATURE[mode]}.`,
+          }}
         />
 
         <div className="dialog-actions">
