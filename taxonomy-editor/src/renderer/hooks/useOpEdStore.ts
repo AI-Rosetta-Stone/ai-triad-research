@@ -19,6 +19,12 @@ interface OpEdStore {
   sets: OpEdSetSummary[];
   /** set_id of the row open in the reader, or null for the table view. */
   selectedSetId: string | null;
+  /** t/4888: a community set's title isn't in `sets` (My-only), and whether it's a community
+   *  item at all isn't recoverable from `selectedSetId` alone — both come from `selectSet`'s
+   *  `meta`, mirroring OpEdTab's own readerSource/readerCommunityId, so placeOf.ts (store-only
+   *  visibility) can give an open community set an up-crumb. */
+  selectedSetTitle: string | null;
+  selectedSetIsCommunity: boolean;
   loading: boolean;
   error: string | null;
   /** Edit mode enables the bulk-select checkbox column + inline rename (My only). */
@@ -33,7 +39,7 @@ interface OpEdStore {
   pendingOpen: { setId: string; pov?: string } | null;
 
   loadSets: () => Promise<void>;
-  selectSet: (id: string | null) => void;
+  selectSet: (id: string | null, meta?: { title?: string; community?: boolean }) => void;
   deleteSet: (id: string) => Promise<void>;
   renameSet: (id: string, topic: string) => Promise<void>;
   setEditMode: (on: boolean) => void;
@@ -47,6 +53,8 @@ interface OpEdStore {
 export const useOpEdStore = create<OpEdStore>((set, get) => ({
   sets: [],
   selectedSetId: null,
+  selectedSetTitle: null,
+  selectedSetIsCommunity: false,
   loading: false,
   error: null,
   editMode: false,
@@ -67,7 +75,11 @@ export const useOpEdStore = create<OpEdStore>((set, get) => ({
     }
   },
 
-  selectSet: (id) => set({ selectedSetId: id }),
+  selectSet: (id, meta) => set({
+    selectedSetId: id,
+    selectedSetTitle: id ? meta?.title ?? null : null,
+    selectedSetIsCommunity: id ? !!meta?.community : false,
+  }),
 
   requestOpen: (setId, pov) => set({ pendingOpen: { setId, pov } }),
   clearPendingOpen: () => set({ pendingOpen: null }),

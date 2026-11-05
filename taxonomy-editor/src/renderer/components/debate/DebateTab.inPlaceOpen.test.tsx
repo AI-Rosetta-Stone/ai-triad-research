@@ -112,6 +112,7 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
       loadDebate: mockLoadDebate,
       deleteDebate: vi.fn(),
       renameDebate: vi.fn(),
+      setActiveCommunityDebate: vi.fn(),
     };
     try { localStorage.clear(); } catch { /* jsdom always has localStorage in this suite */ }
   });

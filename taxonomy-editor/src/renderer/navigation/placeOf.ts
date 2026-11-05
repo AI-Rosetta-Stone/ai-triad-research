@@ -38,12 +38,18 @@ function place(tool: PlaceTool, path: string, placeKey: string, crumbs: Crumb[])
  * A tool with a collection and items (§ Breadcrumb table): `Tool` alone on the collection;
  * `Tool › title` on an item, where the tool crumb links up to the collection. While the item's
  * title is still loading (no title), only the tool crumb shows — never its id.
+ *
+ * `item.community` (t/4888): a Community item's path carries `?community=1` so a deep link or
+ * reload restores it through the community-loading path, not the My one — the two share an item
+ * route (appRoutes.ts), distinguished by this query param, same pattern TAXONOMY_ROUTE/
+ * CONFLICTS_ROUTE already use for their own query-carried context.
  */
-function collectionPlace(tool: PlaceTool, toolName: string, collectionPath: string, item: { id: string; title?: string | null } | null): PlaceInfo {
+function collectionPlace(tool: PlaceTool, toolName: string, collectionPath: string, item: { id: string; title?: string | null; community?: boolean } | null): PlaceInfo {
   if (!item) return place(tool, collectionPath, `${tool}:none`, [{ text: toolName }]);
   const crumbs: Crumb[] = [{ text: toolName, href: collectionPath }];
   if (item.title) crumbs.push({ text: item.title });
-  return place(tool, `${collectionPath}/${encodeURIComponent(item.id)}`, `${tool}:${item.id}`, crumbs);
+  const query = item.community ? '?community=1' : '';
+  return place(tool, `${collectionPath}/${encodeURIComponent(item.id)}${query}`, `${tool}:${item.id}`, crumbs);
 }
 
 const CAMPS: Record<string, { pov: string; name: string; camp?: Crumb['camp'] }> = {
@@ -57,29 +63,45 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
   'rosetta-stone': () => place('rosetta-stone', '/', 'rosetta-stone', [{ text: 'Rosetta Stone' }]),
 
   'chat': (state) => {
-    const chat = state.chatStore?.activeChat;
-    return collectionPlace('chat', 'Chat', '/chat', chat ? { id: chat.id, title: chat.topic } : null);
+    // `activeCommunityChat` (t/4888) mirrors ChatTab's own local Community selection, which
+    // placeOf.ts otherwise has no visibility into — see useChatStore.ts's comment on the field.
+    const store = state.chatStore;
+    const chat = store?.activeChat;
+    if (chat) return collectionPlace('chat', 'Chat', '/chat', { id: chat.id, title: chat.topic });
+    const cc = store?.activeCommunityChat;
+    return collectionPlace('chat', 'Chat', '/chat', cc ? { id: cc.id, title: cc.title, community: true } : null);
   },
 
   'opeds': (state) => {
+    // `sets` is the My-only index, so a community set's title (and the fact that it IS
+    // community) comes from `selectedSetTitle`/`selectedSetIsCommunity` instead (t/4888) —
+    // see OpEdStore's comment on those fields.
     const store = state.opEdStore;
-    const openSet = store?.selectedSetId ? store.sets.find(s => s.set_id === store.selectedSetId) : null;
-    return collectionPlace('opeds', 'Op-Ed Studies', '/opeds', openSet ? { id: openSet.set_id, title: openSet.topic } : null);
+    const id = store?.selectedSetId;
+    if (!id) return collectionPlace('opeds', 'Op-Ed Studies', '/opeds', null);
+    const mySet = store!.sets.find(s => s.set_id === id);
+    const title = mySet?.topic ?? store!.selectedSetTitle ?? undefined;
+    return collectionPlace('opeds', 'Op-Ed Studies', '/opeds', { id, title, community: !mySet && store!.selectedSetIsCommunity });
   },
 
   'inquiry': (state) => {
-    // The inquiry store has no "active inquiry" object: an answer is open when `result` is set,
-    // and `jobId` identifies it.
+    // The inquiry store has no "active inquiry" object: an answer is open when `result` is set.
+    // `jobId` identifies a My run; `communityResultId` identifies a community one (t/4888) —
+    // openCommunityResult() deliberately leaves jobId null, since there's no job to poll.
     const store = state.inquiryStore;
-    const openId = store?.result ? store.jobId : null;
+    const openId = store?.result ? (store.jobId ?? store.communityResultId) : null;
     return collectionPlace('inquiry', 'Ask a Question', '/inquiry',
-      openId ? { id: openId, title: store?.result?.request.question } : null);
+      openId ? { id: openId, title: store?.result?.request.question, community: !store?.jobId } : null);
   },
 
   'debate': (state) => {
-    const debate = state.debateStore?.activeDebate;
-    return collectionPlace('debate', 'Debate', '/debate',
-      debate ? { id: debate.id, title: debate.topic.final || debate.topic.original } : null);
+    // `activeCommunityDebate` (t/4888) mirrors DebateTab's own local Community selection,
+    // which placeOf.ts otherwise has no visibility into — see sessionSlice.ts's comment.
+    const store = state.debateStore;
+    const debate = store?.activeDebate;
+    if (debate) return collectionPlace('debate', 'Debate', '/debate', { id: debate.id, title: debate.topic.final || debate.topic.original });
+    const cd = store?.activeCommunityDebate;
+    return collectionPlace('debate', 'Debate', '/debate', cd ? { id: cd.id, title: cd.title, community: true } : null);
   },
 
   'accelerationist': (state) => resolveTaxonomy('accelerationist', state.taxonomyStore),

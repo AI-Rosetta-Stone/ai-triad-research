@@ -38,6 +38,34 @@ describe('placeOf - per-tool open item resolvers', () => {
       expect(place.label).toBe('Debate: Should AI be regulated?');
     });
 
+    // t/4888: DebateTab's Community selection has no My-side counterpart on the resolver —
+    // it's a separate field, checked only when no My debate is active.
+    it('returns open debate path keyed off activeCommunityDebate when a community debate is open (t/4888)', () => {
+      const mockCommunityDebate = { id: 'community-3', title: 'Should labs self-regulate?' };
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'debate',
+        debateStore: { activeDebate: null, activeCommunityDebate: mockCommunityDebate } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/debate/community-3?community=1');
+      expect(place.placeKey).toBe('debate:community-3');
+      expect(place.label).toBe('Debate: Should labs self-regulate?');
+      expect(place.crumbs[0]).toEqual({ text: 'Debate', href: '/debate' });
+    });
+
+    it('prefers activeDebate over a stale activeCommunityDebate', () => {
+      const mockDebate = { id: 'debate-123', topic: topic('Should AI be regulated?') };
+      const mockCommunityDebate = { id: 'community-3', title: 'Should labs self-regulate?' };
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'debate',
+        debateStore: { activeDebate: mockDebate, activeCommunityDebate: mockCommunityDebate } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/debate/debate-123');
+    });
+
     it('opening two different debates generates different placeKeys (pushes history)', () => {
       const debate1 = { id: 'debate-1', topic: topic('Should AI be regulated?') };
       const debate2 = { id: 'debate-2', topic: topic('AI and labor markets') };
@@ -69,11 +97,39 @@ describe('placeOf - per-tool open item resolvers', () => {
       const state = {
         taxonomyStore: mockTaxonomyStore,
         activeTab: 'chat',
-        chatStore: { activeChat: mockChat } as any,
+        chatStore: { activeChat: mockChat, activeCommunityChat: null } as any,
       };
       const place = placeOf(state as any);
       expect(place.path).toBe('/chat/conv-42');
       expect(place.placeKey).toBe('chat:conv-42');
+    });
+
+    // t/4888: ChatTab's Community selection has no `jobId`-style counterpart on the My side —
+    // it's a separate field, checked only when no My chat is active.
+    it('returns open chat path keyed off activeCommunityChat when a community chat is open (t/4888)', () => {
+      const mockCommunityChat = { id: 'community-7', title: 'A shared debate recap' };
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'chat',
+        chatStore: { activeChat: null, activeCommunityChat: mockCommunityChat } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/chat/community-7?community=1');
+      expect(place.placeKey).toBe('chat:community-7');
+      expect(place.label).toBe('Chat: A shared debate recap');
+      expect(place.crumbs[0]).toEqual({ text: 'Chat', href: '/chat' });
+    });
+
+    it('prefers activeChat over a stale activeCommunityChat', () => {
+      const mockChat = { id: 'conv-42', topic: 'AI Safety' };
+      const mockCommunityChat = { id: 'community-7', title: 'A shared debate recap' };
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'chat',
+        chatStore: { activeChat: mockChat, activeCommunityChat: mockCommunityChat } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/chat/conv-42');
     });
   });
 
@@ -86,12 +142,38 @@ describe('placeOf - per-tool open item resolvers', () => {
       const state = {
         taxonomyStore: mockTaxonomyStore,
         activeTab: 'opeds',
-        opEdStore: { selectedSetId: 'set-1', sets: mockSets } as any,
+        opEdStore: { selectedSetId: 'set-1', sets: mockSets, selectedSetTitle: null, selectedSetIsCommunity: false } as any,
       };
       const place = placeOf(state as any);
       expect(place.path).toBe('/opeds/set-1');
       expect(place.placeKey).toBe('opeds:set-1');
       expect(place.label).toBe('Op-Ed Studies: My Policy Analysis');
+    });
+
+    // t/4888: `sets` (My-only) has no row for a community set — its title and community-ness
+    // come from selectedSetTitle/selectedSetIsCommunity instead (set by openCommunity()).
+    it('returns open op-ed path keyed off selectedSetTitle when a community set is open (t/4888)', () => {
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'opeds',
+        opEdStore: { selectedSetId: 'c-9', sets: [], selectedSetTitle: 'A Shared Take on Export Controls', selectedSetIsCommunity: true } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/opeds/c-9?community=1');
+      expect(place.placeKey).toBe('opeds:c-9');
+      expect(place.label).toBe('Op-Ed Studies: A Shared Take on Export Controls');
+      expect(place.crumbs[0]).toEqual({ text: 'Op-Ed Studies', href: '/opeds' });
+    });
+
+    it('a My set found in `sets` wins over a stale selectedSetIsCommunity flag', () => {
+      const mockSets = [{ set_id: 'set-1', topic: 'My Policy Analysis' }];
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'opeds',
+        opEdStore: { selectedSetId: 'set-1', sets: mockSets, selectedSetTitle: 'stale community title', selectedSetIsCommunity: true } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/opeds/set-1');
     });
   });
 
@@ -121,6 +203,39 @@ describe('placeOf - per-tool open item resolvers', () => {
       expect(place.path).toBe('/inquiry/job-99');
       expect(place.placeKey).toBe('inquiry:job-99');
       expect(place.label).toBe('Ask a Question: How does transformer attention work?');
+    });
+
+    // t/4888: openCommunityResult() deliberately leaves jobId null (no job to poll for a
+    // community item) — the old resolver treated that as "nothing open", dropping the up-crumb.
+    it('returns open inquiry path keyed off communityResultId when a community answer is open (t/4888)', () => {
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'inquiry',
+        inquiryStore: {
+          jobId: null,
+          communityResultId: 'community-77',
+          result: { request: { question: 'What counts as an AI harm?' } },
+        } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/inquiry/community-77?community=1');
+      expect(place.placeKey).toBe('inquiry:community-77');
+      expect(place.label).toBe('Ask a Question: What counts as an AI harm?');
+      expect(place.crumbs[0]).toEqual({ text: 'Ask a Question', href: '/inquiry' });
+    });
+
+    it('treats a My answer (jobId set) as not community — no query param', () => {
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'inquiry',
+        inquiryStore: {
+          jobId: 'job-99',
+          communityResultId: null,
+          result: { request: { question: 'How does transformer attention work?' } },
+        } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/inquiry/job-99');
     });
   });
 

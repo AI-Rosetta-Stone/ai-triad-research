@@ -61,13 +61,19 @@ vi.mock('../hooks/useDebateStore', () => ({
 const chatState = {
   activeChatId: null as string | null,
   loadChat: vi.fn(async (id: string) => { if (loadSucceeds) chatState.activeChatId = id; }),
+  setActiveCommunityChat: vi.fn(),
 };
 const chatSetState = vi.fn((s: Partial<typeof chatState>) => { Object.assign(chatState, s); });
 vi.mock('../hooks/useChatStore', () => ({
   useChatStore: { getState: () => chatState, setState: (s: never) => chatSetState(s) },
 }));
 
-const inquiryState = { openList: vi.fn(), openFromHistory: vi.fn() };
+const communityState = { chats: [] as Array<{ id: string; title: string }>, fetchChats: vi.fn(async () => {}) };
+vi.mock('../hooks/useCommunityStore', () => ({
+  useCommunityStore: { getState: () => communityState },
+}));
+
+const inquiryState = { openList: vi.fn(), openFromHistory: vi.fn(), openCommunityResult: vi.fn() };
 vi.mock('../hooks/useInquiryStore', () => ({
   useInquiryStore: { getState: () => inquiryState },
 }));
@@ -102,6 +108,7 @@ beforeEach(() => {
   debateState.activeDebate = null;
   debateState.activeDebateId = null;
   chatState.activeChatId = null;
+  communityState.chats = [];
 });
 
 describe('a stale /taxonomy/:pov?node= falls back to the camp with a notice (t/4640 AC3, staging sweep)', () => {
@@ -230,15 +237,33 @@ describe('restore() per route calls the tool\'s real open action (t/4640#40 AC3)
   it('/chat → the Chat tab with no chat open', () => {
     restore('/chat');
     expect(taxonomyState.setActiveTab).toHaveBeenCalledWith('chat');
-    expect(chatSetState).toHaveBeenCalledWith({ activeChatId: null, activeChat: null });
+    expect(chatSetState).toHaveBeenCalledWith({ activeChatId: null, activeChat: null, activeCommunityChat: null });
     expect(chatState.loadChat).not.toHaveBeenCalled();
   });
 
   it('/chat/:id → clears the previous chat, then loads this one', () => {
     restore('/chat/c-1');
     expect(taxonomyState.setActiveTab).toHaveBeenCalledWith('chat');
-    expect(chatSetState).toHaveBeenCalledWith({ activeChatId: null, activeChat: null });
+    expect(chatSetState).toHaveBeenCalledWith({ activeChatId: null, activeChat: null, activeCommunityChat: null });
     expect(chatState.loadChat).toHaveBeenCalledWith('c-1');
+    expect(chatState.setActiveCommunityChat).not.toHaveBeenCalled();
+  });
+
+  // t/4888: a community chat shares the My item's route, distinguished by ?community=1.
+  it('/chat/:id?community=1 → loads the community list and resolves the community chat', async () => {
+    communityState.chats = [{ id: 'c-1', title: 'A shared debate recap' }];
+    restore('/chat/c-1?community=1');
+    await settle();
+    expect(communityState.fetchChats).toHaveBeenCalled();
+    expect(chatState.setActiveCommunityChat).toHaveBeenCalledWith({ id: 'c-1', title: 'A shared debate recap' });
+    expect(chatState.loadChat).not.toHaveBeenCalled();
+  });
+
+  it('/chat/:id?community=1 falls back to the library when the community chat is missing', async () => {
+    communityState.chats = [];
+    restore('/chat/gone?community=1');
+    await settle();
+    expect(notices).toEqual(['That chat couldn’t be found. It may have been deleted.']);
   });
 
   it('/debate → the Debate library, closing an open debate', () => {
@@ -275,6 +300,14 @@ describe('restore() per route calls the tool\'s real open action (t/4640#40 AC3)
   it('/inquiry/:id → opens the answer', () => {
     restore('/inquiry/j-1');
     expect(inquiryState.openFromHistory).toHaveBeenCalledWith('j-1');
+    expect(inquiryState.openCommunityResult).not.toHaveBeenCalled();
+  });
+
+  // t/4888: a community answer shares the My item's route, distinguished by ?community=1.
+  it('/inquiry/:id?community=1 → opens the community answer, not the My one', () => {
+    restore('/inquiry/c-1?community=1');
+    expect(inquiryState.openCommunityResult).toHaveBeenCalledWith('c-1');
+    expect(inquiryState.openFromHistory).not.toHaveBeenCalled();
   });
 
   it('/taxonomy/:pov → the camp tab; with ?node= → navigates to the node', () => {

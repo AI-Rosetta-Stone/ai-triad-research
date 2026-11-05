@@ -91,6 +91,8 @@ describe('ChatTab — table mode in-place open (t/4690)', () => {
       chatActivity: null,
       chatError: null,
       chatLoading: false,
+      activeCommunityChat: null,
+      setActiveCommunityChat: vi.fn(),
     };
     try { localStorage.clear(); } catch { /* jsdom always has localStorage in this suite */ }
   });
