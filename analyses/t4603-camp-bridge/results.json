@@ -23,37 +23,37 @@
  },
  "labels": {
   "new_off": {
-   "n": 30,
-   "genuine": 13,
-   "stretched": 13,
-   "unsupported": 4,
-   "bad": 17
+   "n": 28,
+   "genuine": 10,
+   "stretched": 16,
+   "unsupported": 2,
+   "bad": 18
   },
   "saved_off": {
    "n": 30,
-   "genuine": 10,
-   "stretched": 16,
-   "unsupported": 4,
-   "bad": 20
+   "genuine": 2,
+   "stretched": 25,
+   "unsupported": 3,
+   "bad": 28
   },
   "new_on": {
    "n": 30,
-   "genuine": 22,
-   "stretched": 8,
+   "genuine": 19,
+   "stretched": 11,
    "unsupported": 0,
-   "bad": 8
+   "bad": 11
   }
  },
- "off_tag_bad": "17/30 (57%)",
- "saved_off_tag_bad": "20/30 (67%)",
- "on_tag_genuine": "22/30 (73%)",
- "on_tag_median_change_all": -0.121,
- "on_tag_median_change_chunked": -0.05,
+ "off_tag_bad": "18/28 (64%)",
+ "saved_off_tag_bad": "28/30 (93%)",
+ "on_tag_genuine": "19/30 (63%)",
+ "on_tag_median_change_all": -0.098,
+ "on_tag_median_change_chunked": -0.081,
  "on_tag_change_n": 14,
  "on_tag_saved_total": 155,
  "on_tag_new_total": 141,
  "kp_median_saved": 21.5,
- "kp_median_new": 14.0,
+ "kp_median_new": 13.5,
  "calls_non_chunked": {
   "do-ai-risks-require-extraordinary-government-intervention-2026": [
    "single_shot",
@@ -66,11 +66,8 @@
  },
  "empty_cells_persisted": "14/14",
  "empty_camps": {
-  "labor-as-capital-ai-ownership-expertise-2026": [
-   "accelerationist"
-  ],
   "do-ai-risks-require-extraordinary-government-intervention-2026": [
-   "accelerationist"
+   "safetyist"
   ],
   "generative-design-bacteriophages-genome-language-models-2026": [
    "skeptic"
@@ -86,15 +83,27 @@
   ],
   "zero-trust-ai-systems-reference-architecture-assurance-2026": [
    "accelerationist"
+  ],
+  "pluralistic-what-kind-bubble-is-ai-2026": [
+   "accelerationist",
+   "safetyist"
+  ],
+  "detection-mitigation-mythos-class-frontier-model-2026": [
+   "accelerationist"
   ]
  },
- "empty_camps_undeclared": {},
+ "empty_camps_undeclared": {
+  "pluralistic-what-kind-bubble-is-ai-2026": [
+   "accelerationist",
+   "safetyist"
+  ]
+ },
  "tagged_empty": {},
  "crashes": [],
  "skipped_by_triage": [
   "evolving-procedural-memory-from-user-traffic-agentic-2026"
  ],
- "off_tag_share_new": "68/209 (33%)",
+ "off_tag_share_new": "45/186 (24%)",
  "off_tag_share_saved": "149/304 (49%)",
- "spend_usd": 0.6541
+ "spend_usd": 0
 }

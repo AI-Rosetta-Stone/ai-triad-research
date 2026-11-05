@@ -78,3 +78,26 @@ As with t/4603: these are raw counts, not yet labelled genuine/stretched/unsuppo
 
 ## Files
 - Same file set as t/4603 (`sample.json`, `run_batch.ps1`, `isolation_check.py`, `measure.py` all unchanged; `per_doc.json`/`label_sheet.json`/`label_key.json` overwritten with this round's output, matching the established per-round convention).
+
+## Blind label pass (CL, t/4742)
+
+All 88 items were labelled blind from `show_sheet.py` (arm and doc tag hidden) before `label_key.json` was opened. Labels are in `labels.json` and scores in `results.json` (`measure.py score`). Single rater (CL). Every figure below is an observed count.
+
+| arm | n | genuine | stretched | unsupported | bad share |
+|---|---|---|---|---|---|
+| new off-tag (post-#4402 filter) | 28 | 10 | 16 | 2 | **18/28 (64%)** |
+| saved off-tag (control) | 30 | 2 | 25 | 3 | 28/30 (93%) |
+| new on-tag | 30 | 19 | 11 | 0 | 11/30 (37%) |
+
+**AC (≤33% bad share of off-tag points): FAIL**, at 18/28 = 64%. It also failed at t/4603 (17/30 = 57%). The raw volume drop (32.5% → 24.2% off-tag share) is real, but the off-tag points that survive are mostly still bad.
+
+**Rater drift: the round-to-round delta can't be read.** The t/4603 labels are kept as `*_t4603.json`. The control arm, the same saved summaries labelled by the same rater, moved from 20/30 (67%) bad at t/4603 to 28/30 (93%) now. On the 14 items that appear on both sheets, self-agreement is 8/14. Five of the six disagreements went to the stricter label: four genuine→stretched, one stretched→genuine. So the 57% → 64% move is inside rater drift and is not evidence that the filter made things worse. The within-session contrast compares filtered with saved under one calibration: 64% vs 93%, a 29-point drop. At t/4603 the same contrast was 57% vs 67%, a 10-point drop. That is directional evidence that the filter helps, from one rater and n ≈ 30 per arm.
+
+**What the filter misses (mechanism, per item).** Only 2 of the 28 surviving new off-tag points contain bridge phrasing ("from an X perspective", "aligns with X", "X would…"). In the saved control the count is 13/30, 12 of them bad. Of the 18 bad survivors:
+- **15 are silent node mismatches.** The content is a faithful summary of the doc, but it is attached to an off-camp node it doesn't argue for, and nothing in the wording signals the stretch. Examples: C08 (code maintainability → "scoring AI bugs"), C59 (judge noise → "simulating user-expert pairs"), and C81 (camera calibration → re-identification at a fusion join).
+- **3 of those 15 are polarity inversions**: C26, C63, C82. The doc *opposes* the node's stance (Section 230 defence mapped to a "governance can't enforce" node, to "First Amendment as a corporate shield", and to "judicial mandate of product design").
+- **2 are unsupported.** C76 is a "the document does not articulate…" non-claim that should never persist. C53 misframes wet-lab validation as biosecurity screening.
+
+A lexical filter has reached its ceiling here. What remains needs a semantic point-to-node check: does the point argue *for* the node's claim, in the same direction?
+
+**Label reliability caveat.** Intra-rater agreement of 8/14 on the genuine/stretched boundary is weak. Before this metric gates anything, it needs a second independent rater or a tighter rubric.
