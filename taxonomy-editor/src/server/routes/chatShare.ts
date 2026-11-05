@@ -26,6 +26,10 @@ const CHAT_SHARE_CREATES_PER_HOUR = 5;
 const CHAT_SHARE_TTL_DAYS = 30;
 const PUBLIC_READ_RATE_LIMIT_PER_HOUR = 100;
 const PUBLIC_CHAT_SHARES_DIR = 'public/chat-shares';
+// Bounds on what one share may publish, so the public surface can't be used to park
+// arbitrarily large blobs under the app's domain (TL review of #4499).
+export const CHAT_SHARE_MAX_MESSAGES = 500;
+export const CHAT_SHARE_MAX_TOTAL_CHARS = 1_000_000;
 
 // ── Types ──
 
@@ -49,6 +53,26 @@ export interface PublicChatShare {
   snapshot: ChatSnapshot;
   created_at: string;
   expires_at: string;
+}
+
+/** What an anonymous reader may see: the conversation only. Never the owner's userId or the
+ *  owner's chatId (t/4787 P3: "no emails, user ids or internal data"). */
+export interface PublicChatShareView {
+  id: string;
+  title: string;
+  messages: SnapshotMessage[];
+  created_at: string;
+  expires_at: string;
+}
+
+export function toPublicView(share: PublicChatShare): PublicChatShareView {
+  return {
+    id: share.id,
+    title: share.snapshot.title,
+    messages: share.snapshot.messages,
+    created_at: share.created_at,
+    expires_at: share.expires_at,
+  };
 }
 
 // ── Storage paths ──
@@ -130,36 +154,73 @@ async function revokeShare(shareId: string): Promise<void> {
   }
 }
 
-async function getOrCreateShare(
+async function readRegistry(): Promise<Record<string, string>> {
+  const content = await getUserContentBackend().readFile(shareRegistryPath(), { optional: true });
+  return content ? (JSON.parse(content) as Record<string, string>) : {};
+}
+
+/** The caller's live share for this chat, if any (P1: idempotence). */
+async function findExistingShare(chatId: string): Promise<PublicChatShare | null> {
+  try {
+    const existingShareId = (await readRegistry())[chatId];
+    return existingShareId ? await loadShare(existingShareId) : null;
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'Failed to check existing share; treating it as absent',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return null;
+  }
+}
+
+/** Returns a reason the content can't be shared, or null when it's within bounds. */
+export function contentTooLarge(messages: unknown[]): string | null {
+  if (messages.length > CHAT_SHARE_MAX_MESSAGES) return `at most ${CHAT_SHARE_MAX_MESSAGES} messages can be shared`;
+  const total = messages.reduce<number>((n, m) => n + String((m as Record<string, unknown>)?.content ?? '').length, 0);
+  if (total > CHAT_SHARE_MAX_TOTAL_CHARS) return `at most ${CHAT_SHARE_MAX_TOTAL_CHARS} characters can be shared`;
+  return null;
+}
+
+/** Everything that can answer a create request before a new share is written, in order:
+ *  size bounds, P1 idempotence (an existing live share is returned as-is and doesn't count
+ *  against the create rate limit), the P5 active-share cap (a replace swaps one for one, so
+ *  it's only refused when the chat had no share before), then the P5 create rate limit.
+ *  Returns null when a new share should be created. */
+async function createPreflight(
   chatId: string,
   userId: string,
   replace: boolean,
+  messages: unknown[],
+): Promise<{ status: number; payload: unknown } | null> {
+  const tooLarge = contentTooLarge(messages);
+  if (tooLarge) return { status: 413, payload: { error: `Chat too large to share: ${tooLarge}` } };
+
+  if (!replace) {
+    const existing = await findExistingShare(chatId);
+    if (existing) return { status: 200, payload: existing };
+  }
+
+  const registry = await readRegistry();
+  if (!(chatId in registry) && Object.keys(registry).length >= CHAT_SHARE_MAX_ACTIVE) {
+    return { status: 409, payload: { error: `At most ${CHAT_SHARE_MAX_ACTIVE} chats can be shared at once; revoke one first` } };
+  }
+
+  const rateCheck = checkRate(`chat-share-create:${userId}`, CHAT_SHARE_CREATES_PER_HOUR, 3600_000);
+  if (!rateCheck.allowed) {
+    return { status: 429, payload: { error: 'Share creation rate limit exceeded', retryAfterMs: rateCheck.retryAfterMs } };
+  }
+  return null;
+}
+
+async function createShare(
+  chatId: string,
+  userId: string,
   chatData: { title: string; messages: unknown[] },
 ): Promise<PublicChatShare> {
   const backend = getUserContentBackend();
-
-  // Check if user already has a share for this chat (P1: idempotence)
-  if (!replace) {
-    try {
-      const registryContent = await backend.readFile(shareRegistryPath(), { optional: true });
-      if (registryContent) {
-        const registry = JSON.parse(registryContent) as Record<string, string>;
-        const existingShareId = registry[chatId];
-        if (existingShareId) {
-          const existing = await loadShare(existingShareId);
-          if (existing) return existing;
-        }
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'chat-share',
-        level: 'warn',
-        message: 'Failed to check existing share',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-    }
-  }
 
   // Generate new share
   const shareId = randomUUID().replace(/-/g, '').substring(0, 16);
@@ -182,10 +243,12 @@ async function getOrCreateShare(
 
   await saveShare(share);
 
-  // Update user's share registry
+  // Update user's share registry. A replaced share is REVOKED, not just forgotten: the owner
+  // asked for a new link, so the old one must stop working (TL review of #4499).
   try {
-    const registryContent = await backend.readFile(shareRegistryPath(), { optional: true });
-    const registry = registryContent ? (JSON.parse(registryContent) as Record<string, string>) : {};
+    const registry = await readRegistry();
+    const previousShareId = registry[chatId];
+    if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
     registry[chatId] = shareId;
     await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
   } catch (err) {
@@ -231,22 +294,14 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
         return;
       }
 
-      // Rate limit: 5 creates per hour (check before expensive operations)
-      const limitKey = `chat-share-create:${userId}`;
-      const rateCheck = checkRate(limitKey, CHAT_SHARE_CREATES_PER_HOUR, 3600_000);
-      if (!rateCheck.allowed) {
-        json(res, {
-          error: 'Share creation rate limit exceeded',
-          retryAfterMs: rateCheck.retryAfterMs,
-        }, 429);
+      const early = await createPreflight(chatId, userId, replace, messages);
+      if (early) {
+        json(res, early.payload, early.status);
         return;
       }
 
-      const share = await getOrCreateShare(chatId, userId, replace, { title, messages });
-
-      // If this is a replace, we expect it to be a new share (201), else return existing (200)
-      const status = replace ? 201 : 200;
-      json(res, share, status);
+      const share = await createShare(chatId, userId, { title, messages });
+      json(res, share, 201);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -359,7 +414,8 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store',
       });
-      res.end(JSON.stringify(share));
+      // The public projection only: never the owner's userId or chatId (t/4787 P3).
+      res.end(JSON.stringify(toPublicView(share)));
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
