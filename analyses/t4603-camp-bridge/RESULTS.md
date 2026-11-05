@@ -36,3 +36,45 @@ These are raw counts, not yet labelled genuine/stretched/unsupported. The ≤33%
 - `per_doc.json`, `label_sheet.json`, `label_key.json`: this run's outputs.
 - `usage.jsonl`: per-call token usage (scratch-only `AIEnrich.psm1` logging patch, not committed to the module).
 - Per-doc logs stayed in scratch and aren't committed, matching the §5 precedent.
+
+---
+
+# t/4742 re-measure (on top of PR #4402's camp-bridge filter)
+
+**Author:** PowerShell · **Date:** 2026-11-04/05 · **Spec:** t/4742's own AC, PI-approved spend (t/4742#6)
+**Code measured:** `ai-triad-research` on top of PR #4402 (`Invoke-SummaryCampBridgeFilter`, the mechanical post-check that drops camp-bridge-construction key_points in untagged camps).
+**Data:** `ai-triad-data` (scratch worktree `.worktrees/t4742-remeasure2`, off `main`), scratch sources root holding the 15 sample docs.
+**Spend:** PI-approved, cap $3 (t/4742#5/#6). **Actual cost not precisely captured** — see "Cost-tracking gap" below. Best-effort partial estimate: ~$0.35 from output tokens alone (139,374 output tokens across 14 docs @ $2.50/1M); input tokens weren't logged. Given the prior t/4603 round's *same* n=14 methodology cost $0.6542 total, this run's true cost is almost certainly in that same ballpark — comfortably under the $3 cap, but not an exact figure.
+
+## Cost-tracking gap (process note, not a result)
+
+`run_batch.ps1`/`measure.py` compute spend from `$env:T4556_USAGE_LOG`, populated by "a scratch-only `AIEnrich.psm1` logging patch, not committed to the module" (t/4603's own RESULTS.md). That patch isn't present in the current checkout, so every doc's `spend_usd` logged as `0.0` — **the budget-stop safety check in `run_batch.ps1` never had real numbers to compare against the $3 cap** (it would not have stopped the run even if spend had exceeded it). The run completed all 14 docs without any sign of distress, and the output-token-only estimate above is well under cap, but this is a real gap worth closing: the module now has a *committed*, standard call logger (`AICallLog.ps1`, gated by `$env:AI_CALL_LOG_ENABLED`) that should be used for cost tracking in any future round instead of chasing the retired ad-hoc patch.
+
+## Sample
+
+Same `sample.json`, same n=14 (the duplicate skip fires correctly — confirmed via `per_doc.json`'s `"status": "skipped_by_triage"` for the `-2` twin's original).
+
+## Isolation
+
+Same methodology as t/4603 (isolation_check.py against the real repos). Passed before the run and after every doc, including the final check.
+
+## Raw counts (pre-label)
+
+| | off-tag key_points | on-tag key_points | total | off-tag share |
+|---|---|---|---|---|
+| saved (pre-#3867, n=14) | 149 | 155 | 304 | 49.0% |
+| t/4603 re-measure (post-#4112 prompt ban, n=14) | 68 | 141 | 209 | 32.5% |
+| **this run (post-#4402 filter, n=14)** | **45** | **141** | **186** | **24.2%** |
+
+`camp_bridge_dropped` (PR #4402's filter counter, summed across all 14 docs' `model_info`): **28** key_points dropped before persistence. The further drop from 32.5% to 24.2% is consistent with the filter catching additional camp-bridge-construction points the prompt ban alone didn't stop — a first-order signal, not the AC's actual measure (see below).
+
+As with t/4603: these are raw counts, not yet labelled genuine/stretched/unsupported. The ≤33% bar is on the stretched+unsupported share of off-tag points, which needs the blind label pass.
+
+## Blind sheet, ready for the label pass
+
+`label_sheet.json` / `label_key.json`: 88 items (28 new off-tag — fewer than 30 available this round, 30 saved off-tag, 30 new on-tag), same seed (44731) and arm-mixing as t/4603.
+
+**Handoff point, same as t/4603.** CL: the blind relabel pass, then `measure.py score` once `labels.json` exists.
+
+## Files
+- Same file set as t/4603 (`sample.json`, `run_batch.ps1`, `isolation_check.py`, `measure.py` all unchanged; `per_doc.json`/`label_sheet.json`/`label_key.json` overwritten with this round's output, matching the established per-round convention).

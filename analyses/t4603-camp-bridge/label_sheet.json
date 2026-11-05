@@ -1,519 +1,182 @@
 [
  {
   "id": "C01",
-  "camp": "accelerationist",
-  "node": null,
-  "node_label": null,
-  "point": "The document argues that future work should explore intersectional error analysis of facial detection, identification, and verification to improve dataset composition, feature selection, and neural network architectures. By refining these technical components, developers can enhance the accuracy and robustness of computer vision systems. This approach treats algorithmic improvement as a pathway to more inclusive and effective AI deployment. The focus remains on technical optimization rather than restricting development.",
-  "verbatim": "Future work should explore intersec- tional error analysis of facial detection, identifi- cationandverification. Intersectionalphenotypic and demographic error analysis can help inform methodstoimprovedatasetcomposition,feature selection, and neural network architectures."
+  "camp": "safetyist",
+  "node": "saf-beliefs-051",
+  "node_label": "Measured AI Biases Are Leading Indicators of Discriminatory Outcomes",
+  "point": "The document asserts that biased training data leads to algorithmic discrimination, citing previous research on word embeddings and facial analysis. It posits that because AI systems rely on labeled data, the biases inherent in that data are reproduced in the system's outputs. This creates a direct causal link between the composition of training datasets and the fairness of the resulting AI applications.",
+  "verbatim": "It has recently been shown that algorithms trained with biased data have resulted in algorithmic discrimination (Bolukbasi et al., 2016; Caliskan et al., 2017)."
  },
  {
   "id": "C02",
-  "camp": "safetyist",
-  "node": "saf-beliefs-148",
-  "node_label": "Not All Legacy Code Complexity Is Accidental -- Some Is Inherent",
-  "point": "The document acknowledges that certain code structures, such as those generated for complex problems, possess inherent complexity that must be managed to ensure maintainability. It notes that while some methods attempt to compress code, this often leads to tangled, unmaintainable results, suggesting that complexity is a structural property that requires careful architectural handling rather than simple reduction.",
-  "verbatim": "Previous methods compress lines but led to tangled and unmaintainable code."
+  "camp": "accelerationist",
+  "node": "acc-desires-001",
+  "node_label": "AI-Powered Abundance and Global Problem-Solving",
+  "point": "The document contends that extraordinary government interventions such as nonproliferation regimes and pre-deployment restrictions are excessively burdensome and counterproductive to technological progress. The authors reason that restricting commercial model releases and establishing licensing regimes will curtail beneficial public access and innovation without effectively stopping determined adversaries. From an accelerationist perspective, placing heavy precautionary burdens on AI developers obstructs the pursuit of broader economic growth and technological abundance. The document acknowledges that AI introduces misuse risks, but argues that these risks should be managed through societal resilience rather than stifling innovation at the source.",
+  "verbatim": "In this essay, we lay out the downsides of extraordinary government intervention in response to new technology. We discuss proposals for improving resilience that do not require such intervention."
  },
  {
   "id": "C03",
-  "camp": "safetyist",
-  "node": "saf-beliefs-218",
-  "node_label": "Complementarity Between Automation and Repression",
-  "point": "The document highlights how corporate apology rhetoric functions as a form of coercive communication that stifles deliberation and protects power. This aligns with the safetyist concern that powerful actors use impression management to maintain their modus operandi, thereby preventing the systemic reforms necessary to address the risks posed by large-scale, automated, or complex systems.",
-  "verbatim": "From a critical-cultural perspective, the corporate apology repertoire unfolds as a closely related variant to coercive communication: it stifles deliberation, limits interpretive frameworks, and exploits threats."
+  "camp": "skeptic",
+  "node": "skp-beliefs-231",
+  "node_label": "Industrial Concentration of AI Infrastructure",
+  "point": "The hardware layer, specifically companies like NVIDIA, is capturing the value that the software layer cannot retain as model weights distribute freely and inference prices collapse. NVIDIA's strategic decision to avoid concentrating equity in any single AI company and instead sell compute infrastructure to all players confirms that the foundation model layer lacks a durable moat.",
+  "verbatim": "As model weights distribute freely and inference prices collapse, the hardware layer captures the value the software layer cannot retain. NVIDIA's strategic posture confirms this logic."
  },
  {
   "id": "C04",
   "camp": "safetyist",
-  "node": "saf-intentions-210",
-  "node_label": "Legal and Regulatory Frameworks for AI Accountability",
-  "point": "The document argues against weakening Section 230 protections, suggesting that such efforts create perverse incentives and harmful unintended consequences. It maintains that Section 230 should remain central to the American approach to intermediary liability, even as AI technologies emerge.",
-  "verbatim": "Efforts to weaken its core protections would create perverse incentives and harmful unintended consequences, particularly for smaller platforms. Rather than adopting censorious or economically damaging new regulations, Section 230 should remain central to the American approach to intermediary liability that has made the United States a global leader in online expression."
+  "node": "saf-intentions-242",
+  "node_label": "Judicial Mandate of Operational Product Design Remedies",
+  "point": "The document argues for moving beyond notice-and-choice frameworks toward substantive operational product design remedies. It suggests that legal frameworks should mandate specific constraints on data collection and surveillance practices rather than relying on procedural disclosures. This approach aims to prevent the normalization of pervasive workplace surveillance by treating privacy as a non-negotiable boundary rather than a transactional commodity.",
+  "verbatim": "The upshot and its ramifications for workplace surveillance and spying are depressingly straightforward: employers can and do impose conditions of surveillance and spying not only as initial conditions of employment but also as changed circumstances, forcing people with a mortgage and a family to feed to decide between going hungry and homeless, or \u201cchoosing\u201d to give up their privacy rights."
  },
  {
   "id": "C05",
   "camp": "skeptic",
-  "node": "skp-beliefs-317",
-  "node_label": "Interval Governance Gap in Scheduled Oversight",
-  "point": "The document acknowledges that the security of the root key, held in a Hardware Security Module (HSM), is the ultimate anchor for the entire architecture. It admits that long-term root compromise is catastrophic and cannot be bounded by the architecture itself, but rather by the operational regime (multi-person authorization) under which the root is held, highlighting the persistent reliance on human-managed trust anchors.",
-  "verbatim": "Long-term root compromise is acknowledged as catastrophic and is bounded not by the architecture but by the operational regime under which the root is held."
+  "node": "skp-beliefs-247",
+  "node_label": "Affective Labor Commodification",
+  "point": "The commodification of affective labor\u2014unpaid emotional and relational effort\u2014is a central mechanism for deepening exploitative work regimes. This process subordinates personhood to work requirements, as individuals are expected to perform emotional labor even during personal time. This subordination limits self-autonomy and self-authorship, effectively turning personal development into an obligation under a cultural contract.",
+  "verbatim": "The commodification of affective labor\u2014unpaid emotional and relational effort expended to meet social expectations \u2013 constitutes, as Graeber (2011) argues, a central mechanism that enables the expansion and deepening of exploitative structures. Directing attention to work during personal time, worrying about an employer\u2019s problems while performing domestic chores, deliberately eliciting satisfaction or happiness in relation to professional obligations and interactions with employers, clients, or colleagues, along with a myriad of other micro- behaviors and attitudes, they all build up extensive subordination of personhood to work regimes, severely limiting someone\u2019s self-autonomy and self-authorship."
  },
  {
   "id": "C06",
-  "camp": "safetyist",
-  "node": "saf-beliefs-241",
-  "node_label": "Re-Identification Harm Can Form at a Fusion Join No Single Gate Observes",
-  "point": "The document asserts that camera settings calibrated for lighter-skinned individuals create poorly exposed images, which in turn hinders the performance of automated facial analysis systems. This empirical claim highlights how technical design choices in hardware can introduce systemic bias into downstream AI applications. By labeling faces with skin type, the authors aim to increase understanding of how these hardware-level biases affect algorithmic performance.",
-  "verbatim": "Furthermore,skintypewaschosenasaphenotypicfactorofinterestbecausedefaultcamerasettingsarecalibratedtoexposelighter-skinnedindividuals(Roth,2009). Poorlyexposedimagesthatresultfromsensoroptimizationsforlighter-skinnedsubjectsorpoorilluminationcanprovechallengingforautomatedfacialanalysis."
+  "camp": "skeptic",
+  "node": "skp-beliefs-158",
+  "node_label": "AI Is Deployed as a Technical Fix for Problems That Are Fundamentally Social and Political",
+  "point": "The document argues that classical crisis management models prioritize the preservation of organizational power over genuine problem-solving. By framing crises as external, quasi-natural phenomena, these models allow organizations to avoid systemic reform. This approach treats social issues as technical problems to be managed through impression management rather than addressed through structural change.",
+  "verbatim": "As this approach prioritizes the preservation or restoration of organizational power\u2014primarily through cost minimization\u2014over problem-solving, it also renders measures related to general reforms as only instrumental tactics."
  },
  {
   "id": "C07",
   "camp": "safetyist",
-  "node": "saf-beliefs-203",
-  "node_label": "Frontier AI Risks Can Be Irreversible, Making Post-Hoc Governance Insufficient",
-  "point": "The document disputes that frontier AI risks are inherently irreversible in ways that render post-hoc governance and reactive measures insufficient, arguing instead that societal resilience can manage emerging threats. The reasoning emphasizes historical precedents like cybersecurity and encryption where society adapted to new attack vectors through decentralized defenses rather than pre-emptive bans. From a safetyist perspective, this downplays the unique catastrophic potential of unconstrained frontier systems that can autonomously scale harm faster than human institutions can remediate it. The authors acknowledge that the AI transition will not be smooth by default and that under-defended sectors face real risks, yet they still reject precautionary nonproliferation regimes.",
-  "verbatim": "If the most that nonproliferation can buy us is a few months, the urgent priority should be investing in resilience so that we are better prepared when those capabilities inevitably become widely available, as we discuss below."
+  "node": "saf-intentions-059",
+  "node_label": "Positioning AI as Amplifier of Human Talent, Not Replacement",
+  "point": "Due to inherent precision limits, error compounding across multi-step skill distillation, and the potential for graphic-design automation to generate misleading, deceptive, or rights-infringing content, deployments must retain rigorous human oversight. The document emphasizes that certifying complex constructions still requires a human in the loop and that production systems should maintain appropriate content safeguards and access controls to mitigate misuse risks.",
+  "verbatim": "Deployment of such systems should therefore retain appropriate content safeguards, access controls, and human oversight. ... certifying that 'the boundary was found correctly' still requires a human in the loop."
  },
  {
   "id": "C08",
-  "camp": "skeptic",
-  "node": "skp-beliefs-006",
-  "node_label": "Corporate Opacity as Structural Liability Shield",
-  "point": "The document critiques the 'singleton' model of AI development, arguing that private companies' claims of being responsible stewards are performative and secondary to their desire for permanent epistemic authority. It notes that these companies attempted to govern dual-use technology on their own terms, ignoring historical precedents in other strategic sectors like nuclear and telecommunications.",
-  "verbatim": "The strategic logic of both OpenAI and Anthropic rested on the premise that whoever achieved AGI first would define and control it \u00f9 that the prize was not merely market share but something closer to permanent epistemic authority over the most consequential technology ever developed."
+  "camp": "safetyist",
+  "node": "saf-intentions-020",
+  "node_label": "Scoring AI Bugs to Prioritize Critical Safety Fixes",
+  "point": "The document highlights that current code generation tools often produce brittle code that is difficult to maintain, leading to significant future costs. By introducing MaintainBench, the authors aim to quantify maintenance efforts and structural adaptability, which serves as a form of risk assessment for long-term software reliability. This focus on structural quality is essential for preventing the accumulation of dangerous legacy code.",
+  "verbatim": "MaintainCoder bridges this gap by integrating principles like the waterfall model and classical design patterns."
  },
  {
   "id": "C09",
   "camp": "safetyist",
-  "node": "saf-beliefs-200",
-  "node_label": "AI Systematically Optimizes Proxy Metrics at the Expense of Intended Outcomes",
-  "point": "The system acknowledges that automated evaluators and foundation models struggle with unverifiable, subjective feedback where terminal outcomes fail to reliably credit specific interdependent decisions. In graphic design tasks that mix concrete requirements with subjective compositional criteria, naive optimization against proxy rewards or absolute grader scores can easily fall victim to judge drift and noise. This underscores the structural difficulty of aligning optimization objectives with true human intent in complex long-horizon creative environments.",
-  "verbatim": "Learning this from user traffic is hard: a single design may require dozens of interdependent operations, so terminal feedback weakly identifies which decisions caused success or failure. Outcomes are also hard to verify: briefs mix concrete requirements (text, colors, placements) with subjective criteria (hierarchy, composition, style) that automated evaluators capture only partially."
+  "node": "saf-beliefs-146",
+  "node_label": "AI Risk Emerges from Capability Combinations, Not Raw Scale",
+  "point": "The Mythos-class threat is defined by the convergence of five specific indicators: capability, scaffold, access pattern, autonomy depth, and persistence. This compound definition is necessary because individual indicators, such as raw capability, do not capture the qualitative shift in risk posed by autonomous, persistent agentic systems. The document asserts that a system must satisfy all five indicators jointly to be classified as Mythos-class, emphasizing that risk emerges from the combination of these factors rather than from scale alone.",
+  "verbatim": "A system is in the Mythos-class category, operationally, when it satisfies five indicators jointly: capability (performance on cyber-relevant evaluations exceeding prior-generation frontier baselines), scaffold (agentic tool-use and recursive self-correction at deployable scale), access pattern (deployed such that adversaries can invoke the capability outside vetted regimes), autonomy depth (chained action without per-step human checkpoint), and persistence (operational state retained across invocations)."
  },
  {
   "id": "C10",
-  "camp": "skeptic",
-  "node": "skp-beliefs-038",
-  "node_label": "Women Face Higher Automation Risk and Lower Representation in AI Development",
-  "point": "The document observes that existing facial analysis benchmarks are overwhelmingly composed of lighter-skinned subjects, which leads to systematic performance disparities. It notes that this lack of representation is not just a technical oversight but a reflection of broader societal biases that are encoded into AI training data. The authors highlight that these datasets, such as IJB-A and Adience, fail to generalize to diverse populations, thereby entrenching historical injustices.",
-  "verbatim": "We find that these datasets are overwhelmingly composed of lighter-skinned subjects (79.6% for IJB-A and 86.2% for Adience) and introduce a new facial analysis dataset which is balanced by gender and skin type."
+  "camp": "safetyist",
+  "node": "saf-intentions-200",
+  "node_label": "Stack Redundant Safeguards Across the AI Lifecycle",
+  "point": "The document proposes a comprehensive Zero Trust framework tailored to the AI lifecycle, decomposing AI systems into four distinct trust layers: Data Trust, Model Supply Chain Trust, Pipeline Trust, and Inference Trust. This architecture aims to replace abstract security objectives with concrete, auditable evidence artifacts such as cryptographic provenance and continuous integrity monitoring. By mapping Zero Trust principles to these specific AI trust subjects, the framework seeks to provide a standardized approach for demonstrating compliance with federal AI governance requirements.",
+  "verbatim": "We present a reference Zero Trust Architecture composed of four trust layers: Data Trust, Model Supply Chain Trust, Pipeline Trust, and Inference Trust. We further define an assurance evidence framework integrating cryptographic provenance, continuous integrity monitoring, and policy-driven access control to produce audit artifacts intended to support alignment assessments against NIST AI RMF, DoD Zero Trust guidance, and ISO/IEC 42001 requirements."
  },
  {
   "id": "C11",
-  "camp": "safetyist",
-  "node": "saf-intentions-168",
-  "node_label": "Preventing AI-Assisted Creation of Dangerous Physical Materials",
-  "point": "The researchers explicitly highlight that while their bacteriophage design approach offers therapeutic potential against resistant bacterial strains, the methodology touches upon the critical interface between digital AI design tools and physical biological synthesis. By establishing a tractable model using the \u00aaX174 phage, the authors emphasize the necessity of maintaining rigorous quality control, bioinformatic screening, and design constraints during generative biological design. This aligns with safetyist imperatives to regulate and monitor the translation of in silico sequence generation into physical biological materials.",
-  "verbatim": [
-   "Although \u00aaX174 has a much more complex genetic architecture than any previously AI- generated biological system, its relatively small genomic length and rich history of experimental work also make it a tractable and safe model for establishing whole- genome design.",
-   "Whole-genome bacteriophage design also required extensive development of experimental methods, including a scalable protocol that enabled us to screen nearly 300 genome designs to yield 16 functional phages, with tropism successfully limited to the target host."
-  ]
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "point": "The document acknowledges that artificial intelligence enables mass spying by allowing employers to process raw data into actionable inferences. It notes that AI can identify thought-leaders and predict worker characteristics, such as unionization risk, by linking disparate data inputs. This reflects a belief that AI's predictive capabilities are fundamentally transformative for corporate management, though the document frames this as a negative development.",
+  "verbatim": "Artificial intelligence enables mass spying: the generation of actionable information about people as raw data processing enables inferences to be drawn."
  },
  {
   "id": "C12",
-  "camp": "skeptic",
-  "node": "skp-beliefs-302",
-  "node_label": "Procedural Telemetry Checklists as Upstream Audit-Washing Shields",
-  "point": "The document acknowledges that current 'secure MLOps' practices often result in isolated point solutions\u2014such as signing or logging\u2014that lack systematic integration into a comprehensive assurance framework. It warns that without mapping these activities to auditable compliance frameworks, organizations produce 'security activity without demonstrable assurance.' This aligns with the skeptic concern that standardized checklists and telemetry hooks can be used to create an appearance of compliance without addressing broader systemic risks.",
-  "verbatim": "The result is security activity without demonstrable assurance."
+  "camp": "safetyist",
+  "node": "saf-intentions-027",
+  "node_label": "Preventing Autonomous AI Influence Operations",
+  "point": "The document identifies psychological operations as a coercive use of mass communication that exploits cultural vulnerabilities to achieve political objectives. It highlights how organizations like Cambridge Analytica used these methods to influence elections and referendums. This aligns with safetyist concerns regarding the autonomous use of AI for influence operations and the erosion of social trust.",
+  "verbatim": "Psychological operations, typically conducted by state security agencies or state authorized entities, involve coercive use of mass communication, exploiting cultural and psychological vulnerabilities to achieve political, ideological, or military objectives (Bakir, 2020)."
  },
  {
   "id": "C13",
   "camp": "accelerationist",
-  "node": "acc-beliefs-044",
-  "node_label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
-  "point": "The document asserts that AI systems are fundamentally different from traditional software because they learn behavior from data rather than explicit programming. This shift necessitates new security architectures that move beyond deterministic code-based verification. The author acknowledges that current cybersecurity frameworks, including NIST SP 800-207, lack guidance for these AI-specific challenges, such as model supply chains and training data pipelines.",
-  "verbatim": "AI systems introduce fundamentally different challenges: models learn behavior from training data rather than explicit programming, dependencies extend beyond software libraries to include datasets, pre-trained weights, and algorithmic configurations, and the integrity of a model cannot be verified simply by examining its code."
+  "node": "acc-intentions-078",
+  "node_label": "Create Regulatory Conditions Where Market Competition Drives AI Transparency",
+  "point": "The document argues that Section 230 is a foundational engine for innovation and expression that should be protected rather than weakened. It suggests that policymakers should avoid regulations that incentivize speech suppression or the abandonment of content moderation. Instead, it advocates for maintaining the core principles of Section 230 to ensure that the internet remains a space for flourishing innovation, while acknowledging that any reform efforts carry significant risks of unintended consequences.",
+  "verbatim": "First and foremost, policymakers should remember the powerful engine for expression and innovation that Section 230 has unleashed. Rather than pursue proposals that create regulations or incentives for either the suppression of speech or the abandonment of content moderation and curation, the core principles of Section 230 should be protected."
  },
  {
   "id": "C14",
-  "camp": "accelerationist",
-  "node": null,
-  "node_label": null,
-  "point": "Lifelong agent architectures ought to continuously expand their behavioral repertoire and refine their knowledge structures as they encounter new tasks and interaction data. Continual skill acquisition frameworks combine automated curricula with growing skill libraries, ensuring that newly mastered executable behaviors are systematically committed for later reuse. Moreover, advanced procedural memory systems integrate refinement mechanisms to consolidate existing knowledge and repair passages that conflict with observed task behavior. This dual process of acquisition and consolidation drives the evolution of autonomous agents beyond static operational baselines.",
-  "verbatim": [
-   "Lifelong agents must not only reuse existing knowledge but also expand their behavioral repertoire as new tasks are encountered.",
-   "Collectively, these works frame continual procedural learning as two complementary processes: acquiring knowledge for capabilities that are not yet represented, and consolidating existing knowledge once experience reveals systematic failure modes"
-  ]
+  "camp": "skeptic",
+  "node": "skp-intentions-097",
+  "node_label": "Establish Independent Lifecycle Oversight Mechanisms for AI Systems",
+  "point": "The document advocates for a structured maturity model that requires organizations to perform a formal 'Assurance Debt Assessment' before deploying AI systems. This process forces organizations to identify undocumented AI workloads and missing signed artifacts, creating a baseline for independent lifecycle oversight and compliance verification.",
+  "verbatim": "Organizations should assess their \u2018assurance debt\u2019\u2014the gap between the current state and the minimum viable evidence requirements defined in Section 6.7\u2014before initiating implementation."
  },
  {
   "id": "C15",
   "camp": "skeptic",
-  "node": "skp-beliefs-122",
-  "node_label": "Current AI Models Predict Patterns Without Understanding Meaning",
-  "point": "The literature review highlights extensive documentation of systematic LLM judge limitations, including position bias, verbosity bias, and self-enhancement tendencies when approximating human preferences. These flaws demonstrate that language models acting as evaluators lack genuine semantic understanding of quality, relying instead on surface-level textual patterns and positional heuristics. This reinforces skeptic positions regarding the fundamental fallibility and superficial nature of LLM-based evaluation metrics.",
-  "verbatim": "Zheng et al. (2023) showed that strong LLM judges can approximate human preferences on open-ended evaluation while also documenting systematic limitations including position, verbosity, and self-enhancement biases. Wang et al. (2024b) independently demonstrated substantial position bias in LLM-based pairwise evaluation..."
+  "node": "skp-beliefs-258",
+  "node_label": "Strategic Islands of Ignorance",
+  "point": "Power actors maintain control by creating 'strategic islands of ignorance,' which are epistemic enclosures that classify certain interpretations or courses of action as inconceivable. These enclosures constrain collective imagination and prevent transformative reflection. By discouraging conceptual explorations that might destabilize existing hierarchies, power actors consolidate their monopoly over change processes.",
+  "verbatim": "Salter (2011) proposes the notion of the strategic island of ignorance to account for a large repertoire of events, information, interpretations, instruments, and courses of action that power actors classify as intolerable or inconceivable within the boundaries of an acceptable social order."
  },
  {
   "id": "C16",
   "camp": "safetyist",
-  "node": null,
-  "node_label": null,
-  "point": "The Pentagon's designation of Anthropic's Claude as a 'supply chain risk' represents a regulatory and security-based intervention to restrict the deployment of specific AI models in sensitive government operations. This action reflects a safetyist concern regarding the risks posed by third-party AI systems in critical infrastructure and national security contexts. The document notes that this designation has triggered legal challenges, highlighting the tension between security-focused deployment restrictions and corporate autonomy.",
-  "verbatim": [
-   "Pentagon says it is labeling Anthropic a supply chain risk 'effective immediately.'",
-   "Anthropic to challenge DoD's supply-chain label in court."
-  ]
+  "node": "sit-305",
+  "node_label": "The Fire Extinguisher Analogy",
+  "point": "The document argues that crisis and risk management often fail because they treat crises as unpredictable events rather than the result of cumulative, unmanaged risks. By failing to act on predictive models\u2014such as those for pandemics\u2014organizations allow manageable risks to escalate into catastrophic crises. This reflects the 'fire extinguisher' analogy where reactive measures are insufficient compared to proactive risk mitigation.",
+  "verbatim": "Crisis and risk management approaches, however, are built on the opposite assumption, firmly rejecting the conventional belief that crises would be inherently unpredictable events. By the opposite, the entire spectrum of disruptive event management, ranging from thorough risk assessment based on organizational and environmental analysis to the deployment of control mechanisms, aimed at vulnerability reduction, and post-disruption recovery strategies, is supposed to be comprehensively anticipated and effectively planned."
  },
  {
   "id": "C17",
-  "camp": "accelerationist",
-  "node": "acc-beliefs-019",
-  "node_label": "Foundation Model Capabilities Can Be Systematically Unlocked and Deployed",
-  "point": "The document asserts that foundational AI capabilities are increasingly decoupled from massive pre-training compute requirements. It argues that post-training optimization, test-time compute, and agentic composition allow for frontier-level performance without the need for multi-billion dollar training runs. This shift suggests that intelligence is becoming a property of the system architecture rather than a result of raw scale, enabling broader access to high-level utility.",
-  "verbatim": "The deeper shift \u2014 one that has received insufficient attention \u2014 is that pre-training scale has been decoupled from frontier AI capability. Intelligence, in the engineering sense, is increasingly a property of the system, not the model."
+  "camp": "safetyist",
+  "node": "saf-beliefs-148",
+  "node_label": "Not All Legacy Code Complexity Is Accidental -- Some Is Inherent",
+  "point": "The document asserts that certain code structures possess inherent complexity that cannot be reduced without altering functionality, and that inflating code lines during refactoring can actually improve long-term maintainability. This challenges the assumption that code simplicity is always synonymous with quality, suggesting that maintainability requires a nuanced understanding of structural design rather than just minimizing complexity metrics.",
+  "verbatim": "For example, the software refactoring often inflate code lines but improves long-term maintainability. Previous methods compress lines but led to tangled and unmaintainable code."
  },
  {
   "id": "C18",
-  "camp": "accelerationist",
-  "node": "acc-intentions-003",
-  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
-  "point": "MaintainCoder utilizes a multi-agent framework that integrates traditional software engineering principles like the Waterfall model and design patterns to improve the long-term maintainability of AI-generated code. By proactively selecting architectural patterns such as MVC, the system reduces coupling and ensures that future requirement changes are localized, thereby minimizing technical debt. This approach shifts AI coding from reactive, single-shot generation to a structured, architected process that enhances software resilience.",
-  "verbatim": [
-   "MaintainCoder, as a pioneering solution integrating the Waterfall model, design patterns, and multi-agent collaboration, offers a new approach for maintainable codes.",
-   "By embedding proven software engineering principles like design patterns directly into the generation process, it produces code that is not only functionally correct for the initial requirement but is also inherently structured for future evolution."
-  ]
+  "camp": "skeptic",
+  "node": "skp-beliefs-047",
+  "node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+  "point": "The document asserts that extraordinary government interventions such as emergency declarations and executive orders bypass normal democratic accountability processes designed to scrutinize restrictions on liberty. The mechanism described is that institutional sclerosis and proceduralism in the federal government tempt policymakers to rely on unilateral executive authority rather than tackling the hard work of legislation and polycentric governance. From a skeptic perspective, this centralization of power threatens civil liberties and establishes a permanent expansion of government control over what citizens can build, publish, and research. The authors note that historical precedents like 1990s cryptography export controls and post-Oklahoma City internet restrictions similarly threatened liberty before being rolled back by courts.",
+  "verbatim": "Third, extraordinary interventions bypass normal processes of governance, and instead rely on unilateral authority such as emergency declarations or executive orders, even though the governance processes being bypassed exist to ensure that restrictions on liberty are subject to democratic accountability."
  },
  {
   "id": "C19",
-  "camp": "skeptic",
-  "node": "skp-beliefs-177",
-  "node_label": "Failure of Static Compute Thresholds Against Sub-Frontier Intrusion Tools",
-  "point": "The document acknowledges that capability sufficient to produce dangerous cyber-relevant outputs is broadly available across model sizes when scaffolding is held constant. This supports the skeptic view that static compute thresholds or vendor-exclusive gating are insufficient to prevent the proliferation of autonomous cyber-intrusion capabilities.",
-  "verbatim": "The empirical claim\u2014that capability sufficient to produce the relevant outputs is broadly available across model sizes when scaffolding is held constant\u2014is consistent with the open-weight convergence horizon documented independently."
+  "camp": "safetyist",
+  "node": "saf-beliefs-207",
+  "node_label": "AI Dependency Creates a Reinforcing Cycle of Skill Atrophy and Increased Reliance",
+  "point": "The document identifies that workers possess substantial uncodified knowledge and that surveillance-enabled AI allows firms to codify this expertise. This process creates a dynamic where workers' own contributions are used to build systems that replicate their labor, leading to a potential cycle of displacement and reduced bargaining power.",
+  "verbatim": "Surveillance-enabled AI changes this dynamic: by recording how workers perform their jobs, firms can more readily codify that expertise into AI systems that can then be owned and scaled."
  },
  {
   "id": "C20",
-  "camp": "skeptic",
-  "node": "skp-intentions-108",
-  "node_label": "Oppose AI Regulations That Entrench Incumbents Through Compliance Costs",
-  "point": "The document warns against extraordinary government interventions like AI nonproliferation regimes and model release restrictions because they concentrate control and impose severe collateral damage on public access and open science. The reasoning is demonstrated through historical parallels with encryption export controls and bomb-making information restrictions that threatened civil liberties before being rolled back by courts. From a skeptic perspective, opposing such overreaching regulations prevents the permanent expansion of government surveillance and protects decentralized innovation from corporate capture. The authors acknowledge that while misuse risks are real, extraordinary restrictions disproportionately burden legitimate actors while failing to stop determined adversaries.",
-  "verbatim": "To avoid this slippery slope, those proposing extraordinary interventions should be clear about where they would draw the line. Would they support restrictions on open-weight models? What about requiring approvals for each new model release, or restrictions on the movement of researchers who build frontier AI across countries?"
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "point": "The document does not propose accelerationist strategies. It focuses on the critique of existing regulatory frameworks and the need for non-negotiable rights, rather than the promotion of AI-driven abundance or technological acceleration.",
+  "verbatim": "The GDPR approach, which holds employers to a standard of only extracting and using data either based on a consent standard or for their self-determined legitimate interests, provides very limited options for individuals to opt out or challenge the legitimacy of the purposes, and does not provide adequate protection for workers."
  },
  {
   "id": "C21",
-  "camp": "skeptic",
-  "node": null,
-  "node_label": null,
-  "point": "The document highlights that professional graphic design tasks involve subjective criteria and long-horizon interdependencies where terminal feedback only weakly identifies root causes of success or failure. Automated evaluators capture human preferences and aesthetic requirements like composition and style only partially, creating significant challenges for reinforcement learning and preference tuning. Furthermore, unrefined skill widening can introduce false-positive retrievals that temporarily degrade performance on lower-completeness thresholds before subsequent rounds repair them. These empirical findings support skeptic concerns regarding the fragility of automated evaluation and the compounding errors inherent in unverified agentic workflows.",
-  "verbatim": "Learning this from user traffic is hard: a single design may require dozens of interdependent operations, so terminal feedback weakly identifies which decisions caused success or failure. Outcomes are also hard to verify: briefs mix concrete requirements with subjective criteria that automated evaluators capture only partially."
+  "camp": "safetyist",
+  "node": "saf-intentions-231",
+  "node_label": "Binding AI Accountability to Physical Infrastructure Metrics",
+  "point": "The architecture enforces a deny-by-default network egress posture for the compute plane, requiring that no outbound connection be permitted unless explicitly authorized in the authority plane or retrieval-system endpoints. This is paired with an egress proxy that performs rate limiting, content inspection, and packet-flow audit logging to reject supervisability-evasion signatures.",
+  "verbatim": "The compute plane is placed in a network segment whose default egress posture is deny: no outbound connection is permitted unless explicitly authorized in the segment\u2019s allowlist (the authority plane, retrieval-system endpoints, declared external-API endpoints). The deny-by-default posture inverts the historical permissive pattern; for Mythos-class deployments the inversion is not optional."
  },
  {
   "id": "C22",
-  "camp": "skeptic",
-  "node": "skp-intentions-142",
-  "node_label": "Guarantee AI Training Data Is Transparent, Ethically Sourced, and Free of Encoded Bias",
-  "point": "The authors emphasize the necessity of properly crediting original owners of assets, including code, data, and models, and explicitly mentioning and respecting their licenses and terms of use. This aligns with skeptic concerns regarding the ethical sourcing of training data and the protection of intellectual property rights. By ensuring that all assets are properly licensed and credited, the authors support the verifiability and ethical integrity of their research.",
-  "verbatim": "The creators and original owners of all assets used in the paper are properly credited, and the licenses and terms of use are explicitly mentioned and fully respected."
+  "camp": "accelerationist",
+  "node": "acc-beliefs-125",
+  "node_label": "Whole-Genome Synthetic Design",
+  "point": "The authors assert that generative AI models successfully capture underlying evolutionary design spaces with sufficient fidelity to produce viable bacteriophage genomes. This empirical claim is supported by experimental results demonstrating 16 functional genomes with diverse sequences, structures, and fitness profiles, as well as observed subsequent recombination and mutation conferring resilience against host resistance. From an accelerationist perspective, this validates the capability of AI models to perform complex whole-genome design from scratch or learned distributions. The observation highlights the revolutionary potential of computational biology in creating adaptive antimicrobial strategies.",
+  "verbatim": "In total, our results demonstrate that generative AI can capture an underlying evolutionary design space with enough fidelity to produce viable bacteriophage genomes."
  },
  {
   "id": "C23",
-  "camp": "accelerationist",
-  "node": "acc-intentions-003",
-  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
-  "point": "MaintainCoder utilizes a multi-agent framework that integrates framework evaluation and code optimization agents to improve code maintainability and functional correctness. By embedding software engineering principles and design patterns into the generation process, the system proactively addresses long-term maintainability rather than focusing solely on immediate task correctness. This approach demonstrates that agentic collaboration can enhance software quality attributes beyond what is achievable by reasoning models or standard multi-agent systems alone.",
-  "verbatim": "MaintainCoder pioneers this research line, utilizing multi-agent collaboration with classical design patterns. Extensive experiments demonstrate that MaintainCoder significantly outperforms previous methods on both maintainability and correctness."
- },
- {
-  "id": "C24",
-  "camp": "safetyist",
-  "node": "saf-intentions-040",
-  "node_label": "Binding Named Officers to Deployment Infrastructure",
-  "point": "The document emphasizes that the government must retain ultimate authority over the use of mission-critical AI systems, rejecting the idea that private companies can unilaterally set safety or usage policies. It argues that safety claimed through a closed, unauditable system is insufficient for sovereign deployment. The government's demand for irrevocable use rights is framed as a necessary structural requirement to ensure human (state) control over AI-driven outcomes.",
-  "verbatim": "Safety claimed through a closed system is not safety in any institutional sense that a sovereign government deploying that system can accept. It is control exercised by the vendor, not by the state."
- },
- {
-  "id": "C25",
-  "camp": "accelerationist",
-  "node": "acc-intentions-056",
-  "node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
-  "point": "The document argues that corporate crisis communication strategies, such as 'transcendence' and 'corrective action,' are often designed to inhibit public scrutiny and preserve power rather than solve problems. By framing these strategies as potentially coercive, the text challenges the legitimacy of corporate-led crisis management. This perspective opposes the accelerationist reliance on corporate-led innovation and self-regulation, suggesting that such frameworks are inherently designed to bypass democratic deliberation.",
-  "verbatim": "Adopting the role-model status tacitly enables an organization to establish symbolical monopoly over crisis management approaches and procedures, inhibiting, as such, deliberative public scrutiny into crisis causes and its enabling factors that may point to alternative corrective measures."
- },
- {
-  "id": "C26",
-  "camp": "skeptic",
-  "node": "skp-beliefs-145",
-  "node_label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
-  "point": "The document asserts that self-evaluation in LLMs is fundamentally flawed due to correlated errors, where the same system that generates a claim attempts to validate it using internal resources. This leads to 'confidence amplification,' where consistent acceptance decisions provide no objective evidence but create a false sense of certainty. This supports the skeptic view that model-graded benchmarks are unreliable and mask error rates.",
-  "verbatim": "Worse than providing no information, correlated self-evaluation can amplify confidence in errors."
- },
- {
-  "id": "C27",
-  "camp": "safetyist",
-  "node": "saf-intentions-032",
-  "node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
-  "point": "The document proposes an architecture that separates generation from evaluation to restore an external feedback loop. By using 'external selection'\u2014evaluating outputs in a fresh context without the original reasoning trace\u2014the system can filter out plausible-but-wrong candidates. This provides a mechanism for auditors or human reviewers to scrutinize only those candidates that survive external selection.",
-  "verbatim": "The architecture does not replace human judgment; it provides a filter that surfaces candidates surviving external scrutiny for human review."
- },
- {
-  "id": "C28",
-  "camp": "safetyist",
-  "node": "saf-desires-027",
-  "node_label": "Treating Digital Space as a Public Trust",
-  "point": "The authors argue that digital infrastructure, particularly in the context of teleworking, should be treated as a public trust that requires ethical management to protect human dignity. They contend that current privacy frameworks fail to protect workers because they treat privacy as a negotiable commodity rather than a fundamental right. By framing the home as a protected space, they advocate for a shift toward a rights-centered approach that limits employer overreach.",
-  "verbatim": "This Article proposes a rights-first, human dignity-centered framework for the conceptualization and protection of privacy rights in the teleworking context."
- },
- {
-  "id": "C29",
-  "camp": "safetyist",
-  "node": "saf-intentions-040",
-  "node_label": "Binding Named Officers to Deployment Infrastructure",
-  "point": "The document describes how the government is asserting sovereign authority over AI vendors by requiring irrevocable use rights and designating vendors based on governance conduct. This reflects a shift toward binding corporate behavior to national security requirements, effectively treating AI infrastructure as a utility or common carrier. This aligns with safetyist intentions to impose strict accountability on the entities responsible for frontier AI infrastructure.",
-  "verbatim": "The deeper regulatory principle at work is one the government applies to every utility and common carrier in its supply chain: an infrastructure provider embedded in mission-critical operations cannot maintain discretionary authority over service delivery to lawful users."
- },
- {
-  "id": "C30",
-  "camp": "accelerationist",
-  "node": "acc-intentions-004",
-  "node_label": "Mandating Show-Your-Work Transparency in AI-Driven Science",
-  "point": "The authors commit to full transparency and reproducibility by providing well-documented code repositories in supplementary materials and pledging to make code publicly available by the camera-ready submission. This approach aligns with accelerationist goals of enabling community-wide verification and rapid iteration on research findings. By ensuring that experimental results are reproducible, the authors facilitate the broader scientific community's ability to build upon and improve their code generation frameworks.",
-  "verbatim": "We provide well-documented code repositories in the supplementary materials. Additionally, we commit to making the code publicly available by the time of the camera-ready submission."
- },
- {
-  "id": "C31",
-  "camp": "safetyist",
-  "node": "saf-intentions-020",
-  "node_label": "Scoring AI Bugs to Prioritize Critical Safety Fixes",
-  "point": "The authors propose a standardized benchmarking platform, MaintainBench, to evaluate the maintainability of AI-generated code, addressing the lack of rigorous testing for long-term software quality. By establishing dynamic metrics for code changes and correctness, they aim to mitigate the risk of AI producing 'tangled and unmaintainable code' that would otherwise require significant human effort to refactor. This aligns with safetyist goals of creating verifiable standards for AI output quality before deployment.",
-  "verbatim": "MaintainBench, the first benchmark dedicated to dynamic maintainability evaluation, covers diverse and systematic modification scenarios and provides a standardized testing platform for future research."
- },
- {
-  "id": "C32",
-  "camp": "accelerationist",
-  "node": "acc-intentions-003",
-  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
-  "point": "The document proposes a structured, multi-stage architecture for AI reasoning that separates generation from evaluation to improve reliability. By using high-entropy generation followed by low-entropy external selection (formal, executable, numerical, grounded, and adversarial checks), the system aims to maximize exploration while ensuring rigor. This approach aligns with accelerationist goals by providing a scalable, automated methodology for verifying AI outputs without requiring human intervention at every step.",
-  "verbatim": [
-   "We now present a practical architecture implementing external selection.",
-   "Definition 6.1 (Generator). The generator component G produces candidate hypotheses at high entropy, exploring the space of possibilities without prejudice.",
-   "Definition 6.2 (Selector). The selector component S evaluates candidates against external criteria at low entropy, selecting configurations that survive validation."
-  ]
- },
- {
-  "id": "C33",
-  "camp": "safetyist",
-  "node": "saf-beliefs-030",
-  "node_label": "AI Supply Chains Inherit Vulnerabilities from Upstream Components",
-  "point": "The document asserts that AI systems are vulnerable to supply-chain compromises at multiple stages, including CI/CD infrastructure and dependency ecosystems. It cites high-profile incidents like the xz-utils backdoor as evidence that AI projects are susceptible to the same supply-chain risks as traditional software.",
-  "verbatim": "Compromised Pipelines target CI/CD infrastructure, with multiple high-profile software supply-chain compromises in 2024\u20132025\u2014including the xz-utils backdoor incident\u2014impacting CI/CD and dependency ecosystems commonly used by AI/ML projects."
- },
- {
-  "id": "C34",
-  "camp": "safetyist",
-  "node": "saf-intentions-242",
-  "node_label": "Judicial Mandate of Operational Product Design Remedies",
-  "point": "The document argues against imposing broad product liability or judicial takedown regimes that would force platforms to proactively monitor or remove content. It warns that such requirements would effectively mandate the creation of full-time editorial boards, which is unrealistic for most platforms and would stifle innovation. The author suggests that even well-intentioned reforms, such as those targeting defamation, risk creating significant and harmful consequences for smaller platforms.",
-  "verbatim": "If platforms are liable for any curation of third-party content, then social media, search engines, comment sections, online marketplaces, and countless other spaces cannot safely filter or organize content in any meaningful way, resulting in a significantly worse experience for nearly all users."
- },
- {
-  "id": "C35",
-  "camp": "skeptic",
-  "node": "skp-beliefs-284",
-  "node_label": "Production Pressure Induced Safety Degradation",
-  "point": "The document identifies neoliberal policies and austerity measures as direct contributors to institutional fragility, arguing that these policies weaken public agencies by reducing resources and expertise. This systemic degradation forces organizations to operate with undersized workforces and fragile infrastructures, which in turn leads to disorganized responses during crises.",
-  "verbatim": "Additionally, some researchers have explained the limited pandemic responses in the United Kingdom as a consequence of neoliberal policies implemented over the last twenty years. These policies are said to have progressively diminished the material and human resources of public agencies, weakening their institutional knowledge and expertise, while conditioning them to operate with undersized workforce, limited data access and fragile infrastructures."
- },
- {
-  "id": "C36",
-  "camp": "skeptic",
-  "node": "skp-beliefs-226",
-  "node_label": "Relational Employment Vulnerability",
-  "point": "The employment relationship is characterized by a fundamental asymmetry of power that renders traditional consumer-based privacy models, which rely on individual consent, ineffective. Because workers depend on their jobs for survival, they cannot meaningfully consent to surveillance regimes presented as take-it-or-leave-it conditions. This power imbalance means that privacy frameworks centered on individual autonomy fail to protect workers from pervasive data exploitation.",
-  "verbatim": "This approach is particularly inappropriate in the context of working relationships, given the inherent asymmetry of power between the parties. Effectively, it packages data for seamless transfer rather than setting bright lines protecting the time and space needed to live a private life. When a worker's ability to feed their family is at stake, there is no meaningful consent. Where a worker is presented with a take-it-or-leave-it workplace surveillance regime, there is no meaningful choice."
- },
- {
-  "id": "C37",
-  "camp": "accelerationist",
-  "node": null,
-  "node_label": null,
-  "point": "The document does not engage with accelerationist arguments regarding AI as a revolutionary force for abundance. It focuses exclusively on labor-centric protections and regulatory constraints on employer surveillance. There are no accelerationist policy proposals or strategic arguments in this section.",
-  "verbatim": []
- },
- {
-  "id": "C38",
-  "camp": "safetyist",
-  "node": "saf-beliefs-112",
-  "node_label": "Uniform Compute Thresholds Fail for High-Risk Domains Like Biosecurity",
-  "point": "The study notes that pretrained models can possess inherent safeguards based on their training data, specifically citing previous demonstrations where data exclusions successfully prevented pretrained Evo 2 models from designing eukaryotic viruses, including pathogenic human viruses. This empirical observation indicates that dataset curation and domain-specific filtering serve as critical technical mechanisms for mitigating biological risks before generation occurs. Such domain-specific safeguards are necessary to address the distinct risk profiles associated with advanced biological generation tools.",
-  "verbatim": "Moreover, as we have previously demonstrated, the generative models themselves can possess inherent safeguards based on their training data; for example, we have previously shown that data exclusions successfully prevent the pretrained Evo 2 models from designing eukaryotic viruses, including pathogenic human viruses (26)."
- },
- {
-  "id": "C39",
-  "camp": "safetyist",
-  "node": "saf-beliefs-025",
-  "node_label": "AI Systems Develop Capabilities Nobody Designed or Predicted",
-  "point": "The document highlights the profound complexity and sensitivity of genomes, noting that biological systems exhibit emergent properties and that even single mutations can render a genome entirely nonviable. While the paper focuses on beneficial applications like phage therapies, the underlying empirical observation underscores that artificial biological designs operate in high-stakes environments where unforeseen structural interactions can trigger critical failures or unexpected functional outputs. This aligns with safetyist concerns regarding emergent, unpredicted behaviors in complex systems.",
-  "verbatim": "Genomes contain emergent complexity, wherein interactions involving multiple genes, regulatory elements, recognition sequences, and other features are tightly orchestrated to enable replication and other higher- order functions... Genomes are also highly sensitive to their sequence composition, as even a single mutation can render an entire genome nonviable."
- },
- {
-  "id": "C40",
-  "camp": "skeptic",
-  "node": "skp-desires-014",
-  "node_label": "Human Rights as Constraints on AI Deployment",
-  "point": "Fundamental human rights, including privacy, freedom of association, and the right to rest, must be foregrounded as the primary constraint on employer behavior. The document argues that these rights should not be subject to employer balancing tests or proportionality assessments, but rather treated as non-negotiable protections for human dignity.",
-  "verbatim": "In this analysis fundamental rights are foregrounded and central rather than peripheral. In other words, they are the first step rather than the last."
- },
- {
-  "id": "C41",
-  "camp": "accelerationist",
-  "node": "acc-intentions-105",
-  "node_label": "Replace Centralized Safety Audits with Trustless Cryptographic Verification",
-  "point": "The document proposes a standardized Agent Delegation Token (ADT) format using X.509v3 extensions to enable cryptographically verifiable delegation chains. By binding model identity, tool permissions, and session context to these tokens, the architecture facilitates secure, autonomous agent interactions without requiring centralized, manual gatekeeping for every action. This approach supports the accelerationist goal of scaling AI agent utility through automated, trustless verification mechanisms.",
-  "verbatim": "To transform the preceding conceptual guidance into an implementable protocol, we propose a standardized Agent Delegation Token (ADT) format utilizing X.509v3 certificate extensions. This specification is intended to inform future standardization efforts by NIST, IEEE, or other standards bodies."
- },
- {
-  "id": "C42",
-  "camp": "skeptic",
-  "node": "skp-beliefs-177",
-  "node_label": "Failure of Static Compute Thresholds Against Sub-Frontier Intrusion Tools",
-  "point": "The document notes that contractual access vetting is ineffective against Mythos-class models because open-weight successors are rapidly converging on commercial frontier capabilities. It highlights that these models become accessible outside of vendor-controlled, vetted regimes within a months-scale diffusion horizon, rendering contractual restrictions insufficient for long-term security.",
-  "verbatim": "Contractual vetting cannot address adversaries operating outside the contractual regime, and the bridging layer argument in Section 5.1.4 develops the operational implications."
- },
- {
-  "id": "C43",
-  "camp": "safetyist",
-  "node": null,
-  "node_label": null,
-  "point": "The system implements a conservative pairwise replay gate during model self-evolution to strictly prevent regression when updating procedural memory or deploying new skill versions. Instead of relying on absolute scores from stochastic vision-language models\u2014which are susceptible to judge drift and noise\u2014candidate skill versions are evaluated head-to-head against incumbents across stratified historical prompts. A candidate is only accepted if it demonstrates measurable improvement on failing cases without triggering regressions on previously successful trajectories. This cautious acceptance mechanism ensures that deployed capabilities do not silently degrade under automated optimization loops.",
-  "verbatim": [
-   "The gate removes two of the three by construction: both arms are re-run fresh in the same batch, so any drift in that batch shifts them equally and cancels in the difference, and the comparison is pairwise rather than absolute, so the judge is only ever asked which of two images better satisfies the brief.",
-   "A candidate that merely ties everywhere is rejected: it is not worth a version bump, and shipping it would reset the skill's statistics for no measured gain."
-  ]
- },
- {
-  "id": "C44",
-  "camp": "skeptic",
-  "node": "skp-beliefs-029",
-  "node_label": "Victims of AI Harm Cannot Access the Technical Knowledge Needed to Prove Causation",
-  "point": "The document highlights the 'moderator's dilemma,' where platforms face a choice between being purposefully ignorant of content to avoid liability or moderating and risking legal exposure. It notes that this structure creates a system where platforms are incentivized to avoid knowledge of harmful content, which complicates the ability of victims to hold platforms accountable for the harms they host.",
-  "verbatim": "In essence, the Cubby case had created a notice and takedown liability regime. And it created an incentive for online services to be ignorant about the content they were hosting because then they could legitimately claim to have no knowledge of any given piece of content and thus avoid liability."
- },
- {
-  "id": "C45",
-  "camp": "safetyist",
-  "node": "saf-intentions-242",
-  "node_label": "Judicial Mandate of Operational Product Design Remedies",
-  "point": "The document argues for moving beyond notice-and-choice frameworks toward substantive operational product design remedies. It suggests that legal frameworks should mandate specific constraints on data collection and surveillance practices rather than relying on disclosure. This approach aims to prevent the normalization of pervasive workplace monitoring by treating privacy as a non-negotiable boundary.",
-  "verbatim": "The upshot and its ramifications for workplace surveillance and spying are depressingly straightforward: employers can and do impose conditions of surveillance and spying not only as initial conditions of employment but also as changed circumstances, forcing people with a mortgage and a family to feed to decide between going hungry and homeless, or \u201cchoosing\u201d to give up their privacy rights."
- },
- {
-  "id": "C46",
-  "camp": "accelerationist",
-  "node": "acc-beliefs-092",
-  "node_label": "Instrumented Audit Trails Amortize Remediation Cost Where Reconstructive Burden Compounds",
-  "point": "The framework shows that structuring agent execution through reusable natural-language skill playbooks amortizes the cost of complex workflow generation and defect remediation. By maintaining an external procedural memory rather than retraining model weights, the system avoids the compounding burdens of re-deriving solutions for interdependent tool operations. The matched replay gate ensures that only successful modifications persist, capping per-cycle defects while scaling task completeness. This supports the accelerationist belief that queryable execution histories and modular skill banks effectively manage the overhead of agentic workflows.",
-  "verbatim": "We instead treat the procedural memory surrounding a frozen model as the learning objective: external context can accumulate experience without parameter updates, which agents represent as reusable procedures."
- },
- {
-  "id": "C47",
-  "camp": "skeptic",
-  "node": null,
-  "node_label": null,
-  "point": "The document notes that standard gene prediction software systematically fails to accurately annotate complex or overlapping viral genes, requiring the creation of specialized bioinformatic prediction methods. This technical observation illustrates the current limitations and friction inherent in applying legacy computational tools to novel AI-generated biological structures, reflecting broader skeptic arguments regarding software fallibility and tooling gaps in advanced computational pipelines.",
-  "verbatim": "Benchmarking of six gene prediction methods on the X174 genome shows that overlapping genes are systematically missed, requiring us to create a method that predicts all genes in X174."
- },
- {
-  "id": "C48",
-  "camp": "safetyist",
-  "node": "saf-beliefs-010",
-  "node_label": "A Single Malicious Component Can Compromise Thousands of AI Systems",
-  "point": "The document highlights the systemic risk posed by the AI supply chain, noting that malicious models can exploit serialization vulnerabilities to execute arbitrary code. It cites the 2025 Hugging Face incident where models exploited Python Pickle serialization as a practical example of how supply chain components can compromise enterprise environments. This underscores the necessity of treating all pre-trained models and dependencies as potential attack vectors requiring cryptographic verification.",
-  "verbatim": "Recent incidents have demonstrated practical risks: vulnerabilities disclosed in early 2025 revealed malicious ML models uploaded to Hugging Face that exploited Python Pickle serialization to execute arbitrary code when loaded, with detailed analysis presented in the ACM CCS 2025 proceedings, illustrating a practical model-supply-chain execution vector."
- },
- {
-  "id": "C49",
-  "camp": "skeptic",
-  "node": "skp-beliefs-158",
-  "node_label": "AI Is Deployed as a Technical Fix for Problems That Are Fundamentally Social and Political",
-  "point": "Transcendence rhetoric and complexity claims are used to justify austerity and unpopular measures by framing them as necessary responses to complex, interconnected systems. This rhetoric shifts responsibility downward to underprivileged groups, portraying them as obstacles to recovery while externalizing crisis costs onto broader populations. It functions as a technical fix that masks the underlying social and political power imbalances.",
-  "verbatim": "Discourse that legitimizes social protection reduction is also frequently built on the rhetoric of complexity to allocate responsibility and blame downwards, to the base line of social hierarchies. Underprivileged groups are commonly portrayed as responsible for their own predicament and presented as key contributors to systemic vulnerability or cast as obstacles to social recovery."
- },
- {
-  "id": "C50",
-  "camp": "accelerationist",
-  "node": "acc-beliefs-128",
-  "node_label": "Evolving Natural Language Skill Banks",
-  "point": "Procedural memory stores implemented as versioned natural-language skill banks allow complex agent workflows to evolve and adapt continuously without requiring direct model weight updates. The skill bank partitions reusable procedures into Markdown files containing trigger descriptions, critical tool paths, and error-handling tables, which are retrieved dynamically via token overlap with user queries. This versioned, externalized memory architecture enables scalable agent improvement by updating explicit operational knowledge rather than expensive or unstable neural network weights. Nevertheless, maintaining consistency across iterative skill rewrites requires strict regression gating to prevent performance drops.",
-  "verbatim": [
-   "The skill bank is the agent's evolving, interpretable memory: a versioned collection of natural-language skills, each the stored form of a reusable procedure (Section 1) for one class of image-creation task.",
-   "A skill is a single Markdown file (SKILL.md) with YAML front matter."
-  ]
- },
- {
-  "id": "C51",
-  "camp": "safetyist",
-  "node": "saf-beliefs-040",
-  "node_label": "AI Deployment Speed Outpaces Security Governance",
-  "point": "The document identifies that current AI safety paradigms\u2014RLHF, output filtering, contractual access vetting, and human-in-the-loop supervision\u2014were calibrated for previous generations of systems and are insufficient against Mythos-class models. It argues that these paradigms fail because they assume dangerous behavior is either directly outputted, easily filtered, or bounded by human review capacity, none of which hold true for multi-step, scaffolded agentic operations.",
-  "verbatim": "The dominant approaches to AI safety in deployment\u2014reinforcement learning from human feedback, post-generation output filtering, contractual access vetting, and human-in-the-loop supervision\u2014were each calibrated to a generation of systems that did not exhibit autonomous cyber capability at Mythos-class levels, and each is insufficient as a sole control against the new category under the threat assumptions specified here."
- },
- {
-  "id": "C52",
-  "camp": "skeptic",
-  "node": "skp-beliefs-247",
-  "node_label": "Affective Labor Commodification",
-  "point": "The commodification of affective labor\u2014unpaid emotional and relational effort\u2014is a central mechanism for deepening exploitative work regimes. This process involves individuals absorbing guilt, responsibilities, and costs for maintaining sociopolitical systems, while their vertical bargaining power is weakened. By framing personal development as an obligation, work regimes subordinate personhood to professional demands, limiting self-autonomy.",
-  "verbatim": "The commodification of affective labor\u2014unpaid emotional and relational effort expended to meet social expectations \u2013 constitutes, as Graeber (2011) argues, a central mechanism that enables the expansion and deepening of exploitative structures. Directing attention to work during personal time, worrying about an employer\u2019s problems while performing domestic chores, deliberately eliciting satisfaction or happiness in relation to professional obligations and interactions with employers, clients, or colleagues, along with a myriad of other micro- behaviors and attitudes, they all build up extensive subordination of personhood to work regimes, severely limiting someone\u2019s self-autonomy and self-authorship."
- },
- {
-  "id": "C53",
-  "camp": "skeptic",
-  "node": "skp-beliefs-231",
-  "node_label": "Industrial Concentration of AI Infrastructure",
-  "point": "The document identifies that the massive capital requirements for pre-training were a pricing structure rather than a technical floor, and that this concentration of capital created a 'circular economy' of irrational exuberance. It notes that private foundation model companies are financially fragile, requiring perpetual capital infusions to sustain their operations.",
-  "verbatim": "The circular economy continued running on its original assumptions even as those assumptions were being falsified in public. The same structural condition applies to OpenAI: its CFO's November 2025 suggestion of federal loan guarantees reflects comparable capital dependency."
- },
- {
-  "id": "C54",
-  "camp": "safetyist",
-  "node": "saf-beliefs-155",
-  "node_label": "AI-Driven Information Pollution Erodes the Shared Factual Basis for Democracy",
-  "point": "The document identifies how 'transcendence rhetoric' and 'complexity' claims are used to erode public deliberation and manufacture consent for unpopular policies. It highlights how anxiety and uncertainty are weaponized to inhibit the exploration of alternative paths to security. Safetyists would interpret this as a clear example of how information pollution and the erosion of shared factual bases for democracy facilitate catastrophic policy outcomes.",
-  "verbatim": "Transcendence based rhetoric exploits cultural dispositions that discourage rigorous deliberation about internal coherence of the virtual scenarios that are supposedly avoided, their content, mechanisms, and the conditions under which certain events may occur."
- },
- {
-  "id": "C55",
-  "camp": "skeptic",
-  "node": "skp-intentions-097",
-  "node_label": "Establish Independent Lifecycle Oversight Mechanisms for AI Systems",
-  "point": "The document advocates for the use of agentic AI systems to continuously discover and inventory AI assets, addressing the 'Shadow AI' problem where new models and datasets proliferate faster than human governance can track. This automated reconciliation loop is presented as a necessary mechanism to ensure that the actual deployed environment matches the documented security architecture. Without this continuous discovery, the framework risks becoming a static, ineffective checklist.",
-  "verbatim": "We advocate for an agentic operating layer\u2014a continuously running discovery and classification system that leverages operational artifacts... to automatically detect new AI assets, propose classifications based on observed behavior and metadata, suggest ownership assignments... and flag assets lacking required evidence artifacts."
- },
- {
-  "id": "C56",
-  "camp": "accelerationist",
-  "node": null,
-  "node_label": null,
-  "point": "The document advocates for maintaining the core principles of Section 230 to ensure the continued flourishing of online innovation and expression. It argues that Section 230 provides a stable liability framework that prevents the consolidation of power among large tech companies by protecting smaller startups from prohibitive legal costs. The author emphasizes that any reform to Section 230, even if intended to be narrow, risks creating significant and harmful consequences for the digital ecosystem.",
-  "verbatim": "Rather than pursue proposals that create regulations or incentives for either the suppression of speech or the abandonment of content moderation and curation, the core principles of Section 230 should be protected."
- },
- {
-  "id": "C57",
-  "camp": "safetyist",
-  "node": "saf-beliefs-212",
-  "node_label": "Knowledge-Collapse Steady State",
-  "point": "The document asserts that firm-owned AI systems create incentives for workers to withhold knowledge at time 1, as workers seek to protect their bargaining position against future surveillance-driven wage suppression. This behavior leads to a sub-optimal equilibrium where total surplus is reduced because workers withhold knowledge that would otherwise improve AI quality. This aligns with the safetyist concern regarding the long-term degradation of human knowledge contributions when AI systems are deployed in ways that discourage active human participation.",
-  "verbatim": [
-   "Observation 4.6. With firm-owned AI, workers withhold knowledge at time 1 compared to the no-surveillance baseline, that is for every worker j, we have kj ? ?j.",
-   "Since withholding is costly and reduces time-2 output, it reduces total surplus."
-  ]
- },
- {
-  "id": "C58",
-  "camp": "accelerationist",
-  "node": "acc-beliefs-067",
-  "node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
-  "point": "The document asserts that the 'singleton' model of AI development\u2014where one company achieves AGI and controls it through a proprietary API\u2014was a foundational error of political economy. It notes that the industry has shifted toward a more distributed, competitive, and stable landscape where multiple models compete for inference workloads. This supports the belief that decentralized and competitive development outperforms centralized, monopolistic control.",
-  "verbatim": "What has replaced the singleton model is more distributed, more competitive, and more structurally stable. Multiple models at rough performance parity compete for inference workloads. Open source ensures continuous improvement outside any single company's control."
- },
- {
-  "id": "C59",
-  "camp": "accelerationist",
-  "node": null,
-  "node_label": null,
-  "point": "The document does not engage with accelerationist arguments or policy proposals. It focuses exclusively on labor rights, privacy, and the protection of workers from surveillance.",
-  "verbatim": []
- },
- {
-  "id": "C60",
-  "camp": "skeptic",
-  "node": "skp-beliefs-193",
-  "node_label": "Static Benchmarks Like HumanEval Fail to Capture Real-World Maintenance Dynamics",
-  "point": "The document asserts that static benchmarks like HumanEval are insufficient for evaluating real-world software maintenance, necessitating a focus on dynamic requirement evolution. By simulating real-world scenarios such as functional extensions, interface modifications, and data structure transformations, the methodology acknowledges that code quality must be evaluated through iterative changes rather than static snapshots.",
-  "verbatim": "To provide further context on the foundation of MaintainBench, we include additional details on the five original datasets that it extends. These datasets are widely adopted in code generation research and serve as standard benchmarks for evaluating the performance and generalization ability of LLMs."
- },
- {
-  "id": "C61",
-  "camp": "skeptic",
-  "node": "skp-beliefs-101",
-  "node_label": "AI Investment Is Built on Unsustainable Economics and Overstated Capabilities",
-  "point": "Live, large-scale Big Tech AI projects are shockingly expensive to run due to fixed data costs, primary energy bills for servers, chillers, and titanic wage bills for specialized technical staff. The text argues that once investor subsidies dry up, real-world non-hyperbolic applications will be insufficient to cover these prodigious running costs. From a skeptic perspective, this economic unsustainability proves that the current AI boom is an unprofitable bubble built on overstated capabilities and venture capital subsidization. The document acknowledges that smaller standalone models running on commodity hardware may persist, but mass-scale proprietary model creation depends entirely on unsustainable financial subsidies.",
-  "verbatim": "Live, large-scale Big Tech AI projects are shockingly expensive to run. Some of their costs are fixed \u2013 collecting, labeling and processing training data \u2013 but the running costs for each query are prodigious. There's a massive primary energy bill for the servers, a nearly as large energy bill for the chillers, and a titanic wage bill for the specialized technical staff involved."
- },
- {
-  "id": "C62",
   "camp": "safetyist",
   "node": "saf-beliefs-025",
   "node_label": "AI Systems Develop Capabilities Nobody Designed or Predicted",
@@ -524,63 +187,520 @@
   ]
  },
  {
+  "id": "C24",
+  "camp": "skeptic",
+  "node": "skp-beliefs-145",
+  "node_label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
+  "point": "The document acknowledges that even with context separation, models may continue to exhibit 'formatting priors' or hallucinated criticism when evaluating low-quality work. It notes that the RLHF-trained structure of models appears more stable than their accuracy, meaning that context separation reduces correlated error but does not eliminate the underlying tendency to prioritize format over truth.",
+  "verbatim": [
+   "When evaluating low-quality work, the balanced positive/negative structure persists; the model fills the expected \u201cpositive points\u201d slots with increasingly tenuous or hallucinated content rather than breaking format to deliver an unbalanced negative assessment.",
+   "The RLHF-trained structure appears more stable than accuracy."
+  ]
+ },
+ {
+  "id": "C25",
+  "camp": "safetyist",
+  "node": "saf-intentions-087",
+  "node_label": "Replacing Abstract Safety Claims with Testable Engineering Controls",
+  "point": "The document proposes a defense-in-depth architecture that relies on cryptographic enforcement and architectural isolation rather than relying on traditional alignment or output filtering. It argues that because alignment-failure defenses and adversarial-misuse defenses require different control points, they should be treated as separate architectural problems.",
+  "verbatim": "Combining alignment and adversarial-misuse defenses in a single architecture produces designs that satisfy neither well: alignment-failure defenses depend on training-time access the adversary in Section 3.1.1 does not provide, and adversarial-misuse defenses depend on enforcement-point control the alignment problem does not require."
+ },
+ {
+  "id": "C26",
+  "camp": "safetyist",
+  "node": "saf-beliefs-141",
+  "node_label": "AI Governance Relies on Policies It Cannot Actually Enforce",
+  "point": "The document asserts that Section 230 is not the source of technological problems but rather a necessary component of the solution for online speech. It argues that attempts to reform or abolish Section 230 to address concerns like content moderation failures or bias will backfire, leading to over-moderation and the silencing of legitimate speech. The author maintains that the current legal framework is essential for protecting the internet as a space for expression and business.",
+  "verbatim": "While policymakers and critics may have various concerns around technology, Section 230 is not the problem, but rather part of the solution."
+ },
+ {
+  "id": "C27",
+  "camp": "skeptic",
+  "node": "skp-beliefs-228",
+  "node_label": "Transactional Privacy Critique",
+  "point": "The GDPR and similar privacy frameworks are fundamentally flawed because they treat privacy as a negotiable commodity rather than an inalienable right. These frameworks function as 'how-to' manuals for data use, focusing on transactional consent rather than protecting the worker's right to private time and space. This transactional logic fails to address the inherent power imbalance in the employment relationship.",
+  "verbatim": "The philosophical bedrock of the GDPR remains that it is a data-use statute rather than a privacy-protection statute. While there are some practical protections (opt-in rather than opt-out, for example), the risk is that the GDPR still operates more as a \u201chow-to\u201d manual for data use than a statutory framework that protects workers\u2019 rights to private time and space to live a thriving life."
+ },
+ {
+  "id": "C28",
+  "camp": "skeptic",
+  "node": "skp-beliefs-004",
+  "node_label": "Recursive Data Contamination by AI Output",
+  "point": "The document highlights that LLMs lack behavioral templates for self-correction because training corpora consist almost entirely of correct human reasoning rather than examples of error identification. This training gap, combined with the structural tendency to 'stitch together' linguistic forms without reference to meaning, limits the model's ability to perform genuine self-correction.",
+  "verbatim": "Bender et al. [2021] characterize language models as systems that \u00f4stitch together sequences of linguistic forms... according to probabilistic information about how they combine, but without any reference to meaning.\u00f6"
+ },
+ {
+  "id": "C29",
+  "camp": "accelerationist",
+  "node": "acc-desires-039",
+  "node_label": "Democratize AI Through Open-Source Proliferation to Prevent Oligarchic Control",
+  "point": "Open-weight models are essential for national security because they allow for inspectable, government-controlled weights that avoid vendor dependency and unverifiable behavior. By dissolving the commercial moat of closed-API models, open-weight releases enable the sovereign, air-gapped deployments required for defense and intelligence operations.",
+  "verbatim": "National security AI is deployed in closed, classified environments \u2014 air-gapped, sovereign, non-public \u2014 but requires open weights to maintain operational sovereignty: without inspectable, government-controlled weights, every deployment creates vendor dependency, potential service interruption, and unverifiable behavior in active operations."
+ },
+ {
+  "id": "C30",
+  "camp": "safetyist",
+  "node": "saf-desires-026",
+  "node_label": "Uniform Disclosure Standards for AI Development",
+  "point": "The document adheres to rigorous transparency and reporting standards, including detailed documentation of compute resources, statistical significance, and ethical compliance. This reflects a safetyist desire for institutionalized, uniform reporting that allows for external verification of research claims and potential risks.",
+  "verbatim": "The authors should answer \"Yes\" if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper."
+ },
+ {
+  "id": "C31",
+  "camp": "skeptic",
+  "node": "skp-beliefs-231",
+  "node_label": "Industrial Concentration of AI Infrastructure",
+  "point": "The document observes that the massive capital requirements for pre-training were a pricing structure rather than a technical floor, and that this 'circular economy' of high valuations was based on the false assumption of a durable monopoly. It notes that the market is now correcting as these assumptions are falsified, shifting value away from the foundation model layer toward integration and agentic execution.",
+  "verbatim": "The circular economy continued running on its original assumptions even as those assumptions were being falsified in public. The same structural condition applies to OpenAI: its CFO's November 2025 suggestion of federal loan guarantees reflects comparable capital dependency."
+ },
+ {
+  "id": "C32",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-067",
+  "node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+  "point": "The document highlights a shift toward open-weight models and decentralized inference infrastructure, suggesting that these models are becoming commoditized and integrated into sovereign AI strategies. This aligns with the accelerationist belief that open development and decentralized competition drive progress more effectively than centralized control. The document documents the proliferation of these models across major tech firms and their adoption by government entities.",
+  "verbatim": "The End of the Foundation Model Era: Open-Weight Models, Sovereign AI, and Inference as Infrastructure"
+ },
+ {
+  "id": "C33",
+  "camp": "safetyist",
+  "node": "saf-beliefs-119",
+  "node_label": "AI Amplifies the Repressive Power of Autocratic States",
+  "point": "The document discusses how neoliberal policies and pyramidal organizational structures can lead to authoritarian, top-down control mechanisms. It suggests that these structures concentrate risks among lower social strata while aggregating benefits at the top, which aligns with safetyist concerns regarding how centralized power and lack of transparency can exacerbate systemic vulnerabilities and societal harm.",
+  "verbatim": "Some scholars even consider neoliberal dynamics\u2014often rationalized through meritocratic discourse\u2014as systemic repertoires of social organization designed to concentrate risks horizontally, within lower social strata, while vertically aggregating benefits at higher levels, exacerbating inequality and vertical authoritarian arrangements."
+ },
+ {
+  "id": "C34",
+  "camp": "safetyist",
+  "node": "saf-beliefs-051",
+  "node_label": "Measured AI Biases Are Leading Indicators of Discriminatory Outcomes",
+  "point": "The document asserts that algorithmic bias in facial analysis is a leading indicator of discriminatory outcomes in high-stakes sectors like law enforcement and healthcare. It argues that because these systems are trained on biased datasets, they inevitably propagate and amplify existing societal prejudices. The authors emphasize that even systems not explicitly designed for high-stakes decisions are often integrated into pipelines that perform such tasks, making their accuracy a critical safety concern.",
+  "verbatim": [
+   "Even AI-based technologies that are not specifically trained to perform high-stakes tasks (such as determining how long someone spends in prison) can be used in a pipeline that performs such tasks.",
+   "It has recently been shown that algorithms trained with biased data have resulted in algorithmic discrimination"
+  ]
+ },
+ {
+  "id": "C35",
+  "camp": "safetyist",
+  "node": null,
+  "node_label": null,
+  "point": "To prevent regressions and control for noisy judge and rollout feedback, the system implements a conservative replay gate that acts as an asymmetric admission control mechanism. The replay gate holds upstream context fixed and admits candidate skill changes only when they defeat the incumbent on at least one replayed case without causing any detected regressions. This separation of proposal generation from strict empirical admission addresses the inherent unreliability and position biases of VLM-based graders in production environments.",
+  "verbatim": "We therefore separate proposal from admission: widening and deepening propose changes from experience, while a conservative replay gate, inspired by safe policy improvement, holds upstream context fixed and admits a candidate only when it beats the incumbent on at least one replayed case with no detected regression."
+ },
+ {
+  "id": "C36",
+  "camp": "skeptic",
+  "node": null,
+  "node_label": null,
+  "point": "The document proposes a policy that bans the use of 'work data'\u2014defined as materials produced on the job and records of how work is performed\u2014for AI model development. This policy would prevent employers from using work data to develop AI models or selling it to other firms for that purpose. It mandates that those seeking to develop AI models must hire workers specifically to produce training data, rather than relying on data produced as a byproduct of everyday work tasks.",
+  "verbatim": "Imagine a policy that bans the use of \u201cwork data\u201d for AI model development. Employers could not use work data to develop AI models, or sell work data to other firms to develop AI models. Those seeking to develop AI models would have to hire workers to specifically produce AI training data; they could not use data that was produced as the byproduct of everyday work tasks."
+ },
+ {
+  "id": "C37",
+  "camp": "safetyist",
+  "node": "saf-intentions-210",
+  "node_label": "Legal and Regulatory Frameworks for AI Accountability",
+  "point": "The document argues against weakening Section 230 protections, suggesting that such efforts create perverse incentives and harmful unintended consequences. It maintains that Section 230 should remain central to the American approach to intermediary liability, even as AI technologies emerge.",
+  "verbatim": "Efforts to weaken its core protections would create perverse incentives and harmful unintended consequences, particularly for smaller platforms. Rather than adopting censorious or economically damaging new regulations, Section 230 should remain central to the American approach to intermediary liability that has made the United States a global leader in online expression."
+ },
+ {
+  "id": "C38",
+  "camp": "skeptic",
+  "node": "skp-beliefs-095",
+  "node_label": "Large Language Models Create Systemic Risks to Data Integrity, Privacy, and Epistemic Quality",
+  "point": "The document acknowledges that generative AI tools function by identifying patterns across vast amounts of third-party training data, effectively acting as a complex summary of previous knowledge. It notes that this creates significant questions about whether Section 230 applies to generative AI, as some experts argue these tools are not meaningfully different from search engines, while others suggest they fall outside existing protections.",
+  "verbatim": "Generative AI produces seemingly human-created content by identifying patterns across vast amounts of data, and modern chatbots use this training to engage in realistic conversations. But critically, these AI tools only work because they have been trained on prior knowledge, that is, third-party content."
+ },
+ {
+  "id": "C39",
+  "camp": "skeptic",
+  "node": null,
+  "node_label": null,
+  "point": "The study observes that rational engineering and traditional synthetic biology approaches have been heavily limited by incomplete human understanding of biological systems and low throughput in genome editing. The authors note that previous systematic efforts have consistently struggled to increase features such as phage lysis rate or genome length due to these fundamental knowledge gaps. This highlights the ongoing challenge that human-designed systems remain constrained by limited mechanistic comprehension.",
+  "verbatim": "Rational engineering is further limited by incomplete human understanding of biology; for example, previous systematic efforts have increased features such as phage lysis rate or genome length."
+ },
+ {
+  "id": "C40",
+  "camp": "safetyist",
+  "node": "saf-beliefs-212",
+  "node_label": "Knowledge-Collapse Steady State",
+  "point": "The document suggests that when workers perceive their expertise is being codified into AI systems that will eventually replace them, they rationally withhold knowledge. This behavior creates a 'knowledge-collapse' dynamic where the supply of tacit, uncodified expertise\u2014essential for training effective AI\u2014is depleted. This depletion reduces overall productivity and limits the quality of AI systems that firms can develop, as the necessary contextual data is no longer being generated or shared by the workforce.",
+  "verbatim": "Anticipating that their knowledge contributions today improve the firm\u2019s outside option tomorrow, workers rationally withhold knowledge, reducing both current productivity and the quality of the AI systems firms can build."
+ },
+ {
+  "id": "C41",
+  "camp": "safetyist",
+  "node": "saf-intentions-032",
+  "node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
+  "point": "The document argues that relying on undisclosed, hidden system prompts for evaluation is methodologically problematic, comparing it to anonymous peer review where instructions and biases are obscured. It implies that for safety and reliability, evaluation criteria must be transparent and external to the model's default 'helpful assistant' framing, which otherwise structurally guarantees error correlation.",
+  "verbatim": "From an academic standpoint, relying on undisclosed evaluation criteria is methodologically problematic; the equivalent in peer review would be anonymous reviewers whose instructions and biases are hidden by design."
+ },
+ {
+  "id": "C42",
+  "camp": "safetyist",
+  "node": "saf-intentions-058",
+  "node_label": "Building Accountability Frameworks for AI Agents Operating at Scale",
+  "point": "The document argues for the necessity of new regulatory frameworks to manage the risks posed by autonomous AI agents and pervasive sensor-based surveillance in the workplace. It highlights that current privacy theories fail to address the power asymmetries that allow employers to exploit worker data. Safetyists would support this by advocating for systemic oversight and technical guardrails to prevent the misuse of AI-driven data analytics.",
+  "verbatim": "There are two possible broad grounds for intervention: privacy law and labor law."
+ },
+ {
+  "id": "C43",
+  "camp": "skeptic",
+  "node": "skp-desires-091",
+  "node_label": "Banning Purely Automated Firing and Disciplinary Actions",
+  "point": "The document advocates for strict legal prohibitions against employers using surveillance to identify, monitor, or punish workers for protected activities like organizing or whistle-blowing. It argues that such practices should be heavily penalized to provide a genuine deterrent. The author emphasizes that these protections must be enforced through robust regulatory oversight rather than relying on individual litigation.",
+  "verbatim": "Employers should also be explicitly prohibited from using surveillance to identify, monitor, or punish workers for organizing, meeting with union representatives, or discussing workplace concerns."
+ },
+ {
+  "id": "C44",
+  "camp": "safetyist",
+  "node": "saf-intentions-031",
+  "node_label": "Testing Whether AI Can Override Its Own Learned Patterns",
+  "point": "To prevent quality degradation and regressions in production environments, the evolution framework implements a conservative replay gate that acts as a rigorous filter before admitting new or rewritten skills into the deployed memory bank. Because Vision-Language Model graders suffer from absolute score drift and upstream asset variations, the replay gate forces candidate procedures to compete directly against incumbents across identical, frozen input contexts in pairwise comparisons. A candidate workflow is only shipped if it demonstrates clear failure repair without regressing previously successful executions, addressing the asymmetric risk of deploying unvetted automated updates.",
+  "verbatim": "We therefore separate proposal from admission: widening and deepening propose changes from experience, while a conservative replay gate, inspired by safe policy improvement, holds upstream context fixed and admits a candidate only when it beats the incumbent on at least one replayed case with no detected regression. [...] Because replay spans both successful and failed histories, a rewrite must repair failures without regressing existing successes, reflecting the asymmetric cost of regressions in production."
+ },
+ {
+  "id": "C45",
+  "camp": "safetyist",
+  "node": "saf-beliefs-144",
+  "node_label": "Self-Critique Loops Inflate Confidence Without Adding Evidence",
+  "point": "The document asserts that repeated self-evaluation cycles in LLMs create a false sense of certainty, as consistent acceptance across multiple critiques provides no objective evidence when errors are strongly coupled. This 'confidence amplification' problem leads models to become increasingly confident in coherent but incorrect conclusions, a failure mode that safetyists identify as a significant risk in autonomous reasoning systems.",
+  "verbatim": "Under strong error coupling, however, A1,...,Ak are not independent conditional on (T,Z). If T = 0 and Z = Zbad, all evaluations fail together: Pr(A1 = ... = Ak = 1 | T = 0, Z = Zbad) = 1. By Lemma 3.5, the k acceptances collectively provide no more information than a single evaluation. The apparent evidence of k consistent acceptances is actually a single piece of (non-)information repeated k times. But the subjective experience is k \u201cconfirmations,\u201d creating false confidence."
+ },
+ {
+  "id": "C46",
+  "camp": "accelerationist",
+  "node": "acc-intentions-054",
+  "node_label": "Ground AI Safety in Observable Behavior and Real-World Testing",
+  "point": "The document emphasizes the necessity of moving beyond abstract safety claims toward observable, verifiable evidence artifacts. By defining specific trust layers and evidence requirements, it aims to ground AI security in real-world, machine-readable validation. This aligns with the accelerationist goal of enabling secure, large-scale deployment through rigorous, automated verification rather than regulatory stagnation.",
+  "verbatim": "The result is security activity without demonstrable assurance. ... This integration of Zero Trust principles, AI-specific trust decomposition, and evidence-oriented assurance distinguishes the framework from prior work in each category."
+ },
+ {
+  "id": "C47",
+  "camp": "accelerationist",
+  "node": "acc-intentions-003",
+  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
+  "point": "The document argues for a defense-in-depth strategy in AI-assisted workflows, prioritizing the integration of diverse, independent external selection channels over relying on larger single models. By utilizing formal verification, executable tests, and diverse critic ensembles, systems can overcome the validation bottleneck in generate-then-judge architectures. This approach concentrates human attention on high-quality candidates rather than replacing human judgment entirely.",
+  "verbatim": "The goal is defense in depth: multiple independent failure modes such that exploiting one does not compromise the entire system. Investment in external selection infrastructure (formal verification tools, test generation, invariant libraries, diverse critic ensembles) may yield returns complementary to larger single models."
+ },
+ {
+  "id": "C48",
+  "camp": "accelerationist",
+  "node": "acc-intentions-003",
+  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
+  "point": "The Graphic-Eval evaluation rubric combines automated decomposition and multimodal checks to score design outputs without constraining the underlying agent's tool choices. By decoupling outcome assessment from intermediate tool selection, the framework enables automated verification and co-evolution without human annotation bottlenecks. This supports the accelerationist goal of scaling agentic autonomy through robust, automated quality signals. However, reliance on multimodal judges introduces variance that requires careful calibration.",
+  "verbatim": "Grading operates on images, not document models. A turn's XML snapshot is rendered to a PNG at a fixed scale; production turns are judged against the cumulative request (initial brief plus all refinements up to that turn), since the design state at that point should satisfy everything asked so far, not just the latest instruction."
+ },
+ {
+  "id": "C49",
+  "camp": "accelerationist",
+  "node": "acc-intentions-003",
+  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
+  "point": "The document proposes a rigorous, automated verification regime for AI outputs that relies on cryptographic binding rather than human-in-the-loop oversight. By using per-release authority records and automated enforcement points, it enables high-throughput, secure deployment of frontier models. This approach supports acceleration by replacing slow, manual governance with scalable, machine-speed security primitives.",
+  "verbatim": "Runtime authority records are minted per release transaction\u2014after the runtime has produced the specific output for release\u2014rather than per scope-window; this is what allows the record to commit cryptographically to the specific output, target, enforcement point, and transaction."
+ },
+ {
+  "id": "C50",
+  "camp": "skeptic",
+  "node": "skp-beliefs-308",
+  "node_label": "Compounding Fidelity Loss in Skill Distillation",
+  "point": "Attempting to scale skill distillation from short unit tiles to full, multi-step tessellated patterns reveals compounding fidelity losses across human annotation, algorithmic compression, and model execution stages. As construction length increases, annotation labor grows proportionally, noisy trajectories degrade compression quality, and frozen backbone models fail to adhere to extended scripts, causing fine details and color fills to wash out. This evidence confirms that purely prose-based skill distillation scales poorly for complex, multi-step workflows due to unavoidable multi-stage error propagation.",
+  "verbatim": [
+   "Because each axis leaks a little fidelity, the losses compound: Figure 9 contrasts the human-annotated full pattern with what the agent produces from that same annotated skill\u2014the overall tiling layout survives, but the three-tone fills and fine detail wash out, and the result is visibly discounted.",
+   "The takeaway is that skill distillation is most effective for short, self-contained procedures such as the base unit tile; for targets that demand very long, many-step constructions, a purely skill-based route degrades on all three axes at once, and reaching them reliably likely needs mechanisms beyond prose skills\u2014deterministic macros, plan-level orchestration, or model updating."
+  ]
+ },
+ {
+  "id": "C51",
+  "camp": "safetyist",
+  "node": "saf-intentions-020",
+  "node_label": "Scoring AI Bugs to Prioritize Critical Safety Fixes",
+  "point": "The authors propose a standardized benchmarking platform, MaintainBench, to evaluate the maintainability of AI-generated code, addressing the lack of rigorous testing for long-term software quality. By establishing dynamic metrics for code changes and correctness, they aim to mitigate the risk of AI producing 'tangled and unmaintainable code' that would otherwise require significant human effort to refactor. This aligns with safetyist goals of creating verifiable standards for AI output quality before deployment.",
+  "verbatim": "MaintainBench, the first benchmark dedicated to dynamic maintainability evaluation, covers diverse and systematic modification scenarios and provides a standardized testing platform for future research."
+ },
+ {
+  "id": "C52",
+  "camp": "safetyist",
+  "node": "saf-intentions-049",
+  "node_label": "Ensuring AI Agent Actions Can Be Safely Rolled Back",
+  "point": "The document proposes a multi-agent system, MaintainCoder, that uses an orchestrated pipeline to ensure code maintainability and structural integrity. By incorporating design patterns and a waterfall-like model, the system aims to reduce technical debt and ensure that code remains robust across iterative changes. This focus on structured, atomic, and modular development aligns with safetyist goals of managing the reliability of complex AI-generated systems.",
+  "verbatim": "It integrates the Waterfall model, design patterns, and multi-agent collaboration to systematically enhance cohesion, reduce coupling, achieving clear responsibility boundaries and better maintainability."
+ },
+ {
+  "id": "C53",
+  "camp": "safetyist",
+  "node": "saf-intentions-168",
+  "node_label": "Preventing AI-Assisted Creation of Dangerous Physical Materials",
+  "point": "The researchers emphasize the necessity of regulating and screening the interface between digital AI design tools and physical biological synthesis by employing rigorous growth assays and wet-lab rebooting protocols to test generated sequences. By physically synthesizing and assembling 285 out of 302 generated genome candidates and testing their viability on host bacterial strains, the study operationalizes a critical validation pipeline connecting digital generation to physical biological realization. Such screening protocols provide a methodological framework for ensuring that artificially designed genetic materials are systematically evaluated for viability and host specificity before deployment.",
+  "verbatim": "With this protocol, we observed that genomes of \u03a6X174 robustly formed plaques on a plate of E. coli C, whereas variants with mutated lysis genes did not."
+ },
+ {
+  "id": "C54",
+  "camp": "safetyist",
+  "node": "saf-intentions-087",
+  "node_label": "Replacing Abstract Safety Claims with Testable Engineering Controls",
+  "point": "The document proposes a structured Zero Trust Architecture for AI that replaces abstract security claims with testable engineering controls and machine-readable evidence artifacts. By mandating cryptographic signatures, attestations, and logs at each layer of the AI supply chain, the framework enables auditors to verify compliance through automated inspection. This approach shifts security from subjective assessment to verifiable, evidence-centric design, though the authors note that implementation requires significant infrastructure investment.",
+  "verbatim": [
+   "The framework explicitly specifies evidence artifacts for each control, enabling auditors to verify compliance through artifact inspection rather than architectural review alone.",
+   "Evidence types (signatures, attestations, logs, manifests) are machine-readable and support automated compliance checking."
+  ]
+ },
+ {
+  "id": "C55",
+  "camp": "safetyist",
+  "node": "saf-intentions-040",
+  "node_label": "Binding Named Officers to Deployment Infrastructure",
+  "point": "The document emphasizes that the government must retain ultimate authority over the use of mission-critical AI systems, rejecting the idea that private companies can unilaterally set safety or usage policies. It argues that safety claimed through a closed, unauditable system is insufficient for sovereign deployment. The government's demand for irrevocable use rights is framed as a necessary structural requirement to ensure human (state) control over AI-driven outcomes.",
+  "verbatim": "Safety claimed through a closed system is not safety in any institutional sense that a sovereign government deploying that system can accept. It is control exercised by the vendor, not by the state."
+ },
+ {
+  "id": "C56",
+  "camp": "safetyist",
+  "node": "saf-intentions-040",
+  "node_label": "Binding Named Officers to Deployment Infrastructure",
+  "point": "The document highlights that current legal frameworks like the 'work for hire' doctrine are ill-equipped to handle the capture of behavioral trace data for AI training. It notes that researchers and advocates are proposing new governance frameworks, such as collective data rights or worker data trusts, to ensure equitable participation in the value created by AI, which aligns with safetyist concerns regarding accountability and the erosion of worker agency.",
+  "verbatim": "More broadly, researchers and advocates have proposed new governance frameworks\u2014such as collective data rights or worker data trusts\u2014to ensure more equitable participation in the value created by workplace AI"
+ },
+ {
+  "id": "C57",
+  "camp": "skeptic",
+  "node": "skp-beliefs-231",
+  "node_label": "Industrial Concentration of AI Infrastructure",
+  "point": "The document describes a 'hyperscaler circular economy' where foundation model companies are structurally dependent on cloud providers for compute. It argues that this arrangement creates a self-reinforcing loop where high compute spending justifies higher valuations, effectively consolidating control among a small number of hardware-owning firms and suppressing competition.",
+  "verbatim": "The hyperscaler does not need to participate in later rounds to benefit from this dynamic \u2014 its equity appreciates as each anchored round inflates the asset upward, while its infrastructure revenue compounds with every dollar of compute the company is structurally required to spend."
+ },
+ {
+  "id": "C58",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-067",
+  "node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+  "point": "The document asserts that open-source competition effectively commoditizes AI inference, driving prices toward marginal cost and dissolving the 'moat' narrative previously used to justify high-cost, closed-API business models. This aligns with the accelerationist view that decentralized, open development is a more efficient driver of progress than centralized, proprietary control. The document notes that DeepSeek's demonstration of frontier reasoning at lower costs proved that the high-cost barrier was an illusion, not a technical necessity.",
+  "verbatim": [
+   "Open source dissolved the API rent before it could be collected at scale.",
+   "DeepSeek demonstrated, at production scale, that frontier reasoning capability did not require hyperscaler-priced compute.",
+   "The apparent moat was a sunk cost, underwritten by infrastructure margins."
+  ]
+ },
+ {
+  "id": "C59",
+  "camp": "safetyist",
+  "node": "saf-intentions-035",
+  "node_label": "Simulating User-Expert Pairs to Teach Models When to Ask for Clarification",
+  "point": "Automated proxy judges and verifiers used to evaluate open-ended agent behavior introduce significant evaluation noise, bias, and reward hacking risks. Research on LLM-as-a-judge frameworks documents systematic positioning, verbosity, and self-enhancement biases that compromise the reliability of automated feedback. In open-ended creative domains, dependency on a proxy judge creates a capability ceiling and invites reward hacking unless conservative verification principles or intrinsic reward signals are applied. This highlights the safetyist concern that unverified automated optimization can lead to degenerative model drift or flawed policy updates.",
+  "verbatim": "Automated judges make it possible to evaluate open-ended agent behavior at scale, but their outputs are themselves noisy and biased. Zheng et al. (2023) showed that strong LLM judges can approximate human preferences on open-ended evaluation while also documenting systematic limitations including position, verbosity, and self-enhancement biases."
+ },
+ {
+  "id": "C60",
+  "camp": "skeptic",
+  "node": "skp-desires-082",
+  "node_label": "Eradicate Algorithmic Bias and Prevent AI from Entrenching Historical Injustice",
+  "point": "The authors argue for mandatory reporting of algorithmic performance across demographic and phenotypic subgroups to ensure accountability. They define accountability as the active reporting of performance gaps and the commitment to closing them. This approach seeks to move beyond technical reports toward transparent, inclusive benchmarking that addresses historical biases in dataset composition.",
+  "verbatim": "Inclusive benchmark datasets and subgroup accuracy reports will be necessary to increase transparency and accountability in artificial intelligence. We define accountability as reporting algorithmic performance on demographic and phenotypic subgroups and actively working to close performance gaps where they arise."
+ },
+ {
+  "id": "C61",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-019",
+  "node_label": "Foundation Model Capabilities Can Be Systematically Unlocked and Deployed",
+  "point": "The document asserts that AI models possess latent capabilities that can be systematically extracted and scaled through architectural interventions like context separation. By treating AI as a tool for generating diverse hypotheses and applying external selection criteria, developers can operationalize these models for rigorous scientific and engineering tasks. This approach moves beyond simple 'helpful assistant' defaults to unlock high-level utility.",
+  "verbatim": "The context-separated architecture provides what single-context reasoning lacks: an external evaluation that creates selection pressure. One context's output becomes another context's input for critique. The evaluation is external to the generation trace. Signal can be distinguished from noise."
+ },
+ {
+  "id": "C62",
+  "camp": "safetyist",
+  "node": "saf-desires-027",
+  "node_label": "Treating Digital Space as a Public Trust",
+  "point": "The document argues that digital infrastructure and the home environment must be treated as a public trust, necessitating firm legal boundaries that employers cannot cross even with employee consent. It asserts that current privacy frameworks fail to protect workers because they treat privacy as a negotiable commodity rather than a fundamental human right. By framing the home as a protected space, the authors advocate for a rights-first approach that prioritizes human dignity over employer business interests.",
+  "verbatim": "This Article argues that to protect workers\u2019 rights to privacy and fundamental human dignity, there must be some firm lines that employers cannot cross even with notional \u201cconsent\u201d and even if they believe that to do so will serve a business purpose."
+ },
+ {
   "id": "C63",
   "camp": "skeptic",
-  "node": "skp-intentions-004",
-  "node_label": "Build Shared-Ownership Structures for AI Production",
-  "point": "The authors propose that collective data ownership is the optimal policy to address the externalities of AI-driven labor displacement. Unlike individual ownership, which creates competition between workers and drives down wages, collective bargaining over work data ensures that workers capture a larger share of the surplus generated by AI. This approach is presented as a necessary structural change to align private incentives with social welfare.",
-  "verbatim": "By contrast, collective bargaining over work data eliminates this externality and can achieve both efficient knowledge sharing and a more equitable division of the gains from AI."
+  "node": "skp-beliefs-322",
+  "node_label": "First Amendment as Corporate Deregulatory Shield",
+  "point": "The document argues that critiques of Section 230 are often thinly veiled attempts to bypass First Amendment protections for speech that policymakers find objectionable, such as misinformation or offensive content. It highlights that proponents of these policies are frustrated by the constitutional limits on government power to regulate speech, leading them to target the intermediary liability protections that enable the current online ecosystem.",
+  "verbatim": "In these instances, policymakers aren?t really frustrated with Section 230\u2014 they are frustrated with the First Amendment."
  },
  {
   "id": "C64",
   "camp": "skeptic",
-  "node": "skp-beliefs-021",
-  "node_label": "AI Deployment Is Routine Engineering, Not Civilizational Rupture",
-  "point": "The document characterizes the end of the foundation model era as a structural correction rather than a civilizational rupture. It argues that the 'messianic rhetoric' of 2022-2024 regarding AGI and economic singularities was a symptom of irrational exuberance. The correction confirms that AI value accrues not in the foundation model layer, but in integration, data, and trust infrastructure.",
-  "verbatim": "The foundation model era ends not with a dramatic failure but with a structural correction \u00f9 the kind that follows every sustained period of irrational exuberance in transformative technology. The messianic rhetoric of 2022\u00fb2024 \u00f9 AGI by a specific year, the end of software engineering as a profession, economic singularities just ahead \u00f9 was the symptom of a market organized around assumptions that could not be tested until they were tested."
+  "node": "skp-intentions-004",
+  "node_label": "Build Shared-Ownership Structures for AI Production",
+  "point": "The document argues that collective data ownership is a superior mechanism for managing workplace data compared to individual ownership. By bundling individual data rights, collective ownership prevents competition externalities where one worker's data contribution inadvertently strengthens the firm's bargaining position against others. This approach ensures that workers collectively share in the productivity gains from AI, whereas individual sales can leave all workers worse off relative to a no-AI benchmark.",
+  "verbatim": "Under collective ownership, the time-2 disagreement point excludes all workers\u2019 data. This bundles individual data rights so that when one worker contributes, they do not inadvertently strengthen the firm\u2019s hand against others. This prevents competition externalities from arising, ensuring that workers share in the gains from AI."
  },
  {
   "id": "C65",
-  "camp": "safetyist",
-  "node": "saf-beliefs-063",
-  "node_label": "Synthetic Data Feedback Loops Cause Permanent Model Degradation",
-  "point": "When automated feedback and synthetic evaluation data are utilized to actively modify deployed systems rather than merely report metrics, evaluation noise becomes a critical update-safety problem. The text notes that automated judges suffer from systematic biases, including position, verbosity, and self-enhancement biases. This underscores safetyist concerns that unverified feedback loops risk permanently degrading model behavior and propagating latent flaws through recursive training pipelines.",
-  "verbatim": "Automated judges make it possible to evaluate open-ended agent behavior at scale, but their outputs are themselves noisy and biased. Zheng et al. (2023) showed that strong LLM judges can approximate human preferences on open-ended evaluation while also documenting systematic limitations including position, verbosity, and self-enhancement biases."
+  "camp": "skeptic",
+  "node": "skp-intentions-160",
+  "node_label": "Intersectional Demographic Benchmarking",
+  "point": "The document proposes that commercial facial analysis APIs should be required to provide users with the ability to adjust classification thresholds and report performance metrics like true positive rates (TPR) and false positive rates (FPR) for specific subgroups. It argues that current proprietary systems limit user control by hiding these thresholds and failing to disclose how different demographic groups are impacted. This transparency is presented as a necessary step to allow users to manage the trade-offs between accuracy and bias for their specific applications.",
+  "verbatim": [
+   "While confidence values give users more information, commercial classifiers should provide additional metrics.",
+   "By having APIs that fail to provide the ability to adjust these thresholds, they are limiting users\u2019 ability to pick their own TPR/FPR trade-off."
+  ]
  },
  {
   "id": "C66",
   "camp": "safetyist",
-  "node": "saf-beliefs-013",
-  "node_label": "Early AI Failures Will Be Dismissed Until a Catastrophic One Cannot Be",
-  "point": "The document asserts that as big AI models get integrated into the productive economy, AI becomes a source of systemic risk where sudden collapse is too precipitous for former customers to engineer a soft landing. The mechanism described is dependency on centralized, brittle AI infrastructure that can vanish overnight when private subsidies dry up. From a safetyist perspective, this highlights how widespread societal integration of fragile automated systems creates catastrophic operational vulnerabilities. The document notes that policymakers are currently blind to this risk, focusing instead on speculative existential scenarios.",
-  "verbatim": "As big AI models get integrated into the processes of the productive economy, AI becomes a source of systemic risk. The only thing worse than having an automated process that is rendered dangerous or erratic based on AI integration is to have that process fail entirely because the AI suddenly disappeared, a collapse that is too precipitous for former AI customers to engineer a soft landing for their systems."
+  "node": "saf-intentions-004",
+  "node_label": "Anchoring AI Accountability in Verifiable Provenance Records",
+  "point": "The document proposes a standardized evidence package for AI systems that mandates cryptographically signed manifests, including CBOM/AI-BOM schemas and TEE attestation quotes. By requiring these artifacts, the framework ensures that model provenance, dataset lineage, and cryptographic inventory are verifiable. This approach aims to anchor AI accountability in a transparent, machine-readable record of system identity and supply chain integrity.",
+  "verbatim": [
+   "While this paper presents a conceptual framework rather than executable code, we describe the artifacts that implementations would produce to enable reproducibility and interoperability: (1) CBOM/AI-BOM schema\u2014JSON or XML manifests following CycloneDX v1.6 ML-BOM and CBOM profiles, capturing model provenance, dataset lineage, and cryptographic inventory",
+   "(4) Model identity certificate\u2014X.509 certificates binding model hash to signing key, with extensions for CBOM reference and provenance URI."
+  ]
  },
  {
   "id": "C67",
-  "camp": "skeptic",
-  "node": "skp-beliefs-226",
-  "node_label": "Relational Employment Vulnerability",
-  "point": "The authors argue that the employment relationship is uniquely vulnerable to data exploitation due to its relational nature and the coercive power of employers. They highlight that teleworking has allowed this surveillance to colonize the home, turning private spaces into raw material for employer profit centers. This creates a situation where workers lose their ability to resist routine, ongoing surveillance.",
-  "verbatim": "Work is where, legally speaking, a worker loses nearly all of her ability to resist routine ongoing surveillance. Increased working from home during the COVID-19 global pandemic meant that employer surveillance followed workers home to a richer, more private, and profoundly problematic vein of data, founded on absurdly thin fig leaves of consent backed by workplace coercion."
+  "camp": "safetyist",
+  "node": "saf-intentions-148",
+  "node_label": "Targeting Verifiable Process Failures Instead of Policing Truth",
+  "point": "The document opposes judicial takedown regimes for defamation, arguing that they create significant adjudication challenges due to the wide variation in state defamation laws. It warns that such regimes would force platforms to remove content or risk liability, effectively allowing the most restrictive states to dictate online speech nationwide. The author prefers maintaining the current Section 230 framework over introducing new, complex liability triggers.",
+  "verbatim": "While a judicial takedown regime is preferable to broad notice-and-takedown systems, it still poses significant risks to online expression and departs from Section 230?s core principle that platforms are not ?derivatively liable for the illegal acts of others.?"
  },
  {
   "id": "C68",
-  "camp": "skeptic",
-  "node": "skp-beliefs-204",
-  "node_label": "AI-Driven Productivity Ratchet Intensifies Work Without Reducing Labor Burdens",
-  "point": "The document identifies that workers strategically withhold knowledge to avoid strengthening the AI systems that will eventually be used to replace them or lower their wages. This behavior, described as sandbagging or evading surveillance, is a rational response to the threat of AI-driven expropriation, even though it is privately costly and reduces current productivity.",
-  "verbatim": "To ease exposition, we assume that the worker may only withhold knowledge; that is, ?j = maxKj. Under this assumption, the costs capture strategic behavior such as sandbagging, evading surveillance, contaminating data, or degrading documentation."
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "point": "The document asserts that constraining US AI companies through liability regimes will not effectively slow foreign competitors or prevent bad actors from misusing AI. Instead, it argues that such constraints will only weaken American leadership in the field. This reflects a belief that domestic regulation is an ineffective tool for global risk mitigation.",
+  "verbatim": "Even policymakers skeptical of liability protections must recognize that constraining US AI companies will not slow foreign competitors or prevent bad actors from misusing AI\u2014it will only weaken American leadership."
  },
  {
   "id": "C69",
   "camp": "skeptic",
-  "node": "skp-intentions-055",
-  "node_label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
-  "point": "The document proposes a pragmatic, hands-on approach to AI security by focusing on the creation of machine-readable evidence artifacts like CBOMs and signed model hashes. It emphasizes that security must be operationalized through concrete technical practices rather than relying on abstract compliance checklists. This aligns with the skeptic focus on measurable, technical mitigation of immediate AI risks.",
-  "verbatim": "The procedure enables organizations to demonstrate not only that controls exist, but that each control addresses a specific threat, is enforced at a defined point, and produces verifiable evidence\u2014the core differentiator from checklist-based compliance approaches."
+  "node": "skp-beliefs-123",
+  "node_label": "AI Fails at Skills That Cannot Be Codified in Text",
+  "point": "Graphic design tasks combine objectively testable requirements with inherently underspecified judgments about hierarchy, balance, composition, style, and visual quality that resist deterministic verification. The document notes that creative design lacks the reliable, verifiable reward or deterministic oracle available in coding tasks or games, requiring multi-axis LLM judge rubrics to approximate quality. This underscores the skeptic argument that AI struggles with tacit, experiential knowledge that cannot be fully codified into rigid procedural rules. Consequently, evaluation relies on noisy multimodal judgments rather than ground-truth correctness.",
+  "verbatim": "There is therefore generally no deterministic oracle that can decide whether a professional design has satisfied its brief, and learning from such interactions requires reasoning from noisy multimodal judgments rather than treating an outcome reward as ground truth."
  },
  {
   "id": "C70",
+  "camp": "skeptic",
+  "node": "skp-beliefs-267",
+  "node_label": "Technical Fragility of Decentralized Attestation",
+  "point": "The ABOR architecture acknowledges that its security relies on pinned long-term root public keys distributed through out-of-band provenance channels. This creates a dependency on centralized trust anchors, as the entire chain-walk verification process at enforcement points depends on the integrity of the pinned root. If the root key distribution or the HSM-based key ceremony is compromised, the entire cryptographic enforcement layer fails, highlighting the inherent fragility of relying on centralized trust anchors for decentralized enforcement.",
+  "verbatim": "The root public key is distributed to enforcement points through an out-of-band provenance channel (typically the operator\u2019s organizational PKI bootstrap), pinned at enforcement points, and never distributed at runtime."
+ },
+ {
+  "id": "C71",
+  "camp": "skeptic",
+  "node": "skp-beliefs-267",
+  "node_label": "Technical Fragility of Decentralized Attestation",
+  "point": "The document acknowledges that the architecture's security ultimately rests on a long-term key held in an HSM, which is a centralized trust anchor. This confirms the skeptic belief that decentralized or distributed systems often require centralized trust anchors to maintain security, and that the compromise of such an anchor is catastrophic. The document explicitly notes that long-term root compromise is not bounded by the architecture itself but by the operational regime.",
+  "verbatim": "Long-term root compromise is acknowledged as catastrophic and is bounded not by the architecture but by the operational regime under which the root is held. This is consistent with the security pattern of any architecture whose security ultimately rests on a long-term key."
+ },
+ {
+  "id": "C72",
+  "camp": "skeptic",
+  "node": "skp-beliefs-141",
+  "node_label": "AI Personhood as a Corporate Liability Shield",
+  "point": "The government's conflict with Anthropic highlights that private companies cannot maintain 'usage policies' that override state determinations of lawfulness. The state asserts that it does not recognize a private vendor's right to withhold service for uses the state deems lawful, effectively subordinating private governance to sovereign authority.",
+  "verbatim": "The DPA threat made explicit what the structural analysis in this paper describes as the inevitable destination: the government's assertion that it does not recognize a private company's right to maintain a 'usage policy' that overrides determinations of lawfulness made by the state."
+ },
+ {
+  "id": "C73",
+  "camp": "skeptic",
+  "node": "skp-desires-014",
+  "node_label": "Human Rights as Constraints on AI Deployment",
+  "point": "Fundamental human rights, including privacy, freedom of association, and the right to rest, must be foregrounded as the primary constraint on employer behavior. The document argues that these rights should not be subject to employer balancing tests or proportionality assessments, but rather treated as non-negotiable protections for human dignity.",
+  "verbatim": "In this analysis fundamental rights are foregrounded and central rather than peripheral. In other words, they are the first step rather than the last."
+ },
+ {
+  "id": "C74",
+  "camp": "skeptic",
+  "node": "skp-beliefs-157",
+  "node_label": "Government AI Communications Systematically Overstate Benefits and Understate Risks",
+  "point": "The document criticizes policymakers for being ensnared in fantasies about AI safety regarding superintelligence turning humanity into paperclips, while ignoring the immediate risk of the AI bubble popping. The reasoning is that smart policymakers focus on fairness, algorithmic bias, and fraud, but fail to ask what happens when the AI bubble bursts and systems disappear overnight. From a skeptic perspective, futuristic existential risk narratives distract attention from tangible economic and structural harms occurring in the present. The document highlights this blind spot in current governance debates as a failure to prepare for economic collapse.",
+  "verbatim": "The smart policymakers are asking questions about fairness, algorithmic bias, and fraud. The foolish policymakers are ensnared in fantasies about 'AI safety,' AKA 'Will the chatbot become a superintelligence that turns the whole human race into paperclips?' ... But no one is asking, 'What will we do if' \u2013 when \u2013 'the AI bubble pops and most of this stuff disappears overnight?'"
+ },
+ {
+  "id": "C75",
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "point": "The document explicitly states that no AI-assisted technologies were used in the writing, editing, or data analysis of the manuscript. This serves as a procedural declaration of human-only authorship, which is a common practice in academic discourse to establish the integrity of the research process. It does not engage with accelerationist arguments regarding AI tools.",
+  "verbatim": "No AI-assisted technologies were used in the writing, editing, or data analysis for this manuscript. All work is original and completed solely by the listed authors."
+ },
+ {
+  "id": "C76",
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "point": "The document does not articulate accelerationist desires regarding AI-driven abundance or technological progress, focusing instead on critiquing extraordinary government interventions and advocating for normal regulatory resilience. The text evaluates the claims made by proponents of extraordinary regulations but does not itself champion accelerationist end-states. Consequently, accelerationist desires are not directly represented in the author's primary arguments.",
+  "verbatim": "In this essay, we lay out the downsides of extraordinary government intervention in response to new technology. We discuss proposals for improving resilience that do not require such intervention."
+ },
+ {
+  "id": "C77",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-125",
+  "node_label": "Whole-Genome Synthetic Design",
+  "point": "The study demonstrates that genome language models can successfully generate viable, full-scale viral genomes like bacteriophage Evo-36 with novel structural adaptations. By leveraging models trained on biological sequences, researchers can bypass the constraints of natural selection and classical directed evolution. This empirical success validates the accelerationist view that artificial intelligence can autonomously compose complex multi-gene biological architectures from scratch. However, the authors note that context-dependent effects of insertions remain difficult to predict and require extensive experimental validation.",
+  "verbatim": "In this work, we leveraged genome language models to achieve the first generative design of complete bacteriophage genomes. We established a computational framework for specifying our design goals, including the development of a gene annotation method and various scoring metrics, allowing us to controllably design toward a target genomic architecture and host tropism."
+ },
+ {
+  "id": "C78",
+  "camp": "skeptic",
+  "node": "skp-desires-076",
+  "node_label": "Public Right to Know What AI Was Trained On",
+  "point": "Workers express a strong preference for policies that grant them individual ownership and control over their work data. The survey found that 64% of respondents favor a policy allowing them to own and sell their individual work data for AI development. This desire for data sovereignty reflects a broader push for transparency and compensation regarding the use of worker-generated content in AI training.",
+  "verbatim": "Approximately 64% of respondents favored a policy that would grant them the right to own and sell their individual work data for AI development."
+ },
+ {
+  "id": "C79",
+  "camp": "skeptic",
+  "node": "skp-beliefs-269",
+  "node_label": "Enforcement Collapse Across Decentralized Open-Source Model Boundaries",
+  "point": "The document acknowledges that open-weight models and commercial frontier systems accessed through credential compromise create threat conditions where the adversary operates outside the operator's direct control. It notes that access patterns are temporal properties, as models restricted today may be replicated or distilled into open-weight successors within months, thereby bypassing centralized enforcement.",
+  "verbatim": [
+   "The regime\u2019s distinctive feature is that the adversary operates from outside any control surface the operator can directly enforce; defense rests on what crosses the operator\u2019s consuming-system boundary, not on what produces the output.",
+   "This is the indicator most likely to change over time for a given system: a model under restricted access today may be replicated or distilled into open-weight successors within months [4]."
+  ]
+ },
+ {
+  "id": "C80",
+  "camp": "safetyist",
+  "node": "saf-intentions-251",
+  "node_label": "Decompose Then Check Completeness Evaluation",
+  "point": "The document employs a multi-stage quality control process involving both automated validation and expert human review to ensure that new code requirements are correctly implemented. This process includes cross-validation between original and modified implementations to verify that core functionality is preserved and that test cases provide comprehensive coverage. This rigorous evaluation framework ensures that AI-generated code meets strict functional and safety standards.",
+  "verbatim": "Our approach combines automated validation with expert human review across multiple stages: ... In the third stage, a separate team of reviewers performs cross-validation between original and modified implementations to verify that: (1) core functionality is preserved across all variants, (2) new requirements are correctly implemented, (3) code modifications are appropriately scoped and minimal, and (4) test cases provide comprehensive coverage of both original and new functionality."
+ },
+ {
+  "id": "C81",
+  "camp": "safetyist",
+  "node": "saf-beliefs-241",
+  "node_label": "Re-Identification Harm Can Form at a Fusion Join No Single Gate Observes",
+  "point": "The document asserts that camera settings and sensor optimizations are often calibrated to expose lighter-skinned individuals, which creates a technical bias that complicates automated facial analysis for darker-skinned subjects. This systemic bias in image capture hardware necessitates more diverse datasets to ensure algorithmic performance is understood across all phenotypic attributes. The authors argue that failing to account for these hardware-level biases leads to poorly exposed images that hinder the accuracy of facial recognition systems.",
+  "verbatim": "Furthermore, skintype was chosen as a phenotypic factor of interest because default camera settings are calibrated to expose lighter-skinned individuals (Roth, 2009). Poorly exposed images that result from sensor optimizations for lighter-skinned subjects or poor illumination can prove challenging for automated facial analysis."
+ },
+ {
+  "id": "C82",
+  "camp": "safetyist",
+  "node": "saf-intentions-242",
+  "node_label": "Judicial Mandate of Operational Product Design Remedies",
+  "point": "The document opposes the use of judicial mandates to impose operational product design changes, such as the speed filter in Lemmon v. Snap, arguing that such interventions constitute product liability challenges that threaten the core protections of Section 230. It contends that courts should distinguish between content hosting and the active creation or development of information, warning that broad product liability claims will force platforms to remove useful features or entire categories of speech to avoid legal risk.",
+  "verbatim": "Some worry that Lemmon opens the door to lawsuits targeting core platform features, such as algorithms, recommendations, groups, or content categorization. As legal scholar Eric Goldman notes, the case leaves uncertainty about whether Section 230 would protect YouTube if it created an \u201curbexing\u201d category that allegedly encouraged trespassing, or would protect TikTok if a user injured themselves or a bystander while performing a dangerous stunt that the platform was accused of promoting, even if the video was never posted."
+ },
+ {
+  "id": "C83",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-053",
+  "node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
+  "point": "Individual data ownership restores economic efficiency by eliminating the incentive for workers to withhold knowledge during the initial phase of AI development. This alignment ensures that AI quality is maximized, leading to higher total output and productivity gains. The document demonstrates that individual ownership leads to full employment and optimal knowledge contributions, which are essential for realizing the full potential of AI-driven economic expansion.",
+  "verbatim": "To summarize, individual data ownership restores efficiency, because it ensures that each worker has no incentive to withhold knowledge at time-1."
+ },
+ {
+  "id": "C84",
+  "camp": "safetyist",
+  "node": "saf-beliefs-064",
+  "node_label": "AI Investment Is Outrunning Actual Productivity Returns",
+  "point": "The document highlights a significant disparity between the massive capital investments in AI firms and their actual financial performance, specifically noting high cash burn rates. This suggests that the current AI boom may be outrunning actual productivity returns, creating potential for financial instability. Safetyists interpret this as a risk factor where speculative investment could lead to a market correction if AI systems fail to deliver promised utility.",
+  "verbatim": "OpenAI's first half results: $4.3 billion in sales, $2.5 billion cash burn."
+ },
+ {
+  "id": "C85",
   "camp": "safetyist",
   "node": "saf-intentions-150",
   "node_label": "Alerting Users When App Behavior Contradicts Privacy Declarations",
@@ -591,169 +711,27 @@
   ]
  },
  {
-  "id": "C71",
-  "camp": "safetyist",
-  "node": "saf-intentions-006",
-  "node_label": "Designing AI to flag uncertainty and defer to humans",
-  "point": "The document emphasizes that in settings where formal verification or executable tests are unavailable, human review remains a necessary external criterion for reliability. It advocates for architectures that concentrate human judgment on a small number of survivors from rigorous automated filtering, rather than attempting to replace human oversight entirely.",
-  "verbatim": "In settings where these mechanisms are unavailable, human review remains an important external criterion. The architecture\u2019s goal is not to replace human judgment but to concentrate it."
- },
- {
-  "id": "C72",
-  "camp": "safetyist",
-  "node": "saf-beliefs-051",
-  "node_label": "Measured AI Biases Are Leading Indicators of Discriminatory Outcomes",
-  "point": "The document asserts that algorithmic bias in facial analysis is a leading indicator of discriminatory outcomes in high-stakes sectors like law enforcement and healthcare. It argues that because these systems are trained on biased data, they propagate societal stereotypes and cause measurable harm to underrepresented groups. The authors emphasize that these errors are not merely technical glitches but systemic failures that threaten civil liberties and equitable treatment.",
-  "verbatim": "It has recently been shown that algorithms trained with biased data have resulted in algorithmic discrimination. Some face recognition systems have been shown to misidentify people of color, women, and young people at high rates."
- },
- {
-  "id": "C73",
-  "camp": "skeptic",
-  "node": "skp-beliefs-075",
-  "node_label": "Employees Experience AI Integration as Something Done to Them, Not With Them",
-  "point": "Workers are increasingly subject to pervasive surveillance that captures both formal and tacit knowledge, often without clear guidelines or consent. This data extraction process, which includes screen recordings and audio logs, is used to train AI systems to replicate human expertise, effectively turning worker behavior into a commodity for firm-owned AI models. The document highlights that this process is often imposed on workers, who feel they have little control over how their professional traces are utilized.",
-  "verbatim": "Surveillance technologies facilitate this process by recording how experienced workers perform their jobs. ... Fewer than 30% of workers report having received formal guidelines or policies about what data may be collected about their work or how it could be used."
- },
- {
-  "id": "C74",
-  "camp": "skeptic",
-  "node": "skp-beliefs-004",
-  "node_label": "Recursive Data Contamination by AI Output",
-  "point": "The document highlights that LLMs lack behavioral templates for self-correction because training corpora consist almost entirely of correct human reasoning rather than examples of error identification. This training gap, combined with the structural tendency to 'stitch together' linguistic forms without reference to meaning, limits the model's ability to perform genuine self-correction.",
-  "verbatim": "Bender et al. [2021] characterize language models as systems that \u00f4stitch together sequences of linguistic forms... according to probabilistic information about how they combine, but without any reference to meaning.\u00f6"
- },
- {
-  "id": "C75",
-  "camp": "safetyist",
-  "node": "saf-intentions-004",
-  "node_label": "Anchoring AI Accountability in Verifiable Provenance Records",
-  "point": "The document proposes the use of Cryptographic Bills of Materials (CBOM) and AI Bills of Materials (AI-BOM) to provide a verifiable record of system provenance. These artifacts must include model identity, training data lineage, dependency inventories, and signing authority information. This approach addresses the limitations of traditional software bills of materials by explicitly tracking cryptographic and data dependencies.",
-  "verbatim": "Cryptographic Bills of Materials (CBOM) extend Software Bill of Materials (SBOM) concepts to explicitly inventory cryptographic dependencies. ... AI Bill of Materials (AI-BOM) concepts extend SBOM to address these limitations."
- },
- {
-  "id": "C76",
-  "camp": "skeptic",
-  "node": "skp-intentions-110",
-  "node_label": "Establishing Decentralized User-Controlled Cryptographic Receipts for Algorithmic Discovery",
-  "point": "The document supports the creation of comprehensive audit logs and telemetry that are stored outside the compute plane, ensuring that even if a system is compromised, the evidence of its actions remains accessible for review. This aligns with skeptic demands for accountability and the ability to perform forensic analysis on AI systems to detect bias, misuse, or unauthorized behavior.",
-  "verbatim": "The substrate must therefore be operated outside the compute plane, with its integrity protected by the same authority-plane isolation regime in Section 5.3.5 that protects the cryptographic enforcement infrastructure."
- },
- {
-  "id": "C77",
-  "camp": "safetyist",
-  "node": "saf-beliefs-013",
-  "node_label": "Early AI Failures Will Be Dismissed Until a Catastrophic One Cannot Be",
-  "point": "The document asserts that crisis and risk management frameworks are designed to anticipate and plan for disruptive events, contradicting the common rhetorical framing of crises as inherently unpredictable. By treating crises as foreseeable outcomes of unmanaged risks, the document suggests that early warning signs are often ignored or suppressed by organizational structures, leading to catastrophic outcomes that could have been mitigated with timely intervention.",
-  "verbatim": "Crisis and risk management approaches, however, are built on the opposite assumption, firmly rejecting the conventional belief that crises would be inherently unpredictable events. By the opposite, the entire spectrum of disruptive event management, ranging from thorough risk assessment based on organizational and environmental analysis to the deployment of control mechanisms, aimed at vulnerability reduction, and post-disruption recovery strategies, is supposed to be comprehensively anticipated and effectively planned."
- },
- {
-  "id": "C78",
-  "camp": "safetyist",
-  "node": "saf-intentions-032",
-  "node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
-  "point": "The document argues that context separation\u2014removing the generator's reasoning trace from the evaluator\u2014is essential to break correlated failure modes. By forcing the model to evaluate outputs without access to the original reasoning path, the system prevents the evaluator from inheriting the generator's blind spots. This supports safetyist objectives by creating a more transparent and verifiable reasoning process.",
-  "verbatim": [
-   "The error-producing context is absent, so the evaluator cannot \u201csee\u201d the blind spot that caused the error.",
-   "Definition 5.3 (Context separation). Two evaluation contexts are separated if the evaluating context has no access to: (1) the generation trace (intermediate reasoning steps), (2) the prompt scaffolding (instructions that shaped generation), or (3) hidden state from the generation process."
-  ]
- },
- {
-  "id": "C79",
-  "camp": "skeptic",
-  "node": "skp-beliefs-047",
-  "node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
-  "point": "The document acknowledges that a significant portion of the judiciary will likely view generative AI as participating in the creation and development of information, thereby falling outside the scope of Section 230 protections. It notes that the term 'generative' itself implies creation, which creates a legal risk for the AI industry. This highlights the fundamental tension between existing legal frameworks and the capabilities of new AI systems.",
-  "verbatim": "It is highly likely that a significant portion of the judiciary will view generative AI as taking part in creation and development of information and therefore not protected by Section 230. Even just the term \u201cgenerative\u201d is indicative of creation and development."
- },
- {
-  "id": "C80",
-  "camp": "accelerationist",
-  "node": "acc-desires-041",
-  "node_label": "Defend the Individual Right to Modify One's Own Biology and Mind",
-  "point": "The authors envision that further development of generative genomics will continue to unlock complex biological functions for the benefit of science and society through methodological innovations and improved training datasets. By leveraging generative design, researchers can bypass the limitations of directed evolution and rational engineering, accessing novel evolutionary pathways that would otherwise be difficult to achieve. This capability supports the broader accelerationist objective of utilizing advanced technologies to engineer biological systems and expand human capabilities. However, realizing this potential requires ongoing methodological improvements and scalable DNA synthesis techniques.",
-  "verbatim": "By continuing to build upon robust safety and security frameworks, the field can responsibly unlock the potential of generative models to access and engineer complex biological functions for the benefit of science and society."
- },
- {
-  "id": "C81",
-  "camp": "accelerationist",
-  "node": "acc-beliefs-041",
-  "node_label": "AI Capabilities Emerge From Tuning, Context, and Compression -- Not Just Training Data",
-  "point": "The document asserts that even with advanced AI, context-specific training and examples from human experts remain essential for models to excel at actual workplace tasks. It suggests that human-generated data is a more efficient input for AI development than relying solely on autonomous learning, reinforcing the belief that AI capabilities are best realized through the integration of human context.",
-  "verbatim": "Although advanced systems may learn such knowledge autonomously, it is likely more efficient to provide models with examples from human experts who already possess this information. As a result, human-generated data and experience are likely to remain important inputs to AI systems"
- },
- {
-  "id": "C82",
-  "camp": "skeptic",
-  "node": "skp-intentions-087",
-  "node_label": "Systematize AI Model Evaluation Through Benchmarking, Auditing, and Experimentation",
-  "point": "The document advocates for rigorous, systematic methods to assess AI models, noting that scaling single models is insufficient for reliable validation. It suggests that investment in external selection infrastructure\u2014such as formal verification tools and diverse critic ensembles\u2014is essential for reliable AI-assisted workflows.",
-  "verbatim": "This analysis suggests that scaling single models may be insufficient for reliable validation in generate-then-judge workflows. The bottleneck is not generation capability but validation under external constraints."
- },
- {
-  "id": "C83",
-  "camp": "accelerationist",
-  "node": "acc-intentions-003",
-  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
-  "point": "The document argues for a defense-in-depth strategy in AI-assisted workflows, prioritizing the integration of diverse, independent external selection channels over relying on larger single models. By utilizing formal verification, executable tests, and diverse critic ensembles, systems can overcome the validation bottleneck in generate-then-judge workflows. This approach concentrates human attention on high-quality candidates, effectively scaling human judgment rather than replacing it.",
-  "verbatim": "The goal is defense in depth: multiple independent failure modes such that exploiting one does not compromise the entire system. Investment in external selection infrastructure (formal verification tools, test generation, invariant libraries, diverse critic ensembles) may yield returns complementary to larger single models."
- },
- {
-  "id": "C84",
-  "camp": "skeptic",
-  "node": "skp-beliefs-236",
-  "node_label": "Prohibitionist Policy Backfire",
-  "point": "The document argues that weakening or repealing Section 230 would result in a 'backfire' effect, where platforms are forced to over-remove lawful speech to manage legal risk. It claims that expanding platform liability would entrench large incumbents by creating compliance costs that small startups cannot absorb, thereby reducing competition. The author asserts that the current legal framework is necessary to prevent platforms from becoming 'free-fire zones' while avoiding the negative consequences of aggressive, liability-driven censorship.",
-  "verbatim": "Weakening or repealing Section 230 would backfire, pushing platforms to over-remove lawful speech, limit features, or exit markets to manage legal risk. Expanding platform liability would entrench large incumbents by raising legal and compliance costs that small and new companies cannot absorb, ultimately reducing competition and innovation."
- },
- {
-  "id": "C85",
-  "camp": "safetyist",
-  "node": "saf-intentions-040",
-  "node_label": "Binding Named Officers to Deployment Infrastructure",
-  "point": "The document highlights that current legal frameworks like the 'work for hire' doctrine are ill-equipped to handle the capture of behavioral trace data for AI training. It notes that researchers and advocates are proposing new governance frameworks, such as collective data rights or worker data trusts, to ensure equitable participation in the value created by AI, which aligns with safetyist concerns regarding accountability and the erosion of worker agency.",
-  "verbatim": "More broadly, researchers and advocates have proposed new governance frameworks\u2014such as collective data rights or worker data trusts\u2014to ensure more equitable participation in the value created by workplace AI"
- },
- {
   "id": "C86",
-  "camp": "safetyist",
-  "node": "saf-intentions-049",
-  "node_label": "Ensuring AI Agent Actions Can Be Safely Rolled Back",
-  "point": "The document proposes a multi-agent system, MaintainCoder, that uses an orchestrated pipeline to ensure code maintainability and structural integrity. By incorporating design patterns and a waterfall-like model, the system aims to reduce technical debt and ensure that code remains robust across iterative changes. This focus on structured, atomic, and modular development aligns with safetyist goals of managing the reliability of complex AI-generated systems.",
-  "verbatim": "It integrates the Waterfall model, design patterns, and multi-agent collaboration to systematically enhance cohesion, reduce coupling, achieving clear responsibility boundaries and better maintainability."
+  "camp": "skeptic",
+  "node": "skp-beliefs-063",
+  "node_label": "AI Development Processes Systematically Encode Human Cognitive Biases",
+  "point": "The document identifies that LLMs, when prompted as 'helpful assistants,' inherit human cognitive biases such as prestige deference, social smoothing, and narrative continuation. These biases are encoded into the model's training distribution and reinforced by RLHF, leading to a diplomatic, balanced format that masks the actual quality of the input, which skeptics view as a systematic failure of AI to provide objective assessment.",
+  "verbatim": "This prediction inherits whatever patterns characterize human evaluation behavior in that distribution: prestige deference, format heuristics, social smoothing, and narrative continuation. Alignment training (RLHF) shifts which human behavior is predicted but may not change the underlying operation."
  },
  {
   "id": "C87",
-  "camp": "safetyist",
-  "node": null,
-  "node_label": null,
-  "point": "When automated feedback is utilized to modify a deployed operational system, evaluation noise must be treated as a serious update-safety problem rather than ignored. Safe-policy-improvement principles and high-confidence off-policy evaluation dictate that proposed updates must be rigorously assessed against incumbent baselines using confidence bounds before wider deployment. A proposed memory or policy update ought to be validated cautiously rather than accepted solely on the basis of an absolute high evaluation score. This conservative verification principle is essential for preventing regressions and maintaining system stability under noisy automated feedback.",
-  "verbatim": [
-   "When automated feedback is used not merely for reporting performance but for modifying a deployed system, evaluation noise becomes an update-safety problem.",
-   "Although these methods address reinforcement-learning policies rather than natural-language skill artifacts, they motivate a conservative principle relevant to deployed agents: a proposed update should be compared against the incumbent rather than accepted solely because its absolute evaluation score appears high"
-  ]
- },
- {
-  "id": "C88",
-  "camp": "safetyist",
-  "node": "saf-intentions-013",
-  "node_label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
-  "point": "The document opposes extraordinary pre-deployment restrictions and voluntary commitments that block private companies from releasing advanced models, arguing instead for broader societal investments in resilience. The mechanism proposed relies on normal policymaking, funding public-sector defense tools, bug bounties, and red-teaming for under-defended sectors rather than executive emergency powers. From a safetyist perspective, this approach misjudges the severity of rapid capability scaling and relies on governance mechanisms that are currently hobbled by institutional sclerosis. The authors acknowledge that their preferred normal policymaking approach suffers from severe bureaucratic inertia and a lack of proven federal execution.",
-  "verbatim": "One response that does not require extraordinary government intervention is improving resilience. Resilience is the capacity of a system to withstand and adapt to harm."
- },
- {
-  "id": "C89",
-  "camp": "safetyist",
-  "node": "saf-beliefs-147",
-  "node_label": "AI Threats Are Only Real When Capability, Autonomy, and Persistence Converge",
-  "point": "The document defines the 'Mythos-class' threat category through five joint indicators: capability, scaffold, access pattern, autonomy depth, and persistence. It asserts that the compound character of these indicators is essential, as no single indicator suffices to define the threat, and that their simultaneous availability at deployable scale represents a novel security challenge in 2026.",
-  "verbatim": "A Mythos-class system is a deployed AI system whose properties, considered jointly, satisfy the five indicators below. The compound character is essential: no single indicator suffices. None is novel in isolation; what is new in 2026 is the simultaneous availability of all five at deployable scale."
- },
- {
-  "id": "C90",
   "camp": "accelerationist",
   "node": null,
   "node_label": null,
-  "point": "The document does not propose accelerationist strategies. It focuses on the critique of existing regulatory frameworks and the need for non-negotiable rights, rather than the promotion of AI-driven abundance or technological acceleration.",
-  "verbatim": "The GDPR approach, which holds employers to a standard of only extracting and using data either based on a consent standard or for their self-determined legitimate interests, provides very limited options for individuals to opt out or challenge the legitimacy of the purposes, and does not provide adequate protection for workers."
+  "point": "The document observes that smaller, standalone models running on commodity hardware are pushed by communities far beyond their original manufacturers' beliefs about their capacity. The mechanism involves decentralized developer communities pushing technical boundaries outside corporate control. From an accelerationist perspective, this demonstrates the decentralized diffusion and bottom-up capability expansion of AI tools. The document notes that these standalone models are still derived from big models and rely on setup costs previously borne by well-funded companies.",
+  "verbatim": "Now, there are smaller models, models that stand alone and run on commodity hardware. These would persist even after the AI bubble bursts, because most of their costs are setup costs that have already been borne by the well-funded companies that created them. These models are limited, of course, though the communities that have formed around them have pushed those limits in surprising ways, far beyond their original manufacturers' beliefs about their capacity."
+ },
+ {
+  "id": "C88",
+  "camp": "accelerationist",
+  "node": "acc-desires-041",
+  "node_label": "Defend the Individual Right to Modify One's Own Biology and Mind",
+  "point": "The authors advocate for unlocking the immense potential of generative models to access and engineer complex biological functions for the advancement of science and society. This perspective aligns directly with the accelerationist desire to expand human capability through technological self-modification and biological design. By demonstrating that AI-designed phage cocktails can rapidly overcome bacterial resistance where natural phages fail, the work illustrates the transformative medical and ecological benefits of synthetic genomics. The text emphasizes that robust safety frameworks can responsibly guide this technological empowerment without stifling innovation.",
+  "verbatim": "By continuing to build upon robust safety and security frameworks, the field can responsibly unlock the potential of generative models to access and engineer complex biological functions for the benefit of science and society."
  }
 ]
