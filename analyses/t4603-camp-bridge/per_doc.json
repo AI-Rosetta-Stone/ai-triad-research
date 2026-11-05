@@ -12,16 +12,16 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 4,
-   "on": 6,
-   "off": 8,
+   "on": 5,
+   "off": 9,
    "empty_camps": [],
    "empty_cells_persisted": true,
-   "empty_cells_n": 0,
+   "empty_cells_n": 2,
    "empty_camps_undeclared": [],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.04
+   "spend_usd": 0.0
   }
  },
  {
@@ -39,16 +39,14 @@
    "calls": 6,
    "on": 14,
    "off": 2,
-   "empty_camps": [
-    "accelerationist"
-   ],
+   "empty_camps": [],
    "empty_cells_persisted": true,
-   "empty_cells_n": 5,
+   "empty_cells_n": 4,
    "empty_camps_undeclared": [],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0525
+   "spend_usd": 0.0
   }
  },
  {
@@ -65,17 +63,17 @@
    "extraction_mode": "single_shot",
    "calls": 1,
    "on": 3,
-   "off": 2,
+   "off": 1,
    "empty_camps": [
-    "accelerationist"
+    "safetyist"
    ],
    "empty_cells_persisted": true,
-   "empty_cells_n": 4,
+   "empty_cells_n": 5,
    "empty_camps_undeclared": [],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0184
+   "spend_usd": 0.0
   }
  },
  {
@@ -91,8 +89,8 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 6,
-   "on": 9,
-   "off": 12,
+   "on": 8,
+   "off": 8,
    "empty_camps": [],
    "empty_cells_persisted": true,
    "empty_cells_n": 0,
@@ -100,7 +98,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0544
+   "spend_usd": 0.0
   }
  },
  {
@@ -116,8 +114,8 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 5,
-   "on": 5,
-   "off": 9,
+   "on": 6,
+   "off": 5,
    "empty_camps": [],
    "empty_cells_persisted": true,
    "empty_cells_n": 0,
@@ -125,7 +123,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0411
+   "spend_usd": 0.0
   }
  },
  {
@@ -142,15 +140,15 @@
    "extraction_mode": "single_shot",
    "calls": 5,
    "on": 11,
-   "off": 8,
+   "off": 7,
    "empty_camps": [],
    "empty_cells_persisted": true,
-   "empty_cells_n": 2,
+   "empty_cells_n": 3,
    "empty_camps_undeclared": [],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0543
+   "spend_usd": 0.0
   }
  },
  {
@@ -166,8 +164,8 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 4,
-   "on": 5,
-   "off": 3,
+   "on": 10,
+   "off": 1,
    "empty_camps": [
     "skeptic"
    ],
@@ -177,7 +175,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0416
+   "spend_usd": 0.0
   }
  },
  {
@@ -199,12 +197,12 @@
     "accelerationist"
    ],
    "empty_cells_persisted": true,
-   "empty_cells_n": 5,
+   "empty_cells_n": 6,
    "empty_camps_undeclared": [],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0531
+   "spend_usd": 0.0
   }
  },
  {
@@ -220,7 +218,7 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 4,
-   "on": 9,
+   "on": 8,
    "off": 2,
    "empty_camps": [
     "accelerationist"
@@ -231,7 +229,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0354
+   "spend_usd": 0.0
   }
  },
  {
@@ -247,8 +245,8 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 7,
-   "on": 20,
-   "off": 3,
+   "on": 17,
+   "off": 2,
    "empty_camps": [
     "accelerationist"
    ],
@@ -258,7 +256,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0657
+   "spend_usd": 0.0
   }
  },
  {
@@ -275,7 +273,7 @@
    "extraction_mode": "single_shot",
    "calls": 4,
    "on": 8,
-   "off": 8,
+   "off": 3,
    "empty_camps": [],
    "empty_cells_persisted": true,
    "empty_cells_n": 0,
@@ -283,7 +281,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0377
+   "spend_usd": 0.0
   }
  },
  {
@@ -299,8 +297,8 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 6,
-   "on": 12,
-   "off": 2,
+   "on": 13,
+   "off": 1,
    "empty_camps": [
     "accelerationist"
    ],
@@ -310,7 +308,7 @@
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0515
+   "spend_usd": 0.0
   }
  },
  {
@@ -326,16 +324,22 @@
    "path": "single_shot",
    "extraction_mode": "single_shot",
    "calls": 1,
-   "on": 3,
-   "off": 2,
-   "empty_camps": [],
+   "on": 4,
+   "off": 0,
+   "empty_camps": [
+    "accelerationist",
+    "safetyist"
+   ],
    "empty_cells_persisted": true,
    "empty_cells_n": 0,
-   "empty_camps_undeclared": [],
+   "empty_camps_undeclared": [
+    "accelerationist",
+    "safetyist"
+   ],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0156
+   "spend_usd": 0.0
   }
  },
  {
@@ -351,16 +355,18 @@
    "path": "chunked",
    "extraction_mode": "single_shot",
    "calls": 10,
-   "on": 24,
-   "off": 6,
-   "empty_camps": [],
+   "on": 22,
+   "off": 3,
+   "empty_camps": [
+    "accelerationist"
+   ],
    "empty_cells_persisted": true,
    "empty_cells_n": 4,
    "empty_camps_undeclared": [],
    "tagged_empty": false,
    "tagged_empty_warn": false,
    "crash": false,
-   "spend_usd": 0.0928
+   "spend_usd": 0.0
   }
  },
  {
