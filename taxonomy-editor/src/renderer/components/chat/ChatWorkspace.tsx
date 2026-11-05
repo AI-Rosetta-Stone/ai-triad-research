@@ -191,7 +191,7 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
-        {!isUser && <ChatHowPanel />}
+        {!isUser && <ChatHowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} />}
       </div>
     </div>
   );
@@ -238,10 +238,16 @@ function ChatHowSection({ title, defaultExpanded, children }: { title: string; d
   );
 }
 
-/** Collapsed by default, below each POV response (t/4824). Raw Prompt/Response aren't captured
- *  per chat turn yet (t/4827, ServerAPI) — they show an explicit "not available" state rather
- *  than an empty box, so a missing value never reads as a rendering bug. */
-function ChatHowPanel() {
+/** Raw Prompt/Response content: the real text in a ~15-visible-line scroll box when the server has
+ *  captured it (t/4848), or the "not available" message when it hasn't — a missing value for an
+ *  older/in-flight turn never reads as a rendering bug. */
+function ChatHowRawContent({ value }: { value: string | undefined }) {
+  if (!value) return <p className="chat-how-unavailable">Not available for this response yet.</p>;
+  return <pre className="chat-how-textbox">{value}</pre>;
+}
+
+/** Collapsed by default, below each POV response (t/4824). */
+function ChatHowPanel({ rawPrompt, rawResponse }: { rawPrompt: string | undefined; rawResponse: string | undefined }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="chat-how-panel">
@@ -252,10 +258,10 @@ function ChatHowPanel() {
       {expanded && (
         <div className="chat-how-body">
           <ChatHowSection title="Raw Prompt" defaultExpanded>
-            <p className="chat-how-unavailable">Not available for this response yet.</p>
+            <ChatHowRawContent value={rawPrompt} />
           </ChatHowSection>
           <ChatHowSection title="Raw Response" defaultExpanded={false}>
-            <p className="chat-how-unavailable">Not available for this response yet.</p>
+            <ChatHowRawContent value={rawResponse} />
           </ChatHowSection>
           <ChatHowSection title="Methods" defaultExpanded={false}>
             <ul className="chat-how-methods-list">

@@ -61,13 +61,29 @@ function Invoke-IssueTypeClassification {
     .PARAMETER Force
         Allow continuing into an existing OutputPath written under a DIFFERENT run_id (overwrites
         it). Without -Force, a run_id mismatch against an existing file is refused.
+    .PARAMETER AdjudicateQueue
+        t/4835#4: instead of classifying taxonomy nodes, re-processes the EXISTING review queue
+        (status 'pending') at -OutputPath with a third, stronger model (-AdjudicatorModel),
+        BLIND to the two prior models' answers (the prompt never includes them, same as the
+        normal path). Auto-accepts (status 'accepted', method 'llm-adjudicated') when the
+        adjudicator's primary tag matches either prior model's primary AND (if it chose a tag at
+        all) its confidence for that tag is >= 0.6; a "no tag" adjudication matches a "no tag"
+        prior with no confidence gate (there is no tag to be confident about). Everything else
+        stays 'pending' for a human, with the adjudicator's own attempt recorded in provenance so
+        the reviewer isn't working blind. -NodeIds narrows which queued nodes to adjudicate (e.g.
+        a resume); default is every 'pending' node in the file.
+    .PARAMETER AdjudicatorModel
+        Model for -AdjudicateQueue. Default: 'claude-sonnet-5' (the model t/4835#4 names).
     .OUTPUTS
         PSCustomObject: NodesProcessed, Proposed, Written, ReviewQueueCount, EmptyCount,
-        TypeCounts (hashtable), AgreementRate, ActualCost, CostCeilingHit, Skipped, Failed.
+        TypeCounts (hashtable), AgreementRate, ActualCost, CostCeilingHit, Skipped, Failed. In
+        -AdjudicateQueue mode, additionally AdjudicatedAccepted and AdjudicatedStillPending.
     .EXAMPLE
         Invoke-IssueTypeClassification -NodeIds $GoldSetIds -SkipCrossCheck
     .EXAMPLE
         Invoke-IssueTypeClassification -RunId 'issue-types-full-2026-11-04' -WriteProposals
+    .EXAMPLE
+        Invoke-IssueTypeClassification -AdjudicateQueue -OutputPath $Path -WriteProposals -CostCeiling 5.0
     .LINK
         Show-AITriadHelp
     #>
@@ -102,7 +118,13 @@ function Invoke-IssueTypeClassification {
         [switch]$WriteProposals,
 
         [Parameter()]
-        [switch]$Force
+        [switch]$Force,
+
+        [Parameter()]
+        [switch]$AdjudicateQueue,
+
+        [Parameter()]
+        [string]$AdjudicatorModel = 'claude-sonnet-5'
     )
 
     Set-StrictMode -Version Latest
@@ -115,39 +137,9 @@ function Invoke-IssueTypeClassification {
         $OutputPath = Join-Path (Get-TaxonomyDir) 'issue-type-proposals.json'
     }
 
-    # ── Resume / overwrite guard ─────────────────────────────────────────────
-    $ExistingProposals = @{}
-    if (Test-Path $OutputPath) {
-        try {
-            $ExistingFile = Get-Content $OutputPath -Raw | ConvertFrom-Json
-            $ExistingRunId = if ($ExistingFile.PSObject.Properties['run_id']) { [string]$ExistingFile.run_id } else { $null }
-            if ($ExistingRunId -and $ExistingRunId -ne $RunId -and -not $Force) {
-                throw (New-ActionableError -AsErrorRecord `
-                    -Goal 'Resume or start an issue-type classification run' `
-                    -Problem "$OutputPath already holds run_id '$ExistingRunId', not the requested '$RunId'" `
-                    -Location 'Invoke-IssueTypeClassification' `
-                    -NextSteps @("Pass -RunId '$ExistingRunId' to resume that run",
-                                 'Or pass -Force to start a new run and overwrite it'))
-            }
-            if ($ExistingFile.PSObject.Properties['proposals']) {
-                foreach ($p in @($ExistingFile.proposals)) {
-                    if ($p.PSObject.Properties['node_id']) { $ExistingProposals[[string]$p.node_id] = $p }
-                }
-            }
-            if ($ExistingProposals.Count -gt 0) {
-                Write-Host "Resuming run '$RunId' — $($ExistingProposals.Count) node(s) already classified, skipping them."
-            }
-        } catch [System.Management.Automation.RuntimeException] {
-            throw
-        } catch {
-            Write-Warning "Invoke-IssueTypeClassification: could not read existing $OutputPath ($($_.Exception.Message)) — treating as empty"
-        }
-    }
-
-    # ── Gather nodes ─────────────────────────────────────────────────────────
+    # ── Gather nodes (both modes need the taxonomy lookup) ───────────────────
     $PovByFile = @{ accelerationist = 'accelerationist'; safetyist = 'safetyist'; skeptic = 'skeptic'; situations = $null }
     $AllNodesById = @{}
-    $Targets = [System.Collections.Generic.List[PSObject]]::new()
     foreach ($PovKey in $script:TaxonomyData.Keys) {
         $PovFile = $script:TaxonomyData[$PovKey]
         if (-not $PovFile.PSObject.Properties['nodes']) { continue }
@@ -156,22 +148,93 @@ function Invoke-IssueTypeClassification {
             $AllNodesById[[string]$n.id] = $n
         }
     }
-    $WantedIds = if ($NodeIds -and @($NodeIds).Count -gt 0) { @($NodeIds) } else { @($AllNodesById.Keys) }
-    foreach ($id in $WantedIds) {
-        if ($ExistingProposals.ContainsKey($id)) { continue }
-        if (-not $AllNodesById.ContainsKey($id)) {
-            Write-Warning "Invoke-IssueTypeClassification: node id '$id' not found in the loaded taxonomy — skipping"
-            continue
+
+    $AllAdjQueueProposals = $null   # populated only in -AdjudicateQueue mode; the full file, for write-back
+    $Targets = [System.Collections.Generic.List[PSObject]]::new()
+
+    if ($AdjudicateQueue) {
+        # ── -AdjudicateQueue: targets are the EXISTING file's 'pending' entries, not fresh
+        # taxonomy nodes. No resume/run_id guard applies -- this mutates specific entries of an
+        # already-written file in place, it does not start or continue a classification run.
+        if (-not (Test-Path $OutputPath)) {
+            throw (New-ActionableError -AsErrorRecord `
+                -Goal 'Adjudicate the issue-type review queue' `
+                -Problem "No existing proposals file at $OutputPath to adjudicate" `
+                -Location 'Invoke-IssueTypeClassification' `
+                -NextSteps @('Run the classification first (without -AdjudicateQueue) to produce the file',
+                             'Or pass the correct -OutputPath'))
         }
-        $Targets.Add($AllNodesById[$id])
+        $ExistingFile = Get-Content $OutputPath -Raw | ConvertFrom-Json
+        $AllAdjQueueProposals = if ($ExistingFile.PSObject.Properties['proposals']) { , @($ExistingFile.proposals) } else { , @() }
+        $PendingByNodeId = @{}
+        foreach ($p in $AllAdjQueueProposals) {
+            if ($p.PSObject.Properties['node_id'] -and $p.PSObject.Properties['status'] -and $p.status -eq 'pending') {
+                $PendingByNodeId[[string]$p.node_id] = $p
+            }
+        }
+        $WantedIds = if ($NodeIds -and @($NodeIds).Count -gt 0) { @($NodeIds) } else { @($PendingByNodeId.Keys) }
+        foreach ($id in $WantedIds) {
+            if (-not $PendingByNodeId.ContainsKey($id)) {
+                Write-Warning "Invoke-IssueTypeClassification -AdjudicateQueue: '$id' is not a pending queue entry — skipping"
+                continue
+            }
+            if (-not $AllNodesById.ContainsKey($id)) {
+                Write-Warning "Invoke-IssueTypeClassification -AdjudicateQueue: node id '$id' not found in the loaded taxonomy — skipping"
+                continue
+            }
+            $Targets.Add($AllNodesById[$id])
+        }
+        Write-Host "Issue-type adjudication: $($Targets.Count) queued node(s) to adjudicate with $AdjudicatorModel (blind)."
+    } else {
+        # ── Resume / overwrite guard ──────────────────────────────────────────
+        $ExistingProposals = @{}
+        if (Test-Path $OutputPath) {
+            try {
+                $ExistingFile = Get-Content $OutputPath -Raw | ConvertFrom-Json
+                $ExistingRunId = if ($ExistingFile.PSObject.Properties['run_id']) { [string]$ExistingFile.run_id } else { $null }
+                if ($ExistingRunId -and $ExistingRunId -ne $RunId -and -not $Force) {
+                    throw (New-ActionableError -AsErrorRecord `
+                        -Goal 'Resume or start an issue-type classification run' `
+                        -Problem "$OutputPath already holds run_id '$ExistingRunId', not the requested '$RunId'" `
+                        -Location 'Invoke-IssueTypeClassification' `
+                        -NextSteps @("Pass -RunId '$ExistingRunId' to resume that run",
+                                     'Or pass -Force to start a new run and overwrite it'))
+                }
+                if ($ExistingFile.PSObject.Properties['proposals']) {
+                    foreach ($p in @($ExistingFile.proposals)) {
+                        if ($p.PSObject.Properties['node_id']) { $ExistingProposals[[string]$p.node_id] = $p }
+                    }
+                }
+                if ($ExistingProposals.Count -gt 0) {
+                    Write-Host "Resuming run '$RunId' — $($ExistingProposals.Count) node(s) already classified, skipping them."
+                }
+            } catch [System.Management.Automation.RuntimeException] {
+                throw
+            } catch {
+                Write-Warning "Invoke-IssueTypeClassification: could not read existing $OutputPath ($($_.Exception.Message)) — treating as empty"
+            }
+        }
+
+        $WantedIds = if ($NodeIds -and @($NodeIds).Count -gt 0) { @($NodeIds) } else { @($AllNodesById.Keys) }
+        foreach ($id in $WantedIds) {
+            if ($ExistingProposals.ContainsKey($id)) { continue }
+            if (-not $AllNodesById.ContainsKey($id)) {
+                Write-Warning "Invoke-IssueTypeClassification: node id '$id' not found in the loaded taxonomy — skipping"
+                continue
+            }
+            $Targets.Add($AllNodesById[$id])
+        }
     }
-    Write-Host "Issue-type classification: $($Targets.Count) node(s) to classify (run_id=$RunId, model=$Model$(if (-not $SkipCrossCheck) { ", second_model=$SecondModel" }))."
+    if (-not $AdjudicateQueue) {
+        Write-Host "Issue-type classification: $($Targets.Count) node(s) to classify (run_id=$RunId, model=$Model$(if (-not $SkipCrossCheck) { ", second_model=$SecondModel" }))."
+    }
 
     if ($Targets.Count -eq 0) {
         return [PSCustomObject]@{
             NodesProcessed = 0; Proposed = 0; Written = 0; ReviewQueueCount = 0; EmptyCount = 0
-            TypeCounts = @{}; AgreementRate = $null; ActualCost = 0.0; CostCeilingHit = $false
-            Skipped = 0; Failed = @()
+            TypeCounts = @{}; StatusCounts = @{}; AgreementRate = $null; ActualCost = 0.0; CostCeilingHit = $false
+            Skipped = 0; Failed = @(); AdjudicatedAccepted = 0; AdjudicatedStillPending = 0
+            RunId = $RunId; OutputPath = $OutputPath
         }
     }
 
@@ -235,8 +298,13 @@ function Invoke-IssueTypeClassification {
                 label         = [string]$Node.label
                 description   = $Description
             }
+            # 700 was enough for gemini/groq (t/4833) but claude-sonnet-5 (t/4835#4's adjudicator)
+            # routinely hit max_tokens with no usable text -- Anthropic models run more verbose
+            # before landing structured output. 1800 gives real headroom for all three backends;
+            # cost impact is negligible since output is still schema-capped at 3 types + a
+            # 300-char rationale.
             $Ai = Invoke-AIApi -Prompt $Prompt -Model $M -ApiKey $ApiKey `
-                -Temperature 0.1 -MaxTokens 700 -ResponseSchema $ResponseSchema -TimeoutSec 30
+                -Temperature 0.1 -MaxTokens 1800 -ResponseSchema $ResponseSchema -TimeoutSec 30
             if ($Ai -and $Ai.Usage) { $Result.InputTokens = [int]$Ai.Usage.InputTokens; $Result.OutputTokens = [int]$Ai.Usage.OutputTokens }
             if (-not $Ai -or -not $Ai.Text) { throw 'empty response' }
 
@@ -307,9 +375,71 @@ function Invoke-IssueTypeClassification {
     $AgreeCount = 0
     $CompareCount = 0
     $ClassifiedAt = (Get-Date).ToString('o')
+    $AdjudicatedAccepted = 0
+    $AdjudicatedStillPending = 0
+
+    # Idempotent: Add-Member -Force on a PSCustomObject parsed from JSON, since these fields
+    # don't exist on the original proposal and plain `.prop = value` throws for a genuinely new
+    # property under StrictMode (unlike an existing one, which plain assignment is fine for).
+    $SetAdjudicatorFields = {
+        param($Entry, [string]$AdjModel, $AdjTypes, $AdjConfidence, [string]$AdjRationale, $Matched)
+        $Entry.provenance | Add-Member -NotePropertyName 'adjudicator_model' -NotePropertyValue $AdjModel -Force
+        $Entry.provenance | Add-Member -NotePropertyName 'adjudicator_types' -NotePropertyValue @($AdjTypes) -Force
+        $Entry.provenance | Add-Member -NotePropertyName 'adjudicator_confidence' -NotePropertyValue $AdjConfidence -Force
+        $Entry.provenance | Add-Member -NotePropertyName 'adjudicator_rationale' -NotePropertyValue $AdjRationale -Force
+        $Entry.provenance | Add-Member -NotePropertyName 'adjudicator_matched_prior' -NotePropertyValue $Matched -Force
+    }
 
     foreach ($Node in $Targets) {
         $NodeId = [string]$Node.id
+
+        if ($AdjudicateQueue) {
+            # t/4835#4: a third, stronger model adjudicates ONE queued node, blind (the prompt
+            # never includes either prior model's answer -- same prompt-building path as the
+            # normal classification, which already never surfaces that). Auto-accept when its
+            # primary tag matches either prior model's primary AND (if it chose a tag at all) its
+            # own confidence for that tag is >= 0.6; a "no tag" adjudication matching a "no tag"
+            # prior needs no confidence gate, since there is no tag to be confident about.
+            $AdjAttempts = & $ClassifyWithRetry $Node $AdjudicatorModel
+            foreach ($a in $AdjAttempts) { $CostEntries.Add([PSCustomObject]@{ modelId = $AdjudicatorModel; promptTokens = $a.InputTokens; completionTokens = $a.OutputTokens }) }
+            $Adj = $AdjAttempts[-1]
+            $Entry = $PendingByNodeId[$NodeId]
+            if (-not $Adj.Success) {
+                Write-Warning "Invoke-IssueTypeClassification -AdjudicateQueue: adjudication failed twice for '$NodeId' — leaving it pending, unresolved"
+                & $SetAdjudicatorFields $Entry $AdjudicatorModel @() $null '' 'call_failed'
+                $AdjudicatedStillPending++
+            } else {
+                $AdjTypes = @($Adj.Types)
+                $AdjPrimary = if ($AdjTypes.Count -gt 0) { $AdjTypes[0] } else { $null }
+                $PriorPrimary1 = if ($Entry.PSObject.Properties['proposed'] -and @($Entry.proposed).Count -gt 0) { $Entry.proposed[0] } else { $null }
+                $PriorPrimary2 = $null
+                if ($Entry.PSObject.Properties['provenance'] -and $Entry.provenance.PSObject.Properties['second_types'] -and $Entry.provenance.second_types -and @($Entry.provenance.second_types).Count -gt 0) {
+                    $PriorPrimary2 = @($Entry.provenance.second_types)[0]
+                }
+                $Matched = if ($AdjPrimary -eq $PriorPrimary1) { 'primary' } elseif ($AdjPrimary -eq $PriorPrimary2) { 'second' } else { 'none' }
+                $ConfidenceOk = if ($null -eq $AdjPrimary) { $true } else { [double]$Adj.Confidence[$AdjPrimary] -ge 0.6 }
+                $AutoAccept = ($Matched -ne 'none') -and $ConfidenceOk
+                & $SetAdjudicatorFields $Entry $AdjudicatorModel $AdjTypes $Adj.Confidence $Adj.Rationale $Matched
+                if ($AutoAccept) {
+                    $Entry.status = 'accepted'
+                    $Entry.final = , @($AdjTypes)
+                    $Entry.confidence = $Adj.Confidence
+                    $Entry.rationale = $Adj.Rationale
+                    $Entry.provenance | Add-Member -NotePropertyName 'method' -NotePropertyValue 'llm-adjudicated' -Force
+                    $AdjudicatedAccepted++
+                } else {
+                    $AdjudicatedStillPending++
+                }
+            }
+
+            $RunningCost = & $Recost
+            if ($RunningCost -gt $CostCeiling) {
+                Write-Warning "Invoke-IssueTypeClassification -AdjudicateQueue: running cost `$$([Math]::Round($RunningCost, 2)) exceeds the `$$CostCeiling ceiling — stopping."
+                $CostCeilingHit = $true
+                break
+            }
+            continue
+        }
 
         # No @()-wrap here: $ClassifyWithRetry already returns `,@(...)`, a single protected
         # pipeline object -- wrapping the CALL in @() nests it one level deeper (same class of
@@ -384,12 +514,17 @@ function Invoke-IssueTypeClassification {
 
     # ── Merge with any resumed proposals and write ───────────────────────────
     $AllProposals = [System.Collections.Generic.List[PSObject]]::new()
-    foreach ($p in $ExistingProposals.Values) { $AllProposals.Add($p) }
-    foreach ($p in $NewProposals) { $AllProposals.Add($p) }
+    if ($AdjudicateQueue) {
+        foreach ($p in $AllAdjQueueProposals) { $AllProposals.Add($p) }
+    } else {
+        foreach ($p in $ExistingProposals.Values) { $AllProposals.Add($p) }
+        foreach ($p in $NewProposals) { $AllProposals.Add($p) }
+    }
 
+    $FileRunId = if ($AdjudicateQueue -and $ExistingFile.PSObject.Properties['run_id']) { [string]$ExistingFile.run_id } else { $RunId }
     $File = [ordered]@{
         version    = 1
-        run_id     = $RunId
+        run_id     = $FileRunId
         proposals  = @($AllProposals)
     }
 
@@ -406,33 +541,51 @@ function Invoke-IssueTypeClassification {
     }
 
     # ── Report ────────────────────────────────────────────────────────────────
+    # Adjudication reports status/type breakdown over the WHOLE file ($AllProposals), since the
+    # TL's ask (t/4835#4) is "final counts by status and by type" for the queue as it now stands
+    # — not just the subset touched this run. Normal-mode reporting stays scoped to $NewProposals,
+    # matching every prior run's report shape.
+    $ReportSource = if ($AdjudicateQueue) { $AllProposals } else { $NewProposals }
+
     $TypeCounts = [ordered]@{}
     foreach ($t in $ValidTypes) { $TypeCounts[$t] = 0 }
     $EmptyCount = 0
-    foreach ($p in $NewProposals) {
-        $types = @($p.proposed)
+    $StatusCounts = [ordered]@{ accepted = 0; pending = 0 }
+    foreach ($p in $ReportSource) {
+        # Unary comma on BOTH branches: an if/else-as-expression capture collapses a genuinely
+        # empty-array branch result to $null (t/4742's bug class, hit again here — see the
+        # $Final assignment above for the same pattern).
+        $types = if ($AdjudicateQueue -and $p.status -eq 'accepted' -and $p.PSObject.Properties['final'] -and $null -ne $p.final) { , @($p.final) } else { , @($p.proposed) }
         if ($types.Count -eq 0) { $EmptyCount++ }
         foreach ($t in $types) { if ($TypeCounts.Contains($t)) { $TypeCounts[$t]++ } }
+        if ($StatusCounts.Contains([string]$p.status)) { $StatusCounts[[string]$p.status]++ }
     }
-    $ReviewQueueCount = @($NewProposals | Where-Object { $_.status -eq 'pending' }).Count
+    $ReviewQueueCount = @($ReportSource | Where-Object { $_.status -eq 'pending' }).Count
     $AgreementRate = if ($CompareCount -gt 0) { [Math]::Round($AgreeCount / $CompareCount, 4) } else { $null }
 
     Write-Host ""
-    Write-Host "Classified: $($NewProposals.Count) | Skipped: $Skipped | Review queue: $ReviewQueueCount | Empty ([]): $EmptyCount | Agreement: $(if ($null -ne $AgreementRate) { "$AgreementRate ($AgreeCount/$CompareCount)" } else { 'n/a (cross-check off)' }) | Actual cost: `$$([Math]::Round($ActualCost, 4))"
+    if ($AdjudicateQueue) {
+        Write-Host "Adjudicated: $($Targets.Count) | Auto-accepted: $AdjudicatedAccepted | Still pending: $AdjudicatedStillPending | Queue now — accepted: $($StatusCounts['accepted']) pending: $($StatusCounts['pending']) | Empty ([]): $EmptyCount | Actual cost: `$$([Math]::Round($ActualCost, 4))"
+    } else {
+        Write-Host "Classified: $($NewProposals.Count) | Skipped: $Skipped | Review queue: $ReviewQueueCount | Empty ([]): $EmptyCount | Agreement: $(if ($null -ne $AgreementRate) { "$AgreementRate ($AgreeCount/$CompareCount)" } else { 'n/a (cross-check off)' }) | Actual cost: `$$([Math]::Round($ActualCost, 4))"
+    }
 
     [PSCustomObject]@{
-        NodesProcessed   = $NewProposals.Count
-        Proposed         = $NewProposals.Count
-        Written          = $Written
-        ReviewQueueCount = $ReviewQueueCount
-        EmptyCount       = $EmptyCount
-        TypeCounts       = $TypeCounts
-        AgreementRate    = $AgreementRate
-        ActualCost       = [Math]::Round($ActualCost, 4)
-        CostCeilingHit   = $CostCeilingHit
-        Skipped          = $Skipped
-        Failed           = @($Failed)
-        RunId            = $RunId
-        OutputPath       = $OutputPath
+        NodesProcessed         = if ($AdjudicateQueue) { $Targets.Count } else { $NewProposals.Count }
+        Proposed               = $NewProposals.Count
+        Written                = $Written
+        ReviewQueueCount       = $ReviewQueueCount
+        EmptyCount             = $EmptyCount
+        TypeCounts             = $TypeCounts
+        StatusCounts           = $StatusCounts
+        AgreementRate          = $AgreementRate
+        ActualCost             = [Math]::Round($ActualCost, 4)
+        CostCeilingHit         = $CostCeilingHit
+        Skipped                = $Skipped
+        Failed                 = @($Failed)
+        AdjudicatedAccepted    = $AdjudicatedAccepted
+        AdjudicatedStillPending = $AdjudicatedStillPending
+        RunId                  = $FileRunId
+        OutputPath             = $OutputPath
     }
 }

@@ -187,17 +187,24 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
   });
 
   it('dismisses the hint on unmount (navigation away)', () => {
-    debateStoreState.activeDebateId = 'debate-1';
-    debateStoreState.activeDebate = makeSession();
-    const { unmount } = render(<DebateTab />);
-    expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+    vi.useFakeTimers();
+    try {
+      debateStoreState.activeDebateId = 'debate-1';
+      debateStoreState.activeDebate = makeSession();
+      const { unmount } = render(<DebateTab />);
+      expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
 
-    // Simulate navigation away by unmounting without clicking "Got it"
-    unmount();
-    expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
+      // Simulate navigation away by unmounting without clicking "Got it"
+      unmount();
+      // The write is debounced with setTimeout(0), so run timers to let it fire
+      vi.runAllTimers();
+      expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
 
-    // Hint should not show on next render
-    render(<DebateTab />);
-    expect(screen.queryByText(/Opens here now/)).toBeNull();
+      // Hint should not show on next render
+      render(<DebateTab />);
+      expect(screen.queryByText(/Opens here now/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
