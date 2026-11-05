@@ -54,12 +54,16 @@ const PublicDerivationSchema = z.object({
   tag: z.object(publicAppliedTagFields).strict().optional(),
   // Temperature (t/4771): the ask and what ran are both public, the way fidelity pairs request/derivation.
   temperature: z.number().min(0).max(2).optional(),
+  // Title (t/4891): the resolved title (request.title if provided, else null), provenance field.
+  title: z.string().max(200).nullable().optional(),
 }).strict(); // NO callBudget / callsUsed / costUsd (operational internals — matrix)
 const PublicRequestSchema = z.object({
   question: z.string(),
   fidelity: FidelitySchema,
   tagSelection: z.object(publicTagSelectionFields).strict().optional(),
   temperature: z.number().min(0).max(2).optional(),
+  // Title (t/4891): optional display title for the inquiry; when absent, question is used.
+  title: z.string().max(200).optional(),
 }).strict(); // NO situationId / models
 const PublicGroundingSchema = z.object({
   anchorSummary: z.string().optional(), // NO anchorSituationId (internal anchor id)
@@ -114,12 +118,14 @@ const PublicDerivationReadSchema = z.object({
   rounds: z.number().int(),
   tag: z.object(publicAppliedTagFields).passthrough().optional(),
   temperature: z.number().min(0).max(2).optional(),
+  title: z.string().max(200).nullable().optional(),
 }).passthrough();
 const PublicRequestReadSchema = z.object({
   question: z.string(),
   fidelity: FidelitySchema,
   tagSelection: z.object(publicTagSelectionFields).passthrough().optional(),
   temperature: z.number().min(0).max(2).optional(),
+  title: z.string().max(200).optional(),
 }).passthrough();
 const PublicGroundingReadSchema = z.object({
   anchorSummary: z.string().optional(),
@@ -220,6 +226,7 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       fidelity: result.request.fidelity,
       ...(result.request.tagSelection ? { tagSelection: publicTagSelection(result.request.tagSelection) } : {}),
       ...(result.request.temperature !== undefined ? { temperature: result.request.temperature } : {}),
+      ...(result.request.title !== undefined ? { title: result.request.title } : {}),
     },
     campVerdicts: result.campVerdicts.map((cv) => ({ camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes.map(publicNode) })),
     convergences: result.convergences.map((c) => ({ claim: truncateExcerpt(c.claim), nodes: c.nodes.map(publicNode) })),
@@ -242,6 +249,7 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       rounds: result.derivation.rounds,
       ...(result.derivation.tag ? { tag: { ...publicTagSelection(result.derivation.tag), included: result.derivation.tag.included, excludedUntagged: result.derivation.tag.excludedUntagged } } : {}),
       ...(result.derivation.temperature !== undefined ? { temperature: result.derivation.temperature } : {}),
+      ...(result.derivation.title !== undefined ? { title: result.derivation.title } : {}),
     },
     grounding: {
       ...(result.grounding.anchorSummary !== undefined ? { anchorSummary: truncateExcerpt(result.grounding.anchorSummary) } : {}),
