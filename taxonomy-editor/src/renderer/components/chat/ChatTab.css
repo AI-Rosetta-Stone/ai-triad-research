@@ -118,3 +118,14 @@
   height: 1em;
   vertical-align: -0.125em;
 }
+
+/* ─── Table-view bulk delete (t/4896) ─────────────────────
+   Chat-prefixed, not DebateTab.css's .bulk-delete-* — this project has no CSS modules, so
+   identical global class names across component stylesheets would collide (Quality, t/4896#2). */
+.chat-bulk-delete-dialog { max-width: 500px; }
+.chat-bulk-delete-list { max-height: 300px; overflow-y: auto; margin: 8px 0; }
+.chat-bulk-delete-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-color); }
+.chat-bulk-delete-item-title { font-size: var(--text-sm); font-weight: 500; }
+/* t/4824 precedent: --text-muted fails AA in harvard/bkc — --text-secondary clears it. */
+.chat-bulk-delete-item-meta { font-size: var(--text-2xs); color: var(--text-secondary); }
+.chat-bulk-delete-note { font-size: var(--text-xs); color: var(--text-secondary); margin: 8px 0; font-style: italic; }
