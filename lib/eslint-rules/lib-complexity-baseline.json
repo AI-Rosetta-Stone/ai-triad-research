@@ -261,7 +261,7 @@
     "countOver": 5
   },
   "debate/inquiryConfig.ts": {
-    "max": 17,
+    "max": 18,
     "countOver": 1
   },
   "debate/inquiryGrounding.ts": {

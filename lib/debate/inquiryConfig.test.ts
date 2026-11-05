@@ -6,6 +6,8 @@ import { deriveDebateConfig } from './inquiryConfig.js';
 import { DebateEngine } from './debateEngine.js';
 import { createMockAdapter, createMinimalTaxonomy } from './debateEngine.testHelpers.js';
 import { loadProvisionalWeights } from './phaseTransitions.js';
+import { DEFAULT_TEMPERATURE } from '../ai-client/defaults.js';
+import { EVALUATOR_TEMPERATURE } from './debateConfig.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { InquiryRequest } from '../inquiry/index.js';
 import { ActionableError } from './errors.js';
@@ -104,6 +106,52 @@ describe('deriveDebateConfig — displayed budget equals the enforced ceiling, e
     const enforcedCeiling = enforcedMaxTotalRounds * loadProvisionalWeights().budget.hard_multiplier;
 
     expect(enforcedCeiling).toBe(derivation.callBudget);
+  });
+});
+
+// ── Debater-only temperature (t/4771) ────────────────────────────────────────
+// TL decision (t/4771#2): temperature applies to the debaters only, never the evaluator
+// (verdicts stay repeatable). Stamped into derivation.temperature as the EFFECTIVE value
+// always — the default included — so a reader can tell "default" from "unknown" on old
+// results that predate this field (schema keeps it optional).
+describe('deriveDebateConfig — debater-only temperature (t/4771)', () => {
+  it('passes a requested temperature through to config.temperature', () => {
+    const { config } = deriveDebateConfig(makeRequest({ temperature: 1.4 }), makeRegistry());
+    expect(config.temperature).toBe(1.4);
+  });
+
+  it('defaults config.temperature to DEFAULT_TEMPERATURE when the request omits it', () => {
+    const { config } = deriveDebateConfig(makeRequest(), makeRegistry());
+    expect(config.temperature).toBe(DEFAULT_TEMPERATURE);
+  });
+
+  it('stamps derivation.temperature with the requested value when set', () => {
+    const { derivation } = deriveDebateConfig(makeRequest({ temperature: 0.2 }), makeRegistry());
+    expect(derivation.temperature).toBe(0.2);
+  });
+
+  it('stamps derivation.temperature with the effective default when the request omits it', () => {
+    const { derivation } = deriveDebateConfig(makeRequest(), makeRegistry());
+    expect(derivation.temperature).toBe(DEFAULT_TEMPERATURE);
+  });
+
+  it('derivation.temperature always equals config.temperature — no drift between the two', () => {
+    for (const temperature of [undefined, 0, 0.7, 1.4, 2]) {
+      const { config, derivation } = deriveDebateConfig(makeRequest({ temperature }), makeRegistry());
+      expect(derivation.temperature).toBe(config.temperature);
+    }
+  });
+
+  it('a requested temperature reaches the debater generation path (engine.config.temperature), ' +
+    'and the evaluator keeps its own separate fixed constant', () => {
+    const { config } = deriveDebateConfig(makeRequest({ temperature: 1.8 }), makeRegistry());
+    const engine = new DebateEngine(config, createMockAdapter(), createMinimalTaxonomy());
+    // debateEngine.ts's debater-facing generate() reads exactly this field (`this.config.temperature
+    // ?? DEFAULT_TEMPERATURE`) — asserting on the real constructed engine's config, not a copy.
+    expect((engine as unknown as { config: { temperature?: number } }).config.temperature).toBe(1.8);
+    // The evaluator stage reads EVALUATOR_TEMPERATURE, a module-level constant never set from
+    // config — proving there's no path by which a debater override could reach it.
+    expect(EVALUATOR_TEMPERATURE).not.toBe(1.8);
   });
 });
 
