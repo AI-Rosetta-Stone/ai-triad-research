@@ -12,7 +12,10 @@ import { LibraryListPage } from './LibraryListPage';
 import type { LibraryListPageConfig } from './LibraryListPage.types';
 import { getLastVariant, __resetLastVariantForTest } from '../../navigation/lastVariant';
 
-vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
+// t/4830: hoisted so the resizable-column suite can assert the corrupt/out-of-range-persisted-
+// value WARN fires — other suites in this file don't inspect it, so this is a no-op for them.
+const { recordMock } = vi.hoisted(() => ({ recordMock: vi.fn() }));
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
 
 let mockAuth: { anonymous?: boolean } | null = { anonymous: false };
 vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => mockAuth }));
@@ -832,5 +835,153 @@ describe('LibraryListPage — open in new window (t/4689)', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open in new window' }));
     expect(openPlaceInNewWindowMock).toHaveBeenCalledWith({ tool: 'chat', id: 'm1', path: '/chat/m1' });
     mockBreakpoint = 'desktop';
+  });
+});
+
+// ── Resizable columns (t/4830, TL design t/4830#2) ──────────────────────────────────────────
+// A column (or the title column, via `titleResizable`) opts in with `{ min, max }`; columns that
+// don't are byte-for-byte unaffected — the first test here is the ticket's own regression guard.
+
+describe('LibraryListPage — resizable columns (t/4830)', () => {
+  const STORAGE_PREFIX = 'lib-col-width:';
+
+  beforeEach(() => {
+    recordMock.mockClear();
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith(STORAGE_PREFIX)) window.localStorage.removeItem(key);
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** jsdom never lays anything out — getBoundingClientRect is always 0 — so the hook's
+   *  first-interaction measurement (before any drag/keypress) needs a stand-in. */
+  function mockMeasuredWidth(px: number) {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: px, height: 0, top: 0, left: 0, right: px, bottom: 0, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+  }
+
+  function gridTemplate(container: HTMLElement): string {
+    return (container.querySelector('.lib-grid') as HTMLElement).style.getPropertyValue('--lib-cols');
+  }
+
+  const resizableDateColumn = (min: number, max: number) => ({
+    columns: [{ key: 'date', header: 'Date', width: '110px', render: (r: Row) => r.date, resizable: { min, max } }],
+  });
+
+  it('a page with no resizable columns renders an identical grid template (regression guard)', () => {
+    const { container } = renderPage();
+    expect(gridTemplate(container)).toBe('1fr 110px 150px');
+  });
+
+  it('a resizable column renders a separator handle with the spec ARIA wiring', () => {
+    renderPage(resizableDateColumn(80, 300));
+    const handle = screen.getByRole('separator', { name: 'Resize Date column' });
+    expect(handle).toHaveAttribute('aria-valuemin', '80');
+    expect(handle).toHaveAttribute('aria-valuemax', '300');
+    expect(handle).toHaveAttribute('aria-orientation', 'vertical');
+    expect(handle).toHaveAttribute('tabindex', '0');
+  });
+
+  it('dragging the handle resizes the column and persists the width', () => {
+    mockMeasuredWidth(110);
+    const { container } = renderPage(resizableDateColumn(80, 300), { restoreKey: 'chat' });
+    const handle = screen.getByRole('separator', { name: 'Resize Date column' });
+    fireEvent.pointerDown(handle, { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 150 });
+    fireEvent.pointerUp(window);
+    expect(gridTemplate(container)).toBe('1fr 160px 150px');
+    expect(window.localStorage.getItem('lib-col-width:chat:date')).toBe('160');
+  });
+
+  it('the clamp holds at both ends', () => {
+    mockMeasuredWidth(110);
+    const { container } = renderPage(resizableDateColumn(80, 150));
+    const handle = screen.getByRole('separator', { name: 'Resize Date column' });
+    fireEvent.pointerDown(handle, { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: 1000 });
+    fireEvent.pointerUp(window);
+    expect(gridTemplate(container)).toBe('1fr 150px 150px');
+
+    fireEvent.pointerDown(handle, { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: -1000 });
+    fireEvent.pointerUp(window);
+    expect(gridTemplate(container)).toBe('1fr 80px 150px');
+  });
+
+  it('keyboard arrows step the width by 16px', () => {
+    mockMeasuredWidth(110);
+    const { container } = renderPage(resizableDateColumn(80, 300));
+    const handle = screen.getByRole('separator', { name: 'Resize Date column' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(gridTemplate(container)).toBe('1fr 126px 150px');
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(gridTemplate(container)).toBe('1fr 94px 150px');
+  });
+
+  it('double-click resets to the declared default width and clears persistence', () => {
+    mockMeasuredWidth(110);
+    const { container } = renderPage(resizableDateColumn(80, 300), { restoreKey: 'chat' });
+    const handle = screen.getByRole('separator', { name: 'Resize Date column' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(gridTemplate(container)).toBe('1fr 126px 150px');
+    fireEvent.doubleClick(handle);
+    expect(gridTemplate(container)).toBe('1fr 110px 150px');
+    expect(window.localStorage.getItem('lib-col-width:chat:date')).toBeNull();
+  });
+
+  it('a drag survives a remount — persisted width restores on the next mount', () => {
+    mockMeasuredWidth(110);
+    const cfg = resizableDateColumn(80, 300);
+    const { container, unmount } = renderPage(cfg, { restoreKey: 'chat' });
+    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize Date column' }), { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: 40 });
+    fireEvent.pointerUp(window);
+    expect(gridTemplate(container)).toBe('1fr 150px 150px');
+    unmount();
+
+    const { container: remounted } = renderPage(cfg, { restoreKey: 'chat' });
+    expect(gridTemplate(remounted)).toBe('1fr 150px 150px');
+  });
+
+  it('a corrupt persisted value falls back to the default and WARNs, rather than crashing', () => {
+    window.localStorage.setItem('lib-col-width:chat:date', 'not-a-number');
+    const { container } = renderPage(resizableDateColumn(80, 300), { restoreKey: 'chat' });
+    expect(gridTemplate(container)).toBe('1fr 110px 150px');
+    expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn' }));
+  });
+
+  it('an out-of-range persisted value falls back to the default and WARNs', () => {
+    window.localStorage.setItem('lib-col-width:chat:date', '99999');
+    const { container } = renderPage(resizableDateColumn(80, 300), { restoreKey: 'chat' });
+    expect(gridTemplate(container)).toBe('1fr 110px 150px');
+    expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn' }));
+  });
+
+  it('resizing still works for the session when restoreKey (pageId) is omitted — just without persistence', () => {
+    mockMeasuredWidth(110);
+    const { container } = renderPage(resizableDateColumn(80, 300));
+    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize Date column' }), { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: 40 });
+    fireEvent.pointerUp(window);
+    expect(gridTemplate(container)).toBe('1fr 150px 150px');
+    expect(Object.keys(window.localStorage).some(k => k.startsWith(STORAGE_PREFIX))).toBe(false);
+  });
+
+  // Debates' "Motion" column is the title column (titleHeader), not a LibraryColumn — it opts
+  // in via `config.titleResizable`, the same mechanics under a different config field.
+  it('the title column opts in via titleResizable, independent of config.columns', () => {
+    mockMeasuredWidth(400);
+    const { container } = renderPage({ titleResizable: { min: 200, max: 900 } }, { restoreKey: 'debate' });
+    const handle = screen.getByRole('separator', { name: 'Resize Title column' });
+    fireEvent.pointerDown(handle, { clientX: 0 });
+    fireEvent.pointerMove(window, { clientX: 100 });
+    fireEvent.pointerUp(window);
+    expect(gridTemplate(container)).toBe('500px 110px 150px');
+    expect(window.localStorage.getItem('lib-col-width:debate:title')).toBe('500');
   });
 });
