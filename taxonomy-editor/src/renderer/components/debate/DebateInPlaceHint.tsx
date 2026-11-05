@@ -58,8 +58,12 @@ export function DebateInPlaceHint() {
   }, [acknowledged]);
 
   useEffect(() => {
+    // Cancel any pending write from previous render/mount (Ref: p/376#157, Design feedback).
+    // On StrictMode re-mount, this ensures the first unmount's setTimeout(0) is cancelled
+    // before the new cleanup is set up, preventing a stale write to localStorage.
+    if (pendingWriteRef.current !== null) clearTimeout(pendingWriteRef.current);
+
     return () => {
-      if (pendingWriteRef.current !== null) clearTimeout(pendingWriteRef.current);
       if (!acknowledged) {
         pendingWriteRef.current = setTimeout(() => {
           writeDebateHintAcknowledged();

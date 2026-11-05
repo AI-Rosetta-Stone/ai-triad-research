@@ -9,6 +9,7 @@
 // (t/4690) and the mock scaffold already proven to mount DebateTab in DebateTab.anon.test.tsx.
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import React from 'react';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 beforeAll(() => {
@@ -203,6 +204,39 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
       // Hint should not show on next render
       render(<DebateTab />);
       expect(screen.queryByText(/Opens here now/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels pending write on re-mount under StrictMode (effect setup clears timeout)', () => {
+    vi.useFakeTimers();
+    try {
+      debateStoreState.activeDebateId = 'debate-1';
+      debateStoreState.activeDebate = makeSession();
+
+      // Render in StrictMode, which triggers double-unmount/re-mount in dev.
+      // The fix (clearTimeout in setup) must cancel the first unmount's pending write
+      // during the re-mount before it fires.
+      const { unmount } = render(
+        <React.StrictMode>
+          <DebateTab />
+        </React.StrictMode>
+      );
+      expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+
+      // Run timers (but don't unmount yet). This is the critical part:
+      // under StrictMode, setup/cleanup run twice. The first cleanup schedules a write,
+      // the re-mount's setup must cancel it. If cancel-in-setup works, no write happens.
+      vi.runAllTimers();
+      expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBeNull();
+      expect(screen.getByText(/Opens here now/)).toBeInTheDocument();
+
+      // Now do a real unmount (not StrictMode's double unmount).
+      // This should schedule and fire a write that persists.
+      unmount();
+      vi.runAllTimers();
+      expect(localStorage.getItem(DEBATE_IN_PLACE_HINT_STORAGE_KEY)).toBe('ack');
     } finally {
       vi.useRealTimers();
     }
