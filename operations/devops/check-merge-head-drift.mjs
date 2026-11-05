@@ -172,11 +172,14 @@ const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process
 if (isCliEntry) {
   const repo = process.argv[2];
   if (!repo) {
-    console.error('Usage: node operations/devops/check-merge-head-drift.mjs <owner>/<repo> [--since-days=N]');
-    process.exit(1);
+    console.log('::error::MERGE-HEAD-DRIFT-SCRIPT-FAILED: usage: node operations/devops/check-merge-head-drift.mjs <owner>/<repo> [--since-days=N]');
+    process.exit(2);
   }
   const sinceArg = process.argv.find((a) => a.startsWith('--since-days='));
   const sinceDays = sinceArg ? Number(sinceArg.split('=')[1]) || 14 : 14;
+  // Exit codes (t/4864): 0 clean, 1 drift found, 2 the check itself could not run,
+  // 3 nothing to check. A crash and a finding must never look alike, and an empty
+  // window (a quiet period, or a repo typo that matches nothing) must never read as clean.
   scan(repo, { sinceDays }).then(
     ({ checked, findings, queryErrors }) => {
       console.log(`check-merge-head-drift: checked ${checked} merged PR(s) over the last ${sinceDays} day(s).`);
@@ -186,8 +189,15 @@ if (isCliEntry) {
         console.log(`check-merge-head-drift: ${findings.length} PR(s) merged with content that doesn't match their final head.`);
         process.exit(1);
       }
-      console.log('check-merge-head-drift: clean -- every merge commit matches its PR\'s final head.');
+      if (checked === 0) {
+        console.log(`::warning::MERGE-HEAD-DRIFT-NO-DATA: 0 merged PRs found in the last ${sinceDays} day(s) for ${repo} -- nothing was checked. This is NOT a clean result.`);
+        process.exit(3);
+      }
+      console.log(`check-merge-head-drift: clean -- all ${checked} merge commit(s) match their PR's final head.`);
     },
-    (err) => { console.error(err.message ?? err); process.exit(1); },
+    (err) => {
+      console.log(`::error::MERGE-HEAD-DRIFT-SCRIPT-FAILED: the check itself could not run -- this is NOT a drift finding. ${err.message ?? err}`);
+      process.exit(2);
+    },
   );
 }

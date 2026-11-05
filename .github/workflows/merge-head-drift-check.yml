@@ -47,20 +47,41 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SINCE_DAYS_INPUT: ${{ github.event.inputs.since_days }}
+          REPO: ${{ github.repository }}
+        # The exit code is captured explicitly (t/4864). The previous `node ... | tee` form
+        # ran without pipefail (no `shell:` set means `bash -e`, not `-eo pipefail`), so
+        # tee's exit 0 replaced node's and this step could never report a finding.
+        # rc: 0 clean, 1 drift found, 2 the check could not run, 3 nothing to check.
+        shell: bash
         run: |
-          SINCE_DAYS="${{ github.event.inputs.since_days }}"
-          SINCE_DAYS="${SINCE_DAYS:-2}"
-          node operations/devops/check-merge-head-drift.mjs "${{ github.repository }}" "--since-days=$SINCE_DAYS" | tee drift-output.txt
+          SINCE_DAYS="${SINCE_DAYS_INPUT:-2}"
+          set +e
+          node operations/devops/check-merge-head-drift.mjs "$REPO" "--since-days=$SINCE_DAYS" > drift-output.txt 2>&1
+          rc=$?
+          set -e
+          cat drift-output.txt
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
 
       # Always record the result, even clean -- a run that merely disappears when there's
       # nothing to find is indistinguishable from one that silently failed (t/4858 TL
       # review condition). This writes every run, not just on a finding.
       - name: Write job summary
         if: always()
+        shell: bash
+        env:
+          RC: ${{ steps.drift.outputs.rc }}
         run: |
+          case "$RC" in
+            0) VERDICT="CLEAN -- every checked merge matches its PR's final head" ;;
+            1) VERDICT="DRIFT FOUND -- a merge shipped content that doesn't match its PR's final head" ;;
+            3) VERDICT="NOTHING CHECKED -- 0 merged PRs in the window; this is NOT a clean result" ;;
+            *) VERDICT="CHECK COULD NOT RUN (rc=${RC:-none}) -- this is NOT a drift finding and NOT a clean result" ;;
+          esac
           {
             echo "## merge-head-drift-check"
-            echo "Outcome: \`${{ steps.drift.outcome }}\`"
+            echo "**Verdict:** $VERDICT"
             echo '```'
             cat drift-output.txt 2>/dev/null || echo "(no output captured)"
             echo '```'
@@ -69,13 +90,19 @@ jobs:
       # Schedule-only alert: a workflow_dispatch run is already visible to whoever
       # triggered it; a schedule fire has no human watching, so it needs its own
       # durable, idempotent signal (same pattern as doc-platform-drift.yml / t/3797).
+      # Routes on the script's exit code, not the step outcome (t/4864): a crash and a real
+      # finding must file different issues, and "nothing to check" must neither alert nor
+      # close an open drift issue (nothing was actually re-verified).
       - name: Route drift verdict (schedule only)
-        if: github.event_name == 'schedule'
+        if: always() && github.event_name == 'schedule'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          RC: ${{ steps.drift.outputs.rc }}
+          ERROR_LABEL: merge-head-drift-check-error
         with:
           script: |
             const fs = require('fs');
-            const outcome = '${{ steps.drift.outcome }}';
+            const rc = process.env.RC;
             let output = '';
             try { output = fs.readFileSync('drift-output.txt', 'utf8'); } catch { output = '(no output captured)'; }
             const owner = context.repo.owner, repo = context.repo.repo;
@@ -84,18 +111,34 @@ jobs:
             const ts = new Date().toISOString();
             const detail = `\`\`\`\n${output.slice(0, 4000)}\n\`\`\`\n\n- **Run:** ${runUrl}\n- **Time:** ${ts}`;
 
-            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label, per_page: 10 });
-
-            if (outcome === 'failure') {
-              const body = `## Merge-head drift found on scheduled sweep (t/4858)\n\nA merge commit's content doesn't match the PR's own final head -- the exact PR #4489 failure shape. Do not assume this is a false positive; diff the merge commit against the PR's final head for the named file(s) before dismissing it.\n\n${detail}`;
-              if (existing.data.length > 0) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: existing.data[0].number, body: `Still present at ${ts}.\n\n${detail}` });
+            const errorLabel = process.env.ERROR_LABEL;
+            const openWith = async (l) => (await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: l, per_page: 10 })).data;
+            const raiseOrUpdate = async (l, title, body) => {
+              const open = await openWith(l);
+              if (open.length > 0) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open[0].number, body: `Still present at ${ts}.\n\n${detail}` });
               } else {
-                await github.rest.issues.create({ owner, repo, title: 'Merge-head drift detected (scheduled sweep)', body, labels: [label, 'alert-escalated'] });
+                await github.rest.issues.create({ owner, repo, title, body, labels: [l, 'alert-escalated'] });
               }
-            } else {
-              for (const issue of existing.data) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Resolved — clean sweep at ${ts}.\n\n${detail}` });
+            };
+            const closeAll = async (l, why) => {
+              for (const issue of await openWith(l)) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Resolved — ${why} at ${ts}.\n\n${detail}` });
                 await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
               }
+            };
+
+            if (rc === '1') {
+              await raiseOrUpdate(label, 'Merge-head drift detected (scheduled sweep)',
+                `## Merge-head drift found on scheduled sweep (t/4858)\n\nA merge commit's content doesn't match the PR's own final head -- the exact PR #4489 failure shape. Do not assume this is a false positive; diff the merge commit against the PR's final head for the named file(s) before dismissing it.\n\n${detail}`);
+              await closeAll(errorLabel, 'the check ran');
+            } else if (rc === '0') {
+              await closeAll(label, 'clean sweep');
+              await closeAll(errorLabel, 'the check ran');
+            } else if (rc === '3') {
+              // Nothing was checked: neither an alert nor evidence that an open drift issue is fixed.
+              await closeAll(errorLabel, 'the check ran (nothing to check)');
+            } else {
+              await raiseOrUpdate(errorLabel, 'Merge-head drift check could not run (scheduled sweep)',
+                `## The merge-head drift check itself failed (t/4858, t/4864)\n\nThis is NOT a drift finding: the check could not run (exit ${rc || 'none'}), so merges in this window are unverified. Fix the check; drift status is unknown until it runs clean.\n\n${detail}`);
             }
