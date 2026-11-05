@@ -22,7 +22,11 @@
 // Pure cores are unit-tested (check-dockerfile-store-mounts.test.mjs); the CLI is the shim.
 //
 //   node operations/devops/check-dockerfile-store-mounts.mjs lint [Dockerfile]
-//   node operations/devops/check-dockerfile-store-mounts.mjs log <buildkit-plain-log>
+//   node operations/devops/check-dockerfile-store-mounts.mjs log <buildkit-plain-log> [--advisory]
+//
+// --advisory (TL, t/4883#2): a non-pass verdict is annotated ::warning:: instead of ::error::
+// while the CI step runs continue-on-error. The exit code still reflects the verdict, so the
+// step outcome records each run for the >=5-run promotion evidence.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -91,6 +95,7 @@ export function checkColdStoreLog(log) {
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCliEntry) {
   const [mode, path] = process.argv.slice(2);
+  const advisory = process.argv.includes('--advisory');
   try {
     if (mode === 'lint') {
       const file = path ?? 'taxonomy-editor/Dockerfile';
@@ -104,7 +109,7 @@ if (isCliEntry) {
       const r = checkColdStoreLog(readFileSync(path, 'utf8'));
       const msg = `cold-store rebuild: ${r.verdict.toUpperCase()} -- ${r.reason} (installCached=${r.installCached}, buildStepCached=${r.buildStepCached}, noticesWritten=${r.noticesWritten})`;
       // inconclusive fails the step too: a guard that can't tell must not read as a pass.
-      console.log(r.verdict === 'pass' ? msg : `::error::${msg}`);
+      console.log(r.verdict === 'pass' ? msg : `::${advisory ? 'warning' : 'error'}::${msg}`);
       process.exit(r.verdict === 'pass' ? 0 : 1);
     } else {
       console.log('::error::usage: check-dockerfile-store-mounts.mjs lint [Dockerfile] | log <buildkit-plain-log>');
