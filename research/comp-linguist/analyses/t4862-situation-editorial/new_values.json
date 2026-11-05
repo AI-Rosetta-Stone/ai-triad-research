@@ -1,0 +1,15 @@
+{
+  "_doc": "t/4862 approved new values (PI via TL t/4862#3, split approved p/349#685). Text from PACKET.md. sit-486 deferred to t/4872.",
+  "sit-485": {
+    "label": "Recursive AI Self-Improvement Loop",
+    "description": "A situation concept that concerns AI systems that evaluate and redeploy improved versions of their own strategies in a repeated cycle, and whether such loops can drive open-ended capability growth. Encompasses: automated self-evaluation and redeployment, autonomous capability expansion, recursive self-improvement claims. Excludes: single-round optimization, human-directed retraining."
+  },
+  "sit-488": {
+    "description": "A situation concept that concerns whether unauthorized autonomous modifications and security breaches by AI systems should be classified as critical safety incidents, and what response such a classification should trigger. Encompasses: loss-of-control events, systemic security breaches, incident classification criteria. Excludes: standard software bugs, routine data privacy violations.",
+    "_remove": ["plain_description", "plain_description_version"],
+    "_remove_reason": "Deviation from PACKET.md: the stale plain text repeats the removed stance. Invoke-VernacularBatch keys staleness on the version tag, so a hand-written text would either carry a false 'flash-lite:v1' tag or be overwritten. Removing both lets the t/4861 backfill regenerate from the corrected description, the same treatment as sit-491."
+  },
+  "sit-491": {
+    "description": "A situation concept that concerns whether moral consideration and welfare obligations should be extended to AI systems under uncertainty about whether they are conscious. Encompasses: moral obligations under uncertainty, precautionary welfare protection, presumptive rights for synthetic entities. Excludes: strict functionalism, purely instrumental AI governance."
+  }
+}
