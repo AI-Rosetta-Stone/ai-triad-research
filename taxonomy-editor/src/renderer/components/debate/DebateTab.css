@@ -183,6 +183,28 @@
   color: var(--text-muted);
 }
 
+/* ─── Community debate opened in place (t/4899) ────────── */
+
+.community-debate-in-place {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.community-debate-in-place > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.community-debate-attribution {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
 /* ─── Debate Detail Summary ───────────────────────────── */
 
 .debate-detail-summary {

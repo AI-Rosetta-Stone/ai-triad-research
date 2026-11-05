@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { subscribeRunning, runningCountByTool } from '../../navigation/runningSignal';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useDebateStore } from '../../hooks/useDebateStore';
@@ -712,7 +713,7 @@ function DebateTableDetail({
     <div className="debate-tab-table-detail">
       <DebateInPlaceHint />
       {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
-        <CommunityDebateDetail debate={selectedCommunityDebate} />
+        <CommunityDebateDetail debate={selectedCommunityDebate} onExport={handleExport} exportStatus={exportStatus} />
       ) : activeDebate ? (
         <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} />
       ) : null}
@@ -802,7 +803,7 @@ function DebateDetailPane(props: DebateRightPaneProps) {
       <div className="resize-handle" onMouseDown={onMouseDown} onTouchStart={onTouchStart} />
       <div className="detail-panel">
         {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
-          <CommunityDebateDetail debate={selectedCommunityDebate} />
+          <CommunityDebateDetail debate={selectedCommunityDebate} onExport={handleExport} exportStatus={exportStatus} />
         ) : activeDebate ? (
           isPhone ? (
             <DebateWorkspace onExport={handleExport} exportStatus={exportStatus} />
@@ -1160,12 +1161,28 @@ function isMobilePlatform(): boolean {
     || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
 }
 
-function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
+/** t/4899 (Design #1): true while the reader's own debate is running. Loading a community debate
+ *  in place replaces the global activeDebate, and every in-flight step's createDebateGuard then
+ *  discards its output, so we must not load while one runs. The running signal covers a whole run
+ *  (between steps too); debateGenerating covers one-off steps outside a leased run. */
+function useOwnDebateRunInFlight(): boolean {
+  const runningCount = useSyncExternalStore(subscribeRunning, () => runningCountByTool('debate'));
+  const generatingOwn = useDebateStore(s => !!s.debateGenerating && !s.communityReadOnly);
+  return runningCount > 0 || generatingOwn;
+}
+
+function CommunityDebateDetail({ debate, onExport, exportStatus }: {
+  debate: CommunityDebate;
+  onExport: (format?: string) => void;
+  exportStatus: string | null;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeDebate = useDebateStore(s => s.activeDebate);
+  const ownRunInFlight = useOwnDebateRunInFlight();
 
   useEffect(() => {
+    if (ownRunInFlight) return; // never replace a running debate; re-runs once it finishes
     let cancelled = false;
     setError(null);
     setLoading(true);
@@ -1192,7 +1209,7 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [debate.id]);
+  }, [debate.id, ownRunInFlight]);
 
   const handleOpenWindow = useCallback(() => {
     // iPad/iOS Safari drops auth cookies when window.open'ing a new tab (t/1520),
@@ -1209,11 +1226,26 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
   // view, not an interstitial requiring a manual "Open in Window" tap — mirrors the My-debates
   // path, which already renders DebateWorkspace directly on phone (DebateDetailPane).
   useEffect(() => {
-    if (isMobilePlatform()) handleOpenWindow();
-  }, [handleOpenWindow]);
+    if (isMobilePlatform() && !ownRunInFlight) handleOpenWindow();
+  }, [handleOpenWindow, ownRunInFlight]);
 
-  // Render the loaded debate in-place (read-only workspace) if successfully loaded.
-  // Loading/error states show inline feedback without blocking the UI.
+  if (ownRunInFlight && activeDebate?.id !== debate.id) {
+    return (
+      <div className="debate-detail-summary debate-detail-busy-state" role="status">
+        <div className="debate-detail-header">
+          <h2 className="debate-detail-title">{debate.title}</h2>
+        </div>
+        <p className="debate-tab-loading-text">
+          Your debate is still running. Opening this community debate here would interrupt it,
+          so it will open here when the run finishes.
+        </p>
+        <button type="button" className="btn btn-secondary" onClick={handleOpenWindow}>
+          Open in a new window now
+        </button>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="debate-detail-summary debate-detail-error-state">
@@ -1236,7 +1268,20 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
     );
   }
 
-  return <DebateWorkspace onExport={() => {}} exportStatus={null} />;
+  const meta = debate.community_metadata;
+  return (
+    <div className="community-debate-in-place">
+      {/* t/4899 (Design #3): keep attribution — readers must see this isn't theirs, and whose it is. */}
+      <p className="community-debate-attribution">
+        Community debate
+        {meta?.submitted_by_display ? <> · shared by {meta.submitted_by_display}</> : null}
+        {meta?.submitted_at ? <> · {formatDateLong(meta.submitted_at)}</> : null}
+        {' · read-only'}
+      </p>
+      {/* t/4899 (Design #2): real export of the loaded read-only debate, never a no-op handler. */}
+      <DebateWorkspace onExport={onExport} exportStatus={exportStatus} />
+    </div>
+  );
 }
 
 function CommunityStatsSection({ full }: { full: DebateSession | null }) {
