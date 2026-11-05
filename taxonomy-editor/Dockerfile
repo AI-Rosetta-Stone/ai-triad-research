@@ -295,8 +295,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # (the grounding reconciler) all still load after the purge.
 # apt is Essential/Protected on Debian 13, so -y alone refuses with exit 100
 # ("Essential packages were removed and -y was used without --allow-remove-essential").
+# The purge leaves /usr/bin/apt-get behind with no dpkg owner (run 42001732771), so
+# remove any apt* binary that no installed package claims before the guard runs.
 RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
-    && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
+    && rm -rf /var/lib/apt /var/cache/apt /etc/apt /usr/lib/apt \
+    && for f in /usr/bin/apt*; do \
+         [ -e "$f" ] || continue; \
+         dpkg -S "$f" >/dev/null 2>&1 || rm -f "$f"; \
+       done \
     && for b in apt apt-get; do \
          p="$(command -v "$b" || true)"; \
          if [ -n "$p" ]; then \
