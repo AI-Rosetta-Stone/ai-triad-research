@@ -43,6 +43,7 @@ vi.mock('../../hooks/useDebateStore', async () => {
     loadDebate: vi.fn(),
     deleteDebate: vi.fn(),
     renameDebate: vi.fn(),
+    setActiveCommunityDebate: vi.fn(), // t/4888 (#4587): DebateTab publishes the open community debate for placeOf
     loadDebateFromData: vi.fn((raw: { id: string }) => store.setState({ activeDebate: raw, activeDebateId: raw.id, communityReadOnly: true })),
   }, true);
   reset();
