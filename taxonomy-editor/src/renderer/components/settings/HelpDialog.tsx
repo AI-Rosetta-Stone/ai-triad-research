@@ -9,6 +9,10 @@ import ossData from '../../data/oss-licenses.json';
 import { SupportCaseForm } from '../support/SupportCaseForm';
 import { MyCases } from '../support/MyCases';
 import { useSupportStore } from '../../hooks/useSupportStore';
+import { NAV_ITEMS, type NavItem } from '../../data/navConfig';
+import { AI_BACKENDS } from '../../hooks/useTaxonomyStore';
+import { POV_KEYS, POV_META } from '@lib/electron-shared/povMeta';
+import { THEME_OPTIONS } from './themeOptions';
 import './HelpDialog.css';
 
 declare const __APP_VERSION__: string;
@@ -51,6 +55,70 @@ const DOCS = [
   { title: 'Troubleshooting', path: 'docs/troubleshooting.md',
     desc: 'Known issues and their workarounds' },
 ] as const;
+
+// t/4887: Overview tab content is generated from NAV_ITEMS (navConfig.ts) — the live nav/panel
+// registry — instead of hand-written prose, so it can't drift the way the old text drifted
+// (missing tabs, stale backend count, etc.). HelpDialog.overview.test.tsx asserts every
+// non-system NAV_ITEMS id used here has a description, and that no stale description survives
+// an id's removal from the registry.
+export const OVERVIEW_TAB_ITEMS: readonly NavItem[] = NAV_ITEMS.filter(
+  i => i.tier !== 'system' && (i.action.type === 'switchTab' || (i.action.type === 'custom' && i.id === 'taxonomy')),
+);
+export const OVERVIEW_PANEL_ITEMS: readonly NavItem[] = NAV_ITEMS.filter(
+  i => i.tier !== 'system' && i.action.type === 'togglePanel',
+);
+
+export const OVERVIEW_TAB_DESCRIPTIONS: Record<string, string> = {
+  'rosetta-stone': 'The home tool — opens first on launch and orients you across the whole taxonomy.',
+  chat: 'POVer Chat — brainstorm, inform, and decide conversation modes for free-form AI-assisted exploration.',
+  opeds: 'Draft and review op-eds grounded in the taxonomy.',
+  inquiry: 'Pose a question and get a multi-perspective answer.',
+  debate: 'Multi-agent debates between Accelerationist, Safetyist, and Skeptic characters using a BDI agent architecture. Debates progress through clarification, argumentation rounds, synthesis, and harvest.',
+  taxonomy: 'Opens the perspective picker — see Camps below.',
+  situations: 'Cross-cutting concepts showing how each perspective interprets the same issue.',
+  conflicts: 'Documented disagreements with source instances and analyst notes.',
+  cruxes: 'Core disagreements distilled from debate rounds and cross-perspective analysis.',
+  summaries: 'Document summaries from the ingestion pipeline.',
+  validation: 'Data integrity checks for the taxonomy, surfacing missing fields, orphan nodes, and schema violations.',
+  organizations: 'Browse organizations referenced across the taxonomy and their affiliations.',
+};
+
+export const OVERVIEW_PANEL_DESCRIPTIONS: Record<string, string> = {
+  search: 'Full-text search with raw, wildcard, regex, and semantic modes. Scope by perspective and/or BDI category.',
+  entities: 'Browse named entities extracted from the taxonomy and documents.',
+  lineage: 'Trace the intellectual heritage and influences behind taxonomy nodes.',
+  edges: 'Browse AIF-aligned typed edges (attack, support, inference) between nodes across the full taxonomy graph.',
+  policyAlignment: 'Map taxonomy nodes to policy actions from the shared policy registry.',
+  policyDashboard: 'Aggregate view of policy action coverage and alignment across perspectives.',
+  fallacy: 'Identify potential logical fallacies in node claims and debate arguments.',
+  vocabulary: 'Browse the controlled vocabulary used across the taxonomy.',
+  calibration: 'Review and calibrate confidence scores and QBAF base scores.',
+  console: 'Development console for inspecting state and debugging.',
+  prompts: 'Inspect AI prompt templates and view prompt diffs between versions.',
+};
+
+// Derives a platform/visibility badge from a NAV_ITEMS gate instead of hand-labeling each line,
+// so a future gate change (t/2599, t/2633-style) updates Overview's labels for free.
+export function overviewPlatformBadge(item: NavItem): string | null {
+  const gate = item.gate;
+  if (!gate) return null;
+  if (gate.adminOnly) return 'admin only';
+  const flags = [gate.flag, ...(gate.anyFlag ?? [])].filter((f): f is string => Boolean(f));
+  const hasElectron = flags.some(f => f.includes('electron'));
+  const hasWeb = flags.some(f => f.includes('web'));
+  if (hasElectron && !hasWeb) return 'Electron only';
+  if (hasWeb && !hasElectron) return 'web only';
+  return null;
+}
+
+function OverviewFeatureLine({ item, description }: { item: NavItem; description: string }) {
+  const badge = overviewPlatformBadge(item);
+  return (
+    <p>
+      <strong>{item.label}</strong>{badge ? ` (${badge})` : ''} — {description}
+    </p>
+  );
+}
 
 function getRuntime(): string {
   const target = import.meta.env.VITE_TARGET;
@@ -501,30 +569,27 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             </p>
 
             <h4>Main Tabs</h4>
-            <p><strong>Accelerationist / Safetyist / Skeptic</strong> — Each perspective has nodes organized into BDI categories (Beliefs, Desires, Intentions).</p>
-            <p><strong>Situations</strong> — Cross-cutting concepts showing how each perspective interprets the same issue.</p>
-            <p><strong>Conflicts</strong> — Documented disagreements with source instances and analyst notes.</p>
-            <p><strong>Cruxes</strong> — Core disagreements distilled from debate rounds and cross-perspective analysis.</p>
-            <p><strong>Summaries</strong> — Document summaries from the ingestion pipeline (Electron only).</p>
-            <p><strong>Validation</strong> — Data integrity checks for the taxonomy, surfacing missing fields, orphan nodes, and schema violations.</p>
-            <p><strong>Debate</strong> — Multi-agent debates between Accelerationist, Safetyist, and Skeptic characters using a BDI agent architecture. Debates progress through clarification, argumentation rounds, synthesis, and harvest.</p>
-            <p><strong>Chat</strong> — POVer Chat with brainstorm, inform, and decide conversation modes for free-form AI-assisted exploration.</p>
+            {OVERVIEW_TAB_ITEMS.map(item => (
+              <OverviewFeatureLine key={item.id} item={item} description={OVERVIEW_TAB_DESCRIPTIONS[item.id] ?? ''} />
+            ))}
+            <p>
+              <strong>{POV_KEYS.map(k => POV_META[k].label).join(' / ')}</strong> — Camp tabs inside Taxonomy;
+              each perspective has nodes organized into BDI categories (Beliefs, Desires, Intentions).
+            </p>
+
+            <h4>Libraries &amp; Sharing</h4>
+            <p><strong>My / Community</strong> — Chat, Debate, Op-Ed, and Question each keep a library of saved items; toggle between your own (<strong>My</strong>) and shared (<strong>Community</strong>, web only).</p>
+            <p><strong>Public share links</strong> — Create a link to share a chat, debate, op-ed, or answer publicly (web only).</p>
+            <p><strong>Issue-type tags</strong> — Nodes can carry issue-type chips flagging data-quality concerns, with provenance visible to admins.</p>
 
             <h4>Toolbar Panels</h4>
-            <p><strong>Search</strong> — Full-text search with raw, wildcard, regex, and semantic modes. Scope by perspective and/or BDI category.</p>
-            <p><strong>Intellectual Lineage</strong> — Trace the intellectual heritage and influences behind taxonomy nodes.</p>
-            <p><strong>Edge Browser</strong> — Browse AIF-aligned typed edges (attack, support, inference) between nodes across the full taxonomy graph.</p>
-            <p><strong>Policy Alignment</strong> — Map taxonomy nodes to policy actions from the shared policy registry.</p>
-            <p><strong>Policy Dashboard</strong> — Aggregate view of policy action coverage and alignment across perspectives.</p>
-            <p><strong>Possible Fallacies</strong> — Identify potential logical fallacies in node claims and debate arguments.</p>
-            <p><strong>Vocabulary</strong> — Browse the controlled vocabulary used across the taxonomy.</p>
-            <p><strong>Calibration</strong> — Review and calibrate confidence scores and QBAF base scores.</p>
-            <p><strong>Console</strong> — Development console for inspecting state and debugging (admin only).</p>
-            <p><strong>Prompts</strong> — Inspect AI prompt templates and view prompt diffs between versions.</p>
+            {OVERVIEW_PANEL_ITEMS.map(item => (
+              <OverviewFeatureLine key={item.id} item={item} description={OVERVIEW_PANEL_DESCRIPTIONS[item.id] ?? ''} />
+            ))}
 
             <h4>AI &amp; Backends</h4>
             <p>
-              Ten AI backends are supported: Google Gemini, Anthropic Claude, Groq, OpenAI, DeepSeek, Azure OpenAI, Z.AI (GLM), Moonshot (Kimi), xAI (Grok), and Ollama (local).
+              {AI_BACKENDS.length} AI backends are supported: {AI_BACKENDS.map(b => b.label).join(', ')}.
               Models are configured in <code>ai-models.json</code> with per-backend defaults, debate tier assignments, and fallback chains.
               Models without a configured API key are auto-disabled in debate setup.
             </p>
@@ -535,12 +600,13 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
             <p><strong>Flight Recorder</strong> — Always-on ring buffer capturing system events, errors, and debate telemetry. Dump manually with Ctrl+Alt+D or via named pipe.</p>
             <p><strong>Diagnostics Window</strong> — Detachable window showing debate convergence signals, verification status, document coverage, and real-time debate state.</p>
             <p><strong>Debate Chat</strong> — AI-powered diagnostic sidebar for interrogating debate state (Ctrl+Shift+D to toggle).</p>
-            <p><strong>Analytics Dashboard</strong> — Usage analytics and session metrics.</p>
+            <p><strong>Analytics Dashboard</strong> — Usage analytics and session metrics (web only).</p>
+            <p><strong>Your Activity</strong> — Your own engagement history; linked from the Help tab bar above.</p>
 
             <h4>General</h4>
             <p><strong>Pin</strong> — Pin any item to compare it side-by-side with the active item.</p>
             <p><strong>Resize</strong> — Drag the border between the list and detail panels to resize.</p>
-            <p><strong>Themes</strong> — Light, Dark, BKC, Harvard, and System (auto) color schemes.</p>
+            <p><strong>Themes</strong> — {THEME_OPTIONS.map(t => t.label).join(', ')} (System follows your OS).</p>
             <p><strong>Zoom</strong> — Ctrl+= / Ctrl+- / Ctrl+0 to zoom in, out, or reset.</p>
           </div>
         )}
