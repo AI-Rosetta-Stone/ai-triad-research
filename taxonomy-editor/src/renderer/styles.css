@@ -1277,10 +1277,7 @@ body {
   min-height: 28px;
 }
 
-/* t/4723: scoped to the root attribute, not `.node-item`, so --node-item-font also
-   reaches NodeDetail.css's description (a different subtree, not a .node-item
-   descendant) — custom properties only cascade to descendants of where they're set. */
-[data-pane-spacing="concise"] {
+[data-pane-spacing="concise"] { /* t/4723: scoped to the root so --node-item-font reaches NodeDetail.css's description too */
   --node-item-padding: 3px 10px;
   --node-item-gap: 0px;
   --node-item-font: 0.8rem;
