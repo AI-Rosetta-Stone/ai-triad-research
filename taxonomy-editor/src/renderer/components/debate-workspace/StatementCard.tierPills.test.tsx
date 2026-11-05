@@ -72,7 +72,7 @@ vi.mock('@bridge', () => ({
 }));
 
 vi.mock('./ClaimsView', () => ({ ClaimsView: () => <div data-testid="claims-view" /> }));
-vi.mock('./VocabularyPanel', () => ({ LineageTermsView: () => null, VocabTermsView: () => null }));
+vi.mock('./VocabularyPanel', () => ({ LineageTermsView: () => null, VocabTermsView: () => <div data-testid="vocab-terms-view" /> }));
 vi.mock('./TaxonomyRefs', () => ({
   TaxonomyRefsSection: () => <div data-testid="taxonomy-refs" />,
   BdiGroundingView: () => <div data-testid="bdi-grounding-view" />,
@@ -146,5 +146,57 @@ describe('StatementCard view-mode toggle — Text | Why | How (t/4625)', () => {
   it('an entry with no display_tier override and no global default falls back to Text (AC4)', () => {
     render(<StatementCard entry={makeEntry({ display_tier: undefined })} />);
     expect(screen.getByRole('radio', { name: 'Text' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('Why panel: BDI | Vocabulary tabs', () => {
+  const withVocab = { metadata: { vocabulary_resolutions: [{ term: 'alignment', standardized: 'saf-alignment' }] } } as Partial<TranscriptEntry>;
+
+  it('shows BDI and Vocabulary tabs when the statement has resolved terms', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'why', ...withVocab })} />);
+    expect(screen.getByRole('tab', { name: 'BDI' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Vocabulary' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByTestId('bdi-grounding-view')).toBeInTheDocument();
+  });
+
+  it('hides the tab bar entirely when the statement has no vocabulary terms', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'why' })} />);
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Vocabulary' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('bdi-grounding-view')).toBeInTheDocument();
+  });
+
+  it('clicking Vocabulary sets the entry tier to terms', async () => {
+    const user = userEvent.setup();
+    render(<StatementCard entry={makeEntry({ display_tier: 'why', ...withVocab })} />);
+    await user.click(screen.getByRole('tab', { name: 'Vocabulary' }));
+    expect(debateState.setEntryDisplayTier).toHaveBeenCalledWith('e1', 'terms');
+  });
+
+  it('ArrowRight from BDI moves to Vocabulary', async () => {
+    const user = userEvent.setup();
+    render(<StatementCard entry={makeEntry({ display_tier: 'why', ...withVocab })} />);
+    screen.getByRole('tab', { name: 'BDI' }).focus();
+    await user.keyboard('{ArrowRight}');
+    expect(debateState.setEntryDisplayTier).toHaveBeenCalledWith('e1', 'terms');
+  });
+
+  it('a saved terms override opens on Why → Vocabulary and renders the terms view', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'terms', ...withVocab })} />);
+    expect(screen.getByRole('radio', { name: 'Why' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('tab', { name: 'Vocabulary' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('vocab-terms-view')).toBeInTheDocument();
+  });
+
+  it('a stale terms override on a statement with no terms falls back to BDI', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'terms' })} />);
+    expect(screen.getByTestId('bdi-grounding-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('vocab-terms-view')).not.toBeInTheDocument();
+  });
+
+  it('How no longer offers Vocabulary', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'reasoning', ...withVocab })} />);
+    const how = screen.getByRole('combobox', { name: 'How view' });
+    expect(Array.from(how.querySelectorAll('option')).map(o => o.textContent)).not.toContain('Vocabulary');
   });
 });

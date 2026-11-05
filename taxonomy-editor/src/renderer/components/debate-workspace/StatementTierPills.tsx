@@ -14,9 +14,9 @@ import { TIER_LABELS, modeOfTier, type DisplayMode } from './utils';
 export type SetEntryDisplayTier = ReturnType<typeof useDebateStore.getState>['setEntryDisplayTier'];
 
 type TextTier = 'brief' | 'medium' | 'detailed';
-type AnalysisTier = 'reasoning' | 'terms' | 'lineage' | 'claims' | 'convergence';
+type AnalysisTier = 'reasoning' | 'lineage' | 'claims' | 'convergence';
+type WhyTier = 'why' | 'terms';
 const TEXT_TIERS: TextTier[] = ['brief', 'medium', 'detailed'];
-const WHY_TIERS = ['why'] as const;
 // t/4625: Text | Why | How; `analysis` id unchanged (label-only rename).
 const MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'why', label: 'Why' }, { id: 'analysis', label: 'How' }] as const;
 
@@ -51,15 +51,16 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, voc
   }, [activeTier]);
 
   const analysisOptions = useMemo<AnalysisTier[]>(
-    () => (['reasoning', 'terms', 'lineage', 'claims', 'convergence'] as AnalysisTier[]).filter(t => {
-      if (t === 'terms') return !!(vocabResolutions && vocabResolutions.length > 0);
-      if (t === 'lineage') return hasLineageRefs;
-      return true;
-    }),
-    [vocabResolutions, hasLineageRefs],
+    () => (['reasoning', 'lineage', 'claims', 'convergence'] as AnalysisTier[]).filter(t => t !== 'lineage' || hasLineageRefs),
+    [hasLineageRefs],
+  );
+  // Vocabulary is offered only when this statement has resolved terms.
+  const whyOptions = useMemo<WhyTier[]>(
+    () => (vocabResolutions && vocabResolutions.length > 0 ? ['why', 'terms'] : ['why']),
+    [vocabResolutions],
   );
 
-  const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : activeMode === 'why' ? WHY_TIERS : analysisOptions;
+  const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : activeMode === 'why' ? whyOptions : analysisOptions;
   const isOverridden = entry.display_tier != null;
 
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -72,7 +73,7 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, voc
   }, [activeMode, lastText, lastAnalysis, entry.id, setEntryDisplayTier]);
 
   const handleSubSelect = useCallback((tier: string) => {
-    setEntryDisplayTier(entry.id, tier as TextTier | AnalysisTier | 'why');
+    setEntryDisplayTier(entry.id, tier as TextTier | AnalysisTier | WhyTier);
     if (activeMode === 'text') setLastText(tier as TextTier);
     else if (activeMode === 'analysis') setLastAnalysis(tier as AnalysisTier);
   }, [activeMode, entry.id, setEntryDisplayTier]);
@@ -109,8 +110,8 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, voc
         ))}
       </span>
       {/* Value selector — native <select> styled as a dropdown button (t/2274 §13).
-          Override → dot on the button + "Match global default" item. Why has a single
-          value, so its dropdown is just an anchor for that, not a real choice. */}
+          Override → dot on the button + "Match global default" item. Why offers BDI, plus
+          Vocabulary when the statement has resolved terms. */}
       <span className="debate-value-dropdown-wrap">
         <select
           className="debate-detail-dropdown debate-value-dropdown"

@@ -16,7 +16,7 @@ import { getDebateMarkdownComponents, type VocabResolution } from '../../utils/v
 import {
   speakerLabel, speakerColor, pctFmt, focusMainWindowNode,
   fixMarkdownLinks, stripLeadingHeadings,
-  META_TIERS, TIER_LABELS, modeOfTier,
+  META_TIERS, WHY_TIERS, TIER_LABELS, modeOfTier,
 } from './utils';
 import { bandColor as computeBandColor } from '../../lib/bandColor';
 import type { BandEntry } from '../../lib/bandColor';
@@ -33,6 +33,7 @@ const SafeLink = ({ node: _, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>
   <a {...props} target="_blank" rel="noopener noreferrer" />
 );
 import { LineageTermsView, VocabTermsView } from './VocabularyPanel';
+import { WhyTabs } from './WhyTabs';
 import { CommentOverlay, useEntryCommentCount } from '../chat/CommentHighlights';
 import { useCommentStore } from '../../hooks/useCommentStore';
 import type { DetailTier } from '@lib/debate/comments';
@@ -442,8 +443,8 @@ function resolveDisplayContent(entry: TranscriptEntry, activeTier: string, isSub
   return { displayContent: stripLeadingHeadings(entry.content), isTruncated: false };
 }
 
-/** t/4625: 'why' renders a structured view too, same as META_TIERS, but isn't itself a member. */
-function isMetaViewTier(tier: string): boolean { return META_TIERS.has(tier) || tier === 'why'; }
+/** t/4625: the Why tiers render structured views too, same as META_TIERS, but aren't members. */
+function isMetaViewTier(tier: string): boolean { return META_TIERS.has(tier) || WHY_TIERS.has(tier); }
 
 // ── Shared ref helpers (t/1911: keep TaxonomyRefsSection call-sites flat) ──
 type ActiveDebateT = ReturnType<typeof useDebateStore.getState>['activeDebate'];
@@ -731,6 +732,36 @@ function StatementTurnSymbols({ turnSymbols, showSymbolTooltips, setShowSymbolTo
   );
 }
 
+/** Meta-view header. Why shows BDI | Vocabulary tabs when the statement has resolved terms;
+ *  without them it's BDI alone, so a stale 'terms' override is labelled as BDI too. */
+function MetaModeLabel({ entryId, displayedTier, hasVocab, setEntryDisplayTier }: {
+  entryId: string;
+  displayedTier: string;
+  hasVocab: boolean;
+  setEntryDisplayTier: SetEntryDisplayTier;
+}) {
+  const showWhyTabs = WHY_TIERS.has(displayedTier) && hasVocab;
+  return (
+    <div className="debate-meta-mode-label">
+      {showWhyTabs
+        ? <WhyTabs activeTier={displayedTier === 'terms' ? 'terms' : 'why'} onSelect={(t) => setEntryDisplayTier(entryId, t)} controlsId={`debate-statement-body-${entryId}`} />
+        : TIER_LABELS[displayedTier === 'terms' ? 'why' : displayedTier]?.toUpperCase()}
+      {displayedTier === 'terms' && showWhyTabs && (
+        <a href="#" className="debate-meta-mode-spec-link" title="Open the Taxonomy Vocabulary System spec"
+          onClick={(e) => { e.preventDefault(); void api.openExternal(VOCAB_SPEC_URL); }}>🔖 spec</a>
+      )}
+      {displayedTier === 'convergence' && (
+        <TheoryLink
+          docPath="research/comp-linguist/docs/convergence-signals-guide.md"
+          anchor="the-seven-fields"
+          label="Help: convergence signals"
+          size={12}
+        />
+      )}
+    </div>
+  );
+}
+
 function StatementBody({
   entry, activeDebate, displayedTier, isMetaView, flipKey, flipping, handleFlipEnd,
   bodyRef, innerRef, contentRef, vocabResolutions, meta, renderedStatementBody, isTruncated, setEntryDisplayTier,
@@ -751,27 +782,14 @@ function StatementBody({
   isTruncated: boolean;
   setEntryDisplayTier: SetEntryDisplayTier;
 }) {
+  const hasVocab = !!vocabResolutions && vocabResolutions.length > 0;
   return (
     <div className={`debate-statement-body${isMetaView ? ' meta-view' : ''}`} ref={bodyRef} id={`debate-statement-body-${entry.id}`}>
       <div key={flipKey} ref={innerRef} className={`debate-flip-inner${flipping ? ' flipping' : ''}`} onAnimationEnd={handleFlipEnd}>
       {isMetaView && (
-        <div className="debate-meta-mode-label">
-          {TIER_LABELS[displayedTier]?.toUpperCase()}
-          {displayedTier === 'terms' && (
-            <a href="#" className="debate-meta-mode-spec-link" title="Open the Taxonomy Vocabulary System spec"
-              onClick={(e) => { e.preventDefault(); void api.openExternal(VOCAB_SPEC_URL); }}>🔖 spec</a>
-          )}
-          {displayedTier === 'convergence' && (
-            <TheoryLink
-              docPath="research/comp-linguist/docs/convergence-signals-guide.md"
-              anchor="the-seven-fields"
-              label="Help: convergence signals"
-              size={12}
-            />
-          )}
-        </div>
+        <MetaModeLabel entryId={entry.id} displayedTier={displayedTier} hasVocab={hasVocab} setEntryDisplayTier={setEntryDisplayTier} />
       )}
-      {displayedTier === 'terms' && vocabResolutions && vocabResolutions.length > 0 ? (
+      {displayedTier === 'terms' && hasVocab ? (
         <div className="debate-statement-content">
           <VocabTermsView resolutions={vocabResolutions} ambiguities={meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined} statementText={entry.content} />
         </div>
@@ -796,7 +814,7 @@ function StatementBody({
           stageDiagnostics={stageDiagnosticsFor(activeDebate, entry.id)}
           forceExpanded
         />
-      ) : displayedTier === 'why' ? (
+      ) : WHY_TIERS.has(displayedTier) ? (
         <div className="debate-statement-content">
           <BdiGroundingView
             refs={entry.taxonomy_refs}

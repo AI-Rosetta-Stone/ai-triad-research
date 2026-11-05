@@ -1,0 +1,37 @@
+/* Per-statement Why panel tabs: BDI | Vocabulary. Underline tabs, so they read as panel
+   navigation rather than another copy of the Text | Why | How segmented control. */
+
+.debate-why-tabs {
+  display: inline-flex;
+  gap: var(--sp-3);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.debate-why-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 2px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.debate-why-tab:hover {
+  color: var(--text-primary);
+}
+
+.debate-why-tab-active,
+.debate-why-tab-active:hover {
+  color: var(--text-primary);
+  border-bottom-color: var(--focus-ring);
+}
+
+.debate-why-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

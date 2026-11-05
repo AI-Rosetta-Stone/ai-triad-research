@@ -378,7 +378,7 @@ describe('toolbar', () => {
     const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
     expect(select.value).toBe('why');
     const opts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
-    expect(opts).toEqual(['Why']);
+    expect(opts).toEqual(['BDI']);
     mockStore.defaultDisplayTier = undefined; // don't leak into later tests in this block
   });
 

@@ -328,7 +328,6 @@ describe('modeOfTier', () => {
 
   it('classifies the analysis (How) tiers', () => {
     expect(modeOfTier('reasoning')).toBe('analysis');
-    expect(modeOfTier('terms')).toBe('analysis');
     expect(modeOfTier('lineage')).toBe('analysis');
     expect(modeOfTier('claims')).toBe('analysis');
     expect(modeOfTier('convergence')).toBe('analysis');
@@ -338,8 +337,12 @@ describe('modeOfTier', () => {
     expect(modeOfTier('why')).toBe('why');
   });
 
+  it('classifies terms (Vocabulary) under Why, so a saved terms override opens Why → Vocabulary', () => {
+    expect(modeOfTier('terms')).toBe('why');
+  });
+
   it('a pre-t/4625 saved debate (no why tier anywhere) still classifies every one of its known tiers correctly', () => {
-    const oldSavedTiers = ['brief', 'medium', 'detailed', 'reasoning', 'terms', 'lineage', 'claims', 'convergence'];
+    const oldSavedTiers = ['brief', 'medium', 'detailed', 'reasoning', 'lineage', 'claims', 'convergence'];
     for (const tier of oldSavedTiers) {
       expect(modeOfTier(tier)).not.toBe('why');
     }
