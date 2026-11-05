@@ -58,6 +58,7 @@ export function RosettaStoneTab() {
       heading: 'Ask a Question',
       body: 'Ask a plain-language research question and get a grounded answer broken out by camp — Accelerationist, Safetyist, Skeptic — with the full debate replay one click away.',
       cta: 'Open Ask a Question',
+      image: { src: publicAsset('onboarding/onboarding-inquiry.png'), alt: 'New question dialog showing a research question box and model options' },
       onOpen: () => setActiveTab('inquiry'),
     },
     {
