@@ -282,15 +282,26 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # 7c. Strip apt from the runtime image (t/4874, hardening after CVE-2026-109518 blocked the
 # container Trivy gate). Everything above that needs apt (numpy, PowerShell, the libbrotli1
 # bump) has already run; apt/dpkg tooling has no runtime purpose from here on but keeps its own
-# CVE surface in the shipped image. Same strip-then-guard shape as npm below (t/3135): purge the
-# apt package itself (pulls libapt-pkg* and friends via --auto-remove), then delete its state
-# dirs, then fail the build loudly if apt is somehow still reachable.
-RUN apt-get purge -y --auto-remove apt \
+# CVE surface in the shipped image. Same strip-then-guard shape as npm below (t/3135).
+#
+# DevOps review (t/4874): no --auto-remove. node, onnxruntime-node and node-pty link
+# libstdc++6/libgcc-s1, but those come from the base image's node tarball, not a .deb, so dpkg
+# doesn't know they're used -- if apt is their last dpkg-visible dependent, --auto-remove would
+# pull them too and the server would die at start with "libstdc++.so.6: cannot open shared
+# object". Purge apt and libapt-pkg7.0 explicitly instead.
+#
+# Guarded in-build (same RUN, so a broken image fails the build, not staging): the node native
+# modules that'd break first (onnxruntime-node, node-pty), pwsh (the web console), and numpy
+# (the grounding reconciler) all still load after the purge.
+RUN apt-get purge -y apt libapt-pkg7.0 \
     && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
     && if command -v apt >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; then \
          echo "[t/4874] ERROR: apt still on PATH after purge" && exit 1; \
        fi \
-    && echo "[t/4874] apt stripped from runtime image"
+    && node -e "require('onnxruntime-node'); require('node-pty')" \
+    && pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion' \
+    && python3 -c 'import numpy' \
+    && echo "[t/4874] apt stripped from runtime image; native deps, pwsh and numpy still load"
 
 # 8. Strip global npm from the runtime image (t/3135). npm is NOT reachable at
 # runtime — CMD is a direct `node`; npm/pnpm are used only in the discarded
