@@ -978,6 +978,7 @@ const rawApi: AppAPI = {
   onChatStreamDone: (cb) => chatStreamBus.onDone(cb),
   onChatStreamError: (cb) => chatStreamBus.onError(cb),
   onChatStreamUrlMetadata: (cb) => chatStreamBus.onUrlMetadata(cb),
+  onChatStreamGenerationContext: (cb) => chatStreamBus.onGenerationContext(cb),
   setDebateTemperature: (temp) => post('/api/ai/temperature', { temp }).then(() => {}),
 
   // Proxy tier & usage

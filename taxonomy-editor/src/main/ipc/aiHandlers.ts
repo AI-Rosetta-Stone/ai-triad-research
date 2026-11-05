@@ -399,7 +399,7 @@ export function registerAiHandlers(): void {
       }
     }
 
-    const { text: fullText, urlContextMetadata } = await generateChatStream(
+    const { text: fullText, urlContextMetadata, raw_prompt, raw_response } = await generateChatStream(
       effectiveSystem,
       messages,
       (chunk: string) => send('chat-stream-chunk', chunk),
@@ -411,6 +411,9 @@ export function registerAiHandlers(): void {
     if (urlContextMetadata) send('chat-stream-url-metadata', urlContextMetadata);
     if (appFetchEvent) send('chat-stream-url-metadata', appFetchEvent);
     send('chat-stream-done', fullText);
+    if (raw_prompt !== undefined || raw_response !== undefined) {
+      send('chat-stream-generation-context', { raw_prompt, raw_response });
+    }
     return fullText;
   });
 
