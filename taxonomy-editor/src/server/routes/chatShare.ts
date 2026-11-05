@@ -196,11 +196,27 @@ async function pruneExpiredRegistry(): Promise<void> {
       }
     }
     if (dirty) {
+      const originalVersion = registry._version;
       registry._version += 1;
-      if (Object.keys(registry.shares).length > 0) {
-        await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
-      } else {
-        await backend.deleteFile(shareRegistryPath());
+      try {
+        if (Object.keys(registry.shares).length > 0) {
+          await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n', { baseSha: originalVersion.toString() });
+        } else {
+          await backend.deleteFile(shareRegistryPath());
+        }
+      } catch (err: unknown) {
+        const writeErr = err as any;
+        if (!(writeErr.code === 'WRITE_CONFLICT' || writeErr.message?.includes('412'))) {
+          getGlobalRecorder()?.record({
+            type: 'system.error',
+            component: 'chat-share',
+            level: 'warn',
+            message: 'Prune registry write failed',
+            error: { name: (writeErr as Error).name ?? 'Error', message: String(writeErr), stack: (writeErr as Error).stack },
+          });
+          throw writeErr;
+        }
+        // K3: Conflict on prune is non-critical; skip
       }
     }
   } catch (err) {
@@ -313,19 +329,41 @@ async function createShare(
       const previousShareId = registry.shares[chatId];
       if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
 
-      // K3: CAS (Compare-And-Swap) write: re-read to check if version changed during our operations
-      const current = await readRegistry();
-      if (current._version !== registry._version) {
-        // Version mismatch: another POST succeeded. Delete our blob and retry.
-        await revokeShare(shareId);
-        continue; // Retry
-      }
+      // K3: CAS with baseSha (SO p/835#13: pass baseSha on write for atomic conflict detection)
+      const baseSha = registry._version === 0 ? '' : registry._version.toString(); // '' means "must not exist", version means "must match"
+      registry.shares[chatId] = shareId;
+      registry._version += 1;
 
-      // Version still matches: write with incremented version
-      current.shares[chatId] = shareId;
-      current._version += 1;
-      await backend.writeFile(shareRegistryPath(), JSON.stringify(current) + '\n');
-      return share;
+      try {
+        await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n', { baseSha });
+        return share;
+      } catch (writeErr: unknown) {
+        // K3: On WRITE_CONFLICT (409), re-read and check if another writer won
+        const err = writeErr as any;
+        if (err.code === 'WRITE_CONFLICT' || err.message?.includes('412') || err.message?.includes('WRITE_CONFLICT')) {
+          // Conflict: another POST succeeded. Check if they created a share for this chat.
+          const current = await readRegistry();
+          const otherShareId = current.shares[chatId];
+          if (otherShareId && otherShareId !== shareId) {
+            // Winner's share exists: delete our blob and return theirs (200)
+            await revokeShare(shareId);
+            const otherShare = await loadShare(otherShareId);
+            if (otherShare) return otherShare; // Return the winner's share to caller
+            // If otherShare is gone, retry
+          }
+          // No winner yet or their share expired: retry
+          await revokeShare(shareId);
+          continue;
+        }
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'chat-share',
+          level: 'warn',
+          message: 'Registry write error (not conflict)',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        throw writeErr;
+      }
     } catch (err) {
       if (attempt === 2) {
         getGlobalRecorder()?.record({
@@ -335,15 +373,8 @@ async function createShare(
           message: 'Failed to update share registry after retries',
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
-        // On lost race: delete the newly written blob so no orphan public share survives (K3)
         await revokeShare(shareId);
-        throw new ActionableError({
-          goal: 'Create chat share',
-          problem: 'Registry write conflict after 3 attempts',
-          location: 'createShare',
-          nextSteps: ['Retry the request'],
-          innerError: err,
-        });
+        throw err;
       }
     }
   }
@@ -437,15 +468,32 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
           return;
         }
 
-        // K3: Revoke with CAS write (version check)
+        // K3: Revoke with CAS write (baseSha for atomic conflict detection)
         await revokeShare(shareId);
         delete registry.shares[chatId];
+        const originalVersion = registry._version;
         registry._version += 1;
 
-        if (Object.keys(registry.shares).length > 0) {
-          await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n');
-        } else {
-          await backend.deleteFile(shareRegistryPath());
+        try {
+          if (Object.keys(registry.shares).length > 0) {
+            await backend.writeFile(shareRegistryPath(), JSON.stringify(registry) + '\n', { baseSha: originalVersion.toString() });
+          } else {
+            await backend.deleteFile(shareRegistryPath());
+          }
+        } catch (writeErr: unknown) {
+          const err = writeErr as any;
+          if (err.code === 'WRITE_CONFLICT' || err.message?.includes('412')) {
+            // K3: Conflict on DELETE is non-critical; blob already revoked
+            getGlobalRecorder()?.record({
+              type: 'system.error',
+              component: 'chat-share',
+              level: 'warn',
+              message: 'Registry write conflict during DELETE (blob already revoked, ignoring)',
+              error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+            });
+          } else {
+            throw writeErr;
+          }
         }
 
         json(res, { id: shareId }, 200);
