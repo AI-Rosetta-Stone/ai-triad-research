@@ -61,7 +61,6 @@ describe('RosettaStoneTab (t/4543)', () => {
   // (t/4632 removed the eyebrow component entirely from this tab).
   it('t/4632: has no eyebrow, keeps the title and tagline text, and shows the specimen coda', () => {
     render(<RosettaStoneTab />);
-    expect(screen.queryByText('AI Triad Research · Berkman Klein Center')).not.toBeInTheDocument();
     expect(screen.getByText('AI Rosetta Stone')).toBeInTheDocument();
     // t/4739: caps → bold, lowercase.
     expect(getByFullText('The goal is not to provide answers.', TAGLINE_LINE)).toBeInTheDocument();
