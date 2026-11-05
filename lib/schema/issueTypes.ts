@@ -1,7 +1,4 @@
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const issueTypesRegistry = require('./issue-types-registry.json');
+import issueTypesRegistry from './issue-types-registry.json' with { type: 'json' };
 
 export type IssueType = 'loss_of_control' | 'misuse' | 'power_concentration' | 'economic' | 'political' | 'social';
 
