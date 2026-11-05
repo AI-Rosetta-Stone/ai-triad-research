@@ -356,7 +356,34 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
                 $Entry = $Written.proposals | Where-Object { $_.node_id -eq 'acc-adj-001' }
                 $Entry.status | Should -Be 'accepted'
                 @($Entry.final) | Should -Be @('misuse')
+                # Explicit flatness check: `Should -Be` on a single-element array is too lenient to
+                # catch a one-level-too-deep nest (PowerShell's array `-eq` filters rather than
+                # strictly compares), which is exactly how this shipped broken -- every accepted
+                # adjudication came out as e.g. [["political","misuse"]] instead of
+                # ["political","misuse"] (TL-caught via t/4835's spot-check). Count + element type
+                # together can't be fooled the same way.
+                @($Entry.final).Count | Should -Be 1
+                $Entry.final[0] | Should -BeOfType [string]
                 $Entry.provenance.adjudicator_matched_prior | Should -Be 'primary'
+            }
+        }
+
+        It 'writes a FLAT final array, not nested, when the adjudicator proposes multiple tags' {
+            $OutPath = Join-Path $TestDrive 'adj-flatness-proposals.json'
+            New-AdjQueueFile -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.8},{"type":"political","confidence":0.7}],"rationale":"adjudicated"}'; Usage = $null }
+                }
+                # acc-adj-001's prior primary is 'misuse' (New-AdjQueueFile's fixture), so a
+                # 2-type adjudicator response with 'misuse' first still auto-accepts -- the point
+                # of this test is the SHAPE of the written array, not the accept/pending decision.
+                $null = Invoke-IssueTypeClassification -AdjudicateQueue -AdjudicatorModel 'claude-sonnet-5' -NodeIds @('acc-adj-001') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-adj-001' }
+                $Entry.status | Should -Be 'accepted'
+                @($Entry.final).Count | Should -Be 2 -Because 'a nested [["misuse","political"]] would report Count 1, not 2'
+                foreach ($t in @($Entry.final)) { $t | Should -BeOfType [string] }
+                @($Entry.final) | Should -Be @('misuse', 'political')
             }
         }
 
