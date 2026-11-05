@@ -32,8 +32,13 @@ COPY lib/ ./lib/
 # Use isolated linker (not hoisted) so the .pnpm/ virtual store is created — required for
 # `pnpm licenses list` (called by `npm run licenses` in build:container). The prod-deps stage
 # still uses hoisted linker (from .npmrc) for native-module compatibility.
+# No pnpm-store cache mount in this stage: `pnpm licenses list` (step below) reads package
+# index files from the store, so the store has to live in the same layer as node_modules.
+# With a cache mount, a layer-cache hit on this install restores node_modules but leaves the
+# mount empty on a fresh runner, and licenses fails with ERR_PNPM_MISSING_PACKAGE_INDEX_FILE
+# (container.yml 41957003986, all 3 attempts). This stage isn't shipped, so size doesn't matter.
 WORKDIR /build/taxonomy-editor
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --config.node-linker=isolated
+RUN pnpm install --frozen-lockfile --config.node-linker=isolated
 
 # Install shared-lib deps too (t/2035): lib/ is a self-contained package with its
 # own package.json, and the sanitizer core's renderer-parity decoders must resolve
@@ -43,7 +48,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --froze
 # Use isolated linker to match the taxonomy-editor install above — mixed linkers across
 # workspace packages corrupt the virtual store, breaking `pnpm licenses list`.
 WORKDIR /build/lib
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --config.node-linker=isolated
+RUN pnpm install --frozen-lockfile --config.node-linker=isolated
 
 # Copy source and build
 WORKDIR /build
@@ -66,8 +71,8 @@ WORKDIR /build/taxonomy-editor
 ARG BUILD_SHA
 ENV BUILD_SHA=$BUILD_SHA
 
-# Cache mount required: pnpm store not in image layer — `pnpm licenses list` reads
-# package index files from the store.
+# The pnpm store is in the image layer (the installs above have no cache mount), so
+# `pnpm licenses list` always finds the package index files it reads from the store.
 # pnpm shim: in workspace mode, `pnpm licenses list --prod` (called by generate-license-file)
 # enumerates ALL workspace packages including workflow-app's @google/genai, @modelcontextprotocol/sdk
 # etc. that are NOT installed in this stage → ERR_PNPM_MISSING_PACKAGE_INDEX_FILE.
@@ -77,8 +82,7 @@ ENV BUILD_SHA=$BUILD_SHA
 # Fix: intercept the `pnpm licenses list` call via a PATH shim that appends
 # --filter taxonomy-editor, scoping the listing to only installed packages.
 # The workspace virtual store paths remain valid (no workspace marker deleted).
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    REAL_PNPM="$(which pnpm)" && \
+RUN REAL_PNPM="$(which pnpm)" && \
     printf '%s\n' '#!/bin/sh' \
         "REAL_PNPM=${REAL_PNPM}" \
         'if [ "$1" = "licenses" ]; then' \

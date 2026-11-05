@@ -57,6 +57,8 @@ describe('RosettaStoneTab (t/4543)', () => {
 
   // t/4632: PI asked to remove the eyebrow, move the tagline beside the title, and add a
   // closing line below the Skeptic row. Title/tagline text itself is unchanged.
+  // Note: t/4808 updated INTRO_EYEBROW in introCopy.ts, but RosettaStoneTab doesn't render it
+  // (t/4632 removed the eyebrow component entirely from this tab).
   it('t/4632: has no eyebrow, keeps the title and tagline text, and shows the specimen coda', () => {
     render(<RosettaStoneTab />);
     expect(screen.queryByText('AI Triad Research · Berkman Klein Center')).not.toBeInTheDocument();

@@ -1,8 +1,6 @@
 {
-  "$comment": "Non-LOC quality gates only (ADR-007 Gate Co-Location). ESLint `max-lines`, co-located in the eslint configs (lib/eslint.config.mjs, taxonomy-editor/eslint.config.mjs), is the SINGLE source of truth for .ts/.tsx LOC \u2014 do NOT re-add .ts ceilings here. styles.css stays: CSS is not covered by the TS eslint configs. See docs/design/adr/007-file-size-budget.md.",
-  "loc_ceilings": {
-    "taxonomy-editor/src/renderer/styles.css": 1658
-  },
+  "$comment": "Non-LOC quality gates only (ADR-007 Gate Co-Location). ESLint `max-lines`, co-located in the eslint configs (lib/eslint.config.mjs, taxonomy-editor/eslint.config.mjs), is the SINGLE source of truth for .ts/.tsx LOC \u2014 do NOT re-add .ts ceilings here. styles.css stays: CSS is not covered by the TS eslint configs. See docs/design/adr/007-file-size-budget.md. SUSPENDED 2026-11-05 by the PI for fast iteration: the styles.css ceiling (was 1658; the file is 1661 after #4554) is removed so main can go green. Restore it, ratcheted to the file's line count at that time, when the PI ends the suspension (tracking ticket linked from the suspension PR).",
+  "loc_ceilings": {},
   "max_file_bytes": 5242880,
   "tsc_error_ceilings": {
     "taxonomy-editor/tsconfig.json": 0

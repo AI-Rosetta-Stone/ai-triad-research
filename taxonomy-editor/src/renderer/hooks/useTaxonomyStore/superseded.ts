@@ -99,9 +99,13 @@ export function withSupersededForSave<S extends StateWithPovs>(state: S): S {
 }
 
 // One cached index per (files, held) snapshot: readers like getLabelForId call this on every render.
+// t/4872: buildSupersessionIndex is now generic over SupersedableNode (POV nodes, situation nodes,
+// or both) so lib/debate can build one combined index for POV+situation ids. This file only ever
+// feeds it POV nodes (built from allPovNodes above), so pin T=PovNode explicitly here rather than
+// letting ReturnType<typeof buildSupersessionIndex> fall back to the generic's constraint type.
 let indexCache: {
   key: unknown[]; byId: Map<string, PovNode>; povById: Map<string, PovKey>;
-  survivor: ReturnType<typeof buildSupersessionIndex>;
+  survivor: ReturnType<typeof buildSupersessionIndex<PovNode>>;
 } | null = null;
 
 // Lib's chain/cycle/dangling WARNs, routed to the editor's flight recorder (same semantics as loadTaxonomy).

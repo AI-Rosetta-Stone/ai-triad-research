@@ -20,6 +20,12 @@
   overflow-y: auto;
   display: flex;
   justify-content: center;
+  /* t/4725: default align-items (stretch) clamped .pov-oped-card to this element's own
+     box height — the card's content visually overflowed it (root's scrollHeight still
+     measured correctly), but .pov-oped-head/-tabstrip's sticky containing block is the
+     card's LAYOUT box, so they could only stick within that first ~stretch-height
+     scroll range. flex-start lets the card grow to its real content height instead. */
+  align-items: flex-start;
   padding: 2.5rem 1rem 4rem;
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -33,6 +39,14 @@
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 2rem 2.25rem 1.5rem;
+  /* t/4725, mirrors t/4715 (OpEdTab.css): declared on the shared ancestor, not on
+     .pov-oped-head itself — a custom property only inherits down through its own
+     descendants, so a value set on the head would never reach the sibling tabstrip. */
+  --pov-oped-head-h: 2.375rem;
+}
+
+.pov-oped-card-no-head {
+  --pov-oped-head-h: 0px;
 }
 
 .pov-oped-status {
@@ -49,13 +63,27 @@
 
 .pov-oped-head {
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 0.75rem;
   margin-bottom: 1.25rem;
+  /* t/4725, mirrors t/4715 (OpEdTab.css .oped-reader-bar): an explicit height, not
+     padding/min-height, so a longer outlet name can't silently open a gap between
+     this and the tab strip below — the outlet line truncates instead of growing. */
+  height: var(--pov-oped-head-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
 }
 .pov-oped-outlet {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* Camp-tab strip (multi-voice sets only, t/3485) — mirrors OpEdReader.css's in-app tabs so the
@@ -64,6 +92,13 @@
   display: flex;
   gap: 0.25rem;
   border-bottom: 1px solid var(--border-color);
+  /* t/4725, mirrors t/4715: pinned directly below .pov-oped-head, which shares this
+     scroll container (.pov-oped-root) and sets --pov-oped-head-h so the two pinned
+     blocks stack without overlapping or leaving a gap. */
+  position: sticky;
+  top: var(--pov-oped-head-h, 0px);
+  z-index: 1;
+  background: var(--bg-secondary);
 }
 .pov-oped-tab {
   background: none;
@@ -269,4 +304,15 @@
   margin: -0.5rem 0 1rem;
   font-size: var(--text-sm);
   color: var(--text-muted);
+}
+
+/* t/4725 phone (≤767px), mirrors t/4715: compact the pinned block (head + tab strip)
+   so it stays well under ~25% of a typical phone viewport. */
+@media (max-width: 767px) {
+  .pov-oped-card {
+    --pov-oped-head-h: 2rem;
+  }
+  .pov-oped-tab {
+    padding: 0.4rem 0.5rem;
+  }
 }
