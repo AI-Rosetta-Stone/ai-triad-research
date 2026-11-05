@@ -8,8 +8,8 @@
 name: SBOM Generation
 on:
   schedule:
-    # First Sunday of the month at 00:00 UTC (monthly compliance audit)
-    - cron: '0 0 * * 0'
+    # First day of the month at 00:00 UTC (monthly compliance audit)
+    - cron: '0 0 1 * *'
   workflow_dispatch:
   push:
     branches:
