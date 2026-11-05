@@ -7,6 +7,21 @@
 # Last reviewed: 2026-09-01 (t/3135). Added perl CRITICALs + libtiff6 CVE-2026-52490
 # (no-fix dismissals). image-size bumped to 2.0.2 via override (no longer suppressed here).
 
+# ── apt / libapt-pkg7.0 (Debian trixie) — FIX NOT YET IN A CONFIGURED SUITE ─────
+# CVE-2026-109518  apt on-path attacker during package fetch (HIGH)
+#
+# Packages:  apt, libapt-pkg7.0 3.0.3 (baked into ai-triad-base:2026-11-01)
+# Fix state: 3.0.4 exists only in trixie-proposed-updates as of 2026-11-04; trixie,
+#            trixie-updates and trixie-security still serve 3.0.3, so neither a base
+#            rebuild nor --only-upgrade can patch it (the POLICY exception above).
+# Exposure:  Build-time only: the runtime stage's three apt-get RUNs, on the GitHub
+#            runner, and apt verifies the signed Release files it fetches. A running
+#            container never invokes apt and runs as non-root (aitriad).
+# Approved:  TL p/902#6, PI go pending on the PR.
+# REVISIT:   t/4873. Remove when trixie ships apt >= 3.0.4 (the weekly base rebuild
+#            picks it up). exp: makes the gate fail again on 2026-12-04 regardless.
+CVE-2026-109518 exp:2026-12-04
+
 # ── util-linux (Debian bookworm) — NO UPSTREAM FIX AVAILABLE ────────────────────
 # CVE-2026-13595  util-linux mount privilege-escalation via crafted fstab (warning)
 #
