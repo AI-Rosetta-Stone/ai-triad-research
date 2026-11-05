@@ -295,18 +295,19 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # (the grounding reconciler) all still load after the purge.
 # apt is Essential/Protected on Debian 13, so -y alone refuses with exit 100
 # ("Essential packages were removed and -y was used without --allow-remove-essential").
-# The purge leaves /usr/bin/apt-get behind with no dpkg owner (run 42001732771), so
-# remove any apt* binary that no installed package claims before the guard runs.
+# The purge leaves /usr/bin/apt-get behind with no dpkg owner (runs 42001732771,
+# 42002933598), so once the apt package is confirmed gone, delete apt's binaries by name.
 RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
+    && if dpkg -s apt >/dev/null 2>&1; then echo "[t/4874] ERROR: apt package still installed" && exit 1; fi \
     && rm -rf /var/lib/apt /var/cache/apt /etc/apt /usr/lib/apt \
-    && for f in /usr/bin/apt*; do \
-         [ -e "$f" ] || continue; \
-         dpkg -S "$f" >/dev/null 2>&1 || rm -f "$f"; \
-       done \
+    && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache /usr/bin/apt-cdrom \
+             /usr/bin/apt-config /usr/bin/apt-mark /usr/bin/apt-key \
     && for b in apt apt-get; do \
          p="$(command -v "$b" || true)"; \
          if [ -n "$p" ]; then \
-           echo "[t/4874] ERROR: $b still on PATH after purge: $p -> $(readlink -f "$p") (owner: $(dpkg -S "$(readlink -f "$p")" 2>&1 | head -n1))"; \
+           echo "[t/4874] ERROR: $b still on PATH after purge: $p"; \
+           ls -la /usr/bin/apt* /bin/apt* 2>&1; \
+           dpkg-divert --list 2>&1 | grep -i apt; \
            exit 1; \
          fi; \
        done \
