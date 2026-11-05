@@ -295,22 +295,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # (the grounding reconciler) all still load after the purge.
 # apt is Essential/Protected on Debian 13, so -y alone refuses with exit 100
 # ("Essential packages were removed and -y was used without --allow-remove-essential").
-# The purge leaves /usr/bin/apt-get behind with no dpkg owner (runs 42001732771,
-# 42002933598), so once the apt package is confirmed gone, delete apt's binaries by name.
+# `hash -r` before the guard: this shell ran apt-get above, so `command -v apt-get` would
+# return the remembered path even though the file is gone (run 42003978248: ls found no
+# /usr/bin/apt*, command -v still printed /usr/bin/apt-get).
 RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
-    && if dpkg -s apt >/dev/null 2>&1; then echo "[t/4874] ERROR: apt package still installed" && exit 1; fi \
-    && rm -rf /var/lib/apt /var/cache/apt /etc/apt /usr/lib/apt \
-    && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache /usr/bin/apt-cdrom \
-             /usr/bin/apt-config /usr/bin/apt-mark /usr/bin/apt-key \
-    && for b in apt apt-get; do \
-         p="$(command -v "$b" || true)"; \
-         if [ -n "$p" ]; then \
-           echo "[t/4874] ERROR: $b still on PATH after purge: $p"; \
-           ls -la /usr/bin/apt* /bin/apt* 2>&1; \
-           dpkg-divert --list 2>&1 | grep -i apt; \
-           exit 1; \
-         fi; \
-       done \
+    && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
+    && hash -r \
+    && if dpkg -s apt >/dev/null 2>&1 || command -v apt >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; then \
+         echo "[t/4874] ERROR: apt still present after purge" && exit 1; \
+       fi \
     && node -e "require('onnxruntime-node'); require('node-pty')" \
     && pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion' \
     && python3 -c 'import numpy' \
