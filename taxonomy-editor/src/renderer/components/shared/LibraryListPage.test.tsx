@@ -985,3 +985,22 @@ describe('LibraryListPage — resizable columns (t/4830)', () => {
     expect(window.localStorage.getItem('lib-col-width:debate:title')).toBe('500');
   });
 });
+
+// t/4885: onRename renames the reader's OWN item. Double-clicking a Community title used to enter
+// inline rename and call the My rename with a community id.
+describe('LibraryListPage — inline rename is My-only (t/4885)', () => {
+  it('double-clicking a My title starts rename', () => {
+    const setRenamingId = vi.fn();
+    renderPage({ onRename: vi.fn(), setRenamingId, renamingId: null });
+    fireEvent.doubleClick(screen.getByText('Zebra topic'));
+    expect(setRenamingId).toHaveBeenCalledWith('m1');
+  });
+
+  it('double-clicking a Community title does not start rename', () => {
+    const setRenamingId = vi.fn();
+    renderPage({ onRename: vi.fn(), setRenamingId, renamingId: null });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    fireEvent.doubleClick(screen.getByText('Community item'));
+    expect(setRenamingId).not.toHaveBeenCalled();
+  });
+});

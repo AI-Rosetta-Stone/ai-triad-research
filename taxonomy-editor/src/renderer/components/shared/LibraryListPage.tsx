@@ -127,11 +127,16 @@ function TitleCell<TMy extends { id: string }, TCommunity extends { id: string }
     if (isRenaming) setRenameDraft(title);
   }, [isRenaming, title]);
 
+  // t/4885: onRename renames the reader's OWN item, so a Community row never enters inline
+  // rename (it used to call the My rename with a community id). Admin rename of Community
+  // items is a separate, admin-gated action.
+  const canRename = variant === 'my' && !!config.onRename;
+
   const startRename = useCallback((e: React.MouseEvent) => {
-    if (!config.onRename || !config.setRenamingId) return;
+    if (!canRename || !config.setRenamingId) return;
     e.stopPropagation();
     config.setRenamingId(row.id);
-  }, [config, row.id]);
+  }, [canRename, config, row.id]);
 
   const commitRename = useCallback(() => {
     const v = renameDraft.trim();
@@ -162,12 +167,12 @@ function TitleCell<TMy extends { id: string }, TCommunity extends { id: string }
     <>
       <div className="lib-title-line">
         {isWebAddress ? (
-          <span className="lib-title-webaddr" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
+          <span className="lib-title-webaddr" title={title} onDoubleClick={canRename ? startRename : undefined}>
             <span className="lib-title-site">{stripWebAddress(title).site}</span>
             <span className="lib-title-rest">{stripWebAddress(title).rest}</span>
           </span>
         ) : (
-          <div className="lib-title-text" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
+          <div className="lib-title-text" title={title} onDoubleClick={canRename ? startRename : undefined}>
             {title}
           </div>
         )}
