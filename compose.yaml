@@ -1,0 +1,87 @@
+# Shared backing services for the project
+
+name: ai-triad
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    command: bash -c "bash scripts/dev-bootstrap.sh && sleep infinity"
+    volumes:
+      - .:/workspaces/ai-triad-research:cached
+      - ../ai-triad-data/:/workspaces/ai-triad-data:cached
+      - pnpm-store:/pnpm/store
+    # Published on the host loopback only: the app runs with AUTH_DISABLED and Neo4j holds
+    # data, so neither may be reachable from the rest of the network (#4459 review).
+    ports:
+      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:5174:5174"
+      - "127.0.0.1:5175:5175"
+      - "127.0.0.1:7862:7862"
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env (see .env.example)}
+      AUTH_DISABLED: "1"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+    depends_on:
+      neo4j:
+        condition: service_started
+        required: false
+
+  neo4j:
+    image: neo4j:community
+    profiles: ["graph", "all"]
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env (see .env.example)}
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # This is useful for development to more closely mirror deployment,
+  # but misses out on hot-reloading with Vite,
+  # so the npm dev:container option will often be preferable for that reason
+  taxonomy-editor:
+    build:
+      context: .
+      dockerfile: taxonomy-editor/Dockerfile
+    profiles: ["taxonomy-editor", "all"]
+    ports:
+      - "127.0.0.1:7862:7862"
+    environment:
+      # AUTH_DISABLED="1" is a no-op if NODE_ENV == "production"
+      # One would need to change this (perhaps create another service
+      # here specifically geared for production) if using docker compose
+      # for deployment
+      NODE_ENV: development
+      HOST: "0.0.0.0"
+      AUTH_DISABLED: "1"
+      STORAGE_MODE: filesystem
+      AI_TRIAD_DATA_ROOT: /workspaces/ai-triad-data
+    volumes:
+      - ../ai-triad-data/:/workspaces/ai-triad-data:cached
+    healthcheck:
+      test: curl -f http://localhost:7862/health || exit 1
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 30
+
+volumes:
+  pnpm-store:
+  neo4j-data:
+  neo4j-logs:

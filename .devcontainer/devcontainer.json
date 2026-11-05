@@ -1,16 +1,22 @@
 {
   "name": "ai-triad-research",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
-  "features": {
-    "ghcr.io/devcontainers/features/powershell:1": {},
-    "ghcr.io/devcontainers/features/python:1": { "version": "3.11" }
-  },
-  "forwardPorts": [5173, 5174, 5175, 7862],
+  "dockerComposeFile": "../compose.yaml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/ai-triad-research",
+  "runServices": ["neo4j"],
+  "forwardPorts": [5173, 5174, 5175, 7862, 7474],
   "portsAttributes": {
-    "5173": { "label": "taxonomy-editor (vite)", "onAutoForward": "openBrowser" },
+    "5173": {
+      "label": "taxonomy-editor (vite)",
+      "onAutoForward": "openBrowser"
+    },
     "5174": { "label": "poviewer (vite)", "onAutoForward": "notify" },
     "5175": { "label": "summary-viewer (vite)", "onAutoForward": "notify" },
-    "7862": { "label": "taxonomy-editor API server", "onAutoForward": "silent" }
+    "7862": {
+      "label": "taxonomy-editor API server",
+      "onAutoForward": "silent"
+    },
+    "7474": { "label": "neo4j browser", "onAutoForward": "silent" }
   },
   "remoteEnv": {
     "AUTH_DISABLED": "1"

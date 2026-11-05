@@ -57,6 +57,10 @@ ai-triad-sources/               SOURCES REPO
 
 ### Setup
 
+For development, there are two ways to do spin up the platform.
+
+#### Run Directly on Host Machine
+
 ```powershell
 # 1. Clone the repos as siblings (sources repo optional unless ingesting)
 cd ~/source/repos
@@ -76,6 +80,150 @@ Register-AIBackend
 # 5. Verify everything works
 Test-Dependencies
 Get-Tax | Measure-Object   # Should show several hundred nodes (785 POV nodes as of 2026-07)
+```
+
+#### Run in Dev Container
+
+The containerized version of the platform is a multi-container application
+(since Neo4j runs in its own container). The project source code is accessed via
+a volume rather than being copied into a container, which allows for live edits.
+
+Before starting the container, copy `.env.example` to `.env` next to `compose.yaml`
+(docker compose loads it automatically) and set a Neo4j password of your own plus at
+least one AI API key. Compose refuses to start without `NEO4J_PASSWORD`:
+
+```bash
+# .env
+NEO4J_PASSWORD=choose-your-own
+GEMINI_API_KEY=your-key-here
+```
+
+All ports are published on `127.0.0.1` only, because the dev server runs with
+`AUTH_DISABLED`.
+
+`Register-AIBackend`'s browser-based setup UI doesn't work from inside the
+container — it binds to `127.0.0.1`, which inside a container is only reachable
+from that container itself, not from the host, even with the port published. So
+for the dev container, API keys are set directly as environment variables
+instead; `Register-AIBackend` remains the way to configure keys when running
+directly on your host machine (see above).
+
+To build the app image and run with neo4j:
+
+```bash
+docker compose --profile graph up --build
+```
+
+To build the app image and run without neo4j (default):
+
+```bash
+docker compose up --build
+```
+
+Or build then run:
+
+```bash
+docker compose build
+docker compose up
+```
+
+The above commands for the PowerShell dev setup (`Import-Module`,
+`Install-AIDependencies -Fix`, `Get-Tax`) get run in the container via
+`scripts/dev-bootstrap.sh`. If no AI API key is set, bootstrap prints a reminder
+to add one to `.env` and restart.
+
+Useful for Development:
+
+```bash
+  # watch bootstrap + app output
+  docker compose logs -f app
+  # shell into the running container
+  docker compose exec app bash
+  # PowerShell session
+  docker compose exec app pwsh
+  # status
+  docker compose ps
+```
+
+Tear down:
+
+```bash
+  # stop/remove containers (keeps volumes)
+  docker compose down
+  # include the profiled neo4j service
+  docker compose --profile graph down
+  # also wipe volumes (pnpm-store, neo4j-data/logs)
+  docker compose --profile graph down -v
+```
+
+Running taxonomy-editor dev application using `npm`:
+
+```bash
+  export AUTH_DISABLED=1
+  cd taxonomy-editor
+  npm run dev:container
+  # health check when taxonomy-editor is running
+  curl -sf http://localhost:7862/health && echo
+```
+
+The `AUTH_DISABLED` env variable here is necessary here for full functionality,
+since you can't log in with a local deployment. Note that if `NODE_ENV` gets set
+to `production`, `AUTH_DISABLED` won't actually disable authorization.
+
+Then verify that this is working by visiting `http://localhost:5173/`. This is
+probably best for simple development (allows for Vite's hot reloading), but to
+better match deployment conditions, use a container service by starting up
+Docker with
+
+```bash
+  docker compose --profile all
+```
+
+or
+
+```bash
+  docker compose --profile taxonomy-editor
+```
+
+### Testing in Development
+
+The full pester test suite takes quite a while to run, and so usually should not
+be used. To run a specific test file, for instance `AICallLog.Tests.ps1`, you
+can do
+
+```pwsh
+Invoke-Pester ./tests/AICallLog.Tests.ps1 -Output Detailed
+```
+
+or, from bash,
+
+```bash
+pwsh -Command "Invoke-Pester ./tests/AICallLog.Tests.ps1 -Output Detailed"
+```
+
+It should be noted that since tests are available through the mounted
+`:/workspaes/ai-triad-research`, they can be used in the `app` service but not
+elsewhere.
+
+Some useful commands for testing from within the containerized development
+environment and PowerShell:
+
+```pwsh
+# Smoke test
+Invoke-Pester ./tests/AITriad.Module.Tests.ps1, ./tests/TriadConfig.Tests.ps1 -Output Detailed
+# Full test, which takes quite a while to run
+./scripts/Invoke-BoundedTestRun.ps1 -OutputLevel Normal
+```
+
+These can also be run via `docker compose exec app pwsh -NoProfile -c "..."`
+
+Or you can let `Test-Scope.ps1` pick the tests to run. This looks at the diff
+between staged and unstaged changes, and scopes testing on the basis of this.
+So you have to do this PRIOR to staging changes.
+
+```pwsh
+./scripts/Test-Scope.ps1 # print recommended
+./scripts/Test-Scope.ps1 -Run # run the tests
 ```
 
 ### Data Path Configuration
@@ -169,7 +317,7 @@ Show-AITriadHelp
 | `AI_API_KEY` | No | Fallback key. PowerShell uses it for gemini models only; other backends need their own variable (t/4102) |
 | `AI_MODEL` | No | Default model override |
 | `AI_TRIAD_DATA_ROOT` | No | Override data directory path |
-| `NEO4J_PASSWORD` | No | Neo4j password (default: aitriad2026) |
+| `NEO4J_PASSWORD` | For docker compose | Neo4j password. Required by `compose.yaml` (no default). `Install-GraphDatabase` generates one if unset. |
 
 Use `Register-AIBackend` to configure keys via a GUI, or set them manually.
 Settings are persisted to `~/.aitriad-env` — add `. ~/.aitriad-env` to your shell profile.

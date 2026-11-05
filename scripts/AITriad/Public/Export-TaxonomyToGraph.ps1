@@ -50,7 +50,7 @@ function Export-TaxonomyToGraph {
 
         [switch]$IncludeEmbeddings,
 
-        [string]$Uri = 'bolt://localhost:7687',
+        [string]$Uri = ($env:NEO4J_URI ? $env:NEO4J_URI : 'bolt://localhost:7687'),
 
         [PSCredential]$Credential,
 
