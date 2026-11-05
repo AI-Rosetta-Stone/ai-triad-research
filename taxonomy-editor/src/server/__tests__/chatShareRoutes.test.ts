@@ -30,6 +30,15 @@ vi.mock('../security/rateLimiter.js', () => ({
 // httpKit.error() calls clientSafeMessage, so it must stay a passthrough.
 vi.mock('../security/accessControl.js', () => ({ invalidRouteParam: () => null, clientSafeMessage: (m: string) => m }));
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
+vi.mock('../storage/gitBlobSha.js', () => {
+  const crypto = require('crypto');
+  return {
+    gitBlobSha: (content: string) => {
+      const blob = `blob ${content.length}\0${content}`;
+      return crypto.createHash('sha1').update(blob).digest('hex');
+    },
+  };
+});
 vi.mock('../storage/fileIO.js', () => {
   const crypto = require('crypto');
   const gitBlobSha = (content: string) => {
@@ -262,58 +271,61 @@ describe('K4: expiry deletion with clock injection', () => {
   });
 });
 
-describe('K5: read-only principal rejection', () => {
-  it('returns 403 when read-only principal attempts POST', async () => {
-    // Mock a read-only principal context (in actual test, inject via mock)
-    // This verifies that the route structure supports the guard
+describe('K5: auth and rate limits', () => {
+  it('returns 401 when anonymous user attempts POST', async () => {
+    h.anonymous = true;
     const r = await create();
-    expect([200, 201]).toContain(r.statusCode); // Authenticated user succeeds
+    expect(r.statusCode).toBe(401);
+    h.anonymous = false;
+  });
+
+  it('returns 429 when create rate limit exhausted', async () => {
+    h.createAllowed = false;
+    const r = await create();
+    expect(r.statusCode).toBe(429);
+    h.createAllowed = true;
   });
 });
 
 describe('K3: concurrent POST race test (CAS)', () => {
-  it('concurrent POSTs on same chat produce exactly 1 live share', async () => {
-    // Promise.all race: both try to create share simultaneously
-    const results = await Promise.all([
-      create('concurrent-chat'),
-      create('concurrent-chat'),
+  it('concurrent POSTs on same chat — exactly one share ID is live (CAS enforced)', async () => {
+    // K3 race: both try to create pointer simultaneously
+    const [r1, r2] = await Promise.all([
+      create('k3-race-chat'),
+      create('k3-race-chat'),
     ]);
-    const ids = results.map(r => JSON.parse(r.body)?.id).filter(Boolean);
 
-    // Both succeed (201 or 200), but only one ID is live
-    expect(ids.length).toBeGreaterThan(0);
+    // Both should succeed (one 201 new, one 200 idempotent)
+    expect([201, 200]).toContain(r1.statusCode);
+    expect([201, 200]).toContain(r2.statusCode);
 
-    // Read both IDs: exactly one should be 200, the orphan should be 404
-    let liveCount = 0;
-    for (const id of ids) {
-      const r = await read(id);
-      if (r.statusCode === 200) liveCount++;
-    }
-    expect(liveCount).toBe(1); // Only one survives the race
+    const id1 = JSON.parse(r1.body)?.id;
+    const id2 = JSON.parse(r2.body)?.id;
+    expect(id1).toBeTruthy();
+    expect(id2).toBeTruthy();
+
+    // K3: Both responses must return the SAME share ID (one was the race winner)
+    expect(id1).toBe(id2);
+
+    // Verify: exactly one blob exists and is readable
+    const readResult = await read(id1);
+    expect(readResult.statusCode).toBe(200);
+    const view = JSON.parse(readResult.body);
+    expect(view.id).toBe(id1);
   });
 
-  it('first create uses baseSha: "" (file must not exist)', async () => {
-    // First creation on empty registry: baseSha should be ''
-    await create('first-chat');
-    // If the test backend enforces CAS, this passes. If CAS is broken, test would fail on concurrent access.
-    expect(true).toBe(true); // Sanity check
-  });
+  it('race with different chats runs in parallel (no CAS conflict)', async () => {
+    // Two concurrent creates on DIFFERENT chats: both should succeed
+    const [r1, r2] = await Promise.all([
+      create('chat-a'),
+      create('chat-b'),
+    ]);
 
-  it('subsequent creates use baseSha: version (file must match)', async () => {
-    // Create first share
-    const r1 = await create('versioned-chat');
     expect(r1.statusCode).toBe(201);
+    expect(r2.statusCode).toBe(201);
 
-    // Create another chat (increments version in registry)
-    await create('other-chat');
-
-    // Attempt concurrent create on versioned-chat (should use proper baseSha)
-    const [r2, r3] = await Promise.all([
-      create('versioned-chat'),
-      create('versioned-chat'),
-    ]);
-
-    // Both get 200 (existing share) or one gets 201 with CAS, one fails
-    expect(r2.statusCode + r3.statusCode).toBeGreaterThan(0);
+    const id1 = JSON.parse(r1.body)?.id;
+    const id2 = JSON.parse(r2.body)?.id;
+    expect(id1).not.toBe(id2); // Different chats → different share IDs
   });
 });
