@@ -27,16 +27,20 @@ vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => ({ anonymous:
 vi.mock('../../hooks/useBreakpoint', () => ({ useBreakpoint: () => 'phone' }));
 
 vi.mock('../../hooks/useDebateStore', () => ({
-  useDebateStore: (selector: (s: Record<string, unknown>) => unknown) => selector({
-    sessions: [],
-    sessionsLoading: false,
-    loadSessions: vi.fn().mockResolvedValue(undefined),
-    activeDebateId: null,
-    activeDebate: null,
-    loadDebate: vi.fn(),
-    deleteDebate: vi.fn(),
-    renameDebate: vi.fn(),
-  }),
+  useDebateStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector({
+      sessions: [],
+      sessionsLoading: false,
+      loadSessions: vi.fn().mockResolvedValue(undefined),
+      activeDebateId: null,
+      activeDebate: null,
+      loadDebate: vi.fn(),
+      deleteDebate: vi.fn(),
+      renameDebate: vi.fn(),
+      setActiveCommunityDebate: vi.fn(),
+    }),
+    { setState: vi.fn() },
+  ),
 }));
 
 const COMMUNITY_DEBATE = { id: 'cd-1', title: 'A community debate', created_at: '2026-01-01', updated_at: '2026-01-01' };

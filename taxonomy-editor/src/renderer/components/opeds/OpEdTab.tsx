@@ -412,7 +412,7 @@ export function OpEdTab() {
       recordError('oped-tab', 'Failed to load op-ed', err);
       setReaderError('Could not load this op-ed — it may have been removed.');
     }).finally(() => setReaderLoading(false));
-  }, [selectSet]);
+  }, [selectSet, communityOpeds]);
 
   // t/3486: a deep-link route restore requests opening a set — bridges appRoutes.ts's pure
   // store action (`useOpEdStore.requestOpen`) to this component's local reader-open logic.
@@ -425,7 +425,7 @@ export function OpEdTab() {
   }, [pendingOpen, openMy, clearPendingOpen]);
 
   const openCommunity = useCallback((id: string) => {
-    selectSet(id);
+    selectSet(id, { title: communityOpeds.find(o => o.id === id)?.topic, community: true });
     setReaderSource('community');
     setReaderCommunityId(id); // t/3426: capture the community addressing id at open time.
     setReaderError(null);

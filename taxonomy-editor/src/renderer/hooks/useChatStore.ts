@@ -11,6 +11,7 @@ import type {
 import type { SpeakerId, TaxonomyRef } from '../types/debate';
 import type { PovNode, CrossCuttingNode as SituationNode } from '../types/taxonomy';
 import { useTaxonomyStore, getStoredModel } from './useTaxonomyStore';
+import type { CommunityChat } from './useCommunityStore';
 import { extractHttpUrls } from '../../../../lib/url-fetch/extractHttpUrls';
 import { mapErrorToUserMessage } from '../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -267,6 +268,11 @@ interface ChatStore {
   chatActivity: string | null;
   chatModel: string | null;
 
+  /** t/4888: ChatTab's Community selection, lifted from local state into the store so
+   *  placeOf.ts (store-only visibility) can give an open community chat an up-crumb. */
+  activeCommunityChat: CommunityChat | null;
+  setActiveCommunityChat: (chat: CommunityChat | null) => void;
+
   // Actions
   loadSessions: () => Promise<void>;
   /** `tag`: the chat's POV tag (t/3995); omit for an untagged chat. `temperature`: t/4774, chosen
@@ -292,6 +298,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   chatError: null,
   chatStreamingText: null,
   chatActivity: null,
+  activeCommunityChat: null,
+  setActiveCommunityChat: (chat) => set({ activeCommunityChat: chat }),
   chatModel: null,
 
   loadSessions: async () => {

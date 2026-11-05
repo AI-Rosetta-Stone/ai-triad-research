@@ -280,7 +280,7 @@ interface CommunityChatsListProps {
   communityChats: CommunityChat[];
   communityLoading: boolean;
   selectedCommunityChat: CommunityChat | null;
-  setSelectedCommunityChat: Dispatch<SetStateAction<CommunityChat | null>>;
+  setSelectedCommunityChat: (chat: CommunityChat | null) => void;
   copyingId: string | null;
   setCopyingId: Dispatch<SetStateAction<string | null>>;
   copyItem: CopyItem;
@@ -600,6 +600,7 @@ export function ChatTab() {
     sessions, sessionsLoading, loadSessions,
     activeChatId, loadChat, deleteChat, renameChat,
     chatGenerating, chatActivity, chatError, chatLoading,
+    activeCommunityChat: selectedCommunityChat, setActiveCommunityChat: setSelectedCommunityChat,
   } = useChatStore();
   const { toolbarPanel } = useTaxonomyStore();
   const { width, onMouseDown } = useResizablePanel();
@@ -628,21 +629,27 @@ export function ChatTab() {
   // Used by the phone/split-view CommunityChatsList only — the table-mode Copy action goes
   // through LibraryListPage's shared actions column (handleCopyChat) instead.
   const [copyingId, setCopyingId] = useState<string | null>(null);
-  const [selectedCommunityChat, setSelectedCommunityChat] = useState<CommunityChat | null>(null);
   const isTableMode = !toolbarPanel && !isPhone;
 
   // t/4690: table mode's row click now opens in place (as a t/4640 place, /chat/:id), matching
   // split mode's handleSelect below — ⧉/Ctrl-click still goes through the shell's
   // openPlaceInNewWindow via chatLibraryListConfig's itemPlace, unaffected by this.
+  // t/4888 (Design review): opening Community must NOT null activeChat/activeChatId — a reply
+  // still generating in the user's own chat would silently drop (t/4687#1). placeOf.ts's chat
+  // resolver instead gives activeCommunityChat precedence when set; only opening a My item
+  // clears the community selection (below), not the other direction.
   const openChatInPlace = useCallback((id: string, source: 'my' | 'community') => {
     setListView(source);
     if (source === 'my') {
-      if (id !== activeChatId) void loadChat(id);
+      if (id !== activeChatId) {
+        setSelectedCommunityChat(null);
+        void loadChat(id);
+      }
       return;
     }
     const cc = communityChats.find(c => c.id === id);
     if (cc) setSelectedCommunityChat(cc);
-  }, [activeChatId, loadChat, communityChats]);
+  }, [activeChatId, loadChat, communityChats, setSelectedCommunityChat]);
 
   const handleExportChat = useCallback((id: string, format: string) => {
     void api.loadChatSession(id).then((raw) => {
@@ -740,6 +747,7 @@ export function ChatTab() {
 
   const handleSelect = (session: ChatSessionSummary) => {
     if (session.id !== activeChatId) {
+      setSelectedCommunityChat(null);
       void loadChat(session.id);
     }
   };

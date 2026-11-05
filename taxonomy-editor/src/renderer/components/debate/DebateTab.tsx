@@ -152,11 +152,12 @@ export function resolveExportLoader(
 export function DebateTab() {
   const {
     sessions, sessionsLoading, loadSessions,
-    activeDebateId, activeDebate, loadDebate, deleteDebate, renameDebate,
+    activeDebateId, activeDebate, loadDebate, deleteDebate, renameDebate, setActiveCommunityDebate,
   } = useDebateStore(
     useShallow(s => ({
       sessions: s.sessions, sessionsLoading: s.sessionsLoading, loadSessions: s.loadSessions,
       activeDebateId: s.activeDebateId, activeDebate: s.activeDebate, loadDebate: s.loadDebate, deleteDebate: s.deleteDebate, renameDebate: s.renameDebate,
+      setActiveCommunityDebate: s.setActiveCommunityDebate,
     }))
   );
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -287,6 +288,12 @@ export function DebateTab() {
     void fetchCommunityDebates();
   }, [loadSessions, fetchCommunityDebates]);
 
+  // t/4888: mirror the local Community selection into the store (as a trimmed {id, title} —
+  // placeOf.ts needs nothing more) so it can give an open community debate an up-crumb.
+  useEffect(() => {
+    setActiveCommunityDebate(selectedCommunityDebate ? { id: selectedCommunityDebate.id, title: selectedCommunityDebate.title } : null);
+  }, [selectedCommunityDebate, setActiveCommunityDebate]);
+
   // t/4800: clear in-place selection state when navigating back to /debate (no ID).
   // When history pops from /debate/:id back to /debate, the store's activeDebate is cleared
   // by DEBATE_ROUTE.restore(), but this component's local state (selectedCommunityDebate,
@@ -414,11 +421,19 @@ export function DebateTab() {
   // unaffected by this. Phone additionally pushes its own nav-stack entry (pre-existing, unrelated
   // to t/4640 — Debate's phone layer uses useMobileNav, not the shell's history).
   const handleOpenMy = useCallback((id: string) => {
-    if (id !== activeDebateId) void loadDebate(id);
+    if (id !== activeDebateId) {
+      setSelectedCommunityDebate(null);
+      void loadDebate(id);
+    }
     setLastOpenedVariant('my');
     if (isPhone) nav.push({ view: 'debate', id });
   }, [isPhone, activeDebateId, loadDebate, nav]);
 
+  // t/4888 (Design review): opening Community must NOT null activeDebate/activeDebateId — it
+  // risks a debate round in flight. placeOf.ts's debate resolver instead gives
+  // activeCommunityDebate precedence when set; only opening a My item clears the community
+  // selection (above), not the other direction. (Also: #4581/DebateUI must not write a community
+  // debate into activeDebate either — Design flagged the same hazard there.)
   const handleOpenCommunity = useCallback((id: string) => {
     const cd = communityDebates.find(c => c.id === id) ?? null;
     setSelectedCommunityDebate(cd);

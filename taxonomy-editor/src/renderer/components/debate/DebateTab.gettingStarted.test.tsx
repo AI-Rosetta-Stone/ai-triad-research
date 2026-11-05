@@ -39,6 +39,7 @@ vi.mock('../../hooks/useDebateStore', () => ({
     loadDebate: vi.fn(),
     deleteDebate: vi.fn(),
     renameDebate: vi.fn(),
+    setActiveCommunityDebate: vi.fn(),
   }),
 }));
 

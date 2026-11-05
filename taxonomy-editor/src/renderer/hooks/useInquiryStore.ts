@@ -39,6 +39,10 @@ interface InquiryStoreState {
   tagSelection?: TagSelection;
 
   jobId: string | null;
+  /** t/4888: the community result's id, set by openCommunityResult() alongside jobId: null
+   *  (there's no job to poll for a community item). placeOf.ts's inquiry resolver reads this
+   *  when jobId is null, so a community answer still becomes a navigation place. */
+  communityResultId: string | null;
   status: InquiryJobStatus | null;
   progressPct: number;
   /** t/4714: a short human line for the currently-running stage (e.g. "Round 2 of 4 · Skeptic
@@ -216,6 +220,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     evaluatorModel: undefined,
     tagSelection: undefined,
     jobId: null,
+    communityResultId: null,
     status: null,
     progressPct: 0,
     stageDetail: null,
@@ -265,7 +270,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
     startInquiry: async () => {
       const { question, fidelity, debaterModel, evaluatorModel, tagSelection } = get();
-      set({ error: null, pollError: null, result: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      set({ error: null, pollError: null, result: null, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const { jobId } = await api.startInquiry({
           question,
@@ -298,7 +303,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
       clearPollTimer();
       consecutivePollFailures = 0;
       set({
-        jobId: null, status: null, progressPct: 0, stageDetail: null, terminationReason: null,
+        jobId: null, communityResultId: null, status: null, progressPct: 0, stageDetail: null, terminationReason: null,
         error: null, pollError: null, result: null, viewingList: false,
       });
     },
@@ -330,7 +335,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     openFromHistory: async (jobId: string) => {
       clearPollTimer();
       consecutivePollFailures = 0;
-      set({ viewingList: false, error: null, pollError: null, result: null, jobId, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const view = await api.getInquiry(jobId);
         set(statusFields(view));
@@ -349,7 +354,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     openCommunityResult: async (id: string) => {
       clearPollTimer();
       consecutivePollFailures = 0;
-      set({ viewingList: false, error: null, pollError: null, result: null, jobId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId: null, communityResultId: id, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const result = await api.loadCommunityInquiry(id);
         set({ status: 'done', progressPct: 100, result });
