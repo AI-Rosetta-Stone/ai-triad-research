@@ -293,7 +293,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Guarded in-build (same RUN, so a broken image fails the build, not staging): the node native
 # modules that'd break first (onnxruntime-node, node-pty), pwsh (the web console), and numpy
 # (the grounding reconciler) all still load after the purge.
-RUN apt-get purge -y apt libapt-pkg7.0 \
+# apt is Essential/Protected on Debian 13, so -y alone refuses with exit 100
+# ("Essential packages were removed and -y was used without --allow-remove-essential").
+RUN apt-get purge -y --allow-remove-essential apt libapt-pkg7.0 \
     && rm -rf /var/lib/apt /var/cache/apt /etc/apt \
     && if command -v apt >/dev/null 2>&1 || command -v apt-get >/dev/null 2>&1; then \
          echo "[t/4874] ERROR: apt still on PATH after purge" && exit 1; \
