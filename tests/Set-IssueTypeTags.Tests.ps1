@@ -67,6 +67,39 @@ Describe 'Set-IssueTypeTags (t/4836)' -Tag 'taxonomy' {
             $node.graph_attributes.issue_types_provenance.confidence.political | Should -Be 0.8
             $node.graph_attributes.issue_types_provenance.confidence.misuse | Should -Be 0.7
             $node.graph_attributes.issue_types_provenance.rationale | Should -Be 'rationale text'
+            # ConvertFrom-Json auto-detects the written ISO-8601 string and hands this back as a
+            # [DateTime], not a string -- confirmed empirically, and exactly the behavior that
+            # caused the original bug (see the next test). Assert on the parsed value directly
+            # rather than via string-matching the written text, which Pester's own -Match
+            # operator handled inconsistently for this specific pattern during development.
+            $classifiedAt = $node.graph_attributes.issue_types_provenance.classified_at
+            $classifiedAt | Should -BeOfType [DateTime] -Because 'must be a valid parseable timestamp'
+            $classifiedAt.Kind | Should -Be 'Utc' -Because 'must be UTC, not Local or Unspecified'
+        }
+
+        It 'writes classified_at as ISO 8601 UTC even when the caller passes a [DateTime] (SO finding, e/421#2 C1)' {
+            # ConvertFrom-Json auto-detects an ISO-8601-shaped string and parses it into a
+            # [DateTime] -- exactly what happens when a real caller (the frozen-list runner)
+            # reads ClassifiedAt back out of a JSON file. A naive [string] cast on that DateTime
+            # formats using the CURRENT CULTURE's default (e.g. "11/04/2026 13:02:12" on
+            # en-US) -- ambiguous, no timezone, inconsistent with the rest of the corpus. This
+            # test passes a real [DateTime] object directly (not a string) to prove the cmdlet
+            # normalizes it correctly regardless of input shape.
+            $dtProvenance = $script:SampleProvenance.Clone()
+            $dtProvenance['ClassifiedAt'] = [DateTime]::Parse('2026-11-04T13:02:12.2458023-05:00', [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+            $result = Set-IssueTypeTags -Assignment @{ NodeId = 'skp-001'; Types = @('political'); Provenance = $dtProvenance } `
+                -TargetPath $script:TaxDir -Confirm:$false
+            $result.Applied | Should -Be 1
+            $doc = Get-Content -Raw (Join-Path $script:TaxDir 'skeptic.json') | ConvertFrom-Json
+            $node = @($doc.nodes | Where-Object { $_.id -eq 'skp-001' })[0]
+            # Read back as a [DateTime] (ConvertFrom-Json's own auto-detection, confirmed above) --
+            # assert on the parsed value rather than raw text, which was the whole source of the
+            # original bug (a [string] cast on this exact shape produced a culture-formatted,
+            # ambiguous, timezone-less string like "11/04/2026 13:02:12").
+            $written = $node.graph_attributes.issue_types_provenance.classified_at
+            $written | Should -BeOfType [DateTime]
+            $written.Kind | Should -Be 'Utc' -Because 'must be UTC, never Local or Unspecified'
+            $written.ToString('yyyy-MM-ddTHH:mm:ss') | Should -Be '2026-11-04T18:02:12' -Because 'must be the SAME instant as the input (-05:00), converted to UTC'
         }
 
         It 'writes issue_types: [] for a 0-tag node (distinct from field absence)' {

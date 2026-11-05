@@ -146,12 +146,36 @@ function Set-IssueTypeTags {
                 model          = [string]$p['Model']
                 prompt_version = [string]$p['PromptVersion']
                 run_id         = [string]$p['RunId']
-                classified_at  = [string]$p['ClassifiedAt']
                 rationale      = [string]$p['Rationale']
             }
             foreach ($field in $provFields.Keys) {
                 $edits.Add(@{ NodeId = $a.NodeId; Path = @('graph_attributes', 'issue_types_provenance', $field); Value = $provFields[$field]; Upsert = $true })
             }
+
+            # ClassifiedAt: ConvertFrom-Json auto-detects an ISO-8601-shaped STRING and parses it
+            # into a [DateTime] (confirmed empirically -- a caller that read this value back out
+            # of a JSON file, e.g. the frozen-list runner, hands this cmdlet a DateTime, not a
+            # string). A naive [string] cast then formats via the CURRENT CULTURE's default
+            # DateTime.ToString(), producing e.g. "11/04/2026 13:02:12" -- ambiguous, no
+            # timezone, inconsistent with every other timestamp in the corpus (SO finding, t/4836
+            # e/421#2 C1). Passing a pre-formatted ISO string instead (via .ToString('o')) looked
+            # like the fix, but tripped Save-JsonNodeFieldEdits' OWN re-parse-verify: its re-parse
+            # ALSO auto-detects the written string as a DateTime, and ConvertTo-Json's DEFAULT
+            # DateTime formatter drops a trailing ZERO fractional-second component that 'o' always
+            # includes (".0000000Z" -> "Z") -- a real, if narrow, divergence between the
+            # "expected" and "actual" verify baselines for exactly-zero-fraction instants, not
+            # present for non-zero fractions (confirmed empirically). Passing the [DateTime]
+            # OBJECT itself as Value sidesteps this entirely: both sides of the verify are then
+            # DateTime objects formatted by the SAME ConvertTo-Json default formatter, so they
+            # agree by construction regardless of fractional-second quirks.
+            $rawClassifiedAt = $p['ClassifiedAt']
+            $classifiedAtDt = if ($rawClassifiedAt -is [DateTime]) {
+                $rawClassifiedAt
+            } else {
+                [DateTime]::Parse([string]$rawClassifiedAt, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+            }
+            $edits.Add(@{ NodeId = $a.NodeId; Path = @('graph_attributes', 'issue_types_provenance', 'classified_at'); Value = $classifiedAtDt.ToUniversalTime(); Upsert = $true })
+
             $confidence = $p['Confidence']
             if ($confidence) {
                 foreach ($type in @($confidence.Keys)) {
