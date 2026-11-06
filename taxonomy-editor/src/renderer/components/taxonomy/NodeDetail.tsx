@@ -136,6 +136,18 @@ function useTabGroupSwitch(tabGroup: NodeDetailTabGroup, activeTab: NodeDetailTa
 }
 
 /** Edit-history entry count for the History tab badge (extracted so the optional-chain access doesn't add to NodeDetail's own complexity count). */
+// t/4919: the lineage tab's default-expanded chip is the first entry in its own sort order
+// (alphabetical by label) — shared here so the default (NodeDetail) and the render
+// (NodeDetailLineageTab) never drift apart.
+function firstLineageLabel(node: PovNode): string | null {
+  const lineage = node.graph_attributes?.intellectual_lineage;
+  const names = (lineage ?? [])
+    .map(v => (typeof v === 'string' ? v : (v as { name?: string })?.name))
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+  return names[0] ?? null;
+}
+
 function getEditHistoryLength(node: PovNode): number | undefined {
   return node._edit_history?.length;
 }
@@ -176,7 +188,10 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const [showDelete, setShowDelete] = useState(false);
   const [isEditing, setIsEditing] = useState(false); // t/4641: description edit state, lifted from DescriptionSection
   const [activeTab, setActiveTab] = useState<NodeDetailTabId>('steelman');
-  const [expandedLineage, setExpandedLineage] = useState<string | null>(null);
+  // t/4919: lazy-seed to the first lineage entry so mount doesn't flash collapsed; the reset
+  // effect below (keyed on node.id) re-applies the default on node change without re-forcing
+  // it after the user has collapsed/picked a different chip for the current node.
+  const [expandedLineage, setExpandedLineage] = useState<string | null>(() => firstLineageLabel(node));
 
   useTabGroupSwitch(nodeDetailTabGroup, activeTab, setActiveTab);
   const [showDtDrilldown, setShowDtDrilldown] = useState(false);
@@ -256,6 +271,10 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   // Clear fact selection on node change
   useEffect(() => { setSelectedFact(null); }, [node.id]);
   useEffect(() => { setIsEditing(false); }, [node.id]); // t/4641
+  // t/4919: default the lineage tab's first chip open on node change (see firstLineageLabel).
+  useEffect(() => {
+    setExpandedLineage(firstLineageLabel(node));
+  }, [node.id]);
 
   const handleFactSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1019,6 +1038,7 @@ function NodeDetailAttributesTab({ node, readOnly, pov, err, updatePovNode, upda
       {node.graph_attributes && (
         <GraphAttributesPanel
           attrs={node.graph_attributes}
+          nodeId={node.id}
           onBadgeClick={runAttributeFilter}
           onShowAttributeInfo={showAttributeInfo}
           onUpdatePolicyActions={readOnly ? undefined : (actions) => updatePovNode(pov, node.id, { graph_attributes: { ...node.graph_attributes!, policy_actions: actions } })}

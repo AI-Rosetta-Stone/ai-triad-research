@@ -20,6 +20,8 @@ function BdiScaleDocLink() {
 
 interface GraphAttributesPanelProps {
   attrs: GraphAttributes;
+  /** Node id — used only to default/reset the first policy action's expand state per node (t/4919). */
+  nodeId?: string;
   onBadgeClick?: (field: string, value: string) => void;
   onShowAttributeInfo?: (field: string, value: string) => void;
   onUpdatePolicyActions?: (actions: GraphAttributes['policy_actions']) => void;
@@ -326,6 +328,7 @@ function PolicyActionHeader({ policyId, reg, edgeCount, expanded, onToggleExpand
           className="ga-policy-edges-toggle"
           onClick={onToggleExpand}
           title={`${edgeCount} policy relationships`}
+          aria-expanded={expanded}
         >
           {expanded ? '▼' : '▶'} {edgeCount} edge{edgeCount !== 1 ? 's' : ''}
         </button>
@@ -547,10 +550,18 @@ function PolicyPicker({ policyRegistry, filteredPolicies, policySearchQuery, onS
 
 // ── Main component ────────────────────────────────────────────
 
-export function GraphAttributesPanel({ attrs, onBadgeClick, onShowAttributeInfo, onUpdatePolicyActions, onUpdateAssumptions, readOnly, defaultOpen, nodeCategory, confidence, priority, operationality, doctrinallyAnchored, evidentialConfidence, confidenceHistory, priorityHistory, operationalityHistory, onUpdateWeightedBdi }: GraphAttributesPanelProps) {
+export function GraphAttributesPanel({ attrs, nodeId, onBadgeClick, onShowAttributeInfo, onUpdatePolicyActions, onUpdateAssumptions, readOnly, defaultOpen, nodeCategory, confidence, priority, operationality, doctrinallyAnchored, evidentialConfidence, confidenceHistory, priorityHistory, operationalityHistory, onUpdateWeightedBdi }: GraphAttributesPanelProps) {
   const { policyRegistry, edgesFile } = useTaxonomyStore();
   const [open, setOpen] = useState(defaultOpen ?? false);
-  const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(null);
+  // t/4919: default the first policy action open. Lazy-seeded so the initial render doesn't
+  // flash collapsed before an effect opens it; the effect below re-applies the default when
+  // the node changes (this panel doesn't remount per node) without re-forcing after a user toggle.
+  const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(
+    () => attrs.policy_actions?.[0]?.policy_id ?? null,
+  );
+  useEffect(() => {
+    setExpandedPolicyId(attrs.policy_actions?.[0]?.policy_id ?? null);
+  }, [nodeId]);
   const [policySearchQuery, setPolicySearchQuery] = useState('');
   const [showPolicyPicker, setShowPolicyPicker] = useState(false);
   const [editingAssumptions, setEditingAssumptions] = useState(false);

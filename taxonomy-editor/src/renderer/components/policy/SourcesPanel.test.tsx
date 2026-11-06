@@ -80,7 +80,8 @@ describe('SourcesPanel grouping (one row per real document)', () => {
   it('expands a row to show the source card and the distinct references, and collapses it again', async () => {
     getNodeSources.mockResolvedValue({ ...TWO_REFS, cards: { 'doc-1': CARD } });
     render(<SourcesPanel nodeId="acc-B-001" />);
-    fireEvent.click(await screen.findByText('AI Governance Report'));
+    // t/4919: the row defaults open — wait for the default-expand effect, not just the title text.
+    await waitFor(() => expect(screen.queryByLabelText('Source details')).toBeInTheDocument());
     expect(screen.getByLabelText('Source details')).toBeInTheDocument();
     expect(screen.getByText('Argues for open development.')).toBeInTheDocument();
     expect(screen.getByText('Supports open development')).toBeInTheDocument();
@@ -92,8 +93,50 @@ describe('SourcesPanel grouping (one row per real document)', () => {
   it('without a card, a javascript: reference URL is not rendered as a link', async () => {
     getNodeSources.mockResolvedValue(payload([ref({ url: 'javascript:alert(1)' })]));
     render(<SourcesPanel nodeId="acc-B-001" />);
-    fireEvent.click(await screen.findByText('AI Governance Report'));
+    await waitFor(() => expect(screen.getByText('AI Governance Report').closest('button')).toHaveAttribute('aria-expanded', 'true'));
     expect(screen.queryByRole('link')).toBeNull();
+  });
+});
+
+describe('SourcesPanel default-expand (t/4919)', () => {
+  it('expands the first document group by default once data loads, with aria-expanded set', async () => {
+    getNodeSources.mockResolvedValue(payload([
+      ref({ docId: 'doc-1', canonicalDocId: 'doc-1', title: 'AI Governance Report', point: 'p1' }),
+      ref({ docId: 'doc-2', canonicalDocId: 'doc-2', title: 'Other Paper', point: 'p2' }),
+    ]));
+    render(<SourcesPanel nodeId="acc-B-001" />);
+    await screen.findByText('AI Governance Report');
+    await waitFor(() => expect(screen.getByText('AI Governance Report').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+    expect(screen.getByText('p1')).toBeInTheDocument();
+    expect(screen.queryByText('p2')).toBeNull();
+    expect(screen.getByText('Other Paper').closest('button')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('an empty node renders the empty state without throwing (nothing to default-expand)', async () => {
+    getNodeSources.mockResolvedValue(payload([]));
+    render(<SourcesPanel nodeId="acc-B-999" />);
+    await screen.findByText('No sources reference this node.');
+  });
+
+  it('collapsing the default-expanded group holds across a background revalidation for the same node (Quality condition)', async () => {
+    // Warm the per-node cache first (mirrors the "per-node cache" describe block above).
+    getNodeSources.mockResolvedValue(TWO_REFS);
+    const { unmount } = render(<SourcesPanel nodeId="acc-B-001" />);
+    await waitFor(() => expect(screen.getByText('AI Governance Report').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+    unmount();
+
+    // Remount: cache hit renders synchronously (default already applied); collapse it.
+    let resolveRevalidate!: (v: unknown) => void;
+    getNodeSources.mockReturnValue(new Promise(r => { resolveRevalidate = r; }));
+    render(<SourcesPanel nodeId="acc-B-001" />);
+    await waitFor(() => expect(screen.getByText('AI Governance Report').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+    const header = screen.getByText('AI Governance Report');
+    fireEvent.click(header); // user collapses the default-opened group
+    expect(header.closest('button')).toHaveAttribute('aria-expanded', 'false');
+
+    // The in-flight background revalidation (same node, new `groups` array identity) resolves.
+    await act(async () => { resolveRevalidate({ ...TWO_REFS, indexVersion: 2 }); });
+    expect(screen.getByText('AI Governance Report').closest('button')).toHaveAttribute('aria-expanded', 'false');
   });
 });
 
