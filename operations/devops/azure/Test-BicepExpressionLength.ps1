@@ -26,7 +26,10 @@ function New-ActionableError {
 }
 
 function Get-ArmExpressionLengths {
-    param([Parameter(Mandatory)] $Node, [string] $Path = '$')
+    # Not Mandatory: compiled templates contain JSON nulls, and a Mandatory param throws a
+    # binding error on them instead of returning a verdict.
+    param([AllowNull()] $Node, [string] $Path = '$')
+    if ($null -eq $Node) { return }
     if ($Node -is [System.Collections.IDictionary]) {
         foreach ($k in $Node.Keys) { Get-ArmExpressionLengths -Node $Node[$k] -Path "$Path.$k" }
     } elseif ($Node -is [System.Collections.IList]) {

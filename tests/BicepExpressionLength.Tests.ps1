@@ -47,6 +47,12 @@ Describe 'Test-BicepExpressionLength (t/4845)' {
         (Get-MaxArmExpression -Template $t).Length | Should -Be 13
     }
 
+    It 'tolerates JSON null leaves (DevOps Lead nit, p/241#152)' {
+        Set-StrictMode -Version Latest
+        $t = '{"a": null, "b": [null, "[concat(''x'')]"], "c": {"d": null}}' | ConvertFrom-Json -AsHashtable
+        (Get-MaxArmExpression -Template $t).Length | Should -Be 13
+    }
+
     It 'VACUOUS GUARD: a template with no expressions throws instead of passing' {
         Set-StrictMode -Version Latest
         { Get-MaxArmExpression -Template @{ a = 'plain'; b = @(1, 2) } } | Should -Throw '*measured nothing*'
