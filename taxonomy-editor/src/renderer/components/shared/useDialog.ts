@@ -81,9 +81,16 @@ export function useDialog({ onCancel, closeOnEscape = true, initialFocusRef, dia
   // yank focus back mid-dialog.
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    const target = initialFocusRef?.current
+    const focusable = initialFocusRef?.current
       ?? dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
       ?? null;
+    // t/4901 (Design nit, p/29#262): a dialog with no focusable child (status/progress text,
+    // nothing to click yet) would otherwise get no initial focus at all — fall back to the
+    // dialog container itself, giving it a programmatic tabIndex so .focus() actually lands.
+    const target = focusable ?? dialogRef.current;
+    if (target && target === dialogRef.current && !target.hasAttribute('tabindex')) {
+      target.tabIndex = -1;
+    }
     target?.focus();
     return () => { opener?.focus(); };
   }, []);

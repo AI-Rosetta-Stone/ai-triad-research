@@ -29,6 +29,20 @@ function TestDialog({ onCancel, closeOnEscape, initialFocusOnCancel }: {
   );
 }
 
+/** A dialog with no focusable child at all (e.g. a progress/status message) — t/4901 nit
+ *  (p/29#262): initial focus must still land somewhere, not silently fail. */
+function NoFocusableDialog({ onCancel }: { onCancel: () => void }) {
+  const { dialogRef, titleId } = useDialog({ onCancel });
+  return (
+    <div className="dialog-overlay">
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal aria-labelledby={titleId}>
+        <h3 id={titleId}>Working…</h3>
+        <p>Please wait.</p>
+      </div>
+    </div>
+  );
+}
+
 /** A button rendered OUTSIDE the dialog, standing in for whatever control opened it. */
 function Harness(props: { closeOnEscape?: boolean; initialFocusOnCancel?: boolean; onCancel: () => void; startOpen?: boolean }) {
   const [open, setOpen] = useState(props.startOpen ?? true);
@@ -80,6 +94,13 @@ describe('useDialog (t/4901)', () => {
     dialog.getByRole('button', { name: 'Cancel' }).focus();
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab', shiftKey: true });
     expect(dialog.getByRole('button', { name: 'Confirm' })).toHaveFocus();
+  });
+
+  it('falls back to focusing the dialog container when it has no focusable child (t/4901 nit)', () => {
+    render(<NoFocusableDialog onCancel={vi.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('tabindex', '-1');
+    expect(dialog).toHaveFocus();
   });
 
   it('returns focus to the opener once the dialog closes', () => {
