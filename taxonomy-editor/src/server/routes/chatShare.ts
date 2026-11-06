@@ -193,21 +193,40 @@ async function readRegistry(): Promise<RegistryRead> {
     const baseSha = gitBlobSha(content);
     return { registry, baseSha };
   } catch (err) {
+    // R-D (SO p/835#21): a corrupt registry must fail closed, not be silently treated as
+    // empty — the old behavior returned {shares:{}} here, so the next create/revoke/prune
+    // would cheerfully overwrite the corrupt file with fresh data, destroying whatever of
+    // the original was still recoverable and masking the corruption as a normal write.
     getGlobalRecorder()?.record({
       type: 'system.error',
       component: 'chat-share',
-      level: 'warn',
-      message: 'Failed to parse registry',
+      level: 'error',
+      message: 'Chat share registry is corrupt — refusing to overwrite',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
-    return { registry: { shares: {} }, baseSha: gitBlobSha(content) };
+    throw new ActionableError({
+      goal: 'Read the chat share registry',
+      problem: 'The registry file is corrupt (invalid JSON) and cannot be safely read or overwritten.',
+      location: 'readRegistry',
+      nextSteps: ['Inspect and manually repair or restore the registry file from backup', 'Do not retry until the file is valid JSON'],
+      innerError: err,
+    });
   }
+}
+
+/** R-B (SO p/835#21): write the registry with CAS even when the result is empty — never
+ *  `deleteFile` unconditionally. An unconditional delete has no baseSha precondition, so a
+ *  concurrent create that landed between our read and this delete gets silently wiped. An
+ *  empty registry is represented as `{"shares":{}}`, not file-absence. */
+async function writeRegistryCas(registry: Registry, baseSha: string): Promise<void> {
+  const backend = getUserContentBackend();
+  const newContent = JSON.stringify(registry) + '\n';
+  await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
 }
 
 /** K4: Remove expired entries from registry (prune during preflight). */
 async function pruneExpiredRegistry(): Promise<void> {
   try {
-    const backend = getUserContentBackend();
     const { registry, baseSha } = await readRegistry();
     let dirty = false;
     for (const [chatId, shareId] of Object.entries(registry.shares)) {
@@ -219,12 +238,7 @@ async function pruneExpiredRegistry(): Promise<void> {
     }
     if (dirty) {
       try {
-        if (Object.keys(registry.shares).length > 0) {
-          const newContent = JSON.stringify(registry) + '\n';
-          await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
-        } else {
-          await backend.deleteFile(shareRegistryPath());
-        }
+        await writeRegistryCas(registry, baseSha);
       } catch (err: unknown) {
         const writeErr = err as any;
         if (!(writeErr.code === 'WRITE_CONFLICT' || writeErr.message?.includes('412'))) {
@@ -348,7 +362,6 @@ async function createShare(
     try {
       const { registry, baseSha } = await readRegistry();
       const previousShareId = registry.shares[chatId];
-      if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
 
       // K3: CAS with baseSha (gitBlobSha of content read, per SO p/835#16)
       registry.shares[chatId] = shareId;
@@ -356,6 +369,10 @@ async function createShare(
 
       try {
         await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
+        // R-C (SO p/835#21): only revoke the previous share AFTER the registry commit
+        // succeeds. Revoking it first meant a failed/conflicting CAS write could leave
+        // the registry still pointing at an already-deleted blob.
+        if (previousShareId && previousShareId !== shareId) await revokeShare(previousShareId);
         return share;
       } catch (writeErr: unknown) {
         // K3: On WRITE_CONFLICT (409), re-read and check if another writer won
@@ -365,14 +382,18 @@ async function createShare(
           const { registry: current } = await readRegistry();
           const otherShareId = current.shares[chatId];
           if (otherShareId && otherShareId !== shareId) {
-            // Winner's share exists: delete our blob and return theirs (200)
-            await revokeShare(shareId);
             const otherShare = await loadShare(otherShareId);
-            if (otherShare) return otherShare; // Return the winner's share to caller
-            // If otherShare is gone, retry
+            if (otherShare) {
+              // Winner's share is live: only now is it safe to abandon ours.
+              await revokeShare(shareId);
+              return otherShare;
+            }
+            // Winner's entry was stale/expired — fall through and retry with our
+            // own blob still intact (see R-A note below).
           }
-          // No winner yet or their share expired: retry
-          await revokeShare(shareId);
+          // R-A (SO p/835#21): do NOT revoke our own blob here. The next attempt reuses
+          // the same shareId/blob — deleting it now and then succeeding on retry would
+          // point the registry at an already-deleted blob, a permanently dead 404 link.
           continue;
         }
         getGlobalRecorder()?.record({
@@ -470,7 +491,6 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
 
       const chatId = param(req, 'id', '/api/chat/:id/share');
       const userId = getCurrentUserId();
-      const backend = getUserContentBackend();
 
       // Find share for this chat in user's registry
       try {
@@ -488,21 +508,19 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
           return;
         }
 
-        // K3: Revoke with CAS write (baseSha for atomic conflict detection)
-        await revokeShare(shareId);
         delete registry.shares[chatId];
 
         try {
-          if (Object.keys(registry.shares).length > 0) {
-            const newContent = JSON.stringify(registry) + '\n';
-            await backend.writeFile(shareRegistryPath(), newContent, { baseSha });
-          } else {
-            await backend.deleteFile(shareRegistryPath());
-          }
+          // R-B (SO p/835#21): CAS-write the registry even when it ends up empty —
+          // never an unconditional deleteFile, which has no baseSha precondition and
+          // can wipe a concurrent create's entry landed between our read and this write.
+          await writeRegistryCas(registry, baseSha);
         } catch (writeErr: unknown) {
           const err = writeErr as any;
           if (err.code === 'WRITE_CONFLICT' || err.message?.includes('412')) {
-            // K3: Conflict on DELETE is non-critical; blob already revoked
+            // K3: Conflict on DELETE is non-critical; the blob is revoked below
+            // regardless, and a stale registry key self-heals (findExistingShare
+            // treats a shareId with no backing blob as "no live share").
             getGlobalRecorder()?.record({
               type: 'system.error',
               component: 'chat-share',
@@ -514,6 +532,10 @@ export function registerChatShareRoutes(r: Router, _ctx: ServerCtx): void {
             throw writeErr;
           }
         }
+
+        // R-C (SO p/835#21): revoke the blob only after the registry commit (or its
+        // accepted conflict fallback) completes, not before.
+        await revokeShare(shareId);
 
         json(res, { id: shareId }, 200);
       } catch (err) {

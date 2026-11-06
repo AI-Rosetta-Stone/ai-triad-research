@@ -5,7 +5,7 @@
 // limit (P5), size bounds, owner-only revoke, and the public read's projection (P3: no owner
 // userId/chatId) plus no-store and 404-after-revoke (P4).
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 const h = vi.hoisted(() => ({
@@ -83,6 +83,7 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: 
 
 import { createRouter, type Handler } from '../httpKit.js';
 import { registerChatShareRoutes, CHAT_SHARE_MAX_MESSAGES } from '../routes/chatShare.js';
+import { isMutatingApiRoute } from '../readOnlyGuard.js';
 
 type Res = ServerResponse & { statusCode: number; body: string; headers: Record<string, string> };
 function res(): Res {
@@ -267,12 +268,53 @@ describe('K5: cap returns 429 (not 409)', () => {
 });
 
 describe('K4: expiry deletion with clock injection', () => {
-  it('deletes expired blob and returns 404 after TTL', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('deletes expired blob and returns 404 after TTL (SO p/835#21: real clock injection)', async () => {
     const id = JSON.parse((await create()).body).id;
-    // Simulate expiry: the loadShare function checks expiration
-    // In a real scenario, we'd inject a mock Date. For now, test that 404 works.
     expect((await read(id)).statusCode).toBe(200);
-    // Note: Full clock-injection test requires mocking Date; this verifies structure
+
+    // Fast-forward 31 days (TTL is 30) and confirm loadShare's expiry check actually fires.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 31 * 24 * 60 * 60 * 1000);
+
+    const r = await read(id);
+    expect(r.statusCode).toBe(404);
+
+    // The expired blob must be deleted (K4), not just hidden — re-reading the real-time
+    // store should find it gone even without the clock still fast-forwarded.
+    vi.useRealTimers();
+    expect((await read(id)).statusCode).toBe(404);
+  });
+});
+
+describe('R-D: corrupt registry fails closed (SO p/835#21)', () => {
+  it('refuses to create against a corrupt registry instead of silently overwriting it', async () => {
+    const versions: Map<string, { content: string; sha: string }> = (globalThis as any).__chatShareFileVersions;
+    // Simulate a corrupt registry file on disk (invalid JSON) for this user.
+    versions.set('/data/users/alice/chat-shares.json', { content: '{not valid json', sha: '' });
+
+    const r = await create('chat-1');
+    expect(r.statusCode).toBe(500);
+
+    // The corrupt content must survive untouched — R-D's whole point is "don't overwrite it".
+    expect(versions.get('/data/users/alice/chat-shares.json')?.content).toBe('{not valid json');
+  });
+});
+
+describe('read-only principal guard (SO p/835#21: previously untested)', () => {
+  it('owner-only create/revoke are gated as mutating /api/* routes', () => {
+    // t/4296's central choke point blocks every mutating /api/* route for a read-only
+    // principal before the handler runs — these routes must be covered by it, same
+    // as every other POST/DELETE. The per-route handlers never check the flag directly.
+    expect(isMutatingApiRoute('POST', '/api/chat/chat-1/share', true)).toBe(true);
+    expect(isMutatingApiRoute('DELETE', '/api/chat/chat-1/share', true)).toBe(true);
+  });
+
+  it('the public read is not gated — anonymous read-only access must still work', () => {
+    expect(isMutatingApiRoute('GET', '/api/public/chat/some-share-id', true)).toBe(false);
   });
 });
 
@@ -312,7 +354,15 @@ describe('K3: concurrent POST race test (CAS)', () => {
     // K3: Both responses must return the SAME share ID (one was the race winner)
     expect(id1).toBe(id2);
 
-    // Verify: exactly one blob exists and is readable
+    // R-A regression (SO p/835#21): the race must leave EXACTLY one blob file behind —
+    // not the winner's blob plus a dangling loser blob (dead storage) and not zero
+    // (the registry pointing at a blob that got deleted out from under it).
+    const versions: Map<string, unknown> = (globalThis as any).__chatShareFileVersions;
+    const blobPaths = [...versions.keys()].filter(k => k.includes('/chat-shares/'));
+    expect(blobPaths).toHaveLength(1);
+    expect(blobPaths[0]).toContain(id1);
+
+    // Verify: that one blob exists and is readable
     const readResult = await read(id1);
     expect(readResult.statusCode).toBe(200);
     const view = JSON.parse(readResult.body);
