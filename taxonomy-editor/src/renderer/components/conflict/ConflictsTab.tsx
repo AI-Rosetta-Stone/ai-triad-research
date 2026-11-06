@@ -11,6 +11,7 @@ import { PinnedPanel } from '../shared/PinnedPanel';
 import { DocLink } from '../shared/TheoryLink';
 import { SearchPreview } from '../edge-browser/SearchPreview';
 import { FallacyDetailPanel } from '../analysis/FallacyPanel';
+import { useFocusTrap } from '../shared/useDialog'; // t/4909
 import { PromptDetailPanel } from '../chat/PromptsPanel';
 import { ToolbarPaneRenderer, isFullWidthPanel, PhoneToolClose } from '../shared/ToolbarPaneRenderer';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -565,11 +566,27 @@ interface NewConflictDialogProps {
 
 /** Modal for creating a new conflict from a claim label. */
 function NewConflictDialog({ show, newLabel, setNewLabel, onCreate, onClose }: NewConflictDialogProps) {
+  // t/4909: mounted once by ConflictsTab (`show` toggles as a prop, not a conditional render) —
+  // doesn't fit useDialog's mount-bookended focus management, so only the shared Tab trap plus
+  // a matching open-keyed Esc + restore-focus effect (mirrors GeminiOnboardingModal, same shape).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, show);
+  useEffect(() => {
+    if (!show) return;
+    const prev = document.activeElement as HTMLElement | null;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      prev?.focus();
+    };
+  }, [show, onClose]);
+
   if (!show) return null;
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>New Conflict</h3>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal aria-labelledby="new-conflict-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="new-conflict-title">New Conflict</h3>
         <div className="form-group">
           <label>Claim Label</label>
           <input
