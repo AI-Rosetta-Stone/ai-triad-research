@@ -258,6 +258,18 @@ describe('DebaterToggles', () => {
     const buttons = container.querySelectorAll('button');
     buttons.forEach(btn => expect(btn.disabled).toBe(true));
   });
+
+  it('renders nothing for a read-only community debate (t/4905)', () => {
+    mockStore.activeDebate = { active_povers: ['accelerationist', 'safetyist'], transcript: [] };
+    mockStore.debateGenerating = null;
+    mockStore.communityReadOnly = true;
+    try {
+      const { container } = render(<DebaterToggles />);
+      expect(container.innerHTML).toBe('');
+    } finally {
+      mockStore.communityReadOnly = false;
+    }
+  });
 });
 
 // ── TokenBudgetIndicator (t/964) ───────────────────────────

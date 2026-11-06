@@ -405,6 +405,36 @@ describe('toolbar', () => {
 // that only checks "renders somewhere" would pass even if a future refactor
 // moved them back out.
 
+describe('read-only community debate (t/4905)', () => {
+  beforeEach(() => {
+    mockStore.debateLoading = false;
+    mockStore.activeDebate = makeDebate();
+  });
+  afterEach(() => { mockStore.communityReadOnly = false; });
+
+  it('own debate: Setup and the action region (composer, continue controls) render', () => {
+    mockStore.communityReadOnly = false;
+    render(<DebateWorkspace />);
+    expect(screen.getAllByText('Setup').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('debate-actions')).toBeInTheDocument();
+  });
+
+  it('read-only community debate: no Setup and no action region', () => {
+    mockStore.communityReadOnly = true;
+    render(<DebateWorkspace />);
+    expect(screen.queryByText('Setup')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('debate-actions')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Ask the debater/)).not.toBeInTheDocument();
+  });
+
+  it('read-only community debate keeps the read-only tools: Comments and Diagnostics', () => {
+    mockStore.communityReadOnly = true;
+    render(<DebateWorkspace />);
+    expect(screen.getByText('Comments (0)')).toBeInTheDocument();
+    expect(screen.getByText('Diagnostics')).toBeInTheDocument();
+  });
+});
+
 describe('evaluation + parameter-history panels (t/3843)', () => {
   beforeEach(() => {
     mockStore.debateLoading = false;
