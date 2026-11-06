@@ -26,15 +26,23 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 /**
- * PURE. Classifies a queue-state read into one of three outcomes:
+ * PURE. Classifies a queue-state read into one of five outcomes:
+ *  - 'merged'         — the PR is MERGED now but was not before this run's merge call. On a repo
+ *                       with no merge queue and allow_auto_merge=false, `gh pr merge --auto`
+ *                       merges at once (t/4889, data#79/#80); that is success, not a silent miss.
+ *  - 'already_merged' — MERGED, and it already was before this run (or the prior state is
+ *                       unknown), so this run did not merge it (TL t/4889#3).
  *  - 'queued'        — genuinely in the merge queue.
  *  - 'armed_waiting' — auto-merge is armed (autoMergeRequest set) but the PR hasn't entered
  *                       the queue yet, because required checks on the head are still
  *                       pending (mergeStateStatus is typically BLOCKED or UNSTABLE here).
  *                       This is the normal "will queue once checks pass" state, not a miss.
  *  - 'not_armed'      — no autoMergeRequest recorded; the arm attempt genuinely did not take.
+ * `before` is the read taken just before the merge call. Comparing states, not mergedAt against
+ * the local clock, keeps clock skew from turning this run's merge into 'already_merged'.
  */
-export function classifyEnqueueOutcome({ isInMergeQueue, mergeQueueEntry, autoMergeRequest }) {
+export function classifyEnqueueOutcome({ state, isInMergeQueue, mergeQueueEntry, autoMergeRequest }, { before } = {}) {
+  if (state === 'MERGED') return { state: before && before.state !== 'MERGED' ? 'merged' : 'already_merged' };
   if (isInMergeQueue === true && mergeQueueEntry != null) return { state: 'queued' };
   if (autoMergeRequest != null) return { state: 'armed_waiting' };
   return { state: 'not_armed' };
@@ -58,7 +66,7 @@ function queryQueueState(repo, prNumber) {
   const [owner, name] = repo.split('/');
   const query =
     'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){' +
-    'pullRequest(number:$number){isInMergeQueue mergeQueueEntry{position state} headRefOid ' +
+    'pullRequest(number:$number){state mergedAt mergeCommit{oid} isInMergeQueue mergeQueueEntry{position state} headRefOid ' +
     'mergeStateStatus autoMergeRequest{mergeMethod enabledAt enabledBy{login}}}}}';
   const out = JSON.parse(
     gh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${prNumber}`]),
@@ -96,7 +104,14 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000 } = {}) {
 
   await sleep(sleepMs);
   const after = queryQueueState(repo, prNumber);
-  const afterOutcome = classifyEnqueueOutcome(after);
+  const afterOutcome = classifyEnqueueOutcome(after, { before });
+  if (afterOutcome.state === 'merged' || afterOutcome.state === 'already_merged') {
+    const sha = after.mergeCommit?.oid ?? 'unknown';
+    console.log(afterOutcome.state === 'merged'
+      ? `enqueue-pr: #${prNumber} on ${repo} merged directly as ${sha} (no merge queue or auto-merge on this repo).`
+      : `enqueue-pr: #${prNumber} on ${repo} was already merged (${sha} at ${after.mergedAt}) before this run; nothing to do.`);
+    return { ok: true, usedFallback: false, state: afterOutcome.state, mergeCommit: sha };
+  }
   if (afterOutcome.state === 'queued') {
     return { ok: true, usedFallback: false, state: 'queued' };
   }
