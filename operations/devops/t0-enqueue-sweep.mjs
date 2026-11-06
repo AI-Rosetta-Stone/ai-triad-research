@@ -14,6 +14,10 @@
 //   - the body's first non-empty line declares `Tier: T0`, base is main, not a draft,
 //     not already queued, not authored by Dependabot (that flow has its own sweep);
 //   - no hold or opt-out label: consult-hold, joint-gv, no-auto-enqueue;
+//   - not dequeued by hand at this head: when the most recent queue event is a manual
+//     removal and nothing has been pushed since, someone pulled it out on purpose (usually
+//     to push a fix). Re-enqueueing it merged #4561 with its old head 29s after the
+//     dequeue (t/4879);
 //   - no merge conflict, and every REQUIRED_GREEN context passed on the head;
 //   - IDLE: nothing pushed for IDLE_MINUTES. Pushing to a queued PR is refused, so an
 //     author still adding commits must not be cut off. The push time is taken as the
@@ -48,6 +52,22 @@ export function headPushedAt(contexts) {
 }
 
 /**
+ * PURE. The manual dequeue still holding this PR out of the queue, or null. `queueEvents` are
+ * the PR's Added/RemovedFromMergeQueue timeline events, oldest first. Only the most recent
+ * one counts: a later re-add (by a human) ends the hold. A push after the removal ends it too,
+ * since the author has delivered the fix. Push time unknown counts as no push (fails closed).
+ */
+export function manualDequeueHold(queueEvents, pushedMs) {
+  const last = (queueEvents ?? []).at(-1);
+  if (!last || last.type !== 'RemovedFromMergeQueueEvent') return null;
+  if (String(last.reason ?? '').toLowerCase() !== 'manual') return null;
+  const removedMs = Date.parse(last.createdAt ?? '');
+  if (Number.isNaN(removedMs)) return null;
+  if (pushedMs != null && pushedMs > removedMs) return null;
+  return { removedAt: last.createdAt, actor: last.actor ?? 'unknown' };
+}
+
+/**
  * PURE. Splits open PRs into those to enqueue now and those to skip (with the reason).
  * `waiting` lists the skipped PRs whose ONLY blocker is the idle window, with the time
  * (ms) they become eligible, so an event-triggered run can wait for them (planNextWake).
@@ -60,6 +80,7 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
     const labels = pr.labels ?? [];
     const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
     let reason = null;
+    let hold = null;
     // Security: the repo is public and `main` requires checks, not a review. A fork PR that
     // writes `Tier: T0` and goes green must never be merged with no human looking at it.
     // Same-repo branches need write access. Fails closed: an unknown value counts as a fork.
@@ -70,6 +91,10 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
     else if (pr.isInMergeQueue) reason = 'already in merge queue';
     else if (/dependabot/i.test(pr.author ?? '')) reason = 'Dependabot PR (handled by dependabot-enqueue-sweep)';
     else if (blocking) reason = `label ${blocking}`;
+    else if ((hold = manualDequeueHold(pr.queueEvents, headPushedAt(pr.contexts)))) {
+      reason = `WARN: manually dequeued by ${hold.actor} at ${hold.removedAt} and nothing pushed since ` +
+        '(push a new head, or enqueue it by hand, to release it)';
+    }
     else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
     else {
       for (const name of REQUIRED_CONTEXTS) {
@@ -118,6 +143,9 @@ function listOpenPRs(repo) {
     nodes{... on PullRequest{
       number body headRefOid baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
       author{login} labels(first:30){nodes{name}} autoMergeRequest{enabledAt}
+      timelineItems(last:10,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{
+        __typename ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}}
+        ... on AddedToMergeQueueEvent{createdAt actor{login}}}}
       commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
         ${CONTEXT_FIELDS}}}}}}}}}}}`;
   const prs = [];
@@ -133,6 +161,9 @@ function listOpenPRs(repo) {
         isCrossRepository: n.isCrossRepository,
         author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
         autoMergeRequest: n.autoMergeRequest,
+        queueEvents: (n.timelineItems?.nodes ?? []).map((e) => ({
+          type: e.__typename, createdAt: e.createdAt, reason: e.reason ?? null, actor: e.actor?.login ?? null,
+        })),
         contexts: allContextsFor(repo, n.number, n.commits.nodes[0]?.commit.statusCheckRollup?.contexts, CONTEXT_FIELDS),
       });
     }
