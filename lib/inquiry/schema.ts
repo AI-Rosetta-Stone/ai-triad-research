@@ -57,6 +57,14 @@ export const ModelOverrideSchema = z.object({
 export type ModelOverride = z.infer<typeof ModelOverrideSchema>;
 
 // ── InquiryRequest ────────────────────────────────────────────────────────────
+/** A display title for an inquiry (t/4891): trimmed, 1–200 chars. Writers (e.g. rename) enforce it
+ *  strictly; readers go through `readTitle` / `readNullableTitle`, which first map a blank string to
+ *  absent / null, so a stored `''` never makes a result unopenable (TL t/4891#2). */
+export const InquiryTitleSchema = z.string().trim().min(1).max(200);
+const blankTo = <T>(empty: T) => (v: unknown) => (typeof v === 'string' && v.trim() === '' ? empty : v);
+const readTitle = z.preprocess(blankTo(undefined), InquiryTitleSchema.optional());
+const readNullableTitle = z.preprocess(blankTo(null), InquiryTitleSchema.nullable().optional());
+
 // STRICT at the client-input boundary (TL t/3574#2): a mistyped key — `situationID` for
 // `situationId` — must FAIL LOUDLY, not be silently accepted-and-dropped, which would run the inquiry
 // ungrounded and answer a subtly different question with no signal (the invisible-degradation class).
@@ -70,8 +78,8 @@ const requestFields = {
   models: ModelOverrideSchema.optional(),
   /** Optional temperature override for debater calls only (0–2, t/4771). Absent: fidelity tier default. */
   temperature: z.number().min(0).max(2).optional(),
-  /** Optional display title for the inquiry; when absent, question is used (t/4891). */
-  title: z.string().max(200).optional(),
+  /** Optional display title for the inquiry; when absent, question is used (t/4891). Blank → absent. */
+  title: readTitle,
 };
 
 export const InquiryRequestSchema = z
@@ -222,8 +230,8 @@ export const ResolvedDerivationSchema = z.object({
    *  Provenance field: records the resolved fact, like models and fidelity. */
   temperature: z.number().min(0).max(2).optional(),
   /** The resolved title used for the inquiry (request.title if provided, else null).
-   *  Provenance field: records what display title was used, like fidelity and models. */
-  title: z.string().max(200).nullable().optional(),
+   *  Provenance field: records what display title was used, like fidelity and models. Blank → null. */
+  title: readNullableTitle,
 });
 export type ResolvedDerivation = z.infer<typeof ResolvedDerivationSchema>;
 
@@ -312,9 +320,18 @@ export const InquiryResultSchema = z
      *  governs suppression for degraded runs at construction; a characterization from a healthy run belongs in the
      *  public share. */
     synthesizedHeadline: z.string().optional(),
+    /** User-assigned display name (t/4891), the field of record for rename (t/4892). `request.question`
+     *  is what was actually asked and never changes. Blank → absent on read. Display via
+     *  `inquiryDisplayTitle`. Additive optional field, so no schemaVersion bump. */
+    title: readTitle,
   })
   .passthrough();
 export type InquiryResult = z.infer<typeof InquiryResultSchema>;
+
+/** Display rule (t/4891): the renamed title, else the requested title, else the question as asked. */
+export function inquiryDisplayTitle(result: Pick<InquiryResult, 'title' | 'request'>): string {
+  return result.title ?? result.request.title ?? result.request.question;
+}
 
 /** Runaway-output backstop for `synthesizedHeadline` on the public-share surface (SO item 5, e/222#3).
  *  Generous enough to never false-positive on a legitimate long sentence; strict enough to catch looped
