@@ -25,6 +25,9 @@ import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
 import { parseInquiryResult, type InquiryResult } from '../../../../lib/inquiry/index.js';
+import { unpublishInquiryShare } from './inquiryShareStore.js';
+import { deleteDebateSession } from './debateStore.js';
+import { deleteInquiryJobRecord } from './inquiryJobStore.js';
 
 /** Cheap listing row — enough to render an inquiry history without loading each full result. */
 export interface InquiryResultSummary {
@@ -35,6 +38,7 @@ export interface InquiryResultSummary {
   truncated: boolean;
   terminationReason?: string;
   createdAt: string;
+  title?: string;
 }
 
 function getResultsDir(): string {
@@ -114,6 +118,122 @@ export async function listInquiryResults(): Promise<InquiryResultSummary[]> {
   return readIndex();
 }
 
-// No delete path exists for inquiry results yet. When one is added: deleting a result must
-// also delete its inquiry debate session (storage/debateStore.ts's `inquiry-debate-<id>.json`,
-// keyed by `result.debateId`), or the reference breaks in the other direction (t/4338).
+/** Rename an inquiry result (set its display title). Scope-checked to the caller's store.
+ *  Updates both the result file and the _index.json row. */
+export async function renameInquiryResult(jobId: string, title: string): Promise<void> {
+  assertSafeId(jobId, 'inquiry job id');
+  if (isAnonymousUser()) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: 'Anonymous users cannot rename inquiry results',
+      location: 'server/storage/inquiryResultStore.ts → renameInquiryResult',
+      nextSteps: ['Sign in to manage your inquiries'],
+    });
+  }
+  // Validate and normalize title
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: 'Title cannot be empty',
+      location: 'server/storage/inquiryResultStore.ts → renameInquiryResult',
+      nextSteps: ['Provide a non-empty title'],
+    });
+  }
+  if (normalizedTitle.length > 200) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: 'Title is too long (max 200 characters)',
+      location: 'server/storage/inquiryResultStore.ts → renameInquiryResult',
+      nextSteps: ['Use a shorter title'],
+    });
+  }
+
+  const backend = getUserContentBackend();
+  const resultFile = getResultFile(jobId);
+
+  // Read and validate both file and index BEFORE any writes
+  const raw = await backend.readFile(resultFile);
+  if (raw === null) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: `Inquiry result not found: ${jobId}`,
+      location: 'server/storage/inquiryResultStore.ts → renameInquiryResult',
+      nextSteps: ['Verify the inquiry result exists'],
+    });
+  }
+  const result = parseInquiryResult(JSON.parse(raw));
+  const entries = await readIndex();
+  const i = entries.findIndex(e => e.jobId === jobId);
+  if (i < 0) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: `Inquiry result index row not found: ${jobId}`,
+      location: 'server/storage/inquiryResultStore.ts → renameInquiryResult',
+      nextSteps: ['Verify the inquiry result index is consistent'],
+    });
+  }
+
+  // Both exist; now perform the write
+  result.title = normalizedTitle;
+  await backend.writeFile(resultFile, JSON.stringify(result, null, 2));
+  entries[i].title = normalizedTitle;
+  await writeIndex(entries);
+}
+
+/** Delete an inquiry result and all linked records (share, debate session, job record).
+ *  Each step is idempotent and best-effort; failures are logged but do not prevent deletion.
+ *  Scope-checked to the caller's store. */
+export async function deleteInquiryResult(jobId: string): Promise<void> {
+  assertSafeId(jobId, 'inquiry job id');
+  if (isAnonymousUser()) {
+    throw new ActionableError({
+      goal: 'Delete an inquiry result',
+      problem: 'Anonymous users cannot delete inquiry results',
+      location: 'server/storage/inquiryResultStore.ts → deleteInquiryResult',
+      nextSteps: ['Sign in to manage your inquiries'],
+    });
+  }
+  const backend = getUserContentBackend();
+  const resultFile = getResultFile(jobId);
+  const raw = await backend.readFile(resultFile);
+  if (raw === null) {
+    const err = new ActionableError({
+      goal: 'Delete an inquiry result',
+      problem: `Inquiry result not found: ${jobId}`,
+      location: 'server/storage/inquiryResultStore.ts → deleteInquiryResult',
+      nextSteps: ['Verify the inquiry result exists'],
+    });
+    (err as any).statusCode = 404;
+    throw err;
+  }
+  const result = parseInquiryResult(JSON.parse(raw));
+
+  // (1) Revoke public share (idempotent, best-effort)
+  await unpublishInquiryShare(jobId).catch((err) => {
+    log.server.warn({ err, jobId }, 'Inquiry share revocation failed (best-effort); continuing with delete');
+  });
+
+  // (2) Delete linked debate session (idempotent, best-effort)
+  if (result.debateId) {
+    await deleteDebateSession(result.debateId).catch((err) => {
+      log.server.warn({ err, jobId, debateId: result.debateId }, 'Inquiry debate session delete failed (best-effort); continuing with delete');
+    });
+  }
+
+  // (3) Delete job record (idempotent, best-effort)
+  await deleteInquiryJobRecord(jobId).catch((err) => {
+    log.server.warn({ err, jobId }, 'Inquiry job record delete failed (best-effort); continuing with delete');
+  });
+
+  // (4) Delete result file and remove from index
+  await backend.deleteFile(resultFile);
+  const entries = await readIndex();
+  const i = entries.findIndex(e => e.jobId === jobId);
+  if (i >= 0) {
+    entries.splice(i, 1);
+    await writeIndex(entries).catch((err) => {
+      log.server.warn({ err, jobId }, 'Inquiry-result index removal failed (best-effort)');
+    });
+  }
+}
