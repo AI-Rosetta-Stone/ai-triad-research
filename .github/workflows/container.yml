@@ -28,6 +28,23 @@ on:
         description: 'Commit SHA to build (must have CI-green status). Full 40-char SHA required — short SHAs are auto-expanded via API. Leave blank to use dispatched ref HEAD — racy at fleet commit rate.'
         required: false
         type: string
+      # EXPERIMENT ONLY (t/4840 A/B) — throwaway branch docker/t4840-cache-ab, never merged.
+      # Defaults preserve exact prod behavior so this file could not change prod if merged by accident.
+      cache_mode:
+        description: 'EXPERIMENT: buildx cache-to mode (max|min)'
+        required: false
+        default: 'max'
+        type: string
+      cache_scope:
+        description: 'EXPERIMENT: gha cache scope (isolate A/B arms from prod shared-docker)'
+        required: false
+        default: 'shared-docker'
+        type: string
+      skip_free_disk:
+        description: 'EXPERIMENT: skip the Free disk space step (headroom test)'
+        required: false
+        default: 'false'
+        type: string
 
 permissions:
   contents: read
@@ -144,6 +161,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Free disk space
+        if: ${{ inputs.skip_free_disk != 'true' }}
         run: |
           # WP1 (t/4840): remove dirs in background to parallelize with checkout/lint.
           # /usr/local/lib/android takes ~70s; run async so it completes during lint step.
@@ -344,9 +362,15 @@ jobs:
           # deploy-drift gate would then compare a WRONG running SHA vs main (t/3110 sink:
           # a misleading marker is worse than none). Keep this expression identical to `ref:`.
           build-args: BUILD_SHA=${{ inputs.sha || github.sha }}
-          cache-from: type=gha,scope=shared-docker
+          # EXPERIMENT (t/4840 A/B): scope/mode parameterized via dispatch inputs; defaults preserve prod behavior.
+          cache-from: type=gha,scope=${{ inputs.cache_scope || 'shared-docker' }}
           # WP1 (t/4840): change to mode=max for better hit ratio. Monitor cache size against cache-cleanup.yml.
-          cache-to: type=gha,scope=shared-docker,mode=max
+          cache-to: type=gha,scope=${{ inputs.cache_scope || 'shared-docker' }},mode=${{ inputs.cache_mode || 'max' }}
+
+      # EXPERIMENT (t/4840): capture disk headroom the build actually consumed.
+      - name: df after build (t/4840 free-disk headroom)
+        if: always()
+        run: df -h /
 
       # t/4129: fail the BUILD, not a later deploy, if the per-SHA tag the deploys resolve is absent
       # from the registry after the push. Reads the registry (authoritative), not metadata-action output.
