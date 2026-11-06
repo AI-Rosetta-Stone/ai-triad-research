@@ -105,7 +105,14 @@ function Invoke-RemoteCheck {
         }
         $Body = $null
         if ($Response.Content) {
-            try { $Body = $Response.Content | ConvertFrom-Json } catch { $Body = $null }
+            # -NoEnumerate (t/4913 staging incident, p/169#228): without it, ConvertFrom-Json's
+            # own array output gets unrolled onto the pipeline by `|`, and a scalar assignment
+            # capturing ZERO unrolled elements (a genuinely empty JSON array, "[]") becomes
+            # $null -- indistinguishable from "didn't parse at all". A real `/api/*` endpoint
+            # returning an empty list (valid, common) was wrongly flagged as unparseable and
+            # failed every check depending on it. -NoEnumerate keeps the parsed array as one
+            # object, empty or not, so only a genuine parse failure still produces $null.
+            try { $Body = $Response.Content | ConvertFrom-Json -NoEnumerate } catch { $Body = $null }
         }
 
         $Success = $StatusCode -in $AcceptableStatusCodes
