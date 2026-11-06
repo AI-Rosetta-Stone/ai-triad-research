@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@bridge';
 import type { SupportCaseCreatePayload } from '../../bridge/types';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './SupportCaseForm.css';
 
 declare const __APP_VERSION__: string;
@@ -57,7 +58,13 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
   const [errorMsg, setErrorMsg] = useState('');
   const [attachError, setAttachError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLDivElement>(null);
+  // t/4909: role/aria-modal/aria-labelledby below were already correct; this replaces the old
+  // window-level Escape listener with the shared hook (closeOnEscape mirrors the pre-existing
+  // guard), and adds the Tab trap + initial-focus/return-focus this dialog never had.
+  const { dialogRef: formRef } = useDialog({
+    onCancel: onClose,
+    closeOnEscape: formState !== 'submitting' && formState !== 'uploading',
+  });
 
   const totalBytes = attachments.reduce((sum, a) => sum + a.file.size, 0);
   const subjectTrimmed = subject.trim();
@@ -67,15 +74,6 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
     && subjectTrimmed.length <= MAX_SUBJECT
     && descTrimmed.length >= MIN_DESCRIPTION
     && descTrimmed.length <= MAX_DESCRIPTION;
-
-  // Escape key closes
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && formState !== 'submitting' && formState !== 'uploading') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose, formState]);
 
   const addAttachmentError = useCallback((msg: string) => {
     setAttachError(msg);

@@ -25,6 +25,7 @@ import {
 } from '../../utils/syncApi';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { RebaseConflictModal } from './RebaseConflictModal';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import { GitProgressBanner } from './GitProgressBanner';
 
 interface Props {
@@ -463,6 +464,7 @@ function CreatePrDialog({ files, status, onCancel, onDone, onError }: CreatePrDi
     : `Taxonomy edits on ${status.session_branch ?? 'session branch'}`);
   const [body, setBody] = useState(defaultPrBody(files));
   const [submitting, setSubmitting] = useState(false);
+  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4909
 
   const submit = async () => {
     setSubmitting(true);
@@ -488,8 +490,8 @@ function CreatePrDialog({ files, status, onCancel, onDone, onError }: CreatePrDi
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog sync-dialog" onClick={e => e.stopPropagation()}>
-        <h3 className="dialog-title">{existing ? `Update pull request #${status.pr_number}` : 'Create pull request'}</h3>
+      <div ref={dialogRef} className="dialog sync-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 className="dialog-title" id={titleId}>{existing ? `Update pull request #${status.pr_number}` : 'Create pull request'}</h3>
         <p className="dialog-description">
           {existing
             ? (isApiMode(status)
@@ -542,6 +544,7 @@ interface ResyncDialogProps {
 function ResyncDialog({ status, hasLocalChanges, onCancel, onDone, onConflicts, onError }: ResyncDialogProps) {
   const [submitting, setSubmitting] = useState<ResyncMode | null>(null);
   const apiMode = isApiMode(status);
+  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4909
 
   const run = async (mode: ResyncMode) => {
     setSubmitting(mode);
@@ -565,8 +568,8 @@ function ResyncDialog({ status, hasLocalChanges, onCancel, onDone, onConflicts, 
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog sync-dialog" onClick={e => e.stopPropagation()}>
-        <h3 className="dialog-title">Resync with GitHub</h3>
+      <div ref={dialogRef} className="dialog sync-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 className="dialog-title" id={titleId}>Resync with GitHub</h3>
         <p className="dialog-description">
           {hasLocalChanges ? (
             apiMode
