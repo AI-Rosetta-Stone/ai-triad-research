@@ -15,3 +15,13 @@ dist/
 coverage/
 .vite/
 *.tsbuildinfo
+
+# Scratch, experiment output and generated artifacts (token-reduction plan 3.B).
+tmp/
+citeonly-logs/
+taxonomy-snapshot/
+build/
+**/__pycache__/
+*.pptx
+taxonomy-proposal-*.json
+test-baselines/
