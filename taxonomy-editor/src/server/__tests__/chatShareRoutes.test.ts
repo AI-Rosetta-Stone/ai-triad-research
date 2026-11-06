@@ -17,6 +17,10 @@ const h = vi.hoisted(() => ({
   // R-E (SO p/835#23): forces every registry write to conflict, regardless of baseSha,
   // to exercise the "all 3 attempts exhausted, no live winner" orphan-cleanup path.
   alwaysConflictRegistryWrites: false,
+  // R-F (SO p/835#30): forces a NON-conflict registry write failure (a plain storage
+  // fault), to exercise the "blob already saved, registry write throws something that
+  // isn't WRITE_CONFLICT" orphan-cleanup path.
+  forceNonConflictRegistryWriteError: false,
 }));
 
 vi.mock('../security/userContext.js', () => ({
@@ -70,6 +74,9 @@ vi.mock('../storage/fileIO.js', () => {
           const err = new Error('Write conflict (forced)');
           (err as any).code = 'WRITE_CONFLICT';
           throw err;
+        }
+        if (h.forceNonConflictRegistryWriteError && path.includes('chat-shares.json')) {
+          throw new Error('Storage backend unavailable (forced, no WRITE_CONFLICT code)');
         }
         // K3: Atomic CAS with gitBlobSha (baseSha '' for "must not exist", SHA for "must match").
         const entry = fileVersions.get(path);
@@ -125,6 +132,7 @@ async function read(shareId: string): Promise<Res> {
 beforeEach(() => {
   h.anonymous = false; h.userId = 'alice'; h.createAllowed = true; h.readAllowed = true; h.files.clear();
   h.alwaysConflictRegistryWrites = false;
+  h.forceNonConflictRegistryWriteError = false;
   (globalThis as any).__chatShareFileVersions?.clear();
 });
 
@@ -273,6 +281,18 @@ describe('K3: race condition retry + orphan cleanup', () => {
 
     // The blob createShare wrote for this attempt must not survive as an orphan —
     // zero blobs left behind once every retry is exhausted.
+    const versions: Map<string, unknown> = (globalThis as any).__chatShareFileVersions;
+    const blobPaths = [...versions.keys()].filter(k => k.includes('/chat-shares/'));
+    expect(blobPaths).toHaveLength(0);
+  });
+
+  it('R-F (SO p/835#30): a non-conflict registry write error revokes the just-saved blob too', async () => {
+    h.forceNonConflictRegistryWriteError = true;
+    const r = await create('non-conflict-error-chat');
+    expect(r.statusCode).toBe(500);
+
+    // Same requirement as R-E, but for a real storage fault rather than an exhausted
+    // conflict retry — the blob must not survive as an unrevocable public orphan.
     const versions: Map<string, unknown> = (globalThis as any).__chatShareFileVersions;
     const blobPaths = [...versions.keys()].filter(k => k.includes('/chat-shares/'));
     expect(blobPaths).toHaveLength(0);

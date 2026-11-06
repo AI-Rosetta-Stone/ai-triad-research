@@ -406,14 +406,32 @@ export async function createShare(
   assertSafeId(chatId, 'chat id for registry key');
   const backend = getUserContentBackend();
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const result = await attemptCreateWrite(chatId, shareId, share, backend);
-    if (result !== 'conflict') return result;
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const result = await attemptCreateWrite(chatId, shareId, share, backend);
+      if (result !== 'conflict') return result;
 
-    // Conflict: another POST may have won. Hand back their share if it's live; otherwise
-    // retry with our own blob intact (R-A: never revoke it until a winner is confirmed).
-    const winner = await resolveCreateConflict(chatId, shareId);
-    if (winner) return winner;
+      // Conflict: another POST may have won. Hand back their share if it's live;
+      // otherwise retry with our own blob intact (R-A: never revoke it until a
+      // winner is confirmed).
+      const winner = await resolveCreateConflict(chatId, shareId);
+      if (winner) return winner;
+    }
+  } catch (err) {
+    // R-F (SO p/835#30): a NON-conflict error (a storage fault, or R-D's corrupt-registry
+    // throw) must still revoke the blob we already saved before propagating — otherwise
+    // it becomes an unrevocable public share with no shareId ever returned to the caller
+    // to clean it up with. The old pre-extraction code's outer per-attempt catch covered
+    // this; the refactor (p/835#25) dropped it when the loop body lost its own try/catch.
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-share',
+      level: 'warn',
+      message: 'Non-conflict error creating chat share; revoking the just-saved blob',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    await revokeShare(shareId);
+    throw err;
   }
 
   // R-E (SO p/835#23): reaching here means every attempt hit a conflict with no live
