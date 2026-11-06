@@ -438,6 +438,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
       // above has already persisted, so a refresh failure here must not undo it.
       await refreshOpedShareIfShared(id).catch((err) => {
         log.server.warn({ err, setId: id }, 'Op-ed share refresh after rename failed (best-effort)');
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'oped', level: 'warn', message: 'Op-ed share refresh after rename failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       });
       json(res, { ok: true });
     } catch (err) {
