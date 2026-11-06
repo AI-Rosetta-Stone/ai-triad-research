@@ -200,7 +200,7 @@
 .community-debate-attribution {
   margin: 0;
   padding: 6px 16px;
-  font-size: 0.85em;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-color);
 }
