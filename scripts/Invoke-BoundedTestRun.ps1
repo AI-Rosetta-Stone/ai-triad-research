@@ -25,6 +25,10 @@
     Working-set ceiling for the child pwsh process. Default 3072 (3 GB) -- comfortably above any
     single test file's normal footprint (dozens to low hundreds of MB observed per-file in this
     repo) and far below the 15 GB the t/4626 run reached before anyone noticed.
+.PARAMETER Output
+    Pester output verbosity passed to Invoke-Pester -Output. Default 'Minimal' (failures only, token-cheap).
+    After the run the script prints only the failed test names and the Pester summary line.
+    Alias: -OutputLevel.
 .PARAMETER PollSeconds
     How often to sample the child's memory/elapsed time. Default 5.
 .OUTPUTS
@@ -33,7 +37,9 @@
 [CmdletBinding()]
 param(
     [string[]]$Path = @('tests/'),
-    [string]$OutputLevel = 'Minimal',
+    [Alias('OutputLevel')]
+    [ValidateSet('None', 'Minimal', 'Normal', 'Detailed', 'Diagnostic')]
+    [string]$Output = 'Minimal',
     [int]$TimeoutMinutes = 30,
     [int]$MaxMemoryMB = 3072,
     [int]$PollSeconds = 5
@@ -50,7 +56,7 @@ $stdout = [System.IO.Path]::GetTempFileName()
 $stderr = [System.IO.Path]::GetTempFileName()
 
 $quotedPaths = ($Path | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
-$pesterCommand = "Invoke-Pester -Path @($quotedPaths) -Output $OutputLevel"
+$pesterCommand = "Invoke-Pester -Path @($quotedPaths) -Output $Output"
 # Timed with a Stopwatch, not $proc.StartTime: StartTime is unreliable for a just-launched
 # process on some platforms (observed: Linux CI throws "Cannot find an overload for
 # op_Subtraction" when it's read back for the elapsed-time calculation below).
@@ -96,14 +102,14 @@ finally {
 
 $stopwatch.Stop()
 $elapsed = [int]$stopwatch.Elapsed.TotalSeconds
-$output = @()
-if (Test-Path -LiteralPath $stdout) { $output += (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue) }
-if (Test-Path -LiteralPath $stderr) { $output += (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue) }
+$runOutput = @()
+if (Test-Path -LiteralPath $stdout) { $runOutput += (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue) }
+if (Test-Path -LiteralPath $stderr) { $runOutput += (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue) }
 Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
 
 $result = [pscustomobject]@{
     ExitCode       = if ($killedReason) { -1 } else { $proc.ExitCode }
-    Output         = ($output -join "`n")
+    Output         = ($runOutput -join "`n")
     KilledReason   = $killedReason
     ElapsedSeconds = $elapsed
     PeakMemoryMB   = $peakMB
@@ -130,6 +136,20 @@ if ($killedReason -eq 'Timeout') {
             'Check for an unmocked network/AI call with no -TimeoutSec, or a retry/backoff loop with no cap',
             'File/update t/4626 with the narrowed file once found'
         )
+}
+
+# Agent-facing digest: failed test names and the summary line only, never the whole run.
+$failedLines = @($result.Output -split "`r?`n" | Where-Object { $_ -match '^\s*\[-\]' })
+$summaryLine = @($result.Output -split "`r?`n" | Where-Object { $_ -match '^Tests Passed:' }) | Select-Object -Last 1
+foreach ($failedLine in $failedLines) { Write-Information $failedLine.Trim() -InformationAction Continue }
+if ($summaryLine) {
+    Write-Information $summaryLine -InformationAction Continue
+}
+elseif ($result.ExitCode -eq 0) {
+    Write-Information 'Pester: exit code 0, no failed tests (Minimal output prints no summary line on success).' -InformationAction Continue
+}
+else {
+    Write-Warning "No Pester summary line found in the run output (exit code $($result.ExitCode)); inspect the Output property of the returned object."
 }
 
 $result
