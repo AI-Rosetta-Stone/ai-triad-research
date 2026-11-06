@@ -420,6 +420,19 @@ async function createShare(
     }
   }
 
+  // R-E (SO p/835#23): reaching here means every attempt hit a conflict with no live
+  // winner to hand off to (the `continue` path above never throws, so the attempt===2
+  // branch in the catch block above never ran). Our own blob is still on disk and
+  // unreferenced by any registry entry — an orphaned, unrevocable public share unless
+  // we clean it up here before giving up.
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'chat-share',
+    level: 'warn',
+    message: 'Failed to update share registry after retries (no live winner); revoking orphaned blob',
+    error: { name: 'Error', message: 'Registry write exceeded max retries', stack: new Error().stack },
+  });
+  await revokeShare(shareId);
   throw new ActionableError({
     goal: 'Create chat share',
     problem: 'Registry write exceeded max retries',

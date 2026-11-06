@@ -14,6 +14,9 @@ const h = vi.hoisted(() => ({
   createAllowed: true,
   readAllowed: true,
   files: new Map<string, string>(),
+  // R-E (SO p/835#23): forces every registry write to conflict, regardless of baseSha,
+  // to exercise the "all 3 attempts exhausted, no live winner" orphan-cleanup path.
+  alwaysConflictRegistryWrites: false,
 }));
 
 vi.mock('../security/userContext.js', () => ({
@@ -63,6 +66,11 @@ vi.mock('../storage/fileIO.js', () => {
       },
       writeFile: async (p: string, c: string, opts?: {baseSha?: string}) => {
         const path = p.replace(/\\/g, '/');
+        if (h.alwaysConflictRegistryWrites && path.includes('chat-shares.json')) {
+          const err = new Error('Write conflict (forced)');
+          (err as any).code = 'WRITE_CONFLICT';
+          throw err;
+        }
         // K3: Atomic CAS with gitBlobSha (baseSha '' for "must not exist", SHA for "must match").
         const entry = fileVersions.get(path);
         const currentSha = entry ? gitBlobSha(entry.content) : '';
@@ -116,6 +124,7 @@ async function read(shareId: string): Promise<Res> {
 
 beforeEach(() => {
   h.anonymous = false; h.userId = 'alice'; h.createAllowed = true; h.readAllowed = true; h.files.clear();
+  h.alwaysConflictRegistryWrites = false;
   (globalThis as any).__chatShareFileVersions?.clear();
 });
 
@@ -255,6 +264,18 @@ describe('K3: race condition retry + orphan cleanup', () => {
     expect(id1).not.toBe(id2);
     expect((await read(id1)).statusCode).toBe(404);
     expect((await read(id2)).statusCode).toBe(200);
+  });
+
+  it('R-E (SO p/835#23): exhausting all retries with no live winner revokes the orphaned blob', async () => {
+    h.alwaysConflictRegistryWrites = true;
+    const r = await create('always-conflict-chat');
+    expect(r.statusCode).toBe(500);
+
+    // The blob createShare wrote for this attempt must not survive as an orphan —
+    // zero blobs left behind once every retry is exhausted.
+    const versions: Map<string, unknown> = (globalThis as any).__chatShareFileVersions;
+    const blobPaths = [...versions.keys()].filter(k => k.includes('/chat-shares/'));
+    expect(blobPaths).toHaveLength(0);
   });
 });
 
