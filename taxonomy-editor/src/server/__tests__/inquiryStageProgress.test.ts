@@ -15,8 +15,11 @@ import { stageProgress } from '../../../lib/debate/debateProgressMapping.js';
 import type { InquiryJobStatus } from '../../../lib/inquiry/index.js';
 import {
   buildPollView,
+  applyDebateProgressToJob,
   type InquiryPollProjection,
+  type InquiryJob,
 } from '../inquiryJobs.js';
+import { jobProjection } from '../routes/inquiry.js';
 
 describe('t/4712 — Inquiry stage progress (stageProgress parity)', () => {
   // Test 1: Parity with lib's stageProgress() for every status
@@ -39,34 +42,62 @@ describe('t/4712 — Inquiry stage progress (stageProgress parity)', () => {
     });
   });
 
-  // Test 2: Rising progress during debating, never-decreasing
-  describe('during debating: rising and never-decreasing', () => {
-    it('successive debate fractions within debating stage give rising progressPct', () => {
-      const fractions = [0, 0.25, 0.5, 0.75, 1.0];
-      const progressPercentages = fractions.map(f => stageProgress('debating', f));
+  // t/4917: through the REAL path the GET /api/inquiry/:jobId route uses — applyDebateProgressToJob
+  // (the production update function) -> jobProjection -> buildPollView. This is the regression test
+  // the ticket requires: it fails on pre-fix main, where buildPollView's own stageProgress(p.status)
+  // call (no fraction) pins progressPct at 15 for the whole debating stage regardless of what
+  // applyDebateProgressToJob wrote into job.currentDebateFraction.
+  describe('t/4917 — the poll rises through the debate as fractions arrive (not stuck at 15)', () => {
+    function makeDebatingJob(): InquiryJob {
+      return {
+        jobId: 'job-1', userId: 'alice', status: 'debating', progressPct: 15,
+        resultId: null, error: null, debateId: null, startedAt: Date.now(),
+        currentDebateFraction: 0,
+      };
+    }
 
-      // Verify strictly rising (each is strictly greater than previous)
-      for (let i = 1; i < progressPercentages.length; i++) {
-        expect(progressPercentages[i]).toBeGreaterThan(progressPercentages[i - 1]);
+    it('rises strictly within [15, 80] as fraction updates arrive at 25%, 50%, 100%, and ends at 80', () => {
+      const job = makeDebatingJob();
+      const seenPct: number[] = [];
+
+      for (const fraction of [0.25, 0.5, 1.0]) {
+        applyDebateProgressToJob(job, { fraction, detail: `Round at ${fraction}` });
+        const poll = buildPollView(jobProjection(job));
+        expect(poll.progressPct).toBeGreaterThanOrEqual(15);
+        expect(poll.progressPct).toBeLessThanOrEqual(80);
+        expect(poll.stageDetail).toBe(`Round at ${fraction}`);
+        seenPct.push(poll.progressPct as number);
       }
 
-      // Verify bounds [15, 80] — debating stage spans these
-      for (const pct of progressPercentages) {
-        expect(pct).toBeGreaterThanOrEqual(15);
-        expect(pct).toBeLessThanOrEqual(80);
-      }
+      for (let i = 1; i < seenPct.length; i++) expect(seenPct[i]).toBeGreaterThan(seenPct[i - 1]);
+      expect(seenPct[seenPct.length - 1]).toBe(80);
     });
 
-    it('progressPct during debating never decreases when fraction increases', () => {
-      // Simulate increasing fractions: 0, 0.1, 0.2, ..., 1.0
-      const fractions = Array.from({ length: 11 }, (_, i) => i / 10);
-      const progresses = fractions.map(f => stageProgress('debating', f));
+    it('never moves backward even if a later update reports a smaller fraction (retry/reorder)', () => {
+      const job = makeDebatingJob();
+      applyDebateProgressToJob(job, { fraction: 0.5, detail: 'mid' });
+      const highPct = buildPollView(jobProjection(job)).progressPct as number;
 
-      for (let i = 1; i < progresses.length; i++) {
-        // Use Math.max pattern (as in inquiryHandlers.ts:268) to ensure never-decreasing
-        const max = Math.max(progresses[i - 1], progresses[i]);
-        expect(progresses[i]).toBe(max); // Since fraction is increasing, progress should increase too
-      }
+      applyDebateProgressToJob(job, { fraction: 0.2, detail: 'stale retry' });
+      const afterPct = buildPollView(jobProjection(job)).progressPct as number;
+
+      expect(afterPct).toBe(highPct);
+    });
+
+    it('a late debate-progress event after the job left the debating stage is ignored', () => {
+      const job = makeDebatingJob();
+      applyDebateProgressToJob(job, { fraction: 0.5, detail: 'mid-debate' });
+      job.status = 'judging';
+      job.progressPct = stageProgress('judging');
+
+      applyDebateProgressToJob(job, { fraction: 1.0, detail: 'stray post-debate event' });
+
+      // progressPct is untouched by the stray event (guarded on job.status === 'debating'),
+      // but currentDebateFraction/currentStageDetail still record it for observability — only
+      // the guard inside applyDebateProgressToJob, not the poll, is under test here.
+      expect(job.progressPct).toBe(stageProgress('judging'));
+      const poll = buildPollView(jobProjection(job));
+      expect(poll.progressPct).toBe(stageProgress('judging'));
     });
   });
 

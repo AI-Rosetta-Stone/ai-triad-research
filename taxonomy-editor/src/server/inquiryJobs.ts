@@ -71,6 +71,9 @@ export interface InquiryPollProjection {
   debateId: string | null;
   terminationReason: string | null;
   stageDetail?: string;
+  /** t/4917: current debate progress fraction [0,1], tier-1 (in-memory job) only. Tiers 2/3 have no
+   *  fraction source and stay at the debating-stage floor — lagging, never backward (e/221#16). */
+  debateFraction?: number;
 }
 
 /** Build a poll-response record from a shared projection, deriving progressPct from stageProgress.
@@ -80,7 +83,10 @@ export interface InquiryPollProjection {
 export function buildPollView(p: InquiryPollProjection): Record<string, unknown> {
   const body: Record<string, unknown> = {
     jobId: p.jobId, status: p.status,
-    progressPct: stageProgress(p.status),
+    // t/4917: stageProgress ignores the fraction outside 'debating', so tiers 2/3 (no debateFraction)
+    // correctly fall back to the stage floor rather than silently sticking at 15% through the whole
+    // debate phase — the bug this fixes.
+    progressPct: stageProgress(p.status, p.debateFraction ?? 0),
     terminationReason: p.terminationReason,
     resultId: p.resultId, error: p.error, debateId: p.debateId,
   };
@@ -117,6 +123,21 @@ function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
   // t/4712: use stageProgress() from lib instead of local PROGRESS table.
   // Pass debate fraction only during debating stage.
   job.progressPct = stageProgress(status, status === 'debating' ? job.currentDebateFraction : 0);
+}
+
+/** t/4917: apply a debate-progress update to the job's live state — the single place that
+ *  advances currentDebateFraction/currentStageDetail/progressPct during the debating stage.
+ *  Monotonic (never moves the fraction backward, same guard as desktop's
+ *  inquiryHandlers.ts:268, applied to the fraction itself since buildPollView's tier-1 path
+ *  reads currentDebateFraction directly) and guarded against a late event arriving after the
+ *  job has already left the debating stage. Exported so the regression test can drive job
+ *  state through the exact same path runInquiryJob uses, not a hand-rolled duplicate. */
+export function applyDebateProgressToJob(job: InquiryJob, update: { fraction: number; detail: string }): void {
+  job.currentDebateFraction = Math.max(job.currentDebateFraction, update.fraction);
+  job.currentStageDetail = update.detail;
+  if (job.status === 'debating') {
+    job.progressPct = stageProgress(job.status, job.currentDebateFraction);
+  }
 }
 
 // ── Registry helpers (mirror briefExportJobs) ──
@@ -250,14 +271,7 @@ async function runInquiryJob(job: InquiryJob, args: CreateInquiryJobArgs): Promi
 
   try {
     // t/4712: create a debate progress tracker to capture detailed progress during debating stage.
-    const debateProgressTracker = createDebateProgressTracker((update) => {
-      job.currentDebateFraction = update.fraction;
-      job.currentStageDetail = update.detail;
-      // Update progressPct if we're in the debating stage.
-      if (job.status === 'debating') {
-        job.progressPct = stageProgress(job.status, job.currentDebateFraction);
-      }
-    });
+    const debateProgressTracker = createDebateProgressTracker((update) => applyDebateProgressToJob(job, update));
 
     const result = await args.runPipeline(args.request, {
       onStage: (stage) => setStatus(job, stage),
