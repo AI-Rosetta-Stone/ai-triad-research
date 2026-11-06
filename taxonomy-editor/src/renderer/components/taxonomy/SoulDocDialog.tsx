@@ -11,6 +11,7 @@ import { loadPovTagRegistry, tagSoulFileName } from '@lib/schema/povTags';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { ActionableError } from '@lib/debate/errors';
 import type { PovInfo, SpeakerId } from '@lib/debate/types';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './SoulDocDialog.css';
 
 type Speaker = Exclude<SpeakerId, 'user'>;
@@ -134,6 +135,7 @@ export function SoulDocDialog({ pov, nodeTags, onClose }: SoulDocDialogProps) {
   const [active, setActive] = useState(() => nodeTags?.find(t => tabs.some(tab => tab.id === t)) ?? BASE_TAB);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const content = useMemo(() => (speaker ? resolveTab(speaker, active) : null), [speaker, active]);
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose }); // t/4909
 
   if (!speaker || !content) return null;
   const base = resolvePoverInfo(speaker).soul;
@@ -151,9 +153,9 @@ export function SoulDocDialog({ pov, nodeTags, onClose }: SoulDocDialogProps) {
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="soul-doc-dialog" role="dialog" aria-modal="true" aria-label={`${base.label} soul document`} onClick={e => e.stopPropagation()}>
+      <div ref={dialogRef} className="soul-doc-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
         <div className="soul-doc-header">
-          <h2 className="soul-doc-title">{base.label} Soul Document</h2>
+          <h2 className="soul-doc-title" id={titleId}>{base.label} Soul Document</h2>
           <button className="btn btn-ghost soul-doc-close-btn" onClick={onClose} aria-label="Close">&times;</button>
         </div>
 

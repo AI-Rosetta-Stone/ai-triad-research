@@ -12,6 +12,7 @@
  */
 
 import { useRef, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   useSyncStatus,
 } from '../../hooks/useSyncStatus';
@@ -23,6 +24,7 @@ import {
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './SaveConflictBanner.css';
 
 // t/4313#1's "Success, a toast" step has no shared toast utility in this codebase —
@@ -41,6 +43,39 @@ function fileListSummary(paths: string[]): string {
 }
 
 type Busy = 'theirs' | 'mine' | null;
+
+// t/4909: both confirms here share the same shape; extracted so each gets its own useDialog
+// mount boundary — a hook call can't live inside the `{confirming... && <div>}` blocks
+// themselves (conditional), and one shared call at SaveConflictBanner's own top level would
+// fire its mount effect once at the banner's own mount, not when a confirm actually opens.
+function SaveConflictConfirm({
+  title, description, confirmLabel, confirmVariant, busyLabel, working, onConfirm, onCancel,
+}: {
+  title: string;
+  description: ReactNode;
+  confirmLabel: string;
+  confirmVariant: 'btn-danger' | 'btn-primary';
+  busyLabel: string | null;
+  working: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { dialogRef, titleId } = useDialog({ onCancel, closeOnEscape: !working });
+  return (
+    <div className="dialog-overlay" onClick={() => !working && onCancel()}>
+      <div ref={dialogRef} className="dialog save-conflict-confirm" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 className="dialog-title" id={titleId}>{title}</h3>
+        <div className="dialog-description">{description}</div>
+        <div className="dialog-actions">
+          <button className="btn btn-ghost" disabled={working} onClick={onCancel}>Cancel</button>
+          <button className={`btn ${confirmVariant}`} disabled={working} onClick={onConfirm}>
+            {busyLabel ?? confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SaveConflictBanner() {
   const { status, refresh } = useSyncStatus();
@@ -164,39 +199,29 @@ export function SaveConflictBanner() {
       </div>
 
       {confirmingTheirs && (
-        <div className="dialog-overlay" onClick={() => !working && setConfirmingTheirs(false)}>
-          <div className="dialog save-conflict-confirm" onClick={e => e.stopPropagation()}>
-            <h3 className="dialog-title">Discard your unsaved changes?</h3>
-            <div className="dialog-description">
-              This discards all your unsaved changes, including changes to files that weren't in conflict.
-              This can't be undone.
-            </div>
-            <div className="dialog-actions">
-              <button className="btn btn-ghost" disabled={working} onClick={() => setConfirmingTheirs(false)}>Cancel</button>
-              <button className="btn btn-danger" disabled={working} onClick={() => void onUseTheirs()}>
-                {busy === 'theirs' ? 'Working…' : 'Discard my changes'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <SaveConflictConfirm
+          title="Discard your unsaved changes?"
+          description={<>This discards all your unsaved changes, including changes to files that weren't in conflict. This can't be undone.</>}
+          confirmLabel="Discard my changes"
+          confirmVariant="btn-danger"
+          busyLabel={busy === 'theirs' ? 'Working…' : null}
+          working={working}
+          onConfirm={() => void onUseTheirs()}
+          onCancel={() => setConfirmingTheirs(false)}
+        />
       )}
 
       {confirmingMine && (
-        <div className="dialog-overlay" onClick={() => !working && setConfirmingMine(false)}>
-          <div className="dialog save-conflict-confirm" onClick={e => e.stopPropagation()}>
-            <h3 className="dialog-title">Replace the newer version?</h3>
-            <div className="dialog-description">
-              This saves all your changes and replaces the newer version of {paths.length} file{paths.length === 1 ? '' : 's'}.
-              Changes made elsewhere to those files will be lost.
-            </div>
-            <div className="dialog-actions">
-              <button className="btn btn-ghost" disabled={working} onClick={() => setConfirmingMine(false)}>Cancel</button>
-              <button className="btn btn-primary" disabled={working} onClick={() => void onKeepMine()}>
-                {busy === 'mine' ? 'Working…' : 'Save mine'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <SaveConflictConfirm
+          title="Replace the newer version?"
+          description={<>This saves all your changes and replaces the newer version of {paths.length} file{paths.length === 1 ? '' : 's'}. Changes made elsewhere to those files will be lost.</>}
+          confirmLabel="Save mine"
+          confirmVariant="btn-primary"
+          busyLabel={busy === 'mine' ? 'Working…' : null}
+          working={working}
+          onConfirm={() => void onKeepMine()}
+          onCancel={() => setConfirmingMine(false)}
+        />
       )}
     </div>
   );
