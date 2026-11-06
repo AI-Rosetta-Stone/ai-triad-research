@@ -188,19 +188,22 @@ describe('GET /api/public/pov/:pov/node/:nodeId (t/1788)', () => {
       expect(publicByNamespace('/api/conflicts')).toBe(false);
     });
 
-    it('the routes under /api/public/ are exactly the POV-node + op-ed share + op-ed index + inquiry share GETs', () => {
+    it('the routes under /api/public/ are exactly the POV-node + op-ed share + op-ed index + inquiry, chat and debate share GETs', () => {
       // t/2727 added the op-ed share (2nd tenant); t/3481 added the op-ed index
       // (GET /api/public/opeds, TL-approved public read); t/3626/t/3653 added the inquiry
       // share (anon GET, Server-Auth-reviewed); t/4925 wired the t/4787 chat share (anon GET,
-      // SO-reviewed). Keeping this an EXACT list (order-independent)
-      // means any future /api/public/ route must be a deliberate, reviewed addition — the
-      // allowlist can't grow silently.
+      // SO-reviewed); t/4788 added the debate share (anon GET, SO-reviewed, D1-D4). Keeping
+      // this an EXACT list (order-independent) means any future /api/public/ route must be a
+      // deliberate, reviewed addition — the allowlist can't grow silently.
       const publicRoutes = extractRoutes(serverEntry)
         .filter(r => r.path.startsWith('/api/public/'))
         .map(r => `${r.method} ${r.path}`)
         .sort();
       expect(publicRoutes).toEqual(
-        ['GET /api/public/oped/:shareId', 'GET /api/public/opeds', 'GET /api/public/pov/:pov/node/:nodeId', 'GET /api/public/inquiry/:shareId', 'GET /api/public/chat/:shareId'].sort(),
+        [
+          'GET /api/public/oped/:shareId', 'GET /api/public/opeds', 'GET /api/public/pov/:pov/node/:nodeId',
+          'GET /api/public/inquiry/:shareId', 'GET /api/public/chat/:shareId', 'GET /api/public/debate/:shareId',
+        ].sort(),
       );
     });
   });
