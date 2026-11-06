@@ -450,6 +450,25 @@ function Invoke-OrgStanceExtraction {
 
     Write-Progress -Id $ProgressId -Activity 'Extracting stance claims' -Completed
 
+    # ── participant-attribution filter (t/4876, CL spec t/4876#1) ─────────
+    # Test-ParticipantAttributionConstruction is a Private helper and isn't callable inside
+    # ForEach-Object -Parallel worker runspaces (same class of problem as Get-Prompt/
+    # Test-StanceTextVerbatim), so this runs here in the common main-thread code after collection,
+    # instead of being duplicated into the parallel block. Drops the claim before persistence —
+    # same disposition as t/4742's camp-bridge filter — rather than flagging-and-keeping it.
+    $participantAttrDropped = [System.Collections.Generic.List[string]]::new()
+    $survivingClaims = [System.Collections.Generic.List[PSObject]]::new()
+    foreach ($c in @($newClaims)) {
+        $AttrMatch = Test-ParticipantAttributionConstruction -Text ([string]$c.text)
+        if ($AttrMatch) {
+            $participantAttrDropped.Add("$($c.org_id)::$($c.source_id): '$AttrMatch'")
+            Write-Warning "Invoke-OrgStanceExtraction: dropped participant-attribution claim for $($c.org_id)::$($c.source_id): '$AttrMatch'"
+            continue
+        }
+        $survivingClaims.Add($c)
+    }
+    $newClaims = $survivingClaims
+
     # ── text_verbatim (t/4382) ───────────────────────────────────────────
     # Computed here, after collection, so both the sequential and the parallel path get it (the
     # parallel runspaces can't call module helpers). FORENSIC FIELD: NO consumer branches on
@@ -507,21 +526,24 @@ function Invoke-OrgStanceExtraction {
     $failCount    = @($failed).Count
     $invalidCount = @($invalid).Count
     $flaggedCount = @($flagged).Count
+    $participantAttrCount = @($participantAttrDropped).Count
     Write-Host ""
-    Write-Host "Done. Documents processed: $Total | Claims extracted: $writtenNew | Invalid dropped: $invalidCount | Double-mark flagged: $flaggedCount | Failed: $failCount | Skipped no-doc: $skippedNoDoc | Skipped already-done: $skippedAlreadyDone"
+    Write-Host "Done. Documents processed: $Total | Claims extracted: $writtenNew | Invalid dropped: $invalidCount | Participant-attribution dropped: $participantAttrCount | Double-mark flagged: $flaggedCount | Failed: $failCount | Skipped no-doc: $skippedNoDoc | Skipped already-done: $skippedAlreadyDone"
 
     [PSCustomObject]@{
-        Extracted          = $Total - $failCount
-        ClaimsWritten      = $writtenNew
-        InvalidDropped     = $invalidCount
-        InvalidItems       = @($invalid)
-        FlaggedDoubleMark  = $flaggedCount
-        FlaggedItems       = @($flagged)
-        Failed             = $failCount
-        FailedItems        = @($failed)
-        SkippedNoDoc       = $skippedNoDoc
-        SkippedAlreadyDone = $skippedAlreadyDone
-        SkippedNoOrg       = $skippedNoOrg
-        OutputPath         = $OutputPath
+        Extracted                  = $Total - $failCount
+        ClaimsWritten              = $writtenNew
+        InvalidDropped             = $invalidCount
+        InvalidItems               = @($invalid)
+        ParticipantAttributionDropped = $participantAttrCount
+        ParticipantAttributionItems   = @($participantAttrDropped)
+        FlaggedDoubleMark          = $flaggedCount
+        FlaggedItems               = @($flagged)
+        Failed                     = $failCount
+        FailedItems                = @($failed)
+        SkippedNoDoc               = $skippedNoDoc
+        SkippedAlreadyDone         = $skippedAlreadyDone
+        SkippedNoOrg               = $skippedNoOrg
+        OutputPath                 = $OutputPath
     }
 }
