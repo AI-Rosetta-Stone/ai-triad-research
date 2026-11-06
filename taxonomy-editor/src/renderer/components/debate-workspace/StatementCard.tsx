@@ -42,6 +42,7 @@ import { StatementTierPills, type SetEntryDisplayTier } from './StatementTierPil
 import { StatementSteelmans } from '../shared/Steelman';
 import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { api } from '@bridge';
+import { ConcludingSections } from './SynthesisSections';
 
 /** Remark pipeline for debate transcript text: GFM + POV colorization + ID-token ref links (t/1776). */
 const DEBATE_REMARK_PLUGINS = [remarkGfm, remarkColorizePov, remarkLinkifyRefs];
@@ -334,94 +335,8 @@ export function EntryCommentBadge({ entryId }: { entryId: string }) {
   );
 }
 
-// ── Collapsible sections for concluding statements ──────
-
-const FULLY_COLLAPSED_SECTIONS = new Set(['Argument Map']);
-const SUB_COLLAPSED_SECTIONS = new Set(['Areas of Disagreement', 'Cruxes', 'Resolution Analysis']);
-
-interface ParsedSection { heading: string; body: string }
-
-function splitByHeadings(content: string): ParsedSection[] {
-  const parts = content.split(/\n(?=## )/);
-  const sections: ParsedSection[] = [];
-  for (const part of parts) {
-    const match = part.match(/^## (.+)\n([\s\S]*)$/);
-    if (match) {
-      sections.push({ heading: match[1].trim(), body: match[2].trim() });
-    } else if (part.trim()) {
-      sections.push({ heading: '', body: part.trim() });
-    }
-  }
-  return sections;
-}
-
-function parseBullets(body: string): { top: string; subs: string[] }[] {
-  const lines = body.split('\n');
-  const groups: { top: string; subs: string[] }[] = [];
-  for (const line of lines) {
-    if (line.startsWith('- ')) {
-      groups.push({ top: line, subs: [] });
-    } else if (line.startsWith('  - ') && groups.length > 0) {
-      groups[groups.length - 1].subs.push(line);
-    } else if (line.startsWith('  ') && groups.length > 0 && groups[groups.length - 1].subs.length > 0) {
-      groups[groups.length - 1].subs[groups[groups.length - 1].subs.length - 1] += '\n' + line;
-    }
-  }
-  return groups;
-}
-
-function CollapsibleBulletItem({ top, subs, mdComponents }: { top: string; subs: string[]; mdComponents: object }) {
-  const [expanded, setExpanded] = useState(false);
-  if (subs.length === 0) {
-    return <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(top)}</Markdown>;
-  }
-  return (
-    <div className="concluding-collapsible-bullet">
-      <div className="concluding-bullet-top" onClick={() => setExpanded(e => !e)} style={{ cursor: 'pointer' }}>
-        <span className="concluding-toggle-arrow">{expanded ? '▼' : '▶'}</span>
-        <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(top)}</Markdown>
-      </div>
-      {expanded && (
-        <div className="concluding-bullet-subs">
-          <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(subs.join('\n'))}</Markdown>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ConcludingSections({ content, mdComponents }: { content: string; mdComponents: object }) {
-  const sections = splitByHeadings(content);
-  return (
-    <>
-      {sections.map((section, i) => {
-        if (!section.heading) {
-          return <Markdown key={i} remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(section.body)}</Markdown>;
-        }
-        if (FULLY_COLLAPSED_SECTIONS.has(section.heading)) {
-          return (
-            <details key={i} className="concluding-collapsed-section">
-              <summary className="concluding-section-summary"><h2>{section.heading}</h2></summary>
-              <Markdown remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(section.body)}</Markdown>
-            </details>
-          );
-        }
-        if (SUB_COLLAPSED_SECTIONS.has(section.heading)) {
-          const bullets = parseBullets(section.body);
-          return (
-            <div key={i}>
-              <h2>{section.heading}</h2>
-              {bullets.map((b, j) => (
-                <CollapsibleBulletItem key={j} top={b.top} subs={b.subs} mdComponents={mdComponents} />
-              ))}
-            </div>
-          );
-        }
-        return <Markdown key={i} remarkPlugins={DEBATE_REMARK_PLUGINS} components={mdComponents}>{fixMarkdownLinks(`## ${section.heading}\n${section.body}`)}</Markdown>;
-      })}
-    </>
-  );
-}
+// ── Collapsible sections for concluding statements — extracted to
+//    SynthesisSections.tsx (t/4914, line-count ceiling).
 
 // ── Tier display content resolution ─────────────────────
 
@@ -558,23 +473,35 @@ function StatementCardHeader({
   onToggleCollapse: () => void;
   collapsedSummary: string;
 }) {
+  // t/4914 spec §2: the concluding (Synthesis) card's header drops the speaker/id/type
+  // row for a plain "SYNTHESIS" eyebrow. The statement id anchor is preserved (still
+  // used by cross-references and diagnostics) by moving it onto the eyebrow itself.
+  const isConcluding = entry.type === 'concluding';
   return (
     <div className="debate-statement-header">
       {collapsible && (
         <StatementCollapseToggle collapsed={collapsed} onToggle={onToggleCollapse} entryId={entry.id} />
       )}
-      {camp && <CampGlyph camp={camp} size={16} />}
-      <span className="debate-statement-speaker" style={color ? { color } : undefined}>
-        {speakerLabel(entry.speaker)}
-      </span>
-      {statementId && (
-        <span
-          className="debate-statement-id"
-          title={`Statement ${statementId} — stable position in transcript`}
-          id={`stmt-${statementId}`}
-        >
-          {statementId}
+      {isConcluding ? (
+        <span className="concluding-eyebrow" id={statementId ? `stmt-${statementId}` : undefined}>
+          Synthesis
         </span>
+      ) : (
+        <>
+          {camp && <CampGlyph camp={camp} size={16} />}
+          <span className="debate-statement-speaker" style={color ? { color } : undefined}>
+            {speakerLabel(entry.speaker)}
+          </span>
+          {statementId && (
+            <span
+              className="debate-statement-id"
+              title={`Statement ${statementId} — stable position in transcript`}
+              id={`stmt-${statementId}`}
+            >
+              {statementId}
+            </span>
+          )}
+        </>
       )}
       {collapsed ? (
         <span className="debate-statement-collapsed-summary">{collapsedSummary}</span>
@@ -634,10 +561,12 @@ function StatementCardHeaderDetail({
   return (
     <>
       <StatementModelBadge entry={entry} activeDebate={activeDebate} />
-      <span className="debate-statement-type">
-        {entry.type}
-        {anNodeId && <span className="debate-an-id"> · {anNodeId}</span>}
-      </span>
+      {entry.type !== 'concluding' && (
+        <span className="debate-statement-type">
+          {entry.type}
+          {anNodeId && <span className="debate-an-id"> · {anNodeId}</span>}
+        </span>
+      )}
       {showTierPills && (
         <StatementTierPills
           entry={entry}

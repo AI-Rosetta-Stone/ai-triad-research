@@ -166,7 +166,117 @@
 
 /* ─── Lineage Links (t/201) ──────────────────────────── */
 
-/* ── Concluding statement collapsible sections ── */
+/* ── Concluding statement (Synthesis) sections (t/4914, docs/ux/debate-synthesis.md) ── */
+
+/* §2: eyebrow replacing the speaker/id/type row */
+.concluding-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* §3: overview strip of jump links with counts */
+.concluding-overview-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0;
+  font-size: var(--text-sm);
+  margin: 4px 0 12px;
+}
+.concluding-overview-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.concluding-overview-link:hover,
+.concluding-overview-link:focus-visible {
+  text-decoration: underline;
+}
+.concluding-overview-link + .concluding-overview-link::before {
+  content: ' · ';
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.concluding-overview-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* §4: section heading + count, top-3 + "Show N more" */
+.concluding-list-section {
+  margin: 12px 0;
+}
+.concluding-section-heading {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+.concluding-section-count {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.concluding-bullet-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.concluding-bullet-item {
+  margin: 2px 0;
+}
+.concluding-bullet-item p {
+  display: inline;
+  margin: 0;
+}
+.concluding-show-more {
+  margin-top: 4px;
+}
+
+/* §5: camp chips (no fill — a tinted background fails AA in several themes) */
+.concluding-camp-chips {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: var(--sp-2);
+}
+.concluding-camp-chip {
+  display: inline-flex;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+.concluding-camp-chip-accelerationist {
+  color: var(--color-acc);
+}
+.concluding-camp-chip-safetyist {
+  color: var(--color-saf);
+}
+.concluding-camp-chip-skeptic {
+  color: var(--color-skp);
+}
+.concluding-camp-chip-all {
+  color: var(--text-secondary);
+}
+
+/* §6: one expand pattern — a trailing "details" disclosure, never the row itself */
+.concluding-details-toggle {
+  margin-left: var(--sp-2);
+}
+.concluding-bullet-subs {
+  padding-left: 20px;
+}
+.concluding-bullet-subs ul {
+  margin: 2px 0;
+  padding-left: 16px;
+}
+
+/* Argument Map: unchanged fully-collapsed <details> presentation */
 .concluding-collapsed-section {
   margin: 12px 0;
 }
@@ -190,31 +300,6 @@
 }
 .concluding-collapsed-section[open] > summary h2::before {
   content: '▼ ';
-}
-.concluding-collapsible-bullet {
-  margin: 2px 0;
-}
-.concluding-bullet-top {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-}
-.concluding-toggle-arrow {
-  font-size: var(--text-2xs);
-  color: var(--text-muted);
-  margin-top: 6px;
-  flex-shrink: 0;
-  user-select: none;
-}
-.concluding-bullet-top p {
-  margin: 0;
-}
-.concluding-bullet-subs {
-  padding-left: 20px;
-}
-.concluding-bullet-subs ul {
-  margin: 2px 0;
-  padding-left: 16px;
 }
 
 a.lineage-link,
