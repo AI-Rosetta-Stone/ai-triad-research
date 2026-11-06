@@ -315,6 +315,7 @@ jobs:
               - 'research/comp-linguist/scripts/**'
               # t/4883 guard script + tests, run by test-container (t/2094 soundness rule).
               - 'operations/devops/check-dockerfile-store-mounts*'
+              - 'operations/devops/create-coldstore-builder.sh'
               - '.dockerignore'
               - 'lib/**'
               - 'scripts/**'
@@ -2030,10 +2031,10 @@ jobs:
       # installs) keeps the builder `pnpm install` CACHED but forces build:container + licenses
       # to execute. The checker passes only on exactly that shape; a fully cached or
       # fresh-install log is "inconclusive", never a pass.
-      # ADVISORY (TL, t/4883#2): continue-on-error with a ::warning:: verdict for >=5 real
-      # runs, then promotion to blocking is a separate T2 PR. The lint step above stays blocking.
-      - name: Warm-layer / cold-store rebuild — licenses (advisory, t/4883)
-        continue-on-error: true
+      # BLOCKING (t/4883 T2 promotion): ran advisory (continue-on-error, ::warning::) and gave
+      # 11 real PASS verdicts on 9+ distinct SHAs with zero false failures (t/4883#6, #7) before
+      # this flip. A non-pass verdict, including inconclusive, now fails test-container.
+      - name: Warm-layer / cold-store rebuild — licenses (t/4883)
         timeout-minutes: 15
         shell: bash
         run: |
@@ -2041,8 +2042,9 @@ jobs:
           docker buildx build --progress=quiet --target builder \
             --cache-to "type=local,dest=${RUNNER_TEMP}/layer-cache,mode=max" \
             -f taxonomy-editor/Dockerfile . || exit 1
-          docker buildx create --name coldstore --driver docker-container \
-            --driver-opt image=moby/buildkit:buildx-stable-1 >/dev/null || exit 1
+          # SO p/682#56 C1: digest-pinned BuildKit image, pulled with retries; exits 3 with a
+          # distinct "INFRA (not a guard verdict)" ::error:: if Docker Hub can't serve it.
+          bash operations/devops/create-coldstore-builder.sh coldstore || exit $?
           docker buildx build --builder coldstore --progress=plain \
             --target builder \
             --cache-from "type=local,src=${RUNNER_TEMP}/layer-cache" \
@@ -2051,7 +2053,7 @@ jobs:
           build_rc=${PIPESTATUS[0]}
           # The checker runs even when the build failed, so the step says WHY (regression vs
           # a run that never exercised the warm-layer path) instead of just "exit 1".
-          node operations/devops/check-dockerfile-store-mounts.mjs log "${RUNNER_TEMP}/coldstore.log" --advisory
+          node operations/devops/check-dockerfile-store-mounts.mjs log "${RUNNER_TEMP}/coldstore.log"
           check_rc=$?
           [ "$build_rc" -eq 0 ] && [ "$check_rc" -eq 0 ]
 
