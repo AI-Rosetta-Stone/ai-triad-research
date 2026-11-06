@@ -429,6 +429,20 @@ export const api: AppAPI = {
   loadChatSession: (id) => window.electronAPI.loadChatSession(id),
   saveChatSession: (s) => window.electronAPI.saveChatSession(s),
   deleteChatSession: (id) => window.electronAPI.deleteChatSession(id),
+  // t/4922: web-only, mirrors shareOpEdSet/unshareOpEdSet's desktop posture exactly —
+  // the desktop app has no public share surface.
+  shareChat: () => Promise.reject(new ActionableError({
+    goal: 'Create a public share link for this chat',
+    problem: 'Public sharing is not available in the desktop app.',
+    location: 'electron-bridge.shareChat',
+    nextSteps: ['Use the web app to share this chat.'],
+  })),
+  unshareChat: () => Promise.reject(new ActionableError({
+    goal: 'Revoke a public share link for this chat',
+    problem: 'Public sharing is not available in the desktop app.',
+    location: 'electron-bridge.unshareChat',
+    nextSteps: ['Use the web app to manage share links.'],
+  })),
   exportChatToFile: (entries, format, options) => window.electronAPI.exportChatToFile(entries, format, options),
 
   // Harvest

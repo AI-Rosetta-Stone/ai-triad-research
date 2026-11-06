@@ -10,21 +10,19 @@ import { pullDataUpdatesRest } from './dataUpdatesPull';
 import { submitAskToCommunityRest } from './communityAskSubmit';
 import { createTaxonomyVersions } from './taxonomyVersions';
 import { exportInquiryToFileWeb } from './inquiryExportWeb';
-import { instrumentBridge } from './instrumentBridge';
-import { makeCancellationError } from './cancellation';
+import { instrumentBridge } from './instrumentBridge'; import { makeCancellationError } from './cancellation';
 import { ActionableError } from '@lib/debate/errors';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { ALL_API_KEY_BACKENDS } from '@lib/ai-client/types';
 import type { OpEdSet, OpEdSetSummary } from '../../../../lib/oped/types';
 import { encryptKeysForSharing, decryptKeysFromSharing } from '../utils/keyShareCrypto';
 import { resilientFetch, categorizeEndpoint, registerConnectionPoolProvider, type EndpointCategory } from './resilience';
-import { nextStepsForStatus } from './httpErrorSteps';
-import { computeEmbeddingsChunked } from './embeddingsBatch';
+import { nextStepsForStatus } from './httpErrorSteps'; import { computeEmbeddingsChunked } from './embeddingsBatch';
 import { runChatStream, chatStreamBus } from './chatStream';
 import { checkAnonymousSessionForModelSelection } from './anonymousSessionCheck';
 import { runOpEdCreate, cancelActiveOpEdRun, opedProgressBus } from './opedStream';
 import { readByokKeys, maskByokKey } from './byokKeys';
-import { onQuotaMilestone } from '../hooks/useQuotaWarning';
+import { onQuotaMilestone } from '../hooks/useQuotaWarning'; import { shareChatRest, unshareChatRest } from './chatShare'; // t/4922
 export { getResilienceState, subscribeResilience, resetResilience } from './resilience';
 export type { ResilienceStatus, CircuitState, ThrottleState, EndpointCategory } from './resilience';
 
@@ -162,7 +160,7 @@ function isHtmlLoginPage(res: Response): boolean {
   return (res.headers.get('content-type') ?? '').includes('text/html');
 }
 
-async function fetchWithSessionRecovery(path: string, init: RequestInit, opts: import('./resilience').ResilientFetchOptions): Promise<Response> {
+export async function fetchWithSessionRecovery(path: string, init: RequestInit, opts: import('./resilience').ResilientFetchOptions): Promise<Response> {
   let res = await resilientFetch(path, init, opts);
   if (await isNoSessionResponse(res) || isHtmlLoginPage(res)) {
     const recovered = await recoverAnonymousSession();
@@ -1125,6 +1123,8 @@ const rawApi: AppAPI = {
   loadChatSession: (id) => get(`/api/chats/${encodeURIComponent(id)}`),
   saveChatSession: (session) => put('/api/chats', session).then(() => {}),
   deleteChatSession: (id) => del(`/api/chats/${encodeURIComponent(id)}`).then(() => {}),
+  shareChat: (chatId, data) => shareChatRest(chatId, data), // t/4922
+  unshareChat: (chatId) => unshareChatRest(chatId), // t/4922
   exportChatToFile: async (entries, format, options) => {
     const { chatToMarkdown, chatToText, chatToPrintHtml, chatToJson, chatExportFilename } = await import('@lib/chat/chatExportFormatters');
     const exportOpts = { title: options.title, mode: options.mode, pov: options.pov };
