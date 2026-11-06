@@ -109,9 +109,25 @@ function Invoke-RemoteCheck {
         }
 
         $Success = $StatusCode -in $AcceptableStatusCodes
-        # t/1474 — catch the auth-shell trap: server returns 200 text/html
-        # (login page) for API paths when the session cookie is missing.
-        if ($Success -and $ExpectJson -and $ContentType -match 'text/html') {
+        # t/1474 / t/4913 — catch the auth-shell trap AND the broken-path trap: a server
+        # returning 200 for an API path with ANY Content-Type other than JSON is wrong,
+        # whether that's the expected text/html login page or an unexpected value a static
+        # host's SPA-fallback rewrite happens to serve (missing header, text/plain, etc. —
+        # t/4913 found 14/24 endpoint checks passing against a nonexistent path prefix purely
+        # on status code, because the old guard only blocked a Content-Type that MATCHED
+        # 'text/html' and never required one that positively looked like JSON). An allowlist
+        # (must contain 'application/json') is strictly more correct than a blocklist (must
+        # not contain 'text/html') and catches every shape of this bug, not just the one
+        # production host happened to exhibit.
+        if ($Success -and $ExpectJson -and $ContentType -notmatch 'application/json') {
+            $Success = $false
+        }
+        # t/4913 — Content-Type claiming JSON is not proof of a usable body: require it to
+        # have actually parsed. Folds t/1474's original $Body-null case in as a positive "did
+        # this parse" check that applies even when -ExpectedField isn't set (most of
+        # Test-TaxEditorEndpoints's /api/* checks have no ExpectedField -- t/4913's "a minimal
+        # shape" ask).
+        if ($Success -and $ExpectJson -and $null -eq $Body) {
             $Success = $false
         }
         # t/1474 — the previous guard `-and $Body` short-circuited when
