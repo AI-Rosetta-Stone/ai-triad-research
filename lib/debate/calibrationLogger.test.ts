@@ -1,10 +1,11 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   computeExtractionCoverage,
   extractCalibrationData,
@@ -13,6 +14,15 @@ import {
 } from './calibrationLogger.js';
 import { PROMPT_VERSION } from './prompts.js';
 import type { DebateSession, EntryDiagnostics } from './types.js';
+import { setGlobalRecorder, clearGlobalRecorder, type FlightRecorder, type RecordInput } from '../flight-recorder/index.js';
+
+// Mocked git status, defaulting to the real implementation (so every other test in this
+// file still sees the actual repo's clean/dirty state) — only overridden per-test below
+// to simulate the timeout path (t/4903).
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
+});
 
 function makeMinimalSession(overrides: Partial<DebateSession> = {}): DebateSession {
   return {
@@ -676,6 +686,50 @@ describe('appendCalibrationLog stamps runtime provenance (t/1672)', () => {
       expect(entry.config_revision).toMatch(/^([0-9a-f]{12})?$/);
       // working_tree_state: must be clean or dirty in a git repo (t/2597: 'unknown' = bug).
       expect(entry.working_tree_state).toMatch(/^(clean|dirty)$/);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('returns unknown and WARNs when git status times out (t/4903)', () => {
+    const record = vi.fn<(e: RecordInput) => void>();
+    setGlobalRecorder({ record } as unknown as FlightRecorder);
+    (execFileSync as unknown as Mock).mockImplementationOnce(() => {
+      const err = new Error('Command timed out') as NodeJS.ErrnoException & { signal?: string; killed?: boolean };
+      err.killed = true;
+      err.signal = 'SIGTERM';
+      throw err;
+    });
+
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calib-prov-'));
+    try {
+      const dp = extractCalibrationData(makeMinimalSession(), 'local');
+      appendCalibrationLog(dp, dataRoot);
+
+      const entry = readLastEntry(dataRoot, 'local');
+      expect(entry.working_tree_state).toBe('unknown');
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(record.mock.calls[0][0].level).toBe('warn');
+      expect(record.mock.calls[0][0].message).toContain('timed out');
+    } finally {
+      clearGlobalRecorder();
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('scopes the git status scan to lib/debate, skips untracked files, and caps the wait (t/4903)', () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calib-prov-'));
+    try {
+      const dp = extractCalibrationData(makeMinimalSession(), 'local');
+      appendCalibrationLog(dp, dataRoot);
+
+      const gitCall = (execFileSync as unknown as Mock).mock.calls.find((c) => c[0] === 'git');
+      expect(gitCall).toBeDefined();
+      expect(gitCall![1]).toEqual(['status', '--porcelain', '--untracked-files=no', '--', '.']);
+      expect(gitCall![2]).toMatchObject({ timeout: 2000 });
+      // Scoped to lib/debate, not lib/debate/calibrationLogger — the whole debate
+      // engine tree is "the committed instrument", not just this submodule.
+      expect(path.basename(gitCall![2].cwd as string)).toBe('debate');
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });
     }

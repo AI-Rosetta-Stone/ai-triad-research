@@ -56,14 +56,31 @@ function captureRunProvenance(): { config_revision: string; working_tree_state: 
 
   let working_tree_state: 'clean' | 'dirty' | 'unknown' = 'unknown';
   try {
-    const out = execFileSync('git', ['status', '--porcelain'], {
-      cwd: thisDir,
+    // cwd + pathspec scope the scan to lib/debate (the debate engine, the "committed
+    // instrument" replicationGate.ts cares about) instead of the whole monorepo — a
+    // dirty taxonomy-editor/docs/scripts tree no longer marks a calibration row dirty.
+    // --untracked-files=no skips the untracked-file walk, the other big cost on a repo
+    // this size. timeout caps the worst case so a slow/loaded runner degrades to
+    // 'unknown' instead of blocking every calibration write (t/4903).
+    const debateDir = path.resolve(thisDir, '..');
+    const out = execFileSync('git', ['status', '--porcelain', '--untracked-files=no', '--', '.'], {
+      cwd: debateDir,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
+      timeout: 2000,
     });
     working_tree_state = out.trim().length === 0 ? 'clean' : 'dirty';
-  } catch { /* git unavailable (e.g. server/Azure) — leave 'unknown' */ }
+  } catch (err) {
+    // git unavailable (e.g. server/Azure) or timed out — leave 'unknown', per root
+    // AGENTS.md: every fallback gets a WARN saying it was taken and why.
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'calibration-io',
+      level: 'warn',
+      message: 'git status unavailable or timed out — working_tree_state stamped as unknown. err=' + String(err),
+    });
+  }
 
   // behaviour_revision is a build-time constant (imported at module load) — no I/O at log time.
   // Works identically in server/Azure builds where source files are absent (t/4166).
