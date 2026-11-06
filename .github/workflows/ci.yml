@@ -2040,13 +2040,15 @@ jobs:
       # BLOCKING (t/4883 T2 promotion): ran advisory (continue-on-error, ::warning::) and gave
       # 11 real PASS verdicts on 9+ distinct SHAs with zero false failures (t/4883#6, #7) before
       # this flip. A non-pass verdict, including inconclusive, now fails test-container.
+      # `secrets.GITHUB_TOKEN` is a JWT, not the internal Actions runtime token the GHA cache
+      # backend expects — raw docker buildx (no build-push-action wrapper) needs this action to
+      # mint the real ACTIONS_RUNTIME_TOKEN/ACTIONS_CACHE_URL via the runner-internal endpoint.
+      - name: Expose GHA runtime vars for raw buildx cache (t/4902)
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
+
       - name: Warm-layer / cold-store rebuild — licenses (t/4883)
         timeout-minutes: 15
         shell: bash
-        env:
-          ACTIONS_RUNTIME_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTIONS_RUNTIME_URL: ${{ env.GITHUB_SERVER_URL }}/
-          ACTIONS_CACHE_URL: ${{ env.GITHUB_SERVER_URL }}/
         run: |
           set -uo pipefail
           # SO p/682#56 C1: digest-pinned BuildKit image, pulled with retries; exits 3 with a
