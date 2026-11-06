@@ -143,6 +143,44 @@ Describe 'Invoke-RemoteCheck -ExpectJson (t/1474 AC#1)' -Tag 'health' {
         }
     }
 
+    It 'PASSES when the body has keys differing only by case (live-staging /api/lineage-categories, p/169#231)' {
+        InModuleScope AITriad {
+            # ConvertFrom-Json's default PSCustomObject mode throws "keys with different
+            # casing" on exactly this shape -- case-folds property names, so
+            # 'AI Alignment research' and 'AI alignment research' collide. The -AsHashtable
+            # fallback parses it fine (hashtable keys are case-preserving).
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json; charset=utf-8') }
+                    Content    = '{"AI Alignment research":"a","AI alignment research":"b"}'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/lineage-categories' -ExpectJson
+            $r.Success | Should -Be $true `
+                -Because 't/4913 live-staging follow-up: case-colliding JSON keys are valid JSON and must parse via the -AsHashtable fallback'
+            $r.Body | Should -BeOfType [hashtable]
+            $r.Body['AI Alignment research'] | Should -Be 'a'
+            $r.Body['AI alignment research'] | Should -Be 'b'
+        }
+    }
+
+    It 'still respects -ExpectedField against a Hashtable-shaped body (the -AsHashtable fallback)' {
+        InModuleScope AITriad {
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json') }
+                    Content    = '{"Category":"x","category":"y","nodes":[1,2,3]}'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/lineage-categories' -ExpectJson -ExpectedField 'nodes'
+            $r.Success | Should -Be $true -Because '-ExpectedField must find a key on a Hashtable body too, not just a PSCustomObject'
+        }
+    }
+
     It 'PASSES when server returns 200 text/html and -ExpectJson is NOT set (existing callers unaffected — AC#4)' {
         InModuleScope AITriad {
             Mock Invoke-WebRequest -MockWith {
