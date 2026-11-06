@@ -40,6 +40,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:changed": "vitest run --changed",
+    "test:agent": "vitest run --reporter=dot",
     "smoke:styled": "node smoke/run-smoke.mjs",
     "smoke:invariance:capture": "cross-env SMOKE_CAPTURE=1 node smoke/run-smoke.mjs",
     "smoke:invariance:capture:node24": "cross-env SMOKE_CAPTURE=1 node smoke/invariance-capture.mjs",

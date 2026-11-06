@@ -11,6 +11,9 @@ Import-Module ./scripts/AITriad/AITriad.psm1
 # Run all Pester tests
 Invoke-Pester ./tests/
 
+# Agent-facing bounded run (wall-clock and memory ceiling; prints failed test names and summary line only)
+./scripts/Invoke-BoundedTestRun.ps1 -Path ./tests/<file>.Tests.ps1
+
 # Run a single Pester test by name
 Invoke-Pester ./tests/ -FullNameFilter '*test name pattern*'
 
@@ -24,6 +27,7 @@ Test-ModuleManifest -Path ./build/AITriad/AITriad.psd1
 ```bash
 # Taxonomy Editor (Electron + React)
 cd taxonomy-editor && npm ci && npm test        # run vitest suite
+cd taxonomy-editor && npm run test:agent         # agent-facing: dot reporter, failures plus summary only
 cd taxonomy-editor && npm run test:watch         # watch mode
 cd taxonomy-editor && npm run dev                # dev server (port 5173)
 cd taxonomy-editor && npx tsc --noEmit -p tsconfig.main.json  # type check
@@ -32,6 +36,8 @@ cd taxonomy-editor && npx tsc --noEmit -p tsconfig.main.json  # type check
 cd poviewer && npm ci && npm run dev             # port 5174
 cd summary-viewer && npm ci && npm run dev       # port 5175
 ```
+
+Agents quote the test summary line, not the run. Read CI with `gh run view --log-failed`, never `--log`.
 
 ## Dependency Graph
 
