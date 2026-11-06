@@ -8,7 +8,7 @@ services:
       context: .
       dockerfile: Dockerfile
     init: true
-    command: bash -c "bash scripts/dev-bootstrap.sh && sleep infinity"
+    command: sleep infinity
     volumes:
       - .:/workspaces/ai-triad-research:cached
       - ../ai-triad-data/:/workspaces/ai-triad-data:cached
@@ -61,7 +61,7 @@ services:
       dockerfile: taxonomy-editor/Dockerfile
     profiles: ["taxonomy-editor", "all"]
     ports:
-      - "127.0.0.1:7862:7862"
+      - "127.0.0.1:7863:7862"
     environment:
       # AUTH_DISABLED="1" is a no-op if NODE_ENV == "production"
       # One would need to change this (perhaps create another service

@@ -2,6 +2,7 @@
   "name": "ai-triad-research",
   "dockerComposeFile": "../compose.yaml",
   "service": "app",
+  "overrideCommand": true,
   "workspaceFolder": "/workspaces/ai-triad-research",
   "runServices": ["neo4j"],
   "forwardPorts": [5173, 5174, 5175, 7862, 7474],

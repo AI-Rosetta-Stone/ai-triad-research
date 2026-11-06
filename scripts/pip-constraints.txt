@@ -1,0 +1,8 @@
+# Constraints for reproducible Python installations
+# Used by: Dockerfile and dev bootstrap to ensure consistent torch builds
+
+# Pin torch to CPU variant (prevents accidental CUDA wheel installation which can
+# bloat images or create host/container architecture mismatches). Sentence-transformers
+# depends on torch; this ensures both pip invocations (Dockerfile + dev bootstrap) use
+# the same variant.
+torch==2.15.0+cpu
