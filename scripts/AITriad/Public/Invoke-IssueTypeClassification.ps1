@@ -438,7 +438,14 @@ function Invoke-IssueTypeClassification {
             # fields are already there (e.g. the claude-sonnet-5 pass from t/4835#4) under
             # provenance.prior_adjudication BEFORE this entry's new adjudicator_* fields are
             # written below, so the earlier attempt stays auditable instead of being lost.
-            if ($FinalAdjudication -and $Entry.provenance.PSObject.Properties['adjudicator_model']) {
+            #
+            # -not already-has-prior_adjudication guard (Quality, t/4920#4): without this, a
+            # resumed run (this entry failed/stayed-pending on a first -FinalAdjudication pass,
+            # so adjudicator_model is now THIS run's model, not the original claude-sonnet-5 one)
+            # would copy the FAILED OPUS attempt into prior_adjudication on the second pass,
+            # -Force-overwriting and permanently losing the original sonnet record -- exactly the
+            # loss this snapshot exists to prevent. Once prior_adjudication exists, it is frozen.
+            if ($FinalAdjudication -and $Entry.provenance.PSObject.Properties['adjudicator_model'] -and -not $Entry.provenance.PSObject.Properties['prior_adjudication']) {
                 $PriorAdjudication = [ordered]@{
                     model         = $Entry.provenance.adjudicator_model
                     types         = @($Entry.provenance.adjudicator_types)
@@ -469,8 +476,12 @@ function Invoke-IssueTypeClassification {
                 # $false) on >3 types, a duplicate, or an unknown enum value, so a $Success = $true
                 # $Adj here is already guaranteed valid. This re-check is defense-in-depth against
                 # that upstream guarantee ever loosening (same rationale as t/4836's own
-                # validate-all-or-abort guard), and is what the unit test exercises directly
-                # against a fabricated $Adj rather than a live AI call.
+                # validate-all-or-abort guard). It is NOT reachable through the public surface
+                # today -- the unknown-slug/four-tag tests below go through the mocked
+                # Invoke-AIApi, and $Classify's own try/catch rejects those before $Adj is even
+                # built, landing them in the "-not $Adj.Success" branch above instead (Quality,
+                # t/4920#4). If this guard is ever made reachable, it needs a direct test against
+                # a fabricated $Adj; until then, this comment is the honest statement of that gap.
                 $ValidAdjAnswer = (@($AdjTypes).Count -le 3) `
                     -and (@($AdjTypes | Group-Object | Where-Object { $_.Count -gt 1 }).Count -eq 0) `
                     -and (@($AdjTypes | Where-Object { $ValidTypes -notcontains $_ }).Count -eq 0)

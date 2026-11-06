@@ -544,6 +544,39 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             }
         }
 
+        It 'a resumed run never loses the ORIGINAL prior adjudication to a failed intermediate attempt (Quality, t/4920#4)' {
+            $OutPath = Join-Path $TestDrive 'fin-resume-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                # Run 1: the Opus call itself fails -- the entry stays pending, and
+                # $SetAdjudicatorFields writes a FAILED Opus attempt into the top-level
+                # adjudicator_* fields (matched_prior = 'call_failed'). Pre-fix, this failed
+                # attempt was then the one copied into prior_adjudication on the resume below.
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = $null; Usage = $null }
+                }
+                $Run1 = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-002') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Run1.AdjudicatedStillPending | Should -Be 1
+                $AfterRun1 = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-002' }
+                $AfterRun1.status | Should -Be 'pending'
+                $AfterRun1.provenance.prior_adjudication.model | Should -Be 'claude-sonnet-5' -Because 'the snapshot must already be taken on run 1, before the failed opus attempt overwrites adjudicator_model'
+
+                # Run 2 (the resume t/4920's design plans for): a valid answer this time.
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"loss_of_control","confidence":0.75}],"rationale":"resumed final"}'; Usage = $null }
+                }
+                $Run2 = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-002') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Run2.AdjudicatedAccepted | Should -Be 1
+                $Final = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-002' }
+                $Final.status | Should -Be 'accepted'
+                $Final.provenance.adjudicator_model | Should -Be 'claude-opus-5-5'
+                @($Final.final) | Should -Be @('loss_of_control')
+                # The ORIGINAL sonnet record must still be intact, not the failed-run-1 opus attempt.
+                $Final.provenance.prior_adjudication.model | Should -Be 'claude-sonnet-5'
+                @($Final.provenance.prior_adjudication.types) | Should -Be @('economic')
+            }
+        }
+
         It 'accepts an empty ([]) final answer, including when the file already carries a prior adjudication' {
             $OutPath = Join-Path $TestDrive 'fin-empty-proposals.json'
             New-AdjQueueFileWithPriorAdjudication -Path $OutPath
