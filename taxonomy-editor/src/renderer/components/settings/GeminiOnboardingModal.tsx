@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { DISMISS_KEY } from './geminiOnboardingState';
+import { useFocusTrap } from '../shared/useDialog'; // t/4909
 import './GeminiOnboardingModal.css';
 
 const isWeb = import.meta.env.VITE_TARGET === 'web';
@@ -30,6 +31,19 @@ export function GeminiOnboardingModal({ open, onClose, geminiAllowlisted = false
   const [errorMsg, setErrorMsg] = useState('');
   const [hasOtherKeys, setHasOtherKeys] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
+  // t/4909: this dialog is mounted once (`open` toggles as a prop, not a conditional render —
+  // same shape as NewOpEdDialog's Screen A), so it can't take the full useDialog hook (its
+  // mount-bookended focus management doesn't fit a prop that toggles repeatedly over one
+  // mount) — only the Tab trap above, and this matching open-keyed restore-focus effect. Esc and
+  // role/aria-modal/aria-labelledby are already handled by this component's own code below.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    return () => { prev?.focus(); };
+  }, [open]);
 
   useEffect(() => {
     if (!open || geminiAllowlisted) return;
@@ -124,6 +138,7 @@ export function GeminiOnboardingModal({ open, onClose, geminiAllowlisted = false
       onKeyDown={handleKeyDown}
     >
       <div
+        ref={dialogRef}
         className="dialog gemini-onboarding-dialog"
         onClick={(e) => e.stopPropagation()}
         role="dialog"

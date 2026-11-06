@@ -14,6 +14,7 @@
 import { toPublicInquiryShare } from '@lib/inquiry';
 import type { InquiryResult } from '../../bridge/types';
 import { PublicInquiryShareContent } from '../PublicInquiryShareContent';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import '../shared/DialogOverlay.css';
 import './InquiryShareDialog.css';
 
@@ -25,11 +26,12 @@ export function InquiryShareDialog({
   onCancel: () => void;
 }) {
   const doc = toPublicInquiryShare(result);
+  const { dialogRef, titleId } = useDialog({ onCancel });
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog inquiry-share-dialog" onClick={e => e.stopPropagation()}>
-        <h3 className="inquiry-share-dialog-title">This is what will be public</h3>
+      <div ref={dialogRef} className="dialog inquiry-share-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 className="inquiry-share-dialog-title" id={titleId}>This is what will be public</h3>
         <p className="inquiry-share-dialog-desc">
           Anyone with the link can read this — no sign-in required. Check the question text
           below: it&rsquo;s shared as written, so make sure it doesn&rsquo;t name anyone or
