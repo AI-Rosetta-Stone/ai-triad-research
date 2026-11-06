@@ -66,7 +66,7 @@ def verify_doi(doi: str, title: str) -> Optional[dict]:
     url = f'https://api.crossref.org/works/{urllib.parse.quote(doi, safe="")}'
     try:
         req = urllib.request.Request(url, headers={
-            'User-Agent': 'AITriadResearch/1.0 (mailto:research@berkman.harvard.edu)',
+            'User-Agent': 'AITriadResearch/1.0',
         })
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode('utf-8'))

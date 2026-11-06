@@ -127,7 +127,7 @@ tf = tb.text_frame
 set_text(tf, "Jeffrey Snover", size=20, color=WHITE, bold=True, alignment=PP_ALIGN.CENTER)
 add_para(tf, "Inventor of PowerShell  |  Former Technical Fellow, Microsoft  |  Former DE, Google",
          size=13, color=GRAY, alignment=PP_ALIGN.CENTER)
-add_para(tf, "@jsnover  |  Berkman Klein Center Fellow",
+add_para(tf, "@jsnover",
          size=13, color=GRAY, alignment=PP_ALIGN.CENTER)
 
 # Bottom accent bar
@@ -583,12 +583,12 @@ tb = add_textbox(slide, Inches(0.8), Inches(1.6), Inches(5), Inches(0.5))
 set_text(tb.text_frame, "Jeffrey Snover", size=24, color=WHITE, bold=True)
 
 tb = add_textbox(slide, Inches(0.8), Inches(2.1), Inches(5.5), Inches(0.5))
-set_text(tb.text_frame, "Systems Philosopher  |  Inventor of PowerShell  |  Berkman Klein Center Fellow", size=13, color=ACCENT)
+set_text(tb.text_frame, "Systems Philosopher  |  Inventor of PowerShell", size=13, color=ACCENT)
 
 # Track record cards
 records = [
     ("Unified Siloed Cultures Into Shared Taxonomies", ACCENT,
-     "Co-authored \"Failure Modes in ML\" with Berkman Klein Center — first paper\n"
+     "Co-authored \"Failure Modes in ML\" — first paper\n"
      "to jointly tabulate security attacks and safety bias. Became the foundation\nfor the MITRE ATLAS Framework (industry standard)."),
     ("Built Governance Frameworks From Chaos", ACCENT3,
      "At Google: synthesized divergent SRE practices across all services into a single\n"
