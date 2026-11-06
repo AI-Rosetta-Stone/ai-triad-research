@@ -10,7 +10,7 @@
 #      can't bypass the filter silently, which is how most of C2 was missed (t/4356#6: a cache filter alone
 #      covered few producers).
 #   2. Behaviour: the prompt builders drop superseded nodes, superseded ids cited in new output go to the
-#      survivor, and situations are never filtered (TS loader parity).
+#      survivor, and situations are filtered the same way POV nodes are (t/4877, mirrors t/4872).
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
@@ -79,15 +79,15 @@ Describe 'Producer completeness: no AI producer reads POV files without the supe
 }
 
 Describe 'Selection helpers' -Tag 'supersession' {
-    It 'Set-TaxonomyDocumentSelectable narrows a camp file and leaves situations whole' {
-        InModuleScope AITriad -Parameters @{ A = (N 'a' 'b'); B = (N 'b'); S = (N 's' 't') } {
-            param($A, $B, $S)
+    It 'Set-TaxonomyDocumentSelectable narrows a camp file and a situations file alike (t/4877)' {
+        InModuleScope AITriad -Parameters @{ A = (N 'a' 'b'); B = (N 'b'); S1 = (N 's' 't'); S2 = (N 't') } {
+            param($A, $B, $S1, $S2)
             $doc = [pscustomobject]@{ nodes = @($A, $B) }
             Set-TaxonomyDocumentSelectable -Document $doc -Name 'accelerationist.json'
             @($doc.nodes | ForEach-Object id) | Should -Be @('b')
-            $sit = [pscustomobject]@{ nodes = @($S) }
+            $sit = [pscustomobject]@{ nodes = @($S1, $S2) }
             Set-TaxonomyDocumentSelectable -Document $sit -Name 'situations'
-            @($sit.nodes | ForEach-Object id) | Should -Be @('s')
+            @($sit.nodes | ForEach-Object id) | Should -Be @('t')
         }
     }
 
@@ -101,11 +101,11 @@ Describe 'Selection helpers' -Tag 'supersession' {
         }
     }
 
-    It 'Select-SelectableTaxonomyNode -Pov passes a situations list through' {
-        InModuleScope AITriad -Parameters @{ S = (N 's' 't') } {
-            param($S)
-            @(Select-SelectableTaxonomyNode -Nodes @($S) -Pov 'situations' | ForEach-Object id) | Should -Be @('s')
-            @(Select-SelectableTaxonomyNode -Nodes @($S) -Pov 'skeptic').Count | Should -Be 0
+    It 'Select-SelectableTaxonomyNode -Pov filters a situations list the same as a camp (t/4877)' {
+        InModuleScope AITriad -Parameters @{ S1 = (N 's' 't'); S2 = (N 't') } {
+            param($S1, $S2)
+            @(Select-SelectableTaxonomyNode -Nodes @($S1, $S2) -Pov 'situations' | ForEach-Object id) | Should -Be @('t')
+            @(Select-SelectableTaxonomyNode -Nodes @($S1) -Pov 'skeptic').Count | Should -Be 0 -Because 'content, not the file name, decides what gets filtered -- any POV-selectable key filters a superseded node'
         }
     }
 }
@@ -122,17 +122,18 @@ Describe 'Producers see only selectable nodes' -Tag 'supersession' {
         Mock -ModuleName AITriad Get-TaxonomyDir { param($ChildPath) if ($ChildPath) { Join-Path $d $ChildPath } else { $d } }.GetNewClosure()
     }
 
-    It 'Build-CompactTaxonomy (summary RAG fallback) leaves out a superseded node' {
+    It 'Build-CompactTaxonomy (summary RAG fallback) leaves out a superseded node, situations included (t/4877)' {
         $out = InModuleScope AITriad { Build-CompactTaxonomy }
         $out | Should -Not -Match 'acc-beliefs-001'
         $out | Should -Match 'acc-beliefs-002'
-        $out | Should -Match 'sit-001' -Because 'situations are never filtered'
+        $out | Should -Not -Match 'sit-001' -Because 'sit-001 is superseded by sit-002; situations are filtered the same way POV nodes are (t/4877, mirrors t/4872)'
+        $out | Should -Match 'sit-002'
     }
 
-    It 'Read-BatchSummaryTaxonomy (batch summary prompt) leaves out a superseded node' {
+    It 'Read-BatchSummaryTaxonomy (batch summary prompt) leaves out a superseded node, situations included (t/4877)' {
         $ctx = InModuleScope AITriad -Parameters @{ D = $script:Tax } { param($D) Read-BatchSummaryTaxonomy -TaxonomyDir $D -FileName @('accelerationist.json', 'situations.json') 6>$null }
         @($ctx['accelerationist.json'].nodes | ForEach-Object id) | Should -Be @('acc-beliefs-002')
-        @($ctx['situations.json'].nodes).Count | Should -Be 2
+        @($ctx['situations.json'].nodes | ForEach-Object id) | Should -Be @('sit-002')
     }
 }
 
