@@ -10,6 +10,7 @@ Files the Computational Linguist holds **mandatory review authority** over. Chan
 | **Prompt templates** | | |
 | `scripts/AITriad/Prompts/*.prompt` | PS prompt templates | Mandatory |
 | `scripts/AITriad/Prompts/org-endorsement-gate.prompt` | Endorsement-confirmation gate for org claim matching (t/4475 7b, t/4523) — distinguishes an org position that asserts a node's proposition from one that only shares its topic | Mandatory |
+| `analyses/t4603-camp-bridge/judge/prompt_v*.md` | Camp-bridge point-to-node judge (t/4880): argues_for / argues_against / topical_only / not_a_claim. Calibration-stage prompt; it becomes a `scripts/AITriad/Prompts/*.prompt` when PowerShell wires it into the summary pipeline | Mandatory |
 | `scripts/AITriad/Private/Test-OrgEndorsement.ps1` | PS wrapper over the endorsement gate's AI call (t/4523) | Mandatory |
 | `scripts/AITriad/Private/Get-Prompt.ps1` | PS prompt loader | Mandatory |
 | `lib/debate/prompts/**` | TS debate prompts. The former `prompts.ts` is now a folder (opening, turn, turn-pipeline, moderator, synthesis, reflection, `reflectionTagCheck` custodian judge, and others) | Mandatory |
