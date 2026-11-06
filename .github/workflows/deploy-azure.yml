@@ -1443,7 +1443,10 @@ jobs:
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           $AppUrl = '${{ steps.deploy.outputs.appUrl }}'
           Write-Host "=== Post-deploy smoke test against $AppUrl ==="
-          $Results = @(Test-TaxEditorEndpoints -BaseUrl $AppUrl)
+          # t/4912: -AnonymousSession carries the Easy Auth anonymous cookie a real browser gets.
+          # Without it the auth-gated data endpoints (/api/taxonomy/*, /api/edges, /api/conflicts)
+          # return the Sign-In page and failed on every deploy (19/24), hiding any real failure.
+          $Results = @(Test-TaxEditorEndpoints -BaseUrl $AppUrl -AnonymousSession)
           $Fails = @($Results | Where-Object { -not $_.Pass })
           $Results | Format-Table Endpoint, Pass, Status -AutoSize
           Write-Host ""
