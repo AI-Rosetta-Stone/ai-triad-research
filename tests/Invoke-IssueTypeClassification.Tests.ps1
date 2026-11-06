@@ -467,4 +467,184 @@ Describe 'Invoke-IssueTypeClassification (t/4833)' -Tag 'unit' {
             (Get-Content $OutPath -Raw) | Should -Be $Before
         }
     }
+
+    Context '-FinalAdjudication (t/4920, Quality-approved design at t/4920#2)' {
+
+        BeforeAll {
+            function New-AdjQueueFileWithPriorAdjudication {
+                # acc-fin-002's prior adjudication (claude-sonnet-5, from an earlier t/4835#4 run)
+                # already left it 'pending' (no-match, matched_prior='none') -- t/4920's whole point
+                # is a SECOND, final pass over exactly this shape of entry.
+                param($Path)
+                $Queue = [ordered]@{
+                    version = 1
+                    run_id  = 'issue-types-full-2026-11-04'
+                    proposals = @(
+                        [ordered]@{ node_id = 'acc-fin-001'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r1'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false } }
+                        [ordered]@{ node_id = 'acc-fin-002'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r2'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false; adjudicator_model = 'claude-sonnet-5'; adjudicator_types = @('economic'); adjudicator_confidence = [ordered]@{ economic = 0.9 }; adjudicator_rationale = 'prior sonnet pass'; adjudicator_matched_prior = 'none' } }
+                        [ordered]@{ node_id = 'acc-fin-003'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r3'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false } }
+                        [ordered]@{ node_id = 'acc-fin-004'; proposed = @('misuse'); status = 'pending'; final = $null; reviewed_by = $null; reviewed_at = $null; confidence = [ordered]@{ misuse = 0.4 }; rationale = 'r4'; provenance = [ordered]@{ method = 'llm'; model = 'gemini-3.5-flash-lite'; second_model = 'groq-openai-gpt-oss-20b'; second_types = @('social'); agree = $false } }
+                    )
+                }
+                $Queue | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding utf8NoBOM
+            }
+        }
+
+        BeforeEach {
+            InModuleScope AITriad {
+                $script:TaxonomyData = @{
+                    acc = [PSCustomObject]@{ nodes = @(
+                        [PSCustomObject]@{ id = 'acc-fin-001'; label = 'Low-confidence match node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-fin-002'; label = 'Prior-adjudicated no-match node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-fin-003'; label = 'No-tag final node'; description = 'd'; category = 'Beliefs' }
+                        [PSCustomObject]@{ id = 'acc-fin-004'; label = 'Invalid-answer node'; description = 'd'; category = 'Beliefs' }
+                    ) }
+                }
+            }
+        }
+
+        It 'fails with an actionable error when passed without -AdjudicateQueue' {
+            { Invoke-IssueTypeClassification -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' } |
+                Should -Throw '*-FinalAdjudication*-AdjudicateQueue*'
+        }
+
+        It 'accepts unconditionally: a low-confidence match (would stay pending under the normal gate) is still accepted' {
+            $OutPath = Join-Path $TestDrive 'fin-lowconf-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.5}],"rationale":"final"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-001') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedAccepted | Should -Be 1
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-001' }
+                $Entry.status | Should -Be 'accepted'
+                $Entry.provenance.method | Should -Be 'llm-final-adjudication'
+            }
+        }
+
+        It 'preserves the prior adjudication under provenance.prior_adjudication instead of overwriting it' {
+            $OutPath = Join-Path $TestDrive 'fin-prior-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"political","confidence":0.7}],"rationale":"opus final"}'; Usage = $null }
+                }
+                $null = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-002') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-002' }
+                $Entry.status | Should -Be 'accepted'
+                $Entry.provenance.method | Should -Be 'llm-final-adjudication'
+                # The NEW (opus) adjudicator_* fields are at the top level, as before.
+                $Entry.provenance.adjudicator_model | Should -Be 'claude-opus-5-5'
+                @($Entry.final) | Should -Be @('political')
+                # The OLD (sonnet) adjudication is preserved, not lost.
+                $Entry.provenance.prior_adjudication.model | Should -Be 'claude-sonnet-5'
+                @($Entry.provenance.prior_adjudication.types) | Should -Be @('economic')
+                $Entry.provenance.prior_adjudication.matched_prior | Should -Be 'none'
+            }
+        }
+
+        It 'a resumed run never loses the ORIGINAL prior adjudication to a failed intermediate attempt (Quality, t/4920#4)' {
+            $OutPath = Join-Path $TestDrive 'fin-resume-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                # Run 1: the Opus call itself fails -- the entry stays pending, and
+                # $SetAdjudicatorFields writes a FAILED Opus attempt into the top-level
+                # adjudicator_* fields (matched_prior = 'call_failed'). Pre-fix, this failed
+                # attempt was then the one copied into prior_adjudication on the resume below.
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = $null; Usage = $null }
+                }
+                $Run1 = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-002') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Run1.AdjudicatedStillPending | Should -Be 1
+                $AfterRun1 = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-002' }
+                $AfterRun1.status | Should -Be 'pending'
+                $AfterRun1.provenance.prior_adjudication.model | Should -Be 'claude-sonnet-5' -Because 'the snapshot must already be taken on run 1, before the failed opus attempt overwrites adjudicator_model'
+
+                # Run 2 (the resume t/4920's design plans for): a valid answer this time.
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"loss_of_control","confidence":0.75}],"rationale":"resumed final"}'; Usage = $null }
+                }
+                $Run2 = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-002') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Run2.AdjudicatedAccepted | Should -Be 1
+                $Final = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-002' }
+                $Final.status | Should -Be 'accepted'
+                $Final.provenance.adjudicator_model | Should -Be 'claude-opus-5-5'
+                @($Final.final) | Should -Be @('loss_of_control')
+                # The ORIGINAL sonnet record must still be intact, not the failed-run-1 opus attempt.
+                $Final.provenance.prior_adjudication.model | Should -Be 'claude-sonnet-5'
+                @($Final.provenance.prior_adjudication.types) | Should -Be @('economic')
+            }
+        }
+
+        It 'accepts an empty ([]) final answer, including when the file already carries a prior adjudication' {
+            $OutPath = Join-Path $TestDrive 'fin-empty-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[],"rationale":"nothing here"}'; Usage = $null }
+                }
+                $null = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-003') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Written = Get-Content $OutPath -Raw
+                $Written | Should -Match '"status"\s*:\s*"accepted"'
+                $Entry = ($Written | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-003' }
+                $Entry.status | Should -Be 'accepted'
+                @($Entry.final).Count | Should -Be 0
+            }
+        }
+
+        It 'an unknown slug leaves the entry pending even under -FinalAdjudication (unconditional accept is not unconditional validity)' {
+            $OutPath = Join-Path $TestDrive 'fin-unknown-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"not_a_real_type","confidence":0.9}],"rationale":"bad"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-004') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedStillPending | Should -Be 1
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-004' }
+                $Entry.status | Should -Be 'pending'
+            }
+        }
+
+        It 'a fourth tag (>3) leaves the entry pending even under -FinalAdjudication' {
+            $OutPath = Join-Path $TestDrive 'fin-fourtag-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.9},{"type":"social","confidence":0.8},{"type":"political","confidence":0.7},{"type":"economic","confidence":0.6}],"rationale":"too many"}'; Usage = $null }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-004') -OutputPath $OutPath -WriteProposals -WarningAction SilentlyContinue
+                $Result.AdjudicatedStillPending | Should -Be 1
+                $Entry = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals | Where-Object { $_.node_id -eq 'acc-fin-004' }
+                $Entry.status | Should -Be 'pending'
+            }
+        }
+
+        It 'rejects an unregistered -AdjudicatorModel id via ValidateScript' {
+            { Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'not-a-real-model-id' -OutputPath (Join-Path $TestDrive 'unused.json') } |
+                Should -Throw
+        }
+
+        It '-CostCeiling stops the run before a second node once the running cost exceeds it (Quality condition 4, t/4920#2)' {
+            $OutPath = Join-Path $TestDrive 'fin-ceiling-proposals.json'
+            New-AdjQueueFileWithPriorAdjudication -Path $OutPath
+            InModuleScope AITriad -Parameters @{ OutPath = $OutPath } {
+                # claude-opus-5-5 is $20/1M output tokens (ai-models.json) -- 10,000 output tokens
+                # on the first call alone costs $0.20, already over a $0.10 ceiling, so the second
+                # target node must never be called.
+                Mock Invoke-AIApi {
+                    [PSCustomObject]@{ Text = '{"types":[{"type":"misuse","confidence":0.8}],"rationale":"final"}'; Usage = [PSCustomObject]@{ InputTokens = 0; OutputTokens = 10000 } }
+                }
+                $Result = Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -NodeIds @('acc-fin-001', 'acc-fin-003') -OutputPath $OutPath -WriteProposals -CostCeiling 0.10 -WarningAction SilentlyContinue
+                $Result.CostCeilingHit | Should -BeTrue
+                $Result.ActualCost | Should -BeGreaterThan 0.10
+                Should -Invoke Invoke-AIApi -Times 1 -Exactly
+                $Written = (Get-Content $OutPath -Raw | ConvertFrom-Json).proposals
+                ($Written | Where-Object { $_.node_id -eq 'acc-fin-001' }).status | Should -Be 'accepted'
+                # Never reached -- the ceiling broke the loop before this node's call.
+                ($Written | Where-Object { $_.node_id -eq 'acc-fin-003' }).status | Should -Be 'pending'
+            }
+        }
+    }
 }
