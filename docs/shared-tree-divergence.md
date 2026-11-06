@@ -2,6 +2,19 @@
 
 **Scope:** the shared checkout's local `main` is **out of sync** with `origin/main` — either **diverged** (N ahead, M behind; cannot fast-forward) or **behind-only** (0 ahead, M behind; fast-forwardable). Referenced from root `AGENTS.md` → Workflow Mode. The two cases take **different operations** (`reset --hard` vs `merge --ff-only`); **classify which you are in before doing anything else** (Step 0) — choosing the wrong arm is the failure the behind-only addition (t/3806) exists to prevent.
 
+## Summary
+
+1. Never use this procedure to resolve your own rejected push; that is the prohibited incidental rewrite.
+2. DevOps performs the sync; the TL may only if DevOps is unavailable, with an explicit announcement line.
+3. Sync promptly when divergence appears, so each sync moves only a few commits.
+4. Step 0: `git rev-list --left-right --count HEAD...origin/main`; left > 0 is diverged, left == 0 is behind-only.
+5. Classify local commits by content (`git diff <sha> origin/main`), not ancestry; unique content is rescued to a branch first.
+6. No tracked modification by anyone; untracked files do not block; judge phantoms by mechanical diff only.
+7. Get an explicit per-owner all-clear from every agent who could be reading the tree; a fleet state read is advisory.
+8. Announce, then wait for acks, then record the rollback SHAs.
+9. Diverged: `git status --short --untracked-files=no && git fetch origin && git reset --hard origin/main`. Behind-only: same chain with `git merge --ff-only origin/main`.
+10. Verify HEAD equals `origin/main` and report the SHA. Prevention: push immediately, and start multi-file work in a worktree.
+
 ## The distinction this procedure exists to make
 
 Root `AGENTS.md` says tree-rewriting operations (`checkout`, `reset`, `rebase`, `merge`, `pull --rebase`, `stash`) are worktree-only in the shared checkout. Read literally, that leaves a diverged shared tree with no legal way back — and a tree that can never sync becomes permanently stale, which is its own hazard: two of the six collisions on 2026-09-28 were caused by stale or foreign content in the shared tree, not by rewrites.

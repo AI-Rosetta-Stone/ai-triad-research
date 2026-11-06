@@ -5,6 +5,19 @@
 
 The detail, rationale and incident history behind the short rules in the root `AGENTS.md`. Moved here verbatim on 2026-10-07 so the root file stays short (t/4094). The root file is authoritative for *what* to do; this file explains *why* and records the incidents. Where the two ever disagree, the root wins and this file is corrected.
 
+## Summary
+
+1. Create feedback rules only via `create_feedback_rule`; never hand-write `.orca/feedback-rules/*.yaml` (§1).
+2. Repair an invalid rule by backup, delete, re-create with the same `scope`; only an observed injection proves a rule runs (§1).
+3. Read `.orca/workflow-mode` line 1 first; anything but exactly `direct` means `worktree` (§2).
+4. The shared checkout stays on `main`; `checkout`, `reset`, `rebase`, `merge`, `pull --rebase` and `stash` happen only in a worktree (§2).
+5. `cd` into the worktree in the same command that uses it; push at once after any commit on shared `main` (§2).
+6. Before merging: base is `main`, head matches your push, CI ran on that exact head, no open hold (§3).
+7. Enqueue only with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`; never push to a queued PR (§3).
+8. Only a `consult-hold` label (T2 only) holds a PR; co-landing PRs carry `joint-gv`; arm T0 at creation (§4).
+9. Epic child PRs target `epic/<name>`, never `main`; claim before implementing (§5).
+10. Commit with a pathspec, never `-a` or `add -A`; use Edit/Write for code with special shell characters (§6).
+
 ## 1. Feedback rules: authoring, repair and liveness
 
 **Create feedback rules only through `create_feedback_rule` — never hand-edit `.orca/feedback-rules/*.yaml`.** Hand-writing bypasses validation *and* registration: the file lands on disk, `get_feedback_rule` reports it `enabled: true`, and the rule never loads or fires. Invisible-dead. Same discipline as `SKILL.md` → `manage_skill`, for the same reason.
