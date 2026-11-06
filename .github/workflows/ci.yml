@@ -2766,6 +2766,16 @@ jobs:
         continue-on-error: true
         run: node scripts/check-agents-md-budget.mjs
 
+      - name: Lessons index freshness (WARN-ONLY)
+        # docs/lessons/INDEX.md is generated from docs/LessonsLearned.md (npm run lessons:index).
+        # Warn-only: LessonsLearned is appended to constantly, so a stale index must not block.
+        # The index-builder test suite runs here too, also non-blocking.
+        continue-on-error: true
+        run: |
+          node --test scripts/build-lessons-index.test.mjs
+          node scripts/build-lessons-index.mjs
+          git diff --exit-code docs/lessons/INDEX.md
+
   complexity-budget:
     needs: [changes]
     if: >-
