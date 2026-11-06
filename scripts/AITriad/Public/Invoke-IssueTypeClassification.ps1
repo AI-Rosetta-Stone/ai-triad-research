@@ -73,7 +73,19 @@ function Invoke-IssueTypeClassification {
         the reviewer isn't working blind. -NodeIds narrows which queued nodes to adjudicate (e.g.
         a resume); default is every 'pending' node in the file.
     .PARAMETER AdjudicatorModel
-        Model for -AdjudicateQueue. Default: 'claude-sonnet-5' (the model t/4835#4 names).
+        Model for -AdjudicateQueue. Default: 'claude-sonnet-5' (the model t/4835#4 names). Must be
+        a registered model id (Test-AIModelId) -- its backend comes from ai-models.json, never
+        from the id's prefix.
+    .PARAMETER FinalAdjudication
+        t/4920: requires -AdjudicateQueue. The PI's instruction is "label everything" -- this
+        drops the match/confidence gate entirely and accepts the adjudicator's answer as final
+        (status 'accepted', method 'llm-final-adjudication'), including a "no tag" ([]) answer,
+        as long as it passes the same 0-3-unique-known-type validity check every other
+        classification call already does. A response that fails that check (unknown slug,
+        duplicate, >3 types) is WARNed by name and id and leaves the entry 'pending' -- unconditional
+        accept is not the same as accepting a malformed answer. The PRIOR adjudication (model,
+        answer, whether it matched) is preserved under provenance.prior_adjudication before the
+        new adjudicator_* fields are written, so the earlier claude-sonnet-5 attempt is never lost.
     .OUTPUTS
         PSCustomObject: NodesProcessed, Proposed, Written, ReviewQueueCount, EmptyCount,
         TypeCounts (hashtable), AgreementRate, ActualCost, CostCeilingHit, Skipped, Failed. In
@@ -84,6 +96,8 @@ function Invoke-IssueTypeClassification {
         Invoke-IssueTypeClassification -RunId 'issue-types-full-2026-11-04' -WriteProposals
     .EXAMPLE
         Invoke-IssueTypeClassification -AdjudicateQueue -OutputPath $Path -WriteProposals -CostCeiling 5.0
+    .EXAMPLE
+        Invoke-IssueTypeClassification -AdjudicateQueue -FinalAdjudication -AdjudicatorModel 'claude-opus-5-5' -OutputPath $Path -WriteProposals -CostCeiling 5.0
     .LINK
         Show-AITriadHelp
     #>
@@ -124,11 +138,25 @@ function Invoke-IssueTypeClassification {
         [switch]$AdjudicateQueue,
 
         [Parameter()]
-        [string]$AdjudicatorModel = 'claude-sonnet-5'
+        [ValidateScript({ Test-AIModelId $_ })]
+        [ArgumentCompleter({ param($cmd, $param, $word) $script:ValidModelIds | Where-Object { $_ -like "$word*" } })]
+        [string]$AdjudicatorModel = 'claude-sonnet-5',
+
+        [Parameter()]
+        [switch]$FinalAdjudication
     )
 
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
+
+    if ($FinalAdjudication -and -not $AdjudicateQueue) {
+        throw (New-ActionableError -AsErrorRecord `
+            -Goal 'Run a final, unconditional-accept adjudication pass' `
+            -Problem '-FinalAdjudication was passed without -AdjudicateQueue' `
+            -Location 'Invoke-IssueTypeClassification' `
+            -NextSteps @('-FinalAdjudication only changes behavior inside -AdjudicateQueue mode — pass both switches together',
+                         'Or drop -FinalAdjudication to run the normal conditional-accept adjudication'))
+    }
 
     $ValidTypes = @('loss_of_control', 'misuse', 'power_concentration', 'economic', 'political', 'social')
     $PromptVersion = 'issue-types-v1'
@@ -404,6 +432,23 @@ function Invoke-IssueTypeClassification {
             foreach ($a in $AdjAttempts) { $CostEntries.Add([PSCustomObject]@{ modelId = $AdjudicatorModel; promptTokens = $a.InputTokens; completionTokens = $a.OutputTokens }) }
             $Adj = $AdjAttempts[-1]
             $Entry = $PendingByNodeId[$NodeId]
+
+            # t/4920 condition 1 (Quality, t/4920#2): a -FinalAdjudication pass must never
+            # overwrite an earlier adjudication attempt in place -- move whatever adjudicator_*
+            # fields are already there (e.g. the claude-sonnet-5 pass from t/4835#4) under
+            # provenance.prior_adjudication BEFORE this entry's new adjudicator_* fields are
+            # written below, so the earlier attempt stays auditable instead of being lost.
+            if ($FinalAdjudication -and $Entry.provenance.PSObject.Properties['adjudicator_model']) {
+                $PriorAdjudication = [ordered]@{
+                    model         = $Entry.provenance.adjudicator_model
+                    types         = @($Entry.provenance.adjudicator_types)
+                    confidence    = $Entry.provenance.adjudicator_confidence
+                    rationale     = $Entry.provenance.adjudicator_rationale
+                    matched_prior = $Entry.provenance.adjudicator_matched_prior
+                }
+                $Entry.provenance | Add-Member -NotePropertyName 'prior_adjudication' -NotePropertyValue $PriorAdjudication -Force
+            }
+
             if (-not $Adj.Success) {
                 Write-Warning "Invoke-IssueTypeClassification -AdjudicateQueue: adjudication failed twice for '$NodeId' — leaving it pending, unresolved"
                 & $SetAdjudicatorFields $Entry $AdjudicatorModel @() $null '' 'call_failed'
@@ -418,7 +463,22 @@ function Invoke-IssueTypeClassification {
                 }
                 $Matched = if ($AdjPrimary -eq $PriorPrimary1) { 'primary' } elseif ($AdjPrimary -eq $PriorPrimary2) { 'second' } else { 'none' }
                 $ConfidenceOk = if ($null -eq $AdjPrimary) { $true } else { [double]$Adj.Confidence[$AdjPrimary] -ge 0.6 }
-                $AutoAccept = ($Matched -ne 'none') -and $ConfidenceOk
+
+                # t/4920 condition 2 (Quality, t/4920#2): -FinalAdjudication drops the
+                # match/confidence gate, but NOT validity -- $Classify already throws (Success =
+                # $false) on >3 types, a duplicate, or an unknown enum value, so a $Success = $true
+                # $Adj here is already guaranteed valid. This re-check is defense-in-depth against
+                # that upstream guarantee ever loosening (same rationale as t/4836's own
+                # validate-all-or-abort guard), and is what the unit test exercises directly
+                # against a fabricated $Adj rather than a live AI call.
+                $ValidAdjAnswer = (@($AdjTypes).Count -le 3) `
+                    -and (@($AdjTypes | Group-Object | Where-Object { $_.Count -gt 1 }).Count -eq 0) `
+                    -and (@($AdjTypes | Where-Object { $ValidTypes -notcontains $_ }).Count -eq 0)
+                if (-not $ValidAdjAnswer) {
+                    Write-Warning "Invoke-IssueTypeClassification -AdjudicateQueue: '$NodeId' adjudicator answer is not 0-3 unique known issue-types-v1 slugs ($($AdjTypes -join ', ')) — leaving it pending, unresolved"
+                }
+
+                $AutoAccept = if ($FinalAdjudication) { $ValidAdjAnswer } else { ($Matched -ne 'none') -and $ConfidenceOk -and $ValidAdjAnswer }
                 & $SetAdjudicatorFields $Entry $AdjudicatorModel $AdjTypes $Adj.Confidence $Adj.Rationale $Matched
                 if ($AutoAccept) {
                     $Entry.status = 'accepted'
@@ -432,7 +492,7 @@ function Invoke-IssueTypeClassification {
                     $Entry.final = @($AdjTypes)
                     $Entry.confidence = $Adj.Confidence
                     $Entry.rationale = $Adj.Rationale
-                    $Entry.provenance | Add-Member -NotePropertyName 'method' -NotePropertyValue 'llm-adjudicated' -Force
+                    $Entry.provenance | Add-Member -NotePropertyName 'method' -NotePropertyValue $(if ($FinalAdjudication) { 'llm-final-adjudication' } else { 'llm-adjudicated' }) -Force
                     $AdjudicatedAccepted++
                 } else {
                     $AdjudicatedStillPending++
