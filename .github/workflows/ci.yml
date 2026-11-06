@@ -315,6 +315,7 @@ jobs:
               - 'research/comp-linguist/scripts/**'
               # t/4883 guard script + tests, run by test-container (t/2094 soundness rule).
               - 'operations/devops/check-dockerfile-store-mounts*'
+              - 'operations/devops/create-coldstore-builder.sh'
               - '.dockerignore'
               - 'lib/**'
               - 'scripts/**'
@@ -2041,8 +2042,9 @@ jobs:
           docker buildx build --progress=quiet --target builder \
             --cache-to "type=local,dest=${RUNNER_TEMP}/layer-cache,mode=max" \
             -f taxonomy-editor/Dockerfile . || exit 1
-          docker buildx create --name coldstore --driver docker-container \
-            --driver-opt image=moby/buildkit:buildx-stable-1 >/dev/null || exit 1
+          # SO p/682#56 C1: digest-pinned BuildKit image, pulled with retries; exits 3 with a
+          # distinct "INFRA (not a guard verdict)" ::error:: if Docker Hub can't serve it.
+          bash operations/devops/create-coldstore-builder.sh coldstore || exit $?
           docker buildx build --builder coldstore --progress=plain \
             --target builder \
             --cache-from "type=local,src=${RUNNER_TEMP}/layer-cache" \
