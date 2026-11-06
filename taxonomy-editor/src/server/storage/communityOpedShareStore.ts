@@ -20,6 +20,7 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { resolveDataPath } from '../config.js';
 import { assertSafeId, getUserContentBackend } from './fileIO.js';
 import { projectPublicOpEd, type PublicOpEd } from './opedShareStore.js';
+import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 const PUBLIC_OPEDS_DIR = 'public/opeds';
 
@@ -72,14 +73,27 @@ export async function writePublicCommunityOpEd(
 }
 
 /**
- * Delete a community op-ed's public copy (revocation path). Best-effort — does
- * not throw on missing file. Called after the registry entry is cleared so the
+ * Delete a community op-ed's public copy (revocation path). Best-effort — never
+ * throws, so a caller mid-revocation isn't blocked by this cleanup step (the registry
+ * entry, cleared by the caller before this runs, already makes the share unresolvable
+ * via the normal mint/list path). Called after the registry entry is cleared so the
  * public copy can no longer be resolved by a shareId.
+ *
+ * t/4894 security-review finding: `deleteFile` is already documented as a no-op on a
+ * missing file (storageBackend.ts), so this catch exists for GENUINE failures (storage
+ * down, permission error), not the missing-file case its old comment named. Swallowing
+ * those silently meant `GET /api/public/oped/:shareId` could keep serving a 'removed'
+ * item's content indefinitely with zero record anywhere that cleanup needs retrying —
+ * defeating the point of a revocation path. WARN instead, still never throwing.
  */
 export async function deletePublicCommunityOpEd(shareId: string): Promise<void> {
   assertSafeId(shareId, 'community oped shareId');
-  await getUserContentBackend().deleteFile(publicCommunityOpedPath(shareId)).catch(() => {
-    // best-effort: the file may already be absent or revoked
+  await getUserContentBackend().deleteFile(publicCommunityOpedPath(shareId)).catch((err: unknown) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'community-oped-share-store', level: 'warn',
+      message: `Failed to delete public community op-ed copy for shareId ${shareId} — the public link may remain reachable; this does not block the caller's revocation`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
   });
 }
 
