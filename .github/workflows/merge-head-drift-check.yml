@@ -30,6 +30,9 @@ on:
 permissions:
   contents: read
   issues: write
+  # The GraphQL search for merged PRs needs this: without it GITHUB_TOKEN silently filters
+  # pull requests out of the results, so the check saw 0 PRs (run 42076528496, t/4858).
+  pull-requests: read
 
 env:
   DRIFT_LABEL: merge-head-drift
