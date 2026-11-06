@@ -76,6 +76,22 @@ export interface SessionSlice {
    *  navigation metadata only — never read by the generation/save pipeline. */
   activeCommunityDebate: CommunityDebateRef | null;
   setActiveCommunityDebate: (debate: CommunityDebateRef | null) => void;
+  /** t/4888 (Design review, prod regression): a one-shot request for DebateTab to clear its
+   *  LOCAL community selection — DEBATE_ROUTE.restore() (appRoutes.ts) can reach this store but
+   *  not DebateTab's own useState, and activeCommunityDebate above is a one-way mirror driven
+   *  FROM that local state, so clearing it directly here would be clobbered back on the next
+   *  unrelated render. A monotonic counter, not a boolean, so two closes in a row (up, then up
+   *  again) both fire the effect even though the "cleared" value never changes. */
+  closeCommunityDebateSignal: number;
+  requestCloseCommunityDebate: () => void;
+  /** t/4888 (Design review, prod regression): the opening half of the same problem —
+   *  DEBATE_ITEM_ROUTE's `?community=1` restore (Back, Reload, a pasted URL) resolves the id
+   *  against the community store itself (mirrors CHAT_ITEM_ROUTE) and hands it off here;
+   *  DebateTab's effect opens it into local state via its own handleOpenCommunity, which needs
+   *  the full CommunityDebate object this store deliberately doesn't carry. */
+  pendingOpenCommunityId: string | null;
+  requestOpenCommunity: (id: string) => void;
+  clearPendingOpenCommunity: () => void;
 
   loadSessions: () => Promise<void>;
   createDebate: (topic: string, povers: SpeakerId[], userIsPover: boolean, sourceType?: DebateSourceType, sourceRef?: string, sourceContent?: string, debateModel?: string, protocolId?: string, debateTemperature?: number, debateAudience?: DebateAudience, options?: { title?: string; evaluatorModel?: string; pacing?: string; useAdaptiveStaging?: boolean; phaseBoundsOverride?: { maxConfrontationRounds?: number; maxArgumentationRounds?: number; maxConcludingRounds?: number }; speakerModels?: Record<string, string>; modelTier?: 'basic' | 'advanced'; /** t/4046: backends eligible for a multi-provider run; keys model_pool (t/4044). */ eligibleBackends?: string[]; stepMode?: boolean; stageModels?: { brief?: string; plan?: string; cite?: string }; background?: string; excludeGreatestHits?: boolean; narrativeVoicing?: boolean; /** t/3958: absent ⇒ every seat untagged. Never pass `{}` — t/3975's seatSouls treats any key presence as "tagged". */ seatTags?: Partial<Record<SpeakerId, SeatTag>> }) => Promise<string>;
@@ -495,6 +511,11 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
   debateLoading: false,
   activeCommunityDebate: null,
   setActiveCommunityDebate: (debate) => set({ activeCommunityDebate: debate }),
+  closeCommunityDebateSignal: 0,
+  requestCloseCommunityDebate: () => set(s => ({ closeCommunityDebateSignal: s.closeCommunityDebateSignal + 1 })),
+  pendingOpenCommunityId: null,
+  requestOpenCommunity: (id) => set({ pendingOpenCommunityId: id }),
+  clearPendingOpenCommunity: () => set({ pendingOpenCommunityId: null }),
   _saveInFlight: false,
   _saveDirty: false,
   _loadInFlight: {},

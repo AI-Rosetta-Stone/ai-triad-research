@@ -52,6 +52,8 @@ const debateState = {
   activeDebateId: null as string | null,
   closeDebate: vi.fn(),
   loadDebate: vi.fn(async (id: string) => { if (loadSucceeds) debateState.activeDebateId = id; }),
+  requestCloseCommunityDebate: vi.fn(),
+  requestOpenCommunity: vi.fn(),
 };
 const debateSetState = vi.fn((s: Partial<typeof debateState>) => { Object.assign(debateState, s); });
 vi.mock('../hooks/useDebateStore', () => ({
@@ -68,7 +70,10 @@ vi.mock('../hooks/useChatStore', () => ({
   useChatStore: { getState: () => chatState, setState: (s: never) => chatSetState(s) },
 }));
 
-const communityState = { chats: [] as Array<{ id: string; title: string }>, fetchChats: vi.fn(async () => {}) };
+const communityState = {
+  chats: [] as Array<{ id: string; title: string }>, fetchChats: vi.fn(async () => {}),
+  debates: [] as Array<{ id: string; title: string }>, fetchDebates: vi.fn(async () => {}),
+};
 vi.mock('../hooks/useCommunityStore', () => ({
   useCommunityStore: { getState: () => communityState },
 }));
@@ -109,6 +114,7 @@ beforeEach(() => {
   debateState.activeDebateId = null;
   chatState.activeChatId = null;
   communityState.chats = [];
+  communityState.debates = [];
 });
 
 describe('a stale /taxonomy/:pov?node= falls back to the camp with a notice (t/4640 AC3, staging sweep)', () => {
@@ -273,10 +279,41 @@ describe('restore() per route calls the tool\'s real open action (t/4640#40 AC3)
     expect(debateState.closeDebate).toHaveBeenCalled();
   });
 
+  // t/4888 (Design review, prod regression): going up must end a Community debate view too,
+  // not only a My one — unconditional, same as /debate clearing activeCommunityChat for Chat.
+  // DebateTab's local selection can't be cleared from here directly (see sessionSlice.ts's
+  // closeCommunityDebateSignal doc); this only verifies the route asks it to.
+  it('/debate → requests DebateTab clear its Community selection, even with no My debate open', () => {
+    debateState.activeDebate = null;
+    restore('/debate');
+    expect(debateState.closeDebate).not.toHaveBeenCalled();
+    expect(debateState.requestCloseCommunityDebate).toHaveBeenCalled();
+  });
+
   it('/debate/:id → loads the debate', () => {
     restore('/debate/d-1');
     expect(taxonomyState.setActiveTab).toHaveBeenCalledWith('debate');
     expect(debateState.loadDebate).toHaveBeenCalledWith('d-1');
+  });
+
+  // t/4888: a community debate shares the My item's route, distinguished by ?community=1 —
+  // mirrors CHAT_ITEM_ROUTE, but resolved against the community store directly (not a
+  // component), since DebateTab's local state can only be reached via requestOpenCommunity.
+  it('/debate/:id?community=1 → resolves against the community store and hands off the id', async () => {
+    communityState.debates = [{ id: 'd-1', title: 'A shared debate' }];
+    restore('/debate/d-1?community=1');
+    await settle();
+    expect(communityState.fetchDebates).toHaveBeenCalled();
+    expect(debateState.requestOpenCommunity).toHaveBeenCalledWith('d-1');
+    expect(debateState.loadDebate).not.toHaveBeenCalled();
+  });
+
+  it('/debate/:id?community=1 falls back to the library when the community debate is missing', async () => {
+    communityState.debates = [];
+    restore('/debate/gone?community=1');
+    await settle();
+    expect(notices).toEqual(['That debate couldn’t be found. It may have been deleted.']);
+    expect(debateState.requestOpenCommunity).not.toHaveBeenCalled();
   });
 
   it('/opeds → the library, with no set selected', () => {

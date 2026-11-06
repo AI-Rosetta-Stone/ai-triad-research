@@ -92,8 +92,15 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
     // The inquiry store has no "active inquiry" object: an answer is open when `result` is set.
     // `jobId` identifies a My run; `communityResultId` identifies a community one (t/4888) —
     // openCommunityResult() deliberately leaves jobId null, since there's no job to poll.
+    //
+    // `viewingList` wins over a stale `result` (Design review, prod regression, t/4888#6):
+    // openList() deliberately does NOT clear result/jobId/communityResultId — a My job kept
+    // running in the background while the user browses the list must still be there if they come
+    // back — so `result` alone can't tell "open item" from "went up, job still in flight". Without
+    // this check, going up left the breadcrumb (and the URL, via the nav subscriber's
+    // placeKey-unchanged check) pinned to the item even though the list was what rendered.
     const store = state.inquiryStore;
-    const openId = store?.result ? (store.jobId ?? store.communityResultId) : null;
+    const openId = (!store?.viewingList && store?.result) ? (store.jobId ?? store.communityResultId) : null;
     return collectionPlace('inquiry', 'Ask a Question', '/inquiry',
       openId ? { id: openId, title: store?.result?.request.question, community: !store?.jobId } : null);
   },

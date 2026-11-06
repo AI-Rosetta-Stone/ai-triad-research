@@ -154,11 +154,14 @@ export function DebateTab() {
   const {
     sessions, sessionsLoading, loadSessions,
     activeDebateId, activeDebate, loadDebate, deleteDebate, renameDebate, setActiveCommunityDebate,
+    closeCommunityDebateSignal, pendingOpenCommunityId, clearPendingOpenCommunity,
   } = useDebateStore(
     useShallow(s => ({
       sessions: s.sessions, sessionsLoading: s.sessionsLoading, loadSessions: s.loadSessions,
       activeDebateId: s.activeDebateId, activeDebate: s.activeDebate, loadDebate: s.loadDebate, deleteDebate: s.deleteDebate, renameDebate: s.renameDebate,
       setActiveCommunityDebate: s.setActiveCommunityDebate,
+      closeCommunityDebateSignal: s.closeCommunityDebateSignal,
+      pendingOpenCommunityId: s.pendingOpenCommunityId, clearPendingOpenCommunity: s.clearPendingOpenCommunity,
     }))
   );
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -295,22 +298,20 @@ export function DebateTab() {
     setActiveCommunityDebate(selectedCommunityDebate ? { id: selectedCommunityDebate.id, title: selectedCommunityDebate.title } : null);
   }, [selectedCommunityDebate, setActiveCommunityDebate]);
 
-  // t/4800: clear in-place selection state when navigating back to /debate (no ID).
-  // When history pops from /debate/:id back to /debate, the store's activeDebate is cleared
-  // by DEBATE_ROUTE.restore(), but this component's local state (selectedCommunityDebate,
-  // lastOpenedVariant) must also be cleared so the library view renders.
+  // t/4800 (fixed under t/4888, Design review prod regression): clear in-place selection state
+  // when navigating back to /debate (no ID). The original fix listened for `hashchange`, but
+  // this app's router uses `history.pushState`/`popstate`, never the hash — so that listener
+  // never fired for any in-app navigation, including the breadcrumb's "up" click, and once the
+  // t/4888 precedence flip made placeOf.ts check activeCommunityDebate FIRST, a stale
+  // selectedCommunityDebate meant "up" visibly did nothing (Design, t/4888#6). DEBATE_ROUTE.restore()
+  // (appRoutes.ts) now bumps closeCommunityDebateSignal on every arrival at /debate; this effect
+  // is the only thing that can reach this component's own local state in response.
   useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash;
-      const hasDebateId = /^#.*\/debate\//.test(hash);
-      if (!hasDebateId && (selectedCommunityDebate || lastOpenedVariant === 'community')) {
-        setSelectedCommunityDebate(null);
-        setLastOpenedVariant('my');
-      }
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [selectedCommunityDebate, lastOpenedVariant]);
+    if (closeCommunityDebateSignal > 0) {
+      setSelectedCommunityDebate(null);
+      setLastOpenedVariant('my');
+    }
+  }, [closeCommunityDebateSignal]);
 
   // Condition 2 (t/2305): runExport accepts explicit `session` so table rows can pass
   // their own data directly — `activeDebate` from the store is not loaded on row click,
@@ -441,6 +442,19 @@ export function DebateTab() {
     setLastOpenedVariant('community');
     if (isPhone && cd) nav.push({ view: 'detail', id });
   }, [isPhone, communityDebates, nav]);
+
+  // t/4888 (Design review, prod regression): DEBATE_ITEM_ROUTE's `?community=1` restore (Back,
+  // Reload, a pasted URL) can't reach this component's local state directly, so it hands off the
+  // resolved id via pendingOpenCommunityId (mirrors OpEdTab's pendingOpen). By the time this
+  // fires the route has already confirmed the id against the community store, so communityDebates
+  // only needs to have caught up — it's in this effect's deps for exactly that: a cold boot where
+  // this component's own fetchCommunityDebates() hasn't resolved yet re-runs this once it has.
+  useEffect(() => {
+    if (!pendingOpenCommunityId) return;
+    if (!communityDebates.some(c => c.id === pendingOpenCommunityId)) return;
+    handleOpenCommunity(pendingOpenCommunityId);
+    clearPendingOpenCommunity();
+  }, [pendingOpenCommunityId, communityDebates, handleOpenCommunity, clearPendingOpenCommunity]);
 
   const handleCopyCommunity = useCallback(async (cd: CommunityDebate): Promise<void> => {
     setCopyingId(cd.id);

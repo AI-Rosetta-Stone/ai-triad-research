@@ -195,6 +195,27 @@ describe('placeOf - per-tool open item resolvers', () => {
       expect(place.placeKey).toBe('inquiry:none');
     });
 
+    // t/4888 (Design review, prod regression, t/4888#6): openList() deliberately does NOT clear
+    // result/jobId/communityResultId — a My job kept running in the background while the user
+    // browses the list must still be there if they come back — so a stale `result` alone can't
+    // tell "item open" from "went up, job still in flight". Before this, going up left the
+    // breadcrumb (and the URL, via the nav subscriber's placeKey-unchanged check) pinned to the
+    // item even though the list was what rendered.
+    it('returns the library path when viewingList is true, even with a stale result (up-crumb)', () => {
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'inquiry',
+        inquiryStore: {
+          jobId: 'job-99',
+          viewingList: true,
+          result: { request: { question: 'How does transformer attention work?' } },
+        } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/inquiry');
+      expect(place.placeKey).toBe('inquiry:none');
+    });
+
     it('returns open inquiry path keyed off the job ID when an answer is open', () => {
       // The inquiry store has no activeInquiry object: an answer is open when `result` is set.
       const state = {
