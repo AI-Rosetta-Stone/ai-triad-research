@@ -1941,6 +1941,8 @@ jobs:
     timeout-minutes: 30  # longest green run 13.0m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0  # t/4902: the lockfile-PR diff check below needs base-ref history
 
       - name: Free disk space
         run: |
@@ -2024,35 +2026,98 @@ jobs:
           load: true
           tags: ai-triad-test:ci
 
-      # t/4883 behavioural proof. A NEW builder has empty BuildKit cache mounts (the cold pnpm
-      # store), seeded only with the builder-stage layer cache exported from the build above
-      # (a builder-only re-run, fully cached, so the export is cheap; exporting the whole image
-      # cache from the main build cost ~3 min). A different BUILD_SHA (ARG declared after the
-      # installs) keeps the builder `pnpm install` CACHED but forces build:container + licenses
-      # to execute. The checker passes only on exactly that shape; a fully cached or
-      # fresh-install log is "inconclusive", never a pass.
+      # t/4883 / t/4902 — cheaper cold-store rebuild for the common case, self-seeded fallback
+      # for the two PR classes that can't trust main's shared GHA cache (TL review, PR #4642):
+      #
+      #   1. non-lockfile PR: seed a NEW builder (empty BuildKit cache mounts, cold pnpm store)
+      #      from GHA's shared-docker cache (main's accumulated layer history). Cost ~70-90s.
+      #   2. lockfile/manifest PR: SKIPS the GHA attempt entirely -- a dependency bump can never
+      #      find its own install in main's cache, so it would read inconclusive on every run.
+      #      These are exactly the PRs most likely to break build:container/licenses on a cold
+      #      store, so they get the old self-seeded `type=local` export instead and stay BLOCKING
+      #      and PROVEN. Cost ~187s (the pre-t/4902 baseline), WARN logged.
+      #   3. non-lockfile PR, GHA cache evicted (shared-docker is a 10GB LRU repo cache, t/4840):
+      #      the GHA attempt's pnpm install reads NOT cached -- fall back to the same self-seeded
+      #      path as (2), WARN logged. Never silently pass, never fail every PR for an eviction.
+      #
+      # In every arm, a different BUILD_SHA (ARG declared after the installs) keeps the final
+      # builder's `pnpm install` CACHED but forces build:container + licenses to execute. The
+      # checker passes only on exactly that shape; a fully cached or fresh-install log is
+      # "inconclusive", never a pass -- and inconclusive BLOCKS in every arm (TL review point 1:
+      # a cheaper check must never weaken the check on its riskiest PR class).
+      #
       # BLOCKING (t/4883 T2 promotion): ran advisory (continue-on-error, ::warning::) and gave
       # 11 real PASS verdicts on 9+ distinct SHAs with zero false failures (t/4883#6, #7) before
       # this flip. A non-pass verdict, including inconclusive, now fails test-container.
+      # `secrets.GITHUB_TOKEN` is a JWT, not the internal Actions runtime token the GHA cache
+      # backend expects — raw docker buildx (no build-push-action wrapper) needs this action to
+      # mint the real ACTIONS_RUNTIME_TOKEN/ACTIONS_CACHE_URL via the runner-internal endpoint.
+      # Scoped to this job only (its outputs don't reach other jobs in the workflow).
+      - name: Expose GHA runtime vars for raw buildx cache (t/4902)
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
+
+      - name: Check whether this PR changed the lockfile/manifest (t/4902, TL review)
+        # A dependency-bump PR (Dependabot, security bumps) can never find its own install in
+        # main's GHA cache, so it skips the GHA attempt and goes straight to self-seeding below.
+        id: lockfile_pr
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            BASE_REF="HEAD^"
+          fi
+          if git diff --name-only "$BASE_REF"...HEAD -- '**/pnpm-lock.yaml' pnpm-lock.yaml '**/package.json' package.json pnpm-workspace.yaml | grep -q .; then
+            echo "is_lockfile_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_lockfile_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Warm-layer / cold-store rebuild — licenses (t/4883)
         timeout-minutes: 15
         shell: bash
+        env:
+          IS_LOCKFILE_PR: ${{ steps.lockfile_pr.outputs.is_lockfile_pr }}
         run: |
           set -uo pipefail
-          docker buildx build --progress=quiet --target builder \
-            --cache-to "type=local,dest=${RUNNER_TEMP}/layer-cache,mode=max" \
-            -f taxonomy-editor/Dockerfile . || exit 1
           # SO p/682#56 C1: digest-pinned BuildKit image, pulled with retries; exits 3 with a
           # distinct "INFRA (not a guard verdict)" ::error:: if Docker Hub can't serve it.
           bash operations/devops/create-coldstore-builder.sh coldstore || exit $?
-          docker buildx build --builder coldstore --progress=plain \
-            --target builder \
-            --cache-from "type=local,src=${RUNNER_TEMP}/layer-cache" \
-            --build-arg "BUILD_SHA=t4883-coldstore-${GITHUB_RUN_ID}" \
-            -f taxonomy-editor/Dockerfile . 2>&1 | tee "${RUNNER_TEMP}/coldstore.log"
-          build_rc=${PIPESTATUS[0]}
+
+          NEED_FALLBACK=false
+          if [ "$IS_LOCKFILE_PR" = "true" ]; then
+            echo "::warning::t/4902 cold-store: lockfile/manifest-changing PR -- this PR's install can never be in main's GHA cache, using the self-seeded local-export fallback instead."
+            NEED_FALLBACK=true
+          else
+            docker buildx build --builder coldstore --progress=plain \
+              --target builder \
+              --cache-from type=gha,scope=shared-docker \
+              --build-arg "BUILD_SHA=t4883-coldstore-${GITHUB_RUN_ID}" \
+              -f taxonomy-editor/Dockerfile . 2>&1 | tee "${RUNNER_TEMP}/coldstore.log"
+            build_rc=${PIPESTATUS[0]}
+            if [ "$build_rc" -ne 0 ] || ! node operations/devops/check-dockerfile-store-mounts.mjs probe-install-cached "${RUNNER_TEMP}/coldstore.log"; then
+              echo "::warning::t/4902 cold-store: GHA shared-docker cache miss (evicted, or build_rc=$build_rc) -- falling back to the self-seeded local-export path."
+              NEED_FALLBACK=true
+            fi
+          fi
+
+          if [ "$NEED_FALLBACK" = "true" ]; then
+            # Self-seed: cheap because the default builder already has this build's cache from
+            # "Build app container image" above (a builder-only re-run, fully cached).
+            docker buildx build --progress=quiet --target builder \
+              --cache-to "type=local,dest=${RUNNER_TEMP}/layer-cache,mode=max" \
+              -f taxonomy-editor/Dockerfile . || exit 1
+            docker buildx build --builder coldstore --progress=plain \
+              --target builder \
+              --cache-from "type=local,src=${RUNNER_TEMP}/layer-cache" \
+              --build-arg "BUILD_SHA=t4883-coldstore-fallback-${GITHUB_RUN_ID}" \
+              -f taxonomy-editor/Dockerfile . 2>&1 | tee "${RUNNER_TEMP}/coldstore.log"
+            build_rc=${PIPESTATUS[0]}
+          fi
+
           # The checker runs even when the build failed, so the step says WHY (regression vs
-          # a run that never exercised the warm-layer path) instead of just "exit 1".
+          # a run that never exercised the warm-layer path) instead of just "exit 1". It doesn't
+          # know or care which path (GHA-seeded or self-seeded fallback) produced the log --
+          # every arm is checked identically and blocks identically on a non-pass verdict.
           node operations/devops/check-dockerfile-store-mounts.mjs log "${RUNNER_TEMP}/coldstore.log"
           check_rc=$?
           [ "$build_rc" -eq 0 ] && [ "$check_rc" -eq 0 ]

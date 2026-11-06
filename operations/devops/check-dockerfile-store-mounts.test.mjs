@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { findStoreMountsInStage, checkColdStoreLog } from './check-dockerfile-store-mounts.mjs';
+import { findStoreMountsInStage, checkColdStoreLog, decideLogStepOutcome, shouldFallbackFromGha } from './check-dockerfile-store-mounts.mjs';
 
 const MOUNT = 'RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile';
 
@@ -73,4 +73,49 @@ test('log: build step itself CACHED -> inconclusive, never pass (the 42003339839
 
 test('log: missing steps -> inconclusive, never pass', () => {
   assert.equal(checkColdStoreLog('#1 [internal] load build definition\n#1 DONE 0.0s').verdict, 'inconclusive');
+});
+
+// TL review, t/4902, PR #4642: every arm (GHA-seeded, lockfile self-seed, evicted-cache
+// self-seed) must stay BLOCKING and PROVEN -- downgrading inconclusive to a warning would have
+// let every dependency-bump PR skip the one check most likely to catch a cold-store break.
+test('decideLogStepOutcome: pass is always exit 0, no annotation', () => {
+  assert.deepEqual(decideLogStepOutcome('pass'), { exitCode: 0, level: null });
+});
+
+test('decideLogStepOutcome: inconclusive blocks by default (no silent pass on any arm)', () => {
+  assert.deepEqual(decideLogStepOutcome('inconclusive'), { exitCode: 1, level: 'error' });
+});
+
+test('decideLogStepOutcome: fail always blocks -- the real regression is never downgraded', () => {
+  assert.deepEqual(decideLogStepOutcome('fail'), { exitCode: 1, level: 'error' });
+});
+
+test('decideLogStepOutcome: --advisory softens the annotation only, exit code unchanged', () => {
+  assert.deepEqual(decideLogStepOutcome('inconclusive', { advisory: true }), { exitCode: 1, level: 'warning' });
+  assert.deepEqual(decideLogStepOutcome('fail', { advisory: true }), { exitCode: 1, level: 'warning' });
+});
+
+// shouldFallbackFromGha: ci.yml's first, GHA-seeded attempt probes this to decide whether to
+// fall back to the self-seeded local-export path (t/4902 TL review, cache-eviction arm).
+test('shouldFallbackFromGha: install CACHED on the GHA attempt -> no fallback needed', () => {
+  assert.equal(shouldFallbackFromGha(`${INSTALL_CACHED}\n${BUILD_RAN_OK}`), false);
+});
+
+test('shouldFallbackFromGha: install NOT cached (shared-docker evicted/missed) -> fall back', () => {
+  assert.equal(shouldFallbackFromGha(`${INSTALL_FRESH}\n${BUILD_RAN_OK}`), true);
+});
+
+// The final `log` check doesn't know or care which path produced the log -- a self-seeded
+// fallback run (lockfile PR, or eviction) is checked identically and still fails on a real
+// licenses regression, proving the fallback arm stays blocking too (TL review point 3).
+test('log: a self-seeded fallback run with licenses broken still fails (fallback stays blocking)', () => {
+  const r = checkColdStoreLog(`${INSTALL_CACHED}\n${BUILD_RAN_FAILED}`);
+  assert.equal(r.verdict, 'fail');
+  assert.equal(decideLogStepOutcome(r.verdict).exitCode, 1);
+});
+
+test('log: a self-seeded fallback run that proves the warm-layer path passes', () => {
+  const r = checkColdStoreLog(`${INSTALL_CACHED}\n${BUILD_RAN_OK}`);
+  assert.equal(r.verdict, 'pass');
+  assert.equal(decideLogStepOutcome(r.verdict).exitCode, 0);
 });

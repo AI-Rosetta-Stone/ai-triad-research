@@ -23,10 +23,21 @@
 //
 //   node operations/devops/check-dockerfile-store-mounts.mjs lint [Dockerfile]
 //   node operations/devops/check-dockerfile-store-mounts.mjs log <buildkit-plain-log> [--advisory]
+//   node operations/devops/check-dockerfile-store-mounts.mjs probe-install-cached <buildkit-plain-log>
 //
 // --advisory (TL, t/4883#2): a non-pass verdict is annotated ::warning:: instead of ::error::
 // while the CI step runs continue-on-error. The exit code still reflects the verdict, so the
 // step outcome records each run for the >=5-run promotion evidence.
+//
+// probe-install-cached (TL review, t/4902, PR #4642): exits 0 when the log's builder `pnpm
+// install` step was CACHED, 1 otherwise. ci.yml's cold-store step calls this on its first,
+// GHA-seeded attempt (`--cache-from type=gha,scope=shared-docker`) for a non-lockfile PR; a
+// non-zero exit means the shared GHA cache missed (evicted, or this run never populated it),
+// and the step falls back to the self-seeded `type=local` export path (WARN logged) rather than
+// reading inconclusive or failing outright. A lockfile/manifest-changing PR skips the GHA
+// attempt entirely and goes straight to the self-seed path, since it can never hit main's GHA
+// cache (t/4902) — both fallback reasons keep the gate PROVEN and BLOCKING on every PR, per the
+// TL's t/4902 review: a cheaper check must never weaken the check on its riskiest PR class.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +103,26 @@ export function checkColdStoreLog(log) {
     reason: 'install CACHED, build:container executed, generate-notices wrote the notices' };
 }
 
+/**
+ * PURE. Decides the CLI's exit code and annotation level for a verdict, given CLI flags.
+ * A non-pass verdict always blocks (exit 1); `advisory` only softens the annotation to a
+ * warning for the >=5-run promotion-evidence period, never the exit code.
+ */
+export function decideLogStepOutcome(verdict, { advisory = false } = {}) {
+  if (verdict === 'pass') return { exitCode: 0, level: null };
+  return { exitCode: 1, level: advisory ? 'warning' : 'error' };
+}
+
+/**
+ * PURE. True when ci.yml's cold-store step should fall back from the GHA-seeded attempt to the
+ * self-seeded local-export path: the GHA `shared-docker` cache didn't contain this PR's install
+ * (a lockfile-PR miss or an LRU eviction, t/4902 TL review). Reuses checkColdStoreLog's own
+ * installCached detection rather than re-parsing the log.
+ */
+export function shouldFallbackFromGha(log) {
+  return !checkColdStoreLog(log).installCached;
+}
+
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCliEntry) {
   const [mode, path] = process.argv.slice(2);
@@ -108,11 +139,15 @@ if (isCliEntry) {
     } else if (mode === 'log' && path) {
       const r = checkColdStoreLog(readFileSync(path, 'utf8'));
       const msg = `cold-store rebuild: ${r.verdict.toUpperCase()} -- ${r.reason} (installCached=${r.installCached}, buildStepCached=${r.buildStepCached}, noticesWritten=${r.noticesWritten})`;
-      // inconclusive fails the step too: a guard that can't tell must not read as a pass.
-      console.log(r.verdict === 'pass' ? msg : `::${advisory ? 'warning' : 'error'}::${msg}`);
-      process.exit(r.verdict === 'pass' ? 0 : 1);
+      const { exitCode, level } = decideLogStepOutcome(r.verdict, { advisory });
+      console.log(level ? `::${level}::${msg}` : msg);
+      process.exit(exitCode);
+    } else if (mode === 'probe-install-cached' && path) {
+      const cached = checkColdStoreLog(readFileSync(path, 'utf8')).installCached;
+      console.log(`check-dockerfile-store-mounts: builder pnpm install cached=${cached}`);
+      process.exit(cached ? 0 : 1);
     } else {
-      console.log('::error::usage: check-dockerfile-store-mounts.mjs lint [Dockerfile] | log <buildkit-plain-log>');
+      console.log('::error::usage: check-dockerfile-store-mounts.mjs lint [Dockerfile] | log <buildkit-plain-log> | probe-install-cached <buildkit-plain-log>');
       process.exit(2);
     }
   } catch (err) {
