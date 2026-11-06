@@ -102,6 +102,85 @@ Describe 'Invoke-RemoteCheck -ExpectJson (t/1474 AC#1)' -Tag 'health' {
         }
     }
 
+    It 'PASSES when server returns 200 application/json with an EMPTY array body "[]" (staging incident, p/169#228)' {
+        InModuleScope AITriad {
+            # PowerShell's own pipeline-unroll trap: `$Response.Content | ConvertFrom-Json`
+            # (without -NoEnumerate) emits the parsed array's ELEMENTS onto the pipeline, not
+            # the array itself -- a genuinely empty JSON array therefore emits zero objects,
+            # and a scalar assignment capturing zero objects becomes $null. The t/4913 fix's
+            # "$null -eq $Body means it didn't parse" guard then wrongly failed a valid, common
+            # response (/api/sources, /api/debates/list, /api/chats, /api/community/debates all
+            # legitimately return "[]" on staging) -- this broke every staging deploy from
+            # 19:23 onward. -NoEnumerate on ConvertFrom-Json is the fix: it keeps the parsed
+            # result as one array object, empty or not, instead of unrolling it.
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json; charset=utf-8') }
+                    Content    = '[]'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/sources' -ExpectJson
+            $r.Success | Should -Be $true `
+                -Because 't/4913 regression: a genuinely empty JSON array is valid and parsed, not a failure'
+            @($r.Body).Count | Should -Be 0
+        }
+    }
+
+    It 'PASSES when server returns 200 application/json with an empty object body "{}"' {
+        InModuleScope AITriad {
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json') }
+                    Content    = '{}'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/nodes' -ExpectJson
+            $r.Success | Should -Be $true -Because 'an empty JSON object is also a valid, parsed body'
+        }
+    }
+
+    It 'PASSES when the body has keys differing only by case (live-staging /api/lineage-categories, p/169#231)' {
+        InModuleScope AITriad {
+            # ConvertFrom-Json's default PSCustomObject mode throws "keys with different
+            # casing" on exactly this shape -- case-folds property names, so
+            # 'AI Alignment research' and 'AI alignment research' collide. The -AsHashtable
+            # fallback parses it fine (hashtable keys are case-preserving).
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json; charset=utf-8') }
+                    Content    = '{"AI Alignment research":"a","AI alignment research":"b"}'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/lineage-categories' -ExpectJson
+            $r.Success | Should -Be $true `
+                -Because 't/4913 live-staging follow-up: case-colliding JSON keys are valid JSON and must parse via the -AsHashtable fallback'
+            $r.Body | Should -BeOfType [hashtable]
+            $r.Body['AI Alignment research'] | Should -Be 'a'
+            $r.Body['AI alignment research'] | Should -Be 'b'
+        }
+    }
+
+    It 'still respects -ExpectedField against a Hashtable-shaped body (the -AsHashtable fallback)' {
+        InModuleScope AITriad {
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json') }
+                    Content    = '{"Category":"x","category":"y","nodes":[1,2,3]}'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/lineage-categories' -ExpectJson -ExpectedField 'nodes'
+            $r.Success | Should -Be $true -Because '-ExpectedField must find a key on a Hashtable body too, not just a PSCustomObject'
+        }
+    }
+
     It 'PASSES when server returns 200 text/html and -ExpectJson is NOT set (existing callers unaffected — AC#4)' {
         InModuleScope AITriad {
             Mock Invoke-WebRequest -MockWith {

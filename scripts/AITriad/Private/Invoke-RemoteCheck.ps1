@@ -105,7 +105,24 @@ function Invoke-RemoteCheck {
         }
         $Body = $null
         if ($Response.Content) {
-            try { $Body = $Response.Content | ConvertFrom-Json } catch { $Body = $null }
+            # -NoEnumerate (t/4913 staging incident, p/169#228): without it, ConvertFrom-Json's
+            # own array output gets unrolled onto the pipeline by `|`, and a scalar assignment
+            # capturing ZERO unrolled elements (a genuinely empty JSON array, "[]") becomes
+            # $null -- indistinguishable from "didn't parse at all". A real `/api/*` endpoint
+            # returning an empty list (valid, common) was wrongly flagged as unparseable and
+            # failed every check depending on it. -NoEnumerate keeps the parsed array as one
+            # object, empty or not, so only a genuine parse failure still produces $null.
+            try { $Body = $Response.Content | ConvertFrom-Json -NoEnumerate }
+            catch {
+                # t/4913 live-staging follow-up (p/169#231): ConvertFrom-Json's default
+                # PSCustomObject mode throws on keys that differ only by case ("keys with
+                # different casing") -- real production bodies hit this (/api/lineage-
+                # categories, verified against staging). -AsHashtable parses the exact same
+                # JSON fine (hashtable keys are case-preserving, not case-folded like
+                # PSCustomObject's property names), so retry with it before giving up.
+                try { $Body = $Response.Content | ConvertFrom-Json -AsHashtable -NoEnumerate }
+                catch { $Body = $null }
+            }
         }
 
         $Success = $StatusCode -in $AcceptableStatusCodes
@@ -135,7 +152,12 @@ function Invoke-RemoteCheck {
         # from the outer guard; move it inside as a negative check so a missing
         # or unparseable body flips Success.
         if ($Success -and $ExpectedField) {
-            if (-not $Body -or -not $Body.PSObject.Properties[$ExpectedField]) {
+            # $Body can now be a Hashtable (the -AsHashtable fallback above) instead of a
+            # PSCustomObject -- .PSObject.Properties[x] reflects the Hashtable TYPE's own
+            # .NET members (Keys/Values/Count), never the JSON keys inside it, so it would
+            # always miss. Check ContainsKey first for that shape.
+            $HasField = if ($Body -is [hashtable]) { $Body.ContainsKey($ExpectedField) } else { $null -ne $Body -and $null -ne $Body.PSObject.Properties[$ExpectedField] }
+            if (-not $HasField) {
                 $Success = $false
             }
         }
