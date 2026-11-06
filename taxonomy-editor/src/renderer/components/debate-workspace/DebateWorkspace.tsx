@@ -38,7 +38,7 @@ import { useCommunityStore } from '../../hooks/useCommunityStore';
 import { useUserProfile } from '../../hooks/useAuthStatus';
 import { CommunityShareBanner } from '../shared/CommunityShareBanner';
 import { DebateHeader } from './DebateHeader';
-import { DebateSetupDialog } from './DebateSetupDialog';
+import { DebateSetupDialog, setupNamingFor } from './DebateSetupDialog';
 import { StatementCard, ProbingCard, FactCheckCard, EntryDeleteControls, HighlightedText, PhaseHairline } from './StatementCard';
 import { DebaterToggles, DebateActions } from './DebateActionBar';
 import { DebatePhaseIndicators } from './DebatePhaseIndicators';
@@ -1331,6 +1331,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const [showSetup, setShowSetup] = useState(false);
   const openSetup = useCallback(() => setShowSetup(true), []);
+  const setupNaming = setupNamingFor(communityReadOnly);
   const [showParamHistory, setShowParamHistory] = useState(false);
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [debateChatOpen, setDebateChatOpen] = useState(false);
@@ -1388,8 +1389,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
     <div className="debate-workspace-row" data-phase={isClarificationPhase ? 'setup' : undefined}>
     {chatRedesign && <TranscriptOutline transcript={activeDebate.transcript} />}
     <div className="debate-workspace">
-      {/* t/4906: the dialog is view-only, so read-only community readers get it too, named Details. */}
-      {showSetup && <DebateSetupDialog activeDebate={activeDebate} title={communityReadOnly ? 'Debate Details' : undefined} onClose={() => setShowSetup(false)} />}
+      {showSetup && <DebateSetupDialog activeDebate={activeDebate} title={setupNaming.title} onClose={() => setShowSetup(false)} />}
 
       {/* Find bar */}
       {findVisible && (
@@ -1423,7 +1423,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
               headerVariant
               isExploration={isExploration}
               onShowSetup={openSetup}
-              setupLabel={communityReadOnly ? 'Details' : 'Setup'}
+              setupLabel={setupNaming.label}
               commentSidebarOpen={commentSidebarOpen}
               toggleCommentSidebar={toggleCommentSidebar}
               commentsFile={commentsFile}

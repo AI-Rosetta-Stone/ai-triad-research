@@ -32,14 +32,20 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
   );
 }
 
+/** t/4906: this dialog is view-only (no edit controls), so read-only community readers get it
+ *  too, named Details; own debates keep Setup. */
+export function setupNamingFor(communityReadOnly: boolean): { label: string; title: string } {
+  return communityReadOnly ? { label: 'Details', title: 'Debate Details' } : { label: 'Setup', title: 'Debate Setup' };
+}
+
 export function DebateSetupDialog({
   activeDebate,
   onClose,
-  title = 'Debate Setup',
+  title,
 }: {
   activeDebate: ActiveDebateSession;
   onClose: () => void;
-  title?: string;
+  title: string;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
