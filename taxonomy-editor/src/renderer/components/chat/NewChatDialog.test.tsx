@@ -9,7 +9,7 @@
 // only NewChatDialog's own gating closure, same convention as InquiryAskPanel.test.tsx.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const TEST_BACKENDS = ['gemini', 'moonshot', 'azure'] as const;
@@ -275,5 +275,22 @@ describe('NewChatDialog temperature (t/4774)', () => {
   it('shows the mode\'s default in the hint, not a fixed value', () => {
     render(<NewChatDialog onClose={vi.fn()} />);
     expect(screen.getByTestId('temperature-hint')).toHaveTextContent("Brainstorm's default is 0.7");
+  });
+});
+
+// t/4901: shared dialog a11y contract (role/aria-modal/aria-labelledby, Esc), via useDialog.
+describe('NewChatDialog a11y (t/4901)', () => {
+  it('has role="dialog", aria-modal, and aria-labelledby pointing at the heading', () => {
+    render(<NewChatDialog onClose={vi.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-labelledby', screen.getByText('New Chat').id);
+  });
+
+  it('Esc calls onClose', () => {
+    const onClose = vi.fn();
+    render(<NewChatDialog onClose={onClose} />);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

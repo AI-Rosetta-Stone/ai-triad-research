@@ -40,6 +40,7 @@ import { trackExport } from '../../lib/analyticsEmitter';
 import type { SessionRowData } from './debateSessionTypes';
 import { LibraryListPage } from '../shared/LibraryListPage';
 import type { LibraryEditModeAction, LibraryRowEditAction } from '../shared/LibraryListPage.types';
+import { useDialog } from '../shared/useDialog'; // t/4901
 import { buildDebateLibraryConfig, debateSafeTitle } from './debateLibraryConfig';
 import { DebateInPlaceHint } from './DebateInPlaceHint';
 import './DebateTab.css';
@@ -866,10 +867,11 @@ function BulkDeleteDialog({
   setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
   deleteDebate: (id: string) => Promise<void>;
 }) {
+  const { dialogRef, titleId } = useDialog({ onCancel: () => setShowBulkDeleteConfirm(false) }); // t/4901
   return (
     <div className="dialog-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
-      <div className="dialog bulk-delete-dialog" onClick={e => e.stopPropagation()}>
-        <h3>Delete {selectedIds.size} debate{selectedIds.size !== 1 ? 's' : ''}?</h3>
+      <div ref={dialogRef} className="dialog bulk-delete-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 id={titleId}>Delete {selectedIds.size} debate{selectedIds.size !== 1 ? 's' : ''}?</h3>
         <div className="bulk-delete-list">
           {sessions.filter(s => selectedIds.has(s.id)).map(s => (
             <div key={s.id} className="bulk-delete-item">
@@ -1421,6 +1423,7 @@ function ExportOptionsDialog({
   onConfirm: (options: ExportOptions) => void;
 }) {
   const [options, setOptions] = useState<ExportOptions>(loadExportOptions);
+  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4901
   const formatLabel = format === 'markdown' ? 'Markdown' : format === 'pdf' ? 'PDF' : format;
 
   const handleConfirm = () => {
@@ -1440,8 +1443,8 @@ function ExportOptionsDialog({
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Export {formatLabel} Options</h3>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <h3 id={titleId}>Export {formatLabel} Options</h3>
         <div className="debate-tab-export-options">
           <label className="debate-tab-export-option-label">
             <input

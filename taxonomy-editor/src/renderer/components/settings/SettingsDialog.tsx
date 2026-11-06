@@ -15,6 +15,7 @@ import { useDescriptionMode, type DescriptionMode } from '../shared/DescriptionT
 import { backendSelectState, type BackendAvailabilityEntry } from '../shared/backendSelectState';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { FreeTierSettingsNote } from '../shared/FreeTierDisclosure'; // t/4410 item D
+import { useDialog } from '../shared/useDialog'; // t/4901
 import './SettingsDialog.css';
 
 type SettingsTab = 'ai' | 'apiKeys' | 'appearance';
@@ -756,6 +757,7 @@ function ApiKeyEntrySection({
 }
 
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose });
   const requestedSection = useSettingsDialog(s => s.requestedSection);
   const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
     requestedSection === 'apiKeys' ? 'apiKeys' : 'ai',
@@ -896,8 +898,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Settings</h3>
+      <div ref={dialogRef} className="dialog settings-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <h3 id={titleId}>Settings</h3>
 
         <div className="settings-tab-bar" role="tablist">
           {(['ai', 'apiKeys', 'appearance'] as SettingsTab[]).map(tab => (

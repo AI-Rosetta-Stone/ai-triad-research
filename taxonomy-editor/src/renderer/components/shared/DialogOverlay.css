@@ -23,8 +23,10 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 24px;
-  min-width: 400px;
-  max-width: 500px;
+  /* t/4901: 400px overflows a 390px phone (Design, #4436/#4585/Debate bulk delete) — cap both
+     ends at the viewport so the dialog never runs off-screen, with 1rem of breathing room. */
+  min-width: min(400px, calc(100vw - 2rem));
+  max-width: min(500px, calc(100vw - 2rem));
   box-shadow: 0 8px 32px var(--dialog-shadow, rgba(0, 0, 0, 0.3));
   animation: dialog-rise-in 150ms ease;
 }
