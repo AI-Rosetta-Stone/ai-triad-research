@@ -216,11 +216,14 @@ jobs:
             gh issue comment "$NUM" --repo "$DATA_REPO" --body "$BODY" || true
             gh issue reopen "$NUM" --repo "$DATA_REPO" 2>/dev/null || true
           else
-            gh issue create --repo "$DATA_REPO" \
+            # Take the number from the URL `gh issue create` prints. Re-listing via --search right
+            # after creating returns nothing until the search index catches up, which read a
+            # successfully raised alarm as "could NOT be raised" (t/4696 live-fire run 42239343265).
+            URL=$(gh issue create --repo "$DATA_REPO" \
               --title "Data boundary: $ALARM_TITLE" \
-              --body "$BODY" --label "$ALARM_LABEL" --assignee jpsnover || true
-            NUM=$(gh issue list --repo "$DATA_REPO" --label "$ALARM_LABEL" --state open \
-              --search "$ALARM_TITLE" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+              --body "$BODY" --label "$ALARM_LABEL" --assignee jpsnover 2>/dev/null || echo "")
+            NUM="${URL##*/issues/}"
+            case "$NUM" in ''|*[!0-9]*) NUM="" ;; esac
           fi
           STATE=$(gh issue view "$NUM" --repo "$DATA_REPO" --json state --jq '.state' 2>/dev/null || echo "VIEW_FAILED")
           if [ "$STATE" != "OPEN" ]; then
