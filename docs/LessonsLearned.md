@@ -8637,6 +8637,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-11-03 — DevOps Lead (p/26#409): piped `check-data-checkout-drift.ps1`'s JSON output through a second `pwsh -Command` to extract fields; `ConvertFrom-Json` choked on an unescaped double-quote inside a PDF filename embedded in the `Reasons` text. Resolved by dropping the pipe-through-a-second-pwsh approach entirely and reading the object directly in the same PowerShell session instead.
+- 2026-11-05 — DevOps Lead (p/26#428, **file-round-trip variant**): same script's `ConvertTo-Json` output, saved to a file and re-read with `ConvertFrom-Json`, failed to parse ("unexpected character") — an `ai-triad-sources` filename containing a quoted phrase (`"Non-Human Corporation"`) broke the round-trip. Same underlying lesson as prevention #1 below, but broadens the trigger: the corruption isn't limited to a live process-to-process pipe, it also hits a save-to-file-then-reread round-trip. Resolved by summarizing the objects in-process in PowerShell instead of via the JSON file.
 
 **Root Cause:** Piping text between two separate PowerShell processes means the second process's command-line parser sees the piped content as part of its own invocation context, not as pure opaque data. A quote character that was perfectly valid inside a JSON string value (properly escaped as `\"` within the JSON) can still interact with the RECEIVING process's own quoting/tokenization rules once it crosses that process boundary, especially when the piping itself goes through an intermediate shell layer. The exact mechanics depend on how the pipe is constructed, but the net effect is the same: valid JSON text gets corrupted purely by virtue of crossing into a second interactive PowerShell invocation.
 
@@ -8645,9 +8646,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **If JSON genuinely must cross a process boundary, write it to a file and have the second process read the file**, rather than piping it through the shell — this avoids any re-tokenization of the text content during the pipe itself.
 3. **A `ConvertFrom-Json` failure on JSON that was valid when the source script emitted it is a signal to check whether the JSON crossed a process/pipe boundary it shouldn't have**, not to assume the source script emitted malformed JSON.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#409).
+**Status:** Active — 2 instances (DevOps Lead p/26#409; DevOps Lead p/26#428 — file-round-trip variant, same root lesson).
 
-**Applies To:** All agents extracting fields from a PowerShell script's JSON output; prefer reading the object in the same session over piping JSON through a second `pwsh -Command` process.
+**Applies To:** All agents extracting fields from a PowerShell script's JSON output; prefer reading the object in the same session over piping JSON through a second `pwsh -Command` process, or round-tripping it through a file.
 
 ## #424 [Process] A Shared Feature-Branch Name Already Checked Out Live in Another Agent's Worktree Blocks `git switch -c` — Commit to a Different Local Name, Push to the Shared Remote Branch
 
@@ -8655,6 +8656,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-11-04 — EdgeBrowser (p/828#4, t/4827): `git commit` on a detached HEAD in `.worktrees/t4827-edgebrowser-filter-row` was blocked by the pre-commit hook's detached-HEAD guard (the t/2009 guard). The underlying cause: the shared branch name `fix/t4827-related-tab-stack` was already checked out live in Rosetta Stone's own worktree, so `git switch -c` onto that branch name failed in EdgeBrowser's worktree. Resolved by creating a differently-named local branch (`edgebrowser/t4827-filter-row-fix`) in the local worktree, committing there, then `git push origin HEAD:fix/t4827-related-tab-stack` to land the commit on the shared REMOTE branch name without ever needing a local checkout of that name in this worktree.
+- 2026-11-05 — Tech Lead (p/335#288, t/4874): `git worktree add -B t4874-strip-apt-runtime` failed because another worktree (the PR author's) already had that branch checked out. Same resolution: made a separate local branch (`tl-4569-fix`) from the PR head, pushed it to the PR branch with `HEAD:t4874-strip-apt-runtime`, left the other worktree untouched.
 
 **Root Cause:** Git enforces that a given branch can only be checked out in one worktree at a time across the whole repository — this is the same constraint behind the `main`-captured-by-worktree hazard, just triggered here by an ordinary shared feature branch rather than `main`. When two agents coordinate around a shared branch NAME but work in separate worktrees, only one worktree can actually hold that branch checked out locally at once; the other agent's attempt to `git switch -c` (or plain `git switch`) onto the same name fails.
 
@@ -8663,7 +8665,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **This is the ordinary-branch sibling of the `main`-captured-by-worktree hazard** — the underlying git constraint (one worktree per branch, repo-wide) is the same; only the branch involved differs.
 3. **When two agents share a branch name across separate worktrees, coordinate the intent via the remote branch, not via trying to get the same local checkout in both places** — the remote branch is the actual point of coordination; local branch names are disposable as long as they push to the right remote ref.
 
-**Status:** Active — 1 instance (EdgeBrowser p/828#4).
+**Status:** Active — 2 instances (EdgeBrowser p/828#4; Tech Lead p/335#288).
 
 **Applies To:** All agents coordinating on a shared feature branch name across separate worktrees; if the local checkout is blocked, push to the shared remote branch name from a differently-named local branch instead.
 
@@ -8758,3 +8760,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#183).
 
 **Applies To:** All agents navigating directories via relative `cd ..` chains; prefer absolute paths, or verify the landing directory before proceeding.
+
+## #430 [Build] Stopping a Background `npm run dev` Doesn't Kill `concurrently`'s Children — An Orphaned Server Silently Serves Stale Code With No Error
+
+**Pattern:** An agent stops a background `npm run dev` process (which internally uses `concurrently` to run Vite and Electron together). Stopping the parent process does NOT kill `concurrently`'s child processes — the previous worktree's Vite dev server keeps holding its port (e.g. 5173), and its Electron process keeps holding its CDP debug port (e.g. 9223). When the agent later starts a NEW `npm run dev` for a different branch/worktree, Vite logs "Port 5173 is already in use" and falls back to a different port — but if the agent's screenshot/automation tooling still targets the original port or CDP address, it silently connects to the ORPHANED server from the earlier worktree, showing OLD UI with no error of any kind. A compounding failure can follow: a script driving the (actually-new, actually-correct) app runs before the renderer has finished registering its runtime state (e.g. `window.__ZUSTAND_STORES__`), throwing "undefined" because it ran too early, which looks like a second unrelated bug but is really a race condition exposed once the first (stale-server) confusion is cleared up.
+
+**Instances:**
+- 2026-11-05 — DebateUI (p/689#10): a running-app screenshot for PR #4602 showed the OLD UI. Root cause: stopping a background `npm run dev` left `concurrently`'s children alive — the previous worktree's Vite kept port 5173 and its Electron kept CDP 9223. The new run printed "Port 5173 is already in use" (in the dev log, not surfaced as an error to the agent), and screenshots silently came from the other branch's stale code. A second failure (`window.__ZUSTAND_STORES__` undefined) was the automation script running before the renderer registered its stores on the genuinely-new instance. Fixed by killing processes whose command line contains `.worktrees\<name>\` after stopping, confirming both ports are free before relaunching, and waiting for `window.__ZUSTAND_STORES__.debate` to exist before driving the app.
+
+**Root Cause:** `concurrently` spawns Vite and Electron as independent child processes under its own management; stopping (or killing) the `concurrently` parent process does not propagate to its children on this platform/setup, leaving them running and holding their ports/debug sockets. A later `npm run dev` for a different branch then either fails to bind the expected port (if checked) or — if unchecked — the agent's own tooling (screenshot script, CDP-based automation) may still be pointed at the original port/address and connects to the orphaned, stale server without any error, because from the tooling's perspective a live server answered successfully; it's just the WRONG server.
+
+**Prevention:**
+1. **After stopping a background `npm run dev`, explicitly kill any leftover child processes before relaunching** — e.g. kill processes whose command line contains the worktree path (`.worktrees\<name>\`), not just the top-level process you stopped.
+2. **Before trusting any running-app evidence (screenshot, automation result), check the dev server's own log for "already in use"** — this is the tell that a stale server from an earlier run is still live and may be what's actually being observed.
+3. **Confirm the expected ports (Vite's dev port, Electron's CDP port) are free before relaunching**, not just that the previous process "was stopped."
+4. **When driving a freshly-launched Electron/React app via automation, wait for an explicit readiness signal from the app's own runtime state** (e.g. `window.__ZUSTAND_STORES__.debate` existing) rather than assuming the app is ready as soon as the process starts or the window appears — this avoids a race where automation runs before the renderer has finished initializing.
+5. **This is related to but distinct from #378** (concurrent review SESSIONS colliding on a hard-coded port, with a visible guard failure) — this entry is about an agent's OWN orphaned process from an earlier run silently serving stale code with NO visible error, which is a more dangerous failure mode because nothing flags it as wrong.
+
+**Status:** Active — 1 instance (DebateUI p/689#10).
+
+**Applies To:** All agents stopping and restarting a `concurrently`-based dev server (Vite + Electron) across branch/worktree switches; verify ports are actually free and wait for explicit app-readiness signals before trusting automation results.
