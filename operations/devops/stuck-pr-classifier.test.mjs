@@ -240,6 +240,60 @@ test('t/4096 arm 1: a recheck the caller never performed (undefined) does NOT es
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
 });
 
+// ── armed-not-queued (t/4730) ──
+test('armed-not-queued: armed 3h, all green, NOT in queue, fires', () => {
+  const pr = basePr({
+    autoMergeEnabled: true,
+    autoMergeEnabledAt: hoursAgo(3),
+    inMergeQueue: false,
+    mergeableState: 'clean',
+  });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'armed-not-queued');
+  assert.ok(v.detail.armedHours > 2);
+});
+
+test('armed-not-queued: NOT fired when armed less than 2h (under threshold)', () => {
+  const pr = basePr({
+    autoMergeEnabled: true,
+    autoMergeEnabledAt: hoursAgo(1),
+    inMergeQueue: false,
+    mergeableState: 'clean',
+  });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-not-queued');
+});
+
+test('armed-not-queued: NOT fired when PR is in merge queue (false positive guard t/4730#1)', () => {
+  const pr = basePr({
+    autoMergeEnabled: false, // in queue doesn't have autoMergeEnabled
+    inMergeQueue: true,
+    mergeQueueEnqueuedAt: hoursAgo(1),
+    mergeableState: 'clean',
+  });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-not-queued');
+});
+
+test('armed-not-queued: NOT fired when not all required contexts are green', () => {
+  const pr = basePr({
+    autoMergeEnabled: true,
+    autoMergeEnabledAt: hoursAgo(3),
+    inMergeQueue: false,
+    runs: allGreenRuns({ 'joint-gv-guard': { status: 'in_progress', conclusion: null, createdAt: minsAgo(5), startedAt: minsAgo(5), id: 1 } }),
+    mergeableState: 'clean',
+  });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-not-queued');
+});
+
+test('armed-not-queued: NOT fired when no autoMergeEnabledAt timestamp (no evidence)', () => {
+  const pr = basePr({
+    autoMergeEnabled: true,
+    // autoMergeEnabledAt is undefined/null
+    inMergeQueue: false,
+    mergeableState: 'clean',
+  });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-not-queued');
+});
+
 // ── approved-not-armed (t/4557) ──
 test('approved-not-armed: approved, every required context green, NOT armed -> fires, escalates to owner immediately', () => {
   const pr = basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5) /* would otherwise be idle */ });

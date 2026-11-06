@@ -93,6 +93,10 @@ export const MERGE_QUEUE_STUCK_MINUTES = 60;
  *   caller didn't perform the recheck.
  * @param {boolean} pr.isConflicting - true iff mergeable === false / mergeable_state === 'dirty' (GitHub's CONFLICTING).
  * @param {boolean} pr.autoMergeEnabled
+ * @param {string|null} [pr.autoMergeEnabledAt] - ISO timestamp when auto-merge was enabled
+ *   (t/4730), used to detect armed PRs that have not entered the queue for 2+ hours. Only
+ *   meaningful when `autoMergeEnabled` is true; omit or null if unknown. A PR with no
+ *   timestamp is never aged into `armed-not-queued` -- missing evidence means no escalation.
  * @param {string[]} pr.labels
  * @param {Array<{path:string, status:string, conclusion:string|null, createdAt:string, startedAt:string|null, runAttempt:number, id:number}>} pr.runs
  *   The NEWEST run per workflow FILE PATH touching this head SHA (actions/runs?head_sha).
@@ -237,6 +241,29 @@ export function classifyBlocker(pr, nowMs) {
     });
     if (allGreen && pr.mergeableState === 'blocked' && pr.mergeableStateRecheck === 'blocked') {
       return { class: 'armed-but-blocked', detail: { mergeRefusalText: pr.mergeRefusalText ?? '(not captured)' } };
+    }
+  }
+
+  // 5.6 armed-not-queued (t/4730): armed, every required context green, genuinely NOT in the
+  // queue (not just a transient 'blocked' read -- that's case 5's territory), for 2h+.
+  // Guard against false positive: a PR with inMergeQueue: true is never flagged, regardless of age
+  // (t/4730#1 false-positive guard on #4263).
+  if (isArmed && !pr.inMergeQueue && pr.autoMergeEnabledAt) {
+    const allGreen = REQUIRED_CONTEXTS.every((name) => {
+      const run = runFor(name);
+      return run && run.status === 'completed' && run.conclusion === 'success';
+    });
+    if (allGreen) {
+      const armedHours = (nowMs - Date.parse(pr.autoMergeEnabledAt)) / 3600000;
+      if (armedHours > 2) {
+        return {
+          class: 'armed-not-queued',
+          detail: {
+            armedHours: Math.round(armedHours * 10) / 10,
+            remedy: 'PR is armed with all required checks green but is not in the merge queue. This often indicates the merge method does not match the queue\'s configured method. Use the GraphQL mutation (t/4731#1 for example) to re-queue with the correct method, or verify and re-arm with the correct merge strategy.',
+          },
+        };
+      }
     }
   }
 

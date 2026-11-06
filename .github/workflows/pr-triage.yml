@@ -626,6 +626,7 @@ jobs:
                 // actually implemented.
                 isConflicting: full.mergeable === false || full.mergeable_state === 'dirty',
                 autoMergeEnabled: !!full.auto_merge,
+                autoMergeEnabledAt: full.auto_merge?.enabled_at ?? null,  // t/4730: timestamp when auto-merge was enabled, for armed-not-queued detection
                 inMergeQueue: !!mergeQueue.isInMergeQueue,
                 mergeQueueEnqueuedAt: mergeQueue.mergeQueueEntry?.enqueuedAt ?? null,
                 labels,
