@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // Mock localStorage before any store imports
@@ -91,6 +91,18 @@ describe('UsernamePromptDialog', () => {
     const { container } = render(<UsernamePromptDialog />);
     const overlay = container.querySelector('.dialog-overlay')!;
     await userEvent.click(overlay);
+    expect(useUsernameStore.getState().promptOpen).toBe(false);
+  });
+
+  // t/4909: role/aria-modal/aria-labelledby + dialog-wide Esc (previously only on the input).
+  it('has role="dialog" and aria-modal, and Esc closes the prompt with focus anywhere inside', () => {
+    useUsernameStore.setState({ promptOpen: true });
+    render(<UsernamePromptDialog />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+    screen.getByRole('button', { name: 'Cancel' }).focus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(useUsernameStore.getState().promptOpen).toBe(false);
   });
 

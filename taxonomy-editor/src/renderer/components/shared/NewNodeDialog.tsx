@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import type { Category } from '../../types/taxonomy';
+import { useDialog } from './useDialog'; // t/4909
 
 interface NewNodeDialogProps {
   onConfirm: (category: Category) => void;
@@ -13,11 +14,12 @@ const CATEGORIES: Category[] = ['Desires', 'Beliefs', 'Intentions'];
 
 export function NewNodeDialog({ onConfirm, onCancel }: NewNodeDialogProps) {
   const [category, setCategory] = useState<Category>('Desires');
+  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4909
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>New Node</h3>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <h3 id={titleId}>New Node</h3>
         <div className="form-group">
           <label>Category</label>
           <select

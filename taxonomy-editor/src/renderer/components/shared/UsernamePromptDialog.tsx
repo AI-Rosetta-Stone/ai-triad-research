@@ -3,12 +3,30 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useUsernameStore, validateUsername } from '../../hooks/useUsernameStore';
+import { useFocusTrap } from './useDialog'; // t/4909
 
 export function UsernamePromptDialog() {
   const { promptOpen, username, closePrompt, confirmPrompt } = useUsernameStore();
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // t/4909: mounted once by DebateWorkspace (promptOpen toggles via the store, not a conditional
+  // render), so useDialog's own mount-bookended focus management doesn't fit — only the shared
+  // Tab trap plus a matching promptOpen-keyed restore-focus effect. Esc moves from the input's
+  // own onKeyDown (narrower — only fired with focus in the input) to this dialog-wide listener.
+  useFocusTrap(dialogRef, promptOpen);
+
+  useEffect(() => {
+    if (!promptOpen) return;
+    const prev = document.activeElement as HTMLElement | null;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePrompt(); };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      prev?.focus();
+    };
+  }, [promptOpen, closePrompt]);
 
   useEffect(() => {
     if (promptOpen) {
@@ -34,15 +52,13 @@ export function UsernamePromptDialog() {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit();
-    } else if (e.key === 'Escape') {
-      closePrompt();
     }
   };
 
   return (
     <div className="dialog-overlay" onClick={closePrompt}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>{username ? 'Change Username' : 'Set Username'}</h3>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal aria-labelledby="username-prompt-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="username-prompt-title">{username ? 'Change Username' : 'Set Username'}</h3>
         <p>
           {username
             ? 'Enter a new display name for your comments.'
