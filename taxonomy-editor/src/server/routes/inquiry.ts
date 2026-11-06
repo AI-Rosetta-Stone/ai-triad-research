@@ -26,11 +26,11 @@ import { resolveGenerationContext, enforceBackendAllowed } from './generationCon
 import { isRegisteredModel } from '../ai/aiBackends.js';
 import { InquiryRequestSchema, type InquiryRequest, type InquiryResult } from '../../../../lib/inquiry/index.js';
 import {
-  startInquiryJob, getInquiryJob, hasInquiryJob, countRunningInquiryJobs,
-  findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView,
+  startInquiryJob, getInquiryJob, hasInquiryJob, countRunningInquiryJobs, dropInquiryJob,
+  findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
-import { loadInquiryResult, listInquiryResults } from '../storage/inquiryResultStore.js';
+import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
 import { buildInquiryRunPipeline } from '../inquiryPipelineDeps.js';
@@ -83,7 +83,7 @@ function rejectUnsafeJobId(res: ServerResponse, jobId: string): boolean {
 }
 
 export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
-  const { get, post, del } = r;
+  const { get, post, del, patch } = r;
 
   // POST /api/inquiry — start an inquiry job. NB: string-literal path so extractRoutes.ts sees it.
   post('/api/inquiry', async (req, res, body) => {
@@ -216,6 +216,67 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'inquiry', level: 'error', message: 'GET /api/inquiry/:jobId failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      error(res, String(err), 500, err);
+    }
+  });
+
+  // PATCH /api/inquiry/:jobId {title} — rename a stored inquiry result (t/4897/t/4885-C).
+  // Ownership is inherent: loadInquiryResult/renameInquiryResult read from the caller's own
+  // storage scope, so another user's jobId reads as absent — same precedent as GET's 404.
+  patch('/api/inquiry/:jobId', async (req, res, body) => {
+    const user = getCurrentUser();
+    if (!user || user.isAnonymous) { error(res, 'Authentication required', 401); return; }
+    try {
+      const jobId = param(req, 'jobId', '/api/inquiry/:jobId');
+      if (rejectUnsafeJobId(res, jobId)) return;
+      const title = (body as Record<string, unknown> | undefined)?.title;
+      if (typeof title !== 'string' || title.trim().length === 0 || title.length > 200) {
+        error(res, 'Invalid title: must be a non-empty string of at most 200 characters', 400);
+        return;
+      }
+
+      const existing = await loadInquiryResult(jobId);
+      if (!existing) { error(res, 'Inquiry not found', 404); return; }
+
+      await renameInquiryResult(jobId, title);
+      json(res, { jobId, title: title.trim() });
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'inquiry', level: 'error', message: 'PATCH /api/inquiry/:jobId failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      error(res, String(err), 500, err);
+    }
+  });
+
+  // DELETE /api/inquiry/:jobId — delete a stored inquiry result and drop any in-memory job
+  // entry (t/4897/t/4885-C). 409 while the job is still running; ownership is inherent (same
+  // as PATCH above).
+  del('/api/inquiry/:jobId', async (req, res) => {
+    const user = getCurrentUser();
+    if (!user || user.isAnonymous) { error(res, 'Authentication required', 401); return; }
+    try {
+      const jobId = param(req, 'jobId', '/api/inquiry/:jobId');
+      if (rejectUnsafeJobId(res, jobId)) return;
+      const userId = getStorageUserId();
+
+      const job = getInquiryJob(jobId, userId);
+      if (job && !isTerminalStatus(job.status)) {
+        error(res, 'Inquiry is still running — wait for it to finish before deleting', 409);
+        return;
+      }
+
+      const existing = await loadInquiryResult(jobId);
+      if (!existing) { error(res, 'Inquiry not found', 404); return; }
+
+      await deleteInquiryResult(jobId);
+      dropInquiryJob(jobId);
+      json(res, { jobId, deleted: true });
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'inquiry', level: 'error', message: 'DELETE /api/inquiry/:jobId failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
       error(res, String(err), 500, err);

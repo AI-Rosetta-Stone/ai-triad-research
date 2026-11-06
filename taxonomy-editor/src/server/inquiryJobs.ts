@@ -133,6 +133,12 @@ export function hasInquiryJob(jobId: string): boolean {
   return jobs.has(jobId);
 }
 
+/** t/4897: drop a single job's in-memory entry after its persisted result is deleted — the sweep in
+ *  sweepInquiryJobs() only reaps terminal jobs past the TTL, not an on-demand single-id removal. */
+export function dropInquiryJob(jobId: string): void {
+  jobs.delete(jobId);
+}
+
 export function countRunningInquiryJobs(userId: string): number {
   let n = 0;
   for (const j of jobs.values()) {
