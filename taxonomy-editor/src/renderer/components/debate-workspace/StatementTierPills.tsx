@@ -7,7 +7,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptEntry } from '../../types/debate';
-import type { VocabResolution } from '../../utils/vocabularyAnnotations';
 import type { useDebateStore } from '../../hooks/useDebateStore';
 import { TIER_LABELS, modeOfTier, type DisplayMode } from './utils';
 
@@ -27,11 +26,10 @@ export const TIER_TITLES: Record<string, string> = {
   convergence: 'Convergence diagnostics', why: "This statement's BDI grounding",
 };
 
-export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, vocabResolutions, hasLineageRefs }: {
+export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, hasLineageRefs }: {
   entry: TranscriptEntry;
   activeTier: string;
   setEntryDisplayTier: SetEntryDisplayTier;
-  vocabResolutions: VocabResolution[] | undefined;
   hasLineageRefs: boolean;
 }) {
   const activeMode = modeOfTier(activeTier);
@@ -54,13 +52,7 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, voc
     () => (['reasoning', 'lineage', 'claims', 'convergence'] as AnalysisTier[]).filter(t => t !== 'lineage' || hasLineageRefs),
     [hasLineageRefs],
   );
-  // Vocabulary is offered only when this statement has resolved terms.
-  const whyOptions = useMemo<WhyTier[]>(
-    () => (vocabResolutions && vocabResolutions.length > 0 ? ['why', 'terms'] : ['why']),
-    [vocabResolutions],
-  );
-
-  const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : activeMode === 'why' ? whyOptions : analysisOptions;
+  const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : analysisOptions;
   const isOverridden = entry.display_tier != null;
 
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -110,12 +102,13 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, voc
         ))}
       </span>
       {/* Value selector — native <select> styled as a dropdown button (t/2274 §13).
-          Override → dot on the button + "Match global default" item. Why offers BDI, plus
-          Vocabulary when the statement has resolved terms. */}
+          Override → dot on the button + "Match global default" item. Why has none: its
+          BDI | Vocabulary choice lives in the panel's own tabs (t/4904#2). */}
+      {activeMode !== 'why' && (
       <span className="debate-value-dropdown-wrap">
         <select
           className="debate-detail-dropdown debate-value-dropdown"
-          aria-label={activeMode === 'text' ? 'Text detail level' : activeMode === 'why' ? 'Why view' : 'How view'}
+          aria-label={activeMode === 'text' ? 'Text detail level' : 'How view'}
           value={activeTier}
           title={TIER_TITLES[activeTier]}
           onClick={(e) => e.stopPropagation()}
@@ -139,6 +132,7 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, voc
           />
         )}
       </span>
+      )}
     </span>
   );
 }

@@ -643,7 +643,6 @@ function StatementCardHeaderDetail({
           entry={entry}
           activeTier={activeTier}
           setEntryDisplayTier={setEntryDisplayTier}
-          vocabResolutions={vocabResolutions}
           hasLineageRefs={hasLineageRefs}
         />
       )}

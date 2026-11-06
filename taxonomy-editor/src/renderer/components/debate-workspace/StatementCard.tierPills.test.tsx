@@ -194,6 +194,20 @@ describe('Why panel: BDI | Vocabulary tabs', () => {
     expect(screen.queryByTestId('vocab-terms-view')).not.toBeInTheDocument();
   });
 
+  it('Why is a plain mode button: no value dropdown in the header, tabs carry the choice (t/4904#2)', () => {
+    render(<StatementCard entry={makeEntry({ display_tier: 'why', ...withVocab })} />);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Vocabulary' })).toBeInTheDocument();
+  });
+
+  it('Text and How keep their value dropdowns', () => {
+    const { unmount } = render(<StatementCard entry={makeEntry({ display_tier: 'detailed' })} />);
+    expect(screen.getByRole('combobox', { name: 'Text detail level' })).toBeInTheDocument();
+    unmount();
+    render(<StatementCard entry={makeEntry({ display_tier: 'reasoning' })} />);
+    expect(screen.getByRole('combobox', { name: 'How view' })).toBeInTheDocument();
+  });
+
   it('How no longer offers Vocabulary', () => {
     render(<StatementCard entry={makeEntry({ display_tier: 'reasoning', ...withVocab })} />);
     const how = screen.getByRole('combobox', { name: 'How view' });
