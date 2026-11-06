@@ -26,6 +26,7 @@ import { registerDataRoutes } from './data.js';
 import { registerKeysRoutes } from './keys.js';
 import { registerAiRoutes } from './ai.js';
 import { registerChatRoutes } from './chat.js';
+import { registerChatShareRoutes } from './chatShare.js';
 import { registerDebatesRoutes } from './debates.js';
 import { registerDiagnosticsRoutes } from './diagnostics.js';
 import { registerCommunityRoutes } from './community.js';
@@ -64,6 +65,7 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerKeysRoutes(router, ctx);
   registerAiRoutes(router, ctx);
   registerChatRoutes(router, ctx);
+  registerChatShareRoutes(router, ctx); // t/4925 — POST/DELETE /api/chat/:id/share + GET /api/public/chat/:shareId (t/4787/#4545 merged but never wired in)
   registerDebatesRoutes(router, ctx);
   registerDiagnosticsRoutes(router, ctx);
   registerCommunityRoutes(router, ctx);
