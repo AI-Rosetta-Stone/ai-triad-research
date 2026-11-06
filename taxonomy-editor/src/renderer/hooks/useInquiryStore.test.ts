@@ -286,3 +286,31 @@ describe('useInquiryStore: POV tag (t/4246)', () => {
     expect(mockApi.startInquiry.mock.calls[0][0]).not.toHaveProperty('tagSelection');
   });
 });
+
+describe('useInquiryStore: temperature override (t/4770/t/4771)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useInquiryStore.getState().reset();
+    useInquiryStore.setState({ question: 'Is AI hype outrunning evidence?', fidelity: 'quick', temperature: undefined });
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-temp' });
+    mockApi.getInquiry.mockResolvedValue(pollView({ jobId: 'job-temp' }));
+  });
+  afterEach(() => { useInquiryStore.getState()._stopPolling(); });
+
+  it('sends the temperature override on the request', async () => {
+    useInquiryStore.getState().setTemperature(1.4);
+    await useInquiryStore.getState().startInquiry();
+    expect(mockApi.startInquiry.mock.calls[0][0]).toMatchObject({ temperature: 1.4 });
+  });
+
+  it('an unset temperature sends no temperature key at all — the server/fidelity default applies', async () => {
+    await useInquiryStore.getState().startInquiry();
+    expect(mockApi.startInquiry.mock.calls[0][0]).not.toHaveProperty('temperature');
+  });
+
+  it('an explicit 0 is a real override, not an unset value — still sent', async () => {
+    useInquiryStore.getState().setTemperature(0);
+    await useInquiryStore.getState().startInquiry();
+    expect(mockApi.startInquiry.mock.calls[0][0]).toMatchObject({ temperature: 0 });
+  });
+});

@@ -13,7 +13,9 @@ const store = vi.hoisted(() => ({
   question: 'Is AI hype outrunning evidence?', debaterModel: undefined as string | undefined, error: null as string | null,
   jobId: null as string | null, status: null as string | null,
   tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' } as { pov: string; tag: string; mode: string } | undefined,
+  temperature: undefined as number | undefined,
   setQuestion: () => {}, setFidelity: vi.fn(), setDebaterModel: () => {}, setEvaluatorModel: () => {}, setTagSelection: () => {},
+  setTemperature: vi.fn(),
   resolvedModels: () => ({ debaters: 'd', evaluator: 'e', callBudget: 10 }), startInquiry: async () => {}, openList: () => {},
 }));
 const useInquiryStoreMock = Object.assign(() => store, { getState: () => store });
@@ -25,7 +27,15 @@ vi.mock('../../hooks/useTaxonomyStore/slices/settingsSlice', () => ({
 // t/4770: ModelPicker gets its own test file — stub it here so this file stays focused on the
 // dialog shell, and so it doesn't drag in @bridge (api.refreshAIModels) just to render.
 vi.mock('../shared/ModelPicker', () => ({
-  ModelPicker: ({ model }: { model: string }) => <div>model-picker:{model}</div>,
+  ModelPicker: ({ model, temperature }: { model: string; temperature?: { value: number; onChange: (v: number) => void; hint?: string } }) => (
+    <div>
+      model-picker:{model}
+      {temperature && (
+        <input aria-label="Temperature" type="range" min={0} max={2} step={0.1} value={temperature.value}
+          onChange={(e) => temperature.onChange(parseFloat(e.target.value))} />
+      )}
+    </div>
+  ),
 }));
 vi.mock('./InquiryTagPicker', () => ({
   InquiryTagPicker: () => <div>tag-picker</div>,
@@ -245,5 +255,20 @@ describe('InquiryAskPanel Options disclosure (t/4667 phase 2)', () => {
     expect(screen.getByText('model-picker:d')).toBeInTheDocument();
     expect(screen.queryByLabelText('Debater model')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Evaluator model')).not.toBeInTheDocument();
+  });
+
+  // t/4770/t/4771: the slider was held (no backend field) until t/4771 landed — now reactivated.
+  it('passes the temperature slider to ModelPicker, defaulting to 0.8', async () => {
+    store.temperature = undefined;
+    renderDialog();
+    await userEvent.click(optionsToggle());
+    expect(screen.getByRole('slider', { name: 'Temperature' })).toHaveValue('0.8');
+  });
+
+  it('moving the slider calls setTemperature with the new value', async () => {
+    renderDialog();
+    await userEvent.click(optionsToggle());
+    fireEvent.change(screen.getByRole('slider', { name: 'Temperature' }), { target: { value: '1.3' } });
+    expect(store.setTemperature).toHaveBeenCalledWith(1.3);
   });
 });
