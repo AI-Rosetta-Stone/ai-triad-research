@@ -122,6 +122,7 @@ jobs:
     name: Record base ref (t/3687)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       statuses: write
     steps:
@@ -154,6 +155,7 @@ jobs:
   changes:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       contents: read
       pull-requests: read
@@ -863,6 +865,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # longest green run 5.2m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
       fail-fast: false
       matrix:
@@ -1043,6 +1046,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # longest green run 12.8m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
       fail-fast: false
       matrix:
@@ -1064,11 +1068,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        # p/331#2639: #4545 shard 2 hung here 36+ min with no bound. A normal install takes 16-38s
+        # (27 runs to 2026-11-06). Each attempt is killed after 4 min so a hang is retried like any
+        # other failure; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 15
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --side-effects-cache && break
+            timeout 4m pnpm install --frozen-lockfile --side-effects-cache && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 4 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -1154,6 +1164,7 @@ jobs:
       always() && !cancelled() && needs.test-electron-vitest.result != 'skipped' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1229,6 +1240,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # longest green run 14.8m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1299,6 +1311,7 @@ jobs:
   # inline node -e, now that it parses two separate blocks of ci.yml.
   test-electron-matrix-membership:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - name: Assert test-electron matrix matches package.json build apps and the electron filter (t/3897)
@@ -1321,6 +1334,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1363,6 +1377,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.verify-config == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1463,6 +1478,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       contents: read
       issues: write
@@ -1535,6 +1551,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
       fail-fast: false
       matrix:
@@ -1583,6 +1600,7 @@ jobs:
   # PowerShell-owned script is a tracked fast-follow (t/1692).
   quality-gates:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -1608,6 +1626,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1650,6 +1669,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       contents: read
     steps:
@@ -1668,6 +1688,7 @@ jobs:
   # Annotation-only by design — never flips (t/1319). Visibility, not friction.
   commit-hygiene:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
@@ -1692,6 +1713,7 @@ jobs:
   # predicate's tests fails this job loudly, but never with write access to anything.
   gate-self-health:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       contents: read
     steps:
@@ -1711,6 +1733,7 @@ jobs:
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1766,6 +1789,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.debate == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     env:
       GEMINI_API_KEY: ${{ secrets.FREE_TIER_GEMINI_KEY }}
     steps:
@@ -1809,6 +1833,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
@@ -1848,6 +1873,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema-drift == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1911,6 +1937,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # longest green run 13.0m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2080,6 +2107,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     env:
       PYTHONUTF8: '1'
     steps:
@@ -2152,6 +2180,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     # PYTHONUTF8=1: PEP 540 UTF-8 Mode — forces UTF-8 for stdio AND open() on win32.
     # Recurring 7× on the win32 fleet for non-ASCII (em-dashes, arrows, etc.) — t/2046.
     # Harmless on Linux (already UTF-8) but keeps CI/local behaviour uniform.
@@ -2215,6 +2244,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lockfile-sync == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
@@ -2241,6 +2271,7 @@ jobs:
        needs.changes.outputs.container == 'true' ||
        needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
@@ -2264,6 +2295,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2348,6 +2380,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.embeddings == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2421,6 +2454,7 @@ jobs:
     needs: [changes]
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # longest green run 7.7m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Lint workflow YAML files
@@ -2443,6 +2477,7 @@ jobs:
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
     continue-on-error: true
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Check paths-filter coverage of declared test read-sets
@@ -2463,6 +2498,7 @@ jobs:
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
     continue-on-error: true
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -2487,6 +2523,7 @@ jobs:
     needs: [changes]
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -2575,6 +2612,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-env == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2596,6 +2634,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.env-bicep-wiring == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2615,6 +2654,7 @@ jobs:
   code-root-allowlist:
     if: always() && !cancelled()
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -2645,6 +2685,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-resources == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2666,6 +2707,7 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.citation-link-ci == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -2997,6 +3039,7 @@ jobs:
     needs: [changes]
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Run F4 shim test
@@ -3032,6 +3075,7 @@ jobs:
       contents: read
       pull-requests: write  # t/4368: posts a PR comment only when a shared-input gap is found
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - name: Report gated job results
         run: echo "gated results -> ${{ join(needs.*.result, ' ') }}"
@@ -3197,6 +3241,7 @@ jobs:
     if: github.event_name == 'merge_group'
     needs: [ci-gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       pull-requests: read
     steps:
@@ -3223,6 +3268,7 @@ jobs:
     if: github.event_name == 'merge_group'
     needs: [ci-gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
       pull-requests: read
     steps:

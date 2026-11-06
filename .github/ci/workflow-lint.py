@@ -702,6 +702,39 @@ def check_alert_label(path, content):
     return findings
 
 
+# ── Job timeouts (TL p/331#2639) ───────────────────────────────────────────────
+# A job with no `timeout-minutes` runs for GitHub's 6-hour default when a step hangs, and only
+# the PI can cancel runs. #4545's test-electron-vitest shard hung 36+ min in "Install
+# dependencies" with no bound. Scope is TIMEOUT_REQUIRED_FILES (the PR gate); other workflows
+# carry the same gap and are not linted yet. WARN-ONLY until a promotion PR (same discipline as
+# the t/3646 and t/4414 arms): making a lint blocking is its own T2 step.
+TIMEOUT_REQUIRED_FILES = ('.github/workflows/ci.yml',)
+
+
+def check_job_timeouts(path, content):
+    """One finding per job under `jobs:` that has no job-level `timeout-minutes`. A job that
+    calls a reusable workflow (job-level `uses:`) is exempt: GitHub rejects timeout-minutes there."""
+    lines = content.splitlines()
+    jobs_idx = _find_key(lines, 'jobs', 0)
+    if jobs_idx < 0:
+        return []
+    jobs_end = _block_end(lines, jobs_idx, 0)
+    job_re = re.compile(r'^  ([A-Za-z0-9_-]+)\s*:')
+    findings = []
+    for i in range(jobs_idx + 1, jobs_end):
+        m = job_re.match(lines[i])
+        if not m:
+            continue
+        end = _block_end(lines, i, 2)
+        if _find_key(lines, 'uses', 4, i + 1, end) >= 0:
+            continue
+        if _find_key(lines, 'timeout-minutes', 4, i + 1, end) < 0:
+            findings.append(f'{path}:{i + 1}: job "{m.group(1)}" has no `timeout-minutes` — a hung step '
+                            f'runs for GitHub\'s 6h default and only the PI can cancel it. Set one '
+                            f'(about 2x the job\'s longest green run, minimum 10).')
+    return findings
+
+
 def self_test():
     """Verify that both uses: syntax forms and run: forms are correctly detected."""
     print('=== workflow-lint self-test ===')
@@ -1383,6 +1416,37 @@ jobs:
     else:
         print('  PASS: check_alert_label honors a lint:alert-label-exempt comment anywhere in the same script: block')
 
+    # Job timeouts (TL p/331#2639): both arms of check_job_timeouts.
+    fixture_timeouts = """\
+jobs:
+  bounded:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo ok
+  unbounded:
+    runs-on: ubuntu-latest
+    # timeout-minutes: 10   (a comment does not count)
+    strategy:
+      matrix:
+        shard: [1, 2]
+    steps:
+      - run: echo ok
+        timeout-minutes: 5
+  reusable:
+    uses: ./.github/workflows/other.yml
+"""
+    findings = check_job_timeouts('fixture_timeouts', fixture_timeouts)
+    flagged = [f for f in findings if 'job "unbounded"' in f]
+    if len(findings) != 1 or not flagged:
+        failures.append(f'check_job_timeouts expected exactly one finding for "unbounded" (step-level timeout and a comment do not count; "bounded" and the reusable "uses:" job are exempt), got {findings}')
+    else:
+        print('  PASS: check_job_timeouts flags a job with no job-level timeout-minutes, and only that job')
+    if check_job_timeouts('fixture_no_jobs', 'on: push\n'):
+        failures.append('check_job_timeouts flagged a file with no jobs: block')
+    else:
+        print('  PASS: check_job_timeouts is silent on a file with no jobs: block')
+
     if failures:
         for f in failures:
             print(f'  FAIL: {f}')
@@ -1468,6 +1532,15 @@ for _path in workflows:
     with open(_path, encoding='utf-8') as _f:
         alert_label_warnings.extend(check_alert_label(_path, _f.read()))
 
+# Job timeouts (TL p/331#2639): WARN-ONLY, same promotion discipline as rc_warnings above.
+timeout_warnings = []
+for _path in TIMEOUT_REQUIRED_FILES:
+    if not _os.path.exists(_path):
+        errors.append(f'{_path}: job-timeout check names a workflow file that does not exist (the check would silently not run)')
+        continue
+    with open(_path, encoding='utf-8') as _f:
+        timeout_warnings.extend(check_job_timeouts(_path, _f.read()))
+
 print(f'=== workflow-lint: {len(workflows)} workflows checked ===')
 for e in errors:
     print(f'FAIL: {e}')
@@ -1475,6 +1548,8 @@ for w in rc_warnings:
     print(f'::warning::workflow-lint[required-context warn-only, t/3646]: {w}')
 for w in alert_label_warnings:
     print(f'::warning::workflow-lint[alert-label warn-only, t/4414]: {w}')
+for w in timeout_warnings:
+    print(f'::warning::workflow-lint[job-timeout warn-only, p/331#2639]: {w}')
 
 if errors:
     print(f'\n::error::workflow-lint: {len(errors)} violation(s) — see output above')
@@ -1484,4 +1559,6 @@ if rc_warnings:
     print(f'\nworkflow-lint: {len(rc_warnings)} required-context WARNING(s) — warn-only (t/3646), not blocking yet')
 if alert_label_warnings:
     print(f'\nworkflow-lint: {len(alert_label_warnings)} alert-label WARNING(s) — warn-only (t/4414), not blocking yet')
+if timeout_warnings:
+    print(f'\nworkflow-lint: {len(timeout_warnings)} job-timeout WARNING(s) — warn-only, not blocking yet')
 print('OK — 0 blocking violations')
