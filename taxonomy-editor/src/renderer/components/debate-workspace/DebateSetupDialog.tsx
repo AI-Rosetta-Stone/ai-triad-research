@@ -35,9 +35,11 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 export function DebateSetupDialog({
   activeDebate,
   onClose,
+  title = 'Debate Setup',
 }: {
   activeDebate: ActiveDebateSession;
   onClose: () => void;
+  title?: string;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -114,7 +116,7 @@ export function DebateSetupDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="dsd-header">
-          <h3 id="dsd-title" style={{ margin: 0 }}>Debate Setup</h3>
+          <h3 id="dsd-title" style={{ margin: 0 }}>{title}</h3>
           <button ref={closeRef} className="debate-inspect-close" onClick={onClose} aria-label="Close">
             &times;
           </button>
