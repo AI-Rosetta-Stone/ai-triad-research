@@ -781,7 +781,7 @@ export function registerTaxonomyHandlers(): void {
     // a 1-line filter duplicated in 2 files doesn't need its own abstraction.
     const povNodes = (povFile?.nodes ?? []).filter(n => !n.superseded_by);
     const sitFile = readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
-    const situationNodes = sitFile?.nodes ?? [];
+    const situationNodes = (sitFile?.nodes ?? []).filter(n => !n.superseded_by);
     const policyRaw = readPolicyRegistry() as { policies?: { id: string; action: string; source_povs?: string[] }[] } | null;
     const policyRegistry = (policyRaw?.policies ?? []).map(p => ({ id: p.id, action: p.action, source_povs: p.source_povs }));
     const lineageRaw = readLineageCategories() as { mapping?: Record<string, { l2: string }> } | null;
@@ -845,7 +845,7 @@ export function registerTaxonomyHandlers(): void {
     // is T1, and a 1-line filter duplicated in 2 files doesn't need its own abstraction.
     const povNodes = (povFile?.nodes ?? []).filter(n => !n.superseded_by);
     const sitFile = readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
-    const situationNodes = sitFile?.nodes ?? [];
+    const situationNodes = (sitFile?.nodes ?? []).filter(n => !n.superseded_by);
     const synthRaw = loadSyntheticEmbeddings();
     const synth: Record<string, number[][]> | null = synthRaw
       ? Object.fromEntries(Object.entries(synthRaw).map(([id, e]) => [id, e.vectors]))
