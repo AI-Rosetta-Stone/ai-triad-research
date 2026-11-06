@@ -232,7 +232,10 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       const jobId = param(req, 'jobId', '/api/inquiry/:jobId');
       if (rejectUnsafeJobId(res, jobId)) return;
       const title = (body as Record<string, unknown> | undefined)?.title;
-      if (typeof title !== 'string' || title.trim().length === 0 || title.length > 200) {
+      // t/4897 (Quality review t/4897#4): check the TRIMMED length, matching the store's own
+      // check — a 199-char title with surrounding whitespace was being rejected here even
+      // though renameInquiryResult would have accepted it.
+      if (typeof title !== 'string' || title.trim().length === 0 || title.trim().length > 200) {
         error(res, 'Invalid title: must be a non-empty string of at most 200 characters', 400);
         return;
       }
@@ -247,7 +250,9 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
         type: 'system.error', component: 'inquiry', level: 'error', message: 'PATCH /api/inquiry/:jobId failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      // t/4897 (Quality review t/4897#4): pass the store's own status code through (404 on a
+      // delete race, 400 on validation) instead of flattening every ActionableError to 500.
+      error(res, String(err), (err as { statusCode?: number }).statusCode ?? 500, err);
     }
   });
 
@@ -279,7 +284,9 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
         type: 'system.error', component: 'inquiry', level: 'error', message: 'DELETE /api/inquiry/:jobId failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      // t/4897 (Quality review t/4897#4): pass the store's own status code through (404 on a
+      // delete race) instead of flattening every ActionableError to 500.
+      error(res, String(err), (err as { statusCode?: number }).statusCode ?? 500, err);
     }
   });
 

@@ -39,7 +39,7 @@ vi.mock('../routes/generationContext.js', () => ({
 vi.mock('../ai/aiBackends.js', () => ({ isRegisteredModel: () => h.registered }));
 const startInquiryJob = vi.fn((args: { userId: string }) => { const jobId = 'job-new'; h.jobById.set(jobId, { jobId, status: 'queued' }); return { jobId, userId: args.userId, status: 'queued', progressPct: 0, resultId: null, error: null }; });
 const dropInquiryJob = vi.fn((jobId: string) => { h.jobById.delete(jobId); });
-vi.mock('../inquiryJobs.js', () => ({
+vi.mock('../inquiryJobs.js', async () => ({
   MAX_CONCURRENT_INQUIRY_JOBS: 1,
   INQUIRY_BOOT_ID: 'boot-test',
   startInquiryJob: (args: { userId: string }) => startInquiryJob(args),
@@ -57,8 +57,10 @@ vi.mock('../inquiryJobs.js', () => ({
     if (h.markStaleReturn === 'live') return { verdict: 'live' as const, record: { jobId: _jobId, userId: 'alice', bootId: 'boot-x', status: 'debating', lastHeartbeatAt: new Date().toISOString(), resultId: null, error: null, debateId: null, startedAt: Date.now() - 5_000 } };
     return null;
   },
-  // t/4897: terminal = everything except the in-flight statuses.
-  isTerminalStatus: (status: string) => !['queued', 'debating', 'evaluating'].includes(status),
+  // t/4897 (Quality review t/4897#4): use the REAL classifier, not a hand-rolled status
+  // list — a hand-rolled list can drift from lib/inquiry/jobStatus.ts and silently let the
+  // 409-while-running test pass even if the route started checking only 'debating'.
+  isTerminalStatus: (await vi.importActual<typeof import('../../../../lib/inquiry/index.js')>('../../../../lib/inquiry/index.js')).isTerminalStatus,
   dropInquiryJob: (jobId: string) => dropInquiryJob(jobId),
 }));
 const renameInquiryResult = vi.fn(async (jobId: string, title: string) => { h.persisted.set(jobId, { ...(h.persisted.get(jobId) as object ?? {}), title }); });
@@ -388,8 +390,10 @@ describe('t/4897 — DELETE /api/inquiry/:jobId', () => {
     expect(deleteInquiryResult).not.toHaveBeenCalled();
   });
 
-  it('409 while the job is still running', async () => {
-    h.jobById.set('job-1', { jobId: 'job-1', userId: 'alice', status: 'debating' });
+  // t/4897 (Quality review t/4897#4): every real in-flight status, not just 'debating' — a
+  // route that regressed to checking only one status would still pass a single-status test.
+  it.each(['queued', 'grounding', 'debating', 'judging', 'synthesizing'])('409 while the job is still running (status: %s)', async (status) => {
+    h.jobById.set('job-1', { jobId: 'job-1', userId: 'alice', status });
     const r = res(); await del()(req('/api/inquiry/job-1'), r, undefined);
     expect(r.statusCode).toBe(409);
     expect(deleteInquiryResult).not.toHaveBeenCalled();
