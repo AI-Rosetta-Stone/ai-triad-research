@@ -35,7 +35,7 @@ Ordered by expected return per hour of work. Each item names an owner role and a
 
 ### A. Always-on context diet (TL, T1)
 
-- Extend `docs/agent-instruction-budgets.json` and the ratchet script to the overlay-repo `AGENTS.md` files. Run the check in the `ogit` pre-commit hook since CI cannot see those files. Seed each at current size, then cut the five largest by 30 percent.
+- The overlay-repo `AGENTS.md` files already have a budget file (`.orca/agent-instruction-budgets.json`, t/4329) and a checker (`operations/devops/worker/agents-md-overlay-budget.mjs`). Re-seed it after each cut and run it from an overlay post-commit hook. The hook added on 2026-11-06 lives in the unversioned `.orca-git/hooks/`, so DevOps should version it. Cut the five largest files by 30 percent.
 - Factor the 18 `## Scope`, 17 `## Conventions` and 9 `## Testing` sections. Anything repeated across role files moves to one shared doc that roles reference by path.
 - Shorten the `feedback-rule-drift-check` and `skill-drift-check` skill descriptions to one line each. Their bodies carry the detail and load only when invoked.
 - Scope `electron-mcp` to the taxonomy-editor roles in the overlay config instead of the workspace root.
@@ -43,7 +43,7 @@ Ordered by expected return per hour of work. Each item names an owner role and a
 
 ### B. Filesystem and search hygiene (DevOps, T0)
 
-- Remove merged worktrees weekly: `git worktree prune` plus deletion of any `.worktrees/<name>` whose branch is merged. Add it to `docs/maintenance-schedule.md`.
+- Remove merged worktrees weekly: `git worktree prune` plus deletion of any clean `.worktrees/<name>` whose branch has a merged PR. Squash merges defeat `git branch --merged`, so check `gh pr list --state merged --head <branch>` instead. The first run on 2026-11-06 removed 2 of 89 for this reason. Recorded in `docs/maintenance-schedule.md`.
 - Confirm `.worktrees/` and `.claude/worktrees/` are in `.gitignore` so ripgrep skips them, and add a `.rgignore` at the root covering `node_modules`, `build`, `tmp`, `citeonly-logs`, `taxonomy-snapshot`.
 - Move the root `taxonomy-proposal-pass-*.json`, `taxonomy-proposal-session.json` and experiment files into `tmp/` or `docs/archive/`, and the `.pptx` decks into `docs/`.
 
@@ -88,7 +88,28 @@ Ordered by expected return per hour of work. Each item names an owner role and a
 
 The target is a 35 percent reduction in tokens per merged PR by the end of week 4. If week-2 measurement shows under 10 percent from A to C and E, stop and re-examine the baseline before spending on D and F.
 
-## 5. Decisions reserved for the PI
+## 5. Status as of 2026-11-06
+
+Landed the same day the plan was written, by Main subagents on the models the instructions doc assigns.
+
+| Item | Where |
+|---|---|
+| Plan and per-agent instructions | PR #4625 |
+| B: search ignore list, root clutter, prune schedule, telemetry setup doc | PR #4626 |
+| D: lessons index generator, `docs/lessons/INDEX.md`, summary blocks | PR #4627 |
+| F: Tech Lead rules moved to `docs/tl-*.md`, file cut 1,792 to 1,247 words, tiered fan-out | PR #4629 and overlay commit `f813cfe` |
+| C: `test:agent`, Pester minimal output, `--log-failed` rule | PR #4631 |
+| A and G: Tokens block in all 35 role files, 35 `LAST_SESSION.md` files, overlay budgets re-seeded | overlay commits `dec819a` through `e1a09bf` |
+
+Still open, each blocked on an Orca-launched agent or the PI:
+
+- Model and effort changes (instructions doc section 2). Ready as Orca MCP calls and a YAML patch in the authoring session's scratchpad. Orca write tools refuse a plain Claude Code session.
+- E: the ping-length feedback rule, same blocker.
+- Skill description trims for the two drift-check skills, same blocker.
+- OpenTelemetry token export, which needs `.claude/settings.json` (`docs/token-telemetry-setup.md`).
+- Physical split of `docs/LessonsLearned.md`, deferred to Sage.
+
+## 6. Decisions reserved for the PI
 
 - Model routing by role is a spending decision. The workspace default is `claude-sonnet-4-6`, Main runs `claude-opus-4-8`. This plan does not change either.
 - Deleting or archiving anything in `docs/archive/` or the data repo is out of scope.
