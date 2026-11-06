@@ -5,6 +5,7 @@ import { useState } from 'react';
 import './ApiKeyDialog.css';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useDialog } from '../shared/useDialog'; // t/4909
 
 interface ApiKeyDialogProps {
   onClose: () => void;
@@ -14,6 +15,9 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // t/4909: the overlay click here has no `!saving` guard today (unlike ChatBulkDeleteDialog's
+  // destructive confirm) — mirroring that, Esc stays enabled too, for the same behavior either way.
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose });
 
   const handleSave = async () => {
     if (!key.trim()) return;
@@ -38,8 +42,8 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Configure API Key</h3>
+      <div ref={dialogRef} className="dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <h3 id={titleId}>Configure API Key</h3>
         <p>
           Semantic search uses the Gemini gemini-embedding-001 model.
           Enter your Google Gemini API key below. Your key is stored securely — how it&apos;s

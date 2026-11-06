@@ -7,6 +7,7 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { triggerManualDump } from '../../lib/flightRecorderInit';
+import { useDialog } from './useDialog'; // t/4909
 import './FeedbackPopover.css';
 
 type FeedbackCategory = 'bug' | 'feature_request' | 'confusing' | 'general';
@@ -109,19 +110,13 @@ export function FeedbackPopover({ onClose }: FeedbackPopoverProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [rating, submit, onClose]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (rating) {
-          void submit(rating);
-        } else {
-          onClose();
-        }
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [rating, submit, onClose]);
+  // t/4909: role/aria-modal/aria-labelledby + Tab trap via the shared hook, reusing the existing
+  // popoverRef. Esc keeps its pre-existing submit-if-rated behavior (not a plain cancel) — the
+  // outside-mousedown-click handler above is a different, pre-existing mechanism and unchanged.
+  const { titleId } = useDialog({
+    onCancel: () => { if (rating) void submit(rating); else onClose(); },
+    dialogRef: popoverRef,
+  });
 
   const handleRating = (r: 'up' | 'down') => {
     setRating(r);
@@ -134,16 +129,16 @@ export function FeedbackPopover({ onClose }: FeedbackPopoverProps) {
 
   if (step === 'submitted') {
     return (
-      <div className="feedback-popover-toolbar" ref={popoverRef}>
-        <div className="feedback-popover-title">Feedback sent — thanks!</div>
+      <div className="feedback-popover-toolbar" ref={popoverRef} role="dialog" aria-modal aria-labelledby={titleId}>
+        <div className="feedback-popover-title" id={titleId}>Feedback sent — thanks!</div>
       </div>
     );
   }
 
   if (step === 'cooldown') {
     return (
-      <div className="feedback-popover-toolbar" ref={popoverRef}>
-        <div className="feedback-popover-title">
+      <div className="feedback-popover-toolbar" ref={popoverRef} role="dialog" aria-modal aria-labelledby={titleId}>
+        <div className="feedback-popover-title" id={titleId}>
           Thanks! You can send more in {cooldownRemaining}s
         </div>
       </div>
@@ -153,10 +148,10 @@ export function FeedbackPopover({ onClose }: FeedbackPopoverProps) {
   const handleDumpFR = () => { void triggerManualDump(); };
 
   return (
-    <div className="feedback-popover-toolbar" ref={popoverRef}>
+    <div className="feedback-popover-toolbar" ref={popoverRef} role="dialog" aria-modal aria-labelledby={titleId}>
       {step === 'rating' && (
         <>
-          <div className="feedback-popover-title">How&apos;s your experience?</div>
+          <div className="feedback-popover-title" id={titleId}>How&apos;s your experience?</div>
           <div className="feedback-rating-row">
             <button className="feedback-rating-btn" onClick={() => handleRating('up')} aria-label="Thumbs up">
               <span className="feedback-thumb">&#x1F44D;</span>
@@ -180,7 +175,7 @@ export function FeedbackPopover({ onClose }: FeedbackPopoverProps) {
       )}
       {step === 'text' && (
         <>
-          <div className="feedback-popover-title">Thanks! Anything else?</div>
+          <div className="feedback-popover-title" id={titleId}>Thanks! Anything else?</div>
           <textarea
             className="feedback-textarea"
             rows={3}
