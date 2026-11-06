@@ -2,7 +2,9 @@
   "name": "ai-triad-research",
   "dockerComposeFile": "../compose.yaml",
   "service": "app",
-  "overrideCommand": true,
+  // false: use compose.yaml's own command (bootstrap + sleep infinity), so
+  // Codespaces/VS Code bootstraps the same way plain `docker compose up` does.
+  "overrideCommand": false,
   "workspaceFolder": "/workspaces/ai-triad-research",
   "runServices": ["neo4j"],
   "forwardPorts": [5173, 5174, 5175, 7862, 7474],
@@ -22,7 +24,6 @@
   "remoteEnv": {
     "AUTH_DISABLED": "1"
   },
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
       "extensions": [

@@ -8,7 +8,11 @@ services:
       context: .
       dockerfile: Dockerfile
     init: true
-    command: sleep infinity
+    # Bootstrap runs on every container start (not just creation) so a plain
+    # `docker compose up` matches README.md's documented behavior. A failed
+    # bootstrap logs to stderr and the container stays up for debugging
+    # (`docker compose exec app bash`) instead of exiting and looping restarts.
+    command: bash -c "./scripts/dev-bootstrap.sh || echo FAILED >&2; sleep infinity"
     volumes:
       - .:/workspaces/ai-triad-research:cached
       - ../ai-triad-data/:/workspaces/ai-triad-data:cached
