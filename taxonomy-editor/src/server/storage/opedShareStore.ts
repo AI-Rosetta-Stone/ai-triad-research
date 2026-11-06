@@ -261,6 +261,27 @@ export async function publishOpedShare(setId: string): Promise<{ shareId: string
 }
 
 /**
+ * Refresh an EXISTING public share's projection in place (t/4927) — e.g. after a rename, so
+ * the public copy's topic isn't left stale. Same shareId, same URL; never mints one. Returns
+ * false (no-op) if the set isn't shared, which is the "never creates a share" contract —
+ * callers must NOT fall back to `publishOpedShare` on a false return.
+ */
+export async function refreshOpedShareIfShared(setId: string): Promise<boolean> {
+  assertSafeId(setId, 'oped-set id');
+  if (isAnonymousUser()) return false;
+  const reg = await readShareRegistry();
+  const shareId = reg[setId];
+  if (!shareId) return false;
+  const set = (await loadOpedSet(setId)) as OpEdSet | null;
+  if (!set) return false; // defensive; caller already has the set at this point
+  await getUserContentBackend().writeFile(
+    publicOpedPath(shareId),
+    JSON.stringify(await projectPublicOpEd(set, shareId), null, 2),
+  );
+  return true;
+}
+
+/**
  * Un-share (owner-only — the registry is owner-scoped): delete the public copy +
  * registry entry. Returns true if a share existed. With the fresh-shareId scheme this
  * is a real revocation — a leaked old link is permanently dead.
