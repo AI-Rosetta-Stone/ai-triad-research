@@ -30,6 +30,7 @@ Codified list of recurring maintenance tasks. Each task has a cadence, owner, an
 | Flight recorder spot check | Tech Lead | Pull a recent flight recorder dump, scan for recurring `system.error` patterns |
 | Calibration drift report | DebateTool | `npx tsx lib/debate/calibrationDriftReport.ts` or `computeDriftReport(readCalibrationLog(dataRoot))` — check 5 quality metrics for sustained degradation (t/1330) |
 | SBOM currency check | Taxonomy Editor agent | `cd taxonomy-editor && npm run licenses && git diff THIRD-PARTY-NOTICES.txt` — commit if changed |
+| Prune merged worktrees | DevOps | `git worktree prune`, then for each `.worktrees/<name>` inside the repo whose branch is merged into `origin/main` and whose `git -C <path> status --porcelain` is empty, run `git worktree remove <path>` (never `--force`). Branches are not deleted. Skip detached-HEAD worktrees, worktrees outside the repo and `.claude/worktrees/` (token-reduction plan 3.B) |
 
 ## Monthly
 
