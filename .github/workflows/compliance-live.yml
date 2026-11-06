@@ -29,6 +29,19 @@ on:
   schedule:
     - cron: '0 6 * * *'  # daily 06:00 UTC
   workflow_dispatch:
+    inputs:
+      # t/4696 live-fire only. Forces the compliance outcome WITHOUT running the check, and
+      # points both arms at a disposable issue (its own label, so the r/30 watchdog never sees
+      # it). The guard step refuses a forced run aimed at the real alarm.
+      livefire_outcome:
+        description: 'Live-fire: force the compliance outcome (none = run the real check)'
+        type: choice
+        options: [none, failure, success]
+        default: none
+      livefire_issue_title:
+        description: 'Live-fire: disposable data-repo issue title (must contain "live-fire")'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -54,10 +67,33 @@ jobs:
         shell: pwsh
         run: Install-Module Pester -Force -Scope CurrentUser
 
+      - name: Live-fire guard and alarm target (t/4696)
+        id: target
+        env:
+          LF_OUTCOME: ${{ inputs.livefire_outcome || 'none' }}
+          LF_TITLE: ${{ inputs.livefire_issue_title }}
+        run: |
+          if [ "$LF_OUTCOME" = "none" ]; then
+            echo "title=BDI decomposition violation" >> "$GITHUB_OUTPUT"
+            echo "label=data-compliance" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$LF_TITLE" in
+            *live-fire*) ;;
+            *) echo "::error::livefire_outcome=$LF_OUTCOME needs a livefire_issue_title containing 'live-fire' (got '$LF_TITLE'). Refusing, so a forced run can never open or close the real data-compliance alarm."; exit 1 ;;
+          esac
+          echo "::warning::LIVE-FIRE run: compliance outcome forced to '$LF_OUTCOME', alarm target is the disposable issue '$LF_TITLE' (label livefire-test). The real check did not run."
+          echo "title=$LF_TITLE" >> "$GITHUB_OUTPUT"
+          echo "label=livefire-test" >> "$GITHUB_OUTPUT"
+
       - name: Run SituationBDI live-data compliance check
         id: compliance
         shell: pwsh
+        env:
+          LF_OUTCOME: ${{ inputs.livefire_outcome || 'none' }}
         run: |
+          if ($env:LF_OUTCOME -eq 'failure') { Write-Host 'LIVE-FIRE: forcing compliance failure'; exit 1 }
+          if ($env:LF_OUTCOME -eq 'success') { Write-Host 'LIVE-FIRE: forcing compliance success'; exit 0 }
           $config = New-PesterConfiguration
           $config.Run.Path = './tests/data-compliance/'
           $config.Output.Verbosity = 'Detailed'
@@ -84,7 +120,7 @@ jobs:
       #
       # CROSS-REPO: the alarm lives in ai-triad-data; this workflow runs in the
       # (busy, auto-disable-immune) code repo — Option A, t/3671#6. It reaches
-      # the data-repo issue via AI_TRIAD_DATA_ALARM_TOKEN: a least-priv,
+      # the data-repo issue via the ai-triad-data-alarm App token (t/4696; was a PAT): least-priv,
       # non-expiring token scoped to ai-triad-data {issues:write, actions:read},
       # NO contents — shared with the t/3672 scheduled-heartbeat monitor. The
       # default GITHUB_TOKEN cannot cross repos.
@@ -94,6 +130,22 @@ jobs:
       # real violation; a failed open would silently drop a real regression. So
       # each arm re-reads the issue state and turns THIS run red with an explicit
       # ::error:: (a distinct signal, surfaced by t/3672) rather than no-oping.
+      # t/4696: the alarm arms authenticate as the `ai-triad-data-alarm` GitHub App (issues:write,
+      # actions:read, installed on ai-triad-data only), not the AI_TRIAD_DATA_ALARM_TOKEN PAT,
+      # which lacked comment/reopen scope (addComment: "Resource not accessible by personal
+      # access token"). Runs whenever either arm will. If minting fails, the arm's own state
+      # re-read still reds the run with an explicit ::error:: (t/3671 cond 1).
+      - name: Mint data-repo alarm token (GitHub App, t/4696)
+        id: alarm-token
+        if: ${{ !cancelled() && (steps.compliance.outcome == 'success' || steps.compliance.outcome == 'failure') }}
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          app-id: ${{ secrets.DATA_ALARM_APP_ID }}
+          private-key: ${{ secrets.DATA_ALARM_APP_PRIVATE_KEY }}
+          owner: AI-Rosetta-Stone
+          repositories: ai-triad-data
+          permission-issues: write
+
       - name: All-clear — close the alarm on green full-corpus pass (CLOSE authority)
         # Gate on the COMPLIANCE STEP's outcome, not job success() (t/3671#8): an earlier
         # infra/token/checkout failure would skip the compliance step → outcome is neither
@@ -101,14 +153,16 @@ jobs:
         # the job still reds loudly on the infra fault. Job-level if: would fire the wrong arm.
         if: steps.compliance.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.AI_TRIAD_DATA_ALARM_TOKEN }}
+          GH_TOKEN: ${{ steps.alarm-token.outputs.token }}
           DATA_REPO: AI-Rosetta-Stone/ai-triad-data
+          ALARM_TITLE: ${{ steps.target.outputs.title }}
+          ALARM_LABEL: ${{ steps.target.outputs.label }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          NUM=$(gh issue list --repo "$DATA_REPO" --label data-compliance --state open \
-            --search "BDI decomposition violation" --json number --jq '.[0].number // empty' 2>/dev/null || echo "QUERY_FAILED")
+          NUM=$(gh issue list --repo "$DATA_REPO" --label "$ALARM_LABEL" --state open \
+            --search "$ALARM_TITLE" --json number --jq '.[0].number // empty' 2>/dev/null || echo "QUERY_FAILED")
           if [ "$NUM" = "QUERY_FAILED" ]; then
-            echo "::error::Could not query the data-compliance alarm in $DATA_REPO — check AI_TRIAD_DATA_ALARM_TOKEN scope/expiry. A failed query must not read as 'nothing to close' (t/3671 cond 1)."
+            echo "::error::Could not query the data-compliance alarm in $DATA_REPO — check the ai-triad-data-alarm App token step (installed on ai-triad-data, issues:write). A failed query must not read as 'nothing to close' (t/3671 cond 1)."
             exit 1
           fi
           if [ -z "$NUM" ]; then
@@ -121,7 +175,7 @@ jobs:
           gh issue close "$NUM" --repo "$DATA_REPO" --reason completed || true
           STATE=$(gh issue view "$NUM" --repo "$DATA_REPO" --json state --jq '.state' 2>/dev/null || echo "VIEW_FAILED")
           if [ "$STATE" != "CLOSED" ]; then
-            echo "::error::Close of alarm #$NUM did NOT take (state=$STATE). The corpus is CLEAN but the all-clear could not be recorded — check AI_TRIAD_DATA_ALARM_TOKEN scope/expiry. This red is a CLOSER failure, NOT a corpus violation."
+            echo "::error::Close of alarm #$NUM did NOT take (state=$STATE). The corpus is CLEAN but the all-clear could not be recorded — check the ai-triad-data-alarm App token step (installed on ai-triad-data, issues:write). This red is a CLOSER failure, NOT a corpus violation."
             exit 1
           fi
           echo "Alarm #$NUM closed."
@@ -135,8 +189,10 @@ jobs:
         # only because a step failed; the outcome check still pins it to the COMPLIANCE step.
         if: failure() && steps.compliance.outcome == 'failure'
         env:
-          GH_TOKEN: ${{ secrets.AI_TRIAD_DATA_ALARM_TOKEN }}
+          GH_TOKEN: ${{ steps.alarm-token.outputs.token }}
           DATA_REPO: AI-Rosetta-Stone/ai-triad-data
+          ALARM_TITLE: ${{ steps.target.outputs.title }}
+          ALARM_LABEL: ${{ steps.target.outputs.label }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           BODY="Scheduled full-corpus SituationBDI check FAILED — the corpus has situation(s) without BDI decomposition.
@@ -144,12 +200,12 @@ jobs:
           **Action (data/situation owner):** find the situations missing per-POV BDI nodes and decompose them, then push. This check closes the alarm automatically once the full corpus passes (442/442). Write-time prevention: t/3011.
 
           Run: $RUN_URL"
-          gh label create "data-compliance" --repo "$DATA_REPO" --color "e4e669" \
+          gh label create "$ALARM_LABEL" --repo "$DATA_REPO" --color "e4e669" \
             --description "Data corpus compliance regression" 2>/dev/null || true
-          NUM=$(gh issue list --repo "$DATA_REPO" --label data-compliance --state all \
-            --search "BDI decomposition violation" --json number --jq '.[0].number // empty' 2>/dev/null || echo "QUERY_FAILED")
+          NUM=$(gh issue list --repo "$DATA_REPO" --label "$ALARM_LABEL" --state all \
+            --search "$ALARM_TITLE" --json number --jq '.[0].number // empty' 2>/dev/null || echo "QUERY_FAILED")
           if [ "$NUM" = "QUERY_FAILED" ]; then
-            echo "::error::Could not query the data-compliance alarm in $DATA_REPO — check AI_TRIAD_DATA_ALARM_TOKEN scope/expiry. A real corpus violation exists but the alarm state is unknown (t/3671 cond 1)."
+            echo "::error::Could not query the data-compliance alarm in $DATA_REPO — check the ai-triad-data-alarm App token step (installed on ai-triad-data, issues:write). A real corpus violation exists but the alarm state is unknown (t/3671 cond 1)."
             exit 1
           fi
           # lint:alert-label-exempt: t/4053 this issue lives in $DATA_REPO, not this repo, so
@@ -160,15 +216,18 @@ jobs:
             gh issue comment "$NUM" --repo "$DATA_REPO" --body "$BODY" || true
             gh issue reopen "$NUM" --repo "$DATA_REPO" 2>/dev/null || true
           else
-            gh issue create --repo "$DATA_REPO" \
-              --title "Data boundary: BDI decomposition violation" \
-              --body "$BODY" --label data-compliance --assignee jpsnover || true
-            NUM=$(gh issue list --repo "$DATA_REPO" --label data-compliance --state open \
-              --search "BDI decomposition violation" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
+            # Take the number from the URL `gh issue create` prints. Re-listing via --search right
+            # after creating returns nothing until the search index catches up, which read a
+            # successfully raised alarm as "could NOT be raised" (t/4696 live-fire run 42239343265).
+            URL=$(gh issue create --repo "$DATA_REPO" \
+              --title "Data boundary: $ALARM_TITLE" \
+              --body "$BODY" --label "$ALARM_LABEL" --assignee jpsnover 2>/dev/null || echo "")
+            NUM="${URL##*/issues/}"
+            case "$NUM" in ''|*[!0-9]*) NUM="" ;; esac
           fi
           STATE=$(gh issue view "$NUM" --repo "$DATA_REPO" --json state --jq '.state' 2>/dev/null || echo "VIEW_FAILED")
           if [ "$STATE" != "OPEN" ]; then
-            echo "::error::Failed to open/reopen the data-compliance alarm in $DATA_REPO (num='$NUM' state=$STATE). A real corpus violation exists but the alarm could NOT be raised — check AI_TRIAD_DATA_ALARM_TOKEN scope/expiry."
+            echo "::error::Failed to open/reopen the data-compliance alarm in $DATA_REPO (num='$NUM' state=$STATE). A real corpus violation exists but the alarm could NOT be raised — check the ai-triad-data-alarm App token step (installed on ai-triad-data, issues:write)."
             exit 1
           fi
           echo "Alarm #$NUM open for the corpus violation."
