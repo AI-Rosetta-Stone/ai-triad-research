@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { findStoreMountsInStage, checkColdStoreLog } from './check-dockerfile-store-mounts.mjs';
+import { findStoreMountsInStage, checkColdStoreLog, decideLogStepOutcome } from './check-dockerfile-store-mounts.mjs';
 
 const MOUNT = 'RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile';
 
@@ -73,4 +73,29 @@ test('log: build step itself CACHED -> inconclusive, never pass (the 42003339839
 
 test('log: missing steps -> inconclusive, never pass', () => {
   assert.equal(checkColdStoreLog('#1 [internal] load build definition\n#1 DONE 0.0s').verdict, 'inconclusive');
+});
+
+// t/4902, p/648#332: a lockfile/manifest-changing PR can never find its install in main's GHA
+// cache, so `inconclusive` there is an expected cache miss, not a regression.
+test('decideLogStepOutcome: pass is always exit 0, no annotation, lockfilePR or not', () => {
+  assert.deepEqual(decideLogStepOutcome('pass', { lockfilePR: true }), { exitCode: 0, level: null });
+  assert.deepEqual(decideLogStepOutcome('pass', { lockfilePR: false }), { exitCode: 0, level: null });
+});
+
+test('decideLogStepOutcome: inconclusive on a lockfile PR -> warning, exit 0 (non-blocking)', () => {
+  assert.deepEqual(decideLogStepOutcome('inconclusive', { lockfilePR: true }), { exitCode: 0, level: 'warning' });
+});
+
+test('decideLogStepOutcome: inconclusive on a non-lockfile PR -> error, exit 1 (blocking, the default)', () => {
+  assert.deepEqual(decideLogStepOutcome('inconclusive', { lockfilePR: false }), { exitCode: 1, level: 'error' });
+});
+
+test('decideLogStepOutcome: fail always blocks, even on a lockfile PR -- the real regression is never downgraded', () => {
+  assert.deepEqual(decideLogStepOutcome('fail', { lockfilePR: true }), { exitCode: 1, level: 'error' });
+  assert.deepEqual(decideLogStepOutcome('fail', { lockfilePR: false }), { exitCode: 1, level: 'error' });
+});
+
+test('decideLogStepOutcome: --advisory still downgrades a blocking verdict\'s annotation to warning (legacy flag, exit code unchanged)', () => {
+  assert.deepEqual(decideLogStepOutcome('inconclusive', { advisory: true, lockfilePR: false }), { exitCode: 1, level: 'warning' });
+  assert.deepEqual(decideLogStepOutcome('fail', { advisory: true, lockfilePR: false }), { exitCode: 1, level: 'warning' });
 });

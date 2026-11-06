@@ -1941,6 +1941,8 @@ jobs:
     timeout-minutes: 30  # longest green run 13.0m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0  # t/4902: the lockfile-PR diff check below needs base-ref history
 
       - name: Free disk space
         run: |
@@ -2046,9 +2048,29 @@ jobs:
       - name: Expose GHA runtime vars for raw buildx cache (t/4902)
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
 
+      - name: Check whether this PR changed the lockfile/manifest (t/4902, p/648#332)
+        # Since t/4883's blocking promotion (#4634), the cold-store checker fails any PR whose
+        # install can't be found in main's GHA cache — which is EVERY PR that bumps a dependency
+        # (Dependabot, security bumps), since the cache is keyed off the lockfile content. That's
+        # an expected cache miss, not a regression: downgrade it to a warning below.
+        id: lockfile_pr
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            BASE_REF="HEAD^"
+          fi
+          if git diff --name-only "$BASE_REF"...HEAD -- '**/pnpm-lock.yaml' pnpm-lock.yaml '**/package.json' package.json pnpm-workspace.yaml | grep -q .; then
+            echo "is_lockfile_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_lockfile_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Warm-layer / cold-store rebuild — licenses (t/4883)
         timeout-minutes: 15
         shell: bash
+        env:
+          LOCKFILE_PR_FLAG: ${{ steps.lockfile_pr.outputs.is_lockfile_pr == 'true' && '--lockfile-pr' || '' }}
         run: |
           set -uo pipefail
           # SO p/682#56 C1: digest-pinned BuildKit image, pulled with retries; exits 3 with a
@@ -2062,7 +2084,7 @@ jobs:
           build_rc=${PIPESTATUS[0]}
           # The checker runs even when the build failed, so the step says WHY (regression vs
           # a run that never exercised the warm-layer path) instead of just "exit 1".
-          node operations/devops/check-dockerfile-store-mounts.mjs log "${RUNNER_TEMP}/coldstore.log"
+          node operations/devops/check-dockerfile-store-mounts.mjs log "${RUNNER_TEMP}/coldstore.log" ${LOCKFILE_PR_FLAG}
           check_rc=$?
           [ "$build_rc" -eq 0 ] && [ "$check_rc" -eq 0 ]
 
