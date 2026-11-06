@@ -503,6 +503,13 @@ function applyLoadedSessionSetup(get: SessionGet, set: SessionSet, session: Deba
   try { api.sendDiagnosticsState({ debate: session, selectedEntry: null }); } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', debate_id: id, component: 'debate-store', level: 'warn', message: `Diagnostics broadcast to popout failed (${caller})`, error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
 }
 
+/** t/4907: spread into every set() that installs or clears a personal session. communityReadOnly
+ *  must not outlive the community debate it was set for (loadDebateFromData is the only path that
+ *  sets it), or the user's own debate stays read-only and its saves are silently dropped. Spread it
+ *  in the same set() as the session swap, never earlier: clearing it while a community debate is
+ *  still shown would make that debate saveable. */
+export const PERSONAL_SESSION_RESET = { communityReadOnly: false } as const;
+
 export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice> = (set, get) => ({
   sessions: [],
   sessionsLoading: false,
@@ -618,7 +625,7 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
       const j = Math.floor(Math.random() * (i + 1));
       [shuffledOrder[i], shuffledOrder[j]] = [shuffledOrder[j], shuffledOrder[i]];
     }
-    set({ activeDebateId: id, activeDebate: session, debateModel: effectiveModel, debateTemperature: debateTemperature ?? null, openingOrder: shuffledOrder });
+    set({ activeDebateId: id, activeDebate: session, ...PERSONAL_SESSION_RESET, debateModel: effectiveModel, debateTemperature: debateTemperature ?? null, openingOrder: shuffledOrder });
     setActiveDebateId(id);
     api.setDebateTemperature(debateTemperature ?? null).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'setDebateTemperature failed (non-critical)', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); });
     await get().loadSessions();
@@ -838,7 +845,7 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
         Object.assign(session, latchUnobservedHistory(session));
         const runId = generateId();
         session.run_id = runId;
-        set({ activeDebateId: id, activeDebate: session, debateLoading: false, debateModel: session.debate_model || null, debateTemperature: session.debate_temperature ?? null, audience: session.audience ?? 'policymakers', openingOrder: session.opening_order ?? [], selectedDiagEntry: null, _lastSyncedVersion: session._saveVersion ?? 0, _lastSyncedSnapshot: structuredClone(session) });
+        set({ activeDebateId: id, activeDebate: session, ...PERSONAL_SESSION_RESET, debateLoading: false, debateModel: session.debate_model || null, debateTemperature: session.debate_temperature ?? null, audience: session.audience ?? 'policymakers', openingOrder: session.opening_order ?? [], selectedDiagEntry: null, _lastSyncedVersion: session._saveVersion ?? 0, _lastSyncedSnapshot: structuredClone(session) });
         setActiveDebateId(id);
         setGapInjectionCount(session.gap_injections?.length ?? 0);
         applyLoadedSessionSetup(get, set, session, 'loadDebate');
@@ -977,7 +984,7 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
       await api.deleteDebateSession(id);
       const { activeDebateId } = get();
       if (activeDebateId === id) {
-        set({ activeDebateId: null, activeDebate: null, debateModel: null });
+        set({ activeDebateId: null, activeDebate: null, ...PERSONAL_SESSION_RESET, debateModel: null });
         setActiveDebateId(null);
         getGlobalRecorder()?.setEventContext({ debate_id: undefined, run_id: undefined, phase: undefined, round: undefined, turn_index: undefined, speaker: undefined });
       }
@@ -1025,7 +1032,7 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
 
   closeDebate: () => {
     const closingId = get().activeDebateId;
-    set({ activeDebateId: null, activeDebate: null, debateError: null, debateWarnings: [], debateGenerating: null, debateModel: null, debateTemperature: null, vocabularyTerms: null });
+    set({ activeDebateId: null, activeDebate: null, ...PERSONAL_SESSION_RESET, debateError: null, debateWarnings: [], debateGenerating: null, debateModel: null, debateTemperature: null, vocabularyTerms: null });
     setActiveDebateId(null);
     api.setDebateTemperature(null).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'setDebateTemperature failed (non-critical)', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); });
     usePromptConfigStore.getState().resetSession();
