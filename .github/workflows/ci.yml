@@ -2024,26 +2024,29 @@ jobs:
           load: true
           tags: ai-triad-test:ci
 
-      # t/4883 / t/4902 — cheaper cold-store rebuild using GHA cache instead of local export.
+      # t/4883 / t/4902 — cheaper cold-store rebuild: seeding from GHA cache instead of local export.
       # A NEW builder starts with empty BuildKit cache mounts (the cold pnpm store), seeded from
       # GHA's shared-docker cache (main branch's accumulated layer history). A different BUILD_SHA
       # (ARG declared after the installs) keeps the builder `pnpm install` CACHED but forces
       # build:container + licenses to execute. The checker passes only on exactly that shape;
       # a fully cached or fresh-install log is "inconclusive", never a pass.
       #
-      # Trade-off (t/4902): a PR that changes a lockfile won't find its install in main's cache,
-      # so the run reads INCONCLUSIVE (a warning only, never a failure). On a non-lockfile PR,
-      # cost is ~70-90s (down from 187s with local export). Cost reduction from dropping the
-      # pre-rebuild export step (which was re-cached, hence cheap, but still a full image export).
+      # Expected cost: ~70-90s (down from 187s baseline with local export). Benefit comes from
+      # eliminating the pre-rebuild docker buildx build --cache-to type=local export step that
+      # re-exported the whole build's layer cache (cheap on layer hits, but still non-zero for
+      # full-image export). GHA cache is keyed per scope + base ref, so lockfile-changing PRs
+      # miss main's cache (read inconclusive, a warning only).
       #
       # BLOCKING (t/4883 T2 promotion): ran advisory (continue-on-error, ::warning::) and gave
       # 11 real PASS verdicts on 9+ distinct SHAs with zero false failures (t/4883#6, #7) before
       # this flip. A non-pass verdict, including inconclusive, now fails test-container.
-      - name: Warm-layer / cold-store rebuild — licenses (t/4902)
+      - name: Warm-layer / cold-store rebuild — licenses (t/4883)
         timeout-minutes: 15
         shell: bash
         env:
           ACTIONS_RUNTIME_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_RUNTIME_URL: ${{ env.GITHUB_SERVER_URL }}/
+          ACTIONS_CACHE_URL: ${{ env.GITHUB_SERVER_URL }}/
         run: |
           set -uo pipefail
           # SO p/682#56 C1: digest-pinned BuildKit image, pulled with retries; exits 3 with a
@@ -2052,7 +2055,7 @@ jobs:
           docker buildx build --builder coldstore --progress=plain \
             --target builder \
             --cache-from type=gha,scope=shared-docker \
-            --build-arg "BUILD_SHA=t4902-coldstore-${GITHUB_RUN_ID}" \
+            --build-arg "BUILD_SHA=t4883-coldstore-${GITHUB_RUN_ID}" \
             -f taxonomy-editor/Dockerfile . 2>&1 | tee "${RUNNER_TEMP}/coldstore.log"
           build_rc=${PIPESTATUS[0]}
           # The checker runs even when the build failed, so the step says WHY (regression vs
