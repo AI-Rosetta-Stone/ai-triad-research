@@ -15,7 +15,7 @@
 // makes the shape ⟷ matrix cross-check exact, which is worth more than a flatter artifact.
 
 import { z } from 'zod';
-import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
+import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, inquiryDisplayTitle, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
 import { PovNameSchema, type PovName } from '../schema/povTags.js';
 import { TRUNCATION_REASONS } from './jobStatus.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
@@ -226,7 +226,8 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       fidelity: result.request.fidelity,
       ...(result.request.tagSelection ? { tagSelection: publicTagSelection(result.request.tagSelection) } : {}),
       ...(result.request.temperature !== undefined ? { temperature: result.request.temperature } : {}),
-      ...(result.request.title !== undefined ? { title: result.request.title } : {}),
+      // Display title (t/4891#3): a renamed Question is shared under its new name; omitted when it is the question.
+      ...(inquiryDisplayTitle(result) !== result.request.question ? { title: inquiryDisplayTitle(result) } : {}),
     },
     campVerdicts: result.campVerdicts.map((cv) => ({ camp: cv.camp, verdict: cv.verdict, nodes: cv.nodes.map(publicNode) })),
     convergences: result.convergences.map((c) => ({ claim: truncateExcerpt(c.claim), nodes: c.nodes.map(publicNode) })),

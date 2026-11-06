@@ -19,11 +19,12 @@ import type {
   CampVerdict,
   CalibrationEntry,
 } from './schema.js';
+import { inquiryDisplayTitle } from './schema.js';
 import { deriveTruncation } from './jobStatus.js';
 import { loadPovTagRegistry, type PovName } from '../schema/povTags.js';
 
 export interface InquiryExportOptions {
-  /** Display title; defaults to the inquiry question. */
+  /** Display title; defaults to `inquiryDisplayTitle(result)` (title, else the question). */
   title?: string;
   /** ISO timestamp stamped into the export; defaults to now. Injectable for deterministic tests. */
   exportedAt?: string;
@@ -48,7 +49,7 @@ function campLabel(camp: Camp): string {
 }
 
 function resolvedTitle(result: InquiryResult, opts?: InquiryExportOptions): string {
-  return opts?.title || result.request?.question || 'Untitled Inquiry';
+  return opts?.title || (result.request ? inquiryDisplayTitle(result) : result.title) || 'Untitled Inquiry';
 }
 
 function resolvedDate(opts?: InquiryExportOptions): Date {

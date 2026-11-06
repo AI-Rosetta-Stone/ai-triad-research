@@ -113,8 +113,13 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
     export: I(EXPORT_FULL),
   },
   'request.title': {
-    'public-share': I('Optional display title for the inquiry — when present, it labels the artifact; when absent, the question is used. User-provided metadata, not sensitive.'),
+    'public-share': I('The share\'s display title: toPublicInquiryShare fills it from inquiryDisplayTitle (renamed title, else this field), omitted when that is just the question (t/4891#3). User-provided metadata, not sensitive.'),
     community: I('Optional inquiry title; comparable to existing community metadata.'),
+    export: I(EXPORT_FULL),
+  },
+  title: {
+    'public-share': X('Not a separate share field: the projector folds the renamed title into the share\'s request.title via inquiryDisplayTitle (t/4891#3), so it is shared under its new name without a second title path.'),
+    community: I('User-assigned display name (rename, t/4892); comparable to request.title metadata.'),
     export: I(EXPORT_FULL),
   },
 
