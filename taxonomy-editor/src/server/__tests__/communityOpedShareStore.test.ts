@@ -19,12 +19,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mocks (hoisted before imports) ──
 
-const { mockWriteFile, mockDeleteFile, mockReadFile, mockReadTaxonomyFile, serverWarn } = vi.hoisted(() => ({
+const { mockWriteFile, mockDeleteFile, mockReadFile, mockReadTaxonomyFile, serverWarn, mockRecord } = vi.hoisted(() => ({
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
   mockDeleteFile: vi.fn().mockResolvedValue(undefined),
   mockReadFile: vi.fn().mockResolvedValue(null),
   mockReadTaxonomyFile: vi.fn().mockResolvedValue({ nodes: [] }),
   serverWarn: vi.fn(),
+  mockRecord: vi.fn(),
 }));
 
 vi.mock('../storage/fileIO.js', () => ({
@@ -47,7 +48,7 @@ vi.mock('../config.js', () => ({
 }));
 
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({
-  getGlobalRecorder: vi.fn().mockReturnValue(null),
+  getGlobalRecorder: vi.fn().mockReturnValue({ record: mockRecord }),
 }));
 
 vi.mock('../logger.js', () => ({
@@ -102,6 +103,7 @@ describe('communityOpedShareStore (t/3315)', () => {
   beforeEach(() => {
     mockWriteFile.mockClear();
     mockDeleteFile.mockClear();
+    mockRecord.mockClear();
   });
 
   // ─── TL condition 1: LOAD-BEARING NEGATIVE test ───────────────────────────
@@ -183,5 +185,17 @@ describe('communityOpedShareStore (t/3315)', () => {
     mockDeleteFile.mockRejectedValueOnce(new Error('file not found'));
     await expect(deletePublicCommunityOpEd('share-to-revoke')).resolves.toBeUndefined();
     expect(mockDeleteFile).toHaveBeenCalledOnce();
+  });
+
+  // t/4894 security-review finding: a genuine delete failure (not "already absent") used to be
+  // swallowed with zero trace, so GET /api/public/oped/:shareId could keep serving removed
+  // content indefinitely with nothing anywhere recording that cleanup needs retrying.
+  it('(7) a genuine delete failure stays best-effort (never throws) but is now recorded as a WARN', async () => {
+    mockDeleteFile.mockRejectedValueOnce(new Error('storage backend unavailable'));
+    await expect(deletePublicCommunityOpEd('share-flaky')).resolves.toBeUndefined();
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'warn',
+      message: expect.stringContaining('share-flaky'),
+    }));
   });
 });

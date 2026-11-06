@@ -12,8 +12,8 @@ import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
 import { getConfig } from '../runtimeConfig.js';
-import { mintCommunityOpedShare, getCommunityOpedShareEntry } from './communityOpedShares.js';
-import { writePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/communityOpedShareStore.js';
+import { mintCommunityOpedShare, getCommunityOpedShareEntry, revokeCommunityOpedShare } from './communityOpedShares.js';
+import { writePublicCommunityOpEd, deletePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/communityOpedShareStore.js';
 import {
   loadInquiryResult, listInquiryResults, saveInquiryResult, type InquiryResultSummary,
 } from '../storage/inquiryResultStore.js';
@@ -23,6 +23,7 @@ import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/in
 import { AppliedTagSchema, loadPovTagRegistry } from '../../../../lib/schema/povTags.js';
 import type { OpEdCommunityEntry } from '../../../../lib/oped/types.js';
 import { AI_POVERS } from '../../../../lib/debate/types.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 
 // ── Paths ──
 
@@ -32,6 +33,7 @@ function communityOpedsDir(): string { return resolveDataPath('community/opeds')
 function communityInquiriesDir(): string { return resolveDataPath('community/inquiries'); }
 function submissionsDir(): string { return resolveDataPath('community/_submissions'); }
 function removalsDir(): string { return resolveDataPath('community/_removals'); }
+function editsDir(): string { return resolveDataPath('community/_edits'); }
 
 // ── Admin (t/4328: SO C1-C3 conditions) ──
 
@@ -422,7 +424,7 @@ export async function listCommunityInquiries(): Promise<unknown[]> {
 }
 
 /** Community type union used by the reader/copy/removal surface (plural, matches published dir names). */
-type CommunityType = 'chats' | 'debates' | 'opeds' | 'inquiries';
+export type CommunityType = 'chats' | 'debates' | 'opeds' | 'inquiries';
 
 /**
  * t/3650 (SO review of t/3621, e/198#3 condition 1): the dir/prefix selection used to be a ternary
@@ -443,6 +445,30 @@ function communityDirAndPrefix(type: CommunityType): { dir: string; prefix: stri
 
 function assertNeverCommunityType(type: never): never {
   throw new Error(`Unhandled community type: ${String(type)}`);
+}
+
+/** t/4894: the display field an admin rename writes, per type (TL-specified: chats/debates/inquiries
+ *  use `title`; opeds use `topic`). Same exhaustive-switch guard as communityDirAndPrefix. */
+function renameFieldFor(type: CommunityType): 'title' | 'topic' {
+  switch (type) {
+    case 'chats': return 'title';
+    case 'debates': return 'title';
+    case 'inquiries': return 'title';
+    case 'opeds': return 'topic';
+    default: return assertNeverCommunityType(type);
+  }
+}
+
+/** Read with a version token usable as writeFile's `baseSha` CAS precondition (t/4187).
+ *  `readFileWithVersion` is optional on StorageBackend (test doubles may omit it); every
+ *  production backend implements it. Falls back to an empty version, matching
+ *  `readFileWithVersionOrFallback` in fileIO.ts (a different module-scoped backend, so not reused directly). */
+async function readCommunityFileWithVersion(
+  backend: StorageBackend, filePath: string,
+): Promise<{ content: string; version: string } | null> {
+  if (backend.readFileWithVersion) return backend.readFileWithVersion(filePath);
+  const content = await backend.readFile(filePath);
+  return content === null ? null : { content, version: '' };
 }
 
 export async function loadCommunityItem(type: CommunityType, id: string): Promise<unknown | null> {
@@ -1037,6 +1063,24 @@ export async function removeCommunityItem(
   const item = parseRemovalItem(raw);
   const removedBy = getStorageUserId();
 
+  // t/4894: revoke the op-ed's public share BEFORE deleting the published file, so an
+  // admin-removed op-ed never keeps a live public link (previously only the unshare route
+  // did this). Best-effort with a WARN — matches deleteOpedSet (t/4892): a failed revoke
+  // still deletes the file rather than blocking the removal.
+  if (type === 'opeds') {
+    try {
+      const removedShare = await revokeCommunityOpedShare(id);
+      if (removedShare) await deletePublicCommunityOpEd(removedShare.shareId);
+    } catch (err) {
+      log.server.warn({ err, id }, 'Community op-ed share revoke failed during removal — public link may remain live (t/4894)');
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'community', level: 'warn',
+        message: 'Community op-ed share revoke failed during removal',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+    }
+  }
+
   // Hard delete the published file, then write the audit record (so the trail
   // reflects a completed removal), then invalidate the cached listing index.
   await backend.deleteFile(filePath);
@@ -1050,4 +1094,173 @@ export async function removeCommunityItem(
   await invalidateListingIndex(backend, dir);
 
   log.server.info({ id, type, removedBy }, 'Community item removed');
+}
+
+export interface RenameCommunityItemOptions {
+  /** Actor's stableId (`github:<id>` / `aad:<tid>-<oid>`), never a display name or email.
+   *  Required: t/4894 TL condition — no audit record without an actor. */
+  by: string;
+  reason?: string;
+}
+
+/** Bounded CAS retry count for a rename's published-file write (t/4894 TL condition 3) — same
+ *  shape as the registry CAS loop in chatShareStore.ts: re-read + retry on a lost race, never
+ *  silently drop one of two concurrent writers. */
+const RENAME_CAS_MAX_ATTEMPTS = 3;
+
+/**
+ * Admin rename of a published community item's display field, with an audit record (t/4894).
+ *
+ * Ordering is load-bearing (TL t/4894#2 condition 2): the audit record is written BEFORE the
+ * published file is touched, so there is never an unaudited admin change. If the audit write
+ * fails, the rename is refused outright (file unchanged). If the audit write succeeds but the
+ * rename itself doesn't land after CAS retries, a SECOND audit record is written with
+ * `outcome: 'failed'` (referencing the first) — the trail never claims a rename that didn't
+ * happen, and the original attempt record is left in place rather than mutated.
+ *
+ * The published-file update uses `baseSha`-conditional writes with a bounded retry (TL
+ * condition 3): two concurrent admin renames never silently lose one — the last write wins,
+ * and both attempts are audited.
+ */
+/** Validates and normalizes the rename inputs, throwing ActionableError on either failure.
+ *  Split out of renameCommunityItem to keep its complexity under budget. */
+function validateRenameInputs(title: string, opts: RenameCommunityItemOptions): { by: string; newTitle: string } {
+  const by = opts.by?.trim();
+  if (!by) {
+    throw new ActionableError({
+      goal: 'Rename a community item',
+      problem: 'No actor (`by`) was provided — an admin rename must be audited to a stableId',
+      location: 'community.ts -> renameCommunityItem',
+      nextSteps: ['Pass the authenticated admin\'s stableId (e.g. github:<id>) as `by`'],
+    });
+  }
+  const newTitle = title.trim();
+  if (!newTitle || newTitle.length > 200) {
+    throw new ActionableError({
+      goal: 'Rename a community item',
+      problem: `Title must be 1-200 characters after trimming (got ${newTitle.length} characters)`,
+      location: 'community.ts -> renameCommunityItem',
+      nextSteps: ['Provide a non-empty title of at most 200 characters'],
+    });
+  }
+  return { by, newTitle };
+}
+
+type RenameAuditRecord = {
+  id: string; type: CommunityType; by: string; at: string; from: string | null; to: string; reason: string | null;
+};
+
+/** Writes one audit record to community/_edits/. Throws ActionableError on failure — split out
+ *  so both the initial (load-bearing) write and the failure follow-up share the same error shape. */
+async function writeRenameAuditRecord(
+  backend: StorageBackend, record: RenameAuditRecord & { outcome?: 'failed'; relatedEdit?: string }, editId: string,
+): Promise<void> {
+  try {
+    await backend.writeFile(path.join(editsDir(), `edit-${editId}.json`), JSON.stringify(record, null, 2));
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'community', level: 'error',
+      message: 'Community rename audit record write failed',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    throw new ActionableError({
+      goal: 'Rename a community item',
+      problem: `Audit record write failed — refusing to rename without an audit trail: ${String(err)}`,
+      location: 'community.ts -> renameCommunityItem',
+      nextSteps: ['Retry the rename', 'Check storage backend health'],
+      innerError: err,
+    });
+  }
+}
+
+/** The CAS retry loop for a rename's published-file write (TL condition 3), split out of
+ *  renameCommunityItem to keep its complexity under budget. Returns `{ok: true}` once the
+ *  write lands, or `{ok: false, lastErr}` once retries are exhausted or a non-conflict error
+ *  occurs — the caller decides what to do with a failure (write the follow-up audit record). */
+async function casRenameWrite(
+  backend: StorageBackend, filePath: string, field: 'title' | 'topic', newTitle: string,
+  initial: { content: string; version: string },
+): Promise<{ ok: true } | { ok: false; lastErr: unknown }> {
+  let current = initial;
+  for (let attempt = 0; attempt < RENAME_CAS_MAX_ATTEMPTS; attempt++) {
+    const item = JSON.parse(current.content) as Record<string, unknown>;
+    item[field] = newTitle;
+    try {
+      await backend.writeFile(filePath, JSON.stringify(item, null, 2), { baseSha: current.version });
+      return { ok: true };
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'WRITE_CONFLICT') {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'community', level: 'error',
+          message: 'Community rename write failed (not a CAS conflict)',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return { ok: false, lastErr: err };
+      }
+      const retry = await readCommunityFileWithVersion(backend, filePath);
+      if (!retry) {
+        const lastErr = Object.assign(new Error('Community item disappeared during rename retry'), { statusCode: 404 });
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'community', level: 'warn',
+          message: 'Community rename retry found the item gone',
+          error: { name: lastErr.name, message: lastErr.message, stack: lastErr.stack },
+        });
+        return { ok: false, lastErr };
+      }
+      current = retry;
+    }
+  }
+  return { ok: false, lastErr: new Error(`CAS retries exhausted after ${RENAME_CAS_MAX_ATTEMPTS} attempts`) };
+}
+
+export async function renameCommunityItem(
+  type: CommunityType,
+  id: string,
+  title: string,
+  opts: RenameCommunityItemOptions,
+): Promise<void> {
+  assertSafeId(id, 'community id'); // block path traversal
+  const { by, newTitle } = validateRenameInputs(title, opts);
+
+  const backend = getUserContentBackend();
+  const { dir, prefix } = communityDirAndPrefix(type);
+  const filePath = path.join(dir, `${prefix}${id}.json`);
+  const field = renameFieldFor(type);
+
+  const initial = await readCommunityFileWithVersion(backend, filePath);
+  if (!initial) throw Object.assign(new Error('Community item not found'), { statusCode: 404 });
+  const initialItem = JSON.parse(initial.content) as Record<string, unknown>;
+  const fromValue = typeof initialItem[field] === 'string' ? initialItem[field] as string : null;
+
+  const editId = crypto.randomUUID();
+  const auditRecord: RenameAuditRecord = {
+    id, type, by, at: new Date().toISOString(), from: fromValue, to: newTitle, reason: opts.reason ?? null,
+  };
+
+  // Audit FIRST — before any mutation of the published file (TL condition 2).
+  await writeRenameAuditRecord(backend, auditRecord, editId);
+
+  const result = await casRenameWrite(backend, filePath, field, newTitle, initial);
+  if (result.ok) {
+    await invalidateListingIndex(backend, dir);
+    log.server.info({ id, type, by }, 'Community item renamed');
+    return;
+  }
+
+  // The rename never landed after the audit record was already written. Leave that record in
+  // place (it documents the attempt) and write a second one marking the failure, so the trail
+  // never implies a rename that didn't happen (TL condition 2, "either is fine, but say which" —
+  // this picks the second-record option). Best-effort: a failure here is already WARN-recorded
+  // inside writeRenameAuditRecord's own catch and must not mask the real error below.
+  await writeRenameAuditRecord(
+    backend, { ...auditRecord, outcome: 'failed', relatedEdit: editId }, crypto.randomUUID(),
+  ).catch(() => { /* best-effort follow-up record; the ActionableError below is the one that matters */ });
+
+  throw new ActionableError({
+    goal: 'Rename a community item',
+    problem: `Rename did not land after ${RENAME_CAS_MAX_ATTEMPTS} attempts: ${String(result.lastErr)}`,
+    location: 'community.ts -> renameCommunityItem',
+    nextSteps: ['Retry the rename', 'If persistent, check for concurrent writers or storage backend health'],
+    innerError: result.lastErr,
+  });
 }

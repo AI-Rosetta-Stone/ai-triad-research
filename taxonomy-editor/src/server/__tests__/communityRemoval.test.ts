@@ -108,3 +108,47 @@ describe('community item removal (t/748)', () => {
     expect(after.map(c => (c as { id: string }).id)).toEqual(['b']);
   });
 });
+
+describe('removing a shared community Op-Ed also revokes its share (t/4894 bug fix)', () => {
+  const opedsDir = () => resolveDataPath('community/opeds');
+  const registryPath = () => mem.normAbs(resolveDataPath('community/oped-shares.json'));
+  const publicPath = (shareId: string) => mem.normAbs(path.join(resolveDataPath('public/opeds'), `${shareId}.json`));
+
+  it('revokes the share and deletes the public projection before deleting the item', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o1.json'));
+    mem.files.set(itemPath, JSON.stringify({ id: 'o1', topic: 'AI Safety' }));
+    mem.files.set(registryPath(), JSON.stringify({ o1: { shareId: 'share-abc', submittedBy: 'alice' } }));
+    mem.files.set(publicPath('share-abc'), JSON.stringify({ id: 'o1', topic: 'AI Safety' }));
+
+    await remove('opeds', 'o1');
+
+    expect(mem.files.has(itemPath)).toBe(false); // item deleted
+    expect(JSON.parse(mem.files.get(registryPath())!)).toEqual({}); // share revoked — public link now 404s
+    expect(mem.files.has(publicPath('share-abc'))).toBe(false); // public projection deleted
+  });
+
+  it('is a no-op (not an error) when the op-ed was never shared', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o2.json'));
+    mem.files.set(itemPath, JSON.stringify({ id: 'o2', topic: 'Unshared' }));
+
+    await remove('opeds', 'o2'); // should not throw
+
+    expect(mem.files.has(itemPath)).toBe(false);
+  });
+
+  it('still deletes the item (and logs a WARN) when the share revoke fails', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o3.json'));
+    mem.files.set(itemPath, JSON.stringify({ id: 'o3', topic: 'Flaky Revoke' }));
+    mem.files.set(registryPath(), JSON.stringify({ o3: { shareId: 'share-xyz', submittedBy: 'bob' } }));
+
+    const originalReadFile = mem.readFile.bind(mem);
+    mem.readFile = (async (p: string) => {
+      if (mem.normAbs(p) === registryPath()) throw new Error('registry read boom');
+      return originalReadFile(p);
+    }) as typeof mem.readFile;
+
+    await remove('opeds', 'o3'); // best-effort: must not throw despite the revoke failure
+
+    expect(mem.files.has(itemPath)).toBe(false); // item still deleted
+  });
+});
