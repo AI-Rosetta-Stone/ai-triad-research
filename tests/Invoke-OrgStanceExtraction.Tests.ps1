@@ -275,6 +275,34 @@ Describe 'Invoke-OrgStanceExtraction (t/1553 Stage 1)' -Tag 'taxonomy' {
         }
     }
 
+    It 'Drops participant-attribution claims and logs them, keeping genuine claims (t/4876, CL spec t/4876#1)' {
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            # Mixed batch: 1 genuine claim + 2 participant-sourced findings (CL's calibration fixtures).
+            Mock Invoke-AIByUsage -MockWith {
+                [PSCustomObject]@{
+                    Text = '{"claims":[' +
+                           '{"text":"The policy requires annual third-party audits of frontier models.","canonical_proposition":"X ought Y","polarity":"asserts","extraction_confidence":0.9},' +
+                           '{"text":"Participants became more skeptical of the proposed framework as the study progressed.","canonical_proposition":"X ought Y","polarity":"asserts","extraction_confidence":0.9},' +
+                           '{"text":"In the views of the participants that emerged from the elicitation, the timeline was unrealistic.","canonical_proposition":"X ought Y","polarity":"asserts","extraction_confidence":0.9}' +
+                           ']}'
+                    Model = 'stub'
+                }
+            }
+            $r = Invoke-OrgStanceExtraction -Concurrency 1 -OutputPath $ClaimsPath -Confirm:$false -WarningVariable w 3>$null 6>$null
+
+            # 2 eligible sources x 1 surviving claim each = 2 written; 2 sources x 2 participant claims = 4 dropped.
+            $r.ClaimsWritten                   | Should -Be 2
+            $r.ParticipantAttributionDropped   | Should -Be 4
+            ($r.ParticipantAttributionItems -join '|') | Should -Match 'Participants became'
+            ($r.ParticipantAttributionItems -join '|') | Should -Match 'views of the participants'
+            @($w | Where-Object { "$_" -match 'dropped participant-attribution claim' }).Count | Should -Be 4
+            $stored = @((Get-Content $ClaimsPath -Raw | ConvertFrom-Json).claims)
+            @($stored | Where-Object { $_.text -like 'The policy requires*' }).Count | Should -Be 2
+            @($stored | Where-Object { $_.text -like 'Participants became*' -or $_.text -like 'In the views*' }).Count | Should -Be 0
+        }
+    }
+
     It 'under -Concurrency 3, every queued item is accounted for in Failed/ClaimsWritten -- none silently vanish (t/4702)' {
         # t/4702: found in a real -Concurrency 3 -Force run, one queued (org, source) pair made zero AI
         # calls and appeared in neither Extracted nor Failed. The dedup/merge logic was proven clean by
