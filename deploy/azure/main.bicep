@@ -178,8 +178,8 @@ param authDisabled string = ''
 @description('Set to "1" to show login page with sign-in + anonymous options. Signed-in users get full access (AI + editing); anonymous users get read-only, non-AI access.')
 param authOptional string = '1'
 
-@description('Comma-separated list of admin userIds (derived storage IDs, not raw emails — see deriveStorageUserId in userContext.ts). Grants the community/calibration review UI and /api/admin/* endpoints. Sourced from the ADMIN_USERS GitHub Actions variable so personal emails stay out of public source. Defaults to jpsnover (matches the server default).')
-param adminUsers string = 'jpsnover,jsnover13-at-gmail-com'
+@description('Comma-separated list of admin stable ids, each idp-qualified as `github:<id>` or `aad:<tenantId>-<objectId>` (t/4328: isAdmin/isAdminStableId in community.ts match only qualified entries; a bare entry never matches). Grants the community/calibration review UI and /api/admin/* endpoints. Sourced from the ADMIN_USERS GitHub Actions variable so personal emails stay out of public source. Defaults to empty (no admins) — set via that variable.')
+param adminUsers string = ''
 
 @description('Comma-separated `<idp>:<stableId>=<legacy principal name>` entries (t/4326, read by taxonomy-editor/src/server/principalName.ts): maps a stable provider id (e.g. `github:<numeric id>`) onto the legacy principal name existing data, ADMIN_USERS and READ_ONLY_PRINCIPALS are keyed by. Not secret (numeric ids), but sourced from the IDENTITY_MAP GitHub Actions variable like ADMIN_USERS so personal names stay out of public source. Legacy names may contain spaces; they must not contain quote characters (deploy-azure.yml refuses the value if they do).')
 param identityMap string = ''
