@@ -36,6 +36,32 @@ describe('classifyEnqueueOutcome', () => {
     })).toEqual({ state: 'armed_waiting' });
   });
 
+  // t/4889: data#79/#80. ai-triad-data has no merge queue and allow_auto_merge=false, so
+  // `gh pr merge --auto` merges at once and every queue field reads null afterwards.
+  const directMergeAfter = {
+    state: 'MERGED', mergedAt: '2026-11-05T09:51:33Z', mergeCommit: { oid: 'f98b5f57' },
+    isInMergeQueue: false, mergeQueueEntry: null, autoMergeRequest: null,
+  };
+
+  it('is merged when the PR became MERGED during this run (direct merge, no queue)', () => {
+    expect(classifyEnqueueOutcome(directMergeAfter, { before: { state: 'OPEN' } })).toEqual({ state: 'merged' });
+  });
+
+  it('is already_merged when the PR was MERGED before this run (TL t/4889#3)', () => {
+    expect(classifyEnqueueOutcome(directMergeAfter, { before: { state: 'MERGED' } })).toEqual({ state: 'already_merged' });
+  });
+
+  it('is already_merged, never merged, when the prior state is unknown (does not claim the merge)', () => {
+    expect(classifyEnqueueOutcome(directMergeAfter)).toEqual({ state: 'already_merged' });
+  });
+
+  it('is still not_armed for an OPEN PR with null queue fields, so the fallback path is unchanged', () => {
+    expect(classifyEnqueueOutcome(
+      { state: 'OPEN', isInMergeQueue: false, mergeQueueEntry: null, autoMergeRequest: null },
+      { before: { state: 'OPEN' } },
+    )).toEqual({ state: 'not_armed' });
+  });
+
   it('prefers queued over armed_waiting when the PR has genuinely entered the queue', () => {
     expect(classifyEnqueueOutcome({
       isInMergeQueue: true,
