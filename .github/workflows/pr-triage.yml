@@ -529,9 +529,12 @@ jobs:
             // equivalent. Fail-safe default is isInMergeQueue: false (NOT "assume queued") --
             // falling back to the already-reviewed pre-t/4660 behavior on a transient query error
             // is safer than silently suppressing a genuine approved-not-armed finding.
+            // t/4730: fetch autoMergeRequest{enabledAt} for armed-not-queued detection
+            // (REST auto_merge has no enabled_at field, so use GraphQL instead)
             const mergeQueueQuery = `query($owner:String!,$repo:String!,$number:Int!){
               repository(owner:$owner,name:$repo){ pullRequest(number:$number){
-                isInMergeQueue mergeQueueEntry { state position enqueuedAt } } } }`;
+                isInMergeQueue mergeQueueEntry { state position enqueuedAt }
+                autoMergeRequest { enabledAt } } } }`;
             async function fetchMergeQueueState(number) {
               try {
                 const r = await github.graphql(mergeQueueQuery, { owner, repo, number });
@@ -544,7 +547,9 @@ jobs:
             const blockerFindings = [];
             for (const pr of openPRs) {
               const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
-              const mergeQueue = await fetchMergeQueueState(pr.number);
+              const graphqlResult = await fetchMergeQueueState(pr.number);
+              const mergeQueue = { isInMergeQueue: graphqlResult.isInMergeQueue, mergeQueueEntry: graphqlResult.mergeQueueEntry };
+              const autoMergeEnabledAt = graphqlResult.autoMergeRequest?.enabledAt ?? null;
               const runsResp = await github.rest.actions.listWorkflowRunsForRepo({
                 owner, repo, head_sha: pr.head.sha, per_page: 100,
               }).catch(() => ({ data: { workflow_runs: [] } }));
@@ -626,7 +631,7 @@ jobs:
                 // actually implemented.
                 isConflicting: full.mergeable === false || full.mergeable_state === 'dirty',
                 autoMergeEnabled: !!full.auto_merge,
-                autoMergeEnabledAt: full.auto_merge?.enabled_at ?? null,  // t/4730: timestamp when auto-merge was enabled, for armed-not-queued detection
+                autoMergeEnabledAt,  // t/4730: from GraphQL autoMergeRequest{enabledAt}, for armed-not-queued detection
                 inMergeQueue: !!mergeQueue.isInMergeQueue,
                 mergeQueueEnqueuedAt: mergeQueue.mergeQueueEntry?.enqueuedAt ?? null,
                 labels,

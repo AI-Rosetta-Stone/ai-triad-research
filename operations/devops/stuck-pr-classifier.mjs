@@ -260,7 +260,7 @@ export function classifyBlocker(pr, nowMs) {
           class: 'armed-not-queued',
           detail: {
             armedHours: Math.round(armedHours * 10) / 10,
-            remedy: 'PR is armed with all required checks green but is not in the merge queue. This often indicates the merge method does not match the queue\'s configured method. Use the GraphQL mutation (t/4731#1 for example) to re-queue with the correct method, or verify and re-arm with the correct merge strategy.',
+            remedy: 'PR is armed with all required checks green but is not in the merge queue. This often indicates the merge method does not match the queue\'s configured method. Re-queue with: node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>',
           },
         };
       }

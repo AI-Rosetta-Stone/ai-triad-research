@@ -263,9 +263,12 @@ test('armed-not-queued: NOT fired when armed less than 2h (under threshold)', ()
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-not-queued');
 });
 
-test('armed-not-queued: NOT fired when PR is in merge queue (false positive guard t/4730#1)', () => {
+test('armed-not-queued: NOT fired when PR is in merge queue, even if armed-like conditions (guard t/4730#1)', () => {
+  // armed 3h, all checks green, but IS in queue -> should NOT fire armed-not-queued
+  // (falls to queued-stuck logic instead, if applicable)
   const pr = basePr({
-    autoMergeEnabled: false, // in queue doesn't have autoMergeEnabled
+    autoMergeEnabled: true,
+    autoMergeEnabledAt: hoursAgo(3),
     inMergeQueue: true,
     mergeQueueEnqueuedAt: hoursAgo(1),
     mergeableState: 'clean',
@@ -292,6 +295,15 @@ test('armed-not-queued: NOT fired when no autoMergeEnabledAt timestamp (no evide
     mergeableState: 'clean',
   });
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-not-queued');
+});
+
+test('armed-not-queued escalation: escalates to owner at exactly the OWNER_SLA_HOURS threshold (2h)', () => {
+  // At exactly 2h, escalationLevel should return 'owner' (not 'none')
+  assert.equal(escalationLevel('armed-not-queued', OWNER_SLA_HOURS), 'owner');
+  // Under the threshold, no escalation yet
+  assert.equal(escalationLevel('armed-not-queued', OWNER_SLA_HOURS - 0.1), 'none');
+  // Past TL threshold, escalate to TL
+  assert.equal(escalationLevel('armed-not-queued', TL_SLA_HOURS), 'tl');
 });
 
 // ── approved-not-armed (t/4557) ──
