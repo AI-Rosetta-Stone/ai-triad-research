@@ -3760,6 +3760,8 @@ export class GitHubAPIBackend implements StorageBackend {
   }
   getRateLimitRemaining(): number { return this.rest.getRateLimitRemaining(); }
   getRateLimitResetsAt(): string { return this.rest.getRateLimitResetsAt(); }
+  /** t/4699: null until the first real GitHub response has been observed. */
+  getRateLimitObservedAt(): string | null { return this.rest.getRateLimitObservedAt(); }
   getCircuitState(): CircuitState { return this.rest.getCircuitState(); }
   getCoherencyViolations(): number { return this.coherencyViolations; }
   getErrorBuffer(): Array<RecordInput & { _wall: number }> { return [...this.errorBuffer]; }

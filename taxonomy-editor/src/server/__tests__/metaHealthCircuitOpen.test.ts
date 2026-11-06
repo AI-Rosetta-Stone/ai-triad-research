@@ -42,11 +42,15 @@ function fakeRes() {
   return res as unknown as ServerResponse & { _body: Record<string, unknown>; _statusCode: number };
 }
 
-function registerAndGetHealthHandler(circuitState: 'closed' | 'open' | 'half-open' | null): Handler {
+function registerAndGetHealthHandler(
+  circuitState: 'closed' | 'open' | 'half-open' | null,
+  observedAt: string | null = '2026-01-01T00:00:00Z',
+): Handler {
   const r = makeRouter();
   const githubBackend = circuitState === null ? null : {
     getRateLimitRemaining: () => 1234,
     getRateLimitResetsAt: () => '2026-01-01T00:00:00Z',
+    getRateLimitObservedAt: () => observedAt,
     getCircuitState: () => circuitState,
   };
   registerMetaRoutes(r.router as never, { getGithubBackend: () => githubBackend } as unknown as ServerCtx);
@@ -82,5 +86,32 @@ describe('GET /health (unauth): githubCircuitOpen', () => {
     const res = fakeRes();
     await health({} as IncomingMessage, res);
     expect(res._body.githubCircuitOpen).toBe(false);
+  });
+});
+
+describe('GET /health (unauth): githubRateLimitObservedAt (t/4699)', () => {
+  beforeEach(() => { mockIsAdmin.mockReturnValue(false); });
+
+  it('is null when there is no GitHub backend (Electron/local filesystem mode)', async () => {
+    const health = registerAndGetHealthHandler(null);
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.githubRateLimitObservedAt).toBeNull();
+  });
+
+  it('is null when the backend has never observed a real rate-limit header', async () => {
+    const health = registerAndGetHealthHandler('closed', null);
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.githubRateLimitObservedAt).toBeNull();
+  });
+
+  it('carries the ISO timestamp of the last observation, distinct from resetsAt', async () => {
+    const health = registerAndGetHealthHandler('closed', '2026-11-06T14:59:00.000Z');
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.githubRateLimitObservedAt).toBe('2026-11-06T14:59:00.000Z');
+    expect(res._body.githubRateLimitResetsAt).toBe('2026-01-01T00:00:00Z');
+    expect(res._body.githubRateLimitObservedAt).not.toBe(res._body.githubRateLimitResetsAt);
   });
 });

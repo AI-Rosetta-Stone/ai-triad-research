@@ -218,6 +218,14 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     const githubBackendForHealth = ctx.getGithubBackend();
     const githubRateLimitRemaining = githubBackendForHealth?.getRateLimitRemaining() ?? null;
     const githubRateLimitResetsAt = githubBackendForHealth?.getRateLimitResetsAt() ?? null;
+    // t/4699: when the above two values were actually captured — neither tells you that on
+    // its own, so a 50-minute-old reading and a 5-second-old one could carry the same
+    // resetsAt and both look equally fresh to a consumer. Tier T0, point-of-use exemption
+    // (pattern: lib/ai-client/types.ts's ProviderCallDiagnostics forensics fields): no
+    // consumer branches on this field today — t/4587 part (b)'s preflight has its own
+    // interim staleness rule. The exemption lapses the moment any consumer DOES branch
+    // on it; that landing becomes T1/T2 per the change-tier rules.
+    const githubRateLimitObservedAt = githubBackendForHealth?.getRateLimitObservedAt() ?? null;
     // t/4586 AC (flagged missing post-deploy, t/4586#4): same precedent as the rate-limit
     // fields above — a tripped circuit breaker is the other half of "GitHub reachability"
     // an unauthenticated alert should see, null for backends with no circuit (Electron/local).
@@ -229,7 +237,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
         ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
         eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
-        githubRateLimitRemaining, githubRateLimitResetsAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
+        githubRateLimitRemaining, githubRateLimitResetsAt, githubRateLimitObservedAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
         blobBackend: blobBackendHealth(),
       });

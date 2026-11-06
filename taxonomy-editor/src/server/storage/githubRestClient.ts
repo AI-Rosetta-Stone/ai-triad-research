@@ -78,6 +78,10 @@ export interface RateLimitInfo {
   remaining: number;
   limit: number;
   resetsAt: number;   // epoch ms
+  /** t/4699: epoch ms when this snapshot was captured from GitHub's response headers,
+   *  null until the first real observation — distinguishes a fresh reading from a stale
+   *  one that happens to carry the same resetsAt. */
+  observedAt: number | null;
 }
 
 export interface ApiResult {
@@ -111,7 +115,7 @@ type NonOkOutcome =
 
 export class GitHubRestClient {
   // Rate limit tracking
-  private rateLimit: RateLimitInfo = { remaining: 5000, limit: 5000, resetsAt: 0 };
+  private rateLimit: RateLimitInfo = { remaining: 5000, limit: 5000, resetsAt: 0, observedAt: null };
 
   // t/4307: since-boot outbound-call counter by route class, counted at the
   // one place every fetch (including retries) actually goes out — unlike
@@ -527,6 +531,9 @@ export class GitHubRestClient {
     if (remaining !== null) this.rateLimit.remaining = parseInt(remaining, 10);
     if (limit !== null) this.rateLimit.limit = parseInt(limit, 10);
     if (reset !== null) this.rateLimit.resetsAt = parseInt(reset, 10) * 1000;
+    // t/4699: only stamp a real observation when GitHub actually sent at least one
+    // rate-limit header — never claim "just observed" on a response that carried none.
+    if (remaining !== null || limit !== null || reset !== null) this.rateLimit.observedAt = Date.now();
 
     if (this.rateLimit.remaining < 1000) {
       // t/4258/t/4281: deps.record() alone writes only to FlightRecorder's
@@ -562,5 +569,9 @@ export class GitHubRestClient {
   // ── Diagnostics (GitHubAPIBackend delegates its accessors here) ────────────
   getRateLimitRemaining(): number { return this.rateLimit.remaining; }
   getRateLimitResetsAt(): string { return new Date(this.rateLimit.resetsAt).toISOString(); }
+  /** t/4699: null until the first real GitHub response has been observed. */
+  getRateLimitObservedAt(): string | null {
+    return this.rateLimit.observedAt === null ? null : new Date(this.rateLimit.observedAt).toISOString();
+  }
   getCircuitState(): CircuitState { return this.circuitState; }
 }
