@@ -8,6 +8,7 @@ import {
   backendForModelWithFallback,
   type AIBackend,
 } from '../../hooks/useTaxonomyStore';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './BriefTimeoutDialog.css';
 
 interface BriefTimeoutDialogProps {
@@ -23,13 +24,14 @@ export function BriefTimeoutDialog({
 }: BriefTimeoutDialogProps) {
   const [family, setFamily] = useState<AIBackend>(() => backendForModelWithFallback(currentModel));
   const [model, setModel] = useState(currentModel);
+  const { dialogRef, titleId } = useDialog({ onCancel: onAbort }); // t/4909
 
   const modelOptions = MODELS_BY_BACKEND[family] ?? [];
 
   return (
     <div className="dialog-overlay" onClick={onAbort}>
-      <div className="dialog brief-timeout-dialog" onClick={e => e.stopPropagation()}>
-        <h3 className="brief-timeout-dialog-title">Brief timed out</h3>
+      <div ref={dialogRef} className="dialog brief-timeout-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 className="brief-timeout-dialog-title" id={titleId}>Brief timed out</h3>
         <p className="brief-timeout-dialog-desc">
           The <strong>{speakerLabel}</strong> brief did not complete after{' '}
           {totalAttempts} {totalAttempts === 1 ? 'attempt' : 'attempts'}.

@@ -7,6 +7,7 @@ import { DEBATE_AUDIENCES } from '../../types/debate';
 import { DebateSourceViewer } from '../debate/DebateSourceViewer';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { humanizeUrl } from './DebateHeader';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './DebateSetupDialog.css';
 
 type DWStore = ReturnType<typeof useDebateStore.getState>;
@@ -47,38 +48,12 @@ export function DebateSetupDialog({
   onClose: () => void;
   title: string;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [sourceEverOpened, setSourceEverOpened] = useState(false);
-
-  // Capture trigger for focus-return; move focus into dialog; trap Tab; Esc closes.
-  useEffect(() => {
-    const trigger = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { onClose(); return; }
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),details > summary,input:not([disabled])'
-        )
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-      }
-    }
-
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      trigger?.focus();
-    };
-  }, [onClose]);
+  // t/4909: initialFocusRef matches this dialog's pre-existing "focus the close button"
+  // behavior. aria-labelledby/id below already pair correctly on a hardcoded id — no need for
+  // the hook's generated titleId.
+  const { dialogRef } = useDialog({ onCancel: onClose, initialFocusRef: closeRef });
 
   const audienceLabel = activeDebate.audience
     ? (DEBATE_AUDIENCES.find(a => a.id === activeDebate.audience)?.label ?? activeDebate.audience)

@@ -8,10 +8,11 @@
 // wrong for GitHub principals). The admin must therefore know a user's
 // `userId` to add them, so every entry surfaces it as a copyable value.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { bridgeGet, bridgePost, bridgeDel } from '../../bridge/web-bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { AllowlistEntry, AdminAllowlistResponse } from '../../../../../lib/allowlist/types';
+import { useDialog } from '../shared/useDialog'; // t/4909
 
 function relativeAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -64,16 +65,18 @@ function RemoveConfirmDialog({ entry, onConfirm, onCancel }: {
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const { dialogRef, titleId } = useDialog({ onCancel, initialFocusRef: cancelRef });
   return (
     <div className="ff-dialog-overlay" onClick={onCancel}>
-      <div className="ff-dialog ff-dialog--sm" onClick={e => e.stopPropagation()}>
-        <h3>Remove Allowlist Entry</h3>
+      <div ref={dialogRef} className="ff-dialog ff-dialog--sm" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 id={titleId}>Remove Allowlist Entry</h3>
         <p>
           Remove <strong>{entry.email}</strong> (<code>{entry.userId}</code>) from the Gemini-key
           allowlist? They will need to supply their own Gemini key to run debates.
         </p>
         <div className="ff-dialog-buttons">
-          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button ref={cancelRef} className="btn btn-ghost" onClick={onCancel}>Cancel</button>
           <button className="btn allowlist-btn-danger" onClick={onConfirm}>Remove</button>
         </div>
       </div>

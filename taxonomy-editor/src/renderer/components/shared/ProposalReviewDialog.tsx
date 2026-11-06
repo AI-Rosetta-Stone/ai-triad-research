@@ -10,6 +10,7 @@
 import { useState, useEffect } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { api } from '@bridge';
+import { useDialog } from './useDialog'; // t/4909
 import './ProposalReviewDialog.css';
 
 interface Proposal {
@@ -63,6 +64,7 @@ export function ProposalReviewDialog({ onClose }: ProposalReviewDialogProps) {
   const [selectedFileIdx, setSelectedFileIdx] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<string | null>(null);
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose }); // t/4909
 
   useEffect(() => {
     setLoading(true);
@@ -118,8 +120,8 @@ export function ProposalReviewDialog({ onClose }: ProposalReviewDialogProps) {
   if (loading) {
     return (
       <div className="dialog-overlay" onClick={onClose}>
-        <div className="dialog proposal-dialog" onClick={e => e.stopPropagation()}>
-          <p>Loading proposals...</p>
+        <div ref={dialogRef} className="dialog proposal-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+          <p id={titleId}>Loading proposals...</p>
         </div>
       </div>
     );
@@ -127,9 +129,9 @@ export function ProposalReviewDialog({ onClose }: ProposalReviewDialogProps) {
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog proposal-dialog" onClick={e => e.stopPropagation()}>
+      <div ref={dialogRef} className="dialog proposal-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
         <div className="proposal-header">
-          <h3>Taxonomy Proposals</h3>
+          <h3 id={titleId}>Taxonomy Proposals</h3>
           <div className="proposal-file-selector">
             {files.length > 0 ? (
               <select

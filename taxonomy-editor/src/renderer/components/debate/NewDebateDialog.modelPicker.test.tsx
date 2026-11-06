@@ -167,3 +167,21 @@ describe('NewDebateDialog — single model picker (t/4773)', () => {
     expect(screen.queryByText(/frontier model|basic model/i)).toBeNull();
   });
 });
+
+// t/4909: shared dialog a11y contract (role/aria-modal/aria-labelledby, Esc), via useDialog —
+// Screen A only; Screen B (DebateSettingsDialog) is a different overlay class, out of scope.
+describe('NewDebateDialog a11y (t/4909)', () => {
+  it('has role="dialog", aria-modal, and aria-labelledby pointing at the heading', () => {
+    render(<NewDebateDialog onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-labelledby', screen.getByText('New debate').id);
+  });
+
+  it('Esc calls onClose', () => {
+    const onClose = vi.fn();
+    render(<NewDebateDialog onClose={onClose} />);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+});

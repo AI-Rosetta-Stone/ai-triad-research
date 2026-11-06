@@ -1,10 +1,11 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { bridgeGet, bridgePut, bridgeDel } from '../../bridge/web-bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useFeatureFlagStore } from '../../hooks/useFeatureFlags';
+import { useDialog } from '../shared/useDialog'; // t/4909
 
 interface FlagDef {
   name: string;
@@ -120,6 +121,7 @@ function FlagDialog({ initial, editing, onSave, onCancel }: {
 }) {
   const [form, setForm] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4909
 
   const validate = (): string | null => {
     if (!form.name.trim()) return 'Name is required';
@@ -137,8 +139,8 @@ function FlagDialog({ initial, editing, onSave, onCancel }: {
 
   return (
     <div className="ff-dialog-overlay" onClick={onCancel}>
-      <div className="ff-dialog" onClick={e => e.stopPropagation()}>
-        <h3>{editing ? 'Edit Flag' : 'New Feature Flag'}</h3>
+      <div ref={dialogRef} className="ff-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 id={titleId}>{editing ? 'Edit Flag' : 'New Feature Flag'}</h3>
 
         <label className="ff-field">
           <span>Name</span>
@@ -204,13 +206,15 @@ function DeleteConfirmDialog({ name, onConfirm, onCancel }: {
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const { dialogRef, titleId } = useDialog({ onCancel, initialFocusRef: cancelRef }); // t/4909
   return (
     <div className="ff-dialog-overlay" onClick={onCancel}>
-      <div className="ff-dialog ff-dialog--sm" onClick={e => e.stopPropagation()}>
-        <h3>Delete Flag</h3>
+      <div ref={dialogRef} className="ff-dialog ff-dialog--sm" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 id={titleId}>Delete Flag</h3>
         <p>Delete flag <strong>{name}</strong>? Code that checks this flag will see it as disabled (fail-closed).</p>
         <div className="ff-dialog-buttons">
-          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button ref={cancelRef} className="btn btn-ghost" onClick={onCancel}>Cancel</button>
           <button className="btn ff-btn-danger" onClick={onConfirm}>Delete</button>
         </div>
       </div>

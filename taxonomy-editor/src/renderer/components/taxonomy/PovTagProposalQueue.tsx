@@ -18,6 +18,7 @@ import {
 } from '../../utils/povTagProposalQueue';
 import { provenanceState } from '../../utils/povTagValueBasis';
 import { PovTagEditor } from './PovTagEditor';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import { ValueBasisBlock, ProvenanceNote, bundledSkepticSoulProvenance } from './PovTagValueBasis';
 import './PovTagProposalQueue.css';
 
@@ -76,6 +77,7 @@ export function PovTagProposalQueue({ pov, initialFile, onClose }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [uncommitted, setUncommitted] = useState(false);
+  const { dialogRef, titleId } = useDialog({ onCancel: () => onClose(file) }); // t/4909
   const canReview = isElectronMode();
   const nodes = useTaxonomyStore((s) => s[pov]?.nodes);
   const heldNodes = useTaxonomyStore((s) => s.supersededNodes?.[pov as PovKey]); // t/4355: a proposal may target a since-superseded node
@@ -130,9 +132,9 @@ export function PovTagProposalQueue({ pov, initialFile, onClose }: {
 
   return (
     <div className="dialog-overlay" onClick={() => onClose(file)}>
-      <div className="ptp-dialog" role="dialog" aria-label="POV tag proposals" onClick={e => e.stopPropagation()}>
+      <div ref={dialogRef} className="ptp-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
         <div className="ptp-header">
-          <h2 className="ptp-title">POV tag proposals</h2>
+          <h2 className="ptp-title" id={titleId}>POV tag proposals</h2>
           <button type="button" className="btn btn-ghost" onClick={() => onClose(file)} aria-label="Close">&times;</button>
         </div>
         {/* t/4083 (PI UAT): an accept records the decision only; pov_tags are written later in one batch (spec t3935 §7 step 4). */}

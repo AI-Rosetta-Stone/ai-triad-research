@@ -10,7 +10,8 @@
  * POST /api/sync/rebase/resolve, and then continue or abort the rebase.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useFocusTrap } from '../shared/useDialog'; // t/4909
 import {
   getRebaseState,
   getRebaseFile,
@@ -60,6 +61,7 @@ export function RebaseConflictModal({ open, onClose, onCompleted, onAborted, onE
   const [dirty, setDirty] = useState(false);
   const [staged, setStaged] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<'load' | 'resolve' | 'continue' | 'abort' | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const reloadState = useCallback(async () => {
     setBusy('load');
@@ -92,6 +94,23 @@ export function RebaseConflictModal({ open, onClose, onCompleted, onAborted, onE
     })();
     return () => { cancelled = true; };
   }, [selected]);
+
+  // t/4909: mounted once by UnsyncedChangesDrawer (`open` toggles as a prop, not a conditional
+  // render), so useDialog's own mount-bookended focus management doesn't fit — only the shared
+  // Tab trap plus a matching open-keyed Esc + restore-focus effect (same shape as
+  // GeminiOnboardingModal/ConflictsTab's NewConflictDialog). No existing overlay-click guard to
+  // mirror, so Esc stays unguarded too, consistent either way.
+  useFocusTrap(dialogRef, open);
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      prev?.focus();
+    };
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -180,10 +199,10 @@ export function RebaseConflictModal({ open, onClose, onCompleted, onAborted, onE
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog rebase-modal" onClick={e => e.stopPropagation()}>
+      <div ref={dialogRef} className="dialog rebase-modal" role="dialog" aria-modal aria-labelledby="rebase-modal-title" onClick={e => e.stopPropagation()}>
         <div className="rebase-modal-header">
           <div>
-            <h3 className="dialog-title">Resolve rebase conflicts</h3>
+            <h3 className="dialog-title" id="rebase-modal-title">Resolve rebase conflicts</h3>
             <div className="dialog-description">
               {state.onto_branch
                 ? <>Rebasing <code>{state.onto_branch}</code> onto <code>origin/main</code>. {remaining} file{remaining === 1 ? '' : 's'} unresolved.</>

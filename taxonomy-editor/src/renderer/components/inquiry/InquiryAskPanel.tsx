@@ -10,7 +10,7 @@ import { InquiryTagPicker, inquiryTagBlocked } from './InquiryTagPicker';
 import {
   truncateLabel, modelSummarySegment, tagSummarySegment, optionsChangeCount,
 } from './InquiryOptionsSummary';
-import { useFocusTrap } from '../debate/NewDebateDialog.hooks';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './InquiryTab.css';
 
 // t/4751: estimateInquiryDuration's table is still PLACEHOLDER data (TL condition, p/875#4/#10)
@@ -78,23 +78,17 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
   // getting-started accordion). A blocked tag force-expands regardless of this toggle.
   const [optionsOpen, setOptionsOpen] = useState(false);
   const questionRef = useRef<HTMLTextAreaElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  useFocusTrap(dialogRef, true);
-
-  // t/4666 (Design spec, p/29#178 fix 1): must run BEFORE the question-focus effect below —
-  // effects run in declaration order, so capturing the trigger here first means
-  // document.activeElement is still the "+ New Question" button / chip, not the textarea the
-  // next effect is about to focus. Focus returns to it on close.
-  useEffect(() => {
-    const trigger = document.activeElement as HTMLElement | null;
-    return () => trigger?.focus();
-  }, []);
+  // t/4909: useDialog's own mount effect (opener-capture + initial focus) must run BEFORE the
+  // question-focus effect below, for the same reason the comment there used to give — effects
+  // run in declaration order, so this call comes first. closeOnEscape mirrors the existing
+  // overlay-click guard: inert while submitting.
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose, closeOnEscape: !submitting });
 
   // t/4562 (Design review): focus drops to BODY on this screen otherwise — matches Op-Ed/Debates'
   // own create-dialog behavior, and a chip-prefilled question needs the cursor visibly placed,
   // not just a populated field. Cursor at the END (not a full select) so typing continues the
-  // prefilled text rather than silently replacing it.
+  // prefilled text rather than silently replacing it. Runs after useDialog's own initial-focus
+  // effect and overrides it with the more specific cursor placement.
   useEffect(() => {
     const el = questionRef.current;
     if (!el) return;
@@ -103,12 +97,6 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
     // Only on mount — the dialog remounts fresh each time it opens, so there is no "re-run on
     // every question change" risk to re-litigate.
   }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !submitting) onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [submitting, onClose]);
 
   // t/4770: every question runs at Quick now — no UI choice, but the request still needs
   // `fidelity: 'quick'` set on the store (startInquiry() reads it from there). Mount-only, same
@@ -148,10 +136,10 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
         className="dialog new-question-dialog"
         role="dialog"
         aria-modal
-        aria-labelledby="new-question-title"
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="new-question-title">New question</h2>
+        <h2 id={titleId}>New question</h2>
         <div className="new-question-body">
           <label className="inquiry-asklab" htmlFor="inquiry-question">Research question</label>
           <textarea

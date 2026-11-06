@@ -8,8 +8,9 @@
 // finalizes by opening the created set in the reader. The bridge trio (createOpEdSet /
 // cancelOpEdSet / onOpEdProgress) is Electron-only; web keeps the disabled affordance.
 
-import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
-import type { TextareaHTMLAttributes, RefObject } from 'react';
+import { useState, useMemo, useEffect, useRef, useLayoutEffect, useId } from 'react';
+import type { TextareaHTMLAttributes } from 'react';
+import { useDialog, useFocusTrap } from '../shared/useDialog'; // t/4909
 import { api } from '@bridge';
 import type { CreateOpEdParams, CreateOpEdPayload, OpEdProgressEvent } from '../../bridge/types';
 import type { PovKey } from '../../../../../lib/oped/types';
@@ -67,33 +68,6 @@ const DEFAULTS = {
 
 const OPED_EXCLUDED_BACKENDS = new Set(['ollama']);
 
-// ── Focus trap (mirror of NewDebateDialog's local useFocusTrap) ───────────────
-
-function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean) {
-  useEffect(() => {
-    if (!active || !ref.current) return;
-    const el = ref.current;
-    const getFocusable = () => Array.from(
-      el.querySelectorAll<HTMLElement>(
-        'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
-      ),
-    );
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const focusable = getFocusable();
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    el.addEventListener('keydown', onKeyDown);
-    return () => el.removeEventListener('keydown', onKeyDown);
-  }, [active, ref]);
-}
 
 function AutoGrowTextarea({
   value, maxHeight = 200, ...props
@@ -210,14 +184,7 @@ function OpEdSettingsDrawer({
   const [family, setFamily] = useState<AIBackend>(() => backendForModelWithFallback(initial.model));
   const [refreshing, setRefreshing] = useState(false);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef, true);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose }); // t/4909
 
   const current: OpEdSettingsValues = { outlet, wordCount, thesis, authorBio, ground, maxGroundingNodes, maxSituations, model, temperature };
 
@@ -253,11 +220,11 @@ function OpEdSettingsDrawer({
         className="oped-settings-dialog"
         role="dialog"
         aria-modal
-        aria-labelledby="oped-settings-title"
+        aria-labelledby={titleId}
         onClick={e => e.stopPropagation()}
       >
         <div className="oped-settings-header">
-          <h2 className="oped-settings-title" id="oped-settings-title">More options</h2>
+          <h2 className="oped-settings-title" id={titleId}>More options</h2>
           <button type="button" className="oped-close-btn" onClick={onClose} aria-label="Close settings">&times;</button>
         </div>
 
@@ -734,6 +701,15 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
   const unsubRef = useRef<(() => void) | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, open && !showSettings);
+  // t/4909: role/aria-modal/aria-labelledby only — useDialog's own trap/Esc/focus-management
+  // deliberately isn't used here. This dialog is mounted ONCE by OpEdTab (`open={showNewDialog}`,
+  // not a conditional render) and toggles `open` as a prop across its whole lifetime; useDialog's
+  // initial-focus/return-focus effect is a mount/unmount bookend by design (t/4901) and has no
+  // mode for "re-run setup/cleanup on every open toggle of an already-mounted component" — which
+  // is exactly what the existing effects below already do correctly. Forcing it through the
+  // shared hook would either lose that re-run behavior or require a third hook mode just for
+  // this one dialog; keeping the proven logic here was the smaller risk.
+  const titleId = useId();
 
   // Restore focus to the triggering element on close
   useEffect(() => {
@@ -882,11 +858,11 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
         className="oped-dialog"
         role="dialog"
         aria-modal
-        aria-labelledby="oped-dialog-title"
+        aria-labelledby={titleId}
         onClick={e => e.stopPropagation()}
       >
         <div className="oped-dialog-header">
-          <h2 className="oped-dialog-title" id="oped-dialog-title">New op-ed</h2>
+          <h2 className="oped-dialog-title" id={titleId}>New op-ed</h2>
           {!creating && (
             <button type="button" className="oped-close-btn" onClick={onClose} aria-label="Close">&times;</button>
           )}

@@ -1,10 +1,11 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@bridge';
 import type { SupportCaseCreatePayload } from '../../bridge/types';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import './SupportCaseForm.css';
 
 declare const __APP_VERSION__: string;
@@ -57,7 +58,15 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
   const [errorMsg, setErrorMsg] = useState('');
   const [attachError, setAttachError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLDivElement>(null);
+  // t/4901/t/4909 complexity-budget note: a plain `&&`/`||` here counts toward THIS function's
+  // own complexity (unlike the old window-level useEffect, whose condition lived inside a nested
+  // callback and so didn't). useMemo moves it back into a nested function, keeping the file
+  // under its ratcheted ceiling — same reasoning as every other use below.
+  const isBusy = useMemo(() => formState === 'submitting' || formState === 'uploading', [formState]);
+  // t/4909: role/aria-modal/aria-labelledby below were already correct; this replaces the old
+  // window-level Escape listener with the shared hook (closeOnEscape mirrors the pre-existing
+  // guard), and adds the Tab trap + initial-focus/return-focus this dialog never had.
+  const { dialogRef: formRef } = useDialog({ onCancel: onClose, closeOnEscape: !isBusy });
 
   const totalBytes = attachments.reduce((sum, a) => sum + a.file.size, 0);
   const subjectTrimmed = subject.trim();
@@ -67,15 +76,6 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
     && subjectTrimmed.length <= MAX_SUBJECT
     && descTrimmed.length >= MIN_DESCRIPTION
     && descTrimmed.length <= MAX_DESCRIPTION;
-
-  // Escape key closes
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && formState !== 'submitting' && formState !== 'uploading') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose, formState]);
 
   const addAttachmentError = useCallback((msg: string) => {
     setAttachError(msg);
@@ -235,7 +235,7 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
   const hasDiagnosticsAttached = attachments.some(a => a.file.name === 'flight-recorder-dump.jsonl');
 
   return (
-    <div className="dialog-overlay" onMouseDown={formState === 'submitting' || formState === 'uploading' ? undefined : onClose}>
+    <div className="dialog-overlay" onMouseDown={isBusy ? undefined : onClose}>
       <div
         ref={formRef}
         className="dialog support-form-dialog"
@@ -403,7 +403,7 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
               <button
                 className="btn btn-ghost"
                 onClick={onClose}
-                disabled={formState === 'submitting' || formState === 'uploading'}
+                disabled={isBusy}
               >
                 Cancel
               </button>
