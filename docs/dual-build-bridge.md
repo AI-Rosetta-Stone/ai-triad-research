@@ -12,6 +12,15 @@ The taxonomy-editor runs as both Electron desktop and hosted web app. The bridge
 
 **Rules:** Always import from `@bridge` (tsconfig alias), never from specific bridge files (breaks the other build target). New methods follow the `/add-bridge-method` playbook. Electron-only features need web fallbacks. `openExternal` must validate `https?://` to prevent `javascript:` and other protocol injection.
 
+## Build targets
+
+Moved verbatim from `engineering/tech-lead/AGENTS.md` (token-reduction plan, workstream A).
+
+- **Electron build**: `taxonomy-editor/src/main/` (main process) + `taxonomy-editor/src/renderer/` (renderer)
+- **Web build**: `taxonomy-editor/src/server/server.ts` (Node.js HTTP server) + same renderer code
+- **Shared lib**: `lib/debate/` — pure functions consumed by both builds (export converters, debate logic)
+- **Bridge pattern**: `electron-bridge.ts` (IPC to main process) vs `web-bridge.ts` (client-side/REST) — same `BridgeAPI` interface, different implementations
+
 ## Cross-profile impact
 
 When evaluating a change to the Taxonomy Editor, consider both build targets:
