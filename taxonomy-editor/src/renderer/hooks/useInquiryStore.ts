@@ -37,6 +37,8 @@ interface InquiryStoreState {
   evaluatorModel?: string;
   /** Optional POV tag for one camp (t/4246, contract t/3965). Undefined = an untagged inquiry, as before. */
   tagSelection?: TagSelection;
+  /** Optional debater temperature override (0–2, t/4770/t/4771). Undefined = fidelity tier default. */
+  temperature?: number;
 
   jobId: string | null;
   /** t/4888: the community result's id, set by openCommunityResult() alongside jobId: null
@@ -70,6 +72,7 @@ interface InquiryStoreState {
   setDebaterModel: (m: string | undefined) => void;
   setEvaluatorModel: (m: string | undefined) => void;
   setTagSelection: (t: TagSelection | undefined) => void;
+  setTemperature: (t: number | undefined) => void;
   /** The debater/evaluator models this run will actually use — the override if set, else the
    *  fidelity tier default (single source of truth: lib/debate/inquiryConfig's deriveDebateConfig,
    *  same function the server-side pipeline uses to resolve the same request). */
@@ -219,6 +222,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     debaterModel: undefined,
     evaluatorModel: undefined,
     tagSelection: undefined,
+    temperature: undefined,
     jobId: null,
     communityResultId: null,
     status: null,
@@ -243,6 +247,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     setDebaterModel: (m) => set({ debaterModel: m }),
     setEvaluatorModel: (m) => set({ evaluatorModel: m }),
     setTagSelection: (t) => set({ tagSelection: t }),
+    setTemperature: (t) => set({ temperature: t }),
 
     resolvedModels: () => {
       const { fidelity, debaterModel, evaluatorModel } = get();
@@ -269,7 +274,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     },
 
     startInquiry: async () => {
-      const { question, fidelity, debaterModel, evaluatorModel, tagSelection } = get();
+      const { question, fidelity, debaterModel, evaluatorModel, tagSelection, temperature } = get();
       set({ error: null, pollError: null, result: null, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const { jobId } = await api.startInquiry({
@@ -277,6 +282,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
           fidelity,
           models: (debaterModel || evaluatorModel) ? { debaters: debaterModel, evaluator: evaluatorModel } : undefined,
           ...(tagSelection ? { tagSelection } : {}),
+          ...(temperature !== undefined ? { temperature } : {}),
         });
         set({ jobId });
         clearPollTimer();

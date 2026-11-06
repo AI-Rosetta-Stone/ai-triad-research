@@ -213,6 +213,8 @@ export interface StartInquiryRequest {
   /** Optional POV tag for one camp (t/3965, picked in the Ask panel since t/4246). The server and the
    *  desktop IPC both validate it with InquiryRequestSchema, which rejects an unregistered tag. */
   tagSelection?: import('@lib/schema/povTags').TagSelection;
+  /** Optional debater temperature override (0–2, t/4770/t/4771). Absent: fidelity tier default. */
+  temperature?: number;
 }
 
 /** `done_truncated` is a DISTINCT terminal state (budget/ceiling truncation, fails closed by

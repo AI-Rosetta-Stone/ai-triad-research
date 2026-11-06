@@ -20,6 +20,10 @@ import './InquiryTab.css';
 // "PLACEHOLDER" in its header comment.
 export const SHOW_DURATION_ESTIMATE = false;
 
+/** t/4770 spec default — shown on the slider until the user moves it; `undefined` in the store
+ *  (not this value) is what tells startInquiry() to omit the field and take the server default. */
+const DEFAULT_TEMPERATURE = 0.8;
+
 /** Flattened, alphabetically-grouped model list for the summary line — sourced from
  *  ai-models.json's picker entries (deriveModelsByBackend), never a hardcoded model list. */
 const ALL_MODEL_OPTIONS = Object.entries(MODELS_BY_BACKEND)
@@ -64,7 +68,7 @@ function OptionsToggleSummary({
 // it only mounts while open, so capturing the trigger on mount / restoring focus on unmount is
 // naturally open/close-symmetric (no separate `open` prop to track).
 export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
-  const { question, debaterModel, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, tagSelection, setTagSelection, resolvedModels, startInquiry } = useInquiryStore();
+  const { question, debaterModel, temperature, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, setTemperature, tagSelection, setTagSelection, resolvedModels, startInquiry } = useInquiryStore();
   const [submitting, setSubmitting] = useState(false);
   const resolved = resolvedModels();
   // t/4770: one model, used for both debaters and evaluator — the dialog no longer offers a
@@ -182,6 +186,7 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
                   model={model}
                   onFamilyChange={() => { /* derived from `model` on the next render — see the comment at `model`'s declaration */ }}
                   onModelChange={(m) => { setDebaterModel(m); setEvaluatorModel(m); }}
+                  temperature={{ value: temperature ?? DEFAULT_TEMPERATURE, onChange: setTemperature }}
                 />
                 <InquiryTagPicker value={tagSelection} onChange={setTagSelection} />
               </div>
