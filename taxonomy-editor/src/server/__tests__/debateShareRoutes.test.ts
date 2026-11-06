@@ -124,22 +124,23 @@ function makeSession(overrides: Partial<Record<string, unknown>> = {}): Record<s
       { speaker: 'safetyist', type: 'opening', content: 'Racing costs lives.', timestamp: 't2' },
       {
         speaker: 'system', type: 'concluding', content: 'Synthesis complete.', timestamp: 't3',
+        // Real stored shape: both writers set `metadata.synthesis = result.data` (flat), not
+        // the SynthesisPhaseResult wrapper (synthesisPipeline.ts, synthesisSlice.ts).
         metadata: {
           synthesis: {
-            data: {
-              areas_of_agreement: ['Both camps want good outcomes'],
-              areas_of_disagreement: ['Pace of development'],
-              cruxes: ['Tractability of alignment'],
-              unresolved_questions: ['What is the right pace?'],
-              policy_implications: ['Consider a licensing regime'],
-              topic_resolution: 'unresolved',
-              // D2: these must NEVER be published — internal/editorial fields.
-              rawResponses: { extract: 'raw llm output', map: 'raw', evaluate: 'raw' },
-              taxonomy_proposals: ['acc-bdi-999'],
-              taxonomy_coverage: { acc: 0.9 },
-              argument_map: { nodes: [] },
-              preferences: { accelerationist: 0.6 },
-            },
+            areas_of_agreement: ['Both camps want good outcomes'],
+            areas_of_disagreement: ['Pace of development'],
+            cruxes: ['Tractability of alignment'],
+            unresolved_questions: ['What is the right pace?'],
+            policy_implications: ['Consider a licensing regime'],
+            topic_resolution: 'unresolved',
+            // D2: these must NEVER be published — internal/editorial fields.
+            rawResponses: { extract: 'raw llm output', map: 'raw', evaluate: 'raw' },
+            taxonomy_proposals: ['acc-bdi-999'],
+            taxonomy_modifications: [{ id: 'acc-bdi-001' }],
+            taxonomy_coverage: { acc: 0.9 },
+            argument_map: { nodes: [] },
+            preferences: { accelerationist: 0.6 },
           },
         },
       },
@@ -254,6 +255,7 @@ describe('GET /api/public/debate/:shareId', () => {
     const raw = JSON.stringify(view);
     expect(raw).not.toContain('rawResponses');
     expect(raw).not.toContain('taxonomy_proposals');
+    expect(raw).not.toContain('taxonomy_modifications');
     expect(raw).not.toContain('taxonomy_coverage');
     expect(raw).not.toContain('argument_map');
     expect(raw).not.toContain('preferences');

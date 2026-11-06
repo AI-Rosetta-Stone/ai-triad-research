@@ -152,9 +152,10 @@ function projectSynthesis(data: Record<string, unknown> | undefined): Record<str
 }
 
 /** Build the share's snapshot from a server-loaded debate session (D1: never from a
- *  request body). Finds the synthesis on the concluding entry's `metadata.synthesis`
- *  (SynthesisPhaseResult shape — the only place it's stored; it's not a top-level session
- *  field) and projects it through the D2 allowlist. */
+ *  request body). The synthesis lives on the concluding entry as `metadata.synthesis`,
+ *  stored FLAT — both writers assign `SynthesisPhaseResult.data` itself, not the wrapper
+ *  (lib/debate/synthesisPipeline.ts, renderer synthesisSlice.ts) — and is projected
+ *  through the D2 allowlist. */
 function buildSnapshot(debateId: string, session: Record<string, unknown>): DebateSnapshot {
   const rawTranscript = Array.isArray(session.transcript) ? session.transcript as Record<string, unknown>[] : [];
   const transcript = rawTranscript.map(projectTranscriptEntry);
@@ -162,9 +163,11 @@ function buildSnapshot(debateId: string, session: Record<string, unknown>): Deba
 
   let synthesisData: Record<string, unknown> | undefined;
   for (const entry of rawTranscript) {
-    const metadata = entry.metadata as Record<string, unknown> | undefined;
-    const synthesis = metadata?.synthesis as { data?: Record<string, unknown> } | undefined;
-    if (synthesis?.data) { synthesisData = synthesis.data; break; }
+    const synthesis = (entry.metadata as Record<string, unknown> | undefined)?.synthesis;
+    if (synthesis && typeof synthesis === 'object' && !Array.isArray(synthesis)) {
+      synthesisData = synthesis as Record<string, unknown>;
+      break;
+    }
   }
 
   const topic = session.topic as { final?: string } | undefined;
