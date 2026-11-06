@@ -282,10 +282,15 @@ jobs:
           # RESIDUAL VECTOR (named, not closed; SO-accepted at p/682#20): this is TOCTOU, not a
           # lock — a deploy-staging.yml run that starts in the instant after this poll's last
           # check is not caught. Only an actual mutex (e.g. a blob lease, t/4179) closes that.
+          #
+          # t/4233: a same-second startedAt tie lets both runs see each other as "not earlier" and
+          # both proceed. Break the tie on databaseId (lower = earlier) — GitHub run IDs are
+          # monotonically increasing, so this gives a total order even when timestamps collide.
           $MaxWaitSeconds = 1800  # SO C1b: matches deploy-staging.yml job's timeout-minutes: 30
           $PollIntervalSeconds = 20
           $Elapsed = 0
           $OwnStartedAt = gh api "repos/$env:GH_REPO/actions/runs/$env:GITHUB_RUN_ID" --jq '.run_started_at'
+          $OwnDatabaseId = [int64]$env:GITHUB_RUN_ID
           if (-not $OwnStartedAt) {
             Write-Host "::warning::t/4194 guard: could not resolve this run's own run_started_at via the API — skipping the order check (fail-open)."
           } else {
@@ -294,7 +299,10 @@ jobs:
               $ApiOk = -not ($null -eq $Raw -or $Raw -eq '')
               if ($ApiOk) {
                 $Others = @($Raw | ConvertFrom-Json)
-                $Earlier = @($Others | Where-Object { [datetimeoffset]$_.startedAt -lt [datetimeoffset]$OwnStartedAt })
+                $Earlier = @($Others | Where-Object {
+                  ([datetimeoffset]$_.startedAt -lt [datetimeoffset]$OwnStartedAt) -or
+                  ([datetimeoffset]$_.startedAt -eq [datetimeoffset]$OwnStartedAt -and [int64]$_.databaseId -lt $OwnDatabaseId)
+                })
               } else {
                 # SO C1d: unknown, NOT zero — fall through to the elapsed/poll logic below as "busy".
                 $Earlier = $null
