@@ -282,10 +282,11 @@ export function UnifiedPhaseIndicator({ phase, roundCount, adaptive }: {
 }
 
 export function DebaterToggles() {
-  const { activeDebate, togglePover, debateGenerating } = useDebateStore(
-    useShallow(s => ({ activeDebate: s.activeDebate, togglePover: s.togglePover, debateGenerating: s.debateGenerating }))
+  const { activeDebate, togglePover, debateGenerating, communityReadOnly } = useDebateStore(
+    useShallow(s => ({ activeDebate: s.activeDebate, togglePover: s.togglePover, debateGenerating: s.debateGenerating, communityReadOnly: s.communityReadOnly }))
   );
-  if (!activeDebate) return null;
+  // t/4905: choosing who debates the next rounds is a continue control; not for someone else's debate.
+  if (!activeDebate || communityReadOnly) return null;
 
   const allPovers = AI_POVERS;
   const isActive = (p: SpeakerId) => activeDebate.active_povers.includes(p);

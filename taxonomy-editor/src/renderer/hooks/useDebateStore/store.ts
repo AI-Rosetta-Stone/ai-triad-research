@@ -18,7 +18,34 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { api } from '@bridge';
 import { PHASE_ORDER } from './shared/phaseOrder';
 
-export const useDebateStore = create<DebateStore>()((...a) => ({
+/** t/4905: actions that start AI generation. A read-only community debate is someone else's —
+ *  saves are already blocked, so a run would bill the viewer and then be thrown away. */
+export const COMMUNITY_READ_ONLY_BLOCKED_ACTIONS = [
+  'askQuestion', 'beginDebate', 'compressOldTranscript', 'crossRespond', 'factCheckSelection',
+  'generateNewsReport', 'reEvaluateSuggestedTopic', 'reExtractClaims', 'requestProbingQuestions',
+  'requestReflections', 'requestSynthesis', 'retryEnrichment', 'retryReflectionEditAfterFix',
+  'runClarification', 'runOpeningStatements', 'runTopicCritique', 'submitAnswersAndSynthesize',
+  'submitUserOpening',
+] as const satisfies readonly (keyof DebateStore)[];
+
+function guardCommunityReadOnly(store: DebateStore, get: () => DebateStore): DebateStore {
+  const guarded = { ...store } as Record<string, unknown>;
+  for (const name of COMMUNITY_READ_ONLY_BLOCKED_ACTIONS) {
+    const action = store[name] as unknown as (...args: unknown[]) => unknown;
+    guarded[name] = (...args: unknown[]) => {
+      if (!get().communityReadOnly) return action(...args);
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'debate-store', level: 'warn',
+        debate_id: get().activeDebateId ?? undefined,
+        message: `WARN: blocked ${name} on a read-only community debate (fallback: no generation)`,
+      });
+      return Promise.resolve(undefined);
+    };
+  }
+  return guarded as unknown as DebateStore;
+}
+
+export const useDebateStore = create<DebateStore>()((...a) => guardCommunityReadOnly({
   ...createConfigSlice(...a),
   ...createSessionSlice(...a),
   ...createTopicCritiqueSlice(...a),
@@ -30,7 +57,7 @@ export const useDebateStore = create<DebateStore>()((...a) => ({
   ...createRunLeaseSlice(...a),
   ...createDebateReflectionSlice(...a),
   ...createExplorationSlice(...a),
-}));
+}, a[1]));
 
 ((window as unknown as { __ZUSTAND_STORES__?: Record<string, unknown> }).__ZUSTAND_STORES__ ??= {} as Record<string, unknown>).debate = useDebateStore;
 

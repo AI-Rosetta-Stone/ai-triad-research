@@ -498,7 +498,7 @@ function DebateToolbar({
 }: {
   activeDebate: ActiveDebateSession;
   isExploration: boolean;
-  onShowSetup: () => void;
+  onShowSetup?: () => void;
   commentSidebarOpen: boolean;
   toggleCommentSidebar: () => void;
   commentsFile: CommentStoreState['commentsFile'];
@@ -525,13 +525,15 @@ function DebateToolbar({
           Exploration
         </span>
       )}
-      <button
-        className="btn btn-sm"
-        onClick={onShowSetup}
-        title="View full topic, source, and debate configuration"
-      >
-        Setup
-      </button>
+      {onShowSetup && (
+        <button
+          className="btn btn-sm"
+          onClick={onShowSetup}
+          title="View full topic, source, and debate configuration"
+        >
+          Setup
+        </button>
+      )}
       <button
         className={`btn btn-sm${commentSidebarOpen ? ' active' : ''}`}
         onClick={toggleCommentSidebar}
@@ -1327,6 +1329,8 @@ export function DebateWorkspace({ onExport, exportStatus }: {
   const { runSemanticSearch, setFindQuery: setStoreFindQuery, setFindMode: setStoreFindMode, setToolbarPanel } = useTaxonomyStore();
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const [showSetup, setShowSetup] = useState(false);
+  // t/4905: Setup edits the debate, so a read-only community debate gets no Setup entry point.
+  const openSetup = useMemo(() => (communityReadOnly ? undefined : () => setShowSetup(true)), [communityReadOnly]);
   const [showParamHistory, setShowParamHistory] = useState(false);
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [debateChatOpen, setDebateChatOpen] = useState(false);
@@ -1411,13 +1415,13 @@ export function DebateWorkspace({ onExport, exportStatus }: {
           coverageMap={coverageMap}
           strengthWeighted={strengthWeighted}
           phaseLabel={PHASE_TITLES[activeDebate.phase] || activeDebate.phase}
-          onShowSetup={() => setShowSetup(true)}
+          onShowSetup={openSetup}
           actions={
             <DebateToolbar
               activeDebate={activeDebate}
               headerVariant
               isExploration={isExploration}
-              onShowSetup={() => setShowSetup(true)}
+              onShowSetup={openSetup}
               commentSidebarOpen={commentSidebarOpen}
               toggleCommentSidebar={toggleCommentSidebar}
               commentsFile={commentsFile}
@@ -1450,7 +1454,9 @@ export function DebateWorkspace({ onExport, exportStatus }: {
         />
       </div>
 
-      <DebateActionRegion
+      {/* t/4905: a read-only community debate gets no composer or continue controls — a run would
+          bill the viewer for someone else's debate and then be discarded. */}
+      {!communityReadOnly && <DebateActionRegion
         activeDebate={activeDebate}
         isExplorationClosed={isExplorationClosed}
         explorationSummary={explorationSummary}
@@ -1463,7 +1469,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
         setShowParamHistory={setShowParamHistory}
         showEvaluation={showEvaluation}
         setShowEvaluation={setShowEvaluation}
-      />
+      />}
 
       {/* Diagnostics always uses popup window — no inline panel */}
 
