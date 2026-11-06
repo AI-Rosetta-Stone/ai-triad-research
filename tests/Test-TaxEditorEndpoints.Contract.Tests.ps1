@@ -188,4 +188,56 @@ Describe 'Test-TaxEditorEndpoints — UserType + list→load contract (t/2374)' 
             }
         }
     }
+
+    # ── Invoke-ListLoadContractTest — list request not JSON (t/4913) ──────────
+
+    Context 'List→load contract — list request did not return JSON' {
+
+        It 'skips gracefully (Pass=true) when the list genuinely returned the EasyAuth HTML redirect' {
+            InModuleScope AITriad {
+                Mock Invoke-RemoteCheck -MockWith {
+                    [PSCustomObject]@{
+                        Success = $false; StatusCode = 200; ResponseMs = 6
+                        Body    = $null; RawBody = '<html>sign in</html>'; Error = $null
+                        ContentType = 'text/html; charset=utf-8'
+                    }
+                }
+
+                $Result = Invoke-ListLoadContractTest `
+                    -BaseUrl      'https://stub' `
+                    -ListPath     '/api/community/debates' `
+                    -LoadTemplate '/api/community/debates/{id}' `
+                    -Category     'Community' `
+                    -Description  'Community debate list→load contract (t/2374)' `
+                    -TimeoutSec   15
+
+                $Result.Pass        | Should -Be $true `
+                    -Because 'the diagnosed EasyAuth revision-FQDN HTML redirect is a known benign case'
+                $Result.Description | Should -BeLike '*skipped*'
+            }
+        }
+
+        It 'FAILS (does not skip) when the list returns 200 with no Content-Type and no error — the t/4913 broken-prefix shape' {
+            InModuleScope AITriad {
+                Mock Invoke-RemoteCheck -MockWith {
+                    [PSCustomObject]@{
+                        Success = $false; StatusCode = 200; ResponseMs = 6
+                        Body    = $null; RawBody = ''; Error = $null
+                        ContentType = ''
+                    }
+                }
+
+                $Result = Invoke-ListLoadContractTest `
+                    -BaseUrl      'https://stub' `
+                    -ListPath     '/api/community/debates' `
+                    -LoadTemplate '/api/community/debates/{id}' `
+                    -Category     'Community' `
+                    -Description  'Community debate list→load contract (t/2374)' `
+                    -TimeoutSec   15
+
+                $Result.Pass | Should -Be $false `
+                    -Because 't/4913: a non-JSON, non-HTML 200 (e.g. a broken-path SPA fallback with no Content-Type) must not be mistaken for the benign EasyAuth redirect'
+            }
+        }
+    }
 }

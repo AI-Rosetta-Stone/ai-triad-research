@@ -61,6 +61,47 @@ Describe 'Invoke-RemoteCheck -ExpectJson (t/1474 AC#1)' -Tag 'health' {
         }
     }
 
+    It 'FAILS when server returns 200 with NO Content-Type header and -ExpectJson is set (t/4913: the old blocklist bypass)' {
+        InModuleScope AITriad {
+            # t/4913's production bug: a broken-path SPA fallback can return 200 with a
+            # Content-Type that is neither 'application/json' NOR 'text/html' (missing header
+            # here; a static host's rewrite rule stripped or never set one). The OLD guard
+            # ($ContentType -match 'text/html') never fired for this shape, so a Field=$null
+            # endpoint passed on status code alone -- exactly the "14/24 PASS against a
+            # nonexistent prefix" the ticket reported. The NEW guard (must POSITIVELY contain
+            # 'application/json') catches this and every other non-JSON shape, not just HTML.
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{}
+                    Content    = '<!DOCTYPE html><html><body>app shell</body></html>'
+                }
+            }
+
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/nodes' -ExpectJson
+            $r.ContentType | Should -Be '' -Because 'no Content-Type header was sent -- the exact shape the old blocklist check missed'
+            $r.Success     | Should -Be $false -Because 't/4913: status-code-only pass must not survive a missing/non-JSON Content-Type'
+        }
+    }
+
+    It 'FAILS when Content-Type claims JSON but the body does not parse, even with no -ExpectedField set (t/4913: minimal shape)' {
+        InModuleScope AITriad {
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json') }
+                    Content    = 'not actually json'
+                }
+            }
+
+            # No -ExpectedField: most of Test-TaxEditorEndpoints's /api/* checks have none, so
+            # the body-parses check must apply unconditionally under -ExpectJson, not only when
+            # a caller also happens to ask for a specific field.
+            $r = Invoke-RemoteCheck -BaseUrl 'https://stub' -Path '/api/nodes' -ExpectJson
+            $r.Success | Should -Be $false -Because 't/4913: a non-JSON body must fail even without -ExpectedField'
+        }
+    }
+
     It 'PASSES when server returns 200 text/html and -ExpectJson is NOT set (existing callers unaffected — AC#4)' {
         InModuleScope AITriad {
             Mock Invoke-WebRequest -MockWith {
@@ -144,6 +185,33 @@ Describe 'Test-TaxEditorEndpoints propagates -ExpectJson for non-Static endpoint
             # Every Data endpoint should now FAIL because HTML 200 tripped -ExpectJson
             @($results | Where-Object { $_.Pass -eq $true }).Count | Should -Be 0 `
                 -Because 'HTML 200 on Data endpoints must no longer report Pass=True (t/1474)'
+        }
+    }
+
+    It 'every /api/* endpoint check FAILS against a nonexistent path prefix (t/4913 AC#1 — the full repro)' {
+        InModuleScope AITriad {
+            Mock Get-TaxEditorBaseUrl -MockWith { 'https://stub.example.com' }
+            # The anon-auth endpoint doesn't exist under a broken prefix either -- session
+            # establishment degrades gracefully, same as a real -AnonymousSession call against
+            # a dead host.
+            Mock New-AnonymousWebSession -MockWith { $null }
+            # The SPA fallback for a nonexistent prefix: 200, status-only signal, NO Content-Type
+            # header (t/4913's actual production shape) and a generic shell body -- not the Easy
+            # Auth Sign-In interstitial, so the AuthGated reclassify-to-PASS block must not fire
+            # either. Every /api/* endpoint has -ExpectJson set, so this must fail all of them.
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{}
+                    Content    = '<!DOCTYPE html><html><body><div id="root"></div><script src="/app.js"></script></body></html>'
+                }
+            }
+
+            $results = Test-TaxEditorEndpoints -BaseUrl 'https://stub/t4912-broken-prefix' -AnonymousSession 6>$null
+            $ApiResults = @($results | Where-Object { $_.Endpoint -like '/api/*' })
+            $ApiResults | Should -Not -BeNullOrEmpty
+            @($ApiResults | Where-Object { $_.Pass -eq $true }).Count | Should -Be 0 `
+                -Because 't/4913: a status-only 200 against a broken prefix must not report ANY /api/* endpoint as passing'
         }
     }
 }

@@ -34,12 +34,19 @@ function Invoke-ListLoadContractTest {
     $ListCheck = Invoke-RemoteCheck @ListParams
 
     if (-not $ListCheck.Success) {
-        # 200/304 with no error message means Invoke-RemoteCheck flipped Success=$false
-        # because the response Content-Type was text/html — EasyAuth returns an HTML
+        # 200/304 with no error message AND Content-Type genuinely text/html means
+        # Invoke-RemoteCheck flipped Success=$false because EasyAuth returned an HTML
         # login redirect on revision-specific FQDNs when no valid session is present
         # (session cookies are scoped to the app FQDN, not the revision FQDN). Skip
         # gracefully; the individual endpoint test for the list path covers reachability.
-        if ($ListCheck.StatusCode -in @(200, 304) -and [string]::IsNullOrEmpty($ListCheck.Error)) {
+        #
+        # t/4913 — this used to skip on ANY unexplained 200/304+no-error, regardless of
+        # WHY Invoke-RemoteCheck's -ExpectJson guard flipped Success. That's the same
+        # over-broad-assumption defect the ticket fixed in Invoke-RemoteCheck itself: a
+        # broken path prefix's SPA fallback can ALSO present as 200+no-error with a
+        # missing/non-JSON Content-Type, and that is NOT the benign EasyAuth case --
+        # it must fail, not skip. Require the diagnosed shape specifically.
+        if ($ListCheck.StatusCode -in @(200, 304) -and [string]::IsNullOrEmpty($ListCheck.Error) -and $ListCheck.ContentType -match 'text/html') {
             $r = [EndpointTestResult]::new()
             $r.Endpoint    = $LoadTemplate
             $r.Category    = $Category
