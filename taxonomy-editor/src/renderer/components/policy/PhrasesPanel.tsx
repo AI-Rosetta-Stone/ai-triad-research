@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import './PhrasesPanel.css';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { TheoryLink } from '../shared/TheoryLink';
@@ -60,6 +60,14 @@ const _syntheticCache = new Map<string, SyntheticEntry[]>();
 let _legacyCache: LegacyClaim[] | null = null;
 let _legacyLoading = false;
 const _legacyListeners: Array<() => void> = [];
+
+/** Test seam: empty both module-level caches (mirrors SourcesPanel's __resetSourcesCacheForTests). */
+export function __resetPhrasesCacheForTests(): void {
+  _syntheticCache.clear();
+  _legacyCache = null;
+  _legacyLoading = false;
+  _legacyListeners.length = 0;
+}
 
 function povKeyFromNodeId(nodeId: string): string | null {
   const prefix = nodeId.split('-')[0];
@@ -122,6 +130,9 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
   const [loading, setLoading] = useState(true);
   const [usingSynthetic, setUsingSynthetic] = useState(false);
   const [expandedArchetypes, setExpandedArchetypes] = useState<Set<string>>(new Set());
+  // t/4919: track which node we've already defaulted an archetype open for, so a re-render
+  // with a new (but equal) `grouped` array doesn't reopen one the user collapsed.
+  const defaultAppliedFor = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +162,7 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
     setLegacyPhrases([]);
     setUsingSynthetic(false);
     setExpandedArchetypes(new Set());
+    defaultAppliedFor.current = null;
     void load();
     return () => { cancelled = true; };
   }, [nodeId]);
@@ -169,6 +181,15 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
   }, [syntheticEntries, usingSynthetic]);
+
+  // t/4919: default the first archetype open, once per node, only on the synthetic-corpus path
+  // (the legacy fallback renders a flat list with nothing to expand).
+  useEffect(() => {
+    if (usingSynthetic && grouped && grouped.length > 0 && defaultAppliedFor.current !== nodeId) {
+      setExpandedArchetypes(new Set([grouped[0][0]]));
+      defaultAppliedFor.current = nodeId;
+    }
+  }, [usingSynthetic, grouped, nodeId]);
 
   const toggleArchetype = useCallback((archetype: string) => {
     setExpandedArchetypes(prev => {

@@ -5,7 +5,7 @@
 // instead of the whole-corpus index. A per-node cache shows the last result at once and revalidates in the
 // background; the server's indexVersion says whether the refetched data replaced it.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { SourceReference, SourceCardMeta } from '../../../../../lib/sourceIndex/types';
@@ -119,6 +119,7 @@ function DocumentRow({ group: g, card, expanded, onToggle }: {
       <button
         className={`sources-panel-doc-header${expanded ? ' sources-panel-doc-expanded' : ''}`}
         onClick={onToggle}
+        aria-expanded={expanded}
       >
         <span className="sources-panel-doc-title">{card?.title || first.title}</span>
         <span className="sources-panel-doc-meta">
@@ -166,8 +167,11 @@ interface SourcesPanelProps {
 export function SourcesPanel({ nodeId }: SourcesPanelProps) {
   const { data, error } = useNodeSources(nodeId);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // t/4919: track which node's first group we've already defaulted open, so a background
+  // revalidation (new `data` identity, same node) doesn't reopen a group the user collapsed.
+  const defaultAppliedFor = useRef<string | null>(null);
 
-  useEffect(() => { setExpanded(null); }, [nodeId]);
+  useEffect(() => { setExpanded(null); defaultAppliedFor.current = null; }, [nodeId]);
 
   const [sortMode, setSortMode] = useSourcesSortMode();
   // t/4389: rows ordered by the displayed title (the source card's title when there is one), or by count.
@@ -175,6 +179,14 @@ export function SourcesPanel({ nodeId }: SourcesPanelProps) {
     () => (data ? sortDocumentGroups(group(data), sortMode, g => data.cards[g.canonicalDocId]?.title || g.first.title) : []),
     [data, sortMode],
   );
+
+  // t/4919: default the first group open, once per node, only after the data has loaded.
+  useEffect(() => {
+    if (groups.length > 0 && defaultAppliedFor.current !== nodeId) {
+      setExpanded(groups[0].canonicalDocId);
+      defaultAppliedFor.current = nodeId;
+    }
+  }, [groups, nodeId]);
 
   if (error) return <div className="sources-panel-error" role="alert">{error}</div>;
   if (!data) return <div className="sources-panel-loading">Loading source references...</div>;

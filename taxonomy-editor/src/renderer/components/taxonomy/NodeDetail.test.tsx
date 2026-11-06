@@ -638,6 +638,62 @@ describe('NodeDetail — Steelman Vulnerability and Intellectual Lineage tabs (t
   });
 });
 
+describe('NodeDetail — Intellectual Lineage default-expands its first chip (t/4919)', () => {
+  const nodeWithLineage: PovNode = {
+    ...mockNode,
+    graph_attributes: { intellectual_lineage: ['Rawls', 'Nozick'] } as never,
+  };
+  const nodeWithOtherLineage: PovNode = {
+    ...mockNode,
+    id: 'acc-B-002',
+    graph_attributes: { intellectual_lineage: ['Zed'] } as never,
+  };
+
+  beforeEach(() => {
+    mockPrefsState.viewMode = 'advanced';
+    mockPrefsState.nodeDetailTabGroup = 'why';
+    vi.clearAllMocks();
+  });
+
+  // The chip's own label and the expanded detail panel's header can share text (e.g. the detail
+  // panel also echoes the selected chip's label) — query by chip class to avoid ambiguous matches.
+  const chip = (label: string) => screen.getByText(label, { selector: '.ga-promoted-chip' });
+
+  it('expands the alphabetically-first chip (Nozick) on mount, aria-expanded set', () => {
+    render(<NodeDetail pov="acc" node={nodeWithLineage} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(chip('Nozick')).toHaveAttribute('aria-expanded', 'true');
+    expect(chip('Rawls')).toHaveAttribute('aria-expanded', 'false');
+    // getLineageInfo mocked to null — "no detail" arm proves the default actually opened the chip.
+    expect(screen.getByText('No detailed information available for this lineage.')).toBeInTheDocument();
+  });
+
+  it('collapsing the default-expanded chip holds across a re-render for the same node', () => {
+    const { rerender } = render(<NodeDetail pov="acc" node={nodeWithLineage} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(chip('Nozick')); // user collapses the default-opened chip
+    expect(chip('Nozick')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('No detailed information available for this lineage.')).toBeNull();
+
+    // Re-render with the same node identity (equal, but not referentially identical, attrs) — must not reopen.
+    const sameNodeNewRef: PovNode = { ...nodeWithLineage, graph_attributes: { intellectual_lineage: ['Rawls', 'Nozick'] } as never };
+    rerender(<NodeDetail pov="acc" node={sameNodeNewRef} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(chip('Nozick')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('a node switch re-applies the default to the new node\'s first chip', () => {
+    const { rerender } = render(<NodeDetail pov="acc" node={nodeWithLineage} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(chip('Nozick'));
+    expect(chip('Nozick')).toHaveAttribute('aria-expanded', 'false');
+
+    rerender(<NodeDetail pov="acc" node={nodeWithOtherLineage} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(chip('Zed')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('an empty lineage list renders the empty state without throwing (nothing to default-expand)', () => {
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByText('No intellectual lineage recorded')).toBeInTheDocument();
+  });
+});
+
 describe('NodeDetail — issue-type chips (t/4834)', () => {
   beforeEach(() => {
     mockPrefsState.nodeDetailTabGroup = 'what';

@@ -44,6 +44,7 @@ function LineageChip({ label, selected, onSelect, onShowInfo }: {
       onTouchEnd={longPress.onTouchEnd}
       onTouchCancel={longPress.onTouchCancel}
       title={`Click to view lineage info: "${label}"`}
+      aria-expanded={selected}
     >
       {label}
     </span>
