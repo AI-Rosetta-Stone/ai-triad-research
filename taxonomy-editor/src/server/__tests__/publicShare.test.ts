@@ -191,7 +191,8 @@ describe('GET /api/public/pov/:pov/node/:nodeId (t/1788)', () => {
     it('the routes under /api/public/ are exactly the POV-node + op-ed share + op-ed index + inquiry share GETs', () => {
       // t/2727 added the op-ed share (2nd tenant); t/3481 added the op-ed index
       // (GET /api/public/opeds, TL-approved public read); t/3626/t/3653 added the inquiry
-      // share (anon GET, Server-Auth-reviewed). Keeping this an EXACT list (order-independent)
+      // share (anon GET, Server-Auth-reviewed); t/4925 wired the t/4787 chat share (anon GET,
+      // SO-reviewed). Keeping this an EXACT list (order-independent)
       // means any future /api/public/ route must be a deliberate, reviewed addition — the
       // allowlist can't grow silently.
       const publicRoutes = extractRoutes(serverEntry)
@@ -199,7 +200,7 @@ describe('GET /api/public/pov/:pov/node/:nodeId (t/1788)', () => {
         .map(r => `${r.method} ${r.path}`)
         .sort();
       expect(publicRoutes).toEqual(
-        ['GET /api/public/oped/:shareId', 'GET /api/public/opeds', 'GET /api/public/pov/:pov/node/:nodeId', 'GET /api/public/inquiry/:shareId'].sort(),
+        ['GET /api/public/oped/:shareId', 'GET /api/public/opeds', 'GET /api/public/pov/:pov/node/:nodeId', 'GET /api/public/inquiry/:shareId', 'GET /api/public/chat/:shareId'].sort(),
       );
     });
   });
