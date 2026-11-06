@@ -1122,14 +1122,9 @@ const RENAME_CAS_MAX_ATTEMPTS = 3;
  * condition 3): two concurrent admin renames never silently lose one — the last write wins,
  * and both attempts are audited.
  */
-export async function renameCommunityItem(
-  type: CommunityType,
-  id: string,
-  title: string,
-  opts: RenameCommunityItemOptions,
-): Promise<void> {
-  assertSafeId(id, 'community id'); // block path traversal
-
+/** Validates and normalizes the rename inputs, throwing ActionableError on either failure.
+ *  Split out of renameCommunityItem to keep its complexity under budget. */
+function validateRenameInputs(title: string, opts: RenameCommunityItemOptions): { by: string; newTitle: string } {
   const by = opts.by?.trim();
   if (!by) {
     throw new ActionableError({
@@ -1139,7 +1134,6 @@ export async function renameCommunityItem(
       nextSteps: ['Pass the authenticated admin\'s stableId (e.g. github:<id>) as `by`'],
     });
   }
-
   const newTitle = title.trim();
   if (!newTitle || newTitle.length > 200) {
     throw new ActionableError({
@@ -1149,6 +1143,84 @@ export async function renameCommunityItem(
       nextSteps: ['Provide a non-empty title of at most 200 characters'],
     });
   }
+  return { by, newTitle };
+}
+
+type RenameAuditRecord = {
+  id: string; type: CommunityType; by: string; at: string; from: string | null; to: string; reason: string | null;
+};
+
+/** Writes one audit record to community/_edits/. Throws ActionableError on failure — split out
+ *  so both the initial (load-bearing) write and the failure follow-up share the same error shape. */
+async function writeRenameAuditRecord(
+  backend: StorageBackend, record: RenameAuditRecord & { outcome?: 'failed'; relatedEdit?: string }, editId: string,
+): Promise<void> {
+  try {
+    await backend.writeFile(path.join(editsDir(), `edit-${editId}.json`), JSON.stringify(record, null, 2));
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'community', level: 'error',
+      message: 'Community rename audit record write failed',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    throw new ActionableError({
+      goal: 'Rename a community item',
+      problem: `Audit record write failed — refusing to rename without an audit trail: ${String(err)}`,
+      location: 'community.ts -> renameCommunityItem',
+      nextSteps: ['Retry the rename', 'Check storage backend health'],
+      innerError: err,
+    });
+  }
+}
+
+/** The CAS retry loop for a rename's published-file write (TL condition 3), split out of
+ *  renameCommunityItem to keep its complexity under budget. Returns `{ok: true}` once the
+ *  write lands, or `{ok: false, lastErr}` once retries are exhausted or a non-conflict error
+ *  occurs — the caller decides what to do with a failure (write the follow-up audit record). */
+async function casRenameWrite(
+  backend: StorageBackend, filePath: string, field: 'title' | 'topic', newTitle: string,
+  initial: { content: string; version: string },
+): Promise<{ ok: true } | { ok: false; lastErr: unknown }> {
+  let current = initial;
+  for (let attempt = 0; attempt < RENAME_CAS_MAX_ATTEMPTS; attempt++) {
+    const item = JSON.parse(current.content) as Record<string, unknown>;
+    item[field] = newTitle;
+    try {
+      await backend.writeFile(filePath, JSON.stringify(item, null, 2), { baseSha: current.version });
+      return { ok: true };
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'WRITE_CONFLICT') {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'community', level: 'error',
+          message: 'Community rename write failed (not a CAS conflict)',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return { ok: false, lastErr: err };
+      }
+      const retry = await readCommunityFileWithVersion(backend, filePath);
+      if (!retry) {
+        const lastErr = Object.assign(new Error('Community item disappeared during rename retry'), { statusCode: 404 });
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'community', level: 'warn',
+          message: 'Community rename retry found the item gone',
+          error: { name: lastErr.name, message: lastErr.message, stack: lastErr.stack },
+        });
+        return { ok: false, lastErr };
+      }
+      current = retry;
+    }
+  }
+  return { ok: false, lastErr: new Error(`CAS retries exhausted after ${RENAME_CAS_MAX_ATTEMPTS} attempts`) };
+}
+
+export async function renameCommunityItem(
+  type: CommunityType,
+  id: string,
+  title: string,
+  opts: RenameCommunityItemOptions,
+): Promise<void> {
+  assertSafeId(id, 'community id'); // block path traversal
+  const { by, newTitle } = validateRenameInputs(title, opts);
 
   const backend = getUserContentBackend();
   const { dir, prefix } = communityDirAndPrefix(type);
@@ -1161,74 +1233,34 @@ export async function renameCommunityItem(
   const fromValue = typeof initialItem[field] === 'string' ? initialItem[field] as string : null;
 
   const editId = crypto.randomUUID();
-  const auditRecord = {
+  const auditRecord: RenameAuditRecord = {
     id, type, by, at: new Date().toISOString(), from: fromValue, to: newTitle, reason: opts.reason ?? null,
   };
 
   // Audit FIRST — before any mutation of the published file (TL condition 2).
-  try {
-    await backend.writeFile(path.join(editsDir(), `edit-${editId}.json`), JSON.stringify(auditRecord, null, 2));
-  } catch (err) {
-    getGlobalRecorder()?.record({
-      type: 'system.error', component: 'community', level: 'error',
-      message: 'Community rename audit record write failed — refusing to rename without an audit trail',
-      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-    });
-    throw new ActionableError({
-      goal: 'Rename a community item',
-      problem: `Audit record write failed — refusing to rename without an audit trail: ${String(err)}`,
-      location: 'community.ts -> renameCommunityItem',
-      nextSteps: ['Retry the rename', 'Check storage backend health'],
-      innerError: err,
-    });
-  }
+  await writeRenameAuditRecord(backend, auditRecord, editId);
 
-  let current = initial;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < RENAME_CAS_MAX_ATTEMPTS; attempt++) {
-    const item = JSON.parse(current.content) as Record<string, unknown>;
-    item[field] = newTitle;
-    try {
-      await backend.writeFile(filePath, JSON.stringify(item, null, 2), { baseSha: current.version });
-      await invalidateListingIndex(backend, dir);
-      log.server.info({ id, type, by }, 'Community item renamed');
-      return;
-    } catch (err) {
-      if ((err as { code?: string }).code !== 'WRITE_CONFLICT') { lastErr = err; break; }
-      lastErr = err;
-      const retry = await readCommunityFileWithVersion(backend, filePath);
-      if (!retry) { lastErr = Object.assign(new Error('Community item disappeared during rename retry'), { statusCode: 404 }); break; }
-      current = retry;
-    }
+  const result = await casRenameWrite(backend, filePath, field, newTitle, initial);
+  if (result.ok) {
+    await invalidateListingIndex(backend, dir);
+    log.server.info({ id, type, by }, 'Community item renamed');
+    return;
   }
 
   // The rename never landed after the audit record was already written. Leave that record in
   // place (it documents the attempt) and write a second one marking the failure, so the trail
   // never implies a rename that didn't happen (TL condition 2, "either is fine, but say which" —
-  // this picks the second-record option).
-  try {
-    await backend.writeFile(
-      path.join(editsDir(), `edit-${crypto.randomUUID()}.json`),
-      JSON.stringify({ ...auditRecord, outcome: 'failed', relatedEdit: editId }, null, 2),
-    );
-  } catch (auditErr) {
-    getGlobalRecorder()?.record({
-      type: 'system.error', component: 'community', level: 'warn',
-      message: 'Failed to write the failed-rename follow-up audit record (best-effort)',
-      error: { name: (auditErr as Error).name ?? 'Error', message: String(auditErr), stack: (auditErr as Error).stack },
-    });
-  }
+  // this picks the second-record option). Best-effort: a failure here is already WARN-recorded
+  // inside writeRenameAuditRecord's own catch and must not mask the real error below.
+  await writeRenameAuditRecord(
+    backend, { ...auditRecord, outcome: 'failed', relatedEdit: editId }, crypto.randomUUID(),
+  ).catch(() => { /* best-effort follow-up record; the ActionableError below is the one that matters */ });
 
-  getGlobalRecorder()?.record({
-    type: 'system.error', component: 'community', level: 'error',
-    message: `Community rename did not land after ${RENAME_CAS_MAX_ATTEMPTS} attempts`,
-    error: { name: (lastErr as Error)?.name ?? 'Error', message: String(lastErr), stack: (lastErr as Error)?.stack },
-  });
   throw new ActionableError({
     goal: 'Rename a community item',
-    problem: `Rename did not land after ${RENAME_CAS_MAX_ATTEMPTS} attempts: ${String(lastErr)}`,
+    problem: `Rename did not land after ${RENAME_CAS_MAX_ATTEMPTS} attempts: ${String(result.lastErr)}`,
     location: 'community.ts -> renameCommunityItem',
     nextSteps: ['Retry the rename', 'If persistent, check for concurrent writers or storage backend health'],
-    innerError: lastErr,
+    innerError: result.lastErr,
   });
 }
