@@ -182,6 +182,28 @@ describe('ChatTab — table-view edit mode delete (t/4896)', () => {
     expect(screen.getByTestId('edit-mode-bar')).toBeInTheDocument();
   });
 
+  // t/4901: shared dialog a11y contract, including the deleting-in-progress Esc guard that
+  // mirrors this dialog's pre-existing `!deleting &&` overlay-click guard.
+  it('has role/aria-modal/aria-labelledby, and Esc is disabled while deleting (t/4901)', async () => {
+    let resolveDelete!: () => void;
+    deleteChatMock.mockImplementation(() => new Promise<void>(resolve => { resolveDelete = resolve; }));
+    render(<ChatTab />);
+    fireEvent.click(screen.getByTestId('enter-edit-mode'));
+    fireEvent.click(screen.getByTestId('row-chat-1'));
+    fireEvent.click(screen.getByTestId('action-Delete 1'));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-labelledby', screen.getByText('Delete 1 chat?').id);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Delete 1 chat$/ }));
+    fireEvent.keyDown(dialog, { key: 'Escape' }); // deleting is now true — must not close
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    resolveDelete();
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('cancelling the confirm dialog leaves the selection and edit mode intact, deletes nothing', () => {
     render(<ChatTab />);
     fireEvent.click(screen.getByTestId('enter-edit-mode'));

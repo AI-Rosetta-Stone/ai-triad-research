@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 
@@ -71,5 +71,28 @@ describe('DeleteConfirmDialog', () => {
   it('renders no warning when danglingWarning is omitted', () => {
     const { container } = render(<DeleteConfirmDialog {...defaultProps} />);
     expect(container.querySelector('.dialog-warning')).toBeNull();
+  });
+
+  // t/4901: shared dialog a11y contract (role/aria-modal/aria-labelledby, Esc, initial focus).
+  describe('a11y (t/4901, via the shared useDialog hook)', () => {
+    it('has role="dialog", aria-modal, and aria-labelledby pointing at the heading', () => {
+      render(<DeleteConfirmDialog {...defaultProps} />);
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      const heading = screen.getByText('Delete Node');
+      expect(dialog).toHaveAttribute('aria-labelledby', heading.id);
+    });
+
+    it('moves initial focus to Cancel, the safe control for a destructive confirm', () => {
+      render(<DeleteConfirmDialog {...defaultProps} />);
+      expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    });
+
+    it('Esc calls onCancel', () => {
+      const onCancel = vi.fn();
+      render(<DeleteConfirmDialog {...defaultProps} onCancel={onCancel} />);
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      expect(onCancel).toHaveBeenCalledOnce();
+    });
   });
 });

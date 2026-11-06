@@ -25,6 +25,7 @@ import { CopyLinkButton } from '../shared/CopyLinkButton';
 import { LineageDetailView } from '../shared/LineageDetailView';
 import { LibraryListPage } from '../shared/LibraryListPage';
 import type { LibraryEditModeAction } from '../shared/LibraryListPage.types';
+import { useDialog } from '../shared/useDialog'; // t/4901
 import { POVER_INFO } from '../../types/debate';
 import type { ChatSessionSummary, ChatMode, ChatSession } from '../../types/chat';
 import { api } from '@bridge';
@@ -874,6 +875,8 @@ function ChatBulkDeleteDialog({
   // ones succeeded — track per-id outcome, keep the dialog open and the failed ids selected on
   // any failure so the user can see what happened and retry just those.
   const [partialError, setPartialError] = useState<{ deletedCount: number; total: number; failedTitles: string } | null>(null);
+  // t/4901: Esc mirrors the existing overlay-click guard below — disabled while deleting.
+  const { dialogRef, titleId } = useDialog({ onCancel: () => setShowBulkDeleteConfirm(false), closeOnEscape: !deleting });
 
   const handleConfirm = async () => {
     setDeleting(true);
@@ -907,8 +910,8 @@ function ChatBulkDeleteDialog({
 
   return (
     <div className="dialog-overlay" onClick={() => !deleting && setShowBulkDeleteConfirm(false)}>
-      <div className="dialog chat-bulk-delete-dialog" onClick={e => e.stopPropagation()}>
-        <h3>Delete {selectedIds.size} chat{selectedIds.size !== 1 ? 's' : ''}?</h3>
+      <div ref={dialogRef} className="dialog chat-bulk-delete-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 id={titleId}>Delete {selectedIds.size} chat{selectedIds.size !== 1 ? 's' : ''}?</h3>
         <div className="chat-bulk-delete-list">
           {sessions.filter(s => selectedIds.has(s.id)).map(s => (
             <div key={s.id} className="chat-bulk-delete-item">

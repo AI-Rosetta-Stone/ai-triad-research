@@ -14,6 +14,7 @@ import { AI_BACKENDS } from '../../hooks/useTaxonomyStore';
 import { POV_KEYS, POV_META } from '@lib/electron-shared/povMeta';
 import { ISSUE_TYPES, getLabelForIssueType } from '@lib/schema/issueTypes';
 import { THEME_OPTIONS } from './themeOptions';
+import { useDialog } from '../shared/useDialog'; // t/4901
 import './HelpDialog.css';
 
 declare const __APP_VERSION__: string;
@@ -437,6 +438,8 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const resizing = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null);
+  // t/4901: reuses the existing dialogRef, which also drives this dialog's own drag/resize.
+  const { titleId } = useDialog({ onCancel: onClose, dialogRef });
 
   // Center on first render with viewport bounds checking
   useEffect(() => {
@@ -503,13 +506,16 @@ export function HelpDialog({ onClose, initialTab }: HelpDialogProps) {
       <div
         ref={dialogRef}
         className="dialog help-dialog helpdialog-dialog"
+        role="dialog"
+        aria-modal
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
         // eslint-disable-next-line local/no-inline-style -- width/height/left/top computed from drag + resize state
         style={{
           width: size.w, height: size.h, left: pos.x, top: pos.y,
         }}
       >
-        <h3 className="helpdialog-title" onMouseDown={onDragStart}>AI Rosetta Stone Help</h3>
+        <h3 id={titleId} className="helpdialog-title" onMouseDown={onDragStart}>AI Rosetta Stone Help</h3>
 
         <div className="helpdialog-body">
           <div className="helpdialog-tabs">

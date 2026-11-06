@@ -19,6 +19,7 @@ import { checkTagScope } from '@lib/debate/relevanceSelection';
 import { backendSelectState, type BackendAvailabilityEntry } from '../shared/backendSelectState';
 import { ModelPicker } from '../shared/ModelPicker';
 import { ChatTagPicker, tagBlockedReason } from './ChatTagPicker';
+import { useDialog } from '../shared/useDialog'; // t/4901
 import './NewChatDialog.css';
 
 interface NewChatDialogProps {
@@ -39,6 +40,7 @@ const MODE_ICONS: Record<ChatMode, string> = {
 };
 
 export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }: NewChatDialogProps) {
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose });
   const { createChat } = useChatStore();
   const [mode, setMode] = useState<ChatMode>(initialMode ?? 'brainstorm');
   // t/4774 AC3: the slider follows the selected mode's default until the user moves it — a dirty
@@ -111,8 +113,8 @@ export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }:
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog new-chat-dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>New Chat</h2>
+      <div ref={dialogRef} className="dialog new-chat-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <h2 id={titleId}>New Chat</h2>
 
         <label className="new-chat-label">Mode</label>
         <div className="new-chat-modes">

@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useDialog } from '../shared/useDialog'; // t/4901
 
 const isWeb = import.meta.env.VITE_TARGET === 'web';
 
@@ -18,6 +19,10 @@ export function FirstRunDialog({ dataRoot, onComplete, onSkip }: FirstRunDialogP
   const [message, setMessage] = useState('');
   const [downloadPath, setDownloadPath] = useState(dataRoot || '/data');
   const [locatePath, setLocatePath] = useState(dataRoot || '/data');
+  // t/4901: Esc mirrors the "Skip for Now"/"Skip" buttons already in this flow — disabled while
+  // a download is in flight, the same guard those buttons don't need since this dialog has no
+  // overlay-click-to-close either (a mandatory first-run flow, not casually dismissable).
+  const { dialogRef, titleId } = useDialog({ onCancel: onSkip, closeOnEscape: status !== 'downloading' });
 
   const handleLocateData = async () => {
     if (isWeb) {
@@ -91,9 +96,9 @@ export function FirstRunDialog({ dataRoot, onComplete, onSkip }: FirstRunDialogP
 
   return (
     <div className="dialog-overlay">
-      <div className="dialog first-run-dialog">
+      <div ref={dialogRef} className="dialog first-run-dialog" role="dialog" aria-modal aria-labelledby={titleId}>
         <div className="first-run-icon">&#128218;</div>
-        <h2>Welcome to AI Triad</h2>
+        <h2 id={titleId}>Welcome to AI Triad</h2>
 
         {status === 'prompt' && (
           <>
