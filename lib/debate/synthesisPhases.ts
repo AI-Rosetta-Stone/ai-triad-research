@@ -44,6 +44,8 @@ export interface SynthesisPhaseResult {
   elapsed_ms: number;
 }
 
+export type SynthesisPhaseName = 'extract' | 'map' | 'evaluate';
+
 // ── Phase key scoping ───────────────────────────────────
 // Each phase only owns specific keys. Without scoping, fallback parsing
 // via extractArraysFromPartialJson returns ALL 8 keys with empty arrays,
@@ -53,6 +55,32 @@ const PHASE_KEYS = {
   map: ['taxonomy_coverage', 'argument_map', 'taxonomy_proposals', 'taxonomy_modifications'],
   evaluate: ['preferences', 'policy_implications', 'topic_resolution'],
 } as const;
+
+/**
+ * Phase payloads produced by partial-JSON recovery rather than a clean parse.
+ * Tracked by identity so a clean retry that replaces the payload clears it.
+ */
+const recoveredPayloads = new WeakSet<object>();
+
+function noteRecoveredPhase(
+  degradedPhases: SynthesisPhaseName[],
+  mergedPayload: Record<string, unknown>,
+  phase: SynthesisPhaseName,
+): void {
+  if (recoveredPayloads.has(mergedPayload)) degradedPhases.push(phase);
+}
+
+/**
+ * Stamp the merged synthesis with a machine-readable degraded marker when any
+ * phase's merged data came from partial-JSON recovery (t/4929). Consumers
+ * persist `data` as `metadata.synthesis`, so the marker lands at
+ * `metadata.synthesis.degraded` / `.degraded_phases`. Clean runs carry neither key.
+ */
+function applyDegradedMarker(data: Record<string, unknown>, degradedPhases: SynthesisPhaseName[]): void {
+  if (degradedPhases.length === 0) return;
+  data.degraded = true;
+  data.degraded_phases = [...degradedPhases];
+}
 
 function mergePhaseData(
   target: Record<string, unknown>,
@@ -88,6 +116,7 @@ function parsePhaseResponse(
         'Synthesis may be incomplete',
       );
     }
+    recoveredPayloads.add(fallback);
     return fallback;
   }
 }
@@ -113,6 +142,7 @@ export async function runSynthesisPhases(
 ): Promise<SynthesisPhaseResult> {
   const start = Date.now();
   const data: Record<string, unknown> = {};
+  const degradedPhases: SynthesisPhaseName[] = [];
 
   const synthGenerate = usageDeps
     ? async (usageId: string, prompt: string, label: string) =>
@@ -141,8 +171,10 @@ export async function runSynthesisPhases(
     warn?.('Synthesis Phase 1', 'AI returned empty or unparseable output — synthesis data will be incomplete', 'Proceeding with partial synthesis');
   }
   mergePhaseData(data, extractData, PHASE_KEYS.extract);
+  noteRecoveredPhase(degradedPhases, extractData, 'extract');
 
   if (maxPhase === 1) {
+    applyDegradedMarker(data, degradedPhases);
     return {
       data,
       rawResponses: { extract: extractRaw, map: '', evaluate: '' },
@@ -181,8 +213,10 @@ export async function runSynthesisPhases(
     }
   }
   mergePhaseData(data, mapData, PHASE_KEYS.map);
+  noteRecoveredPhase(degradedPhases, mapData, 'map');
 
   if (maxPhase === 2) {
+    applyDegradedMarker(data, degradedPhases);
     return {
       data,
       rawResponses: { extract: extractRaw, map: mapRaw, evaluate: '' },
@@ -221,6 +255,8 @@ export async function runSynthesisPhases(
     }
   }
   mergePhaseData(data, evalData, PHASE_KEYS.evaluate);
+  noteRecoveredPhase(degradedPhases, evalData, 'evaluate');
+  applyDegradedMarker(data, degradedPhases);
 
   return {
     data,

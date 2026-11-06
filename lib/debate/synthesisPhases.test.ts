@@ -171,3 +171,84 @@ describe('runSynthesisPhases', () => {
     expect(result.elapsed_ms).toBeGreaterThanOrEqual(0);
   });
 });
+
+// t/4929: partial-JSON recovery must persist a machine-readable marker, not just a WARN.
+describe('runSynthesisPhases degraded marker', () => {
+  it('clean synthesis carries no degraded marker', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce(validPhase1Json())
+      .mockResolvedValueOnce(validPhase2Json())
+      .mockResolvedValueOnce(validPhase3Json());
+
+    const result = await runSynthesisPhases(INPUT, generate);
+
+    expect(result.data).not.toHaveProperty('degraded');
+    expect(result.data).not.toHaveProperty('degraded_phases');
+  });
+
+  it('marks the synthesis degraded when a phase is partially recovered, and keeps the WARN', async () => {
+    const malformedPhase3 = '{"preferences": [{"dimension": "speed"}] TRUNCATED';
+    const generate = vi.fn()
+      .mockResolvedValueOnce(validPhase1Json())
+      .mockResolvedValueOnce(validPhase2Json())
+      .mockResolvedValueOnce(malformedPhase3);
+    const warn = vi.fn();
+
+    const result = await runSynthesisPhases(INPUT, generate, undefined, warn);
+
+    expect(result.data.degraded).toBe(true);
+    expect(result.data.degraded_phases).toEqual(['evaluate']);
+    expect(warn).toHaveBeenCalledWith(
+      'Synthesis Phase 3 parse',
+      'Primary JSON parse failed, recovered partial data via fallback',
+      'Synthesis may be incomplete',
+    );
+  });
+
+  it('lists every phase that fell back, in phase order', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce('{"areas_of_agreement": [{"p": "a"}] BROKEN')
+      .mockResolvedValueOnce('{"argument_map": [{"c": "x"}] BROKEN')
+      .mockResolvedValueOnce('{"preferences": [{"d": "y"}] BROKEN');
+
+    const result = await runSynthesisPhases(INPUT, generate, undefined, vi.fn());
+
+    expect(result.data.degraded).toBe(true);
+    expect(result.data.degraded_phases).toEqual(['extract', 'map', 'evaluate']);
+  });
+
+  it('does not mark a phase whose fallback data was replaced by a clean retry', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce(validPhase1Json())
+      .mockResolvedValueOnce('{"taxonomy_coverage": [{"node_id": "acc-B-001"}] BROKEN') // fallback, no argument_map → retry
+      .mockResolvedValueOnce(validPhase2Json())                                          // clean retry replaces it
+      .mockResolvedValueOnce(validPhase3Json());
+
+    const result = await runSynthesisPhases(INPUT, generate, undefined, vi.fn());
+
+    expect(generate).toHaveBeenCalledTimes(4);
+    expect(result.data).not.toHaveProperty('degraded');
+  });
+
+  it('keeps the mark when the retry does not replace the recovered data', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce(validPhase1Json())
+      .mockResolvedValueOnce('{"taxonomy_coverage": [{"node_id": "acc-B-001"}] BROKEN')
+      .mockResolvedValueOnce(JSON.stringify({ argument_map: [] }))                       // retry still empty
+      .mockResolvedValueOnce(validPhase3Json());
+
+    const result = await runSynthesisPhases(INPUT, generate, undefined, vi.fn());
+
+    expect(result.data.degraded).toBe(true);
+    expect(result.data.degraded_phases).toEqual(['map']);
+  });
+
+  it('applies the marker on the maxPhase early return', async () => {
+    const generate = vi.fn().mockResolvedValueOnce('{"cruxes": [{"q": "c"}] BROKEN');
+
+    const result = await runSynthesisPhases(INPUT, generate, undefined, vi.fn(), undefined, 1);
+
+    expect(result.data.degraded).toBe(true);
+    expect(result.data.degraded_phases).toEqual(['extract']);
+  });
+});
