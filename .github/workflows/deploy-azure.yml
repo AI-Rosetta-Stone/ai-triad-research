@@ -286,6 +286,10 @@ jobs:
           # t/4233: a same-second startedAt tie lets both runs see each other as "not earlier" and
           # both proceed. Break the tie on databaseId (lower = earlier) — GitHub run IDs are
           # monotonically increasing, so this gives a total order even when timestamps collide.
+          # The predicate is extracted to a pure function (Get-DeployRaceEarlierRuns.ps1, unit
+          # tested in tests/Get-DeployRaceEarlierRuns.Tests.ps1), dot-sourced here and in
+          # deploy-staging.yml, instead of being duplicated inline in both workflows.
+          . "$PWD/operations/devops/Get-DeployRaceEarlierRuns.ps1"
           $MaxWaitSeconds = 1800  # SO C1b: matches deploy-staging.yml job's timeout-minutes: 30
           $PollIntervalSeconds = 20
           $Elapsed = 0
@@ -299,10 +303,7 @@ jobs:
               $ApiOk = -not ($null -eq $Raw -or $Raw -eq '')
               if ($ApiOk) {
                 $Others = @($Raw | ConvertFrom-Json)
-                $Earlier = @($Others | Where-Object {
-                  ([datetimeoffset]$_.startedAt -lt [datetimeoffset]$OwnStartedAt) -or
-                  ([datetimeoffset]$_.startedAt -eq [datetimeoffset]$OwnStartedAt -and [int64]$_.databaseId -lt $OwnDatabaseId)
-                })
+                $Earlier = @(Get-DeployRaceEarlierRuns -OwnStartedAt ([datetimeoffset]$OwnStartedAt) -OwnDatabaseId $OwnDatabaseId -Others $Others)
               } else {
                 # SO C1d: unknown, NOT zero — fall through to the elapsed/poll logic below as "busy".
                 $Earlier = $null
