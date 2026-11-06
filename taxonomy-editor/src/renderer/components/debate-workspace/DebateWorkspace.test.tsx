@@ -427,6 +427,21 @@ describe('read-only community debate (t/4905)', () => {
     expect(screen.queryByPlaceholderText(/Ask the debater/)).not.toBeInTheDocument();
   });
 
+  it('read-only community debate: Details opens the view-only dialog titled Debate Details (t/4906)', () => {
+    mockStore.communityReadOnly = true;
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(screen.getByRole('dialog', { name: 'Debate Details' })).toBeInTheDocument();
+  });
+
+  it('own debate: Setup opens the same dialog titled Debate Setup (t/4906)', () => {
+    mockStore.communityReadOnly = false;
+    render(<DebateWorkspace />);
+    expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
+    expect(screen.getByRole('dialog', { name: 'Debate Setup' })).toBeInTheDocument();
+  });
+
   it('read-only community debate keeps the read-only tools: Comments and Diagnostics', () => {
     mockStore.communityReadOnly = true;
     render(<DebateWorkspace />);

@@ -38,7 +38,7 @@ import { useCommunityStore } from '../../hooks/useCommunityStore';
 import { useUserProfile } from '../../hooks/useAuthStatus';
 import { CommunityShareBanner } from '../shared/CommunityShareBanner';
 import { DebateHeader } from './DebateHeader';
-import { DebateSetupDialog } from './DebateSetupDialog';
+import { DebateSetupDialog, setupNamingFor } from './DebateSetupDialog';
 import { StatementCard, ProbingCard, FactCheckCard, EntryDeleteControls, HighlightedText, PhaseHairline } from './StatementCard';
 import { DebaterToggles, DebateActions } from './DebateActionBar';
 import { DebatePhaseIndicators } from './DebatePhaseIndicators';
@@ -491,7 +491,7 @@ function GlobalModeControl({ defaultTier, setDefaultTier }: {
 }
 
 function DebateToolbar({
-  activeDebate, isExploration, onShowSetup,
+  activeDebate, isExploration, onShowSetup, setupLabel = 'Setup',
   commentSidebarOpen, toggleCommentSidebar, commentsFile,
   exportStatus, onExport, diagnosticsEnabled, toggleDiagnostics,
   defaultTier, setDefaultTier, headerVariant = false,
@@ -499,6 +499,7 @@ function DebateToolbar({
   activeDebate: ActiveDebateSession;
   isExploration: boolean;
   onShowSetup?: () => void;
+  setupLabel?: string;
   commentSidebarOpen: boolean;
   toggleCommentSidebar: () => void;
   commentsFile: CommentStoreState['commentsFile'];
@@ -531,7 +532,7 @@ function DebateToolbar({
           onClick={onShowSetup}
           title="View full topic, source, and debate configuration"
         >
-          Setup
+          {setupLabel}
         </button>
       )}
       <button
@@ -1329,8 +1330,8 @@ export function DebateWorkspace({ onExport, exportStatus }: {
   const { runSemanticSearch, setFindQuery: setStoreFindQuery, setFindMode: setStoreFindMode, setToolbarPanel } = useTaxonomyStore();
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const [showSetup, setShowSetup] = useState(false);
-  // t/4905: Setup edits the debate, so a read-only community debate gets no Setup entry point.
-  const openSetup = useMemo(() => (communityReadOnly ? undefined : () => setShowSetup(true)), [communityReadOnly]);
+  const openSetup = useCallback(() => setShowSetup(true), []);
+  const setupNaming = setupNamingFor(communityReadOnly);
   const [showParamHistory, setShowParamHistory] = useState(false);
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [debateChatOpen, setDebateChatOpen] = useState(false);
@@ -1388,7 +1389,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
     <div className="debate-workspace-row" data-phase={isClarificationPhase ? 'setup' : undefined}>
     {chatRedesign && <TranscriptOutline transcript={activeDebate.transcript} />}
     <div className="debate-workspace">
-      {showSetup && <DebateSetupDialog activeDebate={activeDebate} onClose={() => setShowSetup(false)} />}
+      {showSetup && <DebateSetupDialog activeDebate={activeDebate} title={setupNaming.title} onClose={() => setShowSetup(false)} />}
 
       {/* Find bar */}
       {findVisible && (
@@ -1422,6 +1423,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
               headerVariant
               isExploration={isExploration}
               onShowSetup={openSetup}
+              setupLabel={setupNaming.label}
               commentSidebarOpen={commentSidebarOpen}
               toggleCommentSidebar={toggleCommentSidebar}
               commentsFile={commentsFile}
