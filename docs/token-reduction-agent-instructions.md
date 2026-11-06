@@ -44,15 +44,15 @@ Three rules shape the assignments below.
 | Computational Linguist (Main, Debate Engine) | opus-4-8 | `claude-opus-5-5` | high | Research claims and judge calibration need the judgment. |
 | CL.Investigate1 | opus-5-5 | `claude-sonnet-5-5` | medium | Investigation clone. Data gathering, not verdicts. |
 | ServerAPI and Server Auth | sonnet-5 (default) | `claude-opus-5-5` | medium | Auth and public REST surface. Cost of error is high. |
-| Azure | opus-4-8 | `claude-opus-5-5` | medium | Production infra, identity, secrets. |
+| Azure (Main, Infrastructure) | Main sonnet-4-6 (default), clone opus-4-8 | `claude-opus-5-5` | medium | Production infra, identity, secrets. |
 | PowerShell (Main) | opus-4-8 | `claude-sonnet-5-5` | medium | Large module but well tested by Pester. Escalate to Opus for module-wide refactors by ticket. |
 | PowerShell 2 | sonnet-5 | `claude-sonnet-5-5` | medium | Parallel worker. |
 | DevOps Lead (Main, Infrastructure) | opus-4-8 | `claude-opus-5-5` | medium | Gate design and CI architecture. |
 | DevOps Worker | sonnet-4-6 (default) | `claude-sonnet-5-5` | medium | Implements what the Lead designs. |
-| Docker | opus-4-8 | `claude-sonnet-5-5` | medium | Dockerfiles and build pipelines are testable in CI. |
+| Docker (Main, Infrastructure) | Main sonnet-4-6 (default), clone opus-4-8 | `claude-sonnet-5-5` | medium | Dockerfiles and build pipelines are testable in CI. |
 | Diagnostics (Main, Infrastructure) | opus-4-8 | `claude-sonnet-5-5` | medium | Log triage and pattern matching. |
-| Risk Assessor (Main, Quality) | opus-4-8 | `claude-sonnet-5-5` | high | Reads proposals and rates risk. High effort, cheaper model. |
-| Sage (Main, Quality) | opus-4-8 | `claude-sonnet-5-5` | medium | Writes lessons. Pattern recognition, not design. |
+| Risk Assessor (Main, Quality) | Main sonnet-4-6 (default), Quality opus-4-8 | `claude-sonnet-5-5` | high | Reads proposals and rates risk. High effort, cheaper model. |
+| Sage (Main, Quality) | Main sonnet-4-6 (default), Quality opus-4-8 | `claude-sonnet-5-5` | medium | Writes lessons. Pattern recognition, not design. |
 | Design | opus-4-8 | `claude-sonnet-5-5` | medium | UI/UX review. Design approval stays with the human gate. |
 | Rosetta Stone (Main) | sonnet-5 | `claude-sonnet-5-5` | medium | Electron app owner. |
 | Rosetta Stone 2 | haiku-4-5 | `claude-haiku-5-5` | medium | Already the cheap clone. Successor is 10x cheaper and has 1M context. |
