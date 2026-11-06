@@ -31,7 +31,7 @@ import { parseOpEdRequest } from '../../../../lib/oped/schemas.js';
 import type { GenerateOpEdRequest, OpEdGeneratorDeps, OpEdProgressEvent } from '../../../../lib/oped/generate.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { checkRate } from '../security/rateLimiter.js';
-import { publishOpedShare, unpublishOpedShare } from '../storage/opedShareStore.js';
+import { publishOpedShare, unpublishOpedShare, refreshOpedShareIfShared } from '../storage/opedShareStore.js';
 import { resolveGenerationContext, enforceBackendAllowed } from './generationContext.js';
 import { resolveBackend, isRegisteredModel } from '../ai/aiBackends.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
@@ -433,6 +433,12 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
       // Existing set → finalizeOpedSet does NOT quota-check (verified: it gates
       // NEW sets only). Only `topic` changes; every member passes through intact.
       await finalizeOpedSet({ ...stored, topic });
+      // t/4927: a rename refreshes an existing public share's projection in place (same
+      // shareId) so the public copy's topic isn't left stale. Best-effort — the rename
+      // above has already persisted, so a refresh failure here must not undo it.
+      await refreshOpedShareIfShared(id).catch((err) => {
+        log.server.warn({ err, setId: id }, 'Op-ed share refresh after rename failed (best-effort)');
+      });
       json(res, { ok: true });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'oped', level: 'error', message: 'Failed to rename oped-set', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
