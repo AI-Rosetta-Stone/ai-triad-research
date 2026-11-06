@@ -36,11 +36,15 @@ import { isSafeId } from '../storage/fileIO.js';
 import { buildInquiryRunPipeline } from '../inquiryPipelineDeps.js';
 
 /** Map an in-memory job to the shared poll projection (tier-1 path for buildPollView). */
-function jobProjection(job: InquiryJob): InquiryPollProjection {
+/** Exported for t/4917's regression test — the real path the route uses, not a hand-rolled projection. */
+export function jobProjection(job: InquiryJob): InquiryPollProjection {
   const projection: InquiryPollProjection = {
     jobId: job.jobId, status: job.status, resultId: job.resultId,
     error: job.error, debateId: job.debateId,
     terminationReason: job.terminationReason ?? null,
+    // t/4917: tier 1 (in-memory job) is the only tier with a live debate fraction —
+    // buildPollView needs it to move progressPct past the debating-stage floor (15%).
+    debateFraction: job.currentDebateFraction,
   };
   if (job.currentStageDetail) projection.stageDetail = job.currentStageDetail;
   return projection;
