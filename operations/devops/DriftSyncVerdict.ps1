@@ -41,6 +41,9 @@
     so an untracked file colliding with an incoming ADDED path is not held here — but `git merge
     --ff-only` refuses with "untracked working tree file would be overwritten", so git is the
     backstop: the cost is a failed sync attempt, not data loss (TL p/331#1674).
+    This decision is PRESERVED — SyncBlocked stays tracked-WIP-only. t/4789 adds a SEPARATE advisory
+    finding (Get-DriftUntrackedCollisionVerdict, surfaced by check-shared-drift.ps1 as UntrackedCollisions)
+    so the collision is no longer a silent "safe-to-ff" (r/11#1619), WITHOUT reclassifying it as a hold.
 
     PURE half: takes already-computed sets + counts, returns the verdict — both arms unit-testable
     without a git fixture. The impure git calls (behind/ahead counts, the incoming name-set) live in

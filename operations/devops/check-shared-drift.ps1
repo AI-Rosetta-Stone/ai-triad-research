@@ -89,6 +89,12 @@ if (Test-Path $phantomVerdictScript) { . $phantomVerdictScript }
 $syncVerdictScript = Join-Path $PSScriptRoot 'DriftSyncVerdict.ps1'
 if (Test-Path $syncVerdictScript) { . $syncVerdictScript }
 
+# t/4789: pure untracked-collision predicate — an UNTRACKED local file colliding with an incoming ADD
+# blocks `git merge --ff-only` even though SyncBlocked (tracked-WIP-only, TL p/331#1674) does not see it.
+# Advisory finding, NOT a SyncBlocked flip. Same dot-sourceable pattern; unit-tested (DriftUntrackedCollisionVerdict.Tests.ps1).
+$untrackedCollisionVerdictScript = Join-Path $PSScriptRoot 'DriftUntrackedCollisionVerdict.ps1'
+if (Test-Path $untrackedCollisionVerdictScript) { . $untrackedCollisionVerdictScript }
+
 # t/3801: pure hourly-ping dedup predicates (fingerprint + should-ping). Same dot-sourceable
 # pattern; both arms + fail-safe arms unit-tested (DriftDedupVerdict.Tests.ps1).
 $dedupVerdictScript = Join-Path $PSScriptRoot 'DriftDedupVerdict.ps1'
@@ -152,6 +158,8 @@ $result = [PSCustomObject]@{
     SyncConflicts    = @()              # t/3745: the real-WIP file(s) intersecting the incoming change-set (or all WIP when diverged/broken)
     IncomingFiles    = @()              # t/3745: paths the incoming commits change (HEAD..origin/main)
     SyncReason       = ''               # t/3745: human-readable verdict rationale
+    UntrackedCollisions = @()           # t/4789: untracked local file(s) colliding with an incoming ADD — git ff-only refuses these, but SyncBlocked (tracked-WIP-only, TL p/331#1674) does not see them. Advisory finding, NOT a SyncBlocked flip.
+    UntrackedCollisionReason = ''       # t/4789: human-readable rationale / DEGRADED note
     DirtyFiles       = @()
     HasRealDiff      = $false           # t/3669: = RealWipFiles.Count -gt 0 (the t/2452 reminder branches on this)
     PhantomFiles     = @()              # t/3669: dirty but byte-identical to origin/main modulo CRLF — safe to restore, no owner-claim
@@ -298,6 +306,50 @@ try {
     }
     $result.SuspiciousPaths = $suspiciousPaths
     $result.ShellFragmentPaths = $shellFragmentPaths   # t/3634: detected this run (also auto-removed below)
+
+    # 5e. t/4789 — UNTRACKED-vs-incoming-ADD collision (advisory finding; does NOT flip SyncBlocked).
+    #     Live gap (r/11#1619): SyncBlocked reported safe-to-ff, but `git merge --ff-only` refused
+    #     ("untracked working tree files would be overwritten") for an untracked local file colliding
+    #     with an incoming ADD of the same path. SyncBlocked is tracked-WIP-only BY DESIGN (TL p/331#1674)
+    #     and stays so — flipping it would reverse that decision AND wrongly route into real-WIP
+    #     owner-claim semantics (wrong remedy; the fix is compare-and-remove-if-identical). So detect it
+    #     as its own finding + hint, and qualify the "ff-sync is SAFE" hint below. Only meaningful when
+    #     behind>0 (a pending ff). The incoming-ADD set = `git diff --name-status HEAD..origin/main` with
+    #     status 'A', plus the DESTINATION of 'R'/'C' rename/copy entries (a new path). $incomingAddedKnown
+    #     = $false on git failure so the verdict reports DEGRADED (never a false clean or a false alarm).
+    $incomingAddedKnown = $true
+    $incomingAdded = @()
+    if ($behind -gt 0) {
+        $nameStatusRaw = Invoke-Git @('-C', $RepoRoot, 'diff', '--name-status', 'HEAD..origin/main')
+        if ($null -eq $nameStatusRaw) {
+            $incomingAddedKnown = $false
+        } else {
+            foreach ($line in @($nameStatusRaw | Where-Object { $_ })) {
+                $parts = @("$line" -split "`t")       # <STATUS>\t<path>; R/C: <STATUS>\t<old>\t<new>
+                $code = "$($parts[0])"
+                if ($code -like 'A*' -and $parts.Count -ge 2) {
+                    $incomingAdded += ($parts[1] -replace '\\', '/').Trim()
+                } elseif (($code -like 'R*' -or $code -like 'C*') -and $parts.Count -ge 3) {
+                    $incomingAdded += ($parts[2] -replace '\\', '/').Trim()   # rename/copy destination is a new path
+                }
+            }
+            $incomingAdded = @($incomingAdded | Where-Object { $_ })
+        }
+    }
+    # Untracked set (section 5's $untracked), normalized and with linked worktrees excluded — a
+    # .worktrees/ file is not a shared-tree path and cannot collide with a root-relative incoming ADD.
+    $untrackedForCollision = @(
+        $untracked |
+            Where-Object { $_ -and ($_ -notmatch '^\.worktrees[\\/]') } |
+            ForEach-Object { ($_ -replace '\\', '/').Trim() } |
+            Where-Object { $_ }
+    )
+    if (Get-Command Get-DriftUntrackedCollisionVerdict -ErrorAction SilentlyContinue) {
+        $collV = Get-DriftUntrackedCollisionVerdict -UntrackedFiles $untrackedForCollision -IncomingAddedFiles $incomingAdded -Behind $behind -IncomingAddedKnown $incomingAddedKnown
+        $result.UntrackedCollisions      = @($collV.Collisions)
+        $result.UntrackedCollisionReason = $collV.Reason
+    }
+    # else: verdict file missing — leave UntrackedCollisions empty. Advisory only; behind>0 already alarms.
 
     # 5c. NESTED .worktrees directories outside repo root (t/3145; t/2222 cwd-reset class).
     #     A `git worktree add` run with the shell cwd reset into a subdir drops .worktrees UNDER a
@@ -525,7 +577,7 @@ try {
     # (StrandedBranchesStatus != OK) ALSO alarms — the whole point (TL t/3652#3) is that "couldn't
     # check" must not read as "clean"; surfacing it via the alarm/ping path is how it stays visible.
     $strandedAlarm = ($result.StrandedBranches.Count -gt 0) -or ($result.StrandedBranchesStatus -ne 'OK')
-    $alarm = $behind -gt 0 -or $dirtyFiles.Count -gt 0 -or $remainingJunk.Count -gt 0 -or $suspiciousPaths.Count -gt 0 -or $nestedWorktrees.Count -gt 0 -or $shellFragmentPaths.Count -gt 0 -or $strandedAlarm
+    $alarm = $behind -gt 0 -or $dirtyFiles.Count -gt 0 -or $remainingJunk.Count -gt 0 -or $suspiciousPaths.Count -gt 0 -or $nestedWorktrees.Count -gt 0 -or $shellFragmentPaths.Count -gt 0 -or $strandedAlarm -or $result.UntrackedCollisions.Count -gt 0
     $result.Alarm = $alarm
 
     # 6b. t/3801 — hourly-ping dedup. Own try/catch (like 5d) so a dedup failure can NEVER
@@ -655,9 +707,21 @@ try {
                 "behind ($behind commit(s)) — SYNC BLOCKED: $($result.SyncReason). Do NOT ff; resolve per the real-WIP / diverged hint below (owner-claim, or the DevOps reset-sync)."
             } elseif ($result.AheadCount -gt 0) {
                 "DIVERGED (ahead=$($result.AheadCount), behind=$behind) — ff is IMPOSSIBLE; no real WIP, so no owner-claim. DevOps reset-sync per docs/shared-tree-divergence.md: classify each local commit by CONTENT (Step 1; rescue any unique), collect per-owner acks (Step 3.2 — a state read is advisory only), then 'git status --short --untracked-files=no && git fetch origin && git reset --hard origin/main'. Do NOT run merge --ff-only (it will refuse)."
+            } elseif ($result.UntrackedCollisions.Count -gt 0) {
+                "behind ($behind commit(s)) — no real-WIP intersection, BUT $($result.UntrackedCollisions.Count) untracked local file(s) collide with an incoming ADD: `git merge --ff-only` WILL refuse ('untracked working tree files would be overwritten'). NOT a plain safe-ff — clear the collision(s) per the untracked-collision hint below, THEN ff."
             } else {
                 "behind ($behind commit(s)) — ff-sync is SAFE ($($result.SyncReason)): git fetch && git merge --ff-only origin/main"
             }
+        }
+        if ($result.UntrackedCollisions.Count -gt 0) {
+            $listed = $result.UntrackedCollisions -join ', '
+            # t/4789: an untracked local file colliding with an incoming ADD blocks ff-only even when
+            # byte-identical. SyncBlocked is intentionally NOT set for this class (tracked-WIP-only,
+            # TL p/331#1674) — so give the compare-and-remove-if-identical remedy directly here.
+            $hints += "UNTRACKED-vs-incoming-ADD collision(s) (t/4789) [$listed]: git merge --ff-only refuses to overwrite these untracked local files even if byte-identical. For EACH: compare the local file to origin's incoming version (MSYS_NO_PATHCONV=1 git show origin/main:<path>); if IDENTICAL, Remove-Item -LiteralPath <path> then ff; if DIFFERENT, it is unsaved local work — preserve it (copy aside, or claim with the path owner) BEFORE removing. This is a failed-ff backstop, NOT data loss; SyncBlocked stays false by design."
+        }
+        if ($result.UntrackedCollisionReason -match '^DEGRADED') {
+            $hints += "untracked-collision check DEGRADED: $($result.UntrackedCollisionReason). This is 'could-not-check', NOT 'no collision' — if a subsequent ff is refused for an untracked path, use the compare-and-remove-if-identical remedy above."
         }
         if ($autoRemoved.Count -gt 0) {
             $listed = $autoRemoved -join ', '
