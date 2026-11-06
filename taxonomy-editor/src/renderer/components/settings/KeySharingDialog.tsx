@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type jsQRType from 'jsqr';
+import { useDialog } from '../shared/useDialog'; // t/4909
 
 let _jsQR: typeof jsQRType | null = null;
 async function loadJsQR() {
@@ -37,6 +38,7 @@ export function KeySharingDialog({ onClose, onKeysImported }: KeySharingDialogPr
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<number | null>(null);
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose }); // t/4909
 
   const stopCamera = useCallback(() => {
     if (scanIntervalRef.current) {
@@ -172,8 +174,8 @@ export function KeySharingDialog({ onClose, onKeysImported }: KeySharingDialogPr
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog settings-dialog key-sharing-dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Key Sharing</h3>
+      <div ref={dialogRef} className="dialog settings-dialog key-sharing-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <h3 id={titleId}>Key Sharing</h3>
 
         {mode === 'choose' && (
           <ChoosePanel
