@@ -143,6 +143,9 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
       deleteDebate: vi.fn(),
       renameDebate: vi.fn(),
       setActiveCommunityDebate: vi.fn(),
+      closeCommunityDebateSignal: 0,
+      pendingOpenCommunityId: null,
+      clearPendingOpenCommunity: vi.fn(),
     };
     communityDebatesState = [{ id: 'cd-1', title: 'A shared debate' }];
     try { localStorage.clear(); } catch { /* jsdom always has localStorage in this suite */ }
@@ -172,6 +175,43 @@ describe('DebateTab — table mode in-place open (t/4691)', () => {
 
     expect(mockDebateStoreSetState).not.toHaveBeenCalled();
     expect(debateStoreState.setActiveCommunityDebate).toHaveBeenCalledWith({ id: 'cd-1', title: 'A shared debate' });
+  });
+
+  // t/4888 (Design review, prod regression): the breadcrumb's up-crumb click does nothing for
+  // Debate because DEBATE_ROUTE.restore() (appRoutes.ts) can't reach this component's local
+  // selectedCommunityDebate directly — it can only ask via closeCommunityDebateSignal. This is
+  // the other half of that contract: the effect that actually clears the view on request.
+  it('closeCommunityDebateSignal clears an open community debate (t/4888)', () => {
+    const { rerender } = render(<DebateTab />);
+    fireEvent.click(screen.getByTestId('community-row-cd-1'));
+    expect(debateStoreState.setActiveCommunityDebate).toHaveBeenCalledWith({ id: 'cd-1', title: 'A shared debate' });
+
+    debateStoreState.closeCommunityDebateSignal = 1;
+    rerender(<DebateTab />); // same instance — selectedCommunityDebate is still set from the click above
+
+    expect(debateStoreState.setActiveCommunityDebate).toHaveBeenLastCalledWith(null);
+  });
+
+  // t/4888: the opening half — DEBATE_ITEM_ROUTE's `?community=1` restore (Back, Reload, a
+  // pasted URL) resolves the id against the community store, then hands it off the same way,
+  // via pendingOpenCommunityId (see sessionSlice.ts's doc on both signals).
+  it('pendingOpenCommunityId opens the community debate and clears itself (t/4888)', () => {
+    debateStoreState.pendingOpenCommunityId = 'cd-1';
+    render(<DebateTab />);
+
+    expect(debateStoreState.setActiveCommunityDebate).toHaveBeenCalledWith({ id: 'cd-1', title: 'A shared debate' });
+    expect(debateStoreState.clearPendingOpenCommunity).toHaveBeenCalled();
+  });
+
+  it('pendingOpenCommunityId for an id not yet in communityDebates does nothing (waits for the fetch)', () => {
+    debateStoreState.pendingOpenCommunityId = 'cd-not-fetched-yet';
+    render(<DebateTab />);
+
+    // The mirror effect still fires setActiveCommunityDebate(null) at mount for the (unrelated,
+    // still-empty) local selectedCommunityDebate — only the open-request's OWN effect is under
+    // test here, and it must not have resolved the not-yet-fetched id to anything.
+    expect(debateStoreState.setActiveCommunityDebate).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'cd-not-fetched-yet' }));
+    expect(debateStoreState.clearPendingOpenCommunity).not.toHaveBeenCalled();
   });
 
   it('renders the debate workspace in place (not the library) once activeDebate is set (t/4799)', () => {

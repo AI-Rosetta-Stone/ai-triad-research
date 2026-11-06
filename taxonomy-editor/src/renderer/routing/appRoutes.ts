@@ -163,13 +163,31 @@ export const CHAT_ITEM_ROUTE = itemRoute('chat-item', 'chat', 'chatId', 'chat', 
 export const DEBATE_ROUTE = exactRoute('debate', '/debate', 'debate:none', () => {
   taxonomy().setActiveTab('debate');
   if (useDebateStore.getState().activeDebate) useDebateStore.getState().closeDebate();
+  // t/4888 (Design review, prod regression): a Community selection lives in DebateTab's own
+  // local state, mirrored (not owned) by activeCommunityDebate here — this route can't clear
+  // that local state directly, so it asks DebateTab to, via a one-shot signal (see
+  // sessionSlice.ts's closeCommunityDebateSignal doc). Unconditional, same as Chat's
+  // activeCommunityChat: null above: going up must end a Community view too, not only a My one.
+  useDebateStore.getState().requestCloseCommunityDebate();
 });
-export const DEBATE_ITEM_ROUTE = itemRoute('debate-item', 'debate', 'debateId', 'debate', (debateId) => {
+/** `/debate/:debateId?community=1` — t/4888: a community debate shares the My item's URL shape,
+ *  distinguished by the query param, mirroring CHAT_ITEM_ROUTE exactly (including resolving
+ *  against the community store itself, not DebateTab — the route can't reach that component's
+ *  local state to open it, only ask it to via requestOpenCommunity; see sessionSlice.ts). */
+export const DEBATE_ITEM_ROUTE = itemRoute('debate-item', 'debate', 'debateId', 'debate', (debateId, query) => {
   taxonomy().setActiveTab('debate');
   // Clear first, as for chat: otherwise the previously open debate shows under this URL until
   // the load lands, and the nav subscriber records it as a new place. Only the open-item fields
   // — closeDebate() would also log an abandon and reset a running debate's generation state.
   useDebateStore.setState({ activeDebateId: null, activeDebate: null });
+  if (query.get('community') === '1') {
+    void useCommunityStore.getState().fetchDebates().then(() => {
+      const cd = useCommunityStore.getState().debates.find(d => d.id === debateId);
+      if (cd) useDebateStore.getState().requestOpenCommunity(cd.id);
+      else fallBackToLibrary('debate', debateId, NOT_FOUND.debate);
+    });
+    return;
+  }
   void useDebateStore.getState().loadDebate(debateId).then(() => {
     if (useDebateStore.getState().activeDebateId !== debateId) fallBackToLibrary('debate', debateId, NOT_FOUND.debate);
   });

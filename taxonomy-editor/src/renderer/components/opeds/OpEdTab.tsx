@@ -437,7 +437,12 @@ export function OpEdTab() {
       recordError('oped-tab', 'Failed to load community op-ed', err);
       setReaderError('Could not load this op-ed — it may have been removed.');
     }).finally(() => setReaderLoading(false));
-  }, [selectSet]);
+    // t/4888 (Design review, prod regression): `communityOpeds` was missing from this callback's
+    // deps, so it stayed a stale empty array ([] at first render, before fetchOpeds() resolves)
+    // forever — selectSet's title meta was always undefined, and placeOf.ts's collectionPlace
+    // drops the item crumb entirely when title is falsy (only the "Op-Ed Studies" collection
+    // crumb showed, with no up-link, exactly as Design observed, t/4888#6).
+  }, [selectSet, communityOpeds]);
 
   // A fresh create (PR#2) — reload the library, then open the new set in the reader. LibraryListPage
   // owns tab state internally now (t/3703) — a create from the Community tab opens straight into
