@@ -11,6 +11,7 @@ import type { ArgumentNetworkNode } from '../../types/debate';
 import { QbafClaimBadge } from '../taxonomy/QbafOverlay';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { triggerPovNodeRegeneration } from '../../utils/regeneratePlainDescription';
+import { useDialog } from './useDialog'; // t/4909
 import { allNodesById, allPovNodeIds, resolveNodeId } from '../../hooks/useTaxonomyStore/superseded';
 import type { Pov } from '../../types/taxonomy';
 import {
@@ -713,6 +714,9 @@ interface HarvestDialogProps {
 export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
   const activeDebate = useDebateStore(s => s.activeDebate);
   const taxState = useTaxonomyStore.getState();
+  // t/4909: file-review mode renders inline, not as a modal overlay — active:false from the
+  // start means useDialog's focus/Esc/trap behavior never engages (see its doc comment).
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose, active: !fileData });
 
   const [conflicts, setConflicts] = useState<HarvestConflictItem[]>([]);
   const [steelmans, setSteelmans] = useState<HarvestSteelmanItem[]>([]);
@@ -1050,8 +1054,15 @@ Return ONLY JSON (no markdown):
 
   return (
     <div className={isFileMode ? '' : 'dialog-overlay'} onClick={isFileMode ? undefined : onClose}>
-      <div className={isFileMode ? 'harvest-dialog' : 'dialog harvest-dialog'} onClick={e => e.stopPropagation()}>
-        <h2>Harvest Debate Findings</h2>
+      <div
+        ref={dialogRef}
+        className={isFileMode ? 'harvest-dialog' : 'dialog harvest-dialog'}
+        role={isFileMode ? undefined : 'dialog'}
+        aria-modal={isFileMode ? undefined : true}
+        aria-labelledby={isFileMode ? undefined : titleId}
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 id={isFileMode ? undefined : titleId}>Harvest Debate Findings</h2>
         <p className="harvest-subtitle">Select findings to promote into the taxonomy. Review and edit before applying.</p>
 
         {result ? (

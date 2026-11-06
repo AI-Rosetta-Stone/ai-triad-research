@@ -125,9 +125,11 @@ describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // t/4909: Esc is now handled by the shared useDialog hook, listening on the dialog element
+  // itself (bubbles up from whatever's focused inside it in real usage) rather than document.
   it('Esc calls onClose', () => {
     const { onClose } = renderDialog();
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -169,7 +171,7 @@ describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     expect(screen.getByRole('button', { name: 'Starting…' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
     resolveStart();
   });

@@ -21,6 +21,7 @@ import { loadProvisionalWeights } from '@lib/debate/phaseTransitions';
 import { useTierInfo, isFreeTier, type TierInfo } from '../../hooks/useTierInfo';
 import { useGeminiOnboarding } from '../../hooks/useGeminiOnboarding';
 import { useAuthStatus, useUserProfile } from '../../hooks/useAuthStatus';
+import { useDialog } from '../shared/useDialog'; // t/4909
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { GeminiOnboardingModal } from '../settings/GeminiOnboardingModal';
 import { buildDebateOptions } from './newDebateOptions';
@@ -1012,14 +1013,10 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   const [showSettings, setShowSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('voices');
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef, !showSettings);
-
-  // Restore focus to triggering element on close
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    return () => { prev?.focus(); };
-  }, []);
+  // t/4909: suspended while Screen B (DebateSettingsDialog) is open on top — it owns its own
+  // trap/Escape (out of this ticket's `.dialog-overlay` scope; a different overlay class), and
+  // Screen A's own Esc would otherwise fire during the keydown's bubble phase first.
+  const { dialogRef, titleId } = useDialog({ onCancel: onClose, active: !showSettings });
 
   useEffect(() => {
     void Promise.all(
@@ -1202,12 +1199,12 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
         className="ndd-dialog"
         role="dialog"
         aria-modal
-        aria-labelledby="ndd-dialog-title"
+        aria-labelledby={titleId}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="ndd-dialog-header">
-          <h2 className="ndd-dialog-title" id="ndd-dialog-title">New debate</h2>
+          <h2 className="ndd-dialog-title" id={titleId}>New debate</h2>
           <button type="button" className="ndd-close-btn" onClick={onClose} aria-label="Close">&times;</button>
         </div>
 

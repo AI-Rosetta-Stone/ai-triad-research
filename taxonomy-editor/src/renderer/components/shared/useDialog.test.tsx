@@ -8,14 +8,15 @@ import { useRef, useState } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { useDialog } from './useDialog';
 
-function TestDialog({ onCancel, closeOnEscape, initialFocusOnCancel }: {
+function TestDialog({ onCancel, closeOnEscape, initialFocusOnCancel, active }: {
   onCancel: () => void;
   closeOnEscape?: boolean;
   initialFocusOnCancel?: boolean;
+  active?: boolean;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const { dialogRef, titleId } = useDialog({
-    onCancel, closeOnEscape,
+    onCancel, closeOnEscape, active,
     initialFocusRef: initialFocusOnCancel ? cancelRef : undefined,
   });
   return (
@@ -44,7 +45,7 @@ function NoFocusableDialog({ onCancel }: { onCancel: () => void }) {
 }
 
 /** A button rendered OUTSIDE the dialog, standing in for whatever control opened it. */
-function Harness(props: { closeOnEscape?: boolean; initialFocusOnCancel?: boolean; onCancel: () => void; startOpen?: boolean }) {
+function Harness(props: { closeOnEscape?: boolean; initialFocusOnCancel?: boolean; onCancel: () => void; startOpen?: boolean; active?: boolean }) {
   const [open, setOpen] = useState(props.startOpen ?? true);
   return (
     <div>
@@ -101,6 +102,37 @@ describe('useDialog (t/4901)', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('tabindex', '-1');
     expect(dialog).toHaveFocus();
+  });
+
+  // t/4909: NewDebateDialog's Screen B settings dialog needs Screen A's trap/Esc suspended
+  // while it's open on top — otherwise Screen A's Esc listener would fire during the keydown's
+  // bubble phase before Screen B's own (separate) listener gets a chance to close just itself.
+  it('active=false suspends both the Tab trap and Esc', () => {
+    const onCancel = vi.fn();
+    render(<Harness onCancel={onCancel} active={false} />);
+    const dialog = within(screen.getByRole('dialog'));
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onCancel).not.toHaveBeenCalled();
+
+    dialog.getByRole('button', { name: 'Confirm' }).focus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
+    expect(dialog.getByRole('button', { name: 'Confirm' })).toHaveFocus(); // not trapped back to Cancel
+  });
+
+  // t/4909: HarvestDialog renders inline (not as a true modal) in its file-review mode — active
+  // is false from the very first render, so this dialog must never steal focus from the page
+  // it's embedded in, and must give none back on unmount either.
+  it('active=false from the start skips the initial-focus/return-focus mount effect entirely', () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    const { unmount } = render(<Harness onCancel={vi.fn()} active={false} />);
+
+    expect(outside).toHaveFocus(); // focus never moved into the dialog
+    unmount();
+    expect(outside).toHaveFocus(); // still there — no return-focus cleanup fired either
+    outside.remove();
   });
 
   it('returns focus to the opener once the dialog closes', () => {
