@@ -92,4 +92,43 @@ Describe 'Get-KnownGoodLivenessVerdict' -Tag 'config' {
         $v.Pass | Should -BeTrue
         $v.DeploysBehind | Should -Be 0
     }
+
+    Context 't/4924: -ProdDeployTimes counts prod deploys, not image pushes' {
+        BeforeAll {
+            # known-good = prod's image, built 14:48; then 7 sha-* rebuild pushes (the #4640 shape).
+            $script:KgImages = @(
+                [pscustomobject]@{ Tags = @('sha-39cc128', 'known-good'); CreatedAt = '2026-11-06T14:48:00Z' }
+                1..7 | ForEach-Object { [pscustomobject]@{ Tags = @("sha-rebuild$_"); CreatedAt = "2026-11-06T17:$('{0:D2}' -f ($_ * 5)):00Z" } }
+            )
+        }
+
+        It 'does NOT fire on image pushes alone (#4640: 7 rebuilds, one prod deploy that set the tag)' {
+            $v = Get-KnownGoodLivenessVerdict -Images $script:KgImages -ProdDeployTimes @([datetime]'2026-11-06T15:21:00Z')
+            $v.Basis | Should -Be 'prod deploy'
+            $v.DeploysBehind | Should -Be 1
+            $v.Pass | Should -BeTrue
+        }
+
+        It 'still fires when more than MaxDeploysBehind prod deploys happened since the known-good image' {
+            $times = @(1..6 | ForEach-Object { [datetime]"2026-11-0$($_ + 1)T12:00:00Z" })
+            $images = @([pscustomobject]@{ Tags = @('sha-old', 'known-good'); CreatedAt = '2026-11-01T00:00:00Z' })
+            $v = Get-KnownGoodLivenessVerdict -Images $images -ProdDeployTimes $times
+            $v.DeploysBehind | Should -Be 6
+            $v.Status | Should -Be 'stale'
+            $v.Pass | Should -BeFalse
+        }
+
+        It 'ignores prod deploys from before the known-good image was built' {
+            $v = Get-KnownGoodLivenessVerdict -Images $script:KgImages -ProdDeployTimes @([datetime]'2026-11-05T16:05:00Z', [datetime]'2026-11-05T13:24:00Z')
+            $v.DeploysBehind | Should -Be 0
+            $v.Pass | Should -BeTrue
+        }
+
+        It 'without -ProdDeployTimes keeps the image-push basis (and would have fired on #4640)' {
+            $v = Get-KnownGoodLivenessVerdict -Images $script:KgImages
+            $v.Basis | Should -Be 'image push'
+            $v.DeploysBehind | Should -Be 7
+            $v.Pass | Should -BeFalse
+        }
+    }
 }
