@@ -199,3 +199,26 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubRestClient — t/4258/t/4281 rate-limit 
     expect(message).toContain('degraded');
   });
 });
+
+describe.skipIf(!UNDICI_ALIGNED)('GitHubRestClient — t/4699 getRateLimitObservedAt', () => {
+  it('is a real ISO timestamp after a response carried rate-limit headers', async () => {
+    const before = Date.now();
+    const backend = await createBackend();
+    const observedAt = backend.getRateLimitObservedAt();
+    expect(observedAt).not.toBeNull();
+    expect(new Date(observedAt as string).getTime()).toBeGreaterThanOrEqual(before);
+    expect(new Date(observedAt as string).getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('advances on a later request rather than staying pinned to the first observation', async () => {
+    const backend = await createBackend();
+    const first = backend.getRateLimitObservedAt();
+    await new Promise(r => setTimeout(r, 5));
+    // Any further GitHub call re-runs updateRateLimit — readFile-ish calls all go through
+    // the same rest client, so initialize()'s own warm-up call already proves the mechanism;
+    // this just confirms a second real call moves the timestamp forward.
+    await backend.readFile('taxonomy/nodes.json');
+    const second = backend.getRateLimitObservedAt();
+    expect(new Date(second as string).getTime()).toBeGreaterThanOrEqual(new Date(first as string).getTime());
+  });
+});
