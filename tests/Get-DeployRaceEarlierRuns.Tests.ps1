@@ -84,4 +84,22 @@ Describe 'Get-DeployRaceEarlierRuns — tie-break on databaseId (t/4233)' {
             $result.Count | Should -Be 2
         }
     }
+
+    Context 'Real parse paths — own raw `gh api --jq` string vs. others via ConvertFrom-Json' {
+        It 'still detects a same-second tie when -OwnStartedAt is a raw ISO string (as gh api --jq emits) and -Others carries ConvertFrom-Json DateTime values (not strings)' {
+            # SO e/428#2 (non-blocking recommendation): the production call sites don't match
+            # types exactly — $OwnStartedAt comes from `gh api ... --jq '.run_started_at'`, a raw
+            # [string]; $Others comes from `gh run list --json ... | ConvertFrom-Json`, which
+            # auto-converts ISO8601-looking strings to [DateTime] (not [datetimeoffset], and NOT
+            # a string). Both get cast to [datetimeoffset] inside the function/here, but prove
+            # the actual types in play, not just pre-cast [datetimeoffset] fixtures.
+            $ownRaw = '2026-11-06T12:00:00Z'  # raw string, as gh api --jq would emit
+            $othersJson = '[{"databaseId": 100, "startedAt": "2026-11-06T12:00:00Z"}]'
+            $others = $othersJson | ConvertFrom-Json
+            $others[0].startedAt.GetType().Name | Should -Be 'DateTime'  # sanity: not a string
+
+            $result = @(Get-DeployRaceEarlierRuns -OwnStartedAt ([datetimeoffset]$ownRaw) -OwnDatabaseId 200 -Others $others)
+            $result.Count | Should -Be 1
+        }
+    }
 }
