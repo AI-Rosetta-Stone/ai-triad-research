@@ -38,7 +38,8 @@ vi.mock('../routes/generationContext.js', () => ({
 }));
 vi.mock('../ai/aiBackends.js', () => ({ isRegisteredModel: () => h.registered }));
 const startInquiryJob = vi.fn((args: { userId: string }) => { const jobId = 'job-new'; h.jobById.set(jobId, { jobId, status: 'queued' }); return { jobId, userId: args.userId, status: 'queued', progressPct: 0, resultId: null, error: null }; });
-vi.mock('../inquiryJobs.js', () => ({
+const dropInquiryJob = vi.fn((jobId: string) => { h.jobById.delete(jobId); });
+vi.mock('../inquiryJobs.js', async () => ({
   MAX_CONCURRENT_INQUIRY_JOBS: 1,
   INQUIRY_BOOT_ID: 'boot-test',
   startInquiryJob: (args: { userId: string }) => startInquiryJob(args),
@@ -56,8 +57,20 @@ vi.mock('../inquiryJobs.js', () => ({
     if (h.markStaleReturn === 'live') return { verdict: 'live' as const, record: { jobId: _jobId, userId: 'alice', bootId: 'boot-x', status: 'debating', lastHeartbeatAt: new Date().toISOString(), resultId: null, error: null, debateId: null, startedAt: Date.now() - 5_000 } };
     return null;
   },
+  // t/4897 (Quality review t/4897#4): use the REAL classifier, not a hand-rolled status
+  // list — a hand-rolled list can drift from lib/inquiry/jobStatus.ts and silently let the
+  // 409-while-running test pass even if the route started checking only 'debating'.
+  isTerminalStatus: (await vi.importActual<typeof import('../../../../lib/inquiry/index.js')>('../../../../lib/inquiry/index.js')).isTerminalStatus,
+  dropInquiryJob: (jobId: string) => dropInquiryJob(jobId),
 }));
-vi.mock('../storage/inquiryResultStore.js', () => ({ loadInquiryResult: async (jobId: string) => h.persisted.get(jobId) ?? null, listInquiryResults: async () => h.summaries }));
+const renameInquiryResult = vi.fn(async (jobId: string, title: string) => { h.persisted.set(jobId, { ...(h.persisted.get(jobId) as object ?? {}), title }); });
+const deleteInquiryResult = vi.fn(async (jobId: string) => { h.persisted.delete(jobId); });
+vi.mock('../storage/inquiryResultStore.js', () => ({
+  loadInquiryResult: async (jobId: string) => h.persisted.get(jobId) ?? null,
+  listInquiryResults: async () => h.summaries,
+  renameInquiryResult: (jobId: string, title: string) => renameInquiryResult(jobId, title),
+  deleteInquiryResult: (jobId: string) => deleteInquiryResult(jobId),
+}));
 vi.mock('../inquiryPipelineDeps.js', () => ({ buildInquiryRunPipeline: () => vi.fn() }));
 const recordMock = vi.hoisted(() => vi.fn());
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
@@ -89,6 +102,9 @@ beforeEach(() => {
   h.jobById.clear(); h.hasById.clear(); h.persisted.clear(); h.summaries = [];
   startInquiryJob.mockClear();
   recordMock.mockClear();
+  dropInquiryJob.mockClear();
+  renameInquiryResult.mockClear();
+  deleteInquiryResult.mockClear();
 });
 
 describe('t/3581 — POST /api/inquiry', () => {
@@ -316,5 +332,106 @@ describe('t/3724 — inquiry.not_found event', () => {
     const r = res(); await get()(req('/api/inquiry/job-stale'), r, undefined);
     expect(r.statusCode).toBe(200);
     expect(recordMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'inquiry.not_found' }));
+  });
+});
+
+describe('t/4897 — PATCH /api/inquiry/:jobId (rename)', () => {
+  const patch = () => handler('PATCH', '/api/inquiry/:jobId');
+
+  it('401 when anonymous', async () => {
+    h.user = null;
+    const r = res(); await patch()(req('/api/inquiry/job-1'), r, { title: 'New title' });
+    expect(r.statusCode).toBe(401);
+    expect(renameInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it('400 on an empty title', async () => {
+    h.persisted.set('job-1', { schemaVersion: 1 });
+    const r = res(); await patch()(req('/api/inquiry/job-1'), r, { title: '   ' });
+    expect(r.statusCode).toBe(400);
+    expect(renameInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it('400 on a title over 200 characters', async () => {
+    h.persisted.set('job-1', { schemaVersion: 1 });
+    const r = res(); await patch()(req('/api/inquiry/job-1'), r, { title: 'x'.repeat(201) });
+    expect(r.statusCode).toBe(400);
+    expect(renameInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it('400 when title is not a string', async () => {
+    h.persisted.set('job-1', { schemaVersion: 1 });
+    const r = res(); await patch()(req('/api/inquiry/job-1'), r, { title: 42 });
+    expect(r.statusCode).toBe(400);
+  });
+
+  it("404 when the job isn't the caller's (or doesn't exist)", async () => {
+    const r = res(); await patch()(req('/api/inquiry/no-such-job'), r, { title: 'New title' });
+    expect(r.statusCode).toBe(404);
+    expect(renameInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it('the owner can rename: 200 and calls renameInquiryResult with the trimmed title', async () => {
+    h.persisted.set('job-1', { schemaVersion: 1, title: 'Old title' });
+    const r = res(); await patch()(req('/api/inquiry/job-1'), r, { title: '  New title  ' });
+    expect(r.statusCode).toBe(200);
+    expect(renameInquiryResult).toHaveBeenCalledWith('job-1', '  New title  ');
+    expect(JSON.parse(r.body)).toEqual({ jobId: 'job-1', title: 'New title' });
+  });
+});
+
+describe('t/4897 — DELETE /api/inquiry/:jobId', () => {
+  const del = () => handler('DELETE', '/api/inquiry/:jobId');
+
+  it('401 when anonymous', async () => {
+    h.user = null;
+    const r = res(); await del()(req('/api/inquiry/job-1'), r, undefined);
+    expect(r.statusCode).toBe(401);
+    expect(deleteInquiryResult).not.toHaveBeenCalled();
+  });
+
+  // t/4897 (Quality review t/4897#4): every real in-flight status, not just 'debating' — a
+  // route that regressed to checking only one status would still pass a single-status test.
+  it.each(['queued', 'grounding', 'debating', 'judging', 'synthesizing'])('409 while the job is still running (status: %s)', async (status) => {
+    h.jobById.set('job-1', { jobId: 'job-1', userId: 'alice', status });
+    const r = res(); await del()(req('/api/inquiry/job-1'), r, undefined);
+    expect(r.statusCode).toBe(409);
+    expect(deleteInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it('a terminal (done) job in the map is still deletable — 409 only guards in-flight statuses', async () => {
+    h.jobById.set('job-1', { jobId: 'job-1', userId: 'alice', status: 'done' });
+    h.persisted.set('job-1', { schemaVersion: 1 });
+    const r = res(); await del()(req('/api/inquiry/job-1'), r, undefined);
+    expect(r.statusCode).toBe(200);
+  });
+
+  it("404 when the job isn't the caller's (or doesn't exist)", async () => {
+    const r = res(); await del()(req('/api/inquiry/no-such-job'), r, undefined);
+    expect(r.statusCode).toBe(404);
+    expect(deleteInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it("another user's job in the map → 404 (cross-user), not 409 — getInquiryJob is user-scoped", async () => {
+    h.jobById.set('job-bob', { jobId: 'job-bob', userId: 'bob', status: 'debating' });
+    const r = res(); await del()(req('/api/inquiry/job-bob'), r, undefined);
+    expect(r.statusCode).toBe(404);
+  });
+
+  it('the owner can delete: 200, calls deleteInquiryResult, and drops the in-memory job entry', async () => {
+    h.jobById.set('job-1', { jobId: 'job-1', userId: 'alice', status: 'done' });
+    h.persisted.set('job-1', { schemaVersion: 1 });
+    const r = res(); await del()(req('/api/inquiry/job-1'), r, undefined);
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body)).toEqual({ jobId: 'job-1', deleted: true });
+    expect(deleteInquiryResult).toHaveBeenCalledWith('job-1');
+    expect(dropInquiryJob).toHaveBeenCalledWith('job-1');
+  });
+
+  it('deleting a result with no in-memory job entry at all still succeeds (cross-restart durability)', async () => {
+    h.persisted.set('job-gone', { schemaVersion: 1 });
+    const r = res(); await del()(req('/api/inquiry/job-gone'), r, undefined);
+    expect(r.statusCode).toBe(200);
+    expect(deleteInquiryResult).toHaveBeenCalledWith('job-gone');
   });
 });
