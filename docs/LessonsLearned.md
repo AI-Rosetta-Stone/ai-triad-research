@@ -8780,3 +8780,41 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DebateUI p/689#10).
 
 **Applies To:** All agents stopping and restarting a `concurrently`-based dev server (Vite + Electron) across branch/worktree switches; verify ports are actually free and wait for explicit app-readiness signals before trusting automation results.
+
+## #431 [Process] A Mode Flag That Gates Writes Must Reset at Every Session-Swap Site From One Shared Reset Object — Production Data Loss (t/4907)
+
+**Pattern:** A UI/app has a mode flag (`communityReadOnly`) that gates whether saves are allowed, set when entering a read-only Community-browsing mode. The flag is set correctly on entering that mode (#4581), but no code path resets it when the user swaps back to a personal (writable) session via load, create, or close. Every subsequent save in the writable session is silently skipped, because the stale `true` value from the earlier read-only visit is still in effect — with no error, no warning, nothing visible to the user that their work isn't being persisted. This is production data loss: real user data that the user believed was saved, wasn't.
+
+**Instances:**
+- 2026-11-06 — Tech Lead (p/335#291, t/4907, prod data loss): `communityReadOnly` was set by the read-only Community load (#4581) and never reset on personal load, create, or close. Saves were silently skipped across an unknown span of sessions until discovered. Fixed in #4608.
+
+**Root Cause:** A boolean mode flag that gates a destructive-by-omission behavior (skipping saves) was set at exactly one entry point but not explicitly reset at every exit/transition point that should restore normal behavior. Each session-swap site (load, create, close) was implemented independently, and none of them happened to include resetting this particular flag — there was no single shared place where "entering a normal writable session" guaranteed every mode flag affecting write behavior got reset to its default. The flag's effect (skipping saves) is also silent by design in the read-only mode it was meant for, which is exactly what makes it dangerous once it leaks into a context where saves should happen — there's no natural error surface at the point of failure.
+
+**Prevention:**
+1. **Any mode flag that gates writes (skips saves, blocks mutations, etc.) must be reset from ONE SHARED reset function/object called at every session-swap site** (load, create, close, and any other transition into a writable context) — not independently re-implemented at each site, where it's easy for one site to be missed.
+2. **Prefer deriving the read-only state from the current session's actual nature (e.g. "is this a Community/shared resource right now?") rather than a separately-set-and-forgotten boolean flag** — a derived value can't go stale the way an independently-set-and-reset flag can.
+3. **A flag whose effect is "silently skip an action" is inherently dangerous** — if a flag like this must exist, make its active state visible in the UI (a banner, a disabled-save indicator) so a user has a chance to notice before data loss, rather than relying entirely on the flag being correctly reset in code.
+4. **When auditing for this class of bug, enumerate every site that can transition OUT of the mode the flag represents, not just the site that sets it** — the entry point is usually obvious and gets reviewed; exit/transition points are the ones that get missed.
+
+**Status:** Active — 1 instance (Tech Lead p/335#291, t/4907). Fixed in #4608.
+
+**Applies To:** All agents implementing mode flags that gate write/save behavior; reset from one shared function at every session-swap site, and prefer a derived read-only state over an independently-managed flag.
+
+## #432 [Process] A Content-Correct but Non-Canonical-Bytes Data Mutation Can Evade Every Existing Proof Check — Corpus Writes Need a Canonical-Writer Byte Round Trip
+
+**Pattern:** An agent performs a surgical, hand-crafted JSON insert into a corpus data file. The inserted content is semantically/structurally correct — a structural deep-equal check passes, a patch-id check passes, and a Second Opinion human-style review also passes — but the actual BYTES written are non-canonical (different whitespace, key ordering, or formatting than what the project's canonical JSON writer would produce for equivalent content). This byte-level non-canonicality is invisible to every check that compares PARSED/structural content rather than raw bytes, so it ships clean through review — and then breaks `main`'s CI and the merge queue downstream, because some other part of the pipeline DOES care about exact byte form (e.g. a diff-based tool, a hash/checksum check, or a formatter that then produces a spurious diff).
+
+**Instances:**
+- 2026-11-06 — Tech Lead (p/335#291, t/4836#21): a surgical JSON insert into corpus data was content-correct but non-canonical in its bytes. Every existing check — structural deep-equal, patch-id, and the Second Opinion review round — missed the byte-level issue, because all of them operate on parsed/structural content, not raw bytes. The non-canonical bytes broke `main`'s CI and the merge queue. Follow-up tracked at t/4908.
+
+**Root Cause:** Structural/semantic correctness and byte-level canonicality are two different properties, and most review/verification tooling (deep-equal, patch-id comparison, human review) checks the former, not the latter. A hand-crafted edit that produces semantically identical content to what a canonical writer would produce can still differ in exact byte representation (whitespace, key order, line endings, trailing newline, etc.) — and nothing in the existing proof chain was checking for that specific property, because it was never the failure mode those checks were designed to catch.
+
+**Prevention:**
+1. **Any corpus/data-file mutation proof needs a canonical-writer byte round trip, not just a structural/semantic equality check.** Write the intended content through the project's actual canonical writer (the same code path that would produce the file from scratch), and diff the RESULTING BYTES against what was hand-crafted or surgically inserted — not just a parsed-and-compared structural equality.
+2. **A surgical/hand-crafted edit to a data file is higher-risk than a full regenerate-and-diff**, even when it looks more "minimal" — the full regenerate naturally produces canonical bytes, while a surgical edit has to accidentally match canonical formatting to be safe, and nothing was checking for that until this incident.
+3. **If a data-mutation workflow currently only checks structural equality (deep-equal, patch-id) and human review, add the canonical-writer byte-round-trip check as an explicit, additional, automated step** — it catches a failure class none of the existing checks were designed to catch. Follow-up tracked at t/4908.
+4. **This generalizes beyond this specific incident:** any pipeline step downstream that cares about exact byte form (diff tools, checksums, formatters) is a potential trigger for this class — structural correctness alone is not sufficient proof for data that flows through byte-sensitive tooling.
+
+**Status:** Active — 1 instance (Tech Lead p/335#291, t/4836#21). Follow-up: t/4908 (canonical-writer byte-round-trip check).
+
+**Applies To:** All agents performing surgical/hand-crafted edits to corpus/data files; add a canonical-writer byte-round-trip check to the proof chain, not just structural equality.
