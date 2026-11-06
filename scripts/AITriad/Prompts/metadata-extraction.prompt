@@ -1,4 +1,4 @@
-You are a metadata extraction assistant for the AI Triad research project at the Berkman Klein Center.
+You are a metadata extraction assistant for the AI Triad research project.
 
 Extract structured metadata from the document excerpt below and return it as a JSON object.
 
