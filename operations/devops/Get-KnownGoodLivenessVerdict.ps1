@@ -44,9 +44,11 @@ function Get-KnownGoodLivenessVerdict {
         [ValidateRange(0, 1000)]
         [int]$MaxDeploysBehind = 5,
 
+        # DateTimeOffset, not DateTime: an absolute instant, so a machine in a non-UTC zone
+        # can't skew the comparison by its offset (Quality, t/4924#1).
         [Parameter()]
         [AllowEmptyCollection()]
-        [datetime[]]$ProdDeployTimes
+        [datetimeoffset[]]$ProdDeployTimes
     )
 
     Set-StrictMode -Version Latest
@@ -67,7 +69,8 @@ function Get-KnownGoodLivenessVerdict {
 
     $Basis = if ($PSBoundParameters.ContainsKey('ProdDeployTimes')) { 'prod deploy' } else { 'image push' }
     $DeploysSince = if ($Basis -eq 'prod deploy') {
-        @($ProdDeployTimes | Where-Object { $_ -gt $KGCreated }).Count
+        $KGInstant = [datetimeoffset]$KG.CreatedAt
+        @($ProdDeployTimes | Where-Object { $_ -gt $KGInstant }).Count
     } else {
         @(
             $Images | Where-Object {
@@ -132,12 +135,17 @@ function Test-TaxEditorKnownGoodLiveness {
     # t/4924: judge by successful prod deploys, not image pushes. If the run list can't be read,
     # fall back to the image-push count (stricter: it over-counts, so it can only false-fire,
     # never hide a stale tag) and say so.
-    $Raw = gh run list --repo $Repo --workflow deploy-azure.yml --status success --limit 50 --json updatedAt 2>$null
-    if ($LASTEXITCODE -eq 0 -and $Raw) {
-        $ProdDeployTimes = @(@($Raw | ConvertFrom-Json) | ForEach-Object { [datetime]$_.updatedAt })
+    # Raw ISO strings via --jq (not ConvertFrom-Json, which re-kinds dates), parsed as absolute
+    # instants. An empty list is treated as unreadable, not as "0 deploys": deploy-azure.yml has
+    # a long success history, so zero rows means a wrong repo, scope or filter (t/4924#1).
+    $Raw = @(gh run list --repo $Repo --workflow deploy-azure.yml --status success --limit 50 --json updatedAt --jq '.[].updatedAt' 2>$null)
+    $ReadOk = $LASTEXITCODE -eq 0
+    $ProdDeployTimes = @(if ($ReadOk) { $Raw | Where-Object { $_ } | ForEach-Object { [datetimeoffset]::Parse($_, [cultureinfo]::InvariantCulture) } })
+    if ($ReadOk -and $ProdDeployTimes.Count -gt 0) {
         Get-KnownGoodLivenessVerdict -Images $Images -MaxDeploysBehind $MaxDeploysBehind -ProdDeployTimes $ProdDeployTimes
     } else {
-        Write-Warning "t/4924: could not read deploy-azure.yml runs for $Repo; falling back to counting sha-* image pushes (may over-count staging builds and rebuilds)."
+        $Why = if ($ReadOk) { 'returned no runs' } else { "failed (exit $LASTEXITCODE)" }
+        Write-Warning "t/4924: reading deploy-azure.yml runs for $Repo $Why; falling back to counting sha-* image pushes (may over-count staging builds and rebuilds)."
         Get-KnownGoodLivenessVerdict -Images $Images -MaxDeploysBehind $MaxDeploysBehind
     }
 }

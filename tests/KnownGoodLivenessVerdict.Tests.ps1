@@ -130,5 +130,54 @@ Describe 'Get-KnownGoodLivenessVerdict' -Tag 'config' {
             $v.DeploysBehind | Should -Be 7
             $v.Pass | Should -BeFalse
         }
+
+        It 'compares absolute instants: a deploy time given with a non-UTC offset is not skewed' {
+            # known-good image built 14:48Z. 10:00-05:00 is 15:00Z (after), and 09:40-05:00 is
+            # 14:40Z (before). A local-time comparison would misplace one of them.
+            $times = @([datetimeoffset]'2026-11-06T10:00:00-05:00', [datetimeoffset]'2026-11-06T09:40:00-05:00')
+            $v = Get-KnownGoodLivenessVerdict -Images $script:KgImages -ProdDeployTimes $times
+            $v.DeploysBehind | Should -Be 1
+        }
+    }
+}
+
+# t/4924#1 (Quality): the shim's read-or-fall-back branch is itself a decision site. Without these,
+# a regression to "always fall back" would bring #4640 back with every verdict test still green.
+Describe 'Test-TaxEditorKnownGoodLiveness (shim)' -Tag 'config' {
+    BeforeAll {
+        # The real Get-TaxEditorImage lives in the AITriad module; a stub makes it mockable here.
+        function Get-TaxEditorImage { param($Last, $Package) }
+        $script:ShimImages = @(
+            [pscustomobject]@{ Tags = @('sha-39cc128', 'known-good'); CreatedAt = '2026-11-06T14:48:00Z' }
+            1..7 | ForEach-Object { [pscustomobject]@{ Tags = @("sha-rebuild$_"); CreatedAt = "2026-11-06T17:$('{0:D2}' -f ($_ * 5)):00Z" } }
+        )
+    }
+
+    BeforeEach {
+        Mock Get-TaxEditorImage { $script:ShimImages }
+    }
+
+    It 'uses the prod-deploy basis when the run list reads cleanly (the #4640 shape passes)' {
+        Mock gh { $global:LASTEXITCODE = 0; '2026-11-06T15:24:19Z'; '2026-11-05T16:05:41Z' }
+        $v = Test-TaxEditorKnownGoodLiveness -WarningVariable warn -WarningAction SilentlyContinue
+        $v.Basis | Should -Be 'prod deploy'
+        $v.DeploysBehind | Should -Be 1
+        $v.Pass | Should -BeTrue
+        @($warn).Count | Should -Be 0
+    }
+
+    It 'falls back to the image-push basis with a WARN when gh fails' {
+        Mock gh { $global:LASTEXITCODE = 1 }
+        $v = Test-TaxEditorKnownGoodLiveness -WarningVariable warn -WarningAction SilentlyContinue
+        $v.Basis | Should -Be 'image push'
+        $v.DeploysBehind | Should -Be 7
+        "$warn" | Should -Match 'failed \(exit 1\).*falling back'
+    }
+
+    It 'treats an empty run list as unreadable: WARN and fall back, never a silent 0' {
+        Mock gh { $global:LASTEXITCODE = 0 }
+        $v = Test-TaxEditorKnownGoodLiveness -WarningVariable warn -WarningAction SilentlyContinue
+        $v.Basis | Should -Be 'image push'
+        "$warn" | Should -Match 'returned no runs.*falling back'
     }
 }
