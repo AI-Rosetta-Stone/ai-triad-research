@@ -656,6 +656,13 @@ export interface AppAPI {
   loadChatSession: (id: string) => Promise<unknown>;
   saveChatSession: (session: unknown) => Promise<void>;
   deleteChatSession: (id: string) => Promise<void>;
+  /** t/4922 (transport for t/4871): public no-login share link for a chat. Mirrors
+   *  shareOpEdSet/unshareOpEdSet's desktop posture — Electron rejects (no public share
+   *  surface on the desktop app). `url`/`isNew` are computed client-side (TL t/4922#4):
+   *  the server's create response has no `url` or `isNew` field. */
+  shareChat: (chatId: string, data: { title: string; messages: unknown[]; replace?: boolean }) =>
+    Promise<{ shareId: string; url: string; expiresAt: string; isNew: boolean }>;
+  unshareChat: (chatId: string) => Promise<void>;
   exportChatToFile: (
     entries: { id: string; timestamp: string; speaker: string; content: string; taxonomy_refs: { node_id: string; label?: string; relevance: string }[] }[],
     format: 'markdown' | 'text' | 'pdf' | 'json',
