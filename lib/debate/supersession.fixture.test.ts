@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// Shared supersession cases (t/4356): tests/TaxonomySupersession.Tests.ps1 runs the same fixture through
-// the PowerShell port, so the two implementations can't drift.
+// Shared supersession cases (t/4356; t/4877 adds situation + cross-kind cases, mirrors t/4872):
+// tests/TaxonomySupersession.Tests.ps1 runs the same fixture through the PowerShell port, so the two
+// implementations can't drift.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -23,7 +24,9 @@ const fixturePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..'
 const { cases } = JSON.parse(fs.readFileSync(fixturePath, 'utf-8')) as { cases: SupersessionCase[] };
 
 const warnKind = (message: string): string =>
-  message.includes('cycle') ? 'cycle' : message.includes('not found') ? 'dangling' : 'chain';
+  message.includes('cycle') ? 'cycle' :
+  message.includes('different node kind') ? 'cross_kind' :
+  message.includes('not found') ? 'dangling' : 'chain';
 
 describe('buildSupersessionIndex: shared fixture (t/4356)', () => {
   it('has cases', () => {

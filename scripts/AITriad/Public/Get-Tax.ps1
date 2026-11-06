@@ -331,8 +331,8 @@ function Get-Tax {
         $Entry = $script:TaxonomyData[$Key]
         $Nodes = if ($script:TaxonomyAllNodesByPov.ContainsKey($Key) -and ($IncludeSuperseded -or $ExactIds.Count -gt 0)) { $script:TaxonomyAllNodesByPov[$Key] } else { $Entry.nodes }
         foreach ($Node in $Nodes) {
-            # Only the POV camps take part in supersession; situations are never filtered (TS parity).
-            if (-not $IncludeSuperseded -and $Key -in $script:SupersessionPovKeys -and
+            # POV camps and situations both take part in supersession, over one combined index (t/4872/t/4877).
+            if (-not $IncludeSuperseded -and $Key -in $script:SupersessionSelectableKeys -and
                 (Test-TaxonomyNodeSuperseded $Node) -and -not $ExactIds.Contains([string]$Node.id)) { continue }
 
             if ($HasTextFilter) {

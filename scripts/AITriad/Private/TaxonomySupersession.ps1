@@ -1,17 +1,22 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
-# POV node supersession (t/4356, mirrors lib/debate/supersession.ts and taxonomyLoader.ts, t/4354).
-#   - Selection skips a POV node that carries a non-empty `superseded_by`.
+# POV + situation node supersession (t/4356, t/4872: extended to situations; mirrors
+# lib/debate/supersession.ts and taxonomyLoader.ts).
+#   - Selection skips a POV or situation node that carries a non-empty `superseded_by`.
 #   - Lookup by id returns the stored node, superseded or not (historical display).
-#   - Resolve follows `superseded_by` chains to the survivor. A cycle or dangling target returns the
-#     node itself and WARNs; an unknown id returns $null; nothing throws.
-# Only the three POV camps take part; situations are never filtered (the TS loader leaves them whole).
+#   - Resolve follows `superseded_by` chains to the survivor. A cycle, dangling target, or cross-kind
+#     target (a situation pointing at a POV id or vice versa, t/4872) returns the node itself and
+#     WARNs; an unknown id returns $null; nothing throws.
+# POV camps and situations both take part, over one combined index, so a cited id of either kind
+# resolves consistently (t/4877 closed the parity gap: situations used to pass through unfiltered).
 # tests/fixtures/supersession-cases.json pins both implementations to the same cases.
 
 $script:SupersessionPovKeys = @('accelerationist', 'safetyist', 'skeptic')
-$script:TaxonomySupersession = $null      # index over the cached POV nodes, set by Update-TaxonomySupersessionCache
-$script:TaxonomyAllNodesByPov = @{}       # pov -> every stored node (superseded included), in file order
+$script:SupersessionSituationKey = 'situations'
+$script:SupersessionSelectableKeys = $script:SupersessionPovKeys + $script:SupersessionSituationKey
+$script:TaxonomySupersession = $null      # index over the cached POV+situation nodes, set by Update-TaxonomySupersessionCache
+$script:TaxonomyAllNodesByPov = @{}       # pov/situations key -> every stored node (superseded included), in file order
 
 function Test-TaxonomyNodeSuperseded {
     <#
@@ -26,6 +31,23 @@ function Test-TaxonomyNodeSuperseded {
         return [bool]($Node.Contains('superseded_by') -and $Node['superseded_by'])
     }
     return [bool]($Node.PSObject.Properties['superseded_by'] -and $Node.superseded_by)
+}
+
+function Get-TaxonomyNodeKind {
+    <#
+    .SYNOPSIS
+        'pov', 'situation', 'conflict', or $null for an id with no recognized prefix. Port of
+        nodeTypeFromId (lib/debate/nodeIdUtils.ts), used only to detect a cross-kind supersession
+        link (t/4872) -- it is not a general id-classification API.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Id)
+    if (-not $Id) { return $null }
+    if ($Id -match '^(acc|saf|skp)-') { return 'pov' }
+    if ($Id -match '^sit-') { return 'situation' }
+    if ($Id -match '^conflict-') { return 'conflict' }
+    return $null
 }
 
 function New-TaxonomySupersessionIndex {
@@ -68,6 +90,11 @@ function New-TaxonomySupersessionIndex {
             $next = if (Test-TaxonomyNodeSuperseded $node) { [string]$node.superseded_by } else { $null }
             if (-not $next) { $end = 'survivor'; break }
             if (-not $all.ContainsKey($next)) { $end = 'dangling'; $missing = $next; break }
+            # t/4872: a situation superseding a POV id (or vice versa) is never followed -- treated
+            # like a dangling target, same walk-end as the TS `cross_kind` case. $null -eq $null for
+            # two unrecognized-prefix ids (the bare "a"/"b" fixture ids) is NOT a mismatch, matching
+            # the TS nodeTypeFromId(a) !== nodeTypeFromId(b) comparison exactly.
+            if ((Get-TaxonomyNodeKind $next) -ne (Get-TaxonomyNodeKind $cur)) { $end = 'cross_kind'; $missing = $next; break }
             $cur = $next
         }
 
@@ -79,6 +106,10 @@ function New-TaxonomySupersessionIndex {
             }
             'dangling' {
                 & $Warn "loadTaxonomy: node $cur superseded_by `"$missing`" not found in taxonomy — treating as no survivor"
+                foreach ($id in $chain) { $resolution[$id] = $null }
+            }
+            'cross_kind' {
+                & $Warn "loadTaxonomy: node $cur superseded_by `"$missing`" is a different node kind (t/4872: situations only supersede situations, POV nodes only supersede POV nodes) — treating as no survivor"
                 foreach ($id in $chain) { $resolution[$id] = $null }
             }
             'survivor' {
@@ -137,12 +168,13 @@ function Select-SelectableTaxonomyNode {
     [OutputType([object])]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$Nodes,
-        # The camp or file the nodes came from: a situations (or other non-camp) list passes through whole.
+        # The camp/situations key or file the nodes came from: any other (non-POV, non-situations)
+        # file name passes through whole.
         [string]$Pov
     )
     # Emits the nodes one by one (wrap the call in @()): a comma-wrapped array would turn @(...) at the
     # call site into a one-element array holding the real one.
-    if ($Pov -and [System.IO.Path]::GetFileNameWithoutExtension($Pov).ToLowerInvariant() -notin $script:SupersessionPovKeys) {
+    if ($Pov -and [System.IO.Path]::GetFileNameWithoutExtension($Pov).ToLowerInvariant() -notin $script:SupersessionSelectableKeys) {
         return $Nodes | Where-Object { $null -ne $_ }
     }
     $Nodes | Where-Object { $null -ne $_ -and -not (Test-TaxonomyNodeSuperseded $_) }
@@ -179,11 +211,12 @@ function Set-TaxonomyDocumentSelectable {
     .SYNOPSIS
         Narrows a parsed POV file's .nodes to the selectable ones, in place, for a prompt-only copy.
     .DESCRIPTION
-        For producers that read a POV file directly to build an AI prompt (t/4356 PR B). Never call it
-        on a document that will be written back: the superseded nodes would be dropped from the file.
-        A situations file, or a name that isn't a POV camp, is left whole (TS loader parity).
+        For producers that read a POV or situations file directly to build an AI prompt (t/4356 PR B,
+        t/4877 situation parity). Never call it on a document that will be written back: the
+        superseded nodes would be dropped from the file. A name that isn't a POV camp or `situations`
+        is left whole.
     .PARAMETER Name
-        The camp key or file name (accelerationist / accelerationist.json, ...).
+        The camp/situations key or file name (accelerationist / accelerationist.json, situations.json, ...).
     #>
     [CmdletBinding()]
     param(
@@ -191,7 +224,7 @@ function Set-TaxonomyDocumentSelectable {
         [Parameter(Mandatory)][string]$Name
     )
     $pov = [System.IO.Path]::GetFileNameWithoutExtension($Name).ToLowerInvariant()
-    if ($null -eq $Document -or $pov -notin $script:SupersessionPovKeys) { return }
+    if ($null -eq $Document -or $pov -notin $script:SupersessionSelectableKeys) { return }
     if ($Document -is [System.Collections.IDictionary]) {
         if ($Document.Contains('nodes')) { $Document['nodes'] = @(Select-SelectableTaxonomyNode -Nodes @($Document['nodes'])) }
         return
@@ -202,35 +235,37 @@ function Set-TaxonomyDocumentSelectable {
 function Update-TaxonomySupersessionCache {
     <#
     .SYNOPSIS
-        After a (re)load of $script:TaxonomyData: index every POV node, keep the full per-POV lists in
-        $script:TaxonomyAllNodesByPov, and narrow each POV entry's .nodes to the selectable ones.
+        After a (re)load of $script:TaxonomyData: index every POV + situation node over one combined
+        index (t/4872 parity), keep the full per-key lists in $script:TaxonomyAllNodesByPov, and narrow
+        each entry's .nodes to the selectable ones.
     .DESCRIPTION
-        Safe because no writer serializes $script:TaxonomyData: every POV writer reads its own file
-        (t/4356#6). Called from both load sites: the module loader and Assert-TaxonomyCacheFresh.
+        Safe because no writer serializes $script:TaxonomyData: every POV/situations writer reads its
+        own file (t/4356#6). Called from both load sites: the module loader and Assert-TaxonomyCacheFresh.
     #>
     [CmdletBinding()]
     param()
     $script:TaxonomyAllNodesByPov = @{}
-    $allPov = [System.Collections.Generic.List[object]]::new()
-    foreach ($pov in $script:SupersessionPovKeys) {
-        if (-not $script:TaxonomyData.ContainsKey($pov)) { continue }
-        $full = [object[]]@($script:TaxonomyData[$pov].nodes)
-        $script:TaxonomyAllNodesByPov[$pov] = $full
-        foreach ($n in $full) { $allPov.Add($n) }
+    $allNodes = [System.Collections.Generic.List[object]]::new()
+    foreach ($key in $script:SupersessionSelectableKeys) {
+        if (-not $script:TaxonomyData.ContainsKey($key)) { continue }
+        $full = [object[]]@($script:TaxonomyData[$key].nodes)
+        $script:TaxonomyAllNodesByPov[$key] = $full
+        foreach ($n in $full) { $allNodes.Add($n) }
     }
-    $script:TaxonomySupersession = New-TaxonomySupersessionIndex -Nodes $allPov.ToArray()
+    $script:TaxonomySupersession = New-TaxonomySupersessionIndex -Nodes $allNodes.ToArray()
     if ($script:TaxonomySupersession.SupersededIds.Count -eq 0) { return }
-    foreach ($pov in $script:TaxonomyAllNodesByPov.Keys) {
-        $script:TaxonomyData[$pov].nodes = @(Select-SelectableTaxonomyNode -Nodes $script:TaxonomyAllNodesByPov[$pov])
+    foreach ($key in $script:TaxonomyAllNodesByPov.Keys) {
+        $script:TaxonomyData[$key].nodes = @(Select-SelectableTaxonomyNode -Nodes $script:TaxonomyAllNodesByPov[$key])
     }
-    Write-Verbose "Taxonomy: $($script:TaxonomySupersession.SupersededIds.Count) superseded POV node(s) excluded from selection"
+    Write-Verbose "Taxonomy: $($script:TaxonomySupersession.SupersededIds.Count) superseded POV/situation node(s) excluded from selection"
 }
 
 function Get-SupersededNodeIdSet {
     <#
     .SYNOPSIS
-        The superseded POV node ids from the (fresh) module cache, for the default edge views: an edge
-        with a superseded endpoint is history, not graph (TS `selectableEdges`). Empty when none.
+        The superseded POV/situation node ids from the (fresh) module cache, for the default edge
+        views: an edge with a superseded endpoint is history, not graph (TS `selectableEdges`). Empty
+        when none.
     #>
     [CmdletBinding()]
     param()
@@ -245,7 +280,9 @@ function Get-TaxonomyNodeById {
         Looks a node up by id in the cached taxonomy, superseded nodes included.
     .PARAMETER Resolve
         Follow supersession to the survivor (new attribution). Without it, the exact stored node is
-        returned (historical display). A situation or other non-POV id is returned as stored.
+        returned (historical display). A cross-kind `superseded_by` (t/4872) resolves to the node
+        itself, same as a cycle or dangling chain. A conflict/policy/cc id (not in the combined
+        POV+situation index) is returned as stored.
     #>
     [CmdletBinding()]
     [OutputType([object])]
@@ -260,7 +297,7 @@ function Get-TaxonomyNodeById {
         return $idx.AllNodesById[$Id]
     }
     foreach ($key in $script:TaxonomyData.Keys) {
-        if ($key -in $script:SupersessionPovKeys) { continue }
+        if ($key -in $script:SupersessionSelectableKeys) { continue }
         foreach ($n in @($script:TaxonomyData[$key].nodes)) { if ($n.id -ceq $Id) { return $n } }
     }
     return $null
@@ -272,8 +309,8 @@ function Read-PovTaxonomyNodes {
         Reads one taxonomy file's nodes from disk for producers that don't use the module cache.
     .DESCRIPTION
         Reads with ConvertFrom-JsonPreserveShape, so ISO timestamps stay strings (no PS 7.4 date drift)
-        and one-element arrays stay arrays. -Selectable drops superseded POV nodes; a situations file
-        is returned whole, matching the TS loader.
+        and one-element arrays stay arrays. -Selectable drops superseded POV and situation nodes alike
+        (t/4872/t/4877), matching the TS loader.
     .PARAMETER Pov
         accelerationist, safetyist, skeptic or situations.
     #>
@@ -290,6 +327,6 @@ function Read-PovTaxonomyNodes {
     }
     $data = ConvertFrom-JsonPreserveShape -Json (Get-Content -Raw -LiteralPath $path)
     $nodes = if ($data.PSObject.Properties['nodes']) { [object[]]@($data.nodes) } else { [object[]]@() }
-    if ($Selectable -and $Pov -in $script:SupersessionPovKeys) { return , [object[]]@(Select-SelectableTaxonomyNode -Nodes $nodes) }
+    if ($Selectable -and $Pov -in $script:SupersessionSelectableKeys) { return , [object[]]@(Select-SelectableTaxonomyNode -Nodes $nodes) }
     return , $nodes
 }

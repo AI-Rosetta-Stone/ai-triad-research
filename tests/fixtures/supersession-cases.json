@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared supersession cases (t/4356, TL t/4356#7): lib/debate/supersession.fixture.test.ts runs them through TS buildSupersessionIndex and tests/TaxonomySupersession.Tests.ps1 through PS New-TaxonomySupersessionIndex, so the two can't drift. nodes are POV nodes in file order; selectable = nodes without a non-empty superseded_by; resolve maps id -> resolved id (null = unknown id); warn_kinds is the set of warning kinds emitted (chain, cycle, dangling).",
+  "_comment": "Shared supersession cases (t/4356, TL t/4356#7; t/4877 adds situation + cross-kind cases, mirrors t/4872): lib/debate/supersession.fixture.test.ts runs them through TS buildSupersessionIndex and tests/TaxonomySupersession.Tests.ps1 through PS New-TaxonomySupersessionIndex, so the two can't drift. nodes are POV and/or situation nodes in file order (bare ids like \"a\"/\"b\" have no recognized kind prefix and are never cross-kind against each other or against real acc-/sit- ids); selectable = nodes without a non-empty superseded_by; resolve maps id -> resolved id (null = unknown id); warn_kinds is the set of warning kinds emitted (chain, cycle, dangling, cross_kind).",
   "schema": 1,
   "cases": [
     {
@@ -97,6 +97,30 @@
       "superseded": ["a", "b"],
       "resolve": { "a": "s", "b": "s", "s": "s", "t": "t" },
       "warn_kinds": []
+    },
+    {
+      "id": "situation-chain-resolves-like-pov",
+      "nodes": [{ "id": "sit-010", "superseded_by": "sit-011" }, { "id": "sit-011" }],
+      "selectable": ["sit-011"],
+      "superseded": ["sit-010"],
+      "resolve": { "sit-010": "sit-011", "sit-011": "sit-011" },
+      "warn_kinds": []
+    },
+    {
+      "id": "cross-kind-situation-to-pov",
+      "nodes": [{ "id": "sit-001", "superseded_by": "acc-beliefs-001" }, { "id": "acc-beliefs-001" }],
+      "selectable": ["acc-beliefs-001"],
+      "superseded": ["sit-001"],
+      "resolve": { "sit-001": "sit-001", "acc-beliefs-001": "acc-beliefs-001" },
+      "warn_kinds": ["cross_kind"]
+    },
+    {
+      "id": "cross-kind-pov-to-situation",
+      "nodes": [{ "id": "acc-beliefs-002", "superseded_by": "sit-002" }, { "id": "sit-002" }],
+      "selectable": ["sit-002"],
+      "superseded": ["acc-beliefs-002"],
+      "resolve": { "acc-beliefs-002": "acc-beliefs-002", "sit-002": "sit-002" },
+      "warn_kinds": ["cross_kind"]
     }
   ]
 }

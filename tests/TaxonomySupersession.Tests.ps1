@@ -1,4 +1,4 @@
-# Tag: supersession (t/4356 PR A, mirrors t/4354)
+# Tag: supersession (t/4356 PR A, mirrors t/4354; t/4877 extends parity to situation nodes, mirrors t/4872)
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
@@ -46,7 +46,7 @@ Describe 'New-TaxonomySupersessionIndex: shared fixture' -Tag 'supersession' {
                 Selectable = [string[]]@((Select-SelectableTaxonomyNode -Nodes $nodes) | ForEach-Object id)
                 Superseded = [string[]]@($idx.SupersededIds | Sort-Object)
                 Resolved   = $resolved
-                WarnKinds  = [string[]]@($warnings | ForEach-Object { if ($_ -match 'cycle') { 'cycle' } elseif ($_ -match 'not found') { 'dangling' } else { 'chain' } } | Sort-Object -Unique)
+                WarnKinds  = [string[]]@($warnings | ForEach-Object { if ($_ -match 'cycle') { 'cycle' } elseif ($_ -match 'different node kind') { 'cross_kind' } elseif ($_ -match 'not found') { 'dangling' } else { 'chain' } } | Sort-Object -Unique)
             }
         }
         $r.Selectable | Should -Be ([string[]]@($selectable))
@@ -91,12 +91,59 @@ Describe 'Module cache: selection vs lookup (AC1)' -Tag 'supersession' {
         @(Get-Tax -POV accelerationist -IncludeSuperseded | ForEach-Object Id) | Should -Be @('acc-beliefs-001', 'acc-beliefs-002')
     }
 
-    It 'never filters situations (TS loader parity)' {
-        @(Get-Tax -POV situations | ForEach-Object Id) | Should -Be @('sit-001', 'sit-002')
+    It 'filters a superseded situation the same way as a POV node (t/4877, mirrors t/4872)' {
+        @(Get-Tax -POV situations | ForEach-Object Id) | Should -Be @('sit-002')
+        InModuleScope AITriad { @($script:TaxonomyData['situations'].nodes | ForEach-Object id) } | Should -Be @('sit-002')
+    }
+
+    It 'returns the stored superseded situation by exact id, and resolves it to its survivor' {
+        $n = InModuleScope AITriad { Get-TaxonomyNodeById -Id 'sit-001' }
+        $n.id | Should -BeExactly 'sit-001'
+        $n.superseded_by | Should -BeExactly 'sit-002'
+        (InModuleScope AITriad { Get-TaxonomyNodeById -Id 'sit-001' -Resolve }).id | Should -BeExactly 'sit-002'
     }
 
     It 'returns $null for an unknown id' {
         InModuleScope AITriad { Get-TaxonomyNodeById -Id 'acc-beliefs-999' } | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Cross-kind supersession (t/4877, mirrors t/4872 cross_kind walk-end)' -Tag 'supersession' {
+    BeforeAll {
+        # Build the cache ourselves (not via script:Set-FakeTaxonomy, which swallows warnings with
+        # 3>$null) so the cross-kind WARN -- emitted once, at cache-build time, not on every
+        # Get-TaxonomyNodeById -Resolve read of the already-built cache -- is captured for assertion.
+        InModuleScope AITriad -Parameters @{ P = @{
+                accelerationist = @((N 'acc-beliefs-001' 'sit-900'), (N 'acc-beliefs-002'))
+                safetyist       = @((N 'saf-beliefs-001'))
+                skeptic         = @((N 'skp-beliefs-001'))
+                situations      = @((N 'sit-900' 'acc-beliefs-002'), (N 'sit-901'))
+            } } {
+            param($P)
+            $script:TaxonomyData = @{}
+            foreach ($k in $P.Keys) { $script:TaxonomyData[$k] = [pscustomobject]@{ nodes = @($P[$k] | ForEach-Object { [pscustomobject]$_ }) } }
+            $script:TaxonomyCacheLastCheck = [DateTime]::UtcNow.AddHours(1)
+        }
+        $null = InModuleScope AITriad { Update-TaxonomySupersessionCache } -WarningVariable script:CrossKindWarnings
+    }
+
+    It 'WARNs once per cross-kind link at cache-build time, naming the mismatch' {
+        @($script:CrossKindWarnings | Where-Object { "$_" -match 'different node kind' }).Count | Should -Be 2
+    }
+
+    It 'a POV node superseded_by a situation id never resolves to it: treated like dangling, resolves to self' {
+        $resolved = InModuleScope AITriad { Get-TaxonomyNodeById -Id 'acc-beliefs-001' -Resolve }
+        $resolved.id | Should -BeExactly 'acc-beliefs-001' -Because 'acc-beliefs-001 superseded_by sit-900 is cross-kind, so it never resolves to a survivor'
+    }
+
+    It 'a situation superseded_by a POV id never resolves to it: treated like dangling, resolves to self' {
+        $resolved = InModuleScope AITriad { Get-TaxonomyNodeById -Id 'sit-900' -Resolve }
+        $resolved.id | Should -BeExactly 'sit-900' -Because 'sit-900 superseded_by acc-beliefs-002 is cross-kind, so it never resolves to a survivor'
+    }
+
+    It 'a cross-kind-superseded node is excluded from selection (it is still superseded), but the live cross-target is unaffected' {
+        @(Get-Tax -POV accelerationist | ForEach-Object Id) | Should -Be @('acc-beliefs-002')
+        @(Get-Tax -POV situations | ForEach-Object Id) | Should -Be @('sit-901')
     }
 }
 
