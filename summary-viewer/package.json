@@ -16,7 +16,7 @@
     "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src --include-tests"
   },
   "dependencies": {
-    "pdfjs-dist": "^6.4.299",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
@@ -27,15 +27,15 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.2",
+    "@vitejs/plugin-react": "^6.2.1",
     "concurrently": "^10.0.6",
-    "electron": "^45.1.0",
-    "eslint": "^10.13.0",
+    "electron": "^45.2.2",
+    "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5",
+    "vitest": "^5.1.0",
     "wait-on": "^9.5.1"
   }
 }
