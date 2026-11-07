@@ -62,7 +62,7 @@
     },
     {
       "name": "@azure/identity",
-      "version": "4.14.0",
+      "version": "4.14.1",
       "license": "MIT"
     },
     {
@@ -82,22 +82,17 @@
     },
     {
       "name": "@azure/msal-browser",
-      "version": "5.25.1",
+      "version": "5.27.0",
       "license": "MIT"
     },
     {
       "name": "@azure/msal-common",
-      "version": "16.14.2",
-      "license": "MIT"
-    },
-    {
-      "name": "@azure/msal-common",
-      "version": "16.14.3",
+      "version": "16.15.0",
       "license": "MIT"
     },
     {
       "name": "@azure/msal-node",
-      "version": "7.1.1",
+      "version": "7.1.2",
       "license": "MIT"
     },
     {
@@ -337,6 +332,11 @@
     },
     {
       "name": "@types/estree",
+      "version": "1.0.10",
+      "license": "MIT"
+    },
+    {
+      "name": "@types/estree",
       "version": "1.0.9",
       "license": "MIT"
     },
@@ -372,12 +372,12 @@
     },
     {
       "name": "@types/node",
-      "version": "26.6.4",
+      "version": "26.6.5",
       "license": "MIT"
     },
     {
       "name": "@types/node",
-      "version": "26.6.5",
+      "version": "26.6.6",
       "license": "MIT"
     },
     {
@@ -902,7 +902,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.63.0",
+      "version": "1.68.0",
       "license": "ISC"
     },
     {
@@ -1476,6 +1476,11 @@
       "license": "ISC"
     },
     {
+      "name": "tslib",
+      "version": "2.9.1",
+      "license": "ISC"
+    },
+    {
       "name": "type-fest",
       "version": "0.20.2",
       "license": "MIT"
@@ -1557,7 +1562,7 @@
     },
     {
       "name": "ws",
-      "version": "8.22.0",
+      "version": "8.22.1",
       "license": "MIT"
     },
     {
@@ -1646,7 +1651,7 @@
         },
         {
           "name": "@azure/identity",
-          "version": "4.14.0"
+          "version": "4.14.1"
         },
         {
           "name": "@azure/keyvault-common",
@@ -1700,15 +1705,11 @@
       "packages": [
         {
           "name": "@azure/msal-browser",
-          "version": "5.25.1"
+          "version": "5.27.0"
         },
         {
           "name": "@azure/msal-common",
-          "version": "16.14.2"
-        },
-        {
-          "name": "@azure/msal-common",
-          "version": "16.14.3"
+          "version": "16.15.0"
         }
       ],
       "licenseType": "MIT",
@@ -1718,7 +1719,7 @@
       "packages": [
         {
           "name": "@azure/msal-node",
-          "version": "7.1.1"
+          "version": "7.1.2"
         }
       ],
       "licenseType": "MIT",
@@ -2012,6 +2013,10 @@
         },
         {
           "name": "@types/estree",
+          "version": "1.0.10"
+        },
+        {
+          "name": "@types/estree",
           "version": "1.0.9"
         },
         {
@@ -2036,11 +2041,11 @@
         },
         {
           "name": "@types/node",
-          "version": "26.6.4"
+          "version": "26.6.5"
         },
         {
           "name": "@types/node",
-          "version": "26.6.5"
+          "version": "26.6.6"
         },
         {
           "name": "@types/react",
@@ -3048,7 +3053,7 @@
       "packages": [
         {
           "name": "lucide-react",
-          "version": "1.63.0"
+          "version": "1.68.0"
         }
       ],
       "licenseType": "ISC",
@@ -3495,6 +3500,10 @@
         {
           "name": "tslib",
           "version": "2.8.1"
+        },
+        {
+          "name": "tslib",
+          "version": "2.9.1"
         }
       ],
       "licenseType": "ISC",
@@ -3580,7 +3589,7 @@
       "packages": [
         {
           "name": "ws",
-          "version": "8.22.0"
+          "version": "8.22.1"
         }
       ],
       "licenseType": "MIT",
