@@ -19,7 +19,7 @@ import { isPhase2Event } from './events-schema.js';
  * Optional: if not configured, all events silently drop
  */
 declare global {
-  const applicationInsights: {
+  var applicationInsights: {
     defaultClient: {
       trackEvent(event: { name: string; properties?: Record<string, any> }): void;
       trackMetric(metric: { name: string; value: number; properties?: Record<string, any> }): void;

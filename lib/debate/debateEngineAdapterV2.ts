@@ -9,13 +9,13 @@
  */
 
 import type { DebateSession, TranscriptEntry } from './types.js';
-import type { AIAdapter } from './aiAdapter.js';
+import type { AIAdapter } from '../ai-client/aiClientV2Adapter.js';
 import {
   DebateEngineV2,
   createDebateEngineV2,
-  type ProcessedTurn,
 } from './debateEngineV2.js';
-import { getFlagValue } from '@phase1/flags';
+import { getFlagValue } from '../phase2Flags.js';
+import { getGlobalRecorder } from '../flight-recorder/index.js';
 
 /**
  * Wrapper that decides between v1 and v2 debate engine based on feature flag.
@@ -62,9 +62,9 @@ export class DebateEngineAdapterV2 {
         entry.speaker,
         entry.content,
         {
-          topic: session.debateTopicId || 'unknown',
+          topic: session.topic.final,
           povId: entry.speaker,
-          sessionId: session.sessionId,
+          sessionId: session.id,
           round: session.transcript.length,
         }
       );
@@ -72,7 +72,7 @@ export class DebateEngineAdapterV2 {
       // Annotate entry with BDI metadata
       return {
         ...entry,
-        _bdiV2?: {
+        _bdiV2: {
           coherenceScore: processedTurn.coherenceScore,
           processingTimeMs: processedTurn.processingTimeMs,
           bdiState: {
@@ -84,8 +84,19 @@ export class DebateEngineAdapterV2 {
         },
       };
     } catch (error) {
-      // Log error but don't fail the debate
+      const message = error instanceof Error ? error.message : String(error);
       console.warn('DebateEngineV2 enrichment failed:', error);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'debate-engine-v2-integration',
+        level: 'warn',
+        message: `V2 enrichment failed; retaining the original transcript entry: ${message}`,
+        error: {
+          name: error instanceof Error ? error.name : 'Error',
+          message,
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+      });
       return entry;
     }
   }
@@ -123,30 +134,3 @@ export const createDebateEngineAdapterV2 = (
 ): DebateEngineAdapterV2 => {
   return new DebateEngineAdapterV2(aiAdapter);
 };
-
-/**
- * Extend TranscriptEntry type to include optional BDI metadata.
- * (Augment existing type, not a breaking change)
- *
- * Usage:
- *   const entry: TranscriptEntry = { ... };
- *   if (entry._bdiV2) {
- *     console.log(`Coherence: ${entry._bdiV2.coherenceScore}`);
- *   }
- */
-declare global {
-  namespace TranscriptEntry {
-    interface TranscriptEntry {
-      _bdiV2?: {
-        coherenceScore: number;
-        processingTimeMs: number;
-        bdiState: {
-          beliefCount: number;
-          desireCount: number;
-          intentionCount: number;
-          confidence: number;
-        };
-      };
-    }
-  }
-}

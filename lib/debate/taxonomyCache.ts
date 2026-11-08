@@ -3,8 +3,7 @@
  * Reduces database load by 80%+ with intelligent cache invalidation
  */
 
-import { ApplicationInsights } from '@phase1/telemetry';
-import { getFlagValue } from '@phase1/flags';
+import { getFlagValue } from '../phase2Flags.js';
 
 export interface CacheEntry<T> {
   key: string;
@@ -54,6 +53,8 @@ export class LRUCache<T> implements CacheStrategy<T> {
 
     entry.hits++;
     this.stats.hits++;
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return entry.value;
   }
 
@@ -64,7 +65,7 @@ export class LRUCache<T> implements CacheStrategy<T> {
 
     if (this.cache.size >= this.maxSize) {
       const lruKey = this.findLRUKey();
-      if (lruKey) {
+      if (lruKey !== undefined) {
         this.cache.delete(lruKey);
         this.stats.evictions++;
       }
@@ -100,19 +101,7 @@ export class LRUCache<T> implements CacheStrategy<T> {
   }
 
   private findLRUKey(): string | undefined {
-    let lruKey: string | undefined;
-    let minHits = Infinity;
-    let minTime = Infinity;
-
-    for (const [key, entry] of this.cache.entries()) {
-      if (entry.hits < minHits || (entry.hits === minHits && entry.timestamp < minTime)) {
-        lruKey = key;
-        minHits = entry.hits;
-        minTime = entry.timestamp;
-      }
-    }
-
-    return lruKey;
+    return this.cache.keys().next().value;
   }
 }
 
@@ -120,9 +109,13 @@ export class TaxonomyCache {
   private cache: LRUCache<unknown>;
   private flagEnabled: boolean;
 
-  constructor(maxSize: number = 5000, ttlMs: number = 300000) {
+  constructor(
+    maxSize: number = 5000,
+    ttlMs: number = 300000,
+    enabled: boolean = getFlagValue('TAXONOMY_CACHE_V2'),
+  ) {
     this.cache = new LRUCache(maxSize, ttlMs);
-    this.flagEnabled = getFlagValue('TAXONOMY_CACHE_V2');
+    this.flagEnabled = enabled;
   }
 
   async getNode<T>(nodeId: string, loader: () => Promise<T>): Promise<T> {
@@ -131,7 +124,7 @@ export class TaxonomyCache {
     }
 
     const cached = this.cache.get(nodeId) as T | undefined;
-    if (cached) return cached;
+    if (cached !== undefined) return cached;
 
     const value = await loader();
     this.cache.set(nodeId, value);
@@ -142,7 +135,7 @@ export class TaxonomyCache {
     this.cache.delete(nodeId);
   }
 
-  invalidatePattern(pattern: string): void {
+  invalidatePattern(_pattern: string): void {
     // Invalidate all keys matching pattern
     this.cache.clear(); // Simplified: full clear on pattern
   }
@@ -150,8 +143,12 @@ export class TaxonomyCache {
   getMetrics(): CacheStats {
     return this.cache.getStats();
   }
+
+  clear(): void {
+    this.cache.clear();
+  }
 }
 
-export const createTaxonomyCache = (): TaxonomyCache => {
-  return new TaxonomyCache();
+export const createTaxonomyCache = (enabled?: boolean): TaxonomyCache => {
+  return new TaxonomyCache(5000, 300000, enabled);
 };

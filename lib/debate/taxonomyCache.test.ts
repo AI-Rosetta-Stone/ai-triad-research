@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { LRUCache, createTaxonomyCache } from './taxonomyCache.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { LRUCache, TaxonomyCache, createTaxonomyCache } from './taxonomyCache.js';
 
 describe('Taxonomy Cache V2', () => {
   let cache: LRUCache<string>;
@@ -34,9 +34,12 @@ describe('Taxonomy Cache V2', () => {
     smallCache.set('c', 'val-c');
     expect(smallCache.getStats().size).toBe(3);
 
+    expect(smallCache.get('a')).toBe('val-a');
     smallCache.set('d', 'val-d');
     expect(smallCache.getStats().size).toBe(3);
     expect(smallCache.getStats().evictions).toBe(1);
+    expect(smallCache.get('a')).toBe('val-a');
+    expect(smallCache.get('b')).toBeUndefined();
   });
 
   it('respects TTL expiration', (done) => {
@@ -59,6 +62,15 @@ describe('Taxonomy Cache V2', () => {
     const result2 = await taxonomyCache.getNode('node-1', mockLoader);
 
     expect(result1).toEqual(result2);
+  });
+
+  it('caches falsey values when enabled', async () => {
+    const taxonomyCache = new TaxonomyCache(100, 300000, true);
+    const loader = vi.fn(async () => false);
+
+    await expect(taxonomyCache.getNode('node-1', loader)).resolves.toBe(false);
+    await expect(taxonomyCache.getNode('node-1', loader)).resolves.toBe(false);
+    expect(loader).toHaveBeenCalledTimes(1);
   });
 
   it('achieves >80% hit rate on typical workload', () => {

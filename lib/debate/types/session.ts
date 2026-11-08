@@ -97,6 +97,16 @@ export interface TranscriptEntry {
   /** Pre-CQ: bare string IDs. Post-CQ: objects with relevance. Check typeof. */
   policy_refs?: (string | { policy_id: string; relevance: string })[];
   metadata?: Record<string, unknown>;
+  _bdiV2?: {
+    coherenceScore: number;
+    processingTimeMs: number;
+    bdiState: {
+      beliefCount: number;
+      desireCount: number;
+      intentionCount: number;
+      confidence: number;
+    };
+  };
   addressing?: SpeakerId | 'all';
   /** Cached AI-generated summaries at different detail tiers (DT-2). */
   summaries?: {

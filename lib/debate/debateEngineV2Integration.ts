@@ -17,7 +17,11 @@ import type { DebateSession, TranscriptEntry } from './types.js';
 import type { AIAdapter } from './aiAdapter.js';
 import { DebateEngineV2, createDebateEngineV2 } from './debateEngineV2.js';
 import { DebateEngineAdapterV2 } from './debateEngineAdapterV2.js';
-import { getFlagValue } from '@phase1/flags';
+import { adaptAIAdapter } from '../ai-client/aiClientV2Adapter.js';
+import { getFlagValue } from '../phase2Flags.js';
+import { getGlobalRecorder } from '../flight-recorder/index.js';
+
+const adaptersBySession = new WeakMap<DebateSession, DebateEngineAdapterV2>();
 
 /**
  * Inject V2 engine enrichment into main debate session lifecycle.
@@ -39,12 +43,29 @@ export async function enrichSessionWithV2Grounding(
   }
 
   try {
-    const adapter = new DebateEngineAdapterV2(aiAdapter);
-    const enrichedSession = await adapter.enrichSession(session, turnEntry);
-    return enrichedSession;
+    let adapter = adaptersBySession.get(session);
+    if (!adapter) {
+      adapter = new DebateEngineAdapterV2(adaptAIAdapter(aiAdapter));
+      adaptersBySession.set(session, adapter);
+    }
+    const enrichedEntry = await adapter.enrichTranscriptEntry(turnEntry, session);
+    const entryIndex = session.transcript.findIndex((entry) => entry.id === turnEntry.id);
+    if (entryIndex >= 0) session.transcript[entryIndex] = enrichedEntry;
+    return session;
   } catch (err) {
-    // Non-blocking: log error but don't crash main engine
-    console.warn('[V2 Integration] Enrichment failed:', err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[V2 Integration] Enrichment failed; retaining the original session: ${message}`);
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'debate-engine-v2-integration',
+      level: 'warn',
+      message: `Session enrichment failed; retaining the original session: ${message}`,
+      error: {
+        name: err instanceof Error ? err.name : 'Error',
+        message,
+        stack: err instanceof Error ? err.stack : undefined,
+      },
+    });
     return session; // Fallback to original session
   }
 }
@@ -62,9 +83,8 @@ export function createV2EngineIfEnabled(aiAdapter: AIAdapter): DebateEngineV2 | 
     return null;
   }
 
-  return createDebateEngineV2(aiAdapter, {
+  return createDebateEngineV2(adaptAIAdapter(aiAdapter), {
     enableTelemetry: true,
-    logLevel: 'debug',
   });
 }
 
@@ -80,16 +100,5 @@ export async function verifyV2EngineReadiness(): Promise<boolean> {
     return true; // If disabled, no need to verify
   }
 
-  try {
-    // Check telemetry client availability
-    const telemetryAvailable = typeof globalThis.applicationInsights !== 'undefined';
-    if (!telemetryAvailable) {
-      console.warn('[V2 Integration] ApplicationInsights not configured; V2 will work but telemetry disabled');
-    }
-
-    return true;
-  } catch (err) {
-    console.error('[V2 Integration] Readiness check failed:', err);
-    return false;
-  }
+  return true;
 }

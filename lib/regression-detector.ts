@@ -183,11 +183,7 @@ export function detectRegressions(
   // ─────────────────────────────────────────────────
 
   const passed =
-    debatePassed &&
-    cachePassed &&
-    aiPassed &&
-    errorPassed &&
-    fallbackPassed &&
+    [debatePassed, cachePassed, aiPassed, errorPassed, fallbackPassed].every(Boolean) &&
     regressions.length === 0;
 
   const summary = passed

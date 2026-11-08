@@ -13,9 +13,11 @@
 
 import type { DebateSession, Signal, PredicateResult } from './types.js';
 import type { PovNode, SituationNode } from './taxonomyTypes.js';
-import type { AIAdapter } from './aiAdapter.js';
-import { applicationInsights } from '@phase1/telemetry';
-import { getFlagValue } from '@phase1/flags';
+import type { AIAdapter } from '../ai-client/aiClientV2Adapter.js';
+import { DEFAULT_MODEL } from '../ai-client/defaults.js';
+import { getFlagValue } from '../phase2Flags.js';
+import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { getTelemetryClient } from '../telemetry-client.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // BDI State Management (Improved)
@@ -164,7 +166,15 @@ export class DebateEngineV2 {
       };
     } catch (error) {
       this.performanceMetrics.errors++;
-      throw new DebateEngineV2Error('Failed to process turn', error as Error);
+      const cause = error instanceof Error ? error : new Error(String(error));
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'debate-engine-v2',
+        level: 'error',
+        message: 'Debate V2 failed to process a turn',
+        error: { name: cause.name, message: cause.message, stack: cause.stack },
+      });
+      throw new DebateEngineV2Error('Failed to process turn', cause);
     }
   }
 
@@ -179,7 +189,7 @@ export class DebateEngineV2 {
     const prompt = this.buildBDIExtractionPrompt(argument, context);
 
     const result = await this.aiAdapter.call({
-      model: this.options.extractionModel || 'gpt-4',
+      model: this.options.extractionModel || DEFAULT_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3, // Low temp for structured extraction
       maxTokens: 500,
@@ -264,7 +274,9 @@ export class DebateEngineV2 {
 
     // Desire coherence: goals should align with intentions
     if (state.desires.primary.length > 0) {
-      const activeDesires = state.desires.primary.filter((d) => d.status === 'active');
+      const activeDesires = state.desires.primary.filter(
+        (d) => d.status === 'active' || d.status === undefined,
+      );
       const desireScore = activeDesires.length / state.desires.primary.length;
       score += desireScore * 0.3;
       weight += 0.3;
@@ -298,7 +310,7 @@ export class DebateEngineV2 {
     );
 
     const result = await this.aiAdapter.call({
-      model: this.options.responseModel || 'gpt-4',
+      model: this.options.responseModel || DEFAULT_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.7,
       maxTokens: 1000,
@@ -416,6 +428,18 @@ Response:
         intentions: json.intentions || [],
       };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'debate-engine-v2',
+        level: 'warn',
+        message: `BDI response was not valid JSON; using empty BDI data: ${message}`,
+        error: {
+          name: error instanceof Error ? error.name : 'Error',
+          message,
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+      });
       // Fallback: return empty BDI
       return { beliefs: [], desires: [], intentions: [] };
     }
@@ -429,14 +453,9 @@ Response:
     duration: number,
     customProperties?: Record<string, unknown>
   ): void {
-    if (!applicationInsights) return;
-
-    applicationInsights.defaultClient?.trackEvent({
-      name: `debate_engine_v2_${operation}`,
-      properties: {
-        duration_ms: duration.toFixed(2),
-        ...customProperties,
-      },
+    getTelemetryClient().trackMetric(`debate_engine_v2_${operation}`, duration, {
+      duration_ms: duration.toFixed(2),
+      ...customProperties,
     });
   }
 

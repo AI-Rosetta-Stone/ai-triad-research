@@ -12,7 +12,9 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import type { DebateSession, TranscriptEntry } from './types.js';
 import type { AIAdapter } from './aiAdapter.js';
+import { DebateEngineAdapterV2 } from './debateEngineAdapterV2.js';
 
 describe('Phase 3 Integration: Debate V2', () => {
   it('should export integration function', async () => {
@@ -27,6 +29,38 @@ describe('Phase 3 Integration: Debate V2', () => {
 
     expect(createV2EngineIfEnabled).toBeDefined();
     expect(verifyV2EngineReadiness).toBeDefined();
+  });
+
+  it('retains the V2 engine across turns in the same session', async () => {
+    vi.stubEnv('DEBATE_NEW_ENGINE', 'true');
+    const adapterInstances: DebateEngineAdapterV2[] = [];
+    const enrichSpy = vi.spyOn(DebateEngineAdapterV2.prototype, 'enrichTranscriptEntry')
+      .mockImplementation(async function (this: DebateEngineAdapterV2, entry) {
+        adapterInstances.push(this);
+        return entry;
+      });
+    const entry = {
+      id: 'turn-1',
+      speaker: 'acc',
+      content: 'argument',
+    } as TranscriptEntry;
+    const session = {
+      id: 'session-1',
+      topic: { final: 'topic' },
+      transcript: [entry],
+    } as DebateSession;
+
+    try {
+      const { enrichSessionWithV2Grounding } = await import('./debateEngineV2Integration.js');
+      await enrichSessionWithV2Grounding(session, entry, {} as AIAdapter);
+      await enrichSessionWithV2Grounding(session, entry, {} as AIAdapter);
+
+      expect(adapterInstances).toHaveLength(2);
+      expect(adapterInstances[0]).toBe(adapterInstances[1]);
+    } finally {
+      enrichSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 
   it('should be ready for production', async () => {
@@ -59,7 +93,7 @@ describe('Phase 3 Integration: AI Client V2', () => {
 describe('Phase 3 Integration: Taxonomy Cache V2', () => {
   it('should export cache functions', async () => {
     const { loadNodeWithCache, loadNodesWithCache, clearTaxonomyCache, getTaxonomyCacheStats } =
-      await import('../../taxonomy-editor/src/server/storage/taxonomyCacheIntegration.js');
+      await import('./taxonomyCacheIntegration.js');
 
     expect(loadNodeWithCache).toBeDefined();
     expect(loadNodesWithCache).toBeDefined();
@@ -69,7 +103,7 @@ describe('Phase 3 Integration: Taxonomy Cache V2', () => {
 
   it('should initialize cache', async () => {
     const { initTaxonomyCache } = await import(
-      '../../taxonomy-editor/src/server/storage/taxonomyCacheIntegration.js'
+      './taxonomyCacheIntegration.js'
     );
     expect(() => initTaxonomyCache()).not.toThrow();
   });
@@ -77,9 +111,9 @@ describe('Phase 3 Integration: Taxonomy Cache V2', () => {
 
 describe('Phase 3: Flag Defaults', () => {
   it('should have all Phase 2 flags available', async () => {
-    const { getFlagValue } = await import('@phase1/flags');
+    const { getFlagValue } = await import('../phase2Flags.js');
 
-    const flags = ['DEBATE_NEW_ENGINE', 'AI_CLIENT_V2_ENABLED', 'TAXONOMY_CACHE_V2'];
+    const flags = ['DEBATE_NEW_ENGINE', 'AI_CLIENT_V2_ENABLED', 'TAXONOMY_CACHE_V2'] as const;
 
     for (const flag of flags) {
       const value = getFlagValue(flag);
@@ -88,7 +122,7 @@ describe('Phase 3: Flag Defaults', () => {
   });
 
   it('should default to safe v1 paths', async () => {
-    const { getFlagValue } = await import('@phase1/flags');
+    const { getFlagValue } = await import('../phase2Flags.js');
 
     // All Phase 2 features default false (safe, backward compatible)
     expect(getFlagValue('DEBATE_NEW_ENGINE')).toBe(false);
@@ -102,7 +136,7 @@ describe('Phase 3: TypeScript Compilation', () => {
     // If we get here, all imports compiled successfully
     const m1 = await import('./debateEngineV2Integration.js');
     const m2 = await import('../ai-client/aiClientV2Integration.js');
-    const m3 = await import('../../taxonomy-editor/src/server/storage/taxonomyCacheIntegration.js');
+    const m3 = await import('./taxonomyCacheIntegration.js');
 
     expect(m1).toBeDefined();
     expect(m2).toBeDefined();

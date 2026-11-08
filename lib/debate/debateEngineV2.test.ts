@@ -10,7 +10,7 @@ import {
   type DebateContext,
   DebateEngineV2Error,
 } from './debateEngineV2.js';
-import type { AIAdapter } from './aiAdapter.js';
+import type { AIAdapter } from '../ai-client/aiClientV2Adapter.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Mock AIAdapter
@@ -221,15 +221,15 @@ describe('DebateEngineV2', () => {
     });
 
     it('tracks multiple turns without performance degradation', async () => {
-      const arguments = [
+      const sampleArguments = [
         'AI safety is paramount.',
         'We need governance frameworks.',
         'International cooperation is essential.',
       ];
 
       const results = [];
-      for (let i = 0; i < arguments.length; i++) {
-        const result = await engine.processTurn(context.povId, arguments[i], {
+      for (let i = 0; i < sampleArguments.length; i++) {
+        const result = await engine.processTurn(context.povId, sampleArguments[i], {
           ...context,
           round: i + 1,
         });
