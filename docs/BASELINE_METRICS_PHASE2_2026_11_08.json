@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-11-08T07:14:36.991-05:00",
+  "debateEngine": {
+    "avgLatencyMs": 94.62,
+    "p95LatencyMs": 187.34,
+    "p99LatencyMs": 203.12,
+    "errorRate": 0.0,
+    "samplesCollected": 1000
+  },
+  "taxonomyCache": {
+    "avgQueryTimeMs": 44.78,
+    "p95QueryTimeMs": 78.45,
+    "p99QueryTimeMs": 89.23,
+    "cacheBypassRate": 1.0,
+    "samplesCollected": 1000
+  },
+  "aiClient": {
+    "avgLatencyMs": 198.34,
+    "p95LatencyMs": 245.89,
+    "p99LatencyMs": 267.56,
+    "errorRate": 0.0,
+    "samplesCollected": 500
+  }
+}

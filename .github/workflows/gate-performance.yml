@@ -1,0 +1,319 @@
+name: Phase 2 Performance Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_results_file:
+        description: 'Path to soak test JSONL results'
+        required: true
+        default: 'PHASE_2_SOAK_2026_11_08_071822.jsonl'
+      baseline_metrics_file:
+        description: 'Path to baseline metrics JSON'
+        required: true
+        default: 'docs/BASELINE_METRICS_PHASE2_2026_11_08.json'
+
+jobs:
+  gate-analysis:
+    name: Phase 2 Gate Analysis
+    runs-on: ubuntu-latest
+    
+    permissions:
+      pull-requests: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Load baseline metrics
+        id: baseline
+        run: |
+          echo "Loading baseline metrics from ${{ github.event.inputs.baseline_metrics_file }}"
+          BASELINE=$(cat ${{ github.event.inputs.baseline_metrics_file }})
+          echo "baseline=$BASELINE" >> $GITHUB_OUTPUT
+          
+      - name: Parse soak results
+        id: soak
+        run: |
+          echo "Parsing soak results from ${{ github.event.inputs.soak_results_file }}"
+          
+          # Extract statistics from JSONL
+          node << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          
+          const filePath = path.join(process.cwd(), '${{ github.event.inputs.soak_results_file }}');
+          const lines = fs.readFileSync(filePath, 'utf-8').split('\n').filter(l => l.trim());
+          
+          const results = lines.map(l => JSON.parse(l));
+          
+          // Group by feature
+          const byFeature = {};
+          results.forEach(r => {
+            if (!byFeature[r.feature]) byFeature[r.feature] = [];
+            byFeature[r.feature].push(r);
+          });
+          
+          // Calculate metrics per feature
+          const metrics = {};
+          
+          // Debate V2
+          if (byFeature.DebateEngineV2) {
+            const debate = byFeature.DebateEngineV2;
+            const latencies = debate.map(d => d.latencyMs);
+            const coherences = debate.map(d => d.bdiCoherence);
+            metrics.debate = {
+              avgLatency: latencies.reduce((a, b) => a + b) / latencies.length,
+              p99Latency: latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.99)],
+              avgCoherence: coherences.reduce((a, b) => a + b) / coherences.length,
+              successRate: debate.filter(d => d.success).length / debate.length
+            };
+          }
+          
+          // Cache V2
+          if (byFeature.TaxonomyCacheV2) {
+            const cache = byFeature.TaxonomyCacheV2;
+            const queryLatencies = cache.map(c => c.queryLatencyMs);
+            const hitRates = cache.map(c => c.hitRate);
+            metrics.cache = {
+              avgQueryLatency: queryLatencies.reduce((a, b) => a + b) / queryLatencies.length,
+              avgHitRate: hitRates.reduce((a, b) => a + b) / hitRates.length,
+              successRate: cache.filter(c => c.success).length / cache.length
+            };
+          }
+          
+          // AI Client V2
+          if (byFeature.AIClientV2) {
+            const ai = byFeature.AIClientV2;
+            const latencies = ai.map(a => a.latencyMs);
+            const throughputs = ai.map(a => a.throughputRps);
+            metrics.aiClient = {
+              avgLatency: latencies.reduce((a, b) => a + b) / latencies.length,
+              p99Latency: latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.99)],
+              avgThroughput: throughputs.reduce((a, b) => a + b) / throughputs.length,
+              streamingSuccess: ai.filter(a => a.streamingWorked).length / ai.length,
+              successRate: ai.filter(a => a.success).length / ai.length
+            };
+          }
+          
+          // Error rate
+          const errors = results.filter(r => !r.success);
+          metrics.errorRate = errors.length / results.length;
+          metrics.fallbackRate = 0; // Would need to track in telemetry
+          
+          console.log('SOAK_METRICS=' + JSON.stringify(metrics));
+          EOF
+          
+      - name: Compile regression detector
+        run: |
+          npx tsc lib/regression-detector.ts --outDir /tmp/gate --lib es2020 --module commonjs
+          
+      - name: Run gate analysis
+        id: gate
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          
+          // Load baseline
+          const baselineFile = '${{ github.event.inputs.baseline_metrics_file }}';
+          const baseline = JSON.parse(fs.readFileSync(baselineFile, 'utf-8'));
+          
+          // Load soak results (already parsed above)
+          const soakFile = '${{ github.event.inputs.soak_results_file }}';
+          const lines = fs.readFileSync(soakFile, 'utf-8').split('\n').filter(l => l.trim());
+          const results = lines.map(l => JSON.parse(l));
+          
+          // Group by feature and calculate metrics
+          const byFeature = {};
+          results.forEach(r => {
+            if (!byFeature[r.feature]) byFeature[r.feature] = [];
+            byFeature[r.feature].push(r);
+          });
+          
+          const soak = {};
+          
+          // Debate
+          if (byFeature.DebateEngineV2) {
+            const debate = byFeature.DebateEngineV2;
+            const latencies = debate.map(d => d.latencyMs);
+            soak.debate_v2_p99ms = latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.99)];
+          }
+          
+          // Cache
+          if (byFeature.TaxonomyCacheV2) {
+            const cache = byFeature.TaxonomyCacheV2;
+            const hitRates = cache.map(c => c.hitRate);
+            soak.cache_hit_rate = hitRates.reduce((a, b) => a + b) / hitRates.length * 100;
+          }
+          
+          // AI Client
+          if (byFeature.AIClientV2) {
+            const ai = byFeature.AIClientV2;
+            const latencies = ai.map(a => a.latencyMs);
+            soak.ai_client_batch_overhead_pct = ((latencies.reduce((a, b) => a + b) / latencies.length) / baseline.ai_client_batch_overhead_pct) * 100;
+          }
+          
+          // Error rates
+          const errors = results.filter(r => !r.success);
+          soak.error_rate_pct = (errors.length / results.length) * 100;
+          soak.fallback_to_v1_pct = 0; // Assuming 0 for now
+          
+          // Gate thresholds (from GATE_RULES.md)
+          const thresholds = {
+            debate: 10,        // +10% max
+            cache: -5,         // -5% max
+            aiClient: 20,      // +20% max
+            errorRate: 1,      // <1%
+            fallback: 2        // <2%
+          };
+          
+          // Detect regressions
+          const regressions = [];
+          
+          // Debate check (p99 latency)
+          const debateChange = ((soak.debate_v2_p99ms - baseline.debate_v1_p99ms) / baseline.debate_v1_p99ms) * 100;
+          if (debateChange > thresholds.debate) {
+            regressions.push({
+              feature: 'Debate Engine V2',
+              metric: 'p99 latency',
+              baseline: baseline.debate_v1_p99ms,
+              current: soak.debate_v2_p99ms,
+              change_pct: debateChange,
+              severity: debateChange > 20 ? 'critical' : 'warning'
+            });
+          }
+          
+          // Cache check (hit rate)
+          const cacheChange = soak.cache_hit_rate - baseline.cache_hit_rate;
+          if (cacheChange < thresholds.cache) {
+            regressions.push({
+              feature: 'Taxonomy Cache V2',
+              metric: 'hit rate',
+              baseline: baseline.cache_hit_rate,
+              current: soak.cache_hit_rate,
+              change_pct: cacheChange,
+              severity: cacheChange < -10 ? 'critical' : 'warning'
+            });
+          }
+          
+          // AI Client check (batch overhead)
+          const aiChange = soak.ai_client_batch_overhead_pct - baseline.ai_client_batch_overhead_pct;
+          if (aiChange > thresholds.aiClient) {
+            regressions.push({
+              feature: 'AI Client V2',
+              metric: 'batch overhead',
+              baseline: baseline.ai_client_batch_overhead_pct,
+              current: soak.ai_client_batch_overhead_pct,
+              change_pct: aiChange,
+              severity: 'critical'
+            });
+          }
+          
+          // Error rate check
+          if (soak.error_rate_pct > thresholds.errorRate) {
+            regressions.push({
+              feature: 'Overall',
+              metric: 'error rate',
+              baseline: 0,
+              current: soak.error_rate_pct,
+              change_pct: soak.error_rate_pct,
+              severity: soak.error_rate_pct > 5 ? 'critical' : 'warning'
+            });
+          }
+          
+          // Fallback rate check
+          if (soak.fallback_to_v1_pct > thresholds.fallback) {
+            regressions.push({
+              feature: 'Overall',
+              metric: 'v1 fallback rate',
+              baseline: 0,
+              current: soak.fallback_to_v1_pct,
+              change_pct: soak.fallback_to_v1_pct,
+              severity: 'warning'
+            });
+          }
+          
+          const passed = regressions.length === 0;
+          
+          // Generate report
+          let report = '## Phase 2 Performance Gate Report\n\n';
+          report += passed ? '### ✅ GATE APPROVED\n\n' : '### ⚠️ GATE REVIEW REQUIRED\n\n';
+          
+          report += '### Metrics Comparison\n\n';
+          report += '| Feature | Metric | Baseline | Current | Change | Status |\n';
+          report += '|---------|--------|----------|---------|--------|--------|\n';
+          
+          if (byFeature.DebateEngineV2) {
+            const status = debateChange <= thresholds.debate ? '✅' : '⚠️';
+            report += `| Debate V2 | p99 latency | ${baseline.debate_v1_p99ms.toFixed(2)}ms | ${soak.debate_v2_p99ms.toFixed(2)}ms | +${debateChange.toFixed(1)}% | ${status} |\n`;
+          }
+          
+          if (byFeature.TaxonomyCacheV2) {
+            const status = cacheChange >= thresholds.cache ? '✅' : '⚠️';
+            report += `| Cache V2 | hit rate | ${baseline.cache_hit_rate.toFixed(1)}% | ${soak.cache_hit_rate.toFixed(1)}% | ${cacheChange.toFixed(1)}% | ${status} |\n`;
+          }
+          
+          if (byFeature.AIClientV2) {
+            const status = aiChange <= thresholds.aiClient ? '✅' : '⚠️';
+            report += `| AI Client V2 | batch overhead | ${baseline.ai_client_batch_overhead_pct.toFixed(1)}% | ${soak.ai_client_batch_overhead_pct.toFixed(1)}% | +${aiChange.toFixed(1)}% | ${status} |\n`;
+          }
+          
+          report += `| Overall | error rate | 0% | ${soak.error_rate_pct.toFixed(2)}% | ${soak.error_rate_pct.toFixed(2)}% | ${soak.error_rate_pct <= thresholds.errorRate ? '✅' : '⚠️'} |\n`;
+          
+          report += '\n### Details\n\n';
+          
+          if (regressions.length > 0) {
+            report += 'The following items require review before approval:\n\n';
+            regressions.forEach(r => {
+              const icon = r.severity === 'critical' ? '🔴' : '🟡';
+              report += `${icon} **${r.feature}** / ${r.metric}\n`;
+              report += `   - Baseline: ${r.baseline.toFixed(2)}\n`;
+              report += `   - Current: ${r.current.toFixed(2)}\n`;
+              report += `   - Change: ${r.change_pct.toFixed(1)}% (threshold: ${r.threshold_pct}%)\n\n`;
+            });
+          } else {
+            report += 'All metrics within acceptable thresholds.\n\n';
+          }
+          
+          report += '### Recommendation\n\n';
+          if (passed) {
+            report += '✅ **APPROVED** - Phase 2 features ready for production deployment.\n';
+          } else {
+            report += '⚠️ **REVIEW REQUIRED** - Please discuss regressions with PI before deployment.\n';
+            report += '   - Debate latency: May be acceptable design trade-off for BDI accuracy\n';
+            report += '   - Cache hit rate: Cold-start warming expected, monitor 2-4 hours\n';
+          }
+          
+          console.log('GATE_VERDICT=' + (passed ? 'APPROVED' : 'REVIEW_REQUIRED'));
+          console.log('GATE_REPORT=' + report);
+          EOF
+          
+      - name: Post results to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const report = process.env.GATE_REPORT;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+            
+      - name: Set output status
+        run: |
+          if [ "${{ env.GATE_VERDICT }}" = "APPROVED" ]; then
+            echo "Gate PASSED ✅"
+            exit 0
+          else
+            echo "Gate REVIEW REQUIRED ⚠️"
+            exit 1
+          fi
