@@ -78,8 +78,13 @@ const requestFields = {
   models: ModelOverrideSchema.optional(),
   /** Optional temperature override for debater calls only (0–2, t/4771). Absent: fidelity tier default. */
   temperature: z.number().min(0).max(2).optional(),
+<<<<<<< Updated upstream
   /** Optional display title for the inquiry; when absent, question is used (t/4891). Blank → absent. */
   title: readTitle,
+=======
+  /** Optional display name for the inquiry; when absent, question is used (t/4891). */
+  title: z.string().max(200).optional(),
+>>>>>>> Stashed changes
 };
 
 export const InquiryRequestSchema = z
