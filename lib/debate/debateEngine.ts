@@ -103,6 +103,7 @@ import type { CampOrigin } from '../dictionary/types.js';
 import type { ContextInjectionManifest } from './taxonomyContext.js';
 import { documentAnalysisPrompt, buildTaxonomySample } from './documentAnalysis.js';
 import type { DocumentAnalysis, ReflectionProposal, DraftWorkProduct } from './types.js';
+import { telemetryClient } from '../telemetry.js';
 import {
   cosineSimilarity,
   scoreNodeRelevance,
@@ -400,6 +401,8 @@ export class DebateEngine {
   }
 
   async run(onProgress?: (p: DebateProgress) => void): Promise<DebateSession> {
+    const startTime = Date.now();
+    try {
     this.onProgress = onProgress;
     if (this.adapter.onRetryProgress === undefined) {
       this.adapter.onRetryProgress = (info) => {
@@ -803,7 +806,36 @@ export class DebateEngine {
       this.warn('Calibration logging', calErr, 'Non-critical — debate results unaffected');
     }
 
+    // Track successful debate completion
+    telemetryClient.trackEvent({
+      name: 'debate_completed',
+      properties: {
+        debate_id: this.session?.id || 'unknown',
+        status: 'success',
+        phase: this.session?.phase || 'unknown',
+      },
+      measurements: {
+        latency_ms: Date.now() - startTime,
+        total_ai_calls: this.apiCallCount || 0,
+        transcript_length: this.session?.transcript?.length || 0,
+      }
+    });
+
     return this.session;
+    } catch (error) {
+      telemetryClient.trackEvent({
+        name: 'debate_failed',
+        properties: {
+          debate_id: this.session?.id || 'unknown',
+          error_type: (error as Error)?.constructor?.name || 'unknown',
+          error_message: (error as Error)?.message || String(error),
+        },
+        measurements: {
+          latency_ms: Date.now() - startTime,
+        }
+      });
+      throw error;
+    }
   }
 
   // ── Resume from checkpoint ──────────────────────────────

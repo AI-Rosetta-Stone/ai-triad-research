@@ -19,6 +19,7 @@ import { generateViaMoonshot } from './providers/moonshot.js';
 import { generateViaXai } from './providers/xai.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { classifyServedIdentity, observeServedIdentity, attachServedIdentitySummary } from './servedIdentity.js';
+import { telemetryClient } from '../telemetry.js';
 
 export interface AIClientDeps {
   fetch: FetchFn;
@@ -80,32 +81,64 @@ export async function callProvider(
   apiKey: string,
   opts: GenerateOptions,
 ): Promise<ProviderResult> {
-  // t/4105 C5: the one chokepoint every provider send passes; refuse another backend's credential before any request.
-  assertKeyForBackend(apiKey, backend, 'provided');
-  const result = await dispatchProvider(fetchFn, backend, prompt, apiModelId, apiKey, opts);
-  const served = result.providerReportedModel;
-  const identity = classifyServedIdentity({ registry: opts.identityRegistry, backend, sent: apiModelId, served });
-  const seen = observeServedIdentity(backend, apiModelId, served, identity);
-  attachServedIdentitySummary(getGlobalRecorder()); // t/4023: the per-reason counts ride every dump
-  getGlobalRecorder()?.record({
-    type: 'ai.model_identity',
-    component: 'ai-client',
-    level: seen.warn ? 'warn' : 'info',
-    message: `served-identity ${backend}/${apiModelId} -> ${served ?? '(unreported)'}: ${identity.state}/${identity.reason}`,
-    data: {
-      backend,
-      requested: opts.requestedModelId,
-      apiModelIdSent: apiModelId,
-      providerReported: served,
-      state: identity.state,
-      reason: identity.reason,
-      ...(identity.resolvedSent ? { resolvedSent: identity.resolvedSent } : {}),
-      ...(seen.divergentCount ? { divergentCount: seen.divergentCount } : {}),
-      // First call to this backend in this process: surfaces a newly used adapter for calibration (TL t/3731#7).
-      ...(seen.firstSeen ? { firstSeen: true, registryPresent: !!opts.identityRegistry } : {}),
-    },
-  });
-  return result;
+  const startTime = Date.now();
+  try {
+    // t/4105 C5: the one chokepoint every provider send passes; refuse another backend's credential before any request.
+    assertKeyForBackend(apiKey, backend, 'provided');
+    const result = await dispatchProvider(fetchFn, backend, prompt, apiModelId, apiKey, opts);
+    const served = result.providerReportedModel;
+    const identity = classifyServedIdentity({ registry: opts.identityRegistry, backend, sent: apiModelId, served });
+    const seen = observeServedIdentity(backend, apiModelId, served, identity);
+    attachServedIdentitySummary(getGlobalRecorder()); // t/4023: the per-reason counts ride every dump
+    getGlobalRecorder()?.record({
+      type: 'ai.model_identity',
+      component: 'ai-client',
+      level: seen.warn ? 'warn' : 'info',
+      message: `served-identity ${backend}/${apiModelId} -> ${served ?? '(unreported)'}: ${identity.state}/${identity.reason}`,
+      data: {
+        backend,
+        requested: opts.requestedModelId,
+        apiModelIdSent: apiModelId,
+        providerReported: served,
+        state: identity.state,
+        reason: identity.reason,
+        ...(identity.resolvedSent ? { resolvedSent: identity.resolvedSent } : {}),
+        ...(seen.divergentCount ? { divergentCount: seen.divergentCount } : {}),
+        // First call to this backend in this process: surfaces a newly used adapter for calibration (TL t/3731#7).
+        ...(seen.firstSeen ? { firstSeen: true, registryPresent: !!opts.identityRegistry } : {}),
+      },
+    });
+
+    // Track successful AI request
+    telemetryClient.trackEvent({
+      name: 'ai_request_completed',
+      properties: {
+        provider: backend,
+        model: apiModelId,
+        status: 'success',
+      },
+      measurements: {
+        latency_ms: Date.now() - startTime,
+        tokens_input: result.usage?.promptTokens || 0,
+        tokens_output: result.usage?.completionTokens || 0,
+      }
+    });
+
+    return result;
+  } catch (error) {
+    telemetryClient.trackEvent({
+      name: 'ai_request_failed',
+      properties: {
+        provider: backend,
+        model: apiModelId,
+        error_type: error?.constructor?.name || 'unknown',
+      },
+      measurements: {
+        latency_ms: Date.now() - startTime,
+      }
+    });
+    throw error;
+  }
 }
 
 export function createAIClient(

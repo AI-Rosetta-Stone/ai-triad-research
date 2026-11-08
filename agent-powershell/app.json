@@ -1,0 +1,8 @@
+{
+  "manifestVersion": 1,
+  "name": "powershell",
+  "version": "0.1.0",
+  "label": "PowerShell",
+  "protocol": 1,
+  "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\"><rect width=\"40\" height=\"40\" fill=\"#01a4ef\"/><g transform=\"translate(8 8)\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 6l4 3-4 3M6 6v6M10 6v3h3v-3M15 6v6h3v-6M11 12v3h3\"/><path d=\"M2 15h14M4 18l2 2 3-4\"/></g></svg>"
+}

@@ -5,6 +5,8 @@
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "scripts": {
+    "build": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
     "debate": "tsx lib/debate/cli.ts",
     "evals": "node evals/run.mjs",
     "gen:code-referenced-models": "tsx lib/ai-config/genCodeReferencedModels.ts",
@@ -21,6 +23,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "applicationinsights": "^2.9.1",
     "jszip": "^3.10.2",
     "onnxruntime-node": "^1.31.1",
     "zod": "^4.6.7"

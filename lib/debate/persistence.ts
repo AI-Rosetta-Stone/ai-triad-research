@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { ActionableError } from './errors.js';
+import { telemetryClient } from '../telemetry.js';
 
 /**
  * Safely serialize a value to JSON, catching circular references and
@@ -133,11 +134,14 @@ export function atomicWriteSync(
   content: string,
   onLockExhausted?: (filePath: string) => string | undefined,
 ): void {
+  const startTime = Date.now();
+  const bytes = Buffer.byteLength(content, 'utf-8');
+  
+  try {
   // codeql[js/insecure-temporary-file] FP: same-directory atomic write via rename, not an os.tmpdir() temp file
   const tmpPath = `${filePath}.tmp`;
   fs.writeFileSync(tmpPath, content, 'utf-8');
   // t/2546: scale retry budget with payload size — AV scan time grows with file size.
-  const bytes = Buffer.byteLength(content, 'utf-8');
   const wallClockCapMs = bytes > 200 * 1024 ? 30_000 : undefined;
   // Capture the lock-holder description returned by the callback (t/3019).
   // ??= keeps the first capture — both rename attempts target the same file,
@@ -148,6 +152,21 @@ export function atomicWriteSync(
     : undefined;
   try {
     renameSyncWithRetry(tmpPath, filePath, 7, wallClockCapMs, wrappedOnLockExhausted);
+    
+    // Track successful storage operation
+    telemetryClient.trackEvent({
+      name: 'storage_operation_completed',
+      properties: {
+        operation: 'write',
+        status: 'success',
+        path: path.basename(filePath),
+      },
+      measurements: {
+        latency_ms: Date.now() - startTime,
+        size_bytes: bytes,
+      }
+    });
+    
     return;
   } catch (renameErr) {
     const renameCode = (renameErr as NodeJS.ErrnoException).code;
@@ -209,6 +228,21 @@ export function atomicWriteSync(
       });
       const lockerText = lockHolderDesc ?? 'an unidentified process (lock holder detection unavailable)';
       const isSelfLock = /^electron/i.test(lockHolderDesc ?? '');
+      
+      // Track storage operation failure
+      telemetryClient.trackEvent({
+        name: 'storage_operation_failed',
+        properties: {
+          operation: 'write',
+          error_type: 'lock_exhausted',
+          path: path.basename(filePath),
+        },
+        measurements: {
+          latency_ms: Date.now() - startTime,
+          size_bytes: bytes,
+        }
+      });
+      
       throw new ActionableError({
         goal: `Persist ${bytes} bytes to ${filePath}`,
         problem: `Atomic rename and .tmp2 rename fallback were both denied (rename ${firstRenameCode}, fallback ${tmp2Code}) — the target is held by ${lockerText} longer than the retry budget allows.`,
@@ -223,6 +257,22 @@ export function atomicWriteSync(
         innerError: tmp2Err,
       });
     }
+  }
+  } catch (error) {
+    // Track any unexpected storage operation failures
+    telemetryClient.trackEvent({
+      name: 'storage_operation_failed',
+      properties: {
+        operation: 'write',
+        error_type: error?.constructor?.name || 'unknown',
+        path: path.basename(filePath),
+      },
+      measurements: {
+        latency_ms: Date.now() - startTime,
+        size_bytes: bytes,
+      }
+    });
+    throw error;
   }
 }
 

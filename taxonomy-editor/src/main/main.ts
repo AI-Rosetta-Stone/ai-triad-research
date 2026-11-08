@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+// MUST be at the very top, before other imports
+import '../../../lib/telemetry.js';  // Initialize Application Insights
+
 console.log('[main] === STARTUP BEGIN ===');
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron';
 import fs from 'fs';
