@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { extractLineageNames } from '../../utils/lineageMatcher';
@@ -207,6 +207,16 @@ export function VocabTermsView({ resolutions, ambiguities, statementText }: {
   const vocabTerms = useDebateStore(s => s.vocabularyTerms?.colloquial);
   const stdTerms = useDebateStore(s => s.vocabularyTerms?.standardized);
   const navigateToLineage = useTaxonomyStore(s => s.navigateToLineage);
+  const hasDictionary = useDebateStore(s => s.vocabularyTerms != null);
+  const activeDebateId = useDebateStore(s => s.activeDebateId);
+  const ensureVocabulary = useDebateStore(s => s.ensureVocabulary);
+
+  // t/39: an empty or failed dictionary load (hosted /api/dictionary returns [] on a GitHub
+  // timeout) is not cached, so retry when a vocabulary view opens instead of showing raw sense
+  // IDs until the next debate load. ensureVocabulary shares in-flight fetches and never rejects.
+  useEffect(() => {
+    if (!hasDictionary) void ensureVocabulary();
+  }, [activeDebateId, hasDictionary, ensureVocabulary]);
 
   // Build lookup from full dictionary (shared between entries and ambiguities)
   const dictLookup = useMemo(() => {
