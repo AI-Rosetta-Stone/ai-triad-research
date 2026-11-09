@@ -303,8 +303,9 @@ export function OpEdTab() {
     toggleSelected: s.toggleSelected, clearSelected: s.clearSelected, deleteSelected: s.deleteSelected,
     clearPendingOpen: s.clearPendingOpen,
   })));
-  const { opeds: communityOpeds, communityLoading, fetchOpeds, submitItem, copyItem } = useCommunityStore(useShallow(s => ({
+  const { opeds: communityOpeds, communityLoading, fetchOpeds, submitItem, copyItem, removeItem, renameItem } = useCommunityStore(useShallow(s => ({
     opeds: s.opeds, communityLoading: s.loading, fetchOpeds: s.fetchOpeds, submitItem: s.submitItem, copyItem: s.copyItem,
+    removeItem: s.removeItem, renameItem: s.renameItem,
   })));
 
   const auth = useAuthStatus();
@@ -510,6 +511,21 @@ export function OpEdTab() {
     });
   }, [copyItem, loadSets, flash]);
 
+  // t/4898 (Design t/4898#4): admin rename/delete on Community rows.
+  const handleAdminRename = useCallback((entry: OpEdCommunityEntry, title: string) => {
+    renameItem('opeds', entry.id, title).catch(err => {
+      recordError('oped-tab', 'Failed to admin-rename community op-ed', err);
+      flash(`Rename failed: ${err}`);
+    });
+  }, [renameItem, flash]);
+
+  const handleAdminDelete = useCallback((entry: OpEdCommunityEntry, reason?: string) => {
+    removeItem('opeds', entry.id, reason).catch(err => {
+      recordError('oped-tab', 'Failed to admin-delete community op-ed', err);
+      flash(`Delete failed: ${err}`);
+    });
+  }, [removeItem, flash]);
+
   const handleBulkDelete = useCallback(() => {
     deleteSelected().catch(err => {
       recordError('oped-tab', 'Failed to delete selected op-eds', err);
@@ -593,6 +609,8 @@ export function OpEdTab() {
     onExportCommunity: handleExportCommunity,
     onShare: handleShare,
     onCopy: handleCopy,
+    adminRename: handleAdminRename,
+    adminDelete: handleAdminDelete,
     showCopy: () => !auth?.anonymous,
     // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Web-only per the ticket
     // (canOpenInNewWindow already gates Electron, which has no op-ed popout window type).
@@ -600,7 +618,7 @@ export function OpEdTab() {
   }), [
     editMode, selectedIds, customOrder, exitEditMode, handleBulkDelete, clearSelected, saveCustomOrder,
     toggleSelected, myLibRows, moveSet, handleRename, renamingId, handleExportMy, handleExportCommunity,
-    handleShare, handleCopy, auth?.anonymous, handleNewClick,
+    handleShare, handleCopy, handleAdminRename, handleAdminDelete, auth?.anonymous, handleNewClick,
   ]);
 
   // ── Reader view ──

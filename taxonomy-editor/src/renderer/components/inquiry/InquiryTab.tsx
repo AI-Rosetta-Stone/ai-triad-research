@@ -92,8 +92,9 @@ export function InquiryTab() {
     renameHistoryItem: s.renameHistoryItem, deleteHistoryItem: s.deleteHistoryItem,
   })));
   const screen = useInquiryStore(s => s.screen());
-  const { inquiries, communityLoading, fetchInquiries, copyItem } = useCommunityStore(useShallow(s => ({
+  const { inquiries, communityLoading, fetchInquiries, copyItem, removeItem, renameItem } = useCommunityStore(useShallow(s => ({
     inquiries: s.inquiries, communityLoading: s.loading, fetchInquiries: s.fetchInquiries, copyItem: s.copyItem,
+    removeItem: s.removeItem, renameItem: s.renameItem,
   })));
 
   const [status, setStatus] = useState<string | null>(null);
@@ -179,6 +180,21 @@ export function InquiryTab() {
       flash(`Copy failed: ${mapErrorToUserMessage(err)}`);
     });
   }, [copyItem, fetchHistory, flash]);
+
+  // t/4898 (Design t/4898#4): admin rename/delete on Community rows.
+  const handleAdminRename = useCallback((row: InquiryCommunityLibRow, title: string) => {
+    renameItem('inquiries', row.id, title).catch(err => {
+      recordError('inquiry-tab', 'Failed to admin-rename community inquiry', err);
+      flash(`Rename failed: ${mapErrorToUserMessage(err)}`);
+    });
+  }, [renameItem, flash]);
+
+  const handleAdminDelete = useCallback((row: InquiryCommunityLibRow, reason?: string) => {
+    removeItem('inquiries', row.id, reason).catch(err => {
+      recordError('inquiry-tab', 'Failed to admin-delete community inquiry', err);
+      flash(`Delete failed: ${mapErrorToUserMessage(err)}`);
+    });
+  }, [removeItem, flash]);
 
   const handleRename = useCallback((jobId: string, title: string) => {
     renameHistoryItem(jobId, title).catch(err => {
@@ -277,12 +293,15 @@ export function InquiryTab() {
     onExportCommunity: handleExportCommunity,
     onShare: handleShare,
     onCopy: handleCopy,
+    adminRename: handleAdminRename,
+    adminDelete: handleAdminDelete,
     // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Web-only per the ticket
     // (canOpenInNewWindow already gates Electron, which has no inquiry popout window type).
     itemPlace: row => ({ tool: 'inquiry', id: row.id, path: `/inquiry/${row.id}` }),
   }), [
     handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy, handleRename,
-    editMode, exitEditMode, editModeActions, selectedIds, myLibRows, rowActions, renamingId,
+    handleAdminRename, handleAdminDelete, editMode, exitEditMode, editModeActions, selectedIds,
+    myLibRows, rowActions, renamingId,
   ]);
 
   // t/4666: the New question dialog opens OVER the list rather than replacing it — the list
@@ -317,7 +336,13 @@ export function InquiryTab() {
                 try {
                   await deleteHistoryItem(id);
                 } catch (err) {
-                  recordError('inquiry-tab', 'Failed to delete inquiry (bulk)', err);
+                  getGlobalRecorder()?.record({
+                    type: 'system.error',
+                    component: 'inquiry-tab',
+                    level: 'error',
+                    message: 'Failed to delete inquiry (bulk)',
+                    error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+                  });
                   flash(`Delete failed: ${deleteFailureMessage(err)}`);
                 }
               }

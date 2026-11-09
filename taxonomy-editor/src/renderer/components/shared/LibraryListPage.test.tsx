@@ -523,6 +523,81 @@ describe('LibraryListPage — rename', () => {
   });
 });
 
+// t/4898 (Design, t/4898#4/p/29#272): admin-only rename/delete on Community rows. Gated the
+// same way as the Edit button (t/4643) — useIsAdmin() — AND on the page actually supplying the
+// callbacks, so a page with no Community admin story shows nothing extra.
+describe('LibraryListPage — admin rename/delete on Community rows (t/4898)', () => {
+  beforeEach(() => { mockIsAdmin = false; });
+
+  it('a non-admin sees no admin rename/delete buttons, even when the page supplies both', () => {
+    renderPage({ adminRename: vi.fn(), adminDelete: vi.fn() });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.queryByRole('button', { name: /\(admin\)/ })).not.toBeInTheDocument();
+  });
+
+  it('an admin without the page supplying adminRename/adminDelete sees no admin buttons either', () => {
+    mockIsAdmin = true;
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.queryByRole('button', { name: /\(admin\)/ })).not.toBeInTheDocument();
+  });
+
+  it('an admin sees admin rename/delete on Community rows, and none on My rows', () => {
+    mockIsAdmin = true;
+    renderPage({ adminRename: vi.fn(), adminDelete: vi.fn(), setRenamingId: vi.fn() });
+    expect(screen.queryByRole('button', { name: /\(admin\)/ })).not.toBeInTheDocument(); // My tab (default)
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.getByRole('button', { name: 'Rename "Community item" (admin)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove "Community item" from Community (admin)' })).toBeInTheDocument();
+  });
+
+  it('clicking the admin rename button calls setRenamingId with the Community row id', () => {
+    mockIsAdmin = true;
+    const setRenamingId = vi.fn();
+    renderPage({ adminRename: vi.fn(), setRenamingId });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename "Community item" (admin)' }));
+    expect(setRenamingId).toHaveBeenCalledWith('c1');
+  });
+
+  it('committing an admin rename calls adminRename with the row and new title, never onRename', () => {
+    mockIsAdmin = true;
+    const adminRename = vi.fn();
+    const onRename = vi.fn();
+    renderPage({ adminRename, onRename, renamingId: 'c1', setRenamingId: vi.fn() });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    const input = screen.getByDisplayValue('Community item');
+    fireEvent.change(input, { target: { value: 'Clearer title' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(adminRename).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }), 'Clearer title');
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it('clicking the admin delete button opens a confirm popover with an optional reason, not a bare delete', () => {
+    mockIsAdmin = true;
+    const adminDelete = vi.fn();
+    renderPage({ adminDelete });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove "Community item" from Community (admin)' }));
+    expect(screen.getByText('Remove from Community Library?')).toBeInTheDocument();
+    expect(adminDelete).not.toHaveBeenCalled(); // not until confirmed
+    fireEvent.change(screen.getByPlaceholderText('Reason (optional)'), { target: { value: 'spam' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(adminDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }), 'spam');
+  });
+
+  it('cancelling the admin delete popover never calls adminDelete', () => {
+    mockIsAdmin = true;
+    const adminDelete = vi.fn();
+    renderPage({ adminDelete });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove "Community item" from Community (admin)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(adminDelete).not.toHaveBeenCalled();
+    expect(screen.queryByText('Remove from Community Library?')).not.toBeInTheDocument();
+  });
+});
+
 describe('LibraryListPage — titleBadge slot (t/4720)', () => {
   it('renders nothing extra when titleBadge is omitted (every pre-existing page, unchanged)', () => {
     const { container } = renderPage();

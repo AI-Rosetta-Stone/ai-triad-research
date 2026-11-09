@@ -81,6 +81,10 @@ export interface ChatLibraryListDeps {
   editModeActions: LibraryEditModeAction[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  /** Admin-only Community rename/delete (t/4898, Design t/4898#4) — LibraryListPage renders the
+   *  ✎/✕ itself, gated on useIsAdmin(); the page just supplies the calls. */
+  adminRename?: (row: CommunityChat, title: string) => void;
+  adminDelete?: (row: CommunityChat, reason?: string) => void;
 }
 
 export function buildChatLibraryListConfig(
@@ -173,6 +177,8 @@ export function buildChatLibraryListConfig(
     onExportCommunity: (row, format) => deps.onExportCommunity(row.id, format),
     onShare: deps.onShare,
     onCopy: deps.onCopy,
+    adminRename: deps.adminRename,
+    adminDelete: deps.adminDelete,
 
     // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Path matches placeOf.ts's chat route.
     itemPlace: (row) => ({ tool: 'chat', id: row.id, path: `/chat/${row.id}` }),
