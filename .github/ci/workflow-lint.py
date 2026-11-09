@@ -152,6 +152,18 @@ def lint_file(path, content):
     # not just the job that would have used that permission.
     errs.extend(_check_permissions_allowlist(path, content))
 
+    # ── Check 5: a boolean-typed workflow_dispatch/workflow_call input compared to a
+    # quoted string (t/4949, Quality p/432#105): `inputs.push == 'true'` where `push` is
+    # declared `type: boolean` is ALWAYS false under GHA's loose comparison -- the boolean
+    # coerces to a NUMBER (true->1), the quoted string is non-numeric (-> NaN), and `1 ==
+    # NaN` never holds. `container.yml`'s smoke-published job used exactly this shape and
+    # silently skipped on every dispatched build since the day the input was added (the
+    # same silent-skip class as gate-signal rule 2). `inputs.X == true` (unquoted boolean
+    # literal) and `format('{0}', inputs.X) == 'true'` (explicit string coercion) are both
+    # fine and NOT flagged -- this only catches a boolean compared directly to a QUOTED
+    # string literal.
+    errs.extend(_check_boolean_input_compare(path, content))
+
     return errs
 
 
@@ -700,6 +712,69 @@ def check_alert_label(path, content):
             f'recording why this alert is covered another way.'
         )
     return findings
+
+
+# ── Boolean input vs. quoted-string compare (t/4949, Quality p/432#105) ────────
+BOOLEAN_INPUT_COMPARE_RE = re.compile(r'inputs\.(\w+)\s*(?:==|!=)\s*[\'"]')
+
+
+def _find_declared_inputs(lines, trigger_key):
+    """Returns {input_name: is_boolean} for `on.<trigger_key>.inputs.*`, else {} if that
+    trigger isn't declared. `trigger_key` is 'workflow_dispatch' or 'workflow_call'."""
+    on_idx = _find_key(lines, 'on', 0)
+    if on_idx == -1:
+        return {}
+    on_end = _block_end(lines, on_idx, 0)
+    trig_idx = _find_key(lines, trigger_key, 2, on_idx + 1, on_end)
+    if trig_idx == -1:
+        return {}
+    trig_end = _block_end(lines, trig_idx, 2)
+    inputs_idx = _find_key(lines, 'inputs', 4, trig_idx + 1, trig_end)
+    if inputs_idx == -1:
+        return {}
+    inputs_end = _block_end(lines, inputs_idx, 4)
+    result = {}
+    i = inputs_idx + 1
+    while i < inputs_end:
+        m = re.match(r'^ {6}(\w[\w-]*):\s*(#.*)?$', lines[i])
+        if m:
+            name = m.group(1)
+            name_end = _block_end(lines, i, 6)
+            type_idx = _find_key(lines, 'type', 8, i + 1, name_end)
+            is_bool = False
+            if type_idx != -1:
+                val = _strip_comment(lines[type_idx].split(':', 1)[1]).strip().strip('\'"')
+                is_bool = (val == 'boolean')
+            result[name] = is_bool
+            i = name_end
+        else:
+            i += 1
+    return result
+
+
+def _check_boolean_input_compare(path, content):
+    """Check 5: `inputs.NAME == '...'`/`!= '...'` where NAME is a `type: boolean`
+    workflow_dispatch/workflow_call input. Always false under GHA's loose comparison
+    coercion (bool -> number, quoted string -> NaN on a non-numeric literal)."""
+    lines = content.splitlines()
+    boolean_inputs = set()
+    for trigger in ('workflow_dispatch', 'workflow_call'):
+        declared = _find_declared_inputs(lines, trigger)
+        boolean_inputs |= {name for name, is_bool in declared.items() if is_bool}
+    if not boolean_inputs:
+        return []
+    errs = []
+    for i, line in enumerate(lines, 1):
+        for m in BOOLEAN_INPUT_COMPARE_RE.finditer(_strip_comment(line)):
+            name = m.group(1)
+            if name in boolean_inputs:
+                errs.append(
+                    f'{path}:{i}: boolean input `inputs.{name}` compared to a quoted string literal -- '
+                    f'always false under GHA\'s loose comparison (bool -> number, non-numeric string -> '
+                    f'NaN). Use `inputs.{name} == true` (unquoted) or `format(\'{{0}}\', inputs.{name}) == '
+                    f'\'true\'` (t/4949).'
+                )
+    return errs
 
 
 # ── Job timeouts (TL p/331#2639) ───────────────────────────────────────────────
@@ -1446,6 +1521,62 @@ jobs:
         failures.append('check_job_timeouts flagged a file with no jobs: block')
     else:
         print('  PASS: check_job_timeouts is silent on a file with no jobs: block')
+
+    # ── t/4949: boolean workflow_dispatch/workflow_call input compared to a quoted string ──
+    fixture_bool_bad = """\
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push image'
+        type: boolean
+      sha:
+        type: string
+jobs:
+  smoke-published:
+    if: inputs.push == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+"""
+    _f = _check_boolean_input_compare('fixture_bool_bad', fixture_bool_bad)
+    if not any('inputs.push' in e and 'boolean' in e for e in _f):
+        failures.append(f'_check_boolean_input_compare MISSED a boolean input (push) compared to a quoted string: {_f!r}')
+    else:
+        print("  PASS: _check_boolean_input_compare flags `inputs.push == 'true'` where push is type: boolean")
+
+    # Negative control: a `choice`/`string` input compared to a quoted string is correct
+    # (deploy-azure.yml:517's real shape) and must NOT be flagged.
+    fixture_bool_choice_ok = fixture_bool_bad.replace(
+        '      sha:\n        type: string\n',
+        '      sha:\n        type: string\n      environment:\n        type: choice\n',
+    ).replace("if: inputs.push == 'true'", "if: inputs.environment == 'staging'")
+    if _check_boolean_input_compare('fixture_bool_choice_ok', fixture_bool_choice_ok):
+        failures.append('_check_boolean_input_compare FALSE-FLAGGED a choice/string input compared to a quoted string')
+    else:
+        print('  PASS: _check_boolean_input_compare is silent on a choice/string input (deploy-azure.yml:517 shape)')
+
+    # Negative control: the two correct fixed forms must NOT be flagged.
+    fixture_bool_fixed_unquoted = fixture_bool_bad.replace("if: inputs.push == 'true'", 'if: inputs.push == true')
+    if _check_boolean_input_compare('fixture_bool_fixed_unquoted', fixture_bool_fixed_unquoted):
+        failures.append('_check_boolean_input_compare FALSE-FLAGGED the correct unquoted `inputs.push == true` form')
+    else:
+        print('  PASS: _check_boolean_input_compare is silent on the correct `inputs.push == true` (unquoted) form')
+
+    fixture_bool_fixed_format = fixture_bool_bad.replace(
+        "if: inputs.push == 'true'", "if: format('{0}', inputs.push) == 'true'")
+    if _check_boolean_input_compare('fixture_bool_fixed_format', fixture_bool_fixed_format):
+        failures.append("_check_boolean_input_compare FALSE-FLAGGED the correct format('{0}', inputs.push) == 'true' form")
+    else:
+        print("  PASS: _check_boolean_input_compare is silent on the correct format('{0}', inputs.X) == 'true' form")
+
+    # Negative control: no workflow_dispatch/workflow_call inputs at all.
+    if _check_boolean_input_compare('fixture_bool_no_inputs', "on: push\njobs:\n  x:\n    if: inputs.push == 'true'\n"):
+        failures.append('_check_boolean_input_compare FALSE-FLAGGED a file with no declared workflow_dispatch/workflow_call inputs')
+    else:
+        print('  PASS: _check_boolean_input_compare is silent when no workflow_dispatch/workflow_call inputs are declared')
 
     if failures:
         for f in failures:

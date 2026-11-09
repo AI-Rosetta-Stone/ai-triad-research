@@ -530,9 +530,15 @@ jobs:
     # Only runs when the image was actually pushed to GHCR.
     # A no-push dispatch (push=false) skips this job; the workflow still
     # succeeds so deploy-staging.yml is not spuriously blocked.
+    # t/4949 (Quality, p/432#103): `inputs.push` is `type: boolean`. Comparing it to the
+    # STRING 'true' inside an expression triggers GHA's loose comparison coercion -- true
+    # coerces to the NUMBER 1, 'true' is non-numeric so coerces to NaN, and `1 == NaN` is
+    # always false. This job skipped on EVERY dispatched build, even push=true, since the day
+    # container.yml's workflow_dispatch form was added -- a dormant check. `format()` forces
+    # the same string coercion push_mode's own step already relies on (see its comment there).
     if: |
       needs.build-and-push.result == 'success' &&
-      (github.event_name == 'push' || inputs.push == 'true')
+      (github.event_name == 'push' || format('{0}', inputs.push) == 'true')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
