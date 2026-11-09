@@ -1,0 +1,9 @@
+# Constraints for reproducible Python installations (t/4884).
+# Used by: Dockerfile (both pip installs, via -c). dev-bootstrap.sh runs no pip.
+
+# Pin torch to the CPU build. Prevents a CUDA wheel being pulled in, which bloats
+# the image or mismatches the host. sentence-transformers depends on torch, so
+# the requirements install is constrained too: a conflicting torch requirement
+# fails the build loudly instead of silently swapping the wheel.
+# This is the only place the torch version is set.
+torch==2.15.0+cpu

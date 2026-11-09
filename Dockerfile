@@ -28,15 +28,17 @@ WORKDIR /workspaces/ai-triad-research
 # Mount point for the pnpm-store volume
 RUN mkdir -p /pnpm/store && chown node:node /pnpm/store
 
-# Do this first with CPU-only torch, so that layer comes first
-# Note that this doesn't read the version from requirements.txt, so a change
-# to the torch version needs to be carried over here
+# Do this first with CPU-only torch, so that layer comes first.
+# The torch version comes only from scripts/pip-constraints.txt (t/4884); the
+# requirements install below uses the same constraints, so a dependency that
+# wants a different torch fails the build instead of pulling a CUDA wheel.
+COPY scripts/pip-constraints.txt /tmp/pip-constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
+      pip install --index-url https://download.pytorch.org/whl/cpu -c /tmp/pip-constraints.txt torch
 
 # Rebuild only when requirements.txt changes
 COPY scripts/requirements.txt /tmp/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install -r /tmp/requirements.txt
+      pip install -c /tmp/pip-constraints.txt -r /tmp/requirements.txt
 
 
