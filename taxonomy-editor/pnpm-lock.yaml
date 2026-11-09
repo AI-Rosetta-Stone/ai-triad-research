@@ -34,6 +34,7 @@ overrides:
   minimatch@>=7.0.0 <11.0.1: '>=11.0.1 <12'
   glob@>=9.0.0 <14.0.2: '>=14.0.2 <15'
   '@azure/monitor-opentelemetry': '>=1.21.0 <1.22'
+  node-abi: '>=4.35.0 <5'
 
 importers:
 
@@ -4254,8 +4255,8 @@ packages:
     resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
     engines: {node: '>=18'}
 
-  node-abi@4.33.0:
-    resolution: {integrity: sha512-vLBWCKb+7LWsX+TbfzWOkw0W81m377tyx3hOweBTjO43CXZnRGS1/JPWs20fr0PgZyDXk6ROYrylsEycK8raDA==}
+  node-abi@4.40.0:
+    resolution: {integrity: sha512-GuvqvtrOk+AC27RidBxBsMzVNkwNl7PjHgc4NXbmdvSVLgIUjpaqcG1FjNRYnt2Yn9Ytq+Ln37XsBaglUcte/w==}
     engines: {node: '>=22.12.0'}
 
   node-addon-api@7.1.1:
@@ -6939,7 +6940,7 @@ snapshots:
     dependencies:
       '@malept/cross-spawn-promise': 2.0.0
       debug: 4.4.3(supports-color@10.2.2)
-      node-abi: 4.33.0
+      node-abi: 4.40.0
       node-api-version: 0.2.1
       node-gyp: 12.4.0
       read-binary-file-arch: 1.0.6(supports-color@10.2.2)
@@ -10629,7 +10630,7 @@ snapshots:
     dependencies:
       content-type: 2.1.0
 
-  node-abi@4.33.0:
+  node-abi@4.40.0:
     dependencies:
       semver: 7.8.6
 
