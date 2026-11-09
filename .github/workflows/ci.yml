@@ -352,6 +352,7 @@ jobs:
             bicep-resources:
               - 'deploy/azure/main.bicep'
               - 'operations/devops/Test-BicepAcaResourcePairs.ps1'
+              - 'operations/devops/azure/Test-BicepExpressionLength.ps1'
               - '.github/workflows/ci.yml'
             # 'env-bicep-wiring' gates env-bicep-wiring (t/4506, Class 5 prevention).
             # Triggers on a server-code change (new process.env read), main.bicep
@@ -2759,6 +2760,13 @@ jobs:
       - name: Validate ACA cpu:memory pairs in main.bicep (t/3212)
         shell: pwsh
         run: ./operations/devops/Test-BicepAcaResourcePairs.ps1
+
+      # t/4845: az bicep build accepts a template ARM then rejects at deploy time for an
+      # expression over 81,920 chars (run 41463847843). The early-warning threshold lives only
+      # in the script's default, so CI and its tests can't drift apart.
+      - name: ARM expression length below the early-warning threshold (t/4845)
+        shell: pwsh
+        run: ./operations/devops/azure/Test-BicepExpressionLength.ps1
 
   # ── citation-link-ci-fixture: leg-c both-arms proof against a committed fixture ──
   # (t/4443, t/4147 SO C5a). The data repo's citation-link-integrity.yml checks out this
