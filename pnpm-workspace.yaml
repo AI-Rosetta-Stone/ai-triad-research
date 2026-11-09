@@ -94,6 +94,10 @@ overrides:
   # closing #410/#411/#415/#416 (GHSA-qqmp-wf37-98f9). Arrives via azurite then applicationinsights
   # (which asks ^1.19.0, so this stays inside its range).
   "@azure/monitor-opentelemetry": ">=1.21.0 <1.22"
+  # node-abi is not a security bump (t/40, t/42). @electron/rebuild 4.2.1 (latest) asks ^4.2.0, which left
+  # 4.33.0, whose ABI registry predates Electron 45, so `npm run pack` failed at native rebuild with
+  # "Could not detect abi for version 45.2.2". 4.35.0 is the first release that knows Electron 45.
+  node-abi: ">=4.35.0 <5"
 
 allowBuilds:
   '@google/genai': true
