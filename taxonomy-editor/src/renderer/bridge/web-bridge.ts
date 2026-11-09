@@ -431,11 +431,13 @@ async function put<T = unknown>(path: string, body?: unknown, opts?: FetchOption
   return res.status === 204 ? (undefined as T) : res.json(); // 204 No Content has no body — res.json() would throw (t/2980)
 }
 
-/** `body` is optional (t/4898): most DELETEs carry none, but an admin removal takes an optional
- *  `reason` — previously worked around with a bare `fetch()` in useCommunityStore (Network
- *  Resilience rule violation) since this helper had no way to send one. */
-async function del<T = unknown>(path: string, body?: unknown, opts?: FetchOptions): Promise<T> {
-  const res = await mutationRequest('DELETE', path, body, opts);
+/** `body` folded into `opts` (Quality, t/4898 should-fix p/356#168) rather than its own
+ *  positional param — a bare `del(path, { timeoutMs })` would otherwise silently send the
+ *  options object as the request body. Most DELETEs carry no body; an admin removal takes an
+ *  optional `reason` — previously worked around with a bare `fetch()` in useCommunityStore
+ *  (Network Resilience rule violation) since this helper had no way to send one. */
+async function del<T = unknown>(path: string, opts?: FetchOptions & { body?: unknown }): Promise<T> {
+  const res = await mutationRequest('DELETE', path, opts?.body, opts);
   await assertMutationOk('DELETE', path, res, 'Delete data on server');
   return res.status === 204 ? (undefined as T) : res.json(); // 204 No Content has no body (standard for DELETE) — res.json() would throw (t/2980)
 }
@@ -1483,7 +1485,7 @@ const rawApi: AppAPI = {
   // the Network Resilience rule's reason this needed its own workaround (`del` had no body
   // support) is gone now that `del` takes one.
   adminRemoveCommunityItem: (type, id, reason) =>
-    del<{ ok: boolean }>(`/api/community/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, { reason }).then(() => {}),
+    del<{ ok: boolean }>(`/api/community/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, { body: { reason } }).then(() => {}),
 
   // Brief-timeout browser-local subscriptions (t/2218). Electron path goes via IPC in preload.
   onBriefTimeout: (cb) => { briefTimeoutCbs.add(cb); return () => briefTimeoutCbs.delete(cb); },

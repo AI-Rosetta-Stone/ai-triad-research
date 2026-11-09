@@ -109,3 +109,44 @@ describe('web-bridge community admin REST calls', () => {
     expect(resilientFetch.mock.calls[0][0]).toBe('/api/community/inquiries/a%2Fb');
   });
 });
+
+// t/4898 should-fix (Quality, p/356#168): `del(path, body?, opts?)` was a trap — a caller
+// passing options alone, e.g. `del(path, { timeoutMs })`, would silently send that object as
+// the request body. `body` now lives inside `opts`, like every other option.
+describe('web-bridge bridgeDel — body folded into opts (t/4898 should-fix)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    resilientFetch.mockReset();
+  });
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+      clone() { return jsonResponse(body, status); },
+    } as unknown as Response;
+  }
+
+  it('passing opts with no body sends no request body at all (the trap this fix closes)', async () => {
+    resilientFetch.mockResolvedValue(jsonResponse({ ok: true }));
+    const { bridgeDel } = await import('../web-bridge');
+
+    await bridgeDel('/api/some/resource', { timeoutMs: 5000 });
+
+    const [, init] = resilientFetch.mock.calls[0];
+    expect(init.body).toBeUndefined();
+  });
+
+  it('passing opts.body sends it as the JSON request body', async () => {
+    resilientFetch.mockResolvedValue(jsonResponse({ ok: true }));
+    const { bridgeDel } = await import('../web-bridge');
+
+    await bridgeDel('/api/some/resource', { body: { reason: 'spam' }, timeoutMs: 5000 });
+
+    const [, init] = resilientFetch.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ reason: 'spam' });
+  });
+});
