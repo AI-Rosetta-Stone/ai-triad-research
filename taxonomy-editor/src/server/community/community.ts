@@ -1213,6 +1213,31 @@ async function casRenameWrite(
   return { ok: false, lastErr: new Error(`CAS retries exhausted after ${RENAME_CAS_MAX_ATTEMPTS} attempts`) };
 }
 
+/**
+ * t/4894 follow-up (TL t/4894#4): after a successful admin rename of a shared community
+ * Op-Ed, refresh its EXISTING public share in place, using the same projection as
+ * publishing (`writePublicCommunityOpEd`) — so the public copy doesn't keep showing the
+ * old topic at the same link. Never mints a share for an item that wasn't already shared
+ * (checks the registry first, same as mintAndProjectCommunityOpEd, but without its
+ * mint-on-absence branch). Best-effort: a refresh failure is WARN-logged and does not
+ * fail the rename — the admin's rename to the published item already succeeded.
+ */
+async function refreshCommunityOpedShareIfShared(id: string): Promise<void> {
+  try {
+    const existing = await getCommunityOpedShareEntry(id);
+    if (!existing) return; // never shared — never create one here
+    const lookup = await getCommunityOpEd(id);
+    if (!lookup.found) return; // can't re-read the just-renamed item; best-effort, no throw
+    await writePublicCommunityOpEd(lookup.item as unknown as CommunityOpEdItem, existing.shareId);
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'community', level: 'warn',
+      message: `Failed to refresh the public share for renamed community op-ed ${id} — the public copy may show the old topic until the next refresh`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+}
+
 export async function renameCommunityItem(
   type: CommunityType,
   id: string,
@@ -1244,6 +1269,7 @@ export async function renameCommunityItem(
   if (result.ok) {
     await invalidateListingIndex(backend, dir);
     log.server.info({ id, type, by }, 'Community item renamed');
+    if (type === 'opeds') await refreshCommunityOpedShareIfShared(id); // t/4894 follow-up
     return;
   }
 

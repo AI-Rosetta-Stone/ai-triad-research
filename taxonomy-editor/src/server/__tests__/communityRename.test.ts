@@ -225,3 +225,60 @@ describe('community item rename (t/4894)', () => {
     expect(JSON.parse(mem.files.get(filePath)!).title).not.toBe('Our Rename');
   });
 });
+
+describe('renaming a community Op-Ed refreshes its existing public share (t/4894 follow-up, t/4894#4)', () => {
+  // This describe is a sibling of the first one above, not nested inside it, so it does NOT
+  // inherit that block's beforeEach — a fresh backend per test needs its own reset here.
+  beforeEach(() => {
+    mem = new CasMemBackend();
+    fileIO.setBackend(mem);
+  });
+
+  const registryPath = () => mem.normAbs(resolveDataPath('community/oped-shares.json'));
+  const publicPath = (shareId: string) => mem.normAbs(path.join(resolveDataPath('public/opeds'), `${shareId}.json`));
+  const minimalOpedItem = (topic: string) => ({
+    topic,
+    opeds: [{ pov: 'acc', status: 'complete', headline: 'H', subtitle: 'S', body: 'B', wordCount: 1, grounding: [] }],
+  });
+
+  it('refreshes the public copy in place, at the same shareId, after a rename', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o1.json'));
+    await mem.writeFile(itemPath, JSON.stringify(minimalOpedItem('Old Topic')));
+    mem.files.set(registryPath(), JSON.stringify({ o1: { shareId: 'share-abc', submittedBy: 'alice' } }));
+    mem.files.set(publicPath('share-abc'), JSON.stringify({ shareId: 'share-abc', topic: 'Old Topic' }));
+
+    await rename('opeds', 'o1', 'New Topic');
+
+    expect(JSON.parse(mem.files.get(itemPath)!).topic).toBe('New Topic'); // the rename itself
+    const refreshed = JSON.parse(mem.files.get(publicPath('share-abc'))!);
+    expect(refreshed.topic).toBe('New Topic'); // the public copy, same link
+    expect(refreshed.shareId).toBe('share-abc'); // same shareId — never a new one
+    expect(JSON.parse(mem.files.get(registryPath())!)).toEqual({ o1: { shareId: 'share-abc', submittedBy: 'alice' } }); // unchanged
+  });
+
+  it('never creates a share for an item that was not already shared', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o2.json'));
+    await mem.writeFile(itemPath, JSON.stringify(minimalOpedItem('Old Topic')));
+    // No registry entry — never shared.
+
+    await rename('opeds', 'o2', 'New Topic');
+
+    expect(mem.files.has(registryPath())).toBe(false); // still no registry entry
+    expect([...mem.files.keys()].some(k => k.includes('/public/opeds/'))).toBe(false); // no public file minted
+  });
+
+  it('a refresh failure is a WARN, not a thrown error — the rename itself already succeeded', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o3.json'));
+    await mem.writeFile(itemPath, JSON.stringify(minimalOpedItem('Old Topic')));
+    mem.files.set(registryPath(), JSON.stringify({ o3: { shareId: 'share-xyz', submittedBy: 'bob' } }));
+
+    const originalReadFile = mem.readFile.bind(mem);
+    mem.readFile = (async (p: string) => {
+      if (mem.normAbs(p) === registryPath()) throw new Error('registry read boom');
+      return originalReadFile(p);
+    }) as typeof mem.readFile;
+
+    await expect(rename('opeds', 'o3', 'New Topic')).resolves.toBeUndefined(); // does not throw
+    expect(JSON.parse(mem.files.get(itemPath)!).topic).toBe('New Topic'); // the rename still landed
+  });
+});
