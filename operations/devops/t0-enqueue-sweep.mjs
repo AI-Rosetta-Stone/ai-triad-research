@@ -34,9 +34,19 @@ import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
+import { isUserFacing } from './design-review-scope.mjs';
+import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 
 export const IDLE_MINUTES = 15;
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
+// Same shared reviewer App account every other review-reading guard uses (ci.yml,
+// t1-approval-guard.yml, tier-check.yml use REST and see 'ai-triad-reviewer-jpsnover[bot]') --
+// every role reviews through this one GitHub account (t/4952 gap 2). This sweep reads reviews
+// and comments through GraphQL, not REST, and GraphQL's `author.login` omits the `[bot]` suffix
+// entirely (confirmed live: a REST login of 'ai-triad-reviewer-jpsnover[bot]' comes back from
+// GraphQL as plain 'ai-triad-reviewer-jpsnover') -- using the REST-style constant here would
+// silently match nothing and disable both new skips with no error.
+export const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover';
 export const BLOCKING_LABELS = ['consult-hold', 'joint-gv', 'no-auto-enqueue'];
 
 /** PURE. True when the first non-empty line of a PR body declares Tier: T0 (AGENTS.md format). */
@@ -96,7 +106,33 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         '(push a new head, or enqueue it by hand, to release it)';
     }
     else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
+    // t/4952(a): the Design gate and an active changes-request both read role-tagged review/
+    // comment BODIES (role-review-verdicts.mjs), never GitHub's review `state` or
+    // `reviewDecision` -- gap 2 (#4686: Design's CHANGES_REQUESTED and Quality's APPROVED, same
+    // reviewer-App login, same head, GitHub kept only the latest-per-user and silently dropped
+    // Design's block). Fails closed on a fetch problem, per the ticket's ask.
+    else if (pr.reviewDataError) reason = 'WARN: could not fetch files/reviews/comments (or the files list was truncated) -- failing closed';
     else {
+      const verdicts = latestRoleVerdicts({
+        reviews: pr.reviews, comments: pr.comments, reviewerAppLogin: REVIEWER_APP_LOGIN,
+        headSha: pr.headRefOid, lastPushAt: headPushedAt(pr.contexts),
+      });
+      const changesRequestedBy = [...verdicts.entries()].find(([, v]) => v.kind === 'changes_requested');
+      const designVerdict = verdicts.get('Design');
+      const designPasses = designVerdict?.kind === 'approved' || designVerdict?.kind === 'exempt';
+      if (changesRequestedBy) {
+        const [role, v] = changesRequestedBy;
+        // Quality, p/780#46: a reviewer-App body that says "changes requested" but doesn't match
+        // the strict grammar still blocks (role-review-verdicts.mjs's fail-closed backstop) --
+        // flagged with a WARN here so a human notices the unrecognized shape, instead of it
+        // quietly looking like an ordinary, well-formed block.
+        reason = v.unparsed
+          ? `WARN: changes requested by ${role} (unparsed reviewer-App body -- check its exact wording against the grammar)`
+          : `changes requested by ${role}`;
+      }
+      else if (isUserFacing(pr.files) && !designPasses) reason = 'awaiting Design gate';
+    }
+    if (!reason) {
       for (const name of REQUIRED_CONTEXTS) {
         const v = checkVerdict(pr.contexts, name);
         if (v !== 'success') { reason = `${name} is ${v}`; break; }
@@ -134,6 +170,24 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 }
 
+/**
+ * PURE (should-fix, t/4952#5). True when the raw GraphQL `files`/`reviews`/`comments`
+ * sub-objects for one PR node are missing or truncated. `files` pages forward (first:100):
+ * truncation there (`hasNextPage`) could hide the one relevant renderer file past page 1,
+ * silently misreporting a user-facing PR as not user-facing. `reviews`/`comments` page
+ * BACKWARD from the end (last:50): truncation there (`hasPreviousPage`) means 50+ later,
+ * unrelated items could have pushed a role's still-active `Changes requested` out of the kept
+ * window -- a PR with a genuine unaddressed block would then look like it has no verdict at all
+ * and get enqueued. Either direction fails closed (skip with a WARN), never silently proceeds.
+ */
+export function hasReviewDataError({ files, reviews, comments }) {
+  if (files == null || reviews == null || comments == null) return true;
+  if (files.pageInfo?.hasNextPage === true) return true;
+  if (reviews.pageInfo?.hasPreviousPage === true) return true;
+  if (comments.pageInfo?.hasPreviousPage === true) return true;
+  return false;
+}
+
 // A full-suite PR has more than 100 contexts; allContextsFor reads past the first page (#4475).
 const CONTEXT_FIELDS = '... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}';
 
@@ -147,7 +201,10 @@ function listOpenPRs(repo) {
         __typename ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}}
         ... on AddedToMergeQueueEvent{createdAt actor{login}}}}
       commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
-        ${CONTEXT_FIELDS}}}}}}}}}}}`;
+        ${CONTEXT_FIELDS}}}}}}}
+      files(first:100){pageInfo{hasNextPage} nodes{path}}
+      reviews(last:50){pageInfo{hasPreviousPage} nodes{body author{login} commit{oid} submittedAt}}
+      comments(last:50){pageInfo{hasPreviousPage} nodes{body author{login} createdAt lastEditedAt}}}}}}`;
   const prs = [];
   let cursor = null;
   for (let page = 0; page < 10; page++) {
@@ -155,12 +212,21 @@ function listOpenPRs(repo) {
     if (cursor) args.push('-f', `cursor=${cursor}`);
     const r = JSON.parse(gh(args)).data.search;
     for (const n of r.nodes) {
+      const reviewDataError = hasReviewDataError(n);
       prs.push({
         number: n.number, body: n.body, headRefOid: n.headRefOid, baseRefName: n.baseRefName,
         isDraft: n.isDraft, isInMergeQueue: n.isInMergeQueue, mergeStateStatus: n.mergeStateStatus,
         isCrossRepository: n.isCrossRepository,
         author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
         autoMergeRequest: n.autoMergeRequest,
+        reviewDataError,
+        files: (n.files?.nodes ?? []).map((f) => f.path),
+        reviews: (n.reviews?.nodes ?? []).map((rv) => ({
+          body: rv.body, login: rv.author?.login ?? null, commitId: rv.commit?.oid ?? null, submittedAt: rv.submittedAt,
+        })),
+        comments: (n.comments?.nodes ?? []).map((c) => ({
+          body: c.body, login: c.author?.login ?? null, createdAt: c.createdAt, updatedAt: c.lastEditedAt ?? null,
+        })),
         queueEvents: (n.timelineItems?.nodes ?? []).map((e) => ({
           type: e.__typename, createdAt: e.createdAt, reason: e.reason ?? null, actor: e.actor?.login ?? null,
         })),
