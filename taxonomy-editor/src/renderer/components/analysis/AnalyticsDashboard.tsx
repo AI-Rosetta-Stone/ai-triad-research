@@ -41,6 +41,23 @@ interface RawEvent {
 }
 
 type DatePreset = '1d' | '7d' | '30d' | '90d';
+
+/**
+ * Client half of t/4960/t/4962's agreed exclusion contract (t/4961). Query param values are
+ * confirmed by ServerAPI (t/4962#4): 'true'/'1' = true, 'false'/'0'/absent = false (absent is
+ * the default), any other value is a 400 — so this sends 'true' when a flag is on and omits
+ * the param entirely when off.
+ *
+ * t/4960/t/4962 haven't landed yet, so the toggles that set these render `disabled` with an
+ * explanatory caption (Design, p/708#15) — EXCLUSION_TOGGLES_ENABLED is the single flag to
+ * flip once they do; no other code here changes.
+ */
+interface AnalyticsExclusionOptions {
+  includeInternal?: boolean;
+  includeSystem?: boolean;
+  includeListed?: boolean;
+}
+const EXCLUSION_TOGGLES_ENABLED = false;
 type SortCol = 'user' | 'lastActive' | 'sessions' | 'events' | 'topCategory';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -72,8 +89,12 @@ function previousRange(preset: DatePreset): { from: string; to: string } {
 }
 
 /** Fetch one analytics window via the resilient bridge helper (timeout/retry/429 handling). */
-function fetchQuery(from: string, to: string): Promise<QueryResult> {
-  return bridgeGet<QueryResult>(`/api/analytics/query?from=${from}&to=${to}`);
+function fetchQuery(from: string, to: string, opts?: AnalyticsExclusionOptions): Promise<QueryResult> {
+  let url = `/api/analytics/query?from=${from}&to=${to}`;
+  if (opts?.includeInternal) url += '&includeInternal=true';
+  if (opts?.includeSystem) url += '&includeSystem=true';
+  if (opts?.includeListed) url += '&includeListed=true';
+  return bridgeGet<QueryResult>(url);
 }
 
 function relativeTime(iso: string): string {
@@ -425,6 +446,62 @@ function SessionExplorer({ from, to, selectedUser, categoryFilter }: {
   );
 }
 
+/** A single exclusion toggle button, same visual idiom as the preset/compare buttons. */
+function ExclusionToggle({ label, title, active, onClick }: {
+  label: string; title: string; active: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!EXCLUSION_TOGGLES_ENABLED}
+      title={title}
+      aria-pressed={active}
+      className="adash-exclusion-btn"
+      /* eslint-disable-next-line local/no-inline-style -- dynamic: active/disabled colors, same pattern as preset/compare buttons above */
+      style={{
+        background: active ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
+        color: active ? '#fff' : 'var(--text-muted)',
+        border: `1px solid ${active ? 'transparent' : 'var(--border-color)'}`,
+        opacity: EXCLUSION_TOGGLES_ENABLED ? 1 : 0.5,
+        cursor: EXCLUSION_TOGGLES_ENABLED ? 'pointer' : 'not-allowed',
+      }}>
+      {label}
+    </button>
+  );
+}
+
+/**
+ * t/4961: the dashboard's half of t/4960/t/4962's exclusion contract. Rendered disabled with
+ * an explanatory caption until the server side lands (Design, p/708#15) — "a disabled control
+ * with an honest caption... the 'why' is visible instead of silent." Flip EXCLUSION_TOGGLES_ENABLED
+ * and remove the caption once it does; nothing else here changes.
+ */
+function ExclusionToggles({ includeInternal, setIncludeInternal, includeSystem, setIncludeSystem, includeListed, setIncludeListed }: {
+  includeInternal: boolean; setIncludeInternal: (v: boolean) => void;
+  includeSystem: boolean; setIncludeSystem: (v: boolean) => void;
+  includeListed: boolean; setIncludeListed: (v: boolean) => void;
+}) {
+  return (
+    <div className="adash-exclusion-row">
+      <ExclusionToggle
+        label="Show internal/test traffic" title="Include events tagged internal (tester cookie)"
+        active={includeInternal} onClick={() => setIncludeInternal(!includeInternal)}
+      />
+      <ExclusionToggle
+        label="Show system checks" title="Include system identities such as smoke-probe"
+        active={includeSystem} onClick={() => setIncludeSystem(!includeSystem)}
+      />
+      <ExclusionToggle
+        label="Show flagged sessions" title="Include sessions on the known staging-leak/pi-test list"
+        active={includeListed} onClick={() => setIncludeListed(!includeListed)}
+      />
+      {!EXCLUSION_TOGGLES_ENABLED && (
+        <span className="adash-exclusion-caption">Requires t/4960/t/4962 — not yet available.</span>
+      )}
+    </div>
+  );
+}
+
 // ── Main Dashboard ──
 
 type AnalyticsTab = 'overview' | 'hierarchy';
@@ -477,8 +554,17 @@ export function AnalyticsDashboard() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [compare, setCompare] = useState(false);
   const [prevData, setPrevData] = useState<QueryResult['summary'] | null>(null);
+  // t/4961: wired to t/4960/t/4962's contract, but rendered disabled until that lands
+  // (EXCLUSION_TOGGLES_ENABLED) — see that constant's comment.
+  const [includeInternal, setIncludeInternal] = useState(false);
+  const [includeSystem, setIncludeSystem] = useState(false);
+  const [includeListed, setIncludeListed] = useState(false);
 
   const { from, to } = useMemo(() => dateRange(preset), [preset]);
+  const exclusionOpts = useMemo(
+    () => ({ includeInternal, includeSystem, includeListed }),
+    [includeInternal, includeSystem, includeListed],
+  );
 
   const handleSelectUser = useCallback((u: string) => setSelectedUser(prev => prev === u ? null : u), []);
   const handleFilter = useCallback((cat: string) => setCategoryFilter(prev => prev === cat ? null : cat), []);
@@ -486,7 +572,7 @@ export function AnalyticsDashboard() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetchQuery(from, to)
+    fetchQuery(from, to, exclusionOpts)
       .then((d) => { warnUnparseableLastActive(d.users); setData(d); setLoading(false); })
       .catch(err => {
         getGlobalRecorder()?.record({
@@ -499,7 +585,7 @@ export function AnalyticsDashboard() {
         setError(String(err));
         setLoading(false);
       });
-  }, [from, to]);
+  }, [from, to, exclusionOpts]);
 
   // Period comparison: fetch the equal-length preceding window when enabled.
   useEffect(() => {
@@ -567,6 +653,12 @@ export function AnalyticsDashboard() {
           </button>
         </div>
       </div>
+
+      <ExclusionToggles
+        includeInternal={includeInternal} setIncludeInternal={setIncludeInternal}
+        includeSystem={includeSystem} setIncludeSystem={setIncludeSystem}
+        includeListed={includeListed} setIncludeListed={setIncludeListed}
+      />
 
       <div className="adash-tab-bar" role="tablist">
         <button role="tab" aria-selected={activeTab === 'overview'}

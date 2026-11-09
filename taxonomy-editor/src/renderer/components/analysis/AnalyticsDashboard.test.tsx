@@ -25,6 +25,7 @@ vi.mock('@bridge', () => ({
 
 // Bridge mock — current window (to === today) vs the preceding window.
 // Chosen so the four cards exercise: increase, decrease, zero-baseline, flat.
+const { bridgeGetMock } = vi.hoisted(() => ({ bridgeGetMock: vi.fn() }));
 // `usersOverride` lets individual tests populate the Active Users table without
 // disturbing the period-comparison fixtures above.
 const { usersOverrideRef } = vi.hoisted(() => ({ usersOverrideRef: { current: [] as unknown[] } }));
@@ -32,14 +33,13 @@ vi.mock('../../bridge/web-bridge', () => {
   const today = new Date().toISOString().slice(0, 10);
   const CURRENT = { activeUsers: 110, sessions: 42, totalEvents: 1000, avgSessionDurationMs: 60000 };
   const PREVIOUS = { activeUsers: 100, sessions: 50, totalEvents: 0, avgSessionDurationMs: 60000 };
-  return {
-    bridgeGet: vi.fn(async (url: string) => {
-      if (url.includes('&user=')) return { events: [] };
-      const params = new URLSearchParams(url.split('?')[1] ?? '');
-      const summary = params.get('to') === today ? CURRENT : PREVIOUS;
-      return { summary, daily: [], featureUsage: {}, users: usersOverrideRef.current };
-    }),
-  };
+  bridgeGetMock.mockImplementation(async (url: string) => {
+    if (url.includes('&user=')) return { events: [] };
+    const params = new URLSearchParams(url.split('?')[1] ?? '');
+    const summary = params.get('to') === today ? CURRENT : PREVIOUS;
+    return { summary, daily: [], featureUsage: {}, users: usersOverrideRef.current };
+  });
+  return { bridgeGet: bridgeGetMock };
 });
 
 const { AnalyticsDashboard } = await import('./AnalyticsDashboard');
@@ -105,10 +105,44 @@ describe('AnalyticsDashboard period comparison (t/889)', () => {
   });
 });
 
+describe('AnalyticsDashboard exclusion toggles (t/4961)', () => {
+  afterEach(() => { vi.restoreAllMocks(); bridgeGetMock.mockClear(); });
+
+  it('renders all three toggles disabled, with the pending-dependency caption', async () => {
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('110')).toBeInTheDocument());
+
+    const internal = screen.getByText('Show internal/test traffic');
+    const system = screen.getByText('Show system checks');
+    const listed = screen.getByText('Show flagged sessions');
+    expect(internal).toBeDisabled();
+    expect(system).toBeDisabled();
+    expect(listed).toBeDisabled();
+    expect(screen.getByText(/Requires t\/4960\/t\/4962/)).toBeInTheDocument();
+  });
+
+  it('clicking a disabled toggle does nothing, and the fetch URL never carries the exclusion params', async () => {
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('110')).toBeInTheDocument());
+
+    const internal = screen.getByText('Show internal/test traffic');
+    fireEvent.click(internal);
+    expect(internal).toHaveAttribute('aria-pressed', 'false');
+
+    for (const call of bridgeGetMock.mock.calls) {
+      const url = call[0] as string;
+      expect(url).not.toContain('includeInternal');
+      expect(url).not.toContain('includeSystem');
+      expect(url).not.toContain('includeListed');
+    }
+  });
+});
+
 describe('AnalyticsDashboard Active Users — unparseable lastActive (t/4961)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     recordMock.mockClear();
+    bridgeGetMock.mockClear();
     usersOverrideRef.current = [];
   });
 
