@@ -189,12 +189,14 @@ export function InquiryTab() {
     });
   }, [renameItem, flash]);
 
-  const handleAdminDelete = useCallback((row: InquiryCommunityLibRow, reason?: string) => {
-    removeItem('inquiries', row.id, reason).catch(err => {
+  // t/49 (TL p/10#15): record and rethrow. LibraryListPage awaits this for the per-row and bulk
+  // outcomes and shows the one user-facing message, so no flash here.
+  const handleAdminDelete = useCallback((row: InquiryCommunityLibRow, reason?: string) => (
+    removeItem('inquiries', row.id, reason).catch((err: unknown) => {
       recordError('inquiry-tab', 'Failed to admin-delete community inquiry', err);
-      flash(`Delete failed: ${mapErrorToUserMessage(err)}`);
-    });
-  }, [removeItem, flash]);
+      throw err;
+    })
+  ), [removeItem]);
 
   const handleRename = useCallback((jobId: string, title: string) => {
     renameHistoryItem(jobId, title).catch(err => {

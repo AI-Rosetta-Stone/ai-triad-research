@@ -519,12 +519,14 @@ export function OpEdTab() {
     });
   }, [renameItem, flash]);
 
-  const handleAdminDelete = useCallback((entry: OpEdCommunityEntry, reason?: string) => {
-    removeItem('opeds', entry.id, reason).catch(err => {
+  // t/49 (TL p/10#15): record and rethrow. LibraryListPage awaits this for the per-row and bulk
+  // outcomes and shows the one user-facing message, so no flash here.
+  const handleAdminDelete = useCallback((entry: OpEdCommunityEntry, reason?: string) => (
+    removeItem('opeds', entry.id, reason).catch((err: unknown) => {
       recordError('oped-tab', 'Failed to admin-delete community op-ed', err);
-      flash(`Delete failed: ${err}`);
-    });
-  }, [removeItem, flash]);
+      throw err;
+    })
+  ), [removeItem]);
 
   const handleBulkDelete = useCallback(() => {
     deleteSelected().catch(err => {
