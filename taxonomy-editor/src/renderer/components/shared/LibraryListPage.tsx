@@ -15,6 +15,7 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace } from '../../navigation/openInWindow';
 import { getLastVariant, setLastVariant } from '../../navigation/lastVariant';
 import { useResizableColumns, type ResizableSpec, type ResizeHandleProps } from './useResizableColumns';
+import { RemoveConfirmPopover } from '../community/CommunityLibrary'; // t/4898: admin delete confirm, reused
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -138,11 +139,18 @@ function TitleCell<TMy extends { id: string }, TCommunity extends { id: string }
     config.setRenamingId(row.id);
   }, [canRename, config, row.id]);
 
+  // t/4898: the same inline-input mechanism now also drives admin rename on a Community row —
+  // triggered externally via setRenamingId (the admin ✎ button in ActionsCellButtons), never via
+  // startRename/double-click above, which stays My-only per the t/4885 fix. Commit routes to
+  // whichever handler actually owns this row's variant.
   const commitRename = useCallback(() => {
     const v = renameDraft.trim();
-    if (v && v !== title && config.onRename) config.onRename(row.id, v);
+    if (v && v !== title) {
+      if (variant === 'my') config.onRename?.(row.id, v);
+      else config.adminRename?.(row as TCommunity, v);
+    }
     config.setRenamingId?.(null);
-  }, [renameDraft, title, config, row.id]);
+  }, [renameDraft, title, config, row, variant]);
 
   if (isRenaming) {
     return (
@@ -301,8 +309,67 @@ function OpenInWindowButton({ place, title }: { place: ItemPlace; title: string 
 //    it under the per-file complexity budget — adding the ⧉ button's branch pushed the
 //    combined function over threshold) ──
 
+// t/4898 (Design, t/4898#4/p/29#272): admin rename/delete on a Community row — ✎ reuses the
+// existing row-icon affordance/look (triggers TitleCell's inline rename via setRenamingId, same
+// as My-row edit mode); ✕ reuses CommunityLibrary's RemoveConfirmPopover rather than a bare
+// delete icon with no confirm. Both no-ops unless the page supplies the callback AND the viewer
+// is an admin.
+function AdminRowActions<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, variant, config,
+}: {
+  row: TMy | TCommunity;
+  variant: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+}) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  if (variant !== 'community') return null;
+  const canRename = !!config.adminRename && !!config.setRenamingId;
+  const canDelete = !!config.adminDelete;
+  if (!canRename && !canDelete) return null;
+  const title = config.getTitle(row, variant);
+
+  return (
+    <span className="lib-actions lib-admin-actions" onClick={e => e.stopPropagation()}>
+      {canRename && (
+        <button
+          type="button"
+          className="lib-row-icon-btn"
+          title={`Rename "${title}" (admin)`}
+          aria-label={`Rename "${title}" (admin)`}
+          onClick={() => config.setRenamingId?.(row.id)}
+        >
+          {ROW_ICON_GLYPH.rename}
+        </button>
+      )}
+      {canDelete && (
+        <>
+          <button
+            type="button"
+            className="lib-row-icon-btn"
+            title={`Remove "${title}" from Community (admin)`}
+            aria-label={`Remove "${title}" from Community (admin)`}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            &#x2715;
+          </button>
+          {confirmingDelete && (
+            <RemoveConfirmPopover
+              title={title}
+              onCancel={() => setConfirmingDelete(false)}
+              onConfirm={(reason) => {
+                setConfirmingDelete(false);
+                config.adminDelete?.(row as TCommunity, reason || undefined);
+              }}
+            />
+          )}
+        </>
+      )}
+    </span>
+  );
+}
+
 function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, variant, config, toast, menuOpen, setMenuOpen,
+  row, variant, config, toast, menuOpen, setMenuOpen, isAdmin,
 }: {
   row: TMy | TCommunity;
   variant: LibraryVariant;
@@ -310,6 +377,7 @@ function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id:
   toast: (msg: string) => void;
   menuOpen: boolean;
   setMenuOpen: (open: boolean) => void;
+  isAdmin: boolean;
 }) {
   const showCopy = variant === 'community' ? (config.showCopy ? config.showCopy(row as TCommunity) : true) : false;
   const place = openablePlace(config, row, variant);
@@ -337,6 +405,7 @@ function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id:
           Copy
         </button>
       )}
+      {isAdmin && <AdminRowActions row={row} variant={variant} config={config} />}
     </div>
   );
 }
@@ -344,13 +413,14 @@ function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id:
 // ── Actions cell (shared, non-negotiable per t/3703 ruling) ──
 
 function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, variant, config, toast, editModeActive,
+  row, variant, config, toast, editModeActive, isAdmin,
 }: {
   row: TMy | TCommunity;
   variant: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   toast: (msg: string) => void;
   editModeActive: boolean;
+  isAdmin: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -359,7 +429,7 @@ function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string
     return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
   }
 
-  return <ActionsCellButtons row={row} variant={variant} config={config} toast={toast} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />;
+  return <ActionsCellButtons row={row} variant={variant} config={config} toast={toast} menuOpen={menuOpen} setMenuOpen={setMenuOpen} isAdmin={isAdmin} />;
 }
 
 // ── Sortable header cell ──
@@ -563,7 +633,7 @@ function GridHeaderRow<TMy extends { id: string }, TCommunity extends { id: stri
 // ── Body row (extracted to keep the shell's complexity down) ──
 
 function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, listView, config, editModeActive, openRow, showToast,
+  row, listView, config, editModeActive, openRow, showToast, isAdmin,
 }: {
   row: TMy | TCommunity;
   listView: LibraryVariant;
@@ -571,6 +641,7 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
   editModeActive: boolean;
   openRow: (id: string) => void;
   showToast: (msg: string) => void;
+  isAdmin: boolean;
 }) {
   // t/4689: Ctrl/Cmd-click or middle-click opens the row in a new window/tab instead of
   // navigating in place — same gate (`openablePlace`) as the ⧉ button, so the two never
@@ -622,7 +693,7 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
         </div>
       ))}
       <div className="lib-cell lib-actions-cell" role="cell">
-        <ActionsCell row={row} variant={listView} config={config} toast={showToast} editModeActive={editModeActive} />
+        <ActionsCell row={row} variant={listView} config={config} toast={showToast} editModeActive={editModeActive} isAdmin={isAdmin} />
       </div>
     </div>
   );
@@ -1082,7 +1153,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
           <EmptyStateRow loading={loading} hasSortedRows={sortedRows.length > 0} hasRows={rows.length > 0} hasQuery={!!q} query={searchQuery} emptyLabel={emptyLabel} />
 
           {sortedRows.map(row => (
-            <BodyRow key={row.id} row={row} listView={listView} config={config} editModeActive={editModeActive} openRow={openRow} showToast={showToast} />
+            <BodyRow key={row.id} row={row} listView={listView} config={config} editModeActive={editModeActive} openRow={openRow} showToast={showToast} isAdmin={isAdmin} />
           ))}
         </div>
       </div>

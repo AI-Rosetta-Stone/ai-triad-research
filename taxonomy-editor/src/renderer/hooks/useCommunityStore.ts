@@ -48,6 +48,9 @@ export interface CommunityInquiry {
   camps: string[];
   verdict_count: number;
   community_metadata?: CommunityItem['community_metadata'];
+  /** User-assigned display name (t/4891), same field admin rename writes (t/4898). Absent:
+   *  display the question, same fallback as `cardTitle`/`inquiryDisplayTitle`. */
+  title?: string;
 }
 
 export interface Submission {
@@ -77,6 +80,9 @@ interface CommunityStore {
   submitItem: (type: 'chat' | 'debate' | 'oped' | 'inquiry', data: unknown, note?: string) => Promise<string>;
   copyItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', communityId: string) => Promise<string>;
   removeItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, reason?: string) => Promise<void>;
+  /** Admin rename (t/4898) — distinct from My-row rename (`InquiryTab`'s `onRename` etc.), which
+   *  renames the reader's OWN item and never touches this store. */
+  renameItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, title: string, reason?: string) => Promise<void>;
   approveSubmission: (id: string) => Promise<void>;
   rejectSubmission: (id: string) => Promise<void>;
 }
@@ -197,20 +203,32 @@ export const useCommunityStore = create<CommunityStore>((set) => ({
     const prev = useCommunityStore.getState()[listKey];
     set({ [listKey]: prev.filter(item => item.id !== id) });
     try {
-      if (isElectronMode()) {
-        await api.adminRemoveCommunityItem(type, id, reason);
-      } else {
-        // bridgeDel doesn't support request bodies; inline fetch for DELETE-with-reason
-        const res = await fetch(`/api/community/${type}/${encodeURIComponent(id)}`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason }),
-        });
-        if (!res.ok) throw new Error(`DELETE failed: HTTP ${res.status}`);
-      }
+      // t/4898 (Quality, t/4898#3/p/356#166): api.adminRemoveCommunityItem already dispatches
+      // to the right transport per platform (IPC on Electron, `del()` through web-bridge on
+      // web) — the isElectronMode()/bare-fetch branch this used to need was working around
+      // `del()` having no body support, not a real platform difference.
+      await api.adminRemoveCommunityItem(type, id, reason);
       api.trackEvent('community_admin_remove', 'community', { type, id });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'community-store', level: 'error', message: 'Failed to remove community item', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      set({ [listKey]: prev });
+      throw err;
+    }
+  },
+
+  renameItem: async (type, id, title, reason) => {
+    const listKey = type;
+    const prev = useCommunityStore.getState()[listKey];
+    // t/4898: mirrors the server's own per-type field mapping (communityReviewIO.ts /
+    // community.ts, t/4895/t/4894) — opeds store their display name as `topic`, every other
+    // type as `title`.
+    const field = type === 'opeds' ? 'topic' : 'title';
+    set({ [listKey]: prev.map(item => (item.id === id ? { ...item, [field]: title } : item)) });
+    try {
+      await api.renameCommunityItem(type, id, title, reason);
+      api.trackEvent('community_admin_rename', 'community', { type, id });
+    } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'community-store', level: 'error', message: 'Failed to rename community item', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ [listKey]: prev });
       throw err;
     }

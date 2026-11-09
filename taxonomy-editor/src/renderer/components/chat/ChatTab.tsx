@@ -626,7 +626,7 @@ export function ChatTab() {
   const [renameValue, setRenameValue] = useState('');
   const [listCollapsed, setListCollapsed] = useState(false);
   const [listView, setListView] = useState<'my' | 'community' | null>(null);
-  const { chats: communityChats, loading: communityLoading, fetchChats: fetchCommunityChats, copyItem } = useCommunityStore();
+  const { chats: communityChats, loading: communityLoading, fetchChats: fetchCommunityChats, copyItem, removeItem, renameItem } = useCommunityStore();
   // Used by the phone/split-view CommunityChatsList only — the table-mode Copy action goes
   // through LibraryListPage's shared actions column (handleCopyChat) instead.
   const [copyingId, setCopyingId] = useState<string | null>(null);
@@ -686,6 +686,19 @@ export function ChatTab() {
     setSelectedIds(new Set());
   }, []);
 
+  // t/4898 (Design t/4898#4): admin rename/delete on Community rows.
+  const handleAdminRenameChat = useCallback((cc: CommunityChat, title: string) => {
+    renameItem('chats', cc.id, title).catch((err: unknown) => {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-tab', level: 'error', message: 'Failed to admin-rename community chat', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    });
+  }, [renameItem]);
+
+  const handleAdminDeleteChat = useCallback((cc: CommunityChat, reason?: string) => {
+    removeItem('chats', cc.id, reason).catch((err: unknown) => {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-tab', level: 'error', message: 'Failed to admin-delete community chat', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    });
+  }, [removeItem]);
+
   const editModeActions = buildChatEditModeActions({
     sessions, selectedIds, setSelectedIds, setShowBulkDeleteConfirm, exitEditMode,
   });
@@ -699,6 +712,8 @@ export function ChatTab() {
     onExportCommunity: handleExportChat,
     onShare: handleShareChat,
     onCopy: handleCopyChat,
+    adminRename: handleAdminRenameChat,
+    adminDelete: handleAdminDeleteChat,
     editModeActive: editMode,
     onEditModeEnter: () => setEditMode(true),
     onEditModeExit: exitEditMode,
@@ -710,7 +725,7 @@ export function ChatTab() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     }),
-  }), [renameChat, renamingId, handleExportChat, handleShareChat, handleCopyChat, editMode, exitEditMode, editModeActions, selectedIds, sessions]);
+  }), [renameChat, renamingId, handleExportChat, handleShareChat, handleCopyChat, handleAdminRenameChat, handleAdminDeleteChat, editMode, exitEditMode, editModeActions, selectedIds, sessions]);
 
   useEffect(() => {
     void loadSessions();

@@ -198,6 +198,16 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
    * a row this doesn't apply to (there shouldn't be one, but the escape hatch costs nothing).
    */
   itemPlace?: (row: TMy | TCommunity, variant: LibraryVariant) => ItemPlace | null;
+  /** t/4898 (Design, t/4898#4/p/29#272): admin-only Community-row rename/delete, shown next to
+   *  Copy — gated on `useIsAdmin()` (LibraryListPage's own, same as the Edit-button-on-Community
+   *  gate) AND the page supplying these. Omit both to show no admin controls at all (e.g. a page
+   *  with no Community admin story yet). Distinct from `onRename`/`rowActions`, which are
+   *  My-only — these never touch a My row. Rename reuses the existing ✎ row-icon affordance;
+   *  delete reuses `RemoveConfirmPopover` (✕ + confirm + optional reason) rather than a bare
+   *  delete icon with no confirm. The page owns the actual API calls (both typically delegate to
+   *  useCommunityStore's renameItem/removeItem). */
+  adminRename?: (row: TCommunity, title: string) => void;
+  adminDelete?: (row: TCommunity, reason?: string) => void;
 }
 
 export interface LibraryListPageProps<TMy extends { id: string }, TCommunity extends { id: string }> {

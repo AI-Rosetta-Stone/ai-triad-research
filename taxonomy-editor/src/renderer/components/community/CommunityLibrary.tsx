@@ -23,10 +23,12 @@ const TAB_LABELS: Record<Tab, string> = { debates: 'Debates', chats: 'Chats', op
 export type CommunityItem = CommunityChat | CommunityDebate | OpEdCommunityEntry | CommunityInquiry;
 
 function cardTitle(item: CommunityItem): string {
-  // Op-eds title from `topic`, inquiries from `question`; the store warns on either being
-  // missing, so guard the UI too rather than render a blank card title (Design note, t/2891#2).
+  // Op-eds title from `topic`, inquiries from `question` unless renamed (t/4898: `title` now
+  // optional on CommunityInquiry, same precedence as lib's inquiryDisplayTitle — renamed title
+  // wins). The store warns on either being missing, so guard the UI too rather than render a
+  // blank card title (Design note, t/2891#2).
+  if ('question' in item) return item.title || item.question || 'Untitled question';
   if ('title' in item) return item.title;
-  if ('question' in item) return item.question || 'Untitled question';
   return item.topic || 'Untitled study';
 }
 
@@ -46,8 +48,12 @@ function formatDate(iso: string): string {
   }
 }
 
-function RemoveConfirmPopover({ item, onConfirm, onCancel }: {
-  item: CommunityItem;
+/** t/4898: exported so the per-tab Community lists (LibraryListPage) can reuse the same
+ *  confirm-with-optional-reason popover for admin delete, instead of shipping a bare delete
+ *  icon with no confirm (Design, t/4898#4, p/29#272). Takes a plain `title` rather than a
+ *  `CommunityItem` so it isn't coupled to this file's 4-type union. */
+export function RemoveConfirmPopover({ title, onConfirm, onCancel }: {
+  title: string;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
 }) {
@@ -72,7 +78,7 @@ function RemoveConfirmPopover({ item, onConfirm, onCancel }: {
     <div className="community-remove-popover" ref={ref}>
       <div className="community-remove-popover-title">Remove from Community Library?</div>
       <div className="community-remove-popover-detail">
-        <strong>{cardTitle(item)}</strong>
+        <strong>{title}</strong>
       </div>
       <textarea
         className="community-remove-reason"
@@ -139,7 +145,7 @@ export function CommunityCard({ item, isAdmin, onCopy, onRemove }: {
       </button>
       {showConfirm && (
         <RemoveConfirmPopover
-          item={item}
+          title={cardTitle(item)}
           onCancel={() => setShowConfirm(false)}
           onConfirm={(reason) => {
             setShowConfirm(false);

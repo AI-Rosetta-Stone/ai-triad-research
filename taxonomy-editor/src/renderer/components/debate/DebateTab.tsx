@@ -192,7 +192,7 @@ export function DebateTab() {
   // Which variant was last opened — <LibraryListPage> owns tab selection internally now, so this
   // is DebateTab's own record of "which detail to show on phone" (t/3705#7).
   const [lastOpenedVariant, setLastOpenedVariant] = useState<'my' | 'community'>('my');
-  const { debates: communityDebates, loading: communityLoading, fetchDebates: fetchCommunityDebates, copyItem } = useCommunityStore();
+  const { debates: communityDebates, loading: communityLoading, fetchDebates: fetchCommunityDebates, copyItem, removeItem, renameItem } = useCommunityStore();
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [selectedCommunityDebate, setSelectedCommunityDebate] = useState<CommunityDebate | null>(null);
   const auth = useAuthStatus();
@@ -526,6 +526,9 @@ export function DebateTab() {
     onExportCommunity: (row, fmt) => { void handleRowCommunityExport(row, fmt); },
     onShare: (row) => { void handleRowShare(row); },
     onCopy: (row) => { void handleCopyCommunity(row); },
+    // t/4898 (Design t/4898#4): admin rename/delete on Community rows.
+    adminRename: (cd, title) => { renameItem('debates', cd.id, title).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'error', message: 'Failed to admin-rename community debate', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); }); },
+    adminDelete: (cd, reason) => { removeItem('debates', cd.id, reason).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'error', message: 'Failed to admin-delete community debate', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); }); },
     showCopy: () => !auth?.anonymous,
     onBrief: (row) => rowBrief.openRowBrief({ id: row.id, title: debateSafeTitle(row), phase: row.phase ?? '' }),
     briefWebOnly: isElectronMode(),

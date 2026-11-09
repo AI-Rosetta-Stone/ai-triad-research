@@ -237,18 +237,22 @@ async function get<T = unknown>(path: string, opts?: FetchOptions): Promise<T> {
   return res.json();
 }
 
-async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptions, extraHeaders?: Record<string, string>): Promise<T> {
-  const cat = categorizeEndpoint(path, 'POST');
+/** t/4898 (Quality, t/4898#3/p/356#166): shared request core for the body-bearing mutation
+ *  verbs (`post`/`patch`, and `del` with a body) — one place for retry policy, timeout, and
+ *  cancellation/network-error mapping, so `patch` can't drift from `post`'s behavior over time. */
+async function mutationRequest(
+  method: 'POST' | 'PATCH' | 'DELETE', path: string, body: unknown, opts: FetchOptions | undefined, extraHeaders?: Record<string, string>,
+): Promise<Response> {
+  const cat = categorizeEndpoint(path, method);
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_MUTATION_TIMEOUT_MS;
-  let res: Response;
   try {
-    res = await fetchWithSessionRecovery(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    return await fetchWithSessionRecovery(path, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json', ...extraHeaders } : extraHeaders,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }, {
       timeoutMs,
-      maxRetries: opts?.maxRetries ?? defaultMaxRetries(cat, 'POST', opts?.idempotent),
+      maxRetries: opts?.maxRetries ?? defaultMaxRetries(cat, method, opts?.idempotent),
       critical: opts?.critical ?? (cat !== 'telemetry'),
       category: cat,
       signal: opts?.signal,
@@ -258,20 +262,53 @@ async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptio
     // error and not a timeout. Skip the scary system.error and propagate a distinguishable
     // tagged cancellation so pipeline catches bail quietly (no toast, no retry).
     if (opts?.signal?.aborted) {
-      throw makeCancellationError(`POST ${path} cancelled by caller`);
+      throw makeCancellationError(`${method} ${path} cancelled by caller`);
     }
     getGlobalRecorder()?.record({
       type: 'system.error',
       component: 'web-bridge',
       level: 'error',
-      message: `POST ${path} network error`,
+      message: `${method} ${path} network error`,
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throwTimeoutError('POST', path, timeoutMs);
+      throwTimeoutError(method, path, timeoutMs);
     }
     throw err;
   }
+}
+
+/** The generic "did it work" check shared by every body-bearing mutation verb: write-conflict
+ *  check, non-2xx → ActionableError, a login-page HTML body → a distinguishable auth error.
+ *  Throws on a problem, otherwise returns — callers parse the body themselves afterward, so
+ *  each verb keeps its own existing response-shape handling (post's unconditional `res.json()`,
+ *  put/del's 204-aware variant) exactly as it was before this was extracted. Verb-specific
+ *  interceptors (post's 429/400/422) run BEFORE this, since they need to inspect the response
+ *  before the generic !res.ok throw. */
+async function assertMutationOk(method: string, path: string, res: Response, goal: string): Promise<void> {
+  await throwIfWriteConflict(res, path);
+  if (!res.ok) {
+    const text = await res.text();
+    throwHttpError(res.status, new ActionableError({
+      goal,
+      problem: `${method} ${path} failed with HTTP ${res.status}: ${text}`,
+      location: `web-bridge.${method.toLowerCase()}`,
+      nextSteps: nextStepsForStatus(res.status, text),
+    }));
+  }
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('text/html')) {
+    throw new ActionableError({
+      goal,
+      problem: 'Server returned a login page instead of JSON data — authentication may be required',
+      location: `web-bridge.${method.toLowerCase()} ${path}`,
+      nextSteps: ['Sign in or navigate to /.auth/anonymous to start an anonymous session'],
+    });
+  }
+}
+
+async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptions, extraHeaders?: Record<string, string>): Promise<T> {
+  const res = await mutationRequest('POST', path, body, opts, extraHeaders);
   const budgetWarning = res.headers.get('X-Token-Budget-Warning');
   if (budgetWarning) {
     const milestone = parseInt(budgetWarning, 10);
@@ -328,25 +365,7 @@ async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptio
       }));
     }
   }
-  await throwIfWriteConflict(res, path);
-  if (!res.ok) {
-    const text = await res.text();
-    throwHttpError(res.status, new ActionableError({
-      goal: 'Send data to server',
-      problem: `POST ${path} failed with HTTP ${res.status}: ${text}`,
-      location: 'web-bridge.post',
-      nextSteps: nextStepsForStatus(res.status, text),
-    }));
-  }
-  const postCt = res.headers.get('content-type') || '';
-  if (postCt.includes('text/html')) {
-    throw new ActionableError({
-      goal: 'Send data to server',
-      problem: 'Server returned a login page instead of JSON data — authentication may be required',
-      location: `web-bridge.post ${path}`,
-      nextSteps: ['Sign in or navigate to /.auth/anonymous to start an anonymous session'],
-    });
-  }
+  await assertMutationOk('POST', path, res, 'Send data to server');
   return res.json();
 }
 
@@ -412,49 +431,22 @@ async function put<T = unknown>(path: string, body?: unknown, opts?: FetchOption
   return res.status === 204 ? (undefined as T) : res.json(); // 204 No Content has no body — res.json() would throw (t/2980)
 }
 
-async function del<T = unknown>(path: string, opts?: FetchOptions): Promise<T> {
-  const cat = categorizeEndpoint(path, 'DELETE');
-  const timeoutMs = opts?.timeoutMs ?? DEFAULT_MUTATION_TIMEOUT_MS;
-  let res: Response;
-  try {
-    res = await fetchWithSessionRecovery(path, { method: 'DELETE' }, {
-      timeoutMs,
-      maxRetries: opts?.maxRetries ?? defaultMaxRetries(cat, 'DELETE', opts?.idempotent),
-      critical: opts?.critical ?? true,
-      category: cat,
-    });
-  } catch (err) {
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'web-bridge',
-      level: 'error',
-      message: `DELETE ${path} network error`,
-      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-    });
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throwTimeoutError('DELETE', path, timeoutMs);
-    }
-    throw err;
-  }
-  if (!res.ok) {
-    const text = await res.text();
-    throwHttpError(res.status, new ActionableError({
-      goal: 'Delete data on server',
-      problem: `DELETE ${path} failed with HTTP ${res.status}: ${text}`,
-      location: 'web-bridge.del',
-      nextSteps: nextStepsForStatus(res.status, text),
-    }));
-  }
-  const delCt = res.headers.get('content-type') || '';
-  if (delCt.includes('text/html')) {
-    throw new ActionableError({
-      goal: 'Delete data on server',
-      problem: 'Server returned a login page instead of JSON data — authentication may be required',
-      location: `web-bridge.del ${path}`,
-      nextSteps: ['Sign in or navigate to /.auth/anonymous to start an anonymous session'],
-    });
-  }
+/** `body` is optional (t/4898): most DELETEs carry none, but an admin removal takes an optional
+ *  `reason` — previously worked around with a bare `fetch()` in useCommunityStore (Network
+ *  Resilience rule violation) since this helper had no way to send one. */
+async function del<T = unknown>(path: string, body?: unknown, opts?: FetchOptions): Promise<T> {
+  const res = await mutationRequest('DELETE', path, body, opts);
+  await assertMutationOk('DELETE', path, res, 'Delete data on server');
   return res.status === 204 ? (undefined as T) : res.json(); // 204 No Content has no body (standard for DELETE) — res.json() would throw (t/2980)
+}
+
+/** t/4898 (Quality, t/4898#3/p/356#166): PATCH-rename is idempotent, so it uses the same
+ *  default retry policy as `post`/`del` — no `maxRetries: 0` override (unlike the
+ *  non-idempotent `patchDebateDelta` below, which deliberately disables retries). */
+async function patch<T = unknown>(path: string, body?: unknown, opts?: FetchOptions): Promise<T> {
+  const res = await mutationRequest('PATCH', path, body, opts);
+  await assertMutationOk('PATCH', path, res, 'Update data on server');
+  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 /**
@@ -1015,6 +1007,14 @@ const rawApi: AppAPI = {
   shareInquiry: (jobId) => post<{ shareId: string; url: string }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`, {}),
   unshareInquiry: (jobId) => del<{ ok: boolean }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`),
   loadCommunityInquiry: (id) => get<InquiryResult>(`/api/community/inquiries/${encodeURIComponent(id)}`),
+  // t/4898/t/4897: AppAPI types these `Promise<void>` (Quality, t/4898#3/p/356#166) — the web
+  // route's response body (`{jobId, title}` / `{jobId, deleted: true}`) is web-only; typing it
+  // through would let a caller come to depend on a field Electron never returns. A still-running
+  // delete surfaces as a plain HTTP 409 (via `del`'s normal error path) — InquiryTab maps that
+  // status to a friendlier message rather than this bridge method special-casing it.
+  renameInquiry: (jobId, title) => patch<{ jobId: string; title: string }>(`/api/inquiry/${encodeURIComponent(jobId)}`, { title }).then(() => {}),
+  deleteInquiry: (jobId) => del<{ jobId: string; deleted: boolean }>(`/api/inquiry/${encodeURIComponent(jobId)}`).then(() => {}),
+  renameCommunityItem: (type, id, title, reason) => patch<{ ok: boolean }>(`/api/community/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, { title, reason }).then(() => {}),
 
   // Brief Export (t/2805, T7) — client of the T6 REST API (server: routes/briefExports.ts).
   createBriefExport: (debateId, body) => post<{ jobId: string }>(`/api/debates/${encodeURIComponent(debateId)}/exports`, body),
@@ -1479,14 +1479,11 @@ const rawApi: AppAPI = {
     });
     if (!res.ok) throwHttpError(res.status, new ActionableError({ goal: 'Perform admin review action', problem: `POST /api/admin/review/action failed with HTTP ${res.status}`, location: 'web-bridge.adminReviewAction', nextSteps: ['Retry the action', 'Check the admin review server logs if it persists'] }));
   },
-  adminRemoveCommunityItem: async (type, id, reason) => {
-    const res = await fetch(`/api/community/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    });
-    if (!res.ok) throw new Error(`DELETE community item failed: HTTP ${res.status}`);
-  },
+  // t/4898 (Quality, t/4898#3/p/356#166): routed through `del()` instead of a bare `fetch()` —
+  // the Network Resilience rule's reason this needed its own workaround (`del` had no body
+  // support) is gone now that `del` takes one.
+  adminRemoveCommunityItem: (type, id, reason) =>
+    del<{ ok: boolean }>(`/api/community/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, { reason }).then(() => {}),
 
   // Brief-timeout browser-local subscriptions (t/2218). Electron path goes via IPC in preload.
   onBriefTimeout: (cb) => { briefTimeoutCbs.add(cb); return () => briefTimeoutCbs.delete(cb); },

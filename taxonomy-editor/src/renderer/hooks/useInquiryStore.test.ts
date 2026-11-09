@@ -12,6 +12,8 @@ const { mockApi } = vi.hoisted(() => ({
     getInquiry: vi.fn(),
     listInquiries: vi.fn(),
     loadCommunityInquiry: vi.fn(),
+    renameInquiry: vi.fn(),
+    deleteInquiry: vi.fn(),
   },
 }));
 
@@ -312,5 +314,43 @@ describe('useInquiryStore: temperature override (t/4770/t/4771)', () => {
     useInquiryStore.getState().setTemperature(0);
     await useInquiryStore.getState().startInquiry();
     expect(mockApi.startInquiry.mock.calls[0][0]).toMatchObject({ temperature: 0 });
+  });
+});
+
+describe('useInquiryStore: My-row rename/delete (t/4898)', () => {
+  const ROW = { jobId: 'job-rd', question: 'Is X true?', debateId: null, truncated: false, createdAt: '2026-01-01' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useInquiryStore.setState({ history: [ROW] });
+  });
+
+  it('renameHistoryItem optimistically renames, then calls the API', async () => {
+    mockApi.renameInquiry.mockResolvedValue(undefined);
+    const p = useInquiryStore.getState().renameHistoryItem('job-rd', 'New title');
+    expect(useInquiryStore.getState().history).toEqual([{ ...ROW, title: 'New title' }]);
+    await p;
+    expect(mockApi.renameInquiry).toHaveBeenCalledWith('job-rd', 'New title');
+  });
+
+  it('renameHistoryItem restores the prior row and rethrows on failure', async () => {
+    mockApi.renameInquiry.mockRejectedValue(new Error('boom'));
+    await expect(useInquiryStore.getState().renameHistoryItem('job-rd', 'New title')).rejects.toThrow('boom');
+    expect(useInquiryStore.getState().history).toEqual([ROW]);
+  });
+
+  it('deleteHistoryItem optimistically removes the row, then calls the API', async () => {
+    mockApi.deleteInquiry.mockResolvedValue(undefined);
+    const p = useInquiryStore.getState().deleteHistoryItem('job-rd');
+    expect(useInquiryStore.getState().history).toEqual([]);
+    await p;
+    expect(mockApi.deleteInquiry).toHaveBeenCalledWith('job-rd');
+  });
+
+  it('deleteHistoryItem restores the row and rethrows on failure (e.g. a 409 while still running)', async () => {
+    const err = Object.assign(new Error('still running'), { httpStatus: 409 });
+    mockApi.deleteInquiry.mockRejectedValue(err);
+    await expect(useInquiryStore.getState().deleteHistoryItem('job-rd')).rejects.toMatchObject({ httpStatus: 409 });
+    expect(useInquiryStore.getState().history).toEqual([ROW]);
   });
 });
