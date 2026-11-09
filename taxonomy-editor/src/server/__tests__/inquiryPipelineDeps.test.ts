@@ -7,6 +7,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { InquiryPipelineDeps } from '../../../../lib/debate/inquiryPipeline.js';
+import { createDebateProgressTracker, type DebateProgressUpdate } from '../../../../lib/debate/debateProgressMapping.js';
+import type { DebateProgress } from '../../../../lib/debate/debateEngine/internals.js';
 
 const h = vi.hoisted(() => ({
   corpora: new Map<string, { povNodes: unknown[]; situationNodes: unknown[]; nodeEmbeddings: Record<string, unknown> }>(),
@@ -155,5 +157,44 @@ describe('t/4338 — runDebate persists the headless debate session', () => {
       expect.stringContaining('Failed to persist inquiry debate session'),
     );
     expect(h.recordSpy).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn' }));
+  });
+});
+
+// t/4917: on hosted, runDebate dropped the pipeline's onProgress and deps never set
+// onDebateProgress, so no debate event reached the job and the poll sat at the 15% floor with no
+// stageDetail (observed live on prod 4b8d8830). These fail on that wiring.
+describe('t/4917 — debate progress reaches the job through the prod wiring', () => {
+  const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+
+  it('runDebate relays the pipeline-supplied onProgress to runHeadlessDebate', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const onProgress = vi.fn();
+    await h.capturedDeps!.runDebate(config, 'q', onProgress);
+    expect(h.runHeadlessDebateMock.mock.calls[0][3]).toBe(onProgress);
+  });
+
+  it('deps.onDebateProgress is the job context\'s sink', async () => {
+    const onDebateProgress = vi.fn();
+    await buildInquiryRunPipeline()(REQUEST, { ...CTX, onDebateProgress });
+    expect(h.capturedDeps!.onDebateProgress).toBe(onDebateProgress);
+  });
+
+  it('engine events arrive at the job sink as rising {fraction, detail} updates', async () => {
+    const updates: DebateProgressUpdate[] = [];
+    await buildInquiryRunPipeline()(REQUEST, { ...CTX, onDebateProgress: (u: DebateProgressUpdate) => updates.push(u) });
+    const deps = h.capturedDeps!;
+    // The engine emits raw DebateProgress through whatever onProgress runDebate was handed.
+    h.runHeadlessDebateMock.mockImplementationOnce(async (_c: unknown, _a: unknown, _t: unknown, onProgress?: (p: DebateProgress) => void) => {
+      onProgress?.({ phase: 'opening', speaker: 'accelerationist', totalRounds: 2, message: 'Accelerationist preparing opening statement' });
+      onProgress?.({ phase: 'debate', speaker: 'safetyist', round: 1, totalRounds: 2, message: 'safetyist responding (round 1)' });
+      onProgress?.({ phase: 'debate', speaker: 'skeptic', round: 2, totalRounds: 2, message: 'skeptic responding (round 2)' });
+      return { session: { id: 'session-1' }, terminationReason: undefined };
+    });
+    // Same wiring runInquiryPipeline uses (lib/debate/inquiryPipeline.ts, Stage 3).
+    await deps.runDebate(config, 'q', deps.onDebateProgress ? createDebateProgressTracker(deps.onDebateProgress) : undefined);
+
+    expect(updates.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < updates.length; i++) expect(updates[i].fraction).toBeGreaterThan(updates[i - 1].fraction);
+    expect(updates.every(u => typeof u.detail === 'string' && u.detail.length > 0)).toBe(true);
   });
 });

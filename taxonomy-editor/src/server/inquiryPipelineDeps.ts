@@ -184,13 +184,17 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
       // runHeadlessDebate takes the config (which already carries the question via deriveDebateConfig)
       // + the engine's LoadedTaxonomy; the pipeline's `question` arg is unused here.
       // t/4025: inject soulResolver so server inquiry debates record soul_provenance.
-      runDebate: (config, _question) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy())
+      // t/4917: relay the pipeline's raw onProgress to the engine. Dropping it left hosted Ask runs
+      // with no debate events, so the poll sat at the 15% debate floor with no stage detail.
+      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
         .then(async (r) => {
           await persistInquiryDebateSession(r.session, ctx.jobId); // t/4338
           return { session: r.session, terminationReason: r.terminationReason };
         }),
       adapter,
       onStage: (stage: InquiryStage) => mapStage(stage, ctx),
+      // The pipeline maps raw events to monotonic {fraction, detail} updates before calling this.
+      onDebateProgress: ctx.onDebateProgress,
     };
     return runInquiryPipeline(request, deps);
   };
