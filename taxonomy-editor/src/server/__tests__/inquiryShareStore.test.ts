@@ -45,7 +45,7 @@ vi.mock('../storage/fileIO.js', async (importOriginal) => {
 
 import path from 'path';
 import { runWithUser, type UserContext } from '../security/userContext.js';
-import { publishInquiryShare, unpublishInquiryShare, loadPublicInquiryShare } from '../storage/inquiryShareStore.js';
+import { publishInquiryShare, unpublishInquiryShare, loadPublicInquiryShare, refreshInquiryShareIfShared } from '../storage/inquiryShareStore.js';
 import { resolveDataPath } from '../config.js';
 import type { InquiryResult, PublicInquiryShare } from '../../../../lib/inquiry/index.js';
 
@@ -219,5 +219,39 @@ describe('inquiryShareStore (t/3627)', () => {
     expect(pub).not.toBeNull();
     expect(pub!.singleRunCaveat).toContain('One run');
     expect(serverWarn).not.toHaveBeenCalled();
+  });
+
+  // ─── refreshInquiryShareIfShared (t/4927) ──────────────────────────────────
+
+  it('refreshes an existing share in place — same shareId, new projection content', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Original question?'));
+    const { shareId } = (await runWithUser(OWNER, () => publishInquiryShare('job-1')))!;
+
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Renamed display title'));
+    const refreshed = await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'));
+    expect(refreshed).toBe(true);
+
+    const pub = await loadPublicInquiryShare(shareId);
+    expect(pub!.request.question).toBe('Renamed display title');
+  });
+
+  it('never creates a share — returns false and writes nothing for an unshared jobId', async () => {
+    const before = files.size;
+    const refreshed = await runWithUser(OWNER, () => refreshInquiryShareIfShared('never-shared'));
+    expect(refreshed).toBe(false);
+    expect(mockLoadInquiryResult).not.toHaveBeenCalled();
+    expect(files.size).toBe(before);
+  });
+
+  it('returns false for anonymous callers without touching the registry', async () => {
+    expect(await runWithUser(ANON, () => refreshInquiryShareIfShared('job-1'))).toBe(false);
+    expect(mockLoadInquiryResult).not.toHaveBeenCalled();
+  });
+
+  it('returns false if the result is gone despite a registry entry (defensive)', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+    await runWithUser(OWNER, () => publishInquiryShare('job-1'));
+    mockLoadInquiryResult.mockResolvedValue(null);
+    expect(await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'))).toBe(false);
   });
 });

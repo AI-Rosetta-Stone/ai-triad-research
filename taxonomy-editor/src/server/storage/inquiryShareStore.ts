@@ -72,6 +72,25 @@ export async function publishInquiryShare(jobId: string): Promise<{ shareId: str
 }
 
 /**
+ * Refresh an EXISTING public share's projection in place (t/4927) — e.g. after a rename, so
+ * the public copy's title isn't left stale. Same shareId, same URL; never mints one. Returns
+ * false (no-op) if the result isn't shared, which is the "never creates a share" contract —
+ * callers must NOT fall back to `publishInquiryShare` on a false return.
+ */
+export async function refreshInquiryShareIfShared(jobId: string): Promise<boolean> {
+  assertSafeId(jobId, 'inquiry job id');
+  if (isAnonymousUser()) return false;
+  const reg = await readShareRegistry();
+  const shareId = reg[jobId];
+  if (!shareId) return false;
+  const result = await loadInquiryResult(jobId);
+  if (!result) return false; // defensive; caller already has the result at this point
+  const share: PublicInquiryShare = toPublicInquiryShare(result);
+  await getUserContentBackend().writeFile(publicInquiryPath(shareId), JSON.stringify(share, null, 2));
+  return true;
+}
+
+/**
  * Un-share (owner-only — the registry is owner-scoped): delete the public copy + registry
  * entry. Returns true if a share existed. With the fresh-shareId scheme this is a real
  * revocation — a leaked old link is permanently dead.

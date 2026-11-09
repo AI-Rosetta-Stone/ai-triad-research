@@ -22,10 +22,11 @@ import path from 'path';
 import { resolveDataPath } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { log } from '../logger.js';
+import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
 import { parseInquiryResult, type InquiryResult } from '../../../../lib/inquiry/index.js';
-import { unpublishInquiryShare } from './inquiryShareStore.js';
+import { unpublishInquiryShare, refreshInquiryShareIfShared } from './inquiryShareStore.js';
 import { deleteDebateSession } from './debateStore.js';
 import { deleteInquiryJobRecord } from './inquiryJobStore.js';
 
@@ -179,6 +180,14 @@ export async function renameInquiryResult(jobId: string, title: string): Promise
   await backend.writeFile(resultFile, JSON.stringify(result, null, 2));
   entries[i].title = normalizedTitle;
   await writeIndex(entries);
+
+  // t/4927: a rename refreshes an existing public share's projection in place (same shareId) so
+  // the public copy's title isn't left stale. Best-effort — the rename above has already
+  // persisted, so a refresh failure here must not undo it.
+  await refreshInquiryShareIfShared(jobId).catch((err) => {
+    log.server.warn({ err, jobId }, 'Inquiry share refresh after rename failed (best-effort)');
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'inquiry', level: 'warn', message: 'Inquiry share refresh after rename failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+  });
 }
 
 /** Delete an inquiry result and all linked records (share, debate session, job record).

@@ -22,6 +22,23 @@ const { listOpedSets, loadOpedSet, deleteOpedSet, getOpedSetsQuotaStatus, finali
 }));
 vi.mock('../storage/opedStore.js', () => ({ listOpedSets, loadOpedSet, deleteOpedSet, getOpedSetsQuotaStatus, finalizeOpedSet }));
 
+// t/4927: rename calls refreshOpedShareIfShared after finalizeOpedSet persists. Controllable
+// so tests can assert the call and exercise its best-effort failure path independent of the
+// real registry/backend (publishOpedShare/unpublishOpedShare aren't exercised by this file's
+// routes, so a bare stub is enough).
+const { refreshOpedShareIfShared, publishOpedShare, unpublishOpedShare } = vi.hoisted(() => ({
+  refreshOpedShareIfShared: vi.fn(async () => false),
+  publishOpedShare: vi.fn(),
+  unpublishOpedShare: vi.fn(),
+}));
+vi.mock('../storage/opedShareStore.js', () => ({ refreshOpedShareIfShared, publishOpedShare, unpublishOpedShare }));
+
+const { serverWarn } = vi.hoisted(() => ({ serverWarn: vi.fn() }));
+vi.mock('../logger.js', () => ({
+  log: { api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }, server: { info: vi.fn(), warn: serverWarn, error: vi.fn(), debug: vi.fn() } },
+  getRequestId: () => 'req-test', LOG_MAX_LINE_BYTES: 65536, writeFramedNdjson: vi.fn(),
+}));
+
 // Controllable auth + tier context for the create-route pre-start gate (t/2610).
 const { isAnonymousUser, getStorageUserId, getCurrentUser, resolveTier, resolveBackend, isRegisteredModel } = vi.hoisted(() => ({
   isAnonymousUser: vi.fn(() => false),
@@ -184,6 +201,33 @@ describe('/api/oped-sets routes (t/2573)', () => {
     expect(JSON.parse(res._body!)).toEqual({ ok: true });
     // Only topic changed; every member passed through verbatim.
     expect(finalizeOpedSet).toHaveBeenCalledWith({ ...storedSet, topic: 'New topic' });
+  });
+
+  // ── t/4927: rename refreshes an existing public share in place ──
+
+  it('PUT /api/oped-sets/:id calls refreshOpedShareIfShared(id) after the rename persists', async () => {
+    loadOpedSet.mockResolvedValue(structuredClone(storedSet));
+    finalizeOpedSet.mockResolvedValue(undefined);
+    refreshOpedShareIfShared.mockResolvedValue(true);
+    const res = fakeRes();
+    await handlers['PUT /api/oped-sets/:id'](fakeReq('/api/oped-sets/set-1'), res, { topic: 'New topic' });
+    expect(res._status).toBe(200);
+    expect(refreshOpedShareIfShared).toHaveBeenCalledWith('set-1');
+  });
+
+  it('PUT /api/oped-sets/:id still returns 200/{ok:true} and logs a WARN when the refresh rejects (best-effort)', async () => {
+    loadOpedSet.mockResolvedValue(structuredClone(storedSet));
+    finalizeOpedSet.mockResolvedValue(undefined);
+    refreshOpedShareIfShared.mockRejectedValueOnce(new Error('refresh boom'));
+    serverWarn.mockClear();
+    const res = fakeRes();
+    await handlers['PUT /api/oped-sets/:id'](fakeReq('/api/oped-sets/set-1'), res, { topic: 'New topic' });
+    expect(res._status).toBe(200);
+    expect(JSON.parse(res._body!)).toEqual({ ok: true });
+    expect(serverWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ setId: 'set-1' }),
+      expect.stringContaining('refresh'),
+    );
   });
 
   it('PUT /api/oped-sets/:id applies ONLY topic — ignores other body fields (never mutates members)', async () => {
