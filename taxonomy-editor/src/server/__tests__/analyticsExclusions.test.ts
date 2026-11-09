@@ -110,6 +110,20 @@ describe('analytics exclusion mechanism (t/4960)', () => {
     expect(excluded.summary.totalEvents).toBe(0);
   });
 
+  it('a malformed event missing user/session_id does not crash the query — it just never matches system identity (Quality p/634#11)', async () => {
+    // Stored lines are JSON.parse-cast without validation (readEvents); a legacy/malformed
+    // event missing `user` or `session_id` must not throw inside isSystemIdentity's
+    // .startsWith() calls, since one bad line would otherwise fail the ENTIRE query.
+    await appendEvents([evt({ session_id: 'well-formed-session' })]);
+    fs.appendFileSync(
+      path.join(dataRoot, 'analytics', `${D}.ndjson`),
+      JSON.stringify({ timestamp: `${D}T10:00:01.000Z`, event_type: 'x', category: 'misc', detail: {} }) + '\n',
+    );
+
+    const r = await queryAggregated(D, D);
+    expect(r.summary.totalEvents).toBe(2); // both events counted; the malformed one isn't dropped, just never a "system" match
+  });
+
   it('all four query functions pass exclusion opts through (no silent bypass)', async () => {
     const [listedId] = ANALYTICS_EXCLUDED_SESSIONS.keys();
     await appendEvents([

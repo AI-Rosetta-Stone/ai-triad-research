@@ -53,7 +53,12 @@ export interface AnalyticsExclusionOptions {
 /** `smoke-probe` and any `smoke-*` user or session (TL t/4960#1) — CI/synthetic traffic,
  *  distinct from the frozen staging-leak smoke sessions (those are listed, not pattern-matched). */
 function isSystemIdentity(evt: AnalyticsEvent): boolean {
-  return evt.user === 'smoke-probe' || evt.user.startsWith('smoke-') || evt.session_id.startsWith('smoke-');
+  // Quality p/634#11: stored lines are JSON.parse-cast without validation (readEvents), so a
+  // malformed/legacy event missing `user` or `session_id` must not throw here — one bad line
+  // would otherwise fail every analytics query, not just skip that one event.
+  const user = typeof evt.user === 'string' ? evt.user : '';
+  const sessionId = typeof evt.session_id === 'string' ? evt.session_id : '';
+  return user === 'smoke-probe' || user.startsWith('smoke-') || sessionId.startsWith('smoke-');
 }
 
 /**
