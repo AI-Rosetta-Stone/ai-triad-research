@@ -38,9 +38,10 @@ function fakeReq(url: string, method: string, cookie?: string): IncomingMessage 
   return { url, method, headers: cookie ? { cookie } : {}, socket: { remoteAddress: '10.0.0.1' } } as unknown as IncomingMessage;
 }
 
-async function setFlag(on: string): Promise<Res> {
+async function setFlag(on: string, headers: Record<string, string> = {}): Promise<Res> {
   const res = fakeRes();
-  await handler('GET', '/api/analytics/internal')(fakeReq(`/api/analytics/internal?on=${on}`, 'GET'), res, undefined);
+  const req = { url: `/api/analytics/internal?on=${on}`, method: 'GET', headers, socket: { remoteAddress: '10.0.0.1' } } as unknown as IncomingMessage;
+  await handler('GET', '/api/analytics/internal')(req, res, undefined);
   return res;
 }
 
@@ -103,6 +104,32 @@ describe('GET /api/analytics/internal', () => {
     const res = await setFlag(on);
     expect(res._status).toBe(400);
     expect(res._headers['Set-Cookie']).toBeUndefined();
+  });
+});
+
+describe('GET /api/analytics/internal: refuses toggles the user did not navigate to (t/4968)', () => {
+  it.each([
+    ['cross-site link', { 'sec-fetch-site': 'cross-site' }],
+    ['Sec-Purpose prefetch', { 'sec-purpose': 'prefetch' }],
+    ['Sec-Purpose prefetch;prerender', { 'sec-purpose': 'prefetch;prerender' }],
+    ['legacy Purpose: prefetch', { purpose: 'prefetch' }],
+  ])('%s → 403 and no cookie change', async (_label, headers) => {
+    for (const on of ['1', '0']) {
+      const res = await setFlag(on, headers);
+      expect(res._status).toBe(403);
+      expect(res._headers['Set-Cookie']).toBeUndefined();
+    }
+  });
+
+  it.each([
+    ['direct navigation', { 'sec-fetch-site': 'none' }],
+    ['same-origin', { 'sec-fetch-site': 'same-origin' }],
+    ['same-site', { 'sec-fetch-site': 'same-site' }],
+    ['no fetch metadata (curl, older browsers)', {}],
+  ])('%s → still sets the cookie', async (_label, headers) => {
+    const res = await setFlag('1', headers);
+    expect(res._status).toBe(200);
+    expect(res._headers['Set-Cookie']).toMatch(/^aitriad_internal=1;/);
   });
 });
 
