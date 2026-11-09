@@ -693,9 +693,12 @@ export function ChatTab() {
     });
   }, [renameItem]);
 
+  // t/51: returns the promise and rethrows after recording, so LibraryListPage's bulk admin-delete
+  // (t/49) can tell which rows failed and keep them selected; LibraryListPage owns the user feedback.
   const handleAdminDeleteChat = useCallback((cc: CommunityChat, reason?: string) => {
-    removeItem('chats', cc.id, reason).catch((err: unknown) => {
+    return removeItem('chats', cc.id, reason).catch((err: unknown) => {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-tab', level: 'error', message: 'Failed to admin-delete community chat', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      throw err;
     });
   }, [removeItem]);
 
