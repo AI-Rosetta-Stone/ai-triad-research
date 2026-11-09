@@ -214,7 +214,7 @@ export interface DebateLibraryConfigDeps {
   /** Admin-only Community rename/delete (t/4898, Design t/4898#4) — LibraryListPage renders the
    *  ✎/✕ itself, gated on useIsAdmin(); the page just supplies the calls. */
   adminRename?: (row: CommunityDebate, title: string) => void;
-  adminDelete?: (row: CommunityDebate, reason?: string) => void;
+  adminDelete?: (row: CommunityDebate, reason?: string) => void | Promise<unknown>;
   /** Brief export (t/2805) — not a file format, so it rides `extraExportMenuItems` (t/3705#6,
    *  landed 11a51d02) rather than `exportFormats`. `briefWebOnly` mirrors today's desktop-disabled
    *  treatment: item stays visible with a web-app-only label instead of disappearing. */
