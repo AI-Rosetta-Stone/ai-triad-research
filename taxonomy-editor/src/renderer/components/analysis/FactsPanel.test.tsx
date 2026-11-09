@@ -35,11 +35,15 @@ describe('FactsPanel (t/1025, t/1906)', () => {
   it('lists facts; clicking an already-expanded card collapses it (firing onSelectFact(null))', async () => {
     const onSelectFact = vi.fn();
     render(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} />);
-    await waitFor(() => expect(screen.getByText('Economic growth')).toBeInTheDocument());
+    // t/4919: the only (first) fact is default-expanded once facts load, so doc-42 ends up
+    // visible without a click — but the label (always rendered, expanded or not) can commit
+    // one render before the separate default-expand effect's setExpanded(0) does, so this
+    // must itself be awaited rather than asserted synchronously right after the label's own
+    // waitFor (that race is real: it was intermittently failing when another test ran first
+    // and perturbed the exact timing).
+    await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
+    expect(screen.getByText('Economic growth')).toBeInTheDocument();
     expect(screen.getByText(/1 fact from source documents/)).toBeInTheDocument();
-    // t/4919: the only (first) fact is default-expanded once facts load, so doc-42 is
-    // already visible without a click.
-    expect(screen.getByText(/doc-42/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Economic growth'));
     expect(screen.queryByText(/doc-42/)).not.toBeInTheDocument();
