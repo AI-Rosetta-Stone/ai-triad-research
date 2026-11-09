@@ -57,7 +57,7 @@ Describe 'Invoke-TaxEditorSmokeTest Health-phase cold-start tolerance (t/1696)' 
             # phase under test. Without this stub the real HTTP calls to the stub URL
             # would fail and sink OverallPass, masking the health-phase assertions.
             $script:CsQuery = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:CsQuery++
                 $total      = if ($script:CsQuery -eq 1) { 0 } else { 1 }
                 $dwellCount = if ($script:CsQuery -eq 1) { 0 } else { 1 }

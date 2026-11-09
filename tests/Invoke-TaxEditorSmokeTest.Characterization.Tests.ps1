@@ -115,7 +115,7 @@ Describe 'Invoke-TaxEditorSmokeTest characterization (t/3910)' -Tag 'health' {
             Mock Start-Sleep -MockWith { }
             Mock Invoke-RemoteCheck -MockWith {
                 $key = "$Method $Path"
-                if ($key -eq 'GET /api/analytics/query') { $script:QIdx++; return $script:Q[$script:QIdx - 1] }
+                if ($key -eq 'GET /api/analytics/query?includeSystem=true') { $script:QIdx++; return $script:Q[$script:QIdx - 1] }
                 if ($script:RC.ContainsKey($key)) { return $script:RC[$key] }
                 New-RC
             }

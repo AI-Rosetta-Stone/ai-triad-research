@@ -62,7 +62,7 @@ Describe 'Invoke-TaxEditorSmokeTest — identity allowlist unreachable (/health)
                         return [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 8
                             Body = $null; ContentType = 'application/json'; RawBody = ''; Error = $null }
                     }
-                    '*/api/analytics/query' {
+                    '*/api/analytics/query?includeSystem=true' {
                         $script:AnQ++
                         $total = if ($script:AnQ -eq 1) { 5 } else { 6 }
                         return [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 10
