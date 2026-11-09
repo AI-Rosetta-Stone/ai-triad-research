@@ -161,7 +161,13 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # undici 8.x, which trips the undici major-version invariant if the runtime moves alone).
 # onnxruntime-node and node-pty verified to build and load under Node 26 with real build
 # output before this landed (t/1990#10).
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-01@sha256:b7232d9f48ac773c716f34b1e473abcac2b7f628487ab119962015409608e6da AS runtime
+# Bumped to :2026-11-08 — every build since ~11-08 was failing the Trivy blocking gate on
+# zlib1g CVE-2026-76844 (HIGH, fixable): the pinned :2026-11-01 base still had
+# 1:1.3.dfsg+really1.3.1-1+b1. base-image.yml's weekly rebuild on 2026-11-08 already
+# picked up the fix (1:...-1+deb13u1) via its normal apt-get upgrade; this base tag was
+# just never re-pinned here. Verified live via `docker run ... dpkg-query zlib1g` before
+# bumping — no new base rebuild needed, only this re-pin.
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-08@sha256:7856156d55ceb611b05ad56c381d4819c79f42816c6244be6c1bf6094ce7d4b3 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
