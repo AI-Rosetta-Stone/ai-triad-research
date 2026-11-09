@@ -16,6 +16,18 @@ vi.mock('./calibrationLogger.js', async (importOriginal) => {
   };
 });
 
+// Hermetic data root (t/56): without this, resolveDataRoot throws wherever
+// ../ai-triad-data is absent (e.g. .worktrees/<name>), the calibration block
+// swallows it, and appendCalibrationLog is never reached.
+vi.mock('./taxonomyLoader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./taxonomyLoader.js')>();
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cal-iso-'));
+  return { ...actual, resolveDataRoot: () => dataRoot, loadConflicts: () => [] };
+});
+
 import { DebateEngine } from './debateEngine.js';
 import { appendCalibrationLog } from './calibrationLogger.js';
 import { createMockAdapter, createMinimalTaxonomy, createDefaultConfig } from './debateEngine.testHelpers.js';
