@@ -15,7 +15,6 @@ import type {
 import { POVER_INFO, AI_POVERS } from '../../../types/debate';
 import type { TopicScope, TopicScopeRiskLevel } from '@lib/debate/types';
 import type { PovNode, CrossCuttingNode as SituationNode } from '../../../types/taxonomy';
-import type { StandardizedTerm, ColloquialTerm } from '@lib/dictionary/types';
 import type { OpeningPipelineInput, BriefEventFn } from '@lib/debate/turnPipeline';
 import { api, emitBriefTimeout, emitBriefRetriesExhausted } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -1286,22 +1285,11 @@ export const createClarificationSlice: StateCreator<DebateStore, [], [], Clarifi
       await runDocumentAnalysis(get, set, addTranscriptEntry, saveDebate, activeDebate, model);
     }
 
-    // Load vocabulary terms for standardized term enforcement
-    try {
-      const dict = await api.loadDictionary();
-      if (dict.standardized.length > 0) {
-        set({ vocabularyTerms: { standardized: dict.standardized as StandardizedTerm[], colloquial: dict.colloquial as ColloquialTerm[] } });
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        debate_id: get().activeDebate?.id,
-        component: 'debate-store',
-        level: 'warn',
-        message: 'Vocabulary loading failed',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      console.warn('[debate] Vocabulary loading failed, debates will use bare terms:', err);
+    // Load vocabulary terms for standardized term enforcement. t/37: shares sessionSlice's loader, which
+    // logs the WARN for a failed or empty load and leaves it uncached so the next caller retries.
+    await get().ensureVocabulary();
+    if (!get().vocabularyTerms) {
+      console.warn('[debate] Vocabulary dictionary unavailable (failed or empty load), debates will use bare terms');
       pushWarning(get, set, 'Vocabulary dictionary unavailable — debates will use bare terms');
     }
 
