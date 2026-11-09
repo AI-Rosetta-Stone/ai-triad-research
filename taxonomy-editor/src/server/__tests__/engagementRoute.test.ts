@@ -112,7 +112,8 @@ describe('GET /api/analytics/engagement — route layer (t/2559)', () => {
     const res = fakeRes();
     await engagement(fakeReq('?subject=acc-bel-001&groupBy=session&user=alice'), res, undefined);
     expect(res._status ?? 200).toBe(200);
-    expect(querySubjectBreakdown).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'acc-bel-001', 'session', 'alice');
+    // t/4962: the 6th arg is the analytics exclusion options (none requested here).
+    expect(querySubjectBreakdown).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'acc-bel-001', 'session', 'alice', {});
     expect(JSON.parse(res._body!)).toEqual({ rows: [{ user: 'alice', engagedMs: 100, visits: 2 }] });
     expect(queryEngagement).not.toHaveBeenCalled();
   });
