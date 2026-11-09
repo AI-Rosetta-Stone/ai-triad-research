@@ -161,6 +161,24 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 }
 
+/**
+ * PURE (should-fix, t/4952#5). True when the raw GraphQL `files`/`reviews`/`comments`
+ * sub-objects for one PR node are missing or truncated. `files` pages forward (first:100):
+ * truncation there (`hasNextPage`) could hide the one relevant renderer file past page 1,
+ * silently misreporting a user-facing PR as not user-facing. `reviews`/`comments` page
+ * BACKWARD from the end (last:50): truncation there (`hasPreviousPage`) means 50+ later,
+ * unrelated items could have pushed a role's still-active `Changes requested` out of the kept
+ * window -- a PR with a genuine unaddressed block would then look like it has no verdict at all
+ * and get enqueued. Either direction fails closed (skip with a WARN), never silently proceeds.
+ */
+export function hasReviewDataError({ files, reviews, comments }) {
+  if (files == null || reviews == null || comments == null) return true;
+  if (files.pageInfo?.hasNextPage === true) return true;
+  if (reviews.pageInfo?.hasPreviousPage === true) return true;
+  if (comments.pageInfo?.hasPreviousPage === true) return true;
+  return false;
+}
+
 // A full-suite PR has more than 100 contexts; allContextsFor reads past the first page (#4475).
 const CONTEXT_FIELDS = '... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}';
 
@@ -176,8 +194,8 @@ function listOpenPRs(repo) {
       commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
         ${CONTEXT_FIELDS}}}}}}}
       files(first:100){pageInfo{hasNextPage} nodes{path}}
-      reviews(last:50){nodes{body author{login} commit{oid} submittedAt}}
-      comments(last:50){nodes{body author{login} createdAt lastEditedAt}}}}}}`;
+      reviews(last:50){pageInfo{hasPreviousPage} nodes{body author{login} commit{oid} submittedAt}}
+      comments(last:50){pageInfo{hasPreviousPage} nodes{body author{login} createdAt lastEditedAt}}}}}}`;
   const prs = [];
   let cursor = null;
   for (let page = 0; page < 10; page++) {
@@ -185,10 +203,7 @@ function listOpenPRs(repo) {
     if (cursor) args.push('-f', `cursor=${cursor}`);
     const r = JSON.parse(gh(args)).data.search;
     for (const n of r.nodes) {
-      // t/4952(a): fail closed when files/reviews/comments didn't come back, or the files
-      // list was truncated (a PR touching 100+ files is rare, but silently treating it as
-      // "not user-facing" because the one relevant renderer file fell off page 2 is unsafe).
-      const reviewDataError = n.files == null || n.reviews == null || n.comments == null || n.files.pageInfo?.hasNextPage === true;
+      const reviewDataError = hasReviewDataError(n);
       prs.push({
         number: n.number, body: n.body, headRefOid: n.headRefOid, baseRefName: n.baseRefName,
         isDraft: n.isDraft, isInMergeQueue: n.isInMergeQueue, mergeStateStatus: n.mergeStateStatus,

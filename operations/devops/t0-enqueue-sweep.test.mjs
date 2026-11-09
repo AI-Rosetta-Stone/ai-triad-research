@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES } from './t0-enqueue-sweep.mjs';
+import { declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -215,4 +215,48 @@ test('t/4952(a): a changes-request check runs even for a non-user-facing PR', ()
   const { enqueue, skip } = selectT0Candidates([pr({ number: 61, headRefOid: 'abc', files: [NON_UI_FILE], reviews })], NOW);
   assert.deepEqual(enqueue, []);
   assert.match(skip[0].reason, /^changes requested by Quality/);
+});
+
+// t/4952#5 (Lead should-fix): `files` pages forward, so hasNextPage means truncation; `reviews`/
+// `comments` page BACKWARD from the end (last:50), so it's hasPreviousPage that means
+// truncation there -- 50+ later, unrelated items could push a role's still-active
+// `Changes requested` out of the kept window.
+test('hasReviewDataError: null files/reviews/comments is an error', () => {
+  assert.equal(hasReviewDataError({ files: null, reviews: {}, comments: {} }), true);
+  assert.equal(hasReviewDataError({ files: {}, reviews: null, comments: {} }), true);
+  assert.equal(hasReviewDataError({ files: {}, reviews: {}, comments: null }), true);
+});
+
+test('hasReviewDataError: files.hasNextPage=true is truncation (files page forward)', () => {
+  assert.equal(hasReviewDataError({
+    files: { pageInfo: { hasNextPage: true } }, reviews: { pageInfo: {} }, comments: { pageInfo: {} },
+  }), true);
+});
+
+test('hasReviewDataError: reviews.hasPreviousPage=true is truncation (reviews page backward from the end)', () => {
+  assert.equal(hasReviewDataError({
+    files: { pageInfo: {} }, reviews: { pageInfo: { hasPreviousPage: true } }, comments: { pageInfo: {} },
+  }), true);
+});
+
+test('hasReviewDataError: comments.hasPreviousPage=true is truncation (comments page backward from the end)', () => {
+  assert.equal(hasReviewDataError({
+    files: { pageInfo: {} }, reviews: { pageInfo: {} }, comments: { pageInfo: { hasPreviousPage: true } },
+  }), true);
+});
+
+test('hasReviewDataError: reviews/comments.hasNextPage is irrelevant (wrong direction for a last:N page) -- no false positive', () => {
+  assert.equal(hasReviewDataError({
+    files: { pageInfo: { hasNextPage: false } },
+    reviews: { pageInfo: { hasNextPage: true, hasPreviousPage: false } },
+    comments: { pageInfo: { hasNextPage: true, hasPreviousPage: false } },
+  }), false);
+});
+
+test('hasReviewDataError: all pages complete -> false', () => {
+  assert.equal(hasReviewDataError({
+    files: { pageInfo: { hasNextPage: false } },
+    reviews: { pageInfo: { hasPreviousPage: false } },
+    comments: { pageInfo: { hasPreviousPage: false } },
+  }), false);
 });
