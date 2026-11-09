@@ -426,6 +426,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #434 | [Process] | An Orca Outage During a T2 Second-Opinion Round Can Turn a Completed Review Into a False "SO Did Not Review" | lines 8855-8872 |
 | #435 | [Process] | A Fallback That Bypasses the Approval Guard — Never Substitute a Raw Mutation for `enqueue-pr.mjs`'s Refusal | lines 8873-8890 |
 | #436 | [Build] | A Gate Merged With One Conditional Arm Unproven Breaks That Arm — "Blocked From Proving It" Means Hold, Not Ship | lines 8891-8908 |
-| #437 | [Security] | Required Contexts Skipped on `merge_group` Count as Satisfied — Approval Guards Silently Non-Functional Since 2026-11-04 | lines 8909-8925 |
+| #437 | [Security] | Required Contexts Skipped on `merge_group` Count as Satisfied — Approval Guards Silently Non-Functional Since 2026-11-04 | lines 8909-8926 |
+| #438 | [Build] | After a GitHub Actions Outage, a Never-Created Required Job Needs a FULL `gh run rerun`, Not `--failed` — Close/Reopen Is the Last Resort | lines 8927-8946 |
 
-421 entries indexed.
+422 entries indexed.
