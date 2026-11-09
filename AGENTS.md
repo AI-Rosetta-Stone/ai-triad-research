@@ -38,7 +38,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 - **Landing code:** see `docs/pr-landing.md`.
   - Merge through a PR to `main` via the merge queue.
-  - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`.
+  - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation or `gh pr merge --auto`, which skip the approval guard (PI-approved 2026-11-09, t/4939).
   - **Never push to a queued PR.**
   - User-facing UI changes need `Approved (Design):` (`docs/review-routing.md`).
 - **Change tiers and decision rights:** see `docs/change-tiers.md`.
