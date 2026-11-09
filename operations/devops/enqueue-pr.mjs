@@ -149,9 +149,28 @@ function queryQueueState(repo, prNumber, ghFn = gh) {
  * latest run (Quality should-fix, p/780#25) -- filtering after would let a newer run from a
  * different app hide an older, still-current `github-actions` run.
  */
-function fetchGuardRun(repo, headSha, ghFn = gh) {
+/**
+ * PURE. Classifies a `gh api` failure so a live test (or a future caller) can tell a transient
+ * platform blip from a real regression. TL condition (p/648#363, t/4939):
+ *  - 'network_error' / 'server_error' (5xx): skip, don't fail -- a GitHub-side blip must never
+ *    turn a CI gate red.
+ *  - 'not_found' (404) / 'unknown' (anything else, including an unparseable response shape):
+ *    fail -- this is exactly the class of regression that shipped silently (t/4939 incident).
+ */
+export function classifyGhApiError(err) {
+  const msg = String(err?.stderr ?? err?.message ?? err ?? '');
+  if (/HTTP 404/.test(msg)) return 'not_found';
+  if (/HTTP 5\d\d/.test(msg)) return 'server_error';
+  if (/could not resolve host|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|network/i.test(msg)) return 'network_error';
+  return 'unknown';
+}
+
+export function fetchGuardRun(repo, headSha, ghFn = gh) {
   try {
-    const out = JSON.parse(ghFn(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
+    // t/4939 live bug (Lead, p/648#361): any `-F`/`-f` flag makes `gh api` default to POST,
+    // even on a GET-only route -- this 404s without `-X GET`. Confirmed live on #4679's own
+    // head: identical request, `-X GET` added, returns total_count: 1.
+    const out = JSON.parse(ghFn(['api', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
     const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions');
     if (!runs.length) return { run: null, lookupError: false };
     runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
@@ -164,7 +183,8 @@ function fetchGuardRun(repo, headSha, ghFn = gh) {
 /** Best-effort, never throws: true when `tier-check`'s latest completed run at `headSha` concluded `failure`. */
 function tierCheckDisagreesAt(repo, headSha, ghFn = gh) {
   try {
-    const out = JSON.parse(ghFn(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
+    // t/4939: same -F-forces-POST trap as fetchGuardRun above -- needs -X GET.
+    const out = JSON.parse(ghFn(['api', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
     const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions' && r.status === 'completed');
     if (!runs.length) return false;
     runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
