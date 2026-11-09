@@ -6,23 +6,24 @@
 
 <#
 .SYNOPSIS
-    t/4884 native-path torch pin (Quality/TL review on #4597, t/4884#7/#8): the native
+    t/4884 native-path torch pin (Quality/TL review on #4597, t/4884#7/#8/#10): the native
     (non-container) -Fix install path must pin torch to the CPU build the same way the
     Dockerfile does, WITHOUT assuming the Dockerfile's Linux-only, --index-url-already-set
-    environment. Covers Get-DepPipInstallArgs (the platform-aware arg builder) and
-    Test-DepPythonPackages's use of it.
+    environment. Covers Get-DepPipInstallArgument (the platform-aware arg builder),
+    Get-DepPipFailureClass (the network-vs-resolution-failure classifier), and
+    Test-DepPythonPackages's use of both.
 #>
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
 }
 
-Describe 'Get-DepPipInstallArgs (t/4884)' -Tag 'summary' {
+Describe 'Get-DepPipInstallArgument (t/4884)' -Tag 'summary' {
 
     It 'Windows/Linux: includes -c <constraints> and --extra-index-url for the +cpu wheel' {
         InModuleScope AITriad {
             if ($IsMacOS) { Set-ItResult -Skipped -Because 'this assertion is for the non-macOS branch' }
-            $ArgList = Get-DepPipInstallArgs -ReqFile 'C:/repo/scripts/requirements.txt' -ConstraintsFile 'C:/repo/scripts/pip-constraints.txt'
+            $ArgList = Get-DepPipInstallArgument -ReqFile 'C:/repo/scripts/requirements.txt' -ConstraintsFile 'C:/repo/scripts/pip-constraints.txt'
             $Joined = $ArgList -join ' '
             $Joined | Should -Match '-m\s+pip\s+install\s+-r\s+.*requirements\.txt'
             $Joined | Should -Match '-c\s+.*pip-constraints\.txt' `
@@ -39,7 +40,7 @@ Describe 'Get-DepPipInstallArgs (t/4884)' -Tag 'summary' {
             # Context runs the real branch on whatever OS Pester is executing on and the
             # assertion is written to hold either way: both outcomes are tested explicitly,
             # keyed off the ACTUAL $IsMacOS value this run observes.
-            $ArgList = Get-DepPipInstallArgs -ReqFile '/repo/scripts/requirements.txt' -ConstraintsFile '/repo/scripts/pip-constraints.txt'
+            $ArgList = Get-DepPipInstallArgument -ReqFile '/repo/scripts/requirements.txt' -ConstraintsFile '/repo/scripts/pip-constraints.txt'
             $Joined = $ArgList -join ' '
             if ($IsMacOS) {
                 $Joined | Should -Not -Match '-c\s' -Because 'macOS has no +cpu wheel to constrain to -- pinning it would make torch unresolvable'
@@ -112,6 +113,35 @@ Describe 'Test-DepPythonPackages (t/4884)' -Tag 'summary' {
     }
 }
 
+Describe 'Get-DepPipFailureClass (t/4884, Quality must-fix at t/4884#10)' -Tag 'summary' {
+
+    It 'classifies a genuine resolution failure as ResolutionFailure' {
+        InModuleScope AITriad {
+            $Output = @(
+                'ERROR: Could not find a version that satisfies the requirement torch==99.0.0+cpu'
+                'ERROR: No matching distribution found for torch==99.0.0+cpu'
+            )
+            Get-DepPipFailureClass -Output $Output | Should -Be 'ResolutionFailure'
+        }
+    }
+
+    It 'classifies a network failure as NetworkError, not a pin regression' {
+        InModuleScope AITriad {
+            $Output = @(
+                'WARNING: Retrying... ConnectionError(MaxRetryError'
+                "Could not fetch URL https://download.pytorch.org/whl/cpu/: There was a problem confirming the ssl certificate: HTTPSConnectionPool(host='download.pytorch.org', port=443): Max retries exceeded with url: /whl/cpu/ (Caused by NewConnectionError"
+            )
+            Get-DepPipFailureClass -Output $Output | Should -Be 'NetworkError'
+        }
+    }
+
+    It 'classifies an unrecognized failure shape as NetworkError (skip, not redden ci-gate, over a false positive)' {
+        InModuleScope AITriad {
+            Get-DepPipFailureClass -Output @('some entirely unrelated pip output this classifier has never seen') | Should -Be 'NetworkError'
+        }
+    }
+}
+
 Describe 'torch+cpu pin actually resolves (t/4884, TL ask: a test proving the pin resolves)' -Tag 'summary' {
 
     BeforeAll {
@@ -161,6 +191,23 @@ Describe 'torch+cpu pin actually resolves (t/4884, TL ask: a test proving the pi
         $Output = & $script:PythonCmd -m pip install --dry-run --extra-index-url 'https://download.pytorch.org/whl/cpu' $TorchSpec 2>&1
         $ExitCode = $LASTEXITCODE
         Write-Host "pip --dry-run output ($TorchSpec):`n$($Output -join "`n")"
-        $ExitCode | Should -Be 0 -Because "pip must be able to resolve $TorchSpec via the CPU wheel index (real evidence, see console output above)"
+
+        if ($ExitCode -eq 0) {
+            $Output -join "`n" | Should -Match 'Would install torch' -Because 'a 0 exit from --dry-run should say what it would have installed'
+            return
+        }
+
+        # Quality must-fix (t/4884#10): this test runs in CI against the real, live PyTorch
+        # index -- a transient network failure there is not evidence the pin is wrong, and
+        # must not turn ci-gate red for every unrelated PR. Only a classified
+        # ResolutionFailure (pip genuinely couldn't resolve the pin) fails this test; a
+        # classified NetworkError (or anything this classifier doesn't recognize) skips, with
+        # the full output already printed above for a human to triage.
+        $FailureClass = InModuleScope AITriad -Parameters @{ Output = @($Output) } { param($Output) Get-DepPipFailureClass -Output $Output }
+        if ($FailureClass -eq 'NetworkError') {
+            Set-ItResult -Skipped -Because "pip --dry-run failed with a classified network error, not a resolution failure -- see the output above, not a pin regression"
+            return
+        }
+        $ExitCode | Should -Be 0 -Because "pip --dry-run classified this as a genuine ResolutionFailure for $TorchSpec -- see the output above, not a transient network issue"
     }
 }

@@ -54,13 +54,19 @@ function Test-DepPythonPackages {
                 Write-DepWarn -Ctx $Ctx -Message 'sentence-transformers not installed'
                 if ($IsInstallMode -and $Fix) {
                     Write-DepFix 'Installing Python requirements...'
-                    $PipArgs = Get-DepPipInstallArgs -ReqFile $ReqFile -ConstraintsFile $ConstraintsFile
-                    & $PythonCmd @PipArgs 2>&1 | Out-Null
+                    $PipArgs = Get-DepPipInstallArgument -ReqFile $ReqFile -ConstraintsFile $ConstraintsFile
+                    # Quality should-fix (t/4884#10): capture the output instead of discarding
+                    # it, so a failure can say WHY (an index problem vs. a resolver conflict),
+                    # not just that it failed.
+                    $PipOutput = & $PythonCmd @PipArgs 2>&1
                     if ($LASTEXITCODE -eq 0) { $Ctx.Fixed++; Write-DepPass -Ctx $Ctx -Message 'Python requirements installed' }
-                    else { Write-DepFail -Ctx $Ctx -Message 'pip install failed' }
+                    else {
+                        $Tail = (@($PipOutput) | Select-Object -Last 5) -join ' | '
+                        Write-DepFail -Ctx $Ctx -Message "pip install failed: $Tail"
+                    }
                 }
                 else {
-                    $HintArgs = Get-DepPipInstallArgs -ReqFile 'scripts/requirements.txt' -ConstraintsFile 'scripts/pip-constraints.txt'
+                    $HintArgs = Get-DepPipInstallArgument -ReqFile 'scripts/requirements.txt' -ConstraintsFile 'scripts/pip-constraints.txt'
                     Write-DepSkip -Message "Run '$PythonCmd $($HintArgs -join ' ')'"
                 }
             }
