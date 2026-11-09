@@ -1227,9 +1227,21 @@ async function refreshCommunityOpedShareIfShared(id: string): Promise<void> {
     const existing = await getCommunityOpedShareEntry(id);
     if (!existing) return; // never shared — never create one here
     const lookup = await getCommunityOpEd(id);
-    if (!lookup.found) return; // can't re-read the just-renamed item; best-effort, no throw
+    if (!lookup.found) {
+      // Defensive: the rename that triggers this just wrote the item, so this "shouldn't"
+      // happen — but if it does, the public copy silently goes stale with no trace, which is
+      // exactly the bug class this follow-up exists to close. WARN rather than return quietly.
+      log.server.warn({ id, reason: lookup.reason }, 'Could not re-read a just-renamed community op-ed to refresh its public share (best-effort)');
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'community', level: 'warn',
+        message: `Could not re-read community op-ed ${id} to refresh its public share after rename — the public copy may show the old topic`,
+        error: { name: 'Error', message: `getCommunityOpEd: ${lookup.reason}`, stack: undefined },
+      });
+      return;
+    }
     await writePublicCommunityOpEd(lookup.item as unknown as CommunityOpEdItem, existing.shareId);
   } catch (err) {
+    log.server.warn({ id, err }, 'Failed to refresh the public share for a renamed community op-ed (best-effort)');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'community', level: 'warn',
       message: `Failed to refresh the public share for renamed community op-ed ${id} — the public copy may show the old topic until the next refresh`,

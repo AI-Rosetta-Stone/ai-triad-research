@@ -9,7 +9,7 @@
  * CAS so the retry-on-conflict path (TL t/4894#2 condition 3) can actually be exercised.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -18,6 +18,7 @@ import * as fileIO from '../storage/fileIO.js';
 import * as community from '../community/community.js';
 import * as userContext from '../security/userContext.js';
 import { resolveDataPath } from '../config.js';
+import { log } from '../logger.js';
 
 class CasMemBackend implements StorageBackend {
   files = new Map<string, string>();
@@ -278,7 +279,43 @@ describe('renaming a community Op-Ed refreshes its existing public share (t/4894
       return originalReadFile(p);
     }) as typeof mem.readFile;
 
-    await expect(rename('opeds', 'o3', 'New Topic')).resolves.toBeUndefined(); // does not throw
-    expect(JSON.parse(mem.files.get(itemPath)!).topic).toBe('New Topic'); // the rename still landed
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as never);
+    try {
+      await expect(rename('opeds', 'o3', 'New Topic')).resolves.toBeUndefined(); // does not throw
+      expect(JSON.parse(mem.files.get(itemPath)!).topic).toBe('New Topic'); // the rename still landed
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o3' }),
+        expect.stringContaining('Failed to refresh'),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('WARNs (not throws) when it cannot re-read the item to refresh it (defensive — the rename just wrote it)', async () => {
+    const itemPath = mem.normAbs(path.join(opedsDir(), 'oped-o4.json'));
+    await mem.writeFile(itemPath, JSON.stringify(minimalOpedItem('Old Topic')));
+    mem.files.set(registryPath(), JSON.stringify({ o4: { shareId: 'share-def', submittedBy: 'carol' } }));
+
+    // getCommunityOpEd reads via `readFile`; the rename's own CAS logic reads via
+    // `readFileWithVersion` — nulling only `readFile` for this exact path isolates the failure
+    // to the refresh's re-read without touching the rename itself.
+    const originalReadFile = mem.readFile.bind(mem);
+    mem.readFile = (async (p: string) => {
+      if (mem.normAbs(p) === itemPath) return null;
+      return originalReadFile(p);
+    }) as typeof mem.readFile;
+
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as never);
+    try {
+      await expect(rename('opeds', 'o4', 'New Topic')).resolves.toBeUndefined(); // does not throw
+      expect([...mem.files.keys()].some(k => k.includes('/public/opeds/'))).toBe(false); // never refreshed/created
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o4' }),
+        expect.stringContaining('Could not re-read'),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
