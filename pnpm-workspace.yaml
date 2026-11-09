@@ -38,7 +38,7 @@ overrides:
   # converge on the SAME version (a bare ">=" let the standalone lockfile the prod image uses
   # resolve fast-uri@4.1.4 / @xmldom@0.9.12 while root resolved 3.1.7 / 0.8.15 — prod would
   # then run code CI never verified). Relax a cap only with a deliberate major/minor upgrade.
-  fast-uri: ">=3.1.8 <4"
+  fast-uri: ">=3.1.9 <4"
   "@xmldom/xmldom": ">=0.8.15 <0.9"
   browserslist: ">=4.28.7"
   # Security bumps (t/3440 root + t/3441 taxonomy-editor, Dependabot #350/#346-348 + #351/#349/#343/#342).
@@ -54,7 +54,7 @@ overrides:
   # line-based and mis-reads any such line as an override entry (that caused the t/3440 gate red).
   hono: ">=4.13.5 <5"
   morgan: ">=1.12.1 <2"
-  joi: ">=18.2.6 <19"
+  joi: ">=18.3.1 <19"
   # Security bumps (Dependabot #354-#406, 2026-10-02). Raised in place above for axios (1.20.0),
   # brace-expansion (5.0.12), js-yaml (5.4.1), image-size (2.0.3), fast-uri (3.1.8), morgan (1.12.1)
   # and joi (18.2.6); each graph already sat on that major, so the caps cost no major jump. undici
@@ -62,11 +62,25 @@ overrides:
   # a plain key would collapse every consumer onto one major. Colon-space-free per t/3440.
   "@grpc/grpc-js": ">=1.14.5 <2"
   moment: ">=2.31.0 <3"
-  "undici@>=7.0.0 <7.29.1": ">=7.29.1 <7.30"
+  # Raised again at t/34 (Dependabot #429-436/#439-442/#448/#452-456/#459-462/#467). fast-uri to 3.1.9,
+  # joi to 18.3.1, and the undici 7.x selector to 7.30.1; the 6.x and 8.x lines stay outside every range.
+  "undici@>=7.0.0 <7.30.1": ">=7.30.1 <7.31"
   # http-cache-semantics closes GHSA-ch52-4w7c-c8xp (HIGH, max-stale cross-user cache disclosure,
   # vulnerable <=4.2.0; Dependabot #407/#408, t/3903). 4.3.0 (2026-10-04) is the first release past the
   # range even though the advisory lists no patched version yet. Capped to the 4.3 line per policy.
   http-cache-semantics: ">=4.3.0 <4.4.0"
+  # Dependabot PR A (t/34, 2026-11-09). Transitive copies of the express 5 request stack and friends; the
+  # standalone lockfile the prod image builds from had drifted below root on all five. Capped per t/3283.
+  # proxy-addr closes #417 (CRITICAL, GHSA-jqcg-44mw-7w3h, IP spoofing via IPv4-mapped IPv6).
+  proxy-addr: ">=2.0.8 <3"
+  # follow-redirects closes #425/#426/#464/#468 (GHSA-8r9p-f939-6h3c, GHSA-q3jh-wrc6-jgq8, GHSA-mrwp-f3q8-3g9p).
+  follow-redirects: ">=1.16.2 <2"
+  # body-parser closes #428 (GHSA-27r3-jxmh-p828, DoS).
+  body-parser: ">=2.4.0 <3"
+  # serialize-javascript closes #433/#443 (GHSA-m5mm-p8h7-m29v).
+  serialize-javascript: ">=7.1.3 <8"
+  # qs closes #450/#451 (GHSA-6pq8-jhm2-2vcw).
+  qs: ">=6.16.1 <7"
 
 allowBuilds:
   '@google/genai': true
