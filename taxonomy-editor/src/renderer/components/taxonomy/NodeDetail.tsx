@@ -47,7 +47,7 @@ import { NodeStatusBadge } from './DebateTestedChip';
 import { EvidenceGraphSection } from './EvidenceGraphSection';
 import { DebateTestedDrilldown } from './DebateTestedDrilldown';
 import { NodeDetailSteelmanTab } from './NodeDetailSteelmanTab';
-import { NodeDetailLineageTab } from './NodeDetailLineageTab';
+import { NodeDetailLineageTab, sortedLineageLabels } from './NodeDetailLineageTab';
 import './NodeDetail.css';
 
 interface NodeDetailProps {
@@ -136,16 +136,11 @@ function useTabGroupSwitch(tabGroup: NodeDetailTabGroup, activeTab: NodeDetailTa
 }
 
 /** Edit-history entry count for the History tab badge (extracted so the optional-chain access doesn't add to NodeDetail's own complexity count). */
-// t/4919: the lineage tab's default-expanded chip is the first entry in its own sort order
-// (alphabetical by label) — shared here so the default (NodeDetail) and the render
-// (NodeDetailLineageTab) never drift apart.
+// t/4919 (should-fix, TL review on #4648, p/356#162): the lineage tab's default-expanded chip
+// is the first entry in its own sort order — now actually shared via sortedLineageLabels
+// (NodeDetailLineageTab.tsx), not a second inline copy that could drift from it.
 function firstLineageLabel(node: PovNode): string | null {
-  const lineage = node.graph_attributes?.intellectual_lineage;
-  const names = (lineage ?? [])
-    .map(v => (typeof v === 'string' ? v : (v as { name?: string })?.name))
-    .filter((v): v is string => typeof v === 'string' && v.length > 0)
-    .sort((a, b) => a.localeCompare(b));
-  return names[0] ?? null;
+  return sortedLineageLabels(node)[0] ?? null;
 }
 
 function getEditHistoryLength(node: PovNode): number | undefined {

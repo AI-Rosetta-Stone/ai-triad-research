@@ -14,6 +14,17 @@ import { useLongPressContextMenu } from '../../hooks/useLongPressContextMenu';
 import { getLineageInfo } from '../../data/lineageLookup';
 import { EmptyState } from '../shared/EmptyState';
 
+/** t/4919 (TL review on #4648, p/356#162 should-fix): the tab's own sort order (alphabetical by
+ *  label) — exported so NodeDetail's default-expanded-chip logic reads the SAME order instead of
+ *  a second inline copy that could silently drift from this one. */
+export function sortedLineageLabels(node: PovNode): string[] {
+  const lineage = node.graph_attributes?.intellectual_lineage;
+  return [...(lineage ?? [])]
+    .map(v => (typeof v === 'string' ? v : (v as { name?: string })?.name))
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 interface NodeDetailLineageTabProps {
   node: PovNode;
   expandedLineage: string | null;
@@ -60,7 +71,7 @@ export function NodeDetailLineageTab({ node, expandedLineage, setExpandedLineage
   return (
     <div className="form-group">
       <div className="ga-promoted-list">
-        {[...lineage].map(v => typeof v === 'string' ? v : (v as { name?: string })?.name).filter((v): v is string => typeof v === 'string' && v.length > 0).sort((a, b) => a.localeCompare(b)).map((l, i) => (
+        {sortedLineageLabels(node).map((l, i) => (
           <LineageChip
             key={i}
             label={l}

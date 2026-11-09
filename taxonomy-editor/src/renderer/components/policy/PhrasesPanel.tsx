@@ -133,6 +133,12 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
   // t/4919: track which node we've already defaulted an archetype open for, so a re-render
   // with a new (but equal) `grouped` array doesn't reopen one the user collapsed.
   const defaultAppliedFor = useRef<string | null>(null);
+  // t/4919 fix (TL review on #4648, p/356#162): the node id `syntheticEntries`/`legacyPhrases`/
+  // `usingSynthetic` actually belong to. Right after `nodeId` changes, this effect hasn't run yet,
+  // so those still reflect the PREVIOUS node for one render — the default-expand effect below must
+  // gate on this, or it defaults open against stale data and marks the once-per-node guard
+  // "applied" for the new node, permanently blocking its real first archetype.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +152,7 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
           setSyntheticEntries(nodeEntries);
           setUsingSynthetic(true);
           setLoading(false);
+          setLoadedFor(nodeId);
           return;
         }
       }
@@ -154,6 +161,7 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
         setLegacyPhrases(legacy.filter(p => p.node_id === nodeId));
         setUsingSynthetic(false);
         setLoading(false);
+        setLoadedFor(nodeId);
       }
     }
 
@@ -162,6 +170,7 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
     setLegacyPhrases([]);
     setUsingSynthetic(false);
     setExpandedArchetypes(new Set());
+    setLoadedFor(null);
     defaultAppliedFor.current = null;
     void load();
     return () => { cancelled = true; };
@@ -183,13 +192,14 @@ export function PhrasesPanel({ nodeId }: { nodeId: string }) {
   }, [syntheticEntries, usingSynthetic]);
 
   // t/4919: default the first archetype open, once per node, only on the synthetic-corpus path
-  // (the legacy fallback renders a flat list with nothing to expand).
+  // (the legacy fallback renders a flat list with nothing to expand). `loadedFor === nodeId`
+  // guards against the stale render right after a node switch (fix, p/356#162).
   useEffect(() => {
-    if (usingSynthetic && grouped && grouped.length > 0 && defaultAppliedFor.current !== nodeId) {
+    if (loadedFor === nodeId && usingSynthetic && grouped && grouped.length > 0 && defaultAppliedFor.current !== nodeId) {
       setExpandedArchetypes(new Set([grouped[0][0]]));
       defaultAppliedFor.current = nodeId;
     }
-  }, [usingSynthetic, grouped, nodeId]);
+  }, [loadedFor, usingSynthetic, grouped, nodeId]);
 
   const toggleArchetype = useCallback((archetype: string) => {
     setExpandedArchetypes(prev => {
