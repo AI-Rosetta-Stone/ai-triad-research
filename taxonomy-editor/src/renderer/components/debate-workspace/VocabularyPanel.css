@@ -191,15 +191,6 @@ a.vocab-term,
   flex-wrap: wrap;
 }
 
-.vocab-active-badge {
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--focus-ring, #3b82f6);
-  flex-shrink: 0;
-}
-
 .vocab-def-link {
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -236,12 +227,46 @@ a.vocab-term,
   color: var(--text-secondary);
 }
 
-.vocab-def-link-solo {
+/* t/38: each term card reads quote → speaker's view → other POVs' views. */
+.vocab-section {
+  margin-top: 6px;
+}
+
+.vocab-section-label {
+  margin-left: 12px;
+  font-size: var(--text-2xs);
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  color: var(--text-primary);
-  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.vocab-section-label .vocab-def-camp {
+  font-size: inherit;
+}
+
+.vocab-pov-group {
+  margin-top: 2px;
+}
+
+.vocab-pov-group-label {
+  margin-left: 20px;
+  margin-top: 4px;
+}
+
+.vocab-pov-group .vocab-def {
+  margin-left: 20px;
+}
+
+.vocab-def-camp-none {
+  color: var(--text-muted);
+}
+
+.vocab-def-missing {
+  font-size: var(--text-md);
+  margin-top: 2px;
+  font-style: italic;
+  color: var(--text-muted);
 }
 
 .vocab-ambiguous-when {

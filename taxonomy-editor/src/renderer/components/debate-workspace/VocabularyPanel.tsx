@@ -101,59 +101,132 @@ export function LineageTermsView({ content }: { content: string }) {
   );
 }
 
-function VocabDefRow({ rt, resolved, defLookup, navigateToLineage }: {
-  rt: { standardized_term: string; when: string; default_for_camp?: string };
-  resolved?: string;
-  defLookup?: Map<string, { display: string; definition: string }>;
+type VocabSense = { standardized_term: string; when: string; default_for_camp?: string };
+type VocabDefLookup = Map<string, { display: string; definition: string }>;
+
+const POV_ORDER = ['accelerationist', 'safetyist', 'skeptic'];
+
+function povLabel(pov: string): string {
+  return pov.charAt(0).toUpperCase() + pov.slice(1);
+}
+
+function VocabPovLabel({ pov }: { pov: string }) {
+  return (
+    <span
+      className="vocab-def-camp"
+      // eslint-disable-next-line local/no-inline-style -- color pulled from POV_COLOR_VAR lookup at runtime
+      style={{ color: POV_COLOR_VAR[pov] ?? 'var(--text-muted)' }}
+    >
+      {povLabel(pov)}
+    </span>
+  );
+}
+
+function VocabDefRow({ rt, active, defLookup, navigateToLineage }: {
+  rt: VocabSense;
+  active?: boolean;
+  defLookup?: VocabDefLookup;
   navigateToLineage: (value: string) => void;
 }) {
-  const isHighlighted = resolved != null && rt.standardized_term === resolved;
   const def = defLookup?.get(rt.standardized_term);
   const displayText = def?.display ?? rt.standardized_term;
   return (
-    <div className={isHighlighted ? 'vocab-def vocab-def-active' : 'vocab-def'}>
+    <div className={active ? 'vocab-def vocab-def-active' : 'vocab-def'}>
       <div className="vocab-def-header">
-        {isHighlighted && (
-          <span className="vocab-active-badge">
-            active
-          </span>
-        )}
         <a
           href="#"
-          className={isHighlighted ? 'vocab-def-link vocab-def-link-active' : 'vocab-def-link'}
+          className={active ? 'vocab-def-link vocab-def-link-active' : 'vocab-def-link'}
           title={`Go to "${displayText}" in Lineage Panel`}
           onClick={(ev) => { ev.preventDefault(); navigateToLineage(rt.standardized_term); }}
         >
           {displayText}
         </a>
         {rt.when && <span className="vocab-def-when">{rt.when}</span>}
-        {rt.default_for_camp && (
-          <span
-            className="vocab-def-camp"
-            // eslint-disable-next-line local/no-inline-style -- color pulled from POV_COLOR_VAR lookup at runtime
-            style={{ color: POV_COLOR_VAR[rt.default_for_camp] ?? 'var(--text-muted)' }}
-          >
-            {rt.default_for_camp}
-          </span>
-        )}
       </div>
-      {def?.definition && (
-        <div className={isHighlighted ? 'vocab-def-text vocab-def-text-active' : 'vocab-def-text'}>
+      {def?.definition ? (
+        <div className={active ? 'vocab-def-text vocab-def-text-active' : 'vocab-def-text'}>
           {def.definition}
         </div>
+      ) : (
+        <div className="vocab-def-missing">No definition in the dictionary</div>
       )}
     </div>
   );
 }
 
-export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLineage, sourceSentence }: {
+/** Groups senses by POV in POV_ORDER, then any other camps, then senses with no camp. */
+function groupSensesByPov(senses: VocabSense[]): { pov?: string; senses: VocabSense[] }[] {
+  const byPov = new Map<string, VocabSense[]>();
+  const unlabelled: VocabSense[] = [];
+  for (const rt of senses) {
+    if (!rt.default_for_camp) { unlabelled.push(rt); continue; }
+    const list = byPov.get(rt.default_for_camp) ?? [];
+    list.push(rt);
+    byPov.set(rt.default_for_camp, list);
+  }
+  const povs = [...byPov.keys()].sort((a, b) => {
+    const ia = POV_ORDER.indexOf(a), ib = POV_ORDER.indexOf(b);
+    return (ia === -1 ? POV_ORDER.length : ia) - (ib === -1 ? POV_ORDER.length : ib) || a.localeCompare(b);
+  });
+  const groups: { pov?: string; senses: VocabSense[] }[] = povs.map(pov => ({ pov, senses: byPov.get(pov)! }));
+  if (unlabelled.length > 0) groups.push({ senses: unlabelled });
+  return groups;
+}
+
+function VocabOwnSense({ sense, pov, defLookup, navigateToLineage }: {
+  sense: VocabSense;
+  pov?: string;
+  defLookup?: VocabDefLookup;
+  navigateToLineage: (value: string) => void;
+}) {
+  return (
+    <div className="vocab-section vocab-section-own">
+      <div className="vocab-section-label">
+        {pov ? <><VocabPovLabel pov={pov} /> view</> : 'Speaker’s view'}
+      </div>
+      <VocabDefRow rt={sense} active defLookup={defLookup} navigateToLineage={navigateToLineage} />
+    </div>
+  );
+}
+
+function VocabOtherSenses({ label, senses, defLookup, navigateToLineage }: {
+  label: string;
+  senses: VocabSense[];
+  defLookup?: VocabDefLookup;
+  navigateToLineage: (value: string) => void;
+}) {
+  return (
+    <div className="vocab-section vocab-section-other">
+      <div className="vocab-section-label">{label}</div>
+      {groupSensesByPov(senses).map((g, gi) => (
+        <div key={g.pov ?? `other-${gi}`} className="vocab-pov-group">
+          <div className="vocab-pov-group-label">
+            {g.pov ? <VocabPovLabel pov={g.pov} /> : <span className="vocab-def-camp vocab-def-camp-none">Other sense</span>}
+          </div>
+          {g.senses.map((rt, j) => (
+            <VocabDefRow key={j} rt={rt} defLookup={defLookup} navigateToLineage={navigateToLineage} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLineage, sourceSentence, speakerPov }: {
   bare: string;
-  dict?: { resolves_to: { standardized_term: string; when: string; default_for_camp?: string }[]; ambiguous_when?: string[] };
+  dict?: { resolves_to: VocabSense[]; ambiguous_when?: string[] };
   resolved?: string;
-  defLookup?: Map<string, { display: string; definition: string }>;
+  defLookup?: VocabDefLookup;
   navigateToLineage: (value: string) => void;
   sourceSentence?: string;
+  /** The speaker's POV (e.g. 'accelerationist'); labels the own-view section. */
+  speakerPov?: string;
 }) {
+  const senses = dict?.resolves_to ?? [];
+  const ownSense: VocabSense | undefined = resolved
+    ? senses.find(rt => rt.standardized_term === resolved) ?? { standardized_term: resolved, when: '' }
+    : undefined;
+  const otherSenses = ownSense ? senses.filter(rt => rt.standardized_term !== resolved) : senses;
   return (
     <div className="vocab-term-card">
       <div className="vocab-term-name">{bare}</div>
@@ -162,34 +235,17 @@ export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLinea
           &ldquo;{sourceSentence}&rdquo;
         </div>
       )}
-      {dict?.resolves_to.map((rt, j) => (
-        <VocabDefRow key={j} rt={rt} resolved={resolved} defLookup={defLookup} navigateToLineage={navigateToLineage} />
-      ))}
-      {!dict && resolved && (() => {
-        const def = defLookup?.get(resolved);
-        return (
-          <div className="vocab-def vocab-def-active">
-            <div className="vocab-def-header">
-              <span className="vocab-active-badge">
-                active
-              </span>
-              <a
-                href="#"
-                className="vocab-def-link-solo"
-                title={`Go to "${def?.display ?? resolved}" in Lineage Panel`}
-                onClick={(ev) => { ev.preventDefault(); navigateToLineage(resolved); }}
-              >
-                {def?.display ?? resolved}
-              </a>
-            </div>
-            {def?.definition && (
-              <div className="vocab-def-text vocab-def-text-active">
-                {def.definition}
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {ownSense && (
+        <VocabOwnSense sense={ownSense} pov={speakerPov ?? ownSense.default_for_camp} defLookup={defLookup} navigateToLineage={navigateToLineage} />
+      )}
+      {otherSenses.length > 0 && (
+        <VocabOtherSenses
+          label={ownSense ? 'Other POVs’ views' : 'Candidate senses'}
+          senses={otherSenses}
+          defLookup={defLookup}
+          navigateToLineage={navigateToLineage}
+        />
+      )}
       {dict?.ambiguous_when && dict.ambiguous_when.length > 0 && (
         <div className="vocab-ambiguous-when">
           Ambiguous when: {dict.ambiguous_when.join('; ')}
@@ -199,10 +255,12 @@ export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLinea
   );
 }
 
-export function VocabTermsView({ resolutions, ambiguities, statementText }: {
+export function VocabTermsView({ resolutions, ambiguities, statementText, speakerPov }: {
   resolutions: VocabResolution[];
   ambiguities?: { colloquial: string; offset?: number }[];
   statementText?: string;
+  /** The speaker's POV (e.g. 'accelerationist'); labels each card's own-view section. */
+  speakerPov?: string;
 }) {
   const vocabTerms = useDebateStore(s => s.vocabularyTerms?.colloquial);
   const stdTerms = useDebateStore(s => s.vocabularyTerms?.standardized);
@@ -210,24 +268,25 @@ export function VocabTermsView({ resolutions, ambiguities, statementText }: {
 
   // Build lookup from full dictionary (shared between entries and ambiguities)
   const dictLookup = useMemo(() => {
-    const lookup = new Map<string, { resolves_to: { standardized_term: string; when: string; default_for_camp?: string }[]; ambiguous_when?: string[] }>();
+    const lookup = new Map<string, { resolves_to: VocabSense[]; ambiguous_when?: string[] }>();
     if (vocabTerms) {
       for (const ct of vocabTerms) {
-        const entry = ct as { colloquial_term: string; resolves_to: { standardized_term: string; when: string; default_for_camp?: string }[]; translation_ambiguous_when?: string[] };
+        const entry = ct as { colloquial_term: string; resolves_to: VocabSense[]; translation_ambiguous_when?: string[] };
         lookup.set(entry.colloquial_term.toLowerCase(), { resolves_to: entry.resolves_to, ambiguous_when: entry.translation_ambiguous_when });
       }
     }
     return lookup;
   }, [vocabTerms]);
 
-  // Build canonical_form → definition lookup from standardized terms
+  // Build canonical_form → definition lookup from standardized terms. Terms without a
+  // definition keep their display form; VocabDefRow marks the missing definition (t/38).
   const defLookup = useMemo(() => {
-    const lookup = new Map<string, { display: string; definition: string }>();
+    const lookup: VocabDefLookup = new Map();
     if (stdTerms) {
       for (const st of stdTerms) {
-        const entry = st as { canonical_form: string; display_form: string; definition: string };
-        if (entry.canonical_form && entry.definition) {
-          lookup.set(entry.canonical_form, { display: entry.display_form, definition: entry.definition });
+        const entry = st as { canonical_form: string; display_form?: string; definition?: string };
+        if (entry.canonical_form) {
+          lookup.set(entry.canonical_form, { display: entry.display_form || entry.canonical_form, definition: entry.definition ?? '' });
         }
       }
     }
@@ -264,15 +323,27 @@ export function VocabTermsView({ resolutions, ambiguities, statementText }: {
         )}
       </div>
       {entries.map((e, i) => (
-        <VocabTermCard key={i} bare={e.bare} dict={e.dict} resolved={e.resolved} defLookup={defLookup} navigateToLineage={navigateToLineage} sourceSentence={e.sourceSentence} />
+        <VocabTermCard key={i} bare={e.bare} dict={e.dict} resolved={e.resolved} defLookup={defLookup} navigateToLineage={navigateToLineage} sourceSentence={e.sourceSentence} speakerPov={speakerPov} />
       ))}
       {ambiguities && ambiguities.length > 0 && (() => {
-        const uniqueTerms = [...new Set(ambiguities.map(a => a.colloquial))].sort((a, b) => a.localeCompare(b));
+        // First occurrence of each term supplies the offset for its quote.
+        const firstByTerm = new Map<string, { colloquial: string; offset?: number }>();
+        for (const a of ambiguities) {
+          if (!firstByTerm.has(a.colloquial)) firstByTerm.set(a.colloquial, a);
+        }
+        const uniqueTerms = [...firstByTerm.keys()].sort((a, b) => a.localeCompare(b));
         return (
           <div className="vocab-ambiguous-block">
             <div className="vocab-ambiguous-header">Ambiguous meaning — could be any of these:</div>
             {uniqueTerms.map((term, i) => (
-              <VocabTermCard key={i} bare={term} dict={dictLookup.get(term.toLowerCase())} defLookup={defLookup} navigateToLineage={navigateToLineage} />
+              <VocabTermCard
+                key={i}
+                bare={term}
+                dict={dictLookup.get(term.toLowerCase())}
+                defLookup={defLookup}
+                navigateToLineage={navigateToLineage}
+                sourceSentence={statementText ? extractSentence(statementText, term, firstByTerm.get(term)?.offset) : undefined}
+              />
             ))}
           </div>
         );

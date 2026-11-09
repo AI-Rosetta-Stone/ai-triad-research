@@ -719,7 +719,7 @@ function StatementBody({
       )}
       {displayedTier === 'terms' && hasVocab ? (
         <div className="debate-statement-content">
-          <VocabTermsView resolutions={vocabResolutions} ambiguities={meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined} statementText={entry.content} />
+          <VocabTermsView resolutions={vocabResolutions} ambiguities={meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined} statementText={entry.content} speakerPov={povToCamp(entry.speaker) ? entry.speaker : undefined} />
         </div>
       ) : displayedTier === 'lineage' ? (
         <div className="debate-statement-content">
