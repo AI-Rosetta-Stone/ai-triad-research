@@ -159,7 +159,6 @@ function projectSynthesis(data: Record<string, unknown> | undefined): Record<str
 function buildSnapshot(debateId: string, session: Record<string, unknown>): DebateSnapshot {
   const rawTranscript = Array.isArray(session.transcript) ? session.transcript as Record<string, unknown>[] : [];
   const transcript = rawTranscript.map(projectTranscriptEntry);
-  const degraded = rawTranscript.some(e => e.degraded === true);
 
   let synthesisData: Record<string, unknown> | undefined;
   for (const entry of rawTranscript) {
@@ -169,6 +168,10 @@ function buildSnapshot(debateId: string, session: Record<string, unknown>): Deba
       break;
     }
   }
+
+  // t/4930: a synthesis whose JSON was only partially recovered carries `degraded: true`
+  // (t/4929, synthesisPhases.ts) even when every transcript entry is clean.
+  const degraded = rawTranscript.some(e => e.degraded === true) || synthesisData?.degraded === true;
 
   const topic = session.topic as { final?: string } | undefined;
 
