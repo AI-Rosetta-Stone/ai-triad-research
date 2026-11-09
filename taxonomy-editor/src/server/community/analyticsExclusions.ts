@@ -60,8 +60,10 @@ const STAGING_LEAK_SMOKE_SESSIONS: readonly string[] = [
   'smoke-1793658936113',
 ];
 
-/** 159 PI-test sessions (t/4960#4: anon ids co-occurring with a PI signed-in account). */
+/** 160 PI-test sessions (t/4960#4: anon ids co-occurring with a PI signed-in account; +1
+ *  delta at t/4960#7 after the PI confirmed more of their own accounts). */
 const PI_TEST_SESSIONS: readonly string[] = [
+  '4589c3e1-81b5-4eb8-ab6b-9dc7f785ab7f', // t/4960#7 delta
   '02f24e1b-d640-48cd-8562-79387e87a42f', '042ddc5e-585f-41a6-ab6e-583b2c5d39ce',
   '066b1f3c-f2aa-4af4-ac69-2a3232128b8d', '07e36d59-9ace-4a0b-ac6c-3f808229f5db',
   '0b48bc6f-4e0b-4949-b0f3-e9582676a1c8', '0ec0b09e-3222-4c10-b450-feec8f1f250e',

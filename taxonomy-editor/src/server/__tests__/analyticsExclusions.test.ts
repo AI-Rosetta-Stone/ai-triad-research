@@ -37,7 +37,7 @@ describe('analytics exclusion mechanism (t/4960)', () => {
   it('the frozen lists are non-empty and have the expected class sizes (sanity)', () => {
     const reasons = [...ANALYTICS_EXCLUDED_SESSIONS.values()];
     expect(reasons.filter(r => r === 'staging-leak').length).toBe(20); // 14 user + 6 smoke
-    expect(reasons.filter(r => r === 'pi-test').length).toBe(159);
+    expect(reasons.filter(r => r === 'pi-test').length).toBe(160); // 159 + t/4960#7 delta
     expect(ANALYTICS_AMBIGUOUS_SESSIONS.size).toBe(2);
   });
 
