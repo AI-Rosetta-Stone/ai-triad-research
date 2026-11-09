@@ -16,13 +16,18 @@ import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace } from '../../
 import { getLastVariant, setLastVariant } from '../../navigation/lastVariant';
 import { useResizableColumns, type ResizableSpec, type ResizeHandleProps } from './useResizableColumns';
 import { RemoveConfirmPopover } from '../community/CommunityLibrary'; // t/4898: admin delete confirm, reused
+import { runRowAdminDelete, useCommunityBulkMode, type RowSelection } from './LibraryCommunityBulkDelete'; // t/49
 import type {
-  LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
+  LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction, LibraryEditModeAction,
 } from './LibraryListPage.types';
 import './LibraryListPage.css';
 
 const ACTIONS_COL_WIDTH = '150px'; // every page's spec table uses 150 for the actions column
 const CHECKBOX_COL_WIDTH = '28px';
+const TOAST_MS = 1800;
+// t/49: an error or a bulk-delete summary has to stay up long enough to read.
+const ERROR_TOAST_MS = 6000;
+
 
 type SortDir = 'asc' | 'desc' | 'none';
 interface SortState { key: string | null; dir: SortDir; }
@@ -315,11 +320,12 @@ function OpenInWindowButton({ place, title }: { place: ItemPlace; title: string 
 // delete icon with no confirm. Both no-ops unless the page supplies the callback AND the viewer
 // is an admin.
 function AdminRowActions<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, variant, config,
+  row, variant, config, toast,
 }: {
   row: TMy | TCommunity;
   variant: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
+  toast: (msg: string, ms?: number) => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   if (variant !== 'community') return null;
@@ -358,7 +364,10 @@ function AdminRowActions<TMy extends { id: string }, TCommunity extends { id: st
               onCancel={() => setConfirmingDelete(false)}
               onConfirm={(reason) => {
                 setConfirmingDelete(false);
-                config.adminDelete?.(row as TCommunity, reason || undefined);
+                if (!config.adminDelete) return;
+                // t/49: awaited and caught inside runRowAdminDelete, so a rethrowing tab never
+                // produces an unhandled rejection, and the one error message comes from here.
+                void runRowAdminDelete(row as TCommunity, config.adminDelete, reason || undefined, title, msg => toast(msg, ERROR_TOAST_MS));
               }}
             />
           )}
@@ -374,7 +383,7 @@ function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id:
   row: TMy | TCommunity;
   variant: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
-  toast: (msg: string) => void;
+  toast: (msg: string, ms?: number) => void;
   menuOpen: boolean;
   setMenuOpen: (open: boolean) => void;
   isAdmin: boolean;
@@ -405,7 +414,7 @@ function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id:
           Copy
         </button>
       )}
-      {isAdmin && <AdminRowActions row={row} variant={variant} config={config} />}
+      {isAdmin && <AdminRowActions row={row} variant={variant} config={config} toast={toast} />}
     </div>
   );
 }
@@ -479,10 +488,13 @@ function HeaderCell({
 // ── Header row 1: title + Edit/bulk-actions + New (extracted to keep the shell's complexity down) ──
 
 function HeaderRow1<TMy extends { id: string }, TCommunity extends { id: string }>({
-  config, editModeActive, canShowEdit,
+  config, editModeActive, canShowEdit, editActions,
 }: {
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   editModeActive: boolean;
+  /** t/49: the page's own descriptors on My; LibraryListPage's community set (All/None/Delete N/
+   *  Done) while an admin edits Community. */
+  editActions: LibraryEditModeAction[];
   /** t/4643: config.showEdit narrowed by (listView !== 'community' || isAdmin) — computed by
    *  the parent, since this component doesn't know the active tab or admin status itself. */
   canShowEdit: boolean;
@@ -496,7 +508,7 @@ function HeaderRow1<TMy extends { id: string }, TCommunity extends { id: string 
         )}
         {canShowEdit && editModeActive && config.editMode && (
           <div className="lib-editmode-actions">
-            {config.editMode.actions.map(a => (
+            {editActions.map(a => (
               <button
                 key={a.label}
                 type="button"
@@ -633,16 +645,18 @@ function GridHeaderRow<TMy extends { id: string }, TCommunity extends { id: stri
 // ── Body row (extracted to keep the shell's complexity down) ──
 
 function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, listView, config, editModeActive, openRow, showToast, isAdmin,
+  row, listView, config, selection, openRow, showToast, isAdmin,
 }: {
   row: TMy | TCommunity;
   listView: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
-  editModeActive: boolean;
+  /** t/49: non-null while rows are selectable (edit mode on My, or admin bulk mode on Community). */
+  selection: RowSelection | null;
   openRow: (id: string) => void;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, ms?: number) => void;
   isAdmin: boolean;
 }) {
+  const editModeActive = selection !== null;
   // t/4689: Ctrl/Cmd-click or middle-click opens the row in a new window/tab instead of
   // navigating in place — same gate (`openablePlace`) as the ⧉ button, so the two never
   // disagree. Middle-click fires onAuxClick (button 1), never onClick, in every browser.
@@ -661,7 +675,7 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
       tabIndex={0}
       onClick={e => {
         if (openInWindowIfModified(e)) return;
-        if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id);
+        if (selection) selection.toggle(row.id); else openRow(row.id);
       }}
       onAuxClick={e => {
         if (e.button !== 1 || editModeActive) return;
@@ -674,13 +688,13 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
         openRow(row.id);
       }}
     >
-      {editModeActive && (
+      {selection && (
         <div className="lib-cell lib-col-cb" role="cell" onClick={e => e.stopPropagation()}>
           <input
             type="checkbox"
             aria-label={`Select ${config.getTitle(row, listView)}`}
-            checked={config.editMode!.selectedIds.has(row.id)}
-            onChange={() => config.editMode!.onToggleSelect(row.id)}
+            checked={selection.ids.has(row.id)}
+            onChange={() => selection.toggle(row.id)}
           />
         </div>
       )}
@@ -885,15 +899,17 @@ function PhoneActionsMenu<TMy extends { id: string }, TCommunity extends { id: s
 // ── Phone layout: list item (t/4571) ──
 
 function PhoneListRow<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, listView, config, editModeActive, openRow, showToast,
+  row, listView, config, selection, openRow, showToast,
 }: {
   row: TMy | TCommunity;
   listView: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
-  editModeActive: boolean;
+  /** t/49: same contract as BodyRow's. */
+  selection: RowSelection | null;
   openRow: (id: string) => void;
   showToast: (msg: string) => void;
 }) {
+  const editModeActive = selection !== null;
   const metaColumns = config.columns.filter(c => c.phone === 'meta');
   const metaParts = metaColumns.map(c => c.render(row, listView));
 
@@ -902,20 +918,20 @@ function PhoneListRow<TMy extends { id: string }, TCommunity extends { id: strin
       className="lib-phone-item"
       role="listitem"
       tabIndex={0}
-      onClick={() => { if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id); }}
+      onClick={() => { if (selection) selection.toggle(row.id); else openRow(row.id); }}
       onKeyDown={e => {
         if (e.key !== 'Enter' || editModeActive) return;
         e.preventDefault();
         openRow(row.id);
       }}
     >
-      {editModeActive && (
+      {selection && (
         <input
           type="checkbox"
           className="lib-phone-checkbox"
           aria-label={`Select ${config.getTitle(row, listView)}`}
-          checked={config.editMode!.selectedIds.has(row.id)}
-          onChange={() => config.editMode!.onToggleSelect(row.id)}
+          checked={selection.ids.has(row.id)}
+          onChange={() => selection.toggle(row.id)}
           onClick={e => e.stopPropagation()}
         />
       )}
@@ -943,12 +959,12 @@ function PhoneListRow<TMy extends { id: string }, TCommunity extends { id: strin
 // ── Phone layout: list wrapper (t/4571) ──
 
 function PhoneListView<TMy extends { id: string }, TCommunity extends { id: string }>({
-  sortedRows, listView, config, editModeActive, openRow, showToast, loading, hasRows, hasQuery,
+  sortedRows, listView, config, selection, openRow, showToast, loading, hasRows, hasQuery,
 }: {
   sortedRows: (TMy | TCommunity)[];
   listView: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
-  editModeActive: boolean;
+  selection: RowSelection | null;
   openRow: (id: string) => void;
   showToast: (msg: string) => void;
   loading: boolean;
@@ -974,7 +990,7 @@ function PhoneListView<TMy extends { id: string }, TCommunity extends { id: stri
           row={row}
           listView={listView}
           config={config}
-          editModeActive={editModeActive}
+          selection={selection}
           openRow={openRow}
           showToast={showToast}
         />
@@ -1052,9 +1068,9 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
     }
   }, [listView, isAdmin, config.editMode?.active]);
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, ms: number = TOAST_MS) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 1800);
+    setTimeout(() => setToastMsg(null), ms);
   }, []);
 
   const rows = listView === 'my' ? myRows : communityRows;
@@ -1084,6 +1100,14 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   // tool that turns on config.showEdit later inherits the rule automatically.
   const canShowEdit = canShowEditFor(!!config.showEdit, listView, isAdmin);
 
+  // t/49 (PI option A on t/44): admin multi-select + bulk admin-delete on Community. The whole
+  // decision lives in the hook (LibraryCommunityBulkDelete.tsx) to keep this component's
+  // complexity flat; My-tab edit mode passes through unchanged.
+  const { selecting, selection, editActions, bulkDialog } = useCommunityBulkMode({
+    config, listView, isAdmin, editModeActive, communityRows, visibleRows: sortedRows,
+    showSummary: (msg: string) => showToast(msg, ERROR_TOAST_MS),
+  });
+
   // t/4830: opt-in resizable columns — 'title' for config.titleResizable, col.key for each
   // LibraryColumn.resizable. A page with neither (every page before this ticket) gets an empty
   // `specs` map, so `widths` is always `{}` and gridCols below is byte-for-byte unchanged.
@@ -1094,7 +1118,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   const { widths: columnWidths, registerCell, getHandleProps } = useResizableColumns(restoreKey, resizableSpecs);
 
   const gridCols = [
-    editModeActive ? CHECKBOX_COL_WIDTH : null,
+    selecting ? CHECKBOX_COL_WIDTH : null,
     resolvedColWidth(columnWidths.title, '1fr'),
     ...config.columns.map(c => resolvedColWidth(columnWidths[c.key], c.width)),
     ACTIONS_COL_WIDTH,
@@ -1105,7 +1129,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 
   return (
     <div className="library-list-page" data-action-visibility={actionVisibility}>
-      <HeaderRow1 config={config} editModeActive={editModeActive} canShowEdit={canShowEdit} />
+      <HeaderRow1 config={config} editModeActive={editModeActive} canShowEdit={canShowEdit} editActions={editActions} />
 
       {intro}
 
@@ -1128,7 +1152,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
             sortedRows={sortedRows}
             listView={listView}
             config={config}
-            editModeActive={editModeActive}
+            selection={selection}
             openRow={openRow}
             showToast={showToast}
             loading={loading}
@@ -1144,7 +1168,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
             config={config}
             sort={sort}
             onSort={onSort}
-            editModeActive={editModeActive}
+            editModeActive={selecting}
             columnWidths={columnWidths}
             registerCell={registerCell}
             getHandleProps={getHandleProps}
@@ -1153,11 +1177,13 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
           <EmptyStateRow loading={loading} hasSortedRows={sortedRows.length > 0} hasRows={rows.length > 0} hasQuery={!!q} query={searchQuery} emptyLabel={emptyLabel} />
 
           {sortedRows.map(row => (
-            <BodyRow key={row.id} row={row} listView={listView} config={config} editModeActive={editModeActive} openRow={openRow} showToast={showToast} isAdmin={isAdmin} />
+            <BodyRow key={row.id} row={row} listView={listView} config={config} selection={selection} openRow={openRow} showToast={showToast} isAdmin={isAdmin} />
           ))}
         </div>
       </div>
       )}
+
+      {bulkDialog}
 
       {toastMsg && <div className="lib-toast" role="status">{toastMsg}</div>}
     </div>

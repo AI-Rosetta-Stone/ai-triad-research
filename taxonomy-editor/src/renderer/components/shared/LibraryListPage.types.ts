@@ -207,7 +207,11 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
    *  delete icon with no confirm. The page owns the actual API calls (both typically delegate to
    *  useCommunityStore's renameItem/removeItem). */
   adminRename?: (row: TCommunity, title: string) => void;
-  adminDelete?: (row: TCommunity, reason?: string) => void;
+  /** t/49 (TL t/44#3): return the delete's promise and let it reject on failure. LibraryListPage
+   *  awaits it to report per-row and bulk outcomes and owns the user-facing message, so the page
+   *  should record and rethrow rather than flash its own. A page that still returns void works,
+   *  but its bulk outcome reads "Delete requested", never "Deleted". */
+  adminDelete?: (row: TCommunity, reason?: string) => void | Promise<unknown>;
 }
 
 export interface LibraryListPageProps<TMy extends { id: string }, TCommunity extends { id: string }> {

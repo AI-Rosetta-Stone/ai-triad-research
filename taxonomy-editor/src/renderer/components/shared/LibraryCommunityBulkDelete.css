@@ -1,0 +1,46 @@
+/* t/49: bulk admin-delete confirm on the Community tab. Same tokens as the per-row
+   RemoveConfirmPopover (CommunityLibrary.css) so the two confirms read as one family. */
+
+.lib-bulk-delete-dialog {
+  max-width: 480px;
+}
+
+.lib-bulk-delete-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: var(--sp-2) 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.lib-bulk-delete-item {
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lib-bulk-delete-item:last-child {
+  border-bottom: none;
+}
+
+.lib-bulk-delete-reason {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  margin-bottom: var(--sp-3);
+}
+
+.lib-bulk-delete-result {
+  margin-top: var(--sp-2);
+}
