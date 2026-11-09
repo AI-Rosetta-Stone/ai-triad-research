@@ -140,6 +140,50 @@ Describe 'Get-DepPipFailureClass (t/4884, Quality must-fix at t/4884#10)' -Tag '
             Get-DepPipFailureClass -Output @('some entirely unrelated pip output this classifier has never seen') | Should -Be 'NetworkError'
         }
     }
+
+    It 'does not throw on output containing a blank line (real pip output has one)' {
+        InModuleScope AITriad {
+            { Get-DepPipFailureClass -Output @('ERROR: ResolutionImpossible', '', 'some trailing line') } | Should -Not -Throw
+        }
+    }
+}
+
+Describe 'Test-DepPipWouldInstall (t/4884, Quality changes-requested round 2, p/678#233)' -Tag 'summary' {
+
+    It 'matches when the pinned spec is the ONLY thing on the Would-install line' {
+        InModuleScope AITriad {
+            Test-DepPipWouldInstall -Output @('Would install torch-2.15.0+cpu') -PinnedSpec 'torch==2.15.0+cpu' |
+                Should -BeTrue
+        }
+    }
+
+    It 'matches when the pinned spec is listed LAST, after its alphabetically-earlier dependencies (the exact CI failure shape)' {
+        InModuleScope AITriad {
+            Test-DepPipWouldInstall -Output @('Would install fsspec-2026.9.0 mpmath-1.3.0 networkx-3.7 sympy-1.14.0 torch-2.15.0+cpu') -PinnedSpec 'torch==2.15.0+cpu' |
+                Should -BeTrue -Because 'this is the exact line pip printed on the CI runner, where none of torch''s dependencies were already installed'
+        }
+    }
+
+    It 'does NOT match when the spec is genuinely absent' {
+        InModuleScope AITriad {
+            Test-DepPipWouldInstall -Output @('Would install fsspec-2026.9.0 mpmath-1.3.0') -PinnedSpec 'torch==2.15.0+cpu' |
+                Should -BeFalse
+        }
+    }
+
+    It 'handles real pip output containing a blank line without throwing (found live: PowerShell rejects a [Parameter(Mandatory)][string[]] array if ANY element is empty)' {
+        InModuleScope AITriad {
+            # pip's own --dry-run output has a blank line between "Would install ..." and its
+            # trailing "[notice]" lines -- a [Parameter(Mandatory)] array parameter REJECTS THE
+            # WHOLE ARRAY if any element is an empty string, which is exactly what broke this
+            # against real pip output (not against any of the hand-written literals above,
+            # which happened not to include one). -Output is deliberately not Mandatory here.
+            { Test-DepPipWouldInstall -Output @('Would install torch-2.15.0+cpu', '', '[notice] ...') -PinnedSpec 'torch==2.15.0+cpu' } |
+                Should -Not -Throw
+            Test-DepPipWouldInstall -Output @('Would install torch-2.15.0+cpu', '', '[notice] ...') -PinnedSpec 'torch==2.15.0+cpu' |
+                Should -BeTrue
+        }
+    }
 }
 
 Describe 'torch+cpu pin actually resolves (t/4884, TL ask: a test proving the pin resolves)' -Tag 'summary' {
@@ -166,7 +210,11 @@ Describe 'torch+cpu pin actually resolves (t/4884, TL ask: a test proving the pi
         }
     }
 
-    It 'pip resolves torch==<pinned>+cpu via --extra-index-url (dry-run, no install) on this machine' {
+    It 'pip resolves the pinned torch+cpu build via --extra-index-url (dry-run, no install) on this machine' {
+        # Nit (Quality, p/678#233): the original name used "torch==<pinned>+cpu" -- Pester
+        # treats <...> in an It name as a -ForEach/-TestCases template placeholder and expands
+        # an unmatched one to empty, rendering as "torch==+cpu". This test takes no -ForEach
+        # data, so the name is plain text with no angle brackets.
         if ($IsMacOS) {
             Set-ItResult -Skipped -Because 'no +cpu wheel exists for macOS at all -- this assertion does not apply there'
             return
@@ -186,14 +234,28 @@ Describe 'torch+cpu pin actually resolves (t/4884, TL ask: a test proving the pi
         $TorchSpec = $TorchLine.Trim()
 
         # --dry-run: resolves the dependency graph against the real index (network required)
-        # WITHOUT downloading or installing anything. This is the actual proof the pin
-        # resolves, not an assertion about which flags got passed.
+        # WITHOUT installing anything -- but it DOES still download the actual wheel to
+        # inspect it (Quality nit, p/678#233): torch+cpu is ~210 MB, observed taking ~1s on
+        # GitHub's network in CI, not blocking, but worth knowing if this test seems slow on a
+        # constrained connection. This is the actual proof the pin resolves, not an assertion
+        # about which flags got passed.
         $Output = & $script:PythonCmd -m pip install --dry-run --extra-index-url 'https://download.pytorch.org/whl/cpu' $TorchSpec 2>&1
         $ExitCode = $LASTEXITCODE
-        Write-Host "pip --dry-run output ($TorchSpec):`n$($Output -join "`n")"
+        # `2>&1` merges stderr into the pipeline as ErrorRecord-wrapped objects, not plain
+        # strings; stringify explicitly so what crosses into Test-DepPipWouldInstall /
+        # Get-DepPipFailureClass is always a plain [string[]].
+        $OutputLines = @($Output | ForEach-Object { $_.ToString() })
+        Write-Host "pip --dry-run output ($TorchSpec):`n$($OutputLines -join "`n")"
 
         if ($ExitCode -eq 0) {
-            $Output -join "`n" | Should -Match 'Would install torch' -Because 'a 0 exit from --dry-run should say what it would have installed'
+            # Quality changes-requested (p/678#233): pip lists installs alphabetically on one
+            # line -- torch is not always first (see Test-DepPipWouldInstall's own .DESCRIPTION
+            # for the exact failure this caused on CI). Match the spec anywhere in that line.
+            $Matched = InModuleScope AITriad -Parameters @{ PipOutputLines = $OutputLines; PinnedSpec = $TorchSpec } {
+                param($PipOutputLines, $PinnedSpec)
+                Test-DepPipWouldInstall -Output $PipOutputLines -PinnedSpec $PinnedSpec
+            }
+            $Matched | Should -BeTrue -Because "a 0 exit from --dry-run should list $TorchSpec somewhere in its 'Would install' line, regardless of alphabetical position"
             return
         }
 
@@ -203,7 +265,7 @@ Describe 'torch+cpu pin actually resolves (t/4884, TL ask: a test proving the pi
         # ResolutionFailure (pip genuinely couldn't resolve the pin) fails this test; a
         # classified NetworkError (or anything this classifier doesn't recognize) skips, with
         # the full output already printed above for a human to triage.
-        $FailureClass = InModuleScope AITriad -Parameters @{ Output = @($Output) } { param($Output) Get-DepPipFailureClass -Output $Output }
+        $FailureClass = InModuleScope AITriad -Parameters @{ PipOutputLines = $OutputLines } { param($PipOutputLines) Get-DepPipFailureClass -Output $PipOutputLines }
         if ($FailureClass -eq 'NetworkError') {
             Set-ItResult -Skipped -Because "pip --dry-run failed with a classified network error, not a resolution failure -- see the output above, not a pin regression"
             return

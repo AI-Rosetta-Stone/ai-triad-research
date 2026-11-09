@@ -28,8 +28,20 @@ function Get-DepPipFailureClass {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)][string[]]$Output
+        # Not [Parameter(Mandatory)]: PowerShell's mandatory-parameter check rejects the WHOLE
+        # array if ANY element is an empty string -- real failed-command output routinely has
+        # blank lines, which would reject every real caller. Validate non-null manually
+        # instead (same fix as Test-DepPipWouldInstall, found testing this one against it).
+        [string[]]$Output
     )
+
+    if ($null -eq $Output) {
+        throw (New-ActionableError -AsErrorRecord `
+            -Goal 'Classify a failed pip run as a resolution failure or a network error' `
+            -Problem '-Output was $null' `
+            -Location 'Get-DepPipFailureClass' `
+            -NextSteps @('Pass the captured output lines, even if some are blank'))
+    }
 
     $Text = $Output -join "`n"
 
