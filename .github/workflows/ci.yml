@@ -3391,7 +3391,14 @@ jobs:
   # queue's own merge decision.
   consult-hold-guard:
     name: consult-hold-guard
-    if: github.event_name == 'merge_group'
+    # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
+    # WHOLE upstream chain -- including ci-gate's own path-filtered, often-skipped needs -- to
+    # have succeeded. ci-gate itself runs via always() and reports success on a skip-heavy
+    # chain, but this job's own implicit success() doesn't get that treatment, so it skipped in
+    # 25/25 sampled merge_group batches since 11-04 (t/4939#22) -- the queue-time re-check this
+    # job exists for has never actually executed. Fixed by checking ci-gate's OWN result
+    # explicitly instead of relying on the implicit function.
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
@@ -3418,7 +3425,14 @@ jobs:
 
   joint-gv-guard:
     name: joint-gv-guard
-    if: github.event_name == 'merge_group'
+    # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
+    # WHOLE upstream chain -- including ci-gate's own path-filtered, often-skipped needs -- to
+    # have succeeded. ci-gate itself runs via always() and reports success on a skip-heavy
+    # chain, but this job's own implicit success() doesn't get that treatment, so it skipped in
+    # 25/25 sampled merge_group batches since 11-04 (t/4939#22) -- the queue-time re-check this
+    # job exists for has never actually executed. Fixed by checking ci-gate's OWN result
+    # explicitly instead of relying on the implicit function.
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
@@ -3460,7 +3474,14 @@ jobs:
   # test.mjs, t/4939) so "does the group pass" is testable independent of the GitHub API fetch.
   t1-approval-guard:
     name: t1-approval-guard
-    if: github.event_name == 'merge_group'
+    # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
+    # WHOLE upstream chain -- including ci-gate's own path-filtered, often-skipped needs -- to
+    # have succeeded. ci-gate itself runs via always() and reports success on a skip-heavy
+    # chain, but this job's own implicit success() doesn't get that treatment, so it skipped in
+    # 25/25 sampled merge_group batches since 11-04 (t/4939#22) -- the queue-time re-check this
+    # job exists for has never actually executed. Fixed by checking ci-gate's OWN result
+    # explicitly instead of relying on the implicit function.
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10  # same budget as consult-hold-guard/joint-gv-guard above
