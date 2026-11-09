@@ -180,7 +180,7 @@ function VocabOwnSense({ sense, pov, defLookup, navigateToLineage }: {
   navigateToLineage: (value: string) => void;
 }) {
   return (
-    <div className="vocab-section vocab-section-own">
+    <div className="vocab-section vocab-section-own" role="group" aria-label={pov ? `${povLabel(pov)} view` : 'Speaker’s view'}>
       <div className="vocab-section-label">
         {pov ? <><VocabPovLabel pov={pov} /> view</> : 'Speaker’s view'}
       </div>
@@ -196,7 +196,7 @@ function VocabOtherSenses({ label, senses, defLookup, navigateToLineage }: {
   navigateToLineage: (value: string) => void;
 }) {
   return (
-    <div className="vocab-section vocab-section-other">
+    <div className="vocab-section vocab-section-other" role="group" aria-label={label}>
       <div className="vocab-section-label">{label}</div>
       {groupSensesByPov(senses).map((g, gi) => (
         <div key={g.pov ?? `other-${gi}`} className="vocab-pov-group">
@@ -212,6 +212,15 @@ function VocabOtherSenses({ label, senses, defLookup, navigateToLineage }: {
   );
 }
 
+/** The resolved sense (synthesised when the dictionary lacks it) and every other sense. */
+function splitSenses(senses: VocabSense[], resolved?: string): { ownSense?: VocabSense; otherSenses: VocabSense[] } {
+  if (!resolved) return { otherSenses: senses };
+  return {
+    ownSense: senses.find(rt => rt.standardized_term === resolved) ?? { standardized_term: resolved, when: '' },
+    otherSenses: senses.filter(rt => rt.standardized_term !== resolved),
+  };
+}
+
 export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLineage, sourceSentence, speakerPov }: {
   bare: string;
   dict?: { resolves_to: VocabSense[]; ambiguous_when?: string[] };
@@ -222,11 +231,8 @@ export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLinea
   /** The speaker's POV (e.g. 'accelerationist'); labels the own-view section. */
   speakerPov?: string;
 }) {
-  const senses = dict?.resolves_to ?? [];
-  const ownSense: VocabSense | undefined = resolved
-    ? senses.find(rt => rt.standardized_term === resolved) ?? { standardized_term: resolved, when: '' }
-    : undefined;
-  const otherSenses = ownSense ? senses.filter(rt => rt.standardized_term !== resolved) : senses;
+  const { ownSense, otherSenses } = splitSenses(dict?.resolves_to ?? [], resolved);
+  const ambiguousWhen = dict?.ambiguous_when ?? [];
   return (
     <div className="vocab-term-card">
       <div className="vocab-term-name">{bare}</div>
@@ -246,9 +252,12 @@ export function VocabTermCard({ bare, dict, resolved, defLookup, navigateToLinea
           navigateToLineage={navigateToLineage}
         />
       )}
-      {dict?.ambiguous_when && dict.ambiguous_when.length > 0 && (
+      {!ownSense && otherSenses.length === 0 && (
+        <div className="vocab-def-missing">No senses in the dictionary for this term</div>
+      )}
+      {ambiguousWhen.length > 0 && (
         <div className="vocab-ambiguous-when">
-          Ambiguous when: {dict.ambiguous_when.join('; ')}
+          Ambiguous when: {ambiguousWhen.join('; ')}
         </div>
       )}
     </div>

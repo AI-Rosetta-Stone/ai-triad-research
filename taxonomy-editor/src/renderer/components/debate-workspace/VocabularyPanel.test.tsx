@@ -461,6 +461,29 @@ describe('VocabTermsView', () => {
     expect(block.querySelector('.vocab-section-own')).toBeNull();
   });
 
+  it('shows a readable no-senses line for an ambiguous term missing from the dictionary', () => {
+    const text = 'A lasting harm slips past the audit stack.';
+    const { container } = render(
+      <VocabTermsView resolutions={[]} ambiguities={[{ colloquial: 'harm', offset: 10 }]} statementText={text} />,
+    );
+    const block = container.querySelector('.vocab-ambiguous-block') as HTMLElement;
+    expect(block.querySelector('.vocab-source-sentence')?.textContent).toContain('A lasting harm');
+    expect(within(block).getByText('No senses in the dictionary for this term')).toBeInTheDocument();
+  });
+
+  it('exposes each section as a labelled group', () => {
+    mockVocabTerms = [
+      { colloquial_term: 'AGI', resolves_to: [
+        { standardized_term: 'agi', when: 'broadly', default_for_camp: 'safetyist' },
+        { standardized_term: 'agi_market', when: 'products', default_for_camp: 'accelerationist' },
+      ] },
+    ];
+    render(<VocabTermsView resolutions={[{ colloquial: 'AGI', canonical: 'agi', offset: 0 }]} speakerPov="safetyist" />);
+    expect(screen.getByRole('group', { name: 'Safetyist view' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Other POVs’ views' })).toBeInTheDocument();
+    expect(screen.queryByText('No senses in the dictionary for this term')).not.toBeInTheDocument();
+  });
+
   it('passes the speaker POV to resolved term cards', () => {
     mockVocabTerms = [
       { colloquial_term: 'AGI', resolves_to: [{ standardized_term: 'agi', when: 'broadly', default_for_camp: 'safetyist' }] },
