@@ -11,7 +11,12 @@ name: Container Image
 # via operations/devops/Get-BuiltShaFromRunName.ps1, because workflow_run.head_sha is the DISPATCH
 # ref tip, not the commit built from inputs.sha. Keep this expression IDENTICAL to the per-SHA tag
 # (`type=raw,value=sha-...`), BUILD_SHA and the checkout `ref:` below; the staging parser expects `(sha-<hex>)`.
-run-name: Container Image (sha-${{ inputs.sha || github.sha }})
+#
+# t/4932: also carries whether this run actually PUSHED, computed the same way push_mode's own
+# step below does (push event, or workflow_dispatch with inputs.push=='true') -- staging reads it
+# back via Get-PushFlagFromRunName.ps1 so a push=false A/B/dry-run dispatch never triggers a
+# staging deploy of an image nothing actually tagged. Must stay identical to the push_mode check.
+run-name: Container Image (sha-${{ inputs.sha || github.sha }}, push=${{ github.event_name == 'push' || inputs.push == 'true' }})
 
 on:
   push:

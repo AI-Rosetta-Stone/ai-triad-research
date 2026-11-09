@@ -37,9 +37,98 @@ env:
   CONTAINER_APP_NAME: taxonomy-editor-staging
 
 jobs:
-  deploy-staging:
+  # t/4932 (2026-11-06 staging downgrade incident, TL p/331#2658/#2659): `deploy-staging`
+  # used to fire on ANY successful Container Image run, including `push=false` A/B/dry-run
+  # dispatches and rebuilds of SHAs older than what's already running. This gate runs FIRST
+  # and decides whether the build underneath actually earns a deploy, before any Azure state
+  # changes -- a `::warning::` names the reason on every skip, so a skip is visible, not silent.
+  gate:
+    name: gate
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
+    timeout-minutes: 10
+    permissions:
+      id-token: write  # Azure OIDC login, to read staging's current DEPLOY_SHA
+      contents: read
+    outputs:
+      proceed: ${{ steps.verdict.outputs.proceed }}
+      built_sha: ${{ steps.built.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0  # t/4932: the ancestor check below needs full history
+
+      - name: Determine the built commit and push flag from the Container Image run name (t/4129, t/4932)
+        id: built
+        shell: pwsh
+        env:
+          RUN_NAME: ${{ github.event.workflow_run.display_title }}
+        run: |
+          & ./operations/devops/Get-BuiltShaFromRunName.ps1 -RunName $env:RUN_NAME -GitHubOutput
+          & ./operations/devops/Get-PushFlagFromRunName.ps1 -RunName $env:RUN_NAME -GitHubOutput
+
+      - name: Log in to Azure
+        if: steps.built.outputs.pushed == 'true'  # skip the Azure round-trip entirely when push already failed it
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read staging's current DEPLOY_SHA and check whether the built SHA is an ancestor (t/4932)
+        id: compare
+        if: steps.built.outputs.pushed == 'true'
+        shell: pwsh
+        env:
+          BUILT_SHA: ${{ steps.built.outputs.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          $Active = @(Get-ContainerAppRevision -Mode Active -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}')
+          $CurrentSha = ''
+          if ($Active.Count -gt 0) {
+            $Top = @($Active | Sort-Object -Property TrafficWeight -Descending)[0]
+            $EnvJson = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $Top.Name --query 'properties.template.containers[0].env' -o json
+            $EnvVars = $EnvJson | ConvertFrom-Json
+            $DeployShaVar = @($EnvVars | Where-Object { $_.name -eq 'DEPLOY_SHA' })
+            if ($DeployShaVar.Count -gt 0) { $CurrentSha = $DeployShaVar[0].value }
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "current_sha=$CurrentSha"
+          if ([string]::IsNullOrWhiteSpace($CurrentSha)) {
+            Write-Host "No current DEPLOY_SHA (first deploy, or the active revision has none) -- ancestor check skipped."
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor="
+          } else {
+            git merge-base --is-ancestor $env:BUILT_SHA $CurrentSha
+            $IsAncestor = ($LASTEXITCODE -eq 0)
+            Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA ${CurrentSha}: $IsAncestor"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor=$($IsAncestor.ToString().ToLowerInvariant())"
+          }
+
+      - name: Decide whether to deploy (t/4932)
+        id: verdict
+        shell: pwsh
+        env:
+          PUSHED: ${{ steps.built.outputs.pushed }}
+          BUILT_SHA: ${{ steps.built.outputs.sha }}
+          CURRENT_SHA: ${{ steps.compare.outputs.current_sha }}
+          IS_ANCESTOR: ${{ steps.compare.outputs.is_ancestor }}
+        run: |
+          . ./operations/devops/Get-StagingDeployGateVerdict.ps1
+          $IsAncestorBool = if ([string]::IsNullOrWhiteSpace($env:IS_ANCESTOR)) { $null } else { $env:IS_ANCESTOR -eq 'true' }
+          $Result = Get-StagingDeployGateVerdict -Pushed ($env:PUSHED -eq 'true') -BuiltSha $env:BUILT_SHA `
+            -CurrentDeploySha $env:CURRENT_SHA -BuiltShaIsAncestorOfCurrent $IsAncestorBool
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "proceed=$($Result.Proceed.ToString().ToLowerInvariant())"
+          if ($Result.Proceed) {
+            Write-Host "gate: proceeding -- $($Result.Reason)"
+          } else {
+            Write-Host "::warning::Auto-Deploy to Staging SKIPPED: $($Result.Reason)"
+          }
+
+  deploy-staging:
+    needs: [gate]
+    runs-on: ubuntu-latest
+    if: needs.gate.outputs.proceed == 'true'
     environment: staging
     timeout-minutes: 30  # SO C2 (t/4194, p/682#16): same rationale as deploy-azure.yml's job —
                          # staging's own runtime is normally shorter, so a tighter cap.
