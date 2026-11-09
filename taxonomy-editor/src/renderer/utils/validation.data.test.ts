@@ -9,19 +9,34 @@ function readJsonFile(filePath: string): string {
   return readFileSync(filePath, 'utf8').replace(/^﻿/, '');
 }
 import { povTaxonomyFileSchema, situationsFileSchema, conflictFileSchema, aggregateConflictsFileSchema } from './validation';
+import { resolveDataRoot } from '@lib/debate/taxonomyLoader';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const configPath = join(REPO_ROOT, '.aitriad.json');
 
-function resolveDataRoot(): string | null {
-  if (!existsSync(configPath)) return null;
-  const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  const root = resolve(REPO_ROOT, config.data_root);
-  return existsSync(root) ? root : null;
+/** t/52: resolve the data root exactly as the product does (root AGENTS.md: AI_TRIAD_DATA_ROOT beats
+ *  .aitriad.json), through the shared resolver. It used to read only .aitriad.json, so in a
+ *  .worktrees/<name> checkout `../ai-triad-data` pointed at nothing and the suite skipped silently.
+ *  When no data is available the suite still skips, but with a WARN naming what it tried, so a
+ *  skipped safety net never reads as green. */
+function resolveDataRootOrWarn(): string | null {
+  try {
+    return resolveDataRoot(REPO_ROOT);
+  } catch (err) {
+    const envRoot = process.env.AI_TRIAD_DATA_ROOT;
+    console.warn(
+      'WARN: validation.data.test.ts schema safety net SKIPPED (fallback: no real-data validation this run). '
+      + `Tried AI_TRIAD_DATA_ROOT=${envRoot ? `'${resolve(envRoot)}'` : '(unset)'}`
+      + `${envRoot ? '' : `, then .aitriad.json data_root from ${configPath}`}. `
+      + 'Set AI_TRIAD_DATA_ROOT to your ai-triad-data checkout to run it. '
+      + `Resolver said:\n${(err as Error).message}`,
+    );
+    return null;
+  }
 }
 
-const dataRoot = resolveDataRoot();
-const skipReason = dataRoot ? '' : 'Data repo not available (expected at ../ai-triad-data)';
+const dataRoot = resolveDataRootOrWarn();
+const skipReason = dataRoot ? '' : 'Data repo not available: set AI_TRIAD_DATA_ROOT (see the WARN above)';
 
 describe.skipIf(!dataRoot)('Schema safety net — validation.ts vs real production data', () => {
   const config = dataRoot ? JSON.parse(readFileSync(configPath, 'utf8')) : { taxonomy_dir: '', conflicts_dir: '' };
