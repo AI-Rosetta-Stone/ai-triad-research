@@ -28,6 +28,7 @@ import { registerAiRoutes } from './ai.js';
 import { registerChatRoutes } from './chat.js';
 import { registerChatShareRoutes } from './chatShare.js';
 import { registerDebatesRoutes } from './debates.js';
+import { registerDebateShareRoutes } from './debateShare.js';
 import { registerDiagnosticsRoutes } from './diagnostics.js';
 import { registerCommunityRoutes } from './community.js';
 import { registerOpedRoutes } from './oped.js';
@@ -67,6 +68,7 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerChatRoutes(router, ctx);
   registerChatShareRoutes(router, ctx); // t/4925 — POST/DELETE /api/chat/:id/share + GET /api/public/chat/:shareId (t/4787/#4545 merged but never wired in)
   registerDebatesRoutes(router, ctx);
+  registerDebateShareRoutes(router, ctx); // t/4788 — POST/DELETE /api/debate/:id/share + GET /api/public/debate/:shareId
   registerDiagnosticsRoutes(router, ctx);
   registerCommunityRoutes(router, ctx);
   registerOpedRoutes(router, ctx);
