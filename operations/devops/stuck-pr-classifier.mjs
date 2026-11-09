@@ -177,6 +177,21 @@ export function classifyBlocker(pr, nowMs) {
     return { class: 'merge-conflict', detail: {} };
   }
 
+  // 2.5 unknown mergeability (TL review, p/702#140, found on #4695): GitHub computes
+  // mergeable_state ASYNCHRONOUSLY -- a single `pulls.get` read can return 'unknown' (or
+  // `mergeable: null`) for a PR that is ACTUALLY conflicting, if GitHub's background
+  // merge-commit computation hadn't finished by read time. #4695 read as non-conflicting at
+  // scan time -- 31 minutes after the conflicting base PR (#4698) had already merged -- and
+  // fell through to the T0-exemption branch of approved-not-armed below: a real,
+  // already-existing conflict reported as "ready to arm." Case 2 above only catches a
+  // DEFINITE 'dirty'/false read; this catches the "don't actually know yet" read and makes NO
+  // claim this scan, rather than defaulting to "not conflicting" -- the same staleness class
+  // already named for armed-but-blocked (t/4356), just previously unguarded here. The next
+  // scheduled run re-reads and classifies for real.
+  if (pr.mergeableState == null || pr.mergeableState === 'unknown') {
+    return null;
+  }
+
   // 3. stuck-required-run — the #3062 blind spot. Checked before required-check-failed:
   //    a run that is still queued/in_progress has no conclusion yet, so it can't be "failed".
   //    QUEUED and IN_PROGRESS use DIFFERENT thresholds (MUST-fix): a queued run past 30min is
@@ -347,6 +362,34 @@ export function classifyBlocker(pr, nowMs) {
   return null;
 }
 
+// t/4137 item 5 (liveness): heal failed silently for 2 days unnoticed before a human caught it
+// by hand (t/4137 description). This is NOT a required context (REQUIRED_CONTEXTS above), so
+// it's checked separately from classifyBlocker's priority chain -- a heal failure doesn't block
+// a merge, it just means a Dependabot PR's lockfile/license drift wasn't healed, which is purely
+// DevOps's own automation to fix, never the PR author's (Dependabot's) problem.
+export const HEAL_WORKFLOW_PATH = '.github/workflows/dependabot-lockfile-heal.yml';
+
+/**
+ * PURE. Flags an open Dependabot PR whose latest `dependabot-lockfile-heal` run AT ITS CURRENT
+ * HEAD failed. A later push creates a fresh run at a new head, which this re-evaluates from
+ * scratch -- so the flag naturally clears once a later run at the (new) head succeeds, with no
+ * extra state needed. `pr.runs` must include an entry for `HEAL_WORKFLOW_PATH` for this to see
+ * it (the caller's workflow-run fetch needs to watch this path, not just REQUIRED_CONTEXT_PATHS).
+ */
+export function classifyHealLiveness(pr) {
+  if (!pr.isDependabotAuthor) return null;
+  const run = (pr.runs ?? []).find((r) => r.path === HEAL_WORKFLOW_PATH);
+  if (!run || run.status !== 'completed' || run.conclusion === 'success') return null;
+  return {
+    class: 'heal-failed',
+    detail: {
+      runId: run.id,
+      conclusion: run.conclusion,
+      remedy: `dependabot-lockfile-heal failed at this head (run ${run.id}) -- check its log for the credential-rejected or other error (t/4137). A later successful run at a new head clears this alert automatically.`,
+    },
+  };
+}
+
 /**
  * PURE. Given a named blocker and how long its episode has been open, decides who to ping.
  * 'held' never escalates, regardless of age — holds are deliberate (t/4115 design).
@@ -362,6 +405,11 @@ export function classifyBlocker(pr, nowMs) {
  */
 export function escalationLevel(blockerClass, episodeAgeHours) {
   if (blockerClass === 'held') return 'none';
+  // t/4137 item 5: a heal failure has no "owner" to ping at all -- Dependabot (the PR author)
+  // can't fix DevOps's own workflow. Escalate straight to the TL on first sight, same immediate
+  // pattern as consult-hold-aged/approved-not-armed below, just one level further since there's
+  // no owner step that makes sense here.
+  if (blockerClass === 'heal-failed') return 'tl';
   if (episodeAgeHours >= TL_SLA_HOURS) return 'tl';
   if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed') return 'owner';
   if (episodeAgeHours >= OWNER_SLA_HOURS) return 'owner';

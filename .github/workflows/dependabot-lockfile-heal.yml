@@ -191,4 +191,21 @@ jobs:
           # Auth via extraheader so the token never appears in the remote URL/logs.
           git config --local http.https://github.com/.extraheader \
             "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-          git push origin "HEAD:${{ github.head_ref }}"
+          # t/4137 item 3 (observability): the crash guard above only covers an ABSENT
+          # credential. A REJECTED one (lapsed PAT, rotated/uninstalled App key) still failed
+          # with git's own opaque stderr -- no signal that the credential itself is the
+          # problem. Capture the push's output; on a rejected-credential shape, emit a
+          # distinct, actionable ::error:: naming the fix. Any OTHER push failure keeps its
+          # own message (git's own stderr, already printed above) -- this never changes
+          # WHICH credential is used, only what gets logged on failure.
+          if ! PUSH_OUTPUT=$(git push origin "HEAD:${{ github.head_ref }}" 2>&1); then
+            PUSH_EXIT=$?
+            echo "$PUSH_OUTPUT"
+            CLASS=$(printf '%s' "$PUSH_OUTPUT" | node operations/devops/classify-heal-push-failure.mjs)
+            if [ "$CLASS" = "credential_rejected" ]; then
+              echo "::error::heal credential rejected — refresh DEPENDABOT_HEAL_PAT (or the heal App installation/key)"
+            else
+              echo "::error::heal push failed (exit $PUSH_EXIT) — see output above"
+            fi
+            exit 1
+          fi

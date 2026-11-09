@@ -456,6 +456,7 @@ jobs:
             const {
               classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits,
               REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, ARM_EVENT_RE,
+              classifyHealLiveness, HEAL_WORKFLOW_PATH,
             } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/stuck-pr-classifier.mjs`).href);
             const { SO_CLEARED_RE } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/fleet-delivery-metrics.mjs`).href);
 
@@ -571,12 +572,17 @@ jobs:
               // brand-new required workflow that hasn't had a PR-triggered run), so detection isn't
               // silently lost before a PR-event run shows up.
               const requiredPaths = new Set(Object.values(REQUIRED_CONTEXT_PATHS));
+              // t/4137 item 5: dependabot-lockfile-heal.yml isn't a required context, but we
+              // want its latest run through the SAME pull_request-event-preferring selection
+              // logic as the required ones (same reasoning: a workflow_dispatch re-run on the
+              // same head must not outrank the real pull_request-event run, t/4322).
+              const watchedPaths = new Set([...requiredPaths, HEAL_WORKFLOW_PATH]);
               const isPrEventRunForThisPr = (run) => run.event === 'pull_request'
                 && (run.pull_requests ?? []).some((p) => p.number === pr.number);
               const byPath = new Map();
               const byPathAnyEvent = new Map();
               for (const run of runsResp.data.workflow_runs ?? []) {
-                if (!requiredPaths.has(run.path)) continue;
+                if (!watchedPaths.has(run.path)) continue;
                 const entry = {
                   path: run.path, status: run.status, conclusion: run.conclusion,
                   createdAt: run.created_at, startedAt: run.run_started_at, runAttempt: run.run_attempt, id: run.id,
@@ -644,10 +650,17 @@ jobs:
                 soClearanceDetected,
                 hasApproval,
                 body: full.body,
+                // t/4137 item 5: heal failed silently for 2 days unnoticed before a human
+                // caught it by hand. Same shared-login caveat as everywhere else in this repo
+                // (every agent/bot shares `jpsnover`) doesn't apply here -- Dependabot's own
+                // author login IS distinct and reliable.
+                isDependabotAuthor: /dependabot/i.test(full.user?.login ?? ''),
               };
 
               const blocker = classifyBlocker(prFacts, nowMs);
               if (blocker) blockerFindings.push({ pr: full, ticketHint: ticketHintFromBranch(full.head.ref), ...blocker });
+              const healFinding = classifyHealLiveness(prFacts);
+              if (healFinding) blockerFindings.push({ pr: full, ticketHint: ticketHintFromBranch(full.head.ref), ...healFinding });
             }
 
             // ── SLA: one idempotent comment per blocker episode, escalate at 2h/6h ─────

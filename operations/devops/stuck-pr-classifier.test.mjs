@@ -11,6 +11,7 @@ import {
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
   MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS, MERGE_QUEUE_STUCK_MINUTES,
+  classifyHealLiveness, HEAL_WORKFLOW_PATH,
 } from './stuck-pr-classifier.mjs';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -325,6 +326,42 @@ test('NOT approved-not-armed: a T1/T2 PR not yet approved, even though green and
 test('approved-not-armed: a T0 PR with NO review at all still fires -- T0 needs no approval (real shape, PR #3926)', () => {
   const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...' });
   assert.equal(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+// REAL INCIDENT #4695 (TL review, p/702#140): a genuinely CONFLICTING T0 PR (base PR #4698
+// merged 31min before the scan) still fired approved-not-armed via the T0-exemption branch,
+// because `mergeable_state` read 'unknown' at the single scan-time `pulls.get` call --
+// GitHub computes it asynchronously, and a not-yet-finished computation is NOT the same as
+// "not conflicting." Case 2's `isConflicting` check only catches a DEFINITE 'dirty'/false
+// read, so the ambiguous 'unknown' read fell all the way through to the T0 exemption, which
+// (wrongly) treats "no outstanding review required" as "ready to arm" even though arming it
+// would have tried to merge an actually-conflicting PR.
+test('REAL INCIDENT #4695: mergeableState "unknown" makes NO claim at all, even though every other condition matches approved-not-armed/T0', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...', mergeableState: 'unknown', isConflicting: false });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+
+test('mergeableState null (REST sometimes omits mergeable entirely) also makes NO claim', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, mergeableState: null, isConflicting: false });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+
+test('mergeableState "unknown" does NOT suppress a genuinely held PR -- held is checked first and is independent of mergeability', () => {
+  const pr = basePr({ labels: ['consult-hold'], mergeableState: 'unknown', consultHoldAppliedAt: hoursAgo(0.5) });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+// FAULT CHECK: a DEFINITE 'dirty' read must still fire merge-conflict normally -- the new
+// 'unknown' guard must not accidentally swallow the real, already-working case 2.
+test("FAULT CHECK: a DEFINITE 'dirty' read still fires merge-conflict (the unknown-guard doesn't swallow the real case)", () => {
+  const pr = basePr({ mergeableState: 'dirty', isConflicting: true });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'merge-conflict');
+});
+
+test("'clean'/'blocked'/other KNOWN mergeableState values are unaffected -- only null/'unknown' trigger the no-claim guard", () => {
+  assert.equal(classifyBlocker(basePr({ mergeableState: 'clean' }), NOW), null); // nothing else wrong -> null anyway, but NOT via the new guard
+  const blockedPr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked', mergeableStateRecheck: 'blocked' });
+  assert.equal(classifyBlocker(blockedPr, NOW)?.class, 'armed-but-blocked');
 });
 
 // t/4566 (TL, p/702#97): PR #3926 was nudged to arm and merged before the CL's required
@@ -712,4 +749,48 @@ test('constants are sane (Gate Co-Location)', () => {
     assert.ok(REQUIRED_CONTEXT_PATHS[name], `missing path mapping for ${name}`);
     assert.ok(IN_PROGRESS_STUCK_MINUTES[name] >= 10, `${name} in_progress threshold below the 10min floor`);
   }
+});
+
+// ── t/4137 item 5: classifyHealLiveness ──────────────────────────────────────────────
+const healRun = (conclusion, overrides = {}) => ({
+  path: HEAL_WORKFLOW_PATH, status: 'completed', conclusion, id: 999, ...overrides,
+});
+
+test('classifyHealLiveness: a failed heal run on a Dependabot PR -- flagged', () => {
+  const pr = { isDependabotAuthor: true, runs: [healRun('failure')] };
+  const r = classifyHealLiveness(pr);
+  assert.equal(r.class, 'heal-failed');
+  assert.equal(r.detail.runId, 999);
+  assert.equal(r.detail.conclusion, 'failure');
+});
+
+test('classifyHealLiveness: a successful heal run (healed, or no-op/no-drift) -- not flagged', () => {
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [healRun('success')] }), null);
+});
+
+test('classifyHealLiveness: a failed heal run on a NON-Dependabot PR -- not flagged (not DevOps automation to fix via this PR)', () => {
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: false, runs: [healRun('failure')] }), null);
+});
+
+test('classifyHealLiveness: no heal run at all for this head -- not flagged (nothing ran yet, not a failure)', () => {
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [] }), null);
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: undefined }), null);
+});
+
+test('classifyHealLiveness: heal run still queued/in_progress -- not flagged (not failed yet, just not done)', () => {
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [healRun(null, { status: 'queued', conclusion: null })] }), null);
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [healRun(null, { status: 'in_progress', conclusion: null })] }), null);
+});
+
+// FAULT CHECK: a run at a DIFFERENT path (e.g. ci.yml) with conclusion failure must never be
+// mistaken for a heal failure -- proves the function actually keys on HEAL_WORKFLOW_PATH, not
+// "any failed run in the list."
+test('FAULT CHECK: a failed run at a different workflow path is ignored, not mistaken for a heal failure', () => {
+  const pr = { isDependabotAuthor: true, runs: [{ path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'failure', id: 1 }] };
+  assert.equal(classifyHealLiveness(pr), null);
+});
+
+test('escalationLevel: heal-failed always escalates straight to tl, even at episode age 0 (no owner to ping)', () => {
+  assert.equal(escalationLevel('heal-failed', 0), 'tl');
+  assert.equal(escalationLevel('heal-failed', 100), 'tl');
 });
