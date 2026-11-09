@@ -2,11 +2,46 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import crypto from 'crypto';
+import { ActionableError } from '../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { sanitizeText, type SanitizeWarning } from '../../../lib/sanitize/contentSanitizerCore.js';
 import { stripSensitiveKeys as stripSensitiveKeysShared, SENSITIVE_KEYS } from '../../../lib/sanitize/stripSensitiveKeys.js';
 
 let _client: CommunityReviewClient | null = null;
+
+/** t/4895: mirrors the server's CommunityType (community.ts) — admin remove/rename now cover
+ *  all 4 published types, not just chats/debates. */
+export type CommunityType = 'chats' | 'debates' | 'opeds' | 'inquiries';
+
+/** t/4895: same anti-silent-misfile shape as the server's communityDirAndPrefix (t/3650) — an
+ *  exhaustive switch with an assertNever default, so a future 5th type is a compile error here
+ *  too, not a silent misfile into community/debates/. Desktop has one blob prefix per type
+ *  under `community/{type}/`, unlike the server's separate dir-resolver functions. */
+function communityPrefixFor(type: CommunityType): string {
+  switch (type) {
+    case 'chats': return 'chat-';
+    case 'debates': return 'debate-';
+    case 'opeds': return 'oped-';
+    case 'inquiries': return 'inquiry-';
+    default: return assertNeverCommunityType(type);
+  }
+}
+
+/** t/4895/t/4894: the display field an admin rename writes, per type (mirrors the server's
+ *  renameFieldFor exactly: chats/debates/inquiries use `title`, opeds use `topic`). */
+function renameFieldFor(type: CommunityType): 'title' | 'topic' {
+  switch (type) {
+    case 'chats': return 'title';
+    case 'debates': return 'title';
+    case 'inquiries': return 'title';
+    case 'opeds': return 'topic';
+    default: return assertNeverCommunityType(type);
+  }
+}
+
+function assertNeverCommunityType(type: never): never {
+  throw new Error(`Unhandled community type: ${String(type)}`);
+}
 
 interface Submission {
   id: string;
@@ -310,8 +345,8 @@ class CommunityReviewClient {
     };
   }
 
-  async removePublishedItem(type: 'chats' | 'debates', id: string, reason?: string): Promise<void> {
-    const prefix = type === 'chats' ? 'chat-' : 'debate-';
+  async removePublishedItem(type: CommunityType, id: string, reason?: string): Promise<void> {
+    const prefix = communityPrefixFor(type);
     const blobName = `community/${type}/${prefix}${id}.json`;
 
     const raw = await this.readBlob(blobName);
@@ -333,6 +368,46 @@ class CommunityReviewClient {
       `community/_removals/rem-${crypto.randomUUID()}.json`,
       JSON.stringify(auditRecord, null, 2),
     );
+  }
+
+  /** t/4895/t/4894: admin rename of a published community item's display field, with an audit
+   *  record written FIRST (TL t/4894#2 condition 2 — if the audit write throws, the rename
+   *  never happens; file unchanged). No CAS/retry (unlike the server's t/4894 condition 3):
+   *  this client has no blob-versioning primitive at all (writeBlob takes no baseSha), and
+   *  desktop has one implicit local admin, so there is no concurrent-writer race to guard
+   *  against. No listing-index invalidation either — getQueue()/getStats() list blobs live on
+   *  every call, so there's no cache to go stale. */
+  async renamePublishedItem(type: CommunityType, id: string, title: string, reason?: string): Promise<void> {
+    const newTitle = title.trim();
+    if (!newTitle || newTitle.length > 200) {
+      throw new ActionableError({
+        goal: 'Rename a community item',
+        problem: `Title must be 1-200 characters after trimming (got ${newTitle.length} characters)`,
+        location: 'communityReviewIO.ts → renamePublishedItem',
+        nextSteps: ['Provide a non-empty title of at most 200 characters'],
+      });
+    }
+
+    const prefix = communityPrefixFor(type);
+    const blobName = `community/${type}/${prefix}${id}.json`;
+    const field = renameFieldFor(type);
+
+    const raw = await this.readBlob(blobName);
+    if (!raw) throw new Error(`Community item not found: ${type}/${id}`);
+    const item = JSON.parse(raw) as Record<string, unknown>;
+    const fromValue = typeof item[field] === 'string' ? item[field] as string : null;
+
+    const auditRecord = {
+      id, type, by: '_local', at: new Date().toISOString(), from: fromValue, to: newTitle, reason: reason ?? null,
+    };
+    // Audit FIRST — before any mutation of the published file (mirrors the server's ordering).
+    await this.writeBlob(
+      `community/_edits/edit-${crypto.randomUUID()}.json`,
+      JSON.stringify(auditRecord, null, 2),
+    );
+
+    item[field] = newTitle;
+    await this.writeBlob(blobName, JSON.stringify(item, null, 2));
   }
 
   async executeAction(action: {
@@ -415,9 +490,18 @@ export async function adminReviewAction(action: {
 }
 
 export async function adminRemoveCommunityItem(
-  type: 'chats' | 'debates',
+  type: CommunityType,
   id: string,
   reason?: string,
 ): Promise<void> {
   return getClient().removePublishedItem(type, id, reason);
+}
+
+export async function adminRenameCommunityItem(
+  type: CommunityType,
+  id: string,
+  title: string,
+  reason?: string,
+): Promise<void> {
+  return getClient().renamePublishedItem(type, id, title, reason);
 }

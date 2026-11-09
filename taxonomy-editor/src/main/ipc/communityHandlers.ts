@@ -15,6 +15,8 @@ import {
   adminReviewDetail,
   adminReviewAction,
   adminRemoveCommunityItem,
+  adminRenameCommunityItem,
+  type CommunityType,
 } from '../communityReviewIO.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
@@ -203,7 +205,7 @@ export function registerCommunityHandlers(): void {
     }
   });
 
-  ipcMain.handle('admin-remove-community-item', async (_event, type: 'chats' | 'debates', id: string, reason?: string) => {
+  ipcMain.handle('admin-remove-community-item', async (_event, type: CommunityType, id: string, reason?: string) => {
     // Mutation — surface failures to the user (ADR-001), don't swallow.
     if (!isAzureReviewConfigured()) throw new ActionableError({
       goal: 'Remove a community item',
@@ -226,6 +228,35 @@ export function registerCommunityHandlers(): void {
         problem: `Could not remove ${type} item ${id}`,
         location: 'ipcHandlers.admin-remove-community-item',
         nextSteps: ['Retry the removal', 'Check Azure storage connectivity and credentials'],
+        innerError: err,
+      });
+    }
+  });
+
+  // t/4895/t/4894: admin rename with an audit record, all 4 community types.
+  ipcMain.handle('admin-rename-community-item', async (_event, type: CommunityType, id: string, title: string, reason?: string) => {
+    // Mutation — surface failures to the user (ADR-001), don't swallow.
+    if (!isAzureReviewConfigured()) throw new ActionableError({
+      goal: 'Rename a community item',
+      problem: 'Azure community review is not configured (AZURE_STORAGE_ACCOUNT_URL is unset)',
+      location: 'ipcHandlers.admin-rename-community-item',
+      nextSteps: ['Set AZURE_STORAGE_ACCOUNT_URL for the desktop app to enable community review'],
+    });
+    try {
+      return await adminRenameCommunityItem(type, id, title, reason);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'ipc-admin-rename-community-item',
+        level: 'error',
+        message: 'admin-rename-community-item failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw new ActionableError({
+        goal: 'Rename a community item',
+        problem: `Could not rename ${type} item ${id}`,
+        location: 'ipcHandlers.admin-rename-community-item',
+        nextSteps: ['Retry the rename', 'Check Azure storage connectivity and credentials'],
         innerError: err,
       });
     }

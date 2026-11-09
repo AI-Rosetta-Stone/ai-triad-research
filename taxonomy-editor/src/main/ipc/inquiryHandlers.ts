@@ -39,13 +39,13 @@ import { loadTaxonomy, type LoadedTaxonomy } from '../../../../lib/debate/taxono
 import type { DebateSession } from '../../../../lib/debate/types/session.js';
 import { stageProgress, type DebateProgressUpdate } from '../../../../lib/debate/debateProgressMapping.js';
 import { loadModelRegistry } from '../../../../lib/ai-client/registry.js';
-import { saveDebateSession } from '../debateIO.js';
+import { saveDebateSession, deleteDebateSession } from '../debateIO.js';
 import {
   InquiryRequestSchema, type InquiryRequest, type InquiryResult,
   type InquiryJobStatus, isTerminalStatus, deriveTruncation,
 } from '../../../../lib/inquiry/index.js';
 import { inquiryToJson, inquiryToMarkdown, inquiryToPrintHtml, inquiryExportFilename } from '../../../../lib/inquiry/inquiryExport.js';
-import { errorMessage } from '../../../../lib/debate/errors.js';
+import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 const JOB_TTL_MS = 30 * 60_000; // matches server's INQUIRY_JOB_TTL_MS (t/3578#6) — deep fidelity can run ~45 min
@@ -83,6 +83,8 @@ interface InquiryResultSummary {
   truncated: boolean;
   terminationReason?: string;
   createdAt: string;
+  /** t/4895: display title set by renameInquiryResult — question itself never changes. */
+  title?: string;
 }
 
 const INQUIRY_INDEX_FILE = '_index.json';
@@ -133,6 +135,124 @@ function loadPersistedInquiryResult(jobId: string): InquiryResult | null {
 function readDebateRef(result: InquiryResult): string | null {
   const v = (result as unknown as Record<string, unknown>).debateId;
   return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/** Validates and trims a rename/title input — mirrors the server's own hand-rolled checks in
+ *  storage/inquiryResultStore.ts (t/4892) exactly, not InquiryTitleSchema (which that file
+ *  doesn't use either). Throws ActionableError on empty or over-200-char input. */
+function normalizeInquiryTitle(title: string): string {
+  const normalized = title.trim();
+  if (!normalized) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: 'Title cannot be empty',
+      location: 'ipc/inquiryHandlers.ts → renameInquiryResult',
+      nextSteps: ['Provide a non-empty title'],
+    });
+  }
+  if (normalized.length > 200) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: 'Title is too long (max 200 characters)',
+      location: 'ipc/inquiryHandlers.ts → renameInquiryResult',
+      nextSteps: ['Use a shorter title'],
+    });
+  }
+  return normalized;
+}
+
+/** t/4895/t/4892: rename a desktop inquiry result — sets the display `title` on both the
+ *  result file and its index row, leaving `question` (what was actually asked) untouched.
+ *  Reads and validates both the file and the index row before writing either (mirrors the
+ *  server's ordering fix, t/4892#4 condition 3 — never write the file then 404 on the index). */
+function renameInquiryResult(jobId: string, title: string): void {
+  if (!isSafeJobId(jobId)) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: `Invalid inquiry job id: ${jobId}`,
+      location: 'ipc/inquiryHandlers.ts → renameInquiryResult',
+      nextSteps: ['Verify the inquiry result id'],
+    });
+  }
+  const normalized = normalizeInquiryTitle(title);
+  const result = loadPersistedInquiryResult(jobId);
+  if (!result) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: `Inquiry result not found: ${jobId}`,
+      location: 'ipc/inquiryHandlers.ts → renameInquiryResult',
+      nextSteps: ['Verify the inquiry result exists'],
+    });
+  }
+  const entries = readInquiryIndex();
+  const i = entries.findIndex(e => e.jobId === jobId);
+  if (i < 0) {
+    throw new ActionableError({
+      goal: 'Rename an inquiry result',
+      problem: `Inquiry result index row not found: ${jobId}`,
+      location: 'ipc/inquiryHandlers.ts → renameInquiryResult',
+      nextSteps: ['Verify the inquiry result index is consistent'],
+    });
+  }
+
+  (result as unknown as { title?: string }).title = normalized;
+  fs.writeFileSync(inquiryResultFile(jobId), JSON.stringify(result, null, 2), 'utf-8');
+  entries[i].title = normalized;
+  writeInquiryIndex(entries);
+
+  // t/4895: get-inquiry serves job.result straight from the in-memory jobs Map while the job
+  // is still within its TTL — that's a SEPARATE object from the one just read off disk above,
+  // so without this the rename wouldn't be visible until the job is swept or the app restarts.
+  const liveJob = jobs.get(jobId);
+  if (liveJob?.result) (liveJob.result as unknown as { title?: string }).title = normalized;
+}
+
+/** t/4895/t/4892: delete a desktop inquiry result and its linked artefacts. Desktop has no
+ *  shares (unlike the server's step 1) and no separate durable job-record store (the in-memory
+ *  `jobs` Map is the closest equivalent, best-effort cleared). If `debateId` is set, the linked
+ *  debate session is deleted too, best-effort — mirrors the server's idempotent-best-effort
+ *  ordering (t/4892): never let a cleanup-step failure block the delete itself. */
+function deleteInquiryResult(jobId: string): void {
+  if (!isSafeJobId(jobId)) {
+    throw new ActionableError({
+      goal: 'Delete an inquiry result',
+      problem: `Invalid inquiry job id: ${jobId}`,
+      location: 'ipc/inquiryHandlers.ts → deleteInquiryResult',
+      nextSteps: ['Verify the inquiry result id'],
+    });
+  }
+  const result = loadPersistedInquiryResult(jobId);
+  if (!result) {
+    throw new ActionableError({
+      goal: 'Delete an inquiry result',
+      problem: `Inquiry result not found: ${jobId}`,
+      location: 'ipc/inquiryHandlers.ts → deleteInquiryResult',
+      nextSteps: ['Verify the inquiry result exists'],
+    });
+  }
+
+  const debateId = readDebateRef(result);
+  if (debateId) {
+    try {
+      deleteDebateSession(debateId);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'inquiry-desktop', level: 'warn',
+        message: `Linked debate session delete failed during inquiry delete (best-effort) — jobId=${jobId}, debateId=${debateId}`,
+        error: { name: (err as Error).name ?? 'Error', message: errorMessage(err) },
+      });
+    }
+  }
+
+  jobs.delete(jobId); // best-effort — the in-memory job entry is otherwise swept by its own TTL
+
+  fs.unlinkSync(inquiryResultFile(jobId));
+  const entries = readInquiryIndex();
+  const i = entries.findIndex(e => e.jobId === jobId);
+  if (i >= 0) {
+    entries.splice(i, 1);
+    writeInquiryIndex(entries);
+  }
 }
 
 // t/4710/t/4711/t/4713: local PROGRESS table replaced by the shared stageProgress() mapping
@@ -398,6 +518,16 @@ export function registerInquiryHandlers(): void {
   });
 
   ipcMain.handle('list-inquiries', (): InquiryResultSummary[] => readInquiryIndex());
+
+  // t/4895: desktop parity for t/4885's rename/delete — thrown ActionableErrors propagate to
+  // the renderer unwrapped, matching 'start-inquiry's existing validation-throw convention.
+  ipcMain.handle('rename-inquiry', (_event, jobId: string, title: string): void => {
+    renameInquiryResult(jobId, title);
+  });
+
+  ipcMain.handle('delete-inquiry', (_event, jobId: string): void => {
+    deleteInquiryResult(jobId);
+  });
 
   ipcMain.handle('export-inquiry-to-file', async (
     event, result: InquiryResult, title: string, format: 'json' | 'markdown' | 'pdf',
