@@ -110,6 +110,9 @@ export interface SessionSlice {
   createConflictDebate: (claimId: string) => Promise<string>;
   loadDebate: (id: string) => Promise<void>;
   loadDebateFromData: (raw: unknown, opts?: { readOnly?: boolean }) => void;
+  /** t/37: load the vocabulary dictionary if it isn't loaded. Safe to call from any view that renders
+   *  vocabulary; a failed or empty load is retried on the next call. */
+  ensureVocabulary: () => Promise<void>;
   // Concurrent-load coalescing (t/2326): loads of the same debate id in flight at
   // once share ONE promise, so a debate window that mounts N hooks fires the IPC —
   // and applies the loaded snapshot — exactly once. Mirrors the save-coalescing
@@ -481,6 +484,31 @@ function normalizeSeatTags(options?: { seatTags?: Partial<Record<SpeakerId, Seat
   return t && Object.keys(t).length > 0 ? { seat_tags: t } : {};
 }
 
+// t/37: the dictionary is global data, not per-debate, so a load result is stored whichever debate is
+// active when it resolves. It used to be dropped unless activeDebateId still matched the debate that
+// started the load, and an empty result was dropped silently; either way the Vocabulary tab showed raw
+// sense IDs and nothing retried. Concurrent callers share one fetch. A failed or empty load is not
+// cached, so the next caller retries.
+let dictionaryInFlight: Promise<void> | null = null;
+
+function ensureVocabularyLoaded(get: SessionGet, set: SessionSet, caller: string, debateId?: string): Promise<void> {
+  if (get().vocabularyTerms) return Promise.resolve();
+  if (dictionaryInFlight) return dictionaryInFlight;
+  dictionaryInFlight = api.loadDictionary().then(dict => {
+    if (dict.standardized.length === 0) {
+      getGlobalRecorder()?.record({ type: 'system.error', debate_id: debateId, component: 'debate-store', level: 'warn', message: `Dictionary loaded empty (${caller}): vocabulary shows raw sense IDs until a retry succeeds`, data: { standardized: 0, colloquial: dict.colloquial.length } });
+      return;
+    }
+    if (get().vocabularyTerms) return;
+    set({ vocabularyTerms: { standardized: dict.standardized as StandardizedTerm[], colloquial: dict.colloquial as ColloquialTerm[] } });
+  }).catch((err: unknown) => {
+    getGlobalRecorder()?.record({ type: 'system.error', debate_id: debateId, component: 'debate-store', level: 'warn', message: `Dictionary load failed (${caller}, non-critical): vocabulary shows raw sense IDs until a retry succeeds`, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+  }).finally(() => {
+    dictionaryInFlight = null;
+  });
+  return dictionaryInFlight;
+}
+
 // t/4120: the view setup BOTH load paths need once a session is active. loadDebateFromData (the
 // community popout) used to skip it, so Analysis → Terms showed raw sense IDs (no dictionary), the
 // analysis views ran with the previous debate's prompt config, and the diagnostics popout showed stale
@@ -488,15 +516,7 @@ function normalizeSeatTags(options?: { seatTags?: Partial<Record<SpeakerId, Seat
 // a read-only community view must not change the user's active debate or backend temperature.
 function applyLoadedSessionSetup(get: SessionGet, set: SessionSet, session: DebateSession, caller: string): void {
   const id = session.id;
-  if (!get().vocabularyTerms) {
-    api.loadDictionary().then(dict => {
-      if (dict.standardized.length > 0 && get().activeDebateId === id) {
-        set({ vocabularyTerms: { standardized: dict.standardized as StandardizedTerm[], colloquial: dict.colloquial as ColloquialTerm[] } });
-      }
-    }).catch((err: unknown) => {
-      getGlobalRecorder()?.record({ type: 'system.error', debate_id: id, component: 'debate-store', level: 'warn', message: `Dictionary load failed (${caller}, non-critical)`, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    });
-  }
+  void ensureVocabularyLoaded(get, set, caller, id);
   usePromptConfigStore.getState().loadSessionConfig(
     (session as unknown as Record<string, unknown>).prompt_config as Record<string, number | boolean | string> | undefined
   );
@@ -839,6 +859,8 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
         if (inMemory && inMemory.id === id && isStateAhead(inMemory, session)) {
           getGlobalRecorder()?.record({ type: 'state.load-guard', component: 'debate-store', level: 'warn', debate_id: id, message: 'Load skipped — in-memory state is ahead of loaded snapshot', data: { current_phase: inMemory.phase, loaded_phase: session.phase, current_transcript: inMemory.transcript.length, loaded_transcript: session.transcript.length } });
           set({ debateLoading: false });
+          // t/37: the in-memory session is still shown, so it still needs the dictionary.
+          void ensureVocabularyLoaded(get, set, 'loadDebate:load-guard', id);
           return;
         }
         // t/4044 (SO e/281#2 condition 1): a session saved before per-turn tracking can't be promoted.
@@ -978,6 +1000,8 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
     getGlobalRecorder()?.setEventContext({ debate_id: session.id, run_id: runId });
     getGlobalRecorder()?.record({ type: 'state.load', component: 'debate-store', level: 'info', debate_id: session.id, run_id: runId, message: 'Debate loaded from data', data: { phase: session.phase, transcript_length: session.transcript.length, readOnly: opts?.readOnly ?? true } });
   },
+
+  ensureVocabulary: () => ensureVocabularyLoaded(get, set, 'ensureVocabulary', get().activeDebateId ?? undefined),
 
   deleteDebate: async (id) => {
     try {
