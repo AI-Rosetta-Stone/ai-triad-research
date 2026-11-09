@@ -48,7 +48,7 @@ Describe 'Invoke-TaxEditorSmokeTest — embeddings cache presence (/readyz), war
                         return [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 150
                             Body = [PSCustomObject]@{ vectors = @(1, 2, 3, 4) }; ContentType = 'application/json'; RawBody = ''; Error = $null }
                     }
-                    '*/api/analytics/query' {
+                    '*/api/analytics/query?includeSystem=true' {
                         $script:AnQ++
                         $total = if ($script:AnQ -eq 1) { 5 } else { 6 }
                         return [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 10

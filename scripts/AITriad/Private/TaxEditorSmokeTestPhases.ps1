@@ -136,6 +136,13 @@ function Get-SmokeTotalEventCount {
     return $null
 }
 
+# t/53: since t/4960 analytics excludes system identities (smoke-probe, smoke-*) from
+# queryAggregated by default — totalEvents AND eventTypes. The probe writes as smoke-probe,
+# so both the baseline and the read-back must opt in or the delta is always 0 (false
+# "silent drop") and view.dwell is never counted. includeSystem is anon-allowed on the
+# aggregated branch (routes/analyticsExclusionParams.ts, t/4962).
+$script:SmokeAnalyticsQueryPath = '/api/analytics/query?includeSystem=true'
+
 function Invoke-SmokeAnalyticsQuery {
     # One Invoke-RemoteCheck for the analytics phase, threading the anon session when there is one.
     param([string]$BaseUrl, [string]$Path, [string]$Method, [int]$TimeoutSec, $Session, [string]$Body)
@@ -272,7 +279,7 @@ function Invoke-SmokeAnalyticsPhase {
     }
 
     # Baseline read BEFORE the write.
-    $BaselineCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/query' -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
+    $BaselineCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path $script:SmokeAnalyticsQueryPath -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
     $Before = Get-SmokeTotalEventCount $BaselineCheck
 
     $WriteCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/event' -Method 'POST' `
@@ -283,7 +290,7 @@ function Invoke-SmokeAnalyticsPhase {
     Start-Sleep -Seconds 2
 
     # Read-back AFTER the write — the delta is the detector.
-    $AfterCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/query' -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
+    $AfterCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path $script:SmokeAnalyticsQueryPath -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
     $After = Get-SmokeTotalEventCount $AfterCheck
 
     $Analytics += Get-SmokeAnalyticsDeltaResult -BaselineCheck $BaselineCheck -AfterCheck $AfterCheck -Before $Before -After $After
