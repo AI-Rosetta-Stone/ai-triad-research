@@ -11,7 +11,22 @@ name: Container Image
 # via operations/devops/Get-BuiltShaFromRunName.ps1, because workflow_run.head_sha is the DISPATCH
 # ref tip, not the commit built from inputs.sha. Keep this expression IDENTICAL to the per-SHA tag
 # (`type=raw,value=sha-...`), BUILD_SHA and the checkout `ref:` below; the staging parser expects `(sha-<hex>)`.
-run-name: Container Image (sha-${{ inputs.sha || github.sha }})
+#
+# t/4932: also carries whether this run actually PUSHED, computed the same way push_mode's own
+# step below does (push event, or workflow_dispatch with inputs.push=='true') -- staging reads it
+# back via Get-PushFlagFromRunName.ps1 so a push=false A/B/dry-run dispatch never triggers a
+# staging deploy of an image nothing actually tagged. Must stay identical to the push_mode check.
+# Lead review (#4679, B1): the push flag is its OWN parenthetical, `(push=...)`, never appended
+# inside `(sha-...)` -- Get-BuiltShaFromRunName's regex needs `)` immediately after the hex, and
+# `(sha-X, push=true)` broke that, fail-closing every staging deploy.
+# Quality review (#4679, p/780#29): `inputs.push` is `type: boolean`, so `inputs.push == 'true'`
+# inside a `${{ }}` expression triggers GHA's loose comparison coercion -- true coerces to the
+# NUMBER 1, 'true' is non-numeric so coerces to NaN, and `1 == NaN` is always false. Every
+# workflow_dispatch build (the only real build path) would read `(push=false)`. push_mode's own
+# step avoids this because `${{ inputs.push }}` there is interpolated into an ENV VAR STRING
+# first (always "true"/"false" text), not compared as an expression value directly. `format()`
+# forces the same string coercion here.
+run-name: Container Image (sha-${{ inputs.sha || github.sha }}) (push=${{ github.event_name == 'push' || format('{0}', inputs.push) == 'true' }})
 
 on:
   push:
