@@ -387,7 +387,8 @@
 .adash-exclusion-caption {
   font-size: 0.75rem;
   font-style: italic;
-  color: var(--text-muted);
+  /* Design, t/4961: --text-muted fails AA (3.33 harvard, 3.19 bkc) on this row's background. */
+  color: var(--text-secondary);
 }
 
 .adash-loading {
