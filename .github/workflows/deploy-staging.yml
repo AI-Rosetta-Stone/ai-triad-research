@@ -46,6 +46,12 @@ jobs:
     name: gate
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
+    # Lead review (#4679, B2, verified live via `az ad app federated-credential list`): the
+    # deploy App's federated credentials trust ONLY `...:environment:staging` /
+    # `...:environment:production` subjects. Without this, the token subject is
+    # `...:ref:refs/heads/main`, azure/login is rejected on every run, and staging never
+    # deploys again -- the same trap as check-signin-secret-drift.yml:12.
+    environment: staging
     timeout-minutes: 10
     permissions:
       id-token: write  # Azure OIDC login, to read staging's current DEPLOY_SHA
@@ -86,23 +92,53 @@ jobs:
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           $Active = @(Get-ContainerAppRevision -Mode Active -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}')
           $CurrentSha = ''
+          $ReadFailed = $false
           if ($Active.Count -gt 0) {
             $Top = @($Active | Sort-Object -Property TrafficWeight -Descending)[0]
+            # S1 (Lead review, #4679): `az` is a NATIVE command -- it does NOT throw on failure
+            # even under $ErrorActionPreference='Stop'. $LASTEXITCODE must be checked explicitly,
+            # immediately after the call, before any other PowerShell statement can reset it.
             $EnvJson = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $Top.Name --query 'properties.template.containers[0].env' -o json
-            $EnvVars = $EnvJson | ConvertFrom-Json
-            $DeployShaVar = @($EnvVars | Where-Object { $_.name -eq 'DEPLOY_SHA' })
-            if ($DeployShaVar.Count -gt 0) { $CurrentSha = $DeployShaVar[0].value }
+              --revision $Top.Name --query 'properties.template.containers[0].env' -o json 2>&1
+            $AzExit = $LASTEXITCODE
+            if ($AzExit -ne 0) {
+              Write-Host "::warning::az containerapp revision show failed (exit $AzExit) reading revision '$($Top.Name)': $EnvJson"
+              $ReadFailed = $true
+            } else {
+              $EnvVars = $EnvJson | ConvertFrom-Json
+              $DeployShaVar = @($EnvVars | Where-Object { $_.name -eq 'DEPLOY_SHA' })
+              if ($DeployShaVar.Count -gt 0) {
+                $CurrentSha = $DeployShaVar[0].value
+              } else {
+                Write-Host "::warning::active revision '$($Top.Name)' has no DEPLOY_SHA env var -- cannot determine its deployed commit."
+                $ReadFailed = $true
+              }
+            }
           }
+          # S1: an active revision EXISTS but could not be read is NOT the same as no active
+          # revision at all (a true first deploy). Only the latter is safe to treat as "nothing
+          # to compare against" below.
           Add-Content -Path $env:GITHUB_OUTPUT -Value "current_sha=$CurrentSha"
-          if ([string]::IsNullOrWhiteSpace($CurrentSha)) {
-            Write-Host "No current DEPLOY_SHA (first deploy, or the active revision has none) -- ancestor check skipped."
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "read_failed=$($ReadFailed.ToString().ToLowerInvariant())"
+          if ($ReadFailed -or [string]::IsNullOrWhiteSpace($CurrentSha)) {
+            if (-not $ReadFailed) { Write-Host "No active revision (true first deploy) -- ancestor check skipped." }
             Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor="
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=false"
           } else {
+            # S2 (Lead review, #4679): exit 0 = ancestor, exit 1 = genuinely not an ancestor,
+            # exit 128 (or anything else) = CurrentSha isn't in this checkout's history at all
+            # (e.g. a branch build) -- the check could not run, not "definitely not an ancestor."
             git merge-base --is-ancestor $env:BUILT_SHA $CurrentSha
-            $IsAncestor = ($LASTEXITCODE -eq 0)
-            Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA ${CurrentSha}: $IsAncestor"
+            $MergeBaseExit = $LASTEXITCODE
+            $IsAncestor = ($MergeBaseExit -eq 0)
+            $Unknown = ($MergeBaseExit -ne 0 -and $MergeBaseExit -ne 1)
+            if ($Unknown) {
+              Write-Host "::warning::git merge-base --is-ancestor exited $MergeBaseExit (not 0/1) for built SHA $env:BUILT_SHA vs. current DEPLOY_SHA ${CurrentSha} -- $CurrentSha is not in this checkout's history; the ancestor guard could not verify."
+            } else {
+              Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA ${CurrentSha}: $IsAncestor"
+            }
             Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor=$($IsAncestor.ToString().ToLowerInvariant())"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=$($Unknown.ToString().ToLowerInvariant())"
           }
 
       - name: Decide whether to deploy (t/4932)
@@ -113,16 +149,19 @@ jobs:
           BUILT_SHA: ${{ steps.built.outputs.sha }}
           CURRENT_SHA: ${{ steps.compare.outputs.current_sha }}
           IS_ANCESTOR: ${{ steps.compare.outputs.is_ancestor }}
+          READ_FAILED: ${{ steps.compare.outputs.read_failed }}
+          ANCESTOR_UNKNOWN: ${{ steps.compare.outputs.ancestor_unknown }}
         run: |
           . ./operations/devops/Get-StagingDeployGateVerdict.ps1
           $IsAncestorBool = if ([string]::IsNullOrWhiteSpace($env:IS_ANCESTOR)) { $null } else { $env:IS_ANCESTOR -eq 'true' }
           $Result = Get-StagingDeployGateVerdict -Pushed ($env:PUSHED -eq 'true') -BuiltSha $env:BUILT_SHA `
-            -CurrentDeploySha $env:CURRENT_SHA -BuiltShaIsAncestorOfCurrent $IsAncestorBool
+            -CurrentDeploySha $env:CURRENT_SHA -BuiltShaIsAncestorOfCurrent $IsAncestorBool `
+            -CurrentDeployReadFailed ($env:READ_FAILED -eq 'true') -AncestorCheckUnknownCommit ($env:ANCESTOR_UNKNOWN -eq 'true')
           Add-Content -Path $env:GITHUB_OUTPUT -Value "proceed=$($Result.Proceed.ToString().ToLowerInvariant())"
-          if ($Result.Proceed) {
-            Write-Host "gate: proceeding -- $($Result.Reason)"
+          if ($Result.Warn) {
+            Write-Host "::warning::Auto-Deploy to Staging ($(if ($Result.Proceed) { 'PROCEEDING WITH GAP' } else { 'SKIPPED' })): $($Result.Reason)"
           } else {
-            Write-Host "::warning::Auto-Deploy to Staging SKIPPED: $($Result.Reason)"
+            Write-Host "gate: proceeding -- $($Result.Reason)"
           }
 
   deploy-staging:

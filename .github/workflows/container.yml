@@ -16,7 +16,10 @@ name: Container Image
 # step below does (push event, or workflow_dispatch with inputs.push=='true') -- staging reads it
 # back via Get-PushFlagFromRunName.ps1 so a push=false A/B/dry-run dispatch never triggers a
 # staging deploy of an image nothing actually tagged. Must stay identical to the push_mode check.
-run-name: Container Image (sha-${{ inputs.sha || github.sha }}, push=${{ github.event_name == 'push' || inputs.push == 'true' }})
+# Lead review (#4679, B1): the push flag is its OWN parenthetical, `(push=...)`, never appended
+# inside `(sha-...)` -- Get-BuiltShaFromRunName's regex needs `)` immediately after the hex, and
+# `(sha-X, push=true)` broke that, fail-closing every staging deploy.
+run-name: Container Image (sha-${{ inputs.sha || github.sha }}) (push=${{ github.event_name == 'push' || inputs.push == 'true' }})
 
 on:
   push:
