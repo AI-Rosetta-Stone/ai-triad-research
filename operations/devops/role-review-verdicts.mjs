@@ -43,6 +43,28 @@
  * doesn't match the grammar is NEVER silently dropped -- it registers as a `changes_requested`
  * verdict anyway (role name best-effort extracted, or `'(unparseable)'`), so the sweep still
  * blocks on it. Fails closed, not open, on an unrecognized shape.
+ *
+ * TWO NITS (Quality, p/780#48, approving #4696 with both left for follow-up):
+ * 1. The backstop above originally scanned the WHOLE body for "changes requested" and for a
+ *    role in ANY parenthesized group, which could match deep in unrelated prose (e.g. a long
+ *    `Approved (Design):` comment that later explains "no changes requested from Quality").
+ *    Scoped to the FIRST LINE only now, matching the strict grammar's own anchoring.
+ * 2. A block keyed `'(unparseable)'` (role extraction totally failed) LATCHES: nothing else
+ *    naturally produces that exact Map key, so it is NOT overwritten by a later verdict for a
+ *    specific, different role -- and this is DELIBERATE, not a bug (Quality, p/780#54,
+ *    correcting an over-eager first attempt at this nit that made it supersedable by ANY later
+ *    entry -- that reintroduced #4686's exact shape: a badly-formed Design block, followed by
+ *    an unrelated later `Approved (Quality):`, would have erased the block and let the sweep
+ *    enqueue the PR). Since the ambiguous entry's role is UNKNOWN, there is no safe way to tell
+ *    "a later verdict that resolves this specific block" apart from "a later verdict for some
+ *    other, unrelated concern" -- so it stays latched until a genuinely NEW push. That happens
+ *    for free via the existing head/push-binding checks above: a new push changes `headSha` (so
+ *    an old unparseable REVIEW, bound to the old commit, no longer matches) and advances
+ *    `lastPushAt` (so an old unparseable COMMENT, predating the new push, is filtered out the
+ *    same as any other stale comment) -- `latestRoleVerdicts` only ever sees entries from the
+ *    CURRENT head/push to begin with. If an explicit override is ever needed before a new push,
+ *    the correct primitive is a new, role-tagged verdict word (e.g. `Cleared (<role>):`), not a
+ *    same-head supersede rule here.
  */
 
 function effectiveTimeOf(item, kind) {
@@ -58,6 +80,7 @@ const LEADING_MARKDOWN_RE = /^[*_]+\s*/;
 const VERDICT_RE = /^(Approved|Changes requested|Design-exempt)\s*\(([^)]+)\)[:,.]\s*(.*)$/s;
 const LOOSE_CHANGES_REQUESTED_RE = /changes requested/i;
 const LOOSE_ROLE_RE = /\(([^)]+)\)/;
+const UNPARSEABLE_ROLE = '(unparseable)';
 
 function stripLeadingMarkdown(body) {
   return String(body ?? '').trim().replace(LEADING_MARKDOWN_RE, '');
@@ -75,10 +98,13 @@ function parseVerdict(rawBody) {
   // Fail-closed backstop: the strict grammar didn't match, but the text still says "changes
   // requested" -- never silently treat this as "no verdict." Best-effort role extraction from
   // the first parenthesized group; falls back to a fixed label so the sweep always has a role
-  // string to put in its skip reason.
-  if (LOOSE_CHANGES_REQUESTED_RE.test(stripped)) {
-    const roleMatch = LOOSE_ROLE_RE.exec(stripped);
-    return { role: roleMatch ? roleMatch[1].trim() : '(unparseable)', kind: 'changes_requested', unparsed: true };
+  // string to put in its skip reason. Nit 1 (Quality, p/780#48): scoped to the FIRST LINE only
+  // -- the same anchoring the strict grammar already uses -- so a long body that only mentions
+  // "changes requested" or a parenthesized name deep in later prose can't false-positive.
+  const firstLine = stripped.split('\n', 1)[0];
+  if (LOOSE_CHANGES_REQUESTED_RE.test(firstLine)) {
+    const roleMatch = LOOSE_ROLE_RE.exec(firstLine);
+    return { role: roleMatch ? roleMatch[1].trim() : UNPARSEABLE_ROLE, kind: 'changes_requested', unparsed: true };
   }
   return null;
 }
@@ -118,6 +144,11 @@ export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSh
 
   entries.sort((a, b) => a.at - b.at);
 
+  // Nit 2 (Quality, p/780#54): an UNPARSEABLE_ROLE entry LATCHES deliberately -- it is NOT
+  // cleared by a later verdict for some other, unrelated role (see the module doc comment
+  // above). It only ever stops appearing here because a new push changes `headSha`/`lastPushAt`
+  // and the old entry's review/comment no longer passes the binding checks above -- nothing
+  // extra needed in this function for that.
   const latest = new Map();
   for (const e of entries) latest.set(e.role, { kind: e.kind, at: e.iso, unparsed: e.unparsed ?? false });
   return latest;
