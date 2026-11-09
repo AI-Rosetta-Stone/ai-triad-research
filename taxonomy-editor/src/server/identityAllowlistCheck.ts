@@ -5,30 +5,30 @@
 // entries that no current sign-in can produce (because IDENTITY_MAP doesn't cover them)
 // failed SILENTLY — the guard just never matched. This module surfaces that gap at boot
 // and on /health, instead of waiting for someone to notice a missing admin or a writable
-// read-only account. The reachability rule itself lives in principalName.ts's
-// canProducePrincipal — this module only iterates the two allowlists and calls it.
+// read-only account. The reachability rules live in principalName.ts (canProducePrincipal for
+// READ_ONLY_PRINCIPALS names, canProduceStableId for ADMIN_USERS stableIds); this module only
+// iterates the two allowlists and calls them.
 
-import { canProducePrincipal, identityMapSize } from './principalName.js';
+import { canProducePrincipal, canProduceStableId, identityMapSize } from './principalName.js';
 import { log } from './logger.js';
 
 export interface UnreachableAllowlistEntry {
   source: 'ADMIN_USERS' | 'READ_ONLY_PRINCIPALS';
-  idp: 'github' | 'aad' | null; // null for ADMIN_USERS, which carries no idp prefix
+  idp: 'github' | 'aad' | null; // null for ADMIN_USERS: `name` is the whole entry, prefix included
   name: string;
   reason: string;
 }
 
-const EMAIL_RE = /@/;
-
 /**
- * An unprefixed ADMIN_USERS entry is reachable if it's a verified Google email (Google's
- * principal name IS the email, never map-derived — principalName.ts:31-34), or if some
- * github/aad sign-in can produce it. Anything else — a bare legacy name like `jpsnover`
- * with no IDENTITY_MAP entry — is unreachable.
+ * t/43: an ADMIN_USERS entry is unreachable unless isAdminStableId could match it. Since t/4328
+ * and t/4706 that's only an idp-qualified entry (`github:<id>`, `aad:<tid>-<oid>`) that some
+ * sign-in records as its stableId. A bare entry (a legacy name, an email) never matches, whatever
+ * IDENTITY_MAP says. The t/4505 rule here predated qualified entries and flagged them instead.
  */
-function isReachableAdminUser(name: string): boolean {
-  if (EMAIL_RE.test(name)) return true;
-  return canProducePrincipal('github', name) || canProducePrincipal('aad', name);
+function adminUserUnreachableReason(name: string): string | null {
+  if (!name.includes(':')) return 'bare entry with no idp: prefix; isAdminStableId never matches it (t/4328)';
+  if (!canProduceStableId(name)) return 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+  return null;
 }
 
 /** Pure, I/O-free: the two allowlists in, the entries no sign-in can currently produce out. */
@@ -40,9 +40,8 @@ export function findUnreachableAllowlistEntries(
   for (const raw of adminUsers) {
     const name = raw.trim();
     if (!name) continue;
-    if (!isReachableAdminUser(name)) {
-      out.push({ source: 'ADMIN_USERS', idp: null, name, reason: 'no map entry for legacy aad/github name, and not a Google email' });
-    }
+    const reason = adminUserUnreachableReason(name);
+    if (reason) out.push({ source: 'ADMIN_USERS', idp: null, name, reason });
   }
   for (const entry of readOnlyPrincipalEntries) {
     const sep = entry.indexOf(':');
