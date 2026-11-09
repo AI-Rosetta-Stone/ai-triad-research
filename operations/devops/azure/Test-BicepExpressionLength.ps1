@@ -10,13 +10,24 @@
     compiles main.bicep and measures every expression string ("[...]", excluding "[[" literal
     escapes) so the next growth past the threshold fails CI, not a prod deploy.
 
+    Calibration (e/436#11-13): compiled length equals ARM's count, ratio about 1.0. The 11-02
+    template (70a7e08f, run 41463847843) compiles to 89,240 against ARM's reported 89,238. #4312
+    (a389687ab, merged later that day) halved it to 44,120; 229da270 (45,288) then deployed fine on
+    11-08. So 70,000 is 85% of ARM's limit in ARM's own units. Comparing ARM's pre-#4312 count with
+    a post-#4312 compile gives a false ~2x ratio. tests/BicepExpressionLength.Tests.ps1 pins both
+    real templates against this default via length-preserving fixtures.
+
     Dot-source for the pure functions; run as a script to compile and check a .bicep file.
 #>
 [CmdletBinding()]
 param(
     [string] $BicepPath = (Join-Path $PSScriptRoot '..' '..' '..' 'deploy' 'azure' 'main.bicep'),
-    [int] $Limit = 70000
+    [int] $Limit = 0
 )
+
+# The one place the threshold lives: ci.yml and the tests use this default, never their own copy.
+$script:DefaultArmExpressionLimit = 70000
+if ($Limit -le 0) { $Limit = $script:DefaultArmExpressionLimit }
 
 # Local helper, same convention as Test-StagingContainerEnvIsolation.ps1: no dependency on
 # AITriad.psm1, so a bare CI step can run this.
@@ -53,7 +64,7 @@ function Get-MaxArmExpression {
 }
 
 function Assert-ArmExpressionLength {
-    param([Parameter(Mandatory)] $Template, [int] $Limit = 70000)
+    param([Parameter(Mandatory)] $Template, [int] $Limit = $script:DefaultArmExpressionLimit)
     $max = Get-MaxArmExpression -Template $Template
     if ($max.Length -gt $Limit) {
         throw (New-ActionableError -Goal 'Keep main.bicep below the ARM expression-length limit (t/4845)' `

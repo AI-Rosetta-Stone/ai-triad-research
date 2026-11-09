@@ -23,22 +23,44 @@ Describe 'Test-BicepExpressionLength (t/4845)' {
         }
     }
 
-    It 'PASS ARM: an expression at the threshold passes and reports its length and path' {
+    It 'PASS ARM: an expression exactly at the default threshold passes and reports its length and path' {
         Set-StrictMode -Version Latest
-        $max = Assert-ArmExpressionLength -Template (script:TemplateWith 70000) -Limit 70000
-        $max.Length | Should -Be 70000
+        $limit = $script:DefaultArmExpressionLimit
+        $max = Assert-ArmExpressionLength -Template (script:TemplateWith $limit)
+        $max.Length | Should -Be $limit
         $max.Path | Should -Be '$.resources[0].properties.template.containers[0].env'
     }
 
-    It 'FIRE ARM: one character over the threshold throws, naming length and path' {
+    It 'FIRE ARM: one character over the default threshold throws, naming length and path' {
         Set-StrictMode -Version Latest
-        { Assert-ArmExpressionLength -Template (script:TemplateWith 70001) -Limit 70000 } |
-            Should -Throw '*70001 chars at $.resources?0?.properties.template.containers?0?.env*'
+        $over = $script:DefaultArmExpressionLimit + 1
+        { Assert-ArmExpressionLength -Template (script:TemplateWith $over) } |
+            Should -Throw "*$over chars at `$.resources?0?.properties.template.containers?0?.env*"
     }
 
-    It 'the 11-02 incident size (89238) fails' {
-        Set-StrictMode -Version Latest
-        { Assert-ArmExpressionLength -Template (script:TemplateWith 89238) -Limit 70000 } | Should -Throw
+    # Real templates (e/436#12-13), as length-preserving fixtures: same JSON paths and expression
+    # lengths, no content. Regenerate with operations/devops/azure/New-BicepExpressionLengthFixture.ps1
+    # -Sha <sha> -OutFile tests/fixtures/bicep-expression-length/<name>.json (needs full git history).
+    Context 'Real templates at the default threshold' {
+        BeforeAll {
+            function script:Fixture([string]$Name) {
+                $path = Join-Path $repoRoot "tests/fixtures/bicep-expression-length/$Name.json"
+                (Get-Content $path -Raw | ConvertFrom-Json -AsHashtable -Depth 200).template
+            }
+        }
+
+        It 'FIRE ARM: the 11-02 incident template (70a7e08f, run 41463847843, ARM "actual: 89238") fails' {
+            Set-StrictMode -Version Latest
+            $t = script:Fixture 'incident-70a7e08f'
+            (Get-MaxArmExpression -Template $t).Length | Should -Be 89240 -Because 'the fixture must stay faithful to the real incident template'
+            { Assert-ArmExpressionLength -Template $t } | Should -Throw '*89240 chars*'
+        }
+
+        It 'PASS ARM: the template that deployed on 11-08 (229da270, run 42516135244) passes' {
+            Set-StrictMode -Version Latest
+            $t = script:Fixture 'deployed-229da270'
+            (Assert-ArmExpressionLength -Template $t).Length | Should -Be 45288
+        }
     }
 
     It 'ignores "[[" literal escapes and plain strings' {
