@@ -358,6 +358,30 @@ test("FAULT CHECK: a DEFINITE 'dirty' read still fires merge-conflict (the unkno
   assert.equal(classifyBlocker(pr, NOW)?.class, 'merge-conflict');
 });
 
+// Quality should-fix (p/780#52): the ORIGINAL unknown-mergeability guard suppressed EVERY
+// class, not just the "safe to arm" ones -- an unrelated required-check-failed or idle alert
+// would go silent for a scan cycle for no reason. Narrowed to ONLY the approved-not-armed path
+// (case 6); every other class must still fire normally when mergeability happens to be
+// ambiguous.
+test('NARROWED SCOPE: required-check-failed still fires even when mergeableState is unknown', () => {
+  const pr = basePr({
+    mergeableState: 'unknown',
+    runs: allGreenRuns({ CodeQL: { status: 'completed', conclusion: 'failure', createdAt: minsAgo(10), startedAt: minsAgo(10), id: 5 } }),
+  });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'required-check-failed');
+});
+
+test('NARROWED SCOPE: idle still fires even when mergeableState is unknown (as long as nothing else overrides it)', () => {
+  const pr = basePr({ mergeableState: 'unknown', lastActivityAt: hoursAgo(2) });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'idle');
+});
+
+test('NARROWED SCOPE: held still fires even when mergeableState is unknown (already covered above, re-asserted for clarity)', () => {
+  const pr = basePr({ mergeableState: 'unknown', labels: ['joint-gv'] });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
 test("'clean'/'blocked'/other KNOWN mergeableState values are unaffected -- only null/'unknown' trigger the no-claim guard", () => {
   assert.equal(classifyBlocker(basePr({ mergeableState: 'clean' }), NOW), null); // nothing else wrong -> null anyway, but NOT via the new guard
   const blockedPr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked', mergeableStateRecheck: 'blocked' });

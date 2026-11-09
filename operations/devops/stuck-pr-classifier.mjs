@@ -177,20 +177,23 @@ export function classifyBlocker(pr, nowMs) {
     return { class: 'merge-conflict', detail: {} };
   }
 
-  // 2.5 unknown mergeability (TL review, p/702#140, found on #4695): GitHub computes
-  // mergeable_state ASYNCHRONOUSLY -- a single `pulls.get` read can return 'unknown' (or
-  // `mergeable: null`) for a PR that is ACTUALLY conflicting, if GitHub's background
-  // merge-commit computation hadn't finished by read time. #4695 read as non-conflicting at
-  // scan time -- 31 minutes after the conflicting base PR (#4698) had already merged -- and
-  // fell through to the T0-exemption branch of approved-not-armed below: a real,
-  // already-existing conflict reported as "ready to arm." Case 2 above only catches a
-  // DEFINITE 'dirty'/false read; this catches the "don't actually know yet" read and makes NO
-  // claim this scan, rather than defaulting to "not conflicting" -- the same staleness class
-  // already named for armed-but-blocked (t/4356), just previously unguarded here. The next
-  // scheduled run re-reads and classifies for real.
-  if (pr.mergeableState == null || pr.mergeableState === 'unknown') {
-    return null;
-  }
+  // 2.5 unknown mergeability (TL review, p/702#140, found on #4695; narrowed per Quality
+  // should-fix, p/780#52): GitHub computes mergeable_state ASYNCHRONOUSLY -- a single
+  // `pulls.get` read can return 'unknown' (or `mergeable: null`) for a PR that is ACTUALLY
+  // conflicting, if GitHub's background merge-commit computation hadn't finished by read time.
+  // #4695 read as non-conflicting at scan time -- 31 minutes after the conflicting base PR
+  // (#4698) had already merged -- and fell through to the T0-exemption branch of
+  // approved-not-armed below: a real, already-existing conflict reported as "ready to arm."
+  // Case 2 above only catches a DEFINITE 'dirty'/false read.
+  //
+  // Narrowed to ONLY the approved-not-armed path (case 6): the original fix suppressed EVERY
+  // class whenever mergeability was ambiguous, including stuck-required-run/required-check-
+  // failed/idle, which make no "safe to arm" claim and don't need this guard at all -- an
+  // unrelated, already-working alert would go silent for a scan cycle for no reason. The
+  // caller (pr-triage.yml) re-checks mergeable_state ONCE when it reads null/'unknown' and
+  // logs a WARN if it's still ambiguous after that -- this flag just records whether that
+  // happened, for case 6 to consult below.
+  const mergeabilityUnknown = pr.mergeableState == null || pr.mergeableState === 'unknown';
 
   // 3. stuck-required-run — the #3062 blind spot. Checked before required-check-failed:
   //    a run that is still queued/in_progress has no conclusion yet, so it can't be "failed".
@@ -313,7 +316,7 @@ export function classifyBlocker(pr, nowMs) {
   //    PR #3926, a green T0 doc PR with zero reviews that the TL still flagged as this exact
   //    shape). A T1/T2 PR that's green but genuinely still awaiting approval does NOT fire
   //    here -- it correctly isn't "ready" yet.
-  if (!isArmed) {
+  if (!isArmed && !mergeabilityUnknown) {
     const allGreen = REQUIRED_CONTEXTS.every((name) => {
       const run = runFor(name);
       return run && run.status === 'completed' && run.conclusion === 'success';

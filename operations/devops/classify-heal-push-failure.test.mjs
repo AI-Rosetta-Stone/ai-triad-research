@@ -18,9 +18,15 @@ test('matching stderr: "could not read Username" is credential_rejected', () => 
   ), 'credential_rejected');
 });
 
-test('matching stderr: a bare 403 is credential_rejected', () => {
+test('matching stderr: git\'s "returned error: 403" wording is credential_rejected', () => {
   assert.equal(classifyHealPushFailure(
-    "remote: Permission to AI-Rosetta-Stone/ai-triad-research.git denied to dependabot-heal.\nfatal: unable to access 'https://github.com/...': The requested URL returned error: 403\n",
+    "fatal: unable to access 'https://github.com/...': The requested URL returned error: 403\n",
+  ), 'credential_rejected');
+});
+
+test('matching stderr: "Permission to <repo> denied to <actor>" is credential_rejected', () => {
+  assert.equal(classifyHealPushFailure(
+    'remote: Permission to AI-Rosetta-Stone/ai-triad-research.git denied to dependabot-heal.\n',
   ), 'credential_rejected');
 });
 
@@ -48,10 +54,24 @@ test('empty/null/undefined output is "other" (never throws, never misclassifies 
   assert.equal(classifyHealPushFailure(undefined), 'other');
 });
 
-// FAULT CHECK: a 3-digit number that is NOT actually an HTTP 403 (e.g. a line count, a PID, a
-// port) must not false-positive. The regex requires 403 to be its own token, not a substring
-// of a longer number.
-test('FAULT CHECK: "403" embedded in a longer number (e.g. 14035, 4033) does not false-positive', () => {
+// FAULT CHECK (Quality, p/780#52): a bare "403" boundary-matched on non-digit characters still
+// matched inside a hex commit SHA like "9c1a403e" -- 'c'/'e' are non-digits, satisfying a
+// `[^0-9]` boundary on either side even though they're ordinary hex digits, not separators.
+// Fixed by matching git's actual, specific wording instead of a bare number.
+test('FAULT CHECK: a non-fast-forward rejection containing a hex SHA with "403" inside it (e.g. 9c1a403e) does not false-positive', () => {
+  assert.equal(classifyHealPushFailure(
+    'To https://github.com/AI-Rosetta-Stone/ai-triad-research.git\n' +
+    ' ! [rejected]  main -> main (fetch first)\n' +
+    "error: failed to push some refs to 'https://github.com/...'\n" +
+    'hint: Updates were rejected because the remote contains work that you do\n' +
+    'hint: not have locally. This is usually caused by another repository pushing\n' +
+    'hint: to the same ref. You may want to first integrate the remote changes\n' +
+    '(e.g., \'git pull ...\') before pushing again.\n' +
+    'remote commit 9c1a403e is ahead of local HEAD\n',
+  ), 'other');
+});
+
+test('FAULT CHECK: "403" embedded in a longer decimal number (e.g. 14035, 4033) does not false-positive', () => {
   assert.equal(classifyHealPushFailure('14035 insertions, 4033 deletions'), 'other');
 });
 
@@ -84,4 +104,11 @@ test('workflow wiring: dependabot-lockfile-heal.yml invokes classify-heal-push-f
   assert.match(stepBody, /node operations\/devops\/classify-heal-push-failure\.mjs/);
   assert.match(stepBody, /::error::heal credential rejected/);
   assert.match(stepBody, /::error::heal push failed/);
+  // Quality must-fix (p/780#52): the step must capture the push's real exit code with
+  // `&&`/`||`, never the `if ! CMD; then ... $? ...` shape -- `$?` inside that block always
+  // reads 0 (entering the then-branch already means the negation evaluated true), so the
+  // step would always log "exit 0" on a genuine push failure. Empirically confirmed: see the
+  // bash-level proof in the PR description.
+  assert.match(stepBody, /&&\s*PUSH_EXIT=0\s*\|\|\s*PUSH_EXIT=\$\?/);
+  assert.doesNotMatch(stepBody, /if\s*!\s*PUSH_OUTPUT=/, 'the buggy if-!-then shape must not reappear');
 });

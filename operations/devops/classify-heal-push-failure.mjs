@@ -11,15 +11,23 @@
  *
  * Patterns (git's own wording for a rejected credential over HTTPS):
  *   - "could not read Username" -- the extraheader auth value was empty/malformed.
- *   - a bare "403" -- GitHub's HTTP status for an authenticated-but-forbidden push (expired
- *     PAT, App installation missing contents:write, App uninstalled).
+ *   - "returned error: 403" -- git's own wrapper around GitHub's HTTP 403 for an
+ *     authenticated-but-forbidden push (expired PAT, App installation missing contents:write,
+ *     App uninstalled).
+ *   - "Permission to <repo> denied to <actor>" -- the GitHub-side message for the same case.
  *   - "Authentication failed" -- the generic credential-rejected message on some git/http
  *     backends.
  * Deliberately NOT credential-specific (no PAT vs. App-token branching) -- this matches
  * whichever credential heal uses today, so it does not need to change when the App/PAT switch
  * (t/4137 items 1/2/4) eventually lands.
+ *
+ * Quality must-fix (p/780#52): a bare `403` boundary-matched on non-digit characters (the
+ * original approach) still matches inside a hex commit SHA like `9c1a403e` -- 'c' and 'e' are
+ * non-digits, so they satisfy a `[^0-9]` boundary either side of "403" even though they're
+ * ordinary hex digits, not word separators. Matching git's actual, specific wording for each
+ * failure shape instead of a bare number closes this for good.
  */
-const CREDENTIAL_REJECTED_RE = /could not read Username|(?:^|[^0-9])403(?:[^0-9]|$)|Authentication failed/i;
+const CREDENTIAL_REJECTED_RE = /could not read Username|returned error:\s*403\b|Permission to .+ denied|Authentication failed/i;
 
 /** PURE. Classifies a failed `git push`'s captured stderr/combined output. */
 export function classifyHealPushFailure(pushOutput) {

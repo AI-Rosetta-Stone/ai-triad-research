@@ -620,6 +620,22 @@ jobs:
                 mergeableStateRecheck = recheck.mergeable_state;
               }
 
+              // Quality should-fix (p/780#52, TL finding p/702#140 on #4695): GitHub computes
+              // mergeable_state ASYNCHRONOUSLY -- a single read can come back null/'unknown'
+              // for a PR that's actually fine (or actually conflicting). Re-check ONCE, same
+              // double-read pattern as looksArmedButBlocked above; if it's STILL ambiguous
+              // after that, log it -- a silently-suppressed approved-not-armed/armed class
+              // (stuck-pr-classifier.mjs's own narrowed guard) should be visible, not silent.
+              let effectiveMergeableState = full.mergeable_state;
+              if (effectiveMergeableState == null || effectiveMergeableState === 'unknown') {
+                await new Promise((r) => setTimeout(r, 3000));
+                const { data: unknownRecheck } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+                effectiveMergeableState = unknownRecheck.mergeable_state;
+                if (effectiveMergeableState == null || effectiveMergeableState === 'unknown') {
+                  core.warning(`#${pr.number}: mergeable_state still unknown after a re-check -- approved-not-armed/armed classes suppressed for this scan (t/4695 staleness class).`);
+                }
+              }
+
               const labels = (full.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
               const { lastActivityAt, soClearanceDetected, hasApproval } = await activityAndSoFacts(full);
               // t/4533: the consult-hold timeline fetch is only worth paying for when the label
@@ -627,22 +643,23 @@ jobs:
               const holdAppliedAt = labels.includes('consult-hold') ? await consultHoldAppliedAt(full) : null;
 
               const prFacts = {
-                mergeableState: full.mergeable_state,
+                mergeableState: effectiveMergeableState,
                 mergeableStateRecheck,
                 // t/4356 (TL, p/331#2172): #3432/#3455 sat armed-but-DIRTY for hours, unflagged --
                 // `full.mergeable` (a lazily-computed tri-state true/false/null) can lag or read
                 // non-false while GitHub's own `mergeable_state` already reports 'dirty'. Check
                 // both, matching this field's own documented contract in stuck-pr-classifier.mjs
                 // ("mergeable === false / mergeable_state === 'dirty'"), which this line never
-                // actually implemented.
-                isConflicting: full.mergeable === false || full.mergeable_state === 'dirty',
+                // actually implemented. Uses the (possibly rechecked) effectiveMergeableState so
+                // a first read of 'unknown' that resolved to 'dirty' on recheck is still caught.
+                isConflicting: full.mergeable === false || effectiveMergeableState === 'dirty',
                 autoMergeEnabled: !!full.auto_merge,
                 autoMergeEnabledAt,  // t/4730: from GraphQL autoMergeRequest{enabledAt}, for armed-not-queued detection
                 inMergeQueue: !!mergeQueue.isInMergeQueue,
                 mergeQueueEnqueuedAt: mergeQueue.mergeQueueEntry?.enqueuedAt ?? null,
                 labels,
                 runs: [...byPath.values()],
-                mergeRefusalText: full.mergeable_state === 'blocked'
+                mergeRefusalText: effectiveMergeableState === 'blocked'
                   ? `Derived (not a live REST attempt): mergeable_state=blocked with required contexts ${JSON.stringify([...byPath.entries()].map(([p, r]) => `${p}:${r.status}/${r.conclusion}`))}`
                   : null,
                 lastActivityAt,
