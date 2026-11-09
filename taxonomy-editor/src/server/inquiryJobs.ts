@@ -33,7 +33,7 @@ import { randomUUID } from 'crypto';
 export const INQUIRY_BOOT_ID: string = randomUUID();
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { errorMessage } from '../../../lib/debate/errors.js';
-import { stageProgress, createDebateProgressTracker } from '../../../lib/debate/debateProgressMapping.js';
+import { stageProgress, createDebateProgressTracker, type DebateProgressUpdate } from '../../../lib/debate/debateProgressMapping.js';
 import type { DebateProgress } from '../../../lib/debate/debateEngine/internals.js';
 import { log } from './logger.js';
 import type { InquiryRequest, InquiryResult } from '../../../lib/inquiry/index.js';
@@ -132,7 +132,7 @@ function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
  *  reads currentDebateFraction directly) and guarded against a late event arriving after the
  *  job has already left the debating stage. Exported so the regression test can drive job
  *  state through the exact same path runInquiryJob uses, not a hand-rolled duplicate. */
-export function applyDebateProgressToJob(job: InquiryJob, update: { fraction: number; detail: string }): void {
+export function applyDebateProgressToJob(job: InquiryJob, update: DebateProgressUpdate): void {
   job.currentDebateFraction = Math.max(job.currentDebateFraction, update.fraction);
   job.currentStageDetail = update.detail;
   if (job.status === 'debating') {
