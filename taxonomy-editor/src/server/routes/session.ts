@@ -29,7 +29,7 @@ import { isAdmin } from '../community/community.js';
 import * as analytics from '../community/analytics.js';
 import { parseCookies } from '../httpCookies.js';
 import { anonSessionCreatedCookie, readValidCreatedMs } from './anonSessionCreated.js';
-import { internalTesterCookie, isInternalTester, internalTesterPage } from './internalTester.js';
+import { internalTesterCookie, isInternalTester, internalTesterPage, unintendedToggleReason } from './internalTester.js';
 import { parseExclusionParams } from './analyticsExclusionParams.js';
 import * as allowlistStore from '../storage/allowlistStore.js';
 import type { UserSession } from '../../../../lib/allowlist/types.js';
@@ -209,6 +209,8 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/analytics/internal', (req, res) => {
     const on = query(req, 'on');
     if (on !== '1' && on !== '0') { error(res, 'on must be 1 or 0', 400); return; }
+    const refused = unintendedToggleReason(req);
+    if (refused) { error(res, `Internal-tester flag not changed: ${refused}. Open this URL directly.`, 403); return; }
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',

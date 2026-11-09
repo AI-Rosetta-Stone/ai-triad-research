@@ -24,6 +24,16 @@ export function internalTesterCookie(on: boolean): string {
   return `${INTERNAL_TESTER_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureSuffix()}`;
 }
 
+/** t/4968: the toggle is a state-changing GET, so refuse requests the user didn't navigate to
+ *  themselves: a cross-site link or a speculative prefetch/prerender. Direct navigation
+ *  (`Sec-Fetch-Site: none`), same-site, and clients that send no fetch metadata still work. */
+export function unintendedToggleReason(req: IncomingMessage): string | null {
+  const header = (name: string): string => String(req.headers[name] ?? '').toLowerCase();
+  if (header('sec-fetch-site') === 'cross-site') return 'cross-site request';
+  if (header('sec-purpose').includes('prefetch') || header('purpose') === 'prefetch') return 'prefetch request';
+  return null;
+}
+
 export function isInternalTester(req: IncomingMessage): boolean {
   return parseCookies(req).get(INTERNAL_TESTER_COOKIE) === '1';
 }
