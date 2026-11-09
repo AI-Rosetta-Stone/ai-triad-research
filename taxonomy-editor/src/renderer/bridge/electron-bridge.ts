@@ -379,6 +379,9 @@ export const api: AppAPI = {
   })),
   // t/4562: mirrors loadCommunityOpEd — Community browsing itself is already web-only.
   loadCommunityInquiry: async () => { throw new Error('Community Library is only available in the web app'); },
+  // t/4898/t/4895: desktop parity via main-process IPC (preload.cts rename-inquiry/delete-inquiry).
+  renameInquiry: (jobId, title) => window.electronAPI.renameInquiry(jobId, title),
+  deleteInquiry: (jobId) => window.electronAPI.deleteInquiry(jobId),
 
   // Brief Export — desktop parity via main-process IPC (t/2840). Calls the shared runBriefPipeline
   // in-process; download returns raw bytes wrapped into a Blob (Blob-returning AppAPI in both builds).
@@ -678,4 +681,6 @@ export const api: AppAPI = {
   adminReviewDetail: (groupId) => window.electronAPI.adminReviewDetail(groupId),
   adminReviewAction: (action) => window.electronAPI.adminReviewAction(action),
   adminRemoveCommunityItem: (type, id, reason) => window.electronAPI.adminRemoveCommunityItem(type, id, reason),
+  // t/4898/t/4895: desktop parity via main-process IPC (preload.cts admin-rename-community-item).
+  renameCommunityItem: (type, id, title, reason) => window.electronAPI.renameCommunityItem(type, id, title, reason),
 };

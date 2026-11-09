@@ -244,6 +244,9 @@ export interface InquiryResultSummary {
   truncated: boolean;
   terminationReason?: string;
   createdAt: string;
+  /** User-assigned display name (t/4891/t/4898). Absent → display `question` via
+   *  `inquiryDisplayTitle()`, never an inline fallback. */
+  title?: string;
 }
 
 // Brief Export (t/2805, T7) — client shapes of the T6 REST API (server: routes/briefExports.ts).
@@ -618,6 +621,13 @@ export interface AppAPI {
    *  mirrors loadCommunityOpEd exactly. Web-only; community browsing itself is already web-only
    *  (useCommunityStore.fetchInquiries short-circuits on Electron), so desktop rejects. */
   loadCommunityInquiry: (id: string) => Promise<InquiryResult>;
+  /** t/4898/t/4895/t/4897: rename/delete a stored "My" Question. Typed `Promise<void>` on
+   *  purpose (Quality, t/4898#3/p/356#166) — the web route's response body is web-only, and
+   *  typing it through would let a caller come to depend on a field Electron never returns.
+   *  A still-running delete surfaces as a plain HTTP 409 on web (desktop never hits this: no
+   *  persisted file exists until the run finishes) — callers map that status themselves. */
+  renameInquiry: (jobId: string, title: string) => Promise<void>;
+  deleteInquiry: (jobId: string) => Promise<void>;
 
   // --- Brief Export (t/2805, T7 — client of the T6 REST API; web-only v1, Electron parity tracked) ---
   createBriefExport: (debateId: string, body: BriefExportRequest) => Promise<{ jobId: string }>;
@@ -888,4 +898,7 @@ export interface AppAPI {
   adminReviewDetail: (groupId: string) => Promise<unknown>;
   adminReviewAction: (action: { domain: string; groupId: string; action: string; itemIds: string[]; reason?: string; edits?: Record<string, unknown> }) => Promise<void>;
   adminRemoveCommunityItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, reason?: string) => Promise<void>;
+  /** t/4898/t/4895/t/4894: admin rename of a published community item, all 4 types. Server-side
+   *  per-type field mapping (title vs opeds' topic) — this call always sends a plain `title`. */
+  renameCommunityItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, title: string, reason?: string) => Promise<void>;
 }
