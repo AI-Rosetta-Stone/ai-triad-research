@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { EntityRef } from '@lib/entities/types';
@@ -78,11 +78,16 @@ export function FactsPanel({ nodeId, onSelectFact, onSelectRef }: {
   const [facts, setFacts] = useState<SourceFact[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
+  // t/4919: track which node's first fact we've already defaulted open, so a re-render with a
+  // new `facts` array identity for the SAME node (e.g. a cache refetch) doesn't reopen a card
+  // the user collapsed.
+  const defaultAppliedFor = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setExpanded(null);
+    defaultAppliedFor.current = null;
     onSelectFact?.(null);
     void getFactsIndex().then((idx) => {
       if (cancelled) return;
@@ -91,6 +96,16 @@ export function FactsPanel({ nodeId, onSelectFact, onSelectRef }: {
     });
     return () => { cancelled = true; };
   }, [nodeId]);
+
+  // t/4919: default the first fact expanded, once per node, only after facts have loaded —
+  // WITHOUT calling onSelectFact (Design t/4919#2: the split pane opens only on an explicit
+  // click, not the default).
+  useEffect(() => {
+    if (facts && facts.length > 0 && defaultAppliedFor.current !== nodeId) {
+      setExpanded(0);
+      defaultAppliedFor.current = nodeId;
+    }
+  }, [facts, nodeId]);
 
   // Mention-render kit (t/1906): reconstruct the sei:<nodeId> container from the fact
   // claims (single-LF join) so stored entity-name mentions can render as .ref-link
@@ -138,6 +153,7 @@ export function FactsPanel({ nodeId, onSelectFact, onSelectRef }: {
           <div
             key={`${f.doc_id}-${i}`}
             className="facts-card"
+            aria-expanded={isExpanded}
             /* eslint-disable-next-line local/no-inline-style -- dynamic: expand-state background */
             style={{ background: isExpanded ? 'var(--bg-secondary)' : 'transparent' }}
             onClick={() => {
