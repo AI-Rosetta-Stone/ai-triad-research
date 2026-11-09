@@ -120,7 +120,16 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
       const changesRequestedBy = [...verdicts.entries()].find(([, v]) => v.kind === 'changes_requested');
       const designVerdict = verdicts.get('Design');
       const designPasses = designVerdict?.kind === 'approved' || designVerdict?.kind === 'exempt';
-      if (changesRequestedBy) reason = `changes requested by ${changesRequestedBy[0]}`;
+      if (changesRequestedBy) {
+        const [role, v] = changesRequestedBy;
+        // Quality, p/780#46: a reviewer-App body that says "changes requested" but doesn't match
+        // the strict grammar still blocks (role-review-verdicts.mjs's fail-closed backstop) --
+        // flagged with a WARN here so a human notices the unrecognized shape, instead of it
+        // quietly looking like an ordinary, well-formed block.
+        reason = v.unparsed
+          ? `WARN: changes requested by ${role} (unparsed reviewer-App body -- check its exact wording against the grammar)`
+          : `changes requested by ${role}`;
+      }
       else if (isUserFacing(pr.files) && !designPasses) reason = 'awaiting Design gate';
     }
     if (!reason) {

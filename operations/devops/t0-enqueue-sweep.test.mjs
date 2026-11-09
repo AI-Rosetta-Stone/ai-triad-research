@@ -217,6 +217,22 @@ test('t/4952(a): a changes-request check runs even for a non-user-facing PR', ()
   assert.match(skip[0].reason, /^changes requested by Quality/);
 });
 
+// Quality, p/780#46: the real-world markdown/comma format parses cleanly (no WARN), and an
+// unparseable "changes requested" body still blocks, but with a WARN flagging the odd shape.
+test('t/4952(a): Quality\'s real markdown/comma changes-request format blocks cleanly, no WARN', () => {
+  const reviews = [review('**Changes requested (Quality), at abc...**', 'abc', '2026-11-09T10:00:00Z')];
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 62, headRefOid: 'abc', files: [NON_UI_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.equal(skip[0].reason, 'changes requested by Quality');
+});
+
+test('t/4952(a): an unparseable "changes requested" body still blocks, with a WARN', () => {
+  const reviews = [review('changes requested, will write up the specifics shortly', 'abc', '2026-11-09T10:00:00Z')];
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 63, headRefOid: 'abc', files: [NON_UI_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^WARN: changes requested by \(unparseable\)/);
+});
+
 // t/4952#5 (Lead should-fix): `files` pages forward, so hasNextPage means truncation; `reviews`/
 // `comments` page BACKWARD from the end (last:50), so it's hasPreviousPage that means
 // truncation there -- 50+ later, unrelated items could push a role's still-active

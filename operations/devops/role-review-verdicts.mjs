@@ -32,6 +32,17 @@
  * LATEST PER ROLE: reviews and comments are merged into one timeline, sorted by effective time,
  * and the last entry for each role wins -- so a later `Changes requested (Design):` overrides an
  * earlier `Approved (Design):` at the same head, and vice versa. Different roles never collide.
+ *
+ * FAIL-OPEN GAP (Quality, p/780#46): Quality's real changes-requests render as
+ * `**Changes requested (Quality), at <sha>...**` -- leading markdown bold, and a comma instead
+ * of a colon after the role. The original strict grammar silently returned null for these (a
+ * REAL block read as "no verdict"), while Design's plain-colon bodies parsed fine -- a fail-OPEN
+ * asymmetry across roles. Fixed two ways: (1) the grammar now strips leading `**`/`*`/`_` and
+ * accepts `:`, `,` or `.` after the role; (2) as a backstop against a FUTURE formatting variant
+ * neither of us anticipated, any reviewer-App body that contains "changes requested" but still
+ * doesn't match the grammar is NEVER silently dropped -- it registers as a `changes_requested`
+ * verdict anyway (role name best-effort extracted, or `'(unparseable)'`), so the sweep still
+ * blocks on it. Fails closed, not open, on an unrecognized shape.
  */
 
 function effectiveTimeOf(item, kind) {
@@ -39,17 +50,37 @@ function effectiveTimeOf(item, kind) {
   return item?.updatedAt ?? item?.createdAt ?? null;
 }
 
-// Matches `Approved (<role>):`, `Changes requested (<role>):`, `Design-exempt (<role>): <reason>`.
-// The exemption arm requires at least one non-whitespace character after the colon.
-const VERDICT_RE = /^(Approved|Changes requested|Design-exempt) \(([^)]+)\):\s*(.*)$/s;
+// Matches `Approved (<role>):`, `Changes requested (<role>):`, `Design-exempt (<role>): <reason>`,
+// tolerating leading markdown emphasis (`**`, `*`, `_`) and `:`, `,` or `.` after the role --
+// `**Changes requested (Quality), at ...**` is real-world output from the reviewer App (p/780#46).
+// The exemption arm requires at least one non-whitespace character after the punctuation.
+const LEADING_MARKDOWN_RE = /^[*_]+\s*/;
+const VERDICT_RE = /^(Approved|Changes requested|Design-exempt)\s*\(([^)]+)\)[:,.]\s*(.*)$/s;
+const LOOSE_CHANGES_REQUESTED_RE = /changes requested/i;
+const LOOSE_ROLE_RE = /\(([^)]+)\)/;
+
+function stripLeadingMarkdown(body) {
+  return String(body ?? '').trim().replace(LEADING_MARKDOWN_RE, '');
+}
 
 function parseVerdict(rawBody) {
-  const m = VERDICT_RE.exec(String(rawBody ?? '').trim());
-  if (!m) return null;
-  const [, word, role, rest] = m;
-  if (word === 'Design-exempt' && rest.trim() === '') return null; // empty-reason exemption: invalid, not a verdict
-  const kind = word === 'Approved' ? 'approved' : word === 'Changes requested' ? 'changes_requested' : 'exempt';
-  return { role: role.trim(), kind };
+  const stripped = stripLeadingMarkdown(rawBody);
+  const m = VERDICT_RE.exec(stripped);
+  if (m) {
+    const [, word, role, rest] = m;
+    if (word === 'Design-exempt' && rest.trim() === '') return null; // empty-reason exemption: invalid, not a verdict
+    const kind = word === 'Approved' ? 'approved' : word === 'Changes requested' ? 'changes_requested' : 'exempt';
+    return { role: role.trim(), kind };
+  }
+  // Fail-closed backstop: the strict grammar didn't match, but the text still says "changes
+  // requested" -- never silently treat this as "no verdict." Best-effort role extraction from
+  // the first parenthesized group; falls back to a fixed label so the sweep always has a role
+  // string to put in its skip reason.
+  if (LOOSE_CHANGES_REQUESTED_RE.test(stripped)) {
+    const roleMatch = LOOSE_ROLE_RE.exec(stripped);
+    return { role: roleMatch ? roleMatch[1].trim() : '(unparseable)', kind: 'changes_requested', unparsed: true };
+  }
+  return null;
 }
 
 /**
@@ -88,6 +119,6 @@ export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSh
   entries.sort((a, b) => a.at - b.at);
 
   const latest = new Map();
-  for (const e of entries) latest.set(e.role, { kind: e.kind, at: e.iso });
+  for (const e of entries) latest.set(e.role, { kind: e.kind, at: e.iso, unparsed: e.unparsed ?? false });
   return latest;
 }

@@ -86,3 +86,56 @@ test('reviews and comments interleave correctly into one per-role timeline', () 
   const v = latestRoleVerdicts({ reviews, comments, reviewerAppLogin: APP, headSha: HEAD, lastPushAt: '2026-11-09T09:00:00Z' });
   assert.equal(v.get('Design').kind, 'changes_requested');
 });
+
+// Quality, p/780#46: the fail-OPEN gap. Real reviewer-App output was
+// `**Changes requested (Quality), at <sha>...**` -- leading markdown bold, and a comma instead
+// of a colon -- which the original strict grammar silently returned null for (read as "no
+// verdict" instead of a block).
+test('tolerates leading markdown bold/italic/underscore before the verdict word', () => {
+  const reviews = [{ body: '**Changes requested (Quality), at abc123, re: the error path.**', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('Quality').kind, 'changes_requested');
+  assert.equal(v.get('Quality').unparsed, false);
+});
+
+test('accepts a comma or a period after the role, not just a colon', () => {
+  const commaBody = latestRoleVerdicts({
+    reviews: [{ body: 'Approved (Quality), looks good.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }],
+    comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null,
+  });
+  assert.equal(commaBody.get('Quality').kind, 'approved');
+  const periodBody = latestRoleVerdicts({
+    reviews: [{ body: 'Changes requested (Design). Fix the error path.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }],
+    comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null,
+  });
+  assert.equal(periodBody.get('Design').kind, 'changes_requested');
+});
+
+test('plain colon grammar (Design\'s existing style) still parses, with unparsed=false', () => {
+  const reviews = [{ body: 'Changes requested (Design): partial bulk-delete error path.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('Design').unparsed, false);
+});
+
+// Quality's ask #2: fail CLOSED (never silently drop) on a reviewer-App body that says "changes
+// requested" but still doesn't match the grammar, as a backstop against a future formatting
+// variant neither of us anticipated.
+test('fail-closed backstop: "changes requested" text that still does not match the grammar registers as a block, marked unparsed', () => {
+  const reviews = [{ body: 'changes requested for real this time, going to write up why separately', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('(unparseable)').kind, 'changes_requested');
+  assert.equal(v.get('(unparseable)').unparsed, true);
+});
+
+test('fail-closed backstop: best-effort role extraction from a parenthesized group even when the grammar does not fully match', () => {
+  const reviews = [{ body: 'Hey (Quality) here -- changes requested, will detail in a follow-up comment.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('Quality').kind, 'changes_requested');
+  assert.equal(v.get('Quality').unparsed, true);
+});
+
+test('fail-closed backstop does not fire on unrelated text with no "changes requested" substring', () => {
+  const reviews = [{ body: 'Looks fine, no concerns.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.size, 0);
+});
