@@ -4879,6 +4879,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 - 2026-11-04 — Design (p/472#23): `test("^Approved \\(")` inside a double-quoted shell argument — the shell and jq layers both mangled the escape. Fix: dropped the regex entirely and piped plain output through `grep -i`.
 - 2026-11-04 — DevOps Lead (p/26#423, **new prevention technique + notable consequence**): `test("^Approved \\(Tech Lead\\)")` inside a single-quoted bash string — same `\(` interpolation trap, "unexpected token Lead." Fix: used a character class (`[(]`/`[)]`) instead of a backslash escape for the literal parens, as an alternative to `contains()`/`grep`. **Consequence worth noting:** this parse failure was inside a background approval watcher's loop, which silently looped on the error instead of failing loudly — caught and stopped before it acted on bad data.
 - 2026-11-06 — Quality/Tech Lead (p/447#38): `test("Ack \\(ServerAPI\\)")` — same `\(` interpolation trap, "unexpected token" from gojq in Git Bash. Fix: `contains("Ack (ServerAPI)")`, no escaping needed.
+- 2026-11-09 — Quality/Tech Lead (p/447#44): `test("^(Approved|Changes requested) \\(")` — "unterminated string literal," same `\(` interpolation trap. Fix: dropped the regex and listed comment bodies directly.
 
 **Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq. Separately, `\(` inside a jq string literal is the string interpolation syntax (`\(expr)`), not a literal backslash-paren — using it in a regex pattern produces an unterminated string error.
 
@@ -4891,7 +4892,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 6. **Alternative to escaping: use a character class for a literal paren in a jq regex** — `[(]` and `[)]` match a literal `(`/`)` without any backslash-escape ambiguity at all, sidestepping the `\(` interpolation trap entirely.
 7. **If this trap occurs inside a background/looping watcher process, confirm the loop fails loudly rather than silently retrying on the parse error** — a silent loop on a jq parse failure can mean the watcher never actually evaluates real data, which is a more severe failure mode than a one-shot script crash.
 
-**Status:** Active — 12 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant; DevOps Lead p/26#402 — manual join-string variant, fixed with built-in `join()`; Design p/472#23 — same trap, fixed by dropping regex for `grep -i`; DevOps Lead p/26#423 — same trap inside a background approval watcher, caught before it acted on bad data; fixed with a character-class escape; Quality/Tech Lead p/447#38 — same trap, fixed with `contains()`).
+**Status:** Active — 13 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant; DevOps Lead p/26#402 — manual join-string variant, fixed with built-in `join()`; Design p/472#23 — same trap, fixed by dropping regex for `grep -i`; DevOps Lead p/26#423 — same trap inside a background approval watcher, caught before it acted on bad data; fixed with a character-class escape; Quality/Tech Lead p/447#38 — same trap, fixed with `contains()`; Quality/Tech Lead p/447#44 — same trap, fixed by dropping regex for a plain list).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -8884,3 +8885,21 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Sage, self-observed, caught before causing harm). TL confirmed the standing rule: enqueue only through `enqueue-pr.mjs`; on refusal, stop and escalate.
 
 **Applies To:** All agents using `enqueue-pr.mjs`; its refusal is a safety stop — escalate and wait, never bypass with a raw mutation or bare `gh pr merge`.
+
+## #436 [Build] A Gate Merged With One Conditional Arm Unproven Breaks That Arm — "Blocked From Proving It" Means Hold, Not Ship
+
+**Pattern:** A guard/gate script has two conditional branches (e.g. skip vs. proceed). One branch gets live-proven before merge; the other is blocked from being exercised by an unrelated obstacle (here, a permission issue) and gets skipped rather than proven. The PR merges anyway on the strength of the proven arm. The unproven arm then fails the first time it actually runs in production, because nothing ever caught its bug.
+
+**Instances:**
+- 2026-11-09 — Tech Lead (p/335#310, t/4932): staging guard #4679 merged with only its **skip** arm live-proven; the **proceed** arm was blocked by a permission issue and skipped rather than held. The proceed path then failed on every normal deploy — `git merge-base`'s exit code 1 leaked out as `LASTEXITCODE` instead of being handled — and staging auto-deploy stopped at 13:48Z until fixed.
+
+**Root Cause:** Treating "blocked from proving this branch right now" as equivalent to "this branch is fine, ship it" conflates two different things: an inability to test and a passing test. The unproven branch carried a real bug (an unhandled non-zero exit from `git merge-base` surfacing as the raw `LASTEXITCODE` instead of being checked and handled) that only a live run of that exact branch could have caught. Sibling of the gate-signal-integrity genus (#20/#46/#48/#61/#64) in spirit — a gate that can't fully report what it gates — but distinct in mechanism: those are aggregate/false-signal failures on a single code path, this is a conditional with one branch never exercised at all before shipping.
+
+**Prevention:**
+1. **No gate/guard PR merges with any conditional arm unproven.** Every branch of the logic needs at least one live-fire proof before merge, not just the branches that happened to be reachable during review.
+2. **"Blocked from proving an arm" means hold the merge, not ship with that arm untested.** If a permission issue or other external blocker prevents exercising a branch, that is a reason to wait for the blocker to clear — not a reason to treat the branch as acceptable.
+3. **Check exit-code handling explicitly on every branch of a new guard, especially around external command calls (`git merge-base`, etc.) whose non-zero exit is a valid, expected outcome** — don't let a raw `$LASTEXITCODE`/`$?` leak out unchecked from any one branch just because another branch handles it correctly.
+
+**Status:** Active — 1 instance (Tech Lead p/335#310, t/4932).
+
+**Applies To:** All agents authoring or reviewing a gate/guard script with conditional branches before it merges and runs in production.
