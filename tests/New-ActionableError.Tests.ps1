@@ -20,6 +20,42 @@ BeforeAll {
     Import-Module $ModulePath -Force -WarningAction SilentlyContinue
 }
 
+Describe 'New-ActionableError availability in deploy-staging.yml (t/4951)' -Tag 'erroring' {
+    # t/4951: AITriad.psm1 never exports New-ActionableError -- its defining script's own header
+    # says "do NOT export", it's an internal helper for the module's own public cmdlets. A `run:`
+    # step that only does Import-Module AITriad.psm1 and then calls New-ActionableError directly
+    # fails with "the term 'New-ActionableError' is not recognized", silently losing the Goal/
+    # Problem/Next-Steps text. Both arms proven below: the bare import fails, the dot-sourced fix
+    # resolves -- and the workflow file is asserted to actually contain that dot-source.
+
+    It 'Import-Module alone does NOT resolve New-ActionableError as a public command (the bug this ticket fixes)' {
+        $out = pwsh -NoProfile -Command "Import-Module '$ModulePath' -Force -WarningAction SilentlyContinue; Get-Command New-ActionableError -ErrorAction SilentlyContinue" 2>&1 | Out-String
+        $out.Trim() | Should -BeNullOrEmpty
+    }
+
+    It 'dot-sourcing the Private script (the fix) resolves New-ActionableError' {
+        $privateScript = Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'Private' 'New-ActionableError.ps1'
+        $out = pwsh -NoProfile -Command "Import-Module '$ModulePath' -Force -WarningAction SilentlyContinue; . '$privateScript'; (Get-Command New-ActionableError -ErrorAction SilentlyContinue).Name" 2>&1 | Out-String
+        $out.Trim() | Should -Be 'New-ActionableError'
+    }
+
+    It 'deploy-staging.yml dot-sources New-ActionableError.ps1 inside the "Deploy new revision" step, before its first use' {
+        $workflow = Get-Content (Join-Path $PSScriptRoot '..' '.github' 'workflows' 'deploy-staging.yml') -Raw
+        $stepStart = $workflow.IndexOf('- name: Deploy new revision to staging')
+        $stepStart | Should -BeGreaterThan -1
+        $nextStep = $workflow.IndexOf("`n      - name:", $stepStart + 1)
+        if ($nextStep -lt 0) { $nextStep = $workflow.Length }
+        $stepBody = $workflow.Substring($stepStart, $nextStep - $stepStart)
+
+        $dotSourceIdx = $stepBody.IndexOf('. ./scripts/AITriad/Private/New-ActionableError.ps1')
+        $firstUseIdx  = $stepBody.IndexOf('New-ActionableError -AsErrorRecord')
+
+        $dotSourceIdx | Should -BeGreaterThan -1
+        $firstUseIdx  | Should -BeGreaterThan -1
+        $dotSourceIdx | Should -BeLessThan $firstUseIdx
+    }
+}
+
 Describe 'New-ActionableError -AsErrorRecord / -ErrorType' -Tag 'erroring' {
 
     It '-AsErrorRecord returns an ErrorRecord whose TargetObject carries the structured fields' {

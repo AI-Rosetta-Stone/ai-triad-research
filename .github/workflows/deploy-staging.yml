@@ -360,6 +360,13 @@ jobs:
           RESOLVED_DIGEST: ${{ steps.resolve_digest.outputs.digest }}
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          # t/4951: New-ActionableError lives in AITriad's Private/ (its own header says "do NOT
+          # export" -- it's an internal helper for the module's own public cmdlets, not a public
+          # symbol). This step calls it directly below (the t/4376 refusal path), so Import-Module
+          # alone leaves it unresolved ("the term 'New-ActionableError' is not recognized") and the
+          # actionable Goal/Problem/Next-Steps text never reaches the log. Dot-source its defining
+          # script directly, same pattern this step already uses for Get-StagingRevisionVerdict.ps1.
+          . ./scripts/AITriad/Private/New-ActionableError.ps1
           # t/3679: deploy the DIGEST-PINNED ref (…@sha256:<digest>), not a tag — a recycle re-pulls identical
           # bytes. DEPLOY_SHA + suffix encode the built commit ($HEAD_SHA, which IS the deployed commit here).
           # IMAGE_DIGEST + IMAGE_DEPLOYED_AT stamped for the detect half; IMAGE_DEPLOYED_AT is DEPLOY-time
