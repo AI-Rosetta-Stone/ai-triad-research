@@ -49,12 +49,22 @@
  *    role in ANY parenthesized group, which could match deep in unrelated prose (e.g. a long
  *    `Approved (Design):` comment that later explains "no changes requested from Quality").
  *    Scoped to the FIRST LINE only now, matching the strict grammar's own anchoring.
- * 2. A block keyed `'(unparseable)'` (role extraction totally failed) could never be cleared --
- *    nothing else naturally produces that exact key, so it would latch forever even after a
- *    real, later `Approved (<role>):` for whatever role it actually meant. Since we don't know
- *    which role it was, it's now treated as superseded by ANY later entry at all (see
- *    `latestRoleVerdicts`'s post-processing) -- a later signal of any kind makes the ambiguous
- *    one stale information, not a fresh verdict to keep blocking on.
+ * 2. A block keyed `'(unparseable)'` (role extraction totally failed) LATCHES: nothing else
+ *    naturally produces that exact Map key, so it is NOT overwritten by a later verdict for a
+ *    specific, different role -- and this is DELIBERATE, not a bug (Quality, p/780#54,
+ *    correcting an over-eager first attempt at this nit that made it supersedable by ANY later
+ *    entry -- that reintroduced #4686's exact shape: a badly-formed Design block, followed by
+ *    an unrelated later `Approved (Quality):`, would have erased the block and let the sweep
+ *    enqueue the PR). Since the ambiguous entry's role is UNKNOWN, there is no safe way to tell
+ *    "a later verdict that resolves this specific block" apart from "a later verdict for some
+ *    other, unrelated concern" -- so it stays latched until a genuinely NEW push. That happens
+ *    for free via the existing head/push-binding checks above: a new push changes `headSha` (so
+ *    an old unparseable REVIEW, bound to the old commit, no longer matches) and advances
+ *    `lastPushAt` (so an old unparseable COMMENT, predating the new push, is filtered out the
+ *    same as any other stale comment) -- `latestRoleVerdicts` only ever sees entries from the
+ *    CURRENT head/push to begin with. If an explicit override is ever needed before a new push,
+ *    the correct primitive is a new, role-tagged verdict word (e.g. `Cleared (<role>):`), not a
+ *    same-head supersede rule here.
  */
 
 function effectiveTimeOf(item, kind) {
@@ -134,21 +144,12 @@ export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSh
 
   entries.sort((a, b) => a.at - b.at);
 
+  // Nit 2 (Quality, p/780#54): an UNPARSEABLE_ROLE entry LATCHES deliberately -- it is NOT
+  // cleared by a later verdict for some other, unrelated role (see the module doc comment
+  // above). It only ever stops appearing here because a new push changes `headSha`/`lastPushAt`
+  // and the old entry's review/comment no longer passes the binding checks above -- nothing
+  // extra needed in this function for that.
   const latest = new Map();
   for (const e of entries) latest.set(e.role, { kind: e.kind, at: e.iso, unparsed: e.unparsed ?? false });
-
-  // Nit 2 (Quality, p/780#48): an UNPARSEABLE_ROLE entry has no identifiable role, so it can
-  // never naturally be overwritten by a later real verdict (that verdict keys on its OWN role
-  // name, a different Map key). Since we don't know which role the ambiguous entry actually
-  // meant, treat it as superseded by ANY later entry at all -- once something newer exists
-  // from the reviewer App, the ambiguous block is stale information, not a verdict still worth
-  // blocking on.
-  const unparseable = latest.get(UNPARSEABLE_ROLE);
-  if (unparseable) {
-    const unparseableAtMs = new Date(unparseable.at).getTime();
-    const supersededByNewer = entries.some((e) => e.role !== UNPARSEABLE_ROLE && e.at > unparseableAtMs);
-    if (supersededByNewer) latest.delete(UNPARSEABLE_ROLE);
-  }
-
   return latest;
 }

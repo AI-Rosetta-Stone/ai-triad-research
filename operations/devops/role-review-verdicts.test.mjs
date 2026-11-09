@@ -171,17 +171,21 @@ test('nit 1: the backstop still fires when "changes requested" AND the role are 
   assert.equal(v.get('Quality').unparsed, true);
 });
 
-// Quality nit 2 (p/780#48): an unparseable block has no identifiable role, so nothing else
-// naturally overwrites its Map key -- it would latch forever even after a real, later approval
-// for whatever role it actually meant. Fixed: superseded by ANY later entry at all.
-test('nit 2: an unparseable block IS cleared once a later entry (any role) exists', () => {
+// Quality nit 2, CORRECTED (p/780#48 -> p/780#54): the first attempt at this nit made an
+// unparseable block supersedable by ANY later entry, which reintroduced #4686's exact shape --
+// a badly-formed block followed by an UNRELATED later approval would erase it and let the sweep
+// enqueue the PR. Quality's actual ask was to DOCUMENT the latch, not remove it: it stays
+// latched until a genuinely new push, deliberately, since the ambiguous entry's role is unknown
+// and there is no safe way to tell "this specific block was resolved" from "something unrelated
+// happened later."
+test('nit 2 (corrected): an unparseable block is NOT cleared by a later, UNRELATED role approval -- still blocks (the #4686 shape)', () => {
   const reviews = [
     { body: 'changes requested for real this time, will detail separately', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' },
     { body: 'Approved (Design): fixed, re-reviewed.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T11:00:00Z' },
   ];
   const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
-  assert.equal(v.has('(unparseable)'), false);
-  assert.equal(v.get('Design').kind, 'approved');
+  assert.equal(v.get('(unparseable)').kind, 'changes_requested');
+  assert.equal(v.get('Design').kind, 'approved'); // tracked independently -- does not clear the block
 });
 
 test('nit 2: an unparseable block is NOT cleared when nothing later exists -- still blocks', () => {
@@ -194,13 +198,13 @@ test('nit 2: an unparseable block is NOT cleared when nothing later exists -- st
   assert.equal(v.get('Design').kind, 'approved'); // unaffected -- a different, real role key
 });
 
-test('nit 2: a later entry that is ITSELF unparseable also counts as "something newer" and clears the earlier one', () => {
+test('nit 2: a later entry that is ITSELF unparseable overwrites the earlier one at the SAME key (ordinary Map behavior) -- still blocks', () => {
   const reviews = [
     { body: 'changes requested, round 1', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' },
     { body: 'changes requested, round 2, still vague', login: APP, commitId: HEAD, submittedAt: '2026-11-09T11:00:00Z' },
   ];
   const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
-  // The LATEST unparseable entry survives (Map overwrite on the same key) -- still blocks, just
-  // reflecting round 2, not "cleared to nothing."
+  // Both entries key on the SAME '(unparseable)' role, so the ordinary "latest per role" Map
+  // overwrite applies (unrelated to the latch) -- still blocks, just reflecting round 2.
   assert.equal(v.get('(unparseable)').kind, 'changes_requested');
 });
