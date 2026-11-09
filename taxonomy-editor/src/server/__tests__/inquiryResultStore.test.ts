@@ -32,8 +32,9 @@ vi.mock('../config.js', () => ({
   getDataRoot: () => '/data',
 }));
 
+const { serverWarn } = vi.hoisted(() => ({ serverWarn: vi.fn() }));
 vi.mock('../logger.js', () => ({
-  log: { server: { info: vi.fn(), warn: vi.fn() } },
+  log: { server: { info: vi.fn(), warn: serverWarn } },
 }));
 
 vi.mock('../security/userContext.js', () => ({
@@ -206,16 +207,21 @@ describe('renameInquiryResult (t/4892)', () => {
     expect(refreshInquiryShareIfShared).toHaveBeenCalledWith('job-012');
   });
 
-  it('rename succeeds even if the share refresh fails (best-effort)', async () => {
+  it('rename succeeds even if the share refresh fails (best-effort), and logs a WARN', async () => {
     const result = makeResult('job-013');
     const summary = makeSummary('job-013');
     await saveInquiryResult('job-013', result, summary);
 
     (refreshInquiryShareIfShared as any).mockRejectedValueOnce(new Error('refresh boom'));
+    serverWarn.mockClear();
 
     await expect(renameInquiryResult('job-013', 'New title')).resolves.not.toThrow();
     const saved = await loadInquiryResult('job-013');
     expect(saved?.title).toBe('New title'); // rename itself still persisted
+    expect(serverWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: 'job-013' }),
+      expect.stringContaining('refresh'),
+    );
   });
 });
 

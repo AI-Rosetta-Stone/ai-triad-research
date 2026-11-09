@@ -22,6 +22,7 @@ import path from 'path';
 import { resolveDataPath } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { log } from '../logger.js';
+import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
 import { parseInquiryResult, type InquiryResult } from '../../../../lib/inquiry/index.js';
@@ -185,6 +186,7 @@ export async function renameInquiryResult(jobId: string, title: string): Promise
   // persisted, so a refresh failure here must not undo it.
   await refreshInquiryShareIfShared(jobId).catch((err) => {
     log.server.warn({ err, jobId }, 'Inquiry share refresh after rename failed (best-effort)');
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'inquiry', level: 'warn', message: 'Inquiry share refresh after rename failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
   });
 }
 
