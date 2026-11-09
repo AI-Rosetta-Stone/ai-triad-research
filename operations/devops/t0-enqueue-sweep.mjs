@@ -34,9 +34,19 @@ import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
+import { isUserFacing } from './design-review-scope.mjs';
+import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 
 export const IDLE_MINUTES = 15;
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
+// Same shared reviewer App account every other review-reading guard uses (ci.yml,
+// t1-approval-guard.yml, tier-check.yml use REST and see 'ai-triad-reviewer-jpsnover[bot]') --
+// every role reviews through this one GitHub account (t/4952 gap 2). This sweep reads reviews
+// and comments through GraphQL, not REST, and GraphQL's `author.login` omits the `[bot]` suffix
+// entirely (confirmed live: a REST login of 'ai-triad-reviewer-jpsnover[bot]' comes back from
+// GraphQL as plain 'ai-triad-reviewer-jpsnover') -- using the REST-style constant here would
+// silently match nothing and disable both new skips with no error.
+export const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover';
 export const BLOCKING_LABELS = ['consult-hold', 'joint-gv', 'no-auto-enqueue'];
 
 /** PURE. True when the first non-empty line of a PR body declares Tier: T0 (AGENTS.md format). */
@@ -96,7 +106,24 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         '(push a new head, or enqueue it by hand, to release it)';
     }
     else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
+    // t/4952(a): the Design gate and an active changes-request both read role-tagged review/
+    // comment BODIES (role-review-verdicts.mjs), never GitHub's review `state` or
+    // `reviewDecision` -- gap 2 (#4686: Design's CHANGES_REQUESTED and Quality's APPROVED, same
+    // reviewer-App login, same head, GitHub kept only the latest-per-user and silently dropped
+    // Design's block). Fails closed on a fetch problem, per the ticket's ask.
+    else if (pr.reviewDataError) reason = 'WARN: could not fetch files/reviews/comments (or the files list was truncated) -- failing closed';
     else {
+      const verdicts = latestRoleVerdicts({
+        reviews: pr.reviews, comments: pr.comments, reviewerAppLogin: REVIEWER_APP_LOGIN,
+        headSha: pr.headRefOid, lastPushAt: headPushedAt(pr.contexts),
+      });
+      const changesRequestedBy = [...verdicts.entries()].find(([, v]) => v.kind === 'changes_requested');
+      const designVerdict = verdicts.get('Design');
+      const designPasses = designVerdict?.kind === 'approved' || designVerdict?.kind === 'exempt';
+      if (changesRequestedBy) reason = `changes requested by ${changesRequestedBy[0]}`;
+      else if (isUserFacing(pr.files) && !designPasses) reason = 'awaiting Design gate';
+    }
+    if (!reason) {
       for (const name of REQUIRED_CONTEXTS) {
         const v = checkVerdict(pr.contexts, name);
         if (v !== 'success') { reason = `${name} is ${v}`; break; }
@@ -147,7 +174,10 @@ function listOpenPRs(repo) {
         __typename ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}}
         ... on AddedToMergeQueueEvent{createdAt actor{login}}}}
       commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage endCursor} nodes{
-        ${CONTEXT_FIELDS}}}}}}}}}}}`;
+        ${CONTEXT_FIELDS}}}}}}}
+      files(first:100){pageInfo{hasNextPage} nodes{path}}
+      reviews(last:50){nodes{body author{login} commit{oid} submittedAt}}
+      comments(last:50){nodes{body author{login} createdAt lastEditedAt}}}}}}`;
   const prs = [];
   let cursor = null;
   for (let page = 0; page < 10; page++) {
@@ -155,12 +185,24 @@ function listOpenPRs(repo) {
     if (cursor) args.push('-f', `cursor=${cursor}`);
     const r = JSON.parse(gh(args)).data.search;
     for (const n of r.nodes) {
+      // t/4952(a): fail closed when files/reviews/comments didn't come back, or the files
+      // list was truncated (a PR touching 100+ files is rare, but silently treating it as
+      // "not user-facing" because the one relevant renderer file fell off page 2 is unsafe).
+      const reviewDataError = n.files == null || n.reviews == null || n.comments == null || n.files.pageInfo?.hasNextPage === true;
       prs.push({
         number: n.number, body: n.body, headRefOid: n.headRefOid, baseRefName: n.baseRefName,
         isDraft: n.isDraft, isInMergeQueue: n.isInMergeQueue, mergeStateStatus: n.mergeStateStatus,
         isCrossRepository: n.isCrossRepository,
         author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
         autoMergeRequest: n.autoMergeRequest,
+        reviewDataError,
+        files: (n.files?.nodes ?? []).map((f) => f.path),
+        reviews: (n.reviews?.nodes ?? []).map((rv) => ({
+          body: rv.body, login: rv.author?.login ?? null, commitId: rv.commit?.oid ?? null, submittedAt: rv.submittedAt,
+        })),
+        comments: (n.comments?.nodes ?? []).map((c) => ({
+          body: c.body, login: c.author?.login ?? null, createdAt: c.createdAt, updatedAt: c.lastEditedAt ?? null,
+        })),
         queueEvents: (n.timelineItems?.nodes ?? []).map((e) => ({
           type: e.__typename, createdAt: e.createdAt, reason: e.reason ?? null, actor: e.actor?.login ?? null,
         })),

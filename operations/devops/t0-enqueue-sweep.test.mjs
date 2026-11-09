@@ -132,3 +132,87 @@ test('t/4879: non-manual removals and a later manual re-add do not hold', () => 
   const { enqueue } = selectT0Candidates(prs, NOW);
   assert.deepEqual(enqueue.map((e) => e.number), [42, 43, 44, 45]);
 });
+
+// t/4952(a): the sweep now also reads role-tagged review/comment bodies (never review `state` or
+// `reviewDecision`) for an active changes-request, and the Design gate on user-facing diffs.
+const APP = 'ai-triad-reviewer-jpsnover'; // GraphQL author.login -- no '[bot]' suffix (confirmed live)
+const review = (body, commitId, submittedAt, login = APP) => ({ body, login, commitId, submittedAt });
+const comment = (body, createdAt, login = APP, updatedAt = null) => ({ body, login, createdAt, updatedAt });
+const RENDERER_FILE = 'taxonomy-editor/src/renderer/components/x/Thing.tsx';
+const NON_UI_FILE = 'operations/devops/enqueue-pr.mjs';
+
+test('t/4952(a): #4686 fixture -- same reviewer-App login, Design CHANGES_REQUESTED then Quality APPROVED one second later -> skipped', () => {
+  const reviews = [
+    review('Changes requested (Design): partial bulk-delete error path.', 'abc', '2026-11-09T14:30:00Z'),
+    review('Approved (Quality): looks good otherwise.', 'abc', '2026-11-09T14:30:01Z'),
+  ];
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 50, headRefOid: 'abc', files: [NON_UI_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^changes requested by Design/);
+});
+
+test('t/4952(a): user-facing diff with no Design verdict at all -> skipped, awaiting Design gate', () => {
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 51, files: [RENDERER_FILE] })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /awaiting Design gate/);
+});
+
+test('t/4952(a): Design approved, but on an OLD head -> not counted, still awaiting Design gate', () => {
+  const reviews = [review('Approved (Design): head abc, t/1.', 'OLD_SHA', '2026-11-09T10:00:00Z')];
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 52, headRefOid: 'abc', files: [RENDERER_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /awaiting Design gate/);
+});
+
+test('t/4952(a): Design-exempt with an empty reason is not a valid verdict -> still awaiting Design gate', () => {
+  const reviews = [review('Design-exempt (Design):', 'abc', '2026-11-09T10:00:00Z')];
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 53, headRefOid: 'abc', files: [RENDERER_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /awaiting Design gate/);
+});
+
+test('t/4952(a): Design-exempt with a real reason, at the current head -> passes the gate', () => {
+  const reviews = [review('Design-exempt (Design): store-only fix, no visible change.', 'abc', '2026-11-09T10:00:00Z')];
+  const { enqueue } = selectT0Candidates([pr({ number: 54, headRefOid: 'abc', files: [RENDERER_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [54]);
+});
+
+test('t/4952(a): user-facing diff, Design approved AT the current head -> enqueued', () => {
+  const reviews = [review('Approved (Design): head abc, t/1. Checked live.', 'abc', '2026-11-09T10:00:00Z')];
+  const { enqueue } = selectT0Candidates([pr({ number: 55, headRefOid: 'abc', files: [RENDERER_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [55]);
+});
+
+test('t/4952(a): a non-UI T0 PR with no reviews at all is unaffected by the Design gate -> enqueued', () => {
+  const { enqueue } = selectT0Candidates([pr({ number: 56, files: [NON_UI_FILE] })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [56]);
+});
+
+test('t/4952(a): an approval COMMENT (not a review) only counts if its effective time is after the latest push', () => {
+  const pushedAt = minsAgo(20); // matches the default pr() contexts' push time
+  const early = [comment('Approved (Design): head abc.', new Date(Date.parse(pushedAt) - 60000).toISOString())];
+  const late = [comment('Approved (Design): head abc.', new Date(Date.parse(pushedAt) + 60000).toISOString())];
+  const { skip: skipEarly } = selectT0Candidates([pr({ number: 57, files: [RENDERER_FILE], comments: early })], NOW);
+  const { enqueue: enqueueLate } = selectT0Candidates([pr({ number: 58, files: [RENDERER_FILE], comments: late })], NOW);
+  assert.match(skipEarly[0].reason, /awaiting Design gate/);
+  assert.deepEqual(enqueueLate.map((e) => e.number), [58]);
+});
+
+test('t/4952(a): a review/comment from a different login (not the reviewer App) never satisfies or blocks the gate', () => {
+  const reviews = [review('Approved (Design): head abc.', 'abc', '2026-11-09T10:00:00Z', 'some-human')];
+  const { skip } = selectT0Candidates([pr({ number: 59, headRefOid: 'abc', files: [RENDERER_FILE], reviews })], NOW);
+  assert.match(skip[0].reason, /awaiting Design gate/);
+});
+
+test('t/4952(a): fails closed on a fetch problem (files/reviews/comments missing, or the files list truncated)', () => {
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 60, reviewDataError: true })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^WARN: could not fetch/);
+});
+
+test('t/4952(a): a changes-request check runs even for a non-user-facing PR', () => {
+  const reviews = [review('Changes requested (Quality): fix the error path.', 'abc', '2026-11-09T10:00:00Z')];
+  const { enqueue, skip } = selectT0Candidates([pr({ number: 61, headRefOid: 'abc', files: [NON_UI_FILE], reviews })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^changes requested by Quality/);
+});
