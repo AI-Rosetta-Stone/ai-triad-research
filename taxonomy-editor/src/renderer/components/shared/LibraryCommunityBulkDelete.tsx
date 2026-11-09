@@ -58,17 +58,18 @@ export async function runBulkAdminDelete<T extends { id: string }>(
   return outcome;
 }
 
-/** "Deleted 7 of 8; 1 failed" for rows whose result was observable; "Delete requested for N" for
- *  fire-and-forget rows, never "Deleted N of N" (TL t/44#3). */
+/** "Removed 7 of 8; 1 failed" for rows whose result was observable; "Removal requested for N" for
+ *  fire-and-forget rows, never "Removed N of N" (TL t/44#3). "Remove", not "Delete", throughout
+ *  on Community, matching the per-row popover (Design, p/25#2). */
 export function summarizeBulkAdminDelete({ confirmedIds, requestedIds, failedIds }: BulkAdminDeleteOutcome): string {
   const parts: string[] = [];
   const observed = confirmedIds.length + failedIds.length;
   if (observed > 0) {
     parts.push(failedIds.length > 0
-      ? `Deleted ${confirmedIds.length} of ${observed}; ${failedIds.length} failed`
-      : `Deleted ${confirmedIds.length}`);
+      ? `Removed ${confirmedIds.length} of ${observed}; ${failedIds.length} failed`
+      : `Removed ${confirmedIds.length} from Community`);
   }
-  if (requestedIds.length > 0) parts.push(`Delete requested for ${requestedIds.length}`);
+  if (requestedIds.length > 0) parts.push(`Removal requested for ${requestedIds.length}`);
   return parts.join('. ');
 }
 
@@ -102,10 +103,14 @@ export function communityEditActions({ bulkEnabled, visibleIds, selectedCount, s
 }): LibraryEditModeAction[] {
   const done: LibraryEditModeAction = { label: 'Done', onClick: onDone };
   if (!bulkEnabled) return [done];
+  // Design p/25#2: Remove N is hidden at 0 selected, as My hides its Delete.
+  const remove: LibraryEditModeAction[] = selectedCount > 0
+    ? [{ label: `Remove ${selectedCount}`, onClick: onDelete, variant: 'danger' }]
+    : [];
   return [
     { label: 'All', onClick: () => setSelected(new Set(visibleIds)), disabled: visibleIds.length === 0 },
     { label: 'None', onClick: () => setSelected(new Set()), disabled: selectedCount === 0 },
-    { label: `Delete ${selectedCount}`, onClick: onDelete, variant: 'danger', disabled: selectedCount === 0 },
+    ...remove,
     done,
   ];
 }
@@ -132,7 +137,7 @@ export function useCommunityBulkSelection<T extends { id: string }>(rows: T[], r
   }, []);
 
   // Ids of rows that disappeared some other way (another admin's delete, a refresh) drop out
-  // here, so "Delete N" never counts a row that is no longer listed.
+  // here, so "Remove N" never counts a row that is no longer listed.
   const selectedRows = useMemo(() => rows.filter(r => selected.has(r.id)), [rows, selected]);
 
   /** After a run: keep only the failed rows selected; close the dialog when nothing failed. */
@@ -257,7 +262,7 @@ export function BulkAdminDeleteDialog<T extends { id: string }>({
         />
         {failureSummary && (
           <p className="dialog-warning lib-bulk-delete-result" role="alert">
-            {failureSummary}. The failed item{n !== 1 ? 's are' : ' is'} still selected; retry or cancel.
+            {failureSummary}. The failed item{n !== 1 ? 's are' : ' is'} still selected: choose Remove {n} to retry, or Close.
           </p>
         )}
         <div className="dialog-actions">

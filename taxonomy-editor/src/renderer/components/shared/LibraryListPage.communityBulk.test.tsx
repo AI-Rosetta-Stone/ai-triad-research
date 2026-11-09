@@ -97,17 +97,17 @@ describe('LibraryListPage — Community selection for admins (t/49)', () => {
     expect(props.onOpenCommunity).not.toHaveBeenCalled();
   });
 
-  it('All selects the visible Community rows (search-filtered), None clears them, and Delete N tracks the count', () => {
+  it('All selects the visible Community rows (search-filtered), None clears them, and Remove N tracks the count (hidden at 0)', () => {
     renderPage(config());
-    expect(screen.getByRole('button', { name: 'Delete 0' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Remove \d+$/ })).not.toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('Search community…'), { target: { value: 'first' } });
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    expect(screen.getByRole('button', { name: 'Delete 1' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove 1' })).toBeEnabled();
     fireEvent.change(screen.getByPlaceholderText('Search community…'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    expect(screen.getByRole('button', { name: 'Delete 3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove 3' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'None' }));
-    expect(screen.getByRole('button', { name: 'Delete 0' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Remove \d+$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'My Delete 0' })).not.toBeInTheDocument();
   });
 
@@ -156,7 +156,7 @@ describe('LibraryListPage — Community selection for admins (t/49)', () => {
 });
 
 describe('LibraryListPage — bulk admin-delete (t/49)', () => {
-  it('Delete N opens one confirm listing the titles, and calls adminDelete once per row, in order, with the one reason', async () => {
+  it('Remove N opens one confirm listing the titles, and calls adminDelete once per row, in order, with the one reason', async () => {
     const order: string[] = [];
     let release!: () => void;
     const adminDelete = vi.fn((row: Row) => {
@@ -168,7 +168,7 @@ describe('LibraryListPage — bulk admin-delete (t/49)', () => {
     renderPage(config({ adminDelete }));
     fireEvent.click(box('First community item'));
     fireEvent.click(box('Second community item'));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 2' }));
 
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('First community item')).toBeInTheDocument();
@@ -179,22 +179,28 @@ describe('LibraryListPage — bulk admin-delete (t/49)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove 2' }));
     await waitFor(() => expect(adminDelete).toHaveBeenCalledTimes(1));
     expect(order).toEqual(['start c1']);
+    expect(within(dialog).getByRole('button', { name: 'Removing…' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
     release();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(order).toEqual(['start c1', 'end c1', 'start c2', 'end c2']);
     expect(adminDelete).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'c1' }), 'spam');
     expect(adminDelete).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'c2' }), 'spam');
-    expect(screen.getByRole('status')).toHaveTextContent('Deleted 2');
+    expect(screen.getByRole('status')).toHaveTextContent('Removed 2 from Community');
   });
 
-  it('partial failure: reports "Deleted 2 of 3; 1 failed", keeps only the failed row selected, and records it', async () => {
+  it('partial failure: reports "Removed 2 of 3; 1 failed", keeps only the failed row selected, and records it', async () => {
     const adminDelete = vi.fn((row: Row) => (row.id === 'c2' ? Promise.reject(new Error('server said no')) : Promise.resolve()));
     renderPage(config({ adminDelete }));
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete 3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 3' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove 3' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Deleted 2 of 3; 1 failed');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Removed 2 of 3; 1 failed');
+    expect(alert).toHaveTextContent('still selected: choose Remove 1 to retry, or Close.');
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove 1' })).toBeEnabled();
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' })).toBeEnabled();
     expect(adminDelete).toHaveBeenCalledTimes(3);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(box('Second community item').checked).toBe(true);
@@ -205,19 +211,19 @@ describe('LibraryListPage — bulk admin-delete (t/49)', () => {
     }));
   });
 
-  it('a page whose adminDelete returns void is reported as "Delete requested", never "Deleted N of N" (TL t/44#3)', async () => {
+  it('a page whose adminDelete returns void is reported as "Removal requested", never "Removed N of N" (TL t/44#3)', async () => {
     renderPage(config({ adminDelete: vi.fn(() => undefined) }));
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete 3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 3' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove 3' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByRole('status')).toHaveTextContent('Delete requested for 3');
-    expect(screen.getByRole('status')).not.toHaveTextContent(/Deleted/);
+    expect(screen.getByRole('status')).toHaveTextContent('Removal requested for 3');
+    expect(screen.getByRole('status')).not.toHaveTextContent(/Removed \d/);
   });
 
   it('summary text covers mixed outcomes', () => {
     expect(summarizeBulkAdminDelete({ confirmedIds: ['a'], requestedIds: ['b', 'c'], failedIds: ['d'] }))
-      .toBe('Deleted 1 of 2; 1 failed. Delete requested for 2');
+      .toBe('Removed 1 of 2; 1 failed. Removal requested for 2');
   });
 });
 
