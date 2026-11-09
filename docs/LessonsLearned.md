@@ -8903,3 +8903,21 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#310, t/4932).
 
 **Applies To:** All agents authoring or reviewing a gate/guard script with conditional branches before it merges and runs in production.
+
+## #437 [Security] Required Contexts Skipped on `merge_group` Count as Satisfied — Approval Guards Silently Non-Functional Since 2026-11-04
+
+**Pattern:** A required-status-check context that is conditionally skipped (via a `needs`-chain with an implicit `success()` that is vacuously true when an upstream job is itself path-skipped) still satisfies branch protection's "required context passed" condition. GitHub treats `skipped` as non-blocking for a required context exactly like `success` — so a required gate that never actually executes reads as green forever, with no visible distinction from a gate that ran and passed.
+
+**Instances:**
+- 2026-11-09 — Tech Lead (p/335#313, t/4939#22): the `merge_group` arms of `consult-hold-guard`, `joint-gv-guard`, and `t1-approval-guard` — all three security-critical approval gates — have been skipped in every merge-queue batch since at least 2026-11-04. Cause: an implicit `success()` evaluated over a `needs`-chain that itself contains path-skipped jobs, which resolves true rather than blocking. Every T1/T2 PR that went through the merge queue in that window had its approval guard silently not-run, not silently-passed-after-running — structurally indistinguishable from a genuine pass by anyone checking only the green checkmark.
+
+**Root Cause:** GitHub Actions' `success()` function (and the default required-context semantics) treats `skipped` as a non-failure. A `needs`-chain that conditionally skips an upstream job propagates that skip downward, and a job gated by `if: success()` over that chain also skips — rather than failing or blocking. For a required context, "skipped" and "passed" are visually and functionally identical in the PR checks UI and in branch protection's evaluation, so a gate that structurally cannot run in some code-path combination (e.g. a path-filtered diff) silently stops enforcing anything, with no signal that distinguishes it from the gate having genuinely verified the PR. This is the `merge_group`-specific, security-critical sibling of the broader gate-signal-integrity genus (#20/#46/#48/#61/#64) and the skip-before-run mechanism (t/1800) — same root cause (a skip reads as a pass), but here it hits approval/governance gates specifically, not build/test gates.
+
+**Prevention:**
+1. **A required context must be checked for whether it actually RAN, not just whether it reports non-failure.** `skipped` must be treated as a distinct, alarming state for a security-critical gate (approval guards, consult-hold, tier checks) — never conflated with `success`.
+2. **Any `needs`-chain feeding a security-critical gate's `if: success()` condition must be audited for whether an upstream path-skip can silently propagate into a downstream skip.** If the chain can be skipped under any realistic diff shape, the gate needs an explicit `always()`-guarded check that fails loudly when its own required inputs never ran, rather than relying on the default skip-propagates-as-pass behavior.
+3. **For approval/governance gates specifically (not just build gates), periodically audit actual run history** (`gh run list` filtered to the gate's workflow, checking for a run of `merge_group` conclusion across recent queue batches) rather than trusting the PR checks UI's green state alone — the UI cannot visually distinguish "ran and passed" from "never ran."
+
+**Status:** Active — 1 instance (Tech Lead p/335#313, t/4939#22). High severity: every T1/T2 PR merged through the queue since 2026-11-04 had its approval guard not actually execute, not merely pass without issue.
+
+**Applies To:** All agents authoring or reviewing required-status-check gates, especially approval/governance gates (consult-hold, t1-approval, tier-check) gated by a conditional `needs`-chain.

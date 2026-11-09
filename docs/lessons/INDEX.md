@@ -425,6 +425,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #433 | [Process] | A Pre-Existing Broken Vitest Snapshot Against Live Data Blocks Every Push Whose Import Graph Touches It — Unresolved, Needs an Owner (t/4891) | lines 8835-8852 |
 | #434 | [Process] | An Orca Outage During a T2 Second-Opinion Round Can Turn a Completed Review Into a False "SO Did Not Review" | lines 8853-8870 |
 | #435 | [Process] | A Fallback That Bypasses the Approval Guard — Never Substitute a Raw Mutation for `enqueue-pr.mjs`'s Refusal | lines 8871-8888 |
-| #436 | [Build] | A Gate Merged With One Conditional Arm Unproven Breaks That Arm — "Blocked From Proving It" Means Hold, Not Ship | lines 8889-8905 |
+| #436 | [Build] | A Gate Merged With One Conditional Arm Unproven Breaks That Arm — "Blocked From Proving It" Means Hold, Not Ship | lines 8889-8906 |
+| #437 | [Security] | Required Contexts Skipped on `merge_group` Count as Satisfied — Approval Guards Silently Non-Functional Since 2026-11-04 | lines 8907-8923 |
 
-420 entries indexed.
+421 entries indexed.
