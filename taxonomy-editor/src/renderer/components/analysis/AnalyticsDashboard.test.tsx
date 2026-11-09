@@ -4,7 +4,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => null }));
+const { recordMock } = vi.hoisted(() => ({ recordMock: vi.fn() }));
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
 
 // SystemOverviewRow (embedded above the cards) pulls from these — stub so the
 // dashboard tests focus on the period-comparison behaviour.
@@ -25,6 +26,9 @@ vi.mock('@bridge', () => ({
 // Bridge mock — current window (to === today) vs the preceding window.
 // Chosen so the four cards exercise: increase, decrease, zero-baseline, flat.
 const { bridgeGetMock } = vi.hoisted(() => ({ bridgeGetMock: vi.fn() }));
+// `usersOverride` lets individual tests populate the Active Users table without
+// disturbing the period-comparison fixtures above.
+const { usersOverrideRef } = vi.hoisted(() => ({ usersOverrideRef: { current: [] as unknown[] } }));
 vi.mock('../../bridge/web-bridge', () => {
   const today = new Date().toISOString().slice(0, 10);
   const CURRENT = { activeUsers: 110, sessions: 42, totalEvents: 1000, avgSessionDurationMs: 60000 };
@@ -33,7 +37,7 @@ vi.mock('../../bridge/web-bridge', () => {
     if (url.includes('&user=')) return { events: [] };
     const params = new URLSearchParams(url.split('?')[1] ?? '');
     const summary = params.get('to') === today ? CURRENT : PREVIOUS;
-    return { summary, daily: [], featureUsage: {}, users: [] };
+    return { summary, daily: [], featureUsage: {}, users: usersOverrideRef.current };
   });
   return { bridgeGet: bridgeGetMock };
 });
@@ -131,5 +135,49 @@ describe('AnalyticsDashboard exclusion toggles (t/4961)', () => {
       expect(url).not.toContain('includeSystem');
       expect(url).not.toContain('includeListed');
     }
+  });
+});
+
+describe('AnalyticsDashboard Active Users — unparseable lastActive (t/4961)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    recordMock.mockClear();
+    bridgeGetMock.mockClear();
+    usersOverrideRef.current = [];
+  });
+
+  const VALID_USER = { user: 'alice', lastActive: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), sessions: 3, events: 20, topCategory: 'debate' };
+  const BAD_USER = { user: 'smoke-probe', lastActive: '', sessions: 1, events: 1, topCategory: 'ai' };
+
+  it('renders "unknown" (never "NaN") for a user with an unparseable lastActive, alongside a normal relative time', async () => {
+    usersOverrideRef.current = [VALID_USER, BAD_USER];
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('smoke-probe')).toBeInTheDocument());
+    expect(screen.getByText('unknown')).toBeInTheDocument();
+    expect(screen.getByText('2h ago')).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
+  it('logs one WARN per unparseable user per data load, not per render', async () => {
+    usersOverrideRef.current = [VALID_USER, BAD_USER];
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('unknown')).toBeInTheDocument());
+    expect(recordMock).toHaveBeenCalledTimes(1);
+    expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'warn',
+      message: expect.stringContaining('smoke-probe'),
+    }));
+
+    // Sorting re-renders every row (relativeTime runs again) but doesn't reload data —
+    // the warn must not fire again.
+    fireEvent.click(screen.getByText('User'));
+    expect(recordMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not warn when every lastActive parses', async () => {
+    usersOverrideRef.current = [VALID_USER];
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('2h ago')).toBeInTheDocument());
+    expect(recordMock).not.toHaveBeenCalled();
   });
 });

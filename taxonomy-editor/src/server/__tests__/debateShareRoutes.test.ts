@@ -282,6 +282,25 @@ describe('GET /api/public/debate/:shareId', () => {
     expect(view.snapshot.degraded).toBe(false);
   });
 
+  it('t/4930: a degraded synthesis marks the share degraded and suppresses synthesis, even with a clean transcript', async () => {
+    const transcript = makeSession().transcript as Record<string, unknown>[];
+    const concluding = transcript[2];
+    const synthesis = (concluding.metadata as { synthesis: Record<string, unknown> }).synthesis;
+    h.session = makeSession({
+      transcript: [
+        ...transcript.slice(0, 2),
+        { ...concluding, metadata: { synthesis: { ...synthesis, degraded: true, degraded_phases: ['evaluate'] } } },
+      ],
+    });
+    expect(transcript.some(e => e.degraded === true)).toBe(false);
+
+    const id = JSON.parse((await create()).body).id;
+    const view = JSON.parse((await read(id)).body);
+    expect(view.snapshot.degraded).toBe(true);
+    expect(view.snapshot.synthesis).toBeUndefined();
+    expect(JSON.stringify(view)).not.toContain('degraded_phases');
+  });
+
   it('is 404 (no-store) for an unknown or path-traversal id', async () => {
     const unknown = await read('nope');
     expect(unknown.statusCode).toBe(404);

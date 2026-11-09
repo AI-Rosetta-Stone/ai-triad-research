@@ -98,7 +98,9 @@ function fetchQuery(from: string, to: string, opts?: AnalyticsExclusionOptions):
 }
 
 function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const timestamp = iso ? new Date(iso).getTime() : NaN;
+  if (Number.isNaN(timestamp)) return 'unknown';
+  const diff = Date.now() - timestamp;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
@@ -106,6 +108,22 @@ function relativeTime(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
+}
+
+/** Warn once per user per data load for an unparseable lastActive (t/4961) — validated here,
+ *  at parse time, rather than inside relativeTime (called per row on every render/sort/poll). */
+function warnUnparseableLastActive(users: UserSummary[]): void {
+  for (const u of users) {
+    if (!u.lastActive || Number.isNaN(new Date(u.lastActive).getTime())) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'analytics-dashboard',
+        level: 'warn',
+        message: `Unparseable lastActive for user ${u.user} — rendering "unknown"`,
+        error: { name: 'InvalidTimestamp', message: `lastActive=${JSON.stringify(u.lastActive)}`, stack: '' },
+      });
+    }
+  }
 }
 
 function fmtDuration(ms: number): string {
@@ -555,7 +573,7 @@ export function AnalyticsDashboard() {
     setLoading(true);
     setError(null);
     fetchQuery(from, to, exclusionOpts)
-      .then((d) => { setData(d); setLoading(false); })
+      .then((d) => { warnUnparseableLastActive(d.users); setData(d); setLoading(false); })
       .catch(err => {
         getGlobalRecorder()?.record({
           type: 'system.error',
