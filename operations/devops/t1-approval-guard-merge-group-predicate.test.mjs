@@ -47,6 +47,8 @@ test('a mixed batch is only as good as its worst member -- multiple failures are
   assert.deepEqual(result, { pass: false, failingNumbers: [502, 504] });
 });
 
-test('an empty batch passes vacuously (the enumeration script itself fails closed on zero PRs)', () => {
-  assert.deepEqual(classifyMergeGroupApprovals([]), { pass: true, failingNumbers: [] });
+test('an empty batch FAILS CLOSED (SO, p/648#348) -- cannot prove a batch of nothing is safe', () => {
+  assert.deepEqual(classifyMergeGroupApprovals([]), { pass: false, failingNumbers: [] });
+  assert.deepEqual(classifyMergeGroupApprovals(null), { pass: false, failingNumbers: [] });
+  assert.deepEqual(classifyMergeGroupApprovals(undefined), { pass: false, failingNumbers: [] });
 });

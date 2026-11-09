@@ -3412,9 +3412,11 @@ jobs:
             // App is ever renamed.
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
 
-            // Never trust the merge-group's own test-merge tree for the predicate -- a PR in
-            // THIS batch could weaken it. Load both predicates from origin/main's live tip,
-            // same precedent as t1-approval-guard.yml / tier-check.yml (e/291 C1).
+            // Never trust the merge-group's own test-merge tree for ANYTHING this job depends
+            // on -- a PR in THIS batch could edit the predicates OR the enumerator script to
+            // leave itself out. Load all three from origin/main's live tip, same precedent as
+            // t1-approval-guard.yml / tier-check.yml (e/291 C1). (SO, p/648#348: the enumerator
+            // script was initially left running from the checked-out tree -- fixed here.)
             execSync('git fetch origin main', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-mg-'));
@@ -3422,14 +3424,15 @@ jobs:
               const text = execSync(`git show ${baseTipSha}:${relPath}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
               const p = path.join(tmpDir, path.basename(relPath));
               fs.writeFileSync(p, text);
-              return pathToFileURL(p).href;
+              return p;
             }
-            const { evaluateT1ApprovalGuard } = await import(loadFromBase('operations/devops/t1-approval-guard-predicate.mjs'));
-            const { classifyMergeGroupApprovals } = await import(loadFromBase('operations/devops/t1-approval-guard-merge-group-predicate.mjs'));
+            const { evaluateT1ApprovalGuard } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-predicate.mjs')).href);
+            const { classifyMergeGroupApprovals } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-merge-group-predicate.mjs')).href);
+            const enumeratorPath = loadFromBase('operations/devops/get-merge-group-prs.sh');
 
-            execSync('chmod +x operations/devops/get-merge-group-prs.sh', { cwd: process.env.GITHUB_WORKSPACE });
+            execSync(`chmod +x ${JSON.stringify(enumeratorPath)}`, { cwd: process.env.GITHUB_WORKSPACE });
             const groupJson = execSync(
-              `operations/devops/get-merge-group-prs.sh ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)}`,
+              `${JSON.stringify(enumeratorPath)} ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)}`,
               { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' },
             );
             const group = JSON.parse(groupJson);
