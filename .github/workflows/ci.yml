@@ -352,6 +352,7 @@ jobs:
             bicep-resources:
               - 'deploy/azure/main.bicep'
               - 'operations/devops/Test-BicepAcaResourcePairs.ps1'
+              - 'operations/devops/azure/Test-BicepExpressionLength.ps1'
               - '.github/workflows/ci.yml'
             # 'env-bicep-wiring' gates env-bicep-wiring (t/4506, Class 5 prevention).
             # Triggers on a server-code change (new process.env read), main.bicep
@@ -2760,6 +2761,13 @@ jobs:
         shell: pwsh
         run: ./operations/devops/Test-BicepAcaResourcePairs.ps1
 
+      # t/4845: az bicep build accepts a template ARM then rejects at deploy time for an
+      # expression over 81,920 chars (run 41463847843). The early-warning threshold lives only
+      # in the script's default, so CI and its tests can't drift apart.
+      - name: ARM expression length below the early-warning threshold (t/4845)
+        shell: pwsh
+        run: ./operations/devops/azure/Test-BicepExpressionLength.ps1
+
   # ── citation-link-ci-fixture: leg-c both-arms proof against a committed fixture ──
   # (t/4443, t/4147 SO C5a). The data repo's citation-link-integrity.yml checks out this
   # repo's code at `main` with no `ref:`, so a code change to Test-CitationLinkIntegrity
@@ -3369,3 +3377,114 @@ jobs:
             exit 1
           fi
           echo "guard OK — no joint-gv label on any PR in this group."
+
+  # t/4939 step 1 (promotion blocker, DevOps Lead evidence t/4939#4): t1-approval-guard.yml has
+  # no merge_group trigger, so promoting the guard to a required context with nothing reporting
+  # on the queue ref would stall every batch (t/3607 Arm E, "never reports"). This job reports
+  # under the SAME check-run name on merge_group, same co-location precedent as consult-hold-guard
+  # / joint-gv-guard above.
+  #
+  # Unlike those two label-only guards, this one RE-EVALUATES the real predicate for every PR in
+  # the batch (not just a label check) -- an approval dismissed after enqueue, or a PR that was
+  # never actually approved despite reaching the queue, must still fail the whole group. Pure
+  # per-PR verdicts are unit-tested (t1-approval-guard-predicate.test.mjs, pre-existing); the
+  # group-aggregation step is unit-tested separately (t1-approval-guard-merge-group-predicate.
+  # test.mjs, t/4939) so "does the group pass" is testable independent of the GitHub API fetch.
+  t1-approval-guard:
+    name: t1-approval-guard
+    if: github.event_name == 'merge_group'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # same budget as consult-hold-guard/joint-gv-guard above
+    permissions:
+      pull-requests: read
+      issues: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Re-evaluate t1-approval-guard for every PR in this batch
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const os = require('os');
+            const path = require('path');
+
+            const owner = context.repo.owner, repo = context.repo.repo;
+            // Gate Co-Location (t1-approval-guard.yml has the same constant): must match the
+            // reviewer App's slug in operations/devops/AgentAppToken.psm1. Update both if the
+            // App is ever renamed.
+            const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
+
+            // Never trust the merge-group's own test-merge tree for ANYTHING this job depends
+            // on -- a PR in THIS batch could edit the predicates OR the enumerator script to
+            // leave itself out. Load all three from origin/main's live tip, same precedent as
+            // t1-approval-guard.yml / tier-check.yml (e/291 C1). (SO, p/648#348: the enumerator
+            // script was initially left running from the checked-out tree -- fixed here.)
+            execSync('git fetch origin main', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            const baseTipSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-mg-'));
+            function loadFromBase(relPath) {
+              const text = execSync(`git show ${baseTipSha}:${relPath}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const p = path.join(tmpDir, path.basename(relPath));
+              fs.writeFileSync(p, text);
+              return p;
+            }
+            const { evaluateT1ApprovalGuard } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-predicate.mjs')).href);
+            const { classifyMergeGroupApprovals } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-merge-group-predicate.mjs')).href);
+            const enumeratorPath = loadFromBase('operations/devops/get-merge-group-prs.sh');
+
+            execSync(`chmod +x ${JSON.stringify(enumeratorPath)}`, { cwd: process.env.GITHUB_WORKSPACE });
+            const groupJson = execSync(
+              `${JSON.stringify(enumeratorPath)} ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)}`,
+              { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' },
+            );
+            const group = JSON.parse(groupJson);
+            core.info(`t1-approval-guard (merge_group): batch is ${group.map((p) => '#' + p.number).join(', ')}`);
+
+            async function withRetry(label, fn) {
+              let lastErr;
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try { return await fn(); } catch (err) {
+                  lastErr = err;
+                  core.warning(`t1-approval-guard (merge_group): ${label} attempt ${attempt}/3 failed -- ${err.message} -- retrying`);
+                  await new Promise((r) => setTimeout(r, attempt * 3000));
+                }
+              }
+              throw lastErr;
+            }
+
+            const perPrResults = [];
+            for (const entry of group) {
+              const prNumber = entry.number;
+              const { data: pr } = await withRetry(`pulls.get #${prNumber}`, () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
+
+              const commits = await withRetry(`pulls.listCommits #${prNumber}`, () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }));
+              const lastCommit = commits[commits.length - 1];
+              const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
+
+              const rawComments = await withRetry(`issues.listComments #${prNumber}`, () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
+              const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at }));
+
+              // t/4096 Reviewer switch-over: a real bot APPROVED review also satisfies the gate,
+              // same arm as t1-approval-guard.yml.
+              const rawReviews = await withRetry(`pulls.listReviews #${prNumber}`, () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
+              const botReviews = rawReviews
+                .filter((r) => r.user?.type === 'Bot')
+                .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body }));
+
+              const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
+              core.info(`t1-approval-guard (merge_group): #${prNumber} tier=${result.tier} pass=${result.pass} reason=${result.reason}`);
+              perPrResults.push({ number: prNumber, result });
+            }
+
+            const verdict = classifyMergeGroupApprovals(perPrResults);
+            if (!verdict.pass) {
+              core.setFailed(`t1-approval-guard (merge_group): PR(s) #${verdict.failingNumbers.join(', #')} in this batch have no post-push approval. FAILING CLOSED.`);
+            } else {
+              core.info('t1-approval-guard (merge_group): every T1 member in this batch is approved after its latest push.');
+            }

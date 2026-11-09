@@ -719,18 +719,13 @@ var baseEnv = [
   // (Arm-A/Arm-B proven on staging, t/3309). Co-landed with the server.ts exit(1) removal (joint-gv).
   // The t/3308 warn-alert remains as the warn-only observability backstop for any un-gated path.
 ]
-var envWithToken = githubTokenProvided
-  ? concat(baseEnv, [ { name: 'GITHUB_TOKEN', secretRef: githubTokenSecretName } ])
-  : baseEnv
-var envWithWebhook = githubWebhookSecretProvided
-  ? concat(envWithToken, [ { name: 'GITHUB_WEBHOOK_SECRET', secretRef: githubWebhookSecretName } ])
-  : envWithToken
-var envWithFreeTier = freeTierEnabled
-  ? concat(envWithWebhook, [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierSecretName } ])
-  : envWithWebhook
-var containerEnv = paidTierEnabled
-  ? concat(envWithFreeTier, [ { name: 'GEMINI_PAID_KEY', secretRef: paidTierSecretName } ])
-  : envWithFreeTier
+// Keep this flat (t/4845): ARM inlines var references, so a nested `cond ? concat(prev, x) : prev`
+// chain copies baseEnv into both arms at every level and blew the 81,920-char expression limit.
+var extraGithubToken = githubTokenProvided ? [ { name: 'GITHUB_TOKEN', secretRef: githubTokenSecretName } ] : []
+var extraGithubWebhook = githubWebhookSecretProvided ? [ { name: 'GITHUB_WEBHOOK_SECRET', secretRef: githubWebhookSecretName } ] : []
+var extraFreeTier = freeTierEnabled ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierSecretName } ] : []
+var extraPaidTier = paidTierEnabled ? [ { name: 'GEMINI_PAID_KEY', secretRef: paidTierSecretName } ] : []
+var containerEnv = concat(baseEnv, extraGithubToken, extraGithubWebhook, extraFreeTier, extraPaidTier)
 
 // ── Staging env isolation (t/2643) ──
 // Override baseEnv keys for staging class-A write isolation.
@@ -807,20 +802,9 @@ var stagingBaseEnv = concat(
   filter(baseEnv, e => !contains(stagingOverriddenKeys, e.name)),
   stagingEnvOverrides
 )
-// Rebuild the secret chain for staging — mirrors the prod chain so staging
-// is a faithful pre-prod proxy (same oauth/ai secrets, different write path).
-var stagingEnvWithToken = githubTokenProvided
-  ? concat(stagingBaseEnv, [ { name: 'GITHUB_TOKEN', secretRef: githubTokenSecretName } ])
-  : stagingBaseEnv
-var stagingEnvWithWebhook = githubWebhookSecretProvided
-  ? concat(stagingEnvWithToken, [ { name: 'GITHUB_WEBHOOK_SECRET', secretRef: githubWebhookSecretName } ])
-  : stagingEnvWithToken
-var stagingEnvWithFreeTier = freeTierEnabled
-  ? concat(stagingEnvWithWebhook, [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierSecretName } ])
-  : stagingEnvWithWebhook
-var stagingContainerEnv = paidTierEnabled
-  ? concat(stagingEnvWithFreeTier, [ { name: 'GEMINI_PAID_KEY', secretRef: paidTierSecretName } ])
-  : stagingEnvWithFreeTier
+// Same secret entries as prod, so staging stays a faithful pre-prod proxy (same oauth/ai
+// secrets, different write path).
+var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, extraFreeTier, extraPaidTier)
 
 // API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
 resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {

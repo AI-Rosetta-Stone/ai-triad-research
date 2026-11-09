@@ -37,9 +37,130 @@ env:
   CONTAINER_APP_NAME: taxonomy-editor-staging
 
 jobs:
-  deploy-staging:
+  # t/4932 (2026-11-06 staging downgrade incident, TL p/331#2658/#2659): `deploy-staging`
+  # used to fire on ANY successful Container Image run, including `push=false` A/B/dry-run
+  # dispatches and rebuilds of SHAs older than what's already running. This gate runs FIRST
+  # and decides whether the build underneath actually earns a deploy, before any Azure state
+  # changes -- a `::warning::` names the reason on every skip, so a skip is visible, not silent.
+  gate:
+    name: gate
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
+    # Lead review (#4679, B2, verified live via `az ad app federated-credential list`): the
+    # deploy App's federated credentials trust ONLY `...:environment:staging` /
+    # `...:environment:production` subjects. Without this, the token subject is
+    # `...:ref:refs/heads/main`, azure/login is rejected on every run, and staging never
+    # deploys again -- the same trap as check-signin-secret-drift.yml:12.
+    environment: staging
+    timeout-minutes: 10
+    permissions:
+      id-token: write  # Azure OIDC login, to read staging's current DEPLOY_SHA
+      contents: read
+    outputs:
+      proceed: ${{ steps.verdict.outputs.proceed }}
+      built_sha: ${{ steps.built.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0  # t/4932: the ancestor check below needs full history
+
+      - name: Determine the built commit and push flag from the Container Image run name (t/4129, t/4932)
+        id: built
+        shell: pwsh
+        env:
+          RUN_NAME: ${{ github.event.workflow_run.display_title }}
+        run: |
+          & ./operations/devops/Get-BuiltShaFromRunName.ps1 -RunName $env:RUN_NAME -GitHubOutput
+          & ./operations/devops/Get-PushFlagFromRunName.ps1 -RunName $env:RUN_NAME -GitHubOutput
+
+      - name: Log in to Azure
+        if: steps.built.outputs.pushed == 'true'  # skip the Azure round-trip entirely when push already failed it
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read staging's current DEPLOY_SHA and check whether the built SHA is an ancestor (t/4932)
+        id: compare
+        if: steps.built.outputs.pushed == 'true'
+        shell: pwsh
+        env:
+          BUILT_SHA: ${{ steps.built.outputs.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          . ./operations/devops/Get-StagingCurrentDeployComparison.ps1
+
+          $Result = Get-StagingCurrentDeployComparison -BuiltSha $env:BUILT_SHA `
+            -GetActiveRevisionFn { Get-ContainerAppRevision -Mode Active -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}' } `
+            -AzRevisionShowFn {
+              param($RevisionName)
+              # S1 (Lead review, #4679): `az` is a NATIVE command -- it does NOT throw on
+              # failure even under $ErrorActionPreference='Stop'. $LASTEXITCODE must be checked
+              # explicitly, immediately after the call, before any other statement resets it.
+              # Quality should-fix (#4679, p/780#29): PowerShell represents stderr from a native
+              # command as [ErrorRecord] objects when captured via 2>&1. Mixing those into the
+              # JSON corrupts it even on exit 0 -- the t/1500 trap Invoke-Az.ps1 documents (`az`
+              # can emit a warning to stderr on an otherwise-successful call). Keep only the
+              # non-ErrorRecord (stdout) lines.
+              $RawOut = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+                --revision $RevisionName --query 'properties.template.containers[0].env' -o json 2>&1
+              $AzExit = $LASTEXITCODE
+              $StdoutLines = @($RawOut | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+              @{ ExitCode = $AzExit; Output = ($StdoutLines | Out-String).Trim() }
+            } `
+            -GitMergeBaseFn {
+              param($Built, $Current)
+              # S2 (Lead review, #4679): exit 0 = ancestor, exit 1 = genuinely not an ancestor,
+              # exit 128 (or anything else) = $Current isn't in this checkout's history at all
+              # (e.g. a branch build) -- the check could not run, not "definitely not an ancestor."
+              git merge-base --is-ancestor $Built $Current
+              $LASTEXITCODE
+            }
+
+          if ($Result.ReadFailed) {
+            Write-Host "::warning::could not read staging's current DEPLOY_SHA (az failure or missing env var) -- failing closed."
+          } elseif ([string]::IsNullOrWhiteSpace($Result.CurrentSha)) {
+            Write-Host "No active revision (true first deploy) -- ancestor check skipped."
+          } elseif ($Result.AncestorUnknown) {
+            Write-Host "::warning::git merge-base --is-ancestor could not verify built SHA $env:BUILT_SHA vs. current DEPLOY_SHA $($Result.CurrentSha) -- not in this checkout's history."
+          } else {
+            Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA $($Result.CurrentSha): $($Result.IsAncestor)"
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "current_sha=$($Result.CurrentSha)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "read_failed=$($Result.ReadFailed.ToString().ToLowerInvariant())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor=$(if ($null -eq $Result.IsAncestor) { '' } else { $Result.IsAncestor.ToString().ToLowerInvariant() })"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=$($Result.AncestorUnknown.ToString().ToLowerInvariant())"
+
+      - name: Decide whether to deploy (t/4932)
+        id: verdict
+        shell: pwsh
+        env:
+          PUSHED: ${{ steps.built.outputs.pushed }}
+          BUILT_SHA: ${{ steps.built.outputs.sha }}
+          CURRENT_SHA: ${{ steps.compare.outputs.current_sha }}
+          IS_ANCESTOR: ${{ steps.compare.outputs.is_ancestor }}
+          READ_FAILED: ${{ steps.compare.outputs.read_failed }}
+          ANCESTOR_UNKNOWN: ${{ steps.compare.outputs.ancestor_unknown }}
+        run: |
+          . ./operations/devops/Get-StagingDeployGateVerdict.ps1
+          $IsAncestorBool = if ([string]::IsNullOrWhiteSpace($env:IS_ANCESTOR)) { $null } else { $env:IS_ANCESTOR -eq 'true' }
+          $Result = Get-StagingDeployGateVerdict -Pushed ($env:PUSHED -eq 'true') -BuiltSha $env:BUILT_SHA `
+            -CurrentDeploySha $env:CURRENT_SHA -BuiltShaIsAncestorOfCurrent $IsAncestorBool `
+            -CurrentDeployReadFailed ($env:READ_FAILED -eq 'true') -AncestorCheckUnknownCommit ($env:ANCESTOR_UNKNOWN -eq 'true')
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "proceed=$($Result.Proceed.ToString().ToLowerInvariant())"
+          if ($Result.Warn) {
+            Write-Host "::warning::Auto-Deploy to Staging ($(if ($Result.Proceed) { 'PROCEEDING WITH GAP' } else { 'SKIPPED' })): $($Result.Reason)"
+          } else {
+            Write-Host "gate: proceeding -- $($Result.Reason)"
+          }
+
+  deploy-staging:
+    needs: [gate]
+    runs-on: ubuntu-latest
+    if: needs.gate.outputs.proceed == 'true'
     environment: staging
     timeout-minutes: 30  # SO C2 (t/4194, p/682#16): same rationale as deploy-azure.yml's job —
                          # staging's own runtime is normally shorter, so a tighter cap.

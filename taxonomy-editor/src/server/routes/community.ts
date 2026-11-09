@@ -18,13 +18,33 @@ import { log } from '../logger.js';
 import { getUserContentBackend } from '../storage/fileIO.js';
 import { rateLimitResponseBody } from '../security/rateLimitResponse.js';
 import * as rateLimiter from '../security/rateLimiter.js';
-import { getStorageUserId } from '../security/userContext.js';
+import { getStorageUserId, isAnonymousUser, getStableId } from '../security/userContext.js';
 import * as community from '../community/community.js';
 import { revokeCommunityOpedShare, getCommunityOpedShareEntry } from '../community/communityOpedShares.js';
 import { deletePublicCommunityOpEd } from '../storage/communityOpedShareStore.js';
 
+// Bounds the admin-supplied reason persisted into the rename audit record.
+const RENAME_REASON_MAX = 1000;
+
+function isCommunityType(type: string): type is community.CommunityType {
+  return type === 'chats' || type === 'debates' || type === 'opeds' || type === 'inquiries';
+}
+
+/** Validates the admin rename body. Returns the fields, or a 400 message. */
+function parseRenameBody(body: unknown): { title: string; reason?: string } | { invalid: string } {
+  const { title, reason } = (body ?? {}) as { title?: unknown; reason?: unknown };
+  const trimmedLength = typeof title === 'string' ? title.trim().length : 0;
+  if (typeof title !== 'string' || trimmedLength === 0 || trimmedLength > 200) {
+    return { invalid: 'title must be a string of 1-200 characters after trimming' };
+  }
+  if (reason !== undefined && (typeof reason !== 'string' || reason.length > RENAME_REASON_MAX)) {
+    return { invalid: `reason must be a string of at most ${RENAME_REASON_MAX} characters` };
+  }
+  return { title, reason };
+}
+
 export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
-  const { get, post, del } = r;
+  const { get, post, del, patch } = r;
   const { getGithubBackend } = ctx;
 
   // Structured 429 for GitHub-API rate-limit exhaustion (t/685). Surfaces seconds
@@ -55,6 +75,36 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
         component: 'server',
         level: 'error',
         message: 'Failed to remove community item',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      error(res, (err as Error).message ?? String(err), (err as { statusCode?: number }).statusCode ?? 500, err);
+    }
+  });
+
+  // t/4897 (t/4885-C): admin rename of a published community item. renameCommunityItem
+  // writes the audit record before mutating the file; `by` is the admin's stableId — the
+  // same value isAdmin() just matched — never a display name or a client-supplied field.
+  // Anonymous callers are normally stopped earlier by server.ts's auth gate (401 with no
+  // session, 403 anon_route_blocked with an anonymous session); the 401 here is a backstop.
+  patch('/api/community/:type/:id', async (req, res, body) => {
+    if (isAnonymousUser()) { error(res, 'Sign in required', 401); return; }
+    if (!community.isAdmin()) { json(res, { error: 'Forbidden' }, 403); return; }
+    try {
+      const type = param(req, 'type', '/api/community/:type/:id');
+      if (!isCommunityType(type)) { error(res, 'type must be "chats", "debates", "opeds", or "inquiries"', 400); return; }
+      const id = param(req, 'id', '/api/community/:type/:id');
+      const parsed = parseRenameBody(body);
+      if ('invalid' in parsed) { error(res, parsed.invalid, 400); return; }
+      const by = getStableId();
+      if (!by) { error(res, 'Admin identity unavailable', 403); return; }
+      await community.renameCommunityItem(type, id, parsed.title, { by, reason: parsed.reason });
+      json(res, { ok: true });
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'server',
+        level: 'error',
+        message: 'Failed to rename community item',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
       error(res, (err as Error).message ?? String(err), (err as { statusCode?: number }).statusCode ?? 500, err);
