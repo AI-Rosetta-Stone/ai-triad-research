@@ -84,7 +84,8 @@ export interface ChatLibraryListDeps {
   /** Admin-only Community rename/delete (t/4898, Design t/4898#4) — LibraryListPage renders the
    *  ✎/✕ itself, gated on useIsAdmin(); the page just supplies the calls. */
   adminRename?: (row: CommunityChat, title: string) => void;
-  adminDelete?: (row: CommunityChat, reason?: string) => void;
+  /** Returns the delete's promise, rejecting on failure, so bulk admin-delete can report it (t/51). */
+  adminDelete?: (row: CommunityChat, reason?: string) => void | Promise<unknown>;
 }
 
 export function buildChatLibraryListConfig(
