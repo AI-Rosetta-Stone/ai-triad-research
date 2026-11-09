@@ -731,8 +731,12 @@ jobs:
             // in too (t/4131): ready_for_review -> merged with no arm event in between is an
             // ARM-EQUIVALENT hit -- exactly what `gh pr ready` + `gh pr merge --auto` produces on
             // an already-green PR (GitHub merges immediately, logging no arm event at all).
+            // 'added_to_merge_queue' is pulled in too (t/4947, from the t/4939 forensics): #4648
+            // was ready_for_review -> added_to_merge_queue in 5s -> merged ~566s later, with no
+            // ARM_EVENT_RE match and a ready-to-merged delta too long for the merge-equivalent
+            // window -- invisible to both arms without this event in the feed at all.
             const relevant = rawEvents
-              .filter((e) => e.event === 'ready_for_review' || e.event === 'labeled' || e.event === 'unlabeled' || e.event === 'merged' || ARM_EVENT_RE.test(e.event))
+              .filter((e) => e.event === 'ready_for_review' || e.event === 'labeled' || e.event === 'unlabeled' || e.event === 'merged' || e.event === 'added_to_merge_queue' || ARM_EVENT_RE.test(e.event))
               .filter((e) => new Date(e.created_at).getTime() >= sinceMs)
               .map((e) => ({ prNumber: e.issue?.number, event: e.event, label: e.label?.name, actor: e.actor?.login ?? 'unknown', createdAt: e.created_at }))
               .filter((e) => e.prNumber);
@@ -745,7 +749,7 @@ jobs:
             // existence check; the full ready+arm/merged pairing happens inside the pure
             // function itself). GitHub keeps a PR's labels readable via pulls.get after it
             // merges, so this works unchanged for the merge-equivalent case (t/4131).
-            const candidatePrNumbers = [...new Set(relevant.filter((e) => ARM_EVENT_RE.test(e.event) || e.event === 'merged').map((e) => e.prNumber))];
+            const candidatePrNumbers = [...new Set(relevant.filter((e) => ARM_EVENT_RE.test(e.event) || e.event === 'merged' || e.event === 'added_to_merge_queue').map((e) => e.prNumber))];
             const liveLabelsByPr = new Map();
             for (const prNumber of candidatePrNumbers) {
               const { data: p } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber }).catch(() => ({ data: null }));

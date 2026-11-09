@@ -459,6 +459,43 @@ test('sweep: auto_rebase_enabled and auto_update_enabled also count as arm event
   }
 });
 
+// t/4947 (from t/4939's forensics, t/4939#12): #4648 was ready_for_review -> added_to_merge_
+// queue 5s later -> merged ~566s after that. ARM_EVENT_RE doesn't match added_to_merge_queue,
+// and the merge-equivalent window (60s) is too short for the full 571s ready-to-merged delta --
+// #4648's exact shape was invisible to both arms before this fix.
+test('t/4947: the #4648 event shape (ready -> added_to_merge_queue in 5s -> merged 566s later) IS flagged', () => {
+  const events = [
+    { prNumber: 4648, event: 'ready_for_review', actor: 'agent-a', createdAt: '2026-11-06T23:53:55Z' },
+    { prNumber: 4648, event: 'added_to_merge_queue', actor: 'agent-a', createdAt: '2026-11-06T23:54:00Z' },
+    { prNumber: 4648, event: 'merged', actor: 'agent-a', createdAt: '2026-11-07T00:03:26Z' }, // +566s after enqueue
+  ];
+  const hits = detectSweepSignature(events);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].prNumber, 4648);
+  assert.equal(hits[0].signatureType, 'arm');
+  assert.equal(hits[0].deltaSeconds, 5); // ready -> ENQUEUE, not ready -> merged
+});
+
+test('t/4947: a PR that sat ready longer than SWEEP_WINDOW_SECONDS before enqueue is NOT flagged', () => {
+  const events = [
+    { prNumber: 4649, event: 'ready_for_review', actor: 'tl', createdAt: '2026-11-06T23:00:00Z' },
+    { prNumber: 4649, event: 'added_to_merge_queue', actor: 'tl', createdAt: '2026-11-06T23:05:00Z' }, // 5 min later
+    { prNumber: 4649, event: 'merged', actor: 'tl', createdAt: '2026-11-06T23:06:00Z' },
+  ];
+  assert.equal(detectSweepSignature(events).length, 0);
+});
+
+test('t/4947: added_to_merge_queue rules out the merge-equivalent pairing for the SAME ready event (no double-count)', () => {
+  const events = [
+    { prNumber: 4648, event: 'ready_for_review', actor: 'agent-a', createdAt: '2026-11-06T23:53:55Z' },
+    { prNumber: 4648, event: 'added_to_merge_queue', actor: 'agent-a', createdAt: '2026-11-06T23:54:00Z' },
+    { prNumber: 4648, event: 'merged', actor: 'agent-a', createdAt: '2026-11-07T00:03:26Z' },
+  ];
+  const hits = detectSweepSignature(events);
+  assert.equal(hits.length, 1, 'exactly one hit, not one per arm');
+  assert.equal(hits.filter((h) => h.signatureType === 'merge-equivalent').length, 0);
+});
+
 // ── D2, backward-replay fix (Lead review, PR #3152): forward-replay-from-empty missed a PR
 // held BEFORE the lookback window that then received any OTHER label event inside it. Fixed
 // by walking backwards from the LIVE label snapshot, undoing events after the arm time.
