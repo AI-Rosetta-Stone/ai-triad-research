@@ -272,7 +272,12 @@ function Invoke-SmokeAnalyticsPhase {
     }
 
     # Baseline read BEFORE the write.
-    $BaselineCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/query' -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
+    # ?includeSystem=true (t/4967): #4702 hides smoke-* events from analytics reads by
+    # default; without this param the delta read-back can no longer see its own probe
+    # event, reading as a false "silent drop" the same way the t/2683 session-less read
+    # did. An older server (pre-t/4962) ignores unknown query params, so this is safe to
+    # land ahead of that server-side change.
+    $BaselineCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/query?includeSystem=true' -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
     $Before = Get-SmokeTotalEventCount $BaselineCheck
 
     $WriteCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/event' -Method 'POST' `
@@ -283,7 +288,8 @@ function Invoke-SmokeAnalyticsPhase {
     Start-Sleep -Seconds 2
 
     # Read-back AFTER the write — the delta is the detector.
-    $AfterCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/query' -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
+    # ?includeSystem=true: see the baseline read above for why.
+    $AfterCheck = Invoke-SmokeAnalyticsQuery -BaseUrl $BaseUrl -Path '/api/analytics/query?includeSystem=true' -Method 'GET' -TimeoutSec $TimeoutSec -Session $Session
     $After = Get-SmokeTotalEventCount $AfterCheck
 
     $Analytics += Get-SmokeAnalyticsDeltaResult -BaselineCheck $BaselineCheck -AfterCheck $AfterCheck -Before $Before -After $After

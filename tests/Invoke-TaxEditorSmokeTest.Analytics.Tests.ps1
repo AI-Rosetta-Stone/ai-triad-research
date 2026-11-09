@@ -26,7 +26,7 @@ BeforeAll {
     Import-Module $ModulePath -Force -WarningAction SilentlyContinue
 }
 
-Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'health' {
+Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667, t/4967)' -Tag 'health' {
 
     BeforeEach {
         InModuleScope AITriad {
@@ -83,7 +83,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
     It 'clean round-trip: totalEvents increases → Analytics PASS, OverallPass true' {
         InModuleScope AITriad {
             $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:QueryCall++
                 $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }   # +1 after write
                 New-RCResult $true 200 ([PSCustomObject]@{
@@ -108,7 +108,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
     It 'SILENT DROP: totalEvents flat after a 200 write → delta FAILS, OverallPass false (the critical catch)' {
         InModuleScope AITriad {
             $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:QueryCall++
                 New-RCResult $true 200 ([PSCustomObject]@{ summary = [PSCustomObject]@{ totalEvents = 5 } })  # never increases
             }
@@ -131,7 +131,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
     It 'WRITE UNREACHABLE: POST non-200 → write probe FAILS, OverallPass false' {
         InModuleScope AITriad {
             $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:QueryCall++
                 New-RCResult $true 200 ([PSCustomObject]@{ summary = [PSCustomObject]@{ totalEvents = 5 } })
             }
@@ -150,7 +150,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
     It 'READ PATH BROKEN: baseline query non-200 → delta FAILS "Baseline read failed", OverallPass false' {
         InModuleScope AITriad {
             $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:QueryCall++
                 New-RCResult $false 302 $null   # e.g. auth redirect / read path down
             }
@@ -170,7 +170,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
     It 'ANON SESSION: establishes one and threads it through all three Phase-5 calls (t/2684)' {
         InModuleScope AITriad {
             $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:QueryCall++
                 $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }
                 New-RCResult $true 200 ([PSCustomObject]@{
@@ -190,7 +190,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
             # …and threaded to all three analytics calls (baseline GET, POST event,
             # read-back GET) — the fix for the cookie-less interstitial false-positive.
             Should -Invoke Invoke-RemoteCheck -Times 3 -Exactly -ParameterFilter {
-                ($Path -eq '/api/analytics/query' -or $Path -eq '/api/analytics/event') -and $null -ne $Session
+                ($Path -eq '/api/analytics/query?includeSystem=true' -or $Path -eq '/api/analytics/event') -and $null -ne $Session
             }
         }
     }
@@ -199,7 +199,7 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
         InModuleScope AITriad {
             Mock New-AnonymousWebSession -MockWith { $null }
             $script:QueryCall = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:QueryCall++
                 $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }
                 New-RCResult $true 200 ([PSCustomObject]@{
@@ -214,8 +214,41 @@ Describe 'Invoke-TaxEditorSmokeTest analytics round-trip probe (t/2667)' -Tag 'h
             # No -Session flows through when the session could not be established.
             { Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null } | Should -Not -Throw
             Should -Invoke Invoke-RemoteCheck -Times 3 -Exactly -ParameterFilter {
-                ($Path -eq '/api/analytics/query' -or $Path -eq '/api/analytics/event') -and $null -eq $Session
+                ($Path -eq '/api/analytics/query?includeSystem=true' -or $Path -eq '/api/analytics/event') -and $null -eq $Session
             }
+        }
+    }
+
+    It 'INCLUDES SYSTEM EVENTS: both the baseline and read-back GET carry ?includeSystem=true (t/4967)' {
+        InModuleScope AITriad {
+            # t/4967: #4702 hides smoke-* events (this probe's own user/session_id prefix)
+            # from analytics reads by default. Without ?includeSystem=true on BOTH query
+            # reads, the delta read-back can no longer see its own write and reports a
+            # false "silent drop" -- blocking staging/prod deploys. A mock that only
+            # matches the UNqualified path (no query string) would never fire, and the
+            # orchestration would fall through to the generic 200/Body=$null stub
+            # registered in BeforeEach, flattening every delta to 0 -- so this asserts the
+            # exact qualified path was called, not just that SOME query call happened.
+            $script:QueryCall = 0
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
+                $script:QueryCall++
+                $total = if ($script:QueryCall -eq 1) { 5 } else { 6 }
+                New-RCResult $true 200 ([PSCustomObject]@{
+                    summary    = [PSCustomObject]@{ totalEvents = $total }
+                    eventTypes = [PSCustomObject]@{ 'view.dwell' = if ($script:QueryCall -ge 2) { 1 } else { 0 } }
+                })
+            }
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/event' } -MockWith {
+                New-RCResult $true 200 ([PSCustomObject]@{ ok = $true; count = 1 })
+            }
+
+            $result = Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' 6>$null
+
+            $result.OverallPass | Should -BeTrue -Because 'the qualified mock must have actually been hit for the round-trip to see its own delta'
+            Should -Invoke Invoke-RemoteCheck -Times 2 -Exactly -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } `
+                -Because 'both the baseline read and the read-back must carry the param, not just one of them'
+            Should -Invoke Invoke-RemoteCheck -Times 0 -Exactly -ParameterFilter { $Path -eq '/api/analytics/query' } `
+                -Because 'the UNqualified path must never be called -- that would silently fall through to the generic stub and mask every future regression here'
         }
     }
 }

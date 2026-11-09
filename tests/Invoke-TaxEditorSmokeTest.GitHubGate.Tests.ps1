@@ -79,7 +79,7 @@ Describe 'Invoke-TaxEditorSmokeTest GitHub-flap gate exclusion (t/2673)' -Tag 'h
                 }
             }
             $script:AnalyticsQ = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:AnalyticsQ++
                 $total = if ($script:AnalyticsQ -eq 1) { 5 } else { 6 }
                 [PSCustomObject]@{
@@ -145,7 +145,7 @@ Describe 'Invoke-TaxEditorSmokeTest GitHub-flap gate exclusion (t/2673)' -Tag 'h
                 }
             }
             $script:AnalyticsQ = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:AnalyticsQ++
                 $total = if ($script:AnalyticsQ -eq 1) { 5 } else { 6 }
                 [PSCustomObject]@{
@@ -195,7 +195,7 @@ Describe 'Invoke-TaxEditorSmokeTest GitHub-flap gate exclusion (t/2673)' -Tag 'h
                 }
             }
             $script:AnalyticsQ = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:AnalyticsQ++
                 $total = if ($script:AnalyticsQ -eq 1) { 5 } else { 6 }
                 [PSCustomObject]@{
@@ -274,7 +274,7 @@ Describe 'Invoke-TaxEditorSmokeTest GitHub-flap gate exclusion (t/2673)' -Tag 'h
                 }
             }
             $script:AnalyticsQ = 0
-            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query' } -MockWith {
+            Mock Invoke-RemoteCheck -ParameterFilter { $Path -eq '/api/analytics/query?includeSystem=true' } -MockWith {
                 $script:AnalyticsQ++
                 $total = if ($script:AnalyticsQ -eq 1) { 5 } else { 6 }
                 [PSCustomObject]@{

@@ -134,7 +134,7 @@ Describe 'Invoke-TaxEditorSmokeTest — embedding probe is its OWN category, NON
                         return [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = $script:EmbMs
                             Body = [PSCustomObject]@{ vectors = @(1, 2, 3, 4) }; ContentType = 'application/json'; RawBody = ''; Error = $null }
                     }
-                    '*/api/analytics/query' {
+                    '*/api/analytics/query*' {
                         $script:AnQ++
                         $total = if ($script:AnQ -eq 1) { 5 } else { 6 }
                         return [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 10
