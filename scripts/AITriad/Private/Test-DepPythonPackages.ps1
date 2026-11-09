@@ -20,7 +20,6 @@ function Test-DepPythonPackages {
     )
 
     $ReqFile = Join-Path (Join-Path $RepoRoot 'scripts') 'requirements.txt'
-    $ConstraintsFile = Join-Path (Join-Path $RepoRoot 'scripts') 'pip-constraints.txt'
     if (Test-Path $ReqFile) {
         try {
             $ImportTest = & $PythonCmd -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>$null
@@ -54,14 +53,11 @@ function Test-DepPythonPackages {
                 Write-DepWarn -Ctx $Ctx -Message 'sentence-transformers not installed'
                 if ($IsInstallMode -and $Fix) {
                     Write-DepFix 'Installing Python requirements...'
-                    # -c pip-constraints.txt: keep torch on the CPU-only pin (t/4884) — without it,
-                    # sentence-transformers' transitive torch requirement resolves from the default
-                    # PyPI index, which is not CPU-pinned.
-                    & $PythonCmd -m pip install -r $ReqFile -c $ConstraintsFile 2>&1 | Out-Null
+                    & $PythonCmd -m pip install -r $ReqFile 2>&1 | Out-Null
                     if ($LASTEXITCODE -eq 0) { $Ctx.Fixed++; Write-DepPass -Ctx $Ctx -Message 'Python requirements installed' }
                     else { Write-DepFail -Ctx $Ctx -Message 'pip install failed' }
                 }
-                else { Write-DepSkip -Message "Run '$PythonCmd -m pip install -r scripts/requirements.txt -c scripts/pip-constraints.txt'" }
+                else { Write-DepSkip -Message "Run '$PythonCmd -m pip install -r scripts/requirements.txt'" }
             }
         }
         catch { Write-DepWarn -Ctx $Ctx -Message "Could not check Python packages: $_" }
