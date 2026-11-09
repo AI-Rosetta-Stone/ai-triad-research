@@ -423,6 +423,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #431 | [Process] | A Mode Flag That Gates Writes Must Reset at Every Session-Swap Site From One Shared Reset Object — Production Data Loss (t/4907) | lines 8795-8813 |
 | #432 | [Process] | A Content-Correct but Non-Canonical-Bytes Data Mutation Can Evade Every Existing Proof Check — Corpus Writes Need a Canonical-Writer Byte Round Trip | lines 8814-8832 |
 | #433 | [Process] | A Pre-Existing Broken Vitest Snapshot Against Live Data Blocks Every Push Whose Import Graph Touches It — Unresolved, Needs an Owner (t/4891) | lines 8833-8850 |
-| #434 | [Process] | An Orca Outage During a T2 Second-Opinion Round Can Turn a Completed Review Into a False "SO Did Not Review" | lines 8851-8867 |
+| #434 | [Process] | An Orca Outage During a T2 Second-Opinion Round Can Turn a Completed Review Into a False "SO Did Not Review" | lines 8851-8868 |
+| #435 | [Process] | A Fallback That Bypasses the Approval Guard — Never Substitute a Raw Mutation for `enqueue-pr.mjs`'s Refusal | lines 8869-8885 |
 
-418 entries indexed.
+419 entries indexed.
