@@ -154,6 +154,16 @@ export function canProducePrincipal(idp: 'github' | 'aad', name: string): boolea
   return false;
 }
 
+/**
+ * t/43: whether some sign-in can record `stableId` as its UserContext.stableId. Mirrors the
+ * keys canonicalizeGithub/canonicalizeAad set: `github:<id>` or `aad:<tid>-<oid>`, the id in
+ * STABLE_ID_RE's charset, lowercased. Other idps never record a stableId (fillMissingName).
+ */
+export function canProduceStableId(stableId: string): boolean {
+  const m = /^(github|aad):(.+)$/.exec(stableId.toLowerCase());
+  return !!m && STABLE_ID_RE.test(m[2]);
+}
+
 const warned = new Set<string>();
 function warnOnce(key: string, fields: Record<string, unknown>, message: string): void {
   if (warned.has(key)) return;

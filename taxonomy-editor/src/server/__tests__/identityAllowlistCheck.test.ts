@@ -2,8 +2,8 @@
 //
 // t/4505 (t/4504 incident follow-up): an ADMIN_USERS/READ_ONLY_PRINCIPALS entry that no
 // current sign-in can produce under IDENTITY_MAP fails SILENTLY — the guard just never
-// matches. This file covers the three ACs verbatim, plus the ADMIN_USERS email-reachability
-// fix from the TL's design review (t/4505#3).
+// matches. This file covers the three ACs verbatim. The ADMIN_USERS rule follows t/43: only an
+// idp-qualified entry isAdminStableId can match is reachable (it superseded t/4505#3's email rule).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -15,6 +15,7 @@ vi.mock('../logger.js', async (importOriginal) => {
 
 import { findUnreachableAllowlistEntries, logUnreachableAllowlistEntriesAtBoot } from '../identityAllowlistCheck.js';
 import { _resetPrincipalNameForTest } from '../principalName.js';
+import { getAdminUsers, isAdminStableId } from '../community/community.js';
 
 let prevMap: string | undefined;
 beforeEach(() => {
@@ -54,41 +55,57 @@ describe('findUnreachableAllowlistEntries — READ_ONLY_PRINCIPALS (AC: the thre
   });
 });
 
-describe('findUnreachableAllowlistEntries — ADMIN_USERS (TL review t/4505#3: the email-reachability fix)', () => {
-  it('a Google email admin is reachable (verified email, not map-derived) — not flagged', () => {
-    const unreachable = findUnreachableAllowlistEntries(['jsnover13-at-gmail-com@gmail.com'], new Set());
-    expect(unreachable).toEqual([]);
+const BARE_REASON = 'bare entry with no idp: prefix; isAdminStableId never matches it (t/4328)';
+const BAD_QUALIFIED_REASON = 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+
+describe('findUnreachableAllowlistEntries — ADMIN_USERS (t/43: aligned with isAdminStableId)', () => {
+  it("prod's qualified github:<id> entry is reachable — not flagged", () => {
+    expect(findUnreachableAllowlistEntries(['github:6188114'], new Set())).toEqual([]);
   });
 
-  it('a bare legacy name with no map entry is flagged', () => {
-    const unreachable = findUnreachableAllowlistEntries(['jpsnover'], new Set());
-    expect(unreachable).toEqual([
-      { source: 'ADMIN_USERS', idp: null, name: 'jpsnover', reason: 'no map entry for legacy aad/github name, and not a Google email' },
+  it('a qualified aad:<tid>-<oid> entry is reachable, and case is ignored like getAdminUsers', () => {
+    expect(findUnreachableAllowlistEntries(['aad:tenant-1-obj-1', 'GitHub:42'], new Set())).toEqual([]);
+  });
+
+  it('a bare legacy name is flagged, even when IDENTITY_MAP maps a sign-in onto it', () => {
+    process.env.IDENTITY_MAP = 'github:1234=jpsnover';
+    _resetPrincipalNameForTest();
+    expect(findUnreachableAllowlistEntries(['jpsnover'], new Set())).toEqual([
+      { source: 'ADMIN_USERS', idp: null, name: 'jpsnover', reason: BARE_REASON },
     ]);
   });
 
-  it('with a github IDENTITY_MAP entry, the same bare legacy name is not flagged', () => {
-    process.env.IDENTITY_MAP = 'github:1234=jpsnover';
-    _resetPrincipalNameForTest();
-    const unreachable = findUnreachableAllowlistEntries(['jpsnover'], new Set());
-    expect(unreachable).toEqual([]);
+  it('bare emails and github-<id> names are flagged too', () => {
+    const unreachable = findUnreachableAllowlistEntries(['jsnover13-at-gmail-com@gmail.com', 'github-999'], new Set());
+    expect(unreachable.map(u => u.reason)).toEqual([BARE_REASON, BARE_REASON]);
   });
 
-  it('with an aad IDENTITY_MAP entry, the same bare legacy name is not flagged', () => {
-    process.env.IDENTITY_MAP = 'aad:t-o=jpsnover';
-    _resetPrincipalNameForTest();
-    const unreachable = findUnreachableAllowlistEntries(['jpsnover'], new Set());
-    expect(unreachable).toEqual([]);
-  });
-
-  it('a github-<id>-shaped ADMIN_USERS entry is always reachable', () => {
-    const unreachable = findUnreachableAllowlistEntries(['github-999'], new Set());
-    expect(unreachable).toEqual([]);
+  it('a qualified entry no sign-in records as a stableId is flagged', () => {
+    const unreachable = findUnreachableAllowlistEntries(['google:user@gmail.com', 'github:', 'github:a b'], new Set());
+    expect(unreachable.map(u => u.reason)).toEqual([BAD_QUALIFIED_REASON, BAD_QUALIFIED_REASON, BAD_QUALIFIED_REASON]);
   });
 
   it('a whitespace-only entry is skipped, not flagged', () => {
-    const unreachable = findUnreachableAllowlistEntries(['  '], new Set());
-    expect(unreachable).toEqual([]);
+    expect(findUnreachableAllowlistEntries(['  '], new Set())).toEqual([]);
+  });
+});
+
+describe('ADMIN_USERS reachability agrees with isAdminStableId (t/43)', () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  // Every entry the check passes must be one isAdminStableId grants when that stableId signs in;
+  // every bare entry it flags must be one isAdminStableId never grants.
+  it.each(['github:6188114', 'aad:tenant-1-obj-1', 'GitHub:42'])('%s: reachable, and isAdminStableId matches it', (entry) => {
+    vi.stubEnv('ADMIN_USERS', entry);
+    expect(findUnreachableAllowlistEntries(getAdminUsers(), new Set())).toEqual([]);
+    expect(isAdminStableId(entry.toLowerCase())).toBe(true);
+  });
+
+  it.each(['jpsnover', 'user@gmail.com', 'github-999'])('%s: flagged bare, and isAdminStableId never matches it', (entry) => {
+    vi.stubEnv('ADMIN_USERS', entry);
+    expect(findUnreachableAllowlistEntries(getAdminUsers(), new Set()).map(u => u.reason)).toEqual([BARE_REASON]);
+    expect(isAdminStableId(entry)).toBe(false);
+    expect(isAdminStableId(`github:${entry}`)).toBe(false);
   });
 });
 
@@ -103,9 +120,7 @@ describe('logUnreachableAllowlistEntriesAtBoot', () => {
   });
 
   it('does not WARN when everything is reachable', () => {
-    process.env.IDENTITY_MAP = 'github:1=jpsnover';
-    _resetPrincipalNameForTest();
-    const count = logUnreachableAllowlistEntriesAtBoot(['jpsnover'], new Set());
+    const count = logUnreachableAllowlistEntriesAtBoot(['github:6188114'], new Set());
     expect(count).toBe(0);
     expect(warnMock).not.toHaveBeenCalled();
   });
