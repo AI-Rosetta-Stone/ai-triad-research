@@ -228,200 +228,201 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #226 | [Test] | `vi.mock` Path Miss Masked by Local API Keys — CI Fails; Run Key-Sensitive Suites with Keys Unset | lines 4798-4818 |
 | #227 | [Security] | Activity Hook Executed Commands from Message Bodies — Fleet-Wide Junk Files; activity_enabled Must Stay OFF | lines 4819-4840 |
 | #228 | [Build] | `MSYS_NO_PATHCONV=1` Disables Path Conversion for the Whole Command — Only Use It on the `git` Call That Takes the `ref:path` Argument | lines 4841-4864 |
-| #229 | [Build] | `gh --jq` Uses gojq — No Dotall `s` Flag; Avoid Non-Standard Regex Flags | lines 4865-4895 |
-| #230 | [Build] | `git rev-parse --short` Accepts Only One Revision — Passing Two Exits 128 | lines 4896-4916 |
-| #231 | [Build] | `node --check` Parses as CommonJS — False Negative on Top-Level `await` in `github-script` Bodies | lines 4917-4942 |
-| #232 | [Build] | `gh <subcommand> --json` Exits 1 on Unknown Field Name — Check Valid Fields Before Use | lines 4943-4968 |
-| #235 | [Security] | Unattributed Actor Used Shared jpsnover Token to Un-draft and Merge PRs — Draft Status Does Not Protect; `consult-hold` Label Is the Only Gate | lines 4969-4990 |
-| #233 | [Build] | `gh api .../actions/workflows` Paged at 30 — Repos With 40+ Workflows Look Like "Not Found" | lines 4991-5010 |
-| #234 | [Build] | Job-Level `continue-on-error: true` Makes Run Conclusion `success` Even When Steps Crash — Read Step Conclusion for Health Checks | lines 5011-5031 |
-| #236 | [Build] | `gh pr list --json commits` Exceeds GitHub Node Limit at Scale — Fetch Commits Per PR, Not in Bulk | lines 5032-5052 |
-| #237 | [Build] | `gh` Not on PATH in Bash/MSYS on Windows — Use PowerShell Tool for All `gh` Commands | lines 5053-5074 |
-| #238 | [Build] | Copying a Single Module to Scratchpad Breaks Relative Imports — Probe PR Modules in a Detached Worktree | lines 5075-5096 |
-| #239 | [Security] | Backticks in `gh … --body "…"` Execute as Command Substitution in Bash — Near-Miss: Backtick-Quoted `gh pr merge` in a PR Comment Body Was Executed | lines 5097-5117 |
-| #240 | [Test] | Repo-Wide Rewrite Must Exclude Its Own Files and Re-Run Every Touched Suite After Applying | lines 5118-5140 |
-| #241 | [Build] | GitHub GraphQL Does Not Follow Repo Transfer Redirects — Empty Result Is Unreadable, Not Clean | lines 5141-5161 |
-| #219 | [Build] | MSYS Stores Colon as Unicode Private-Use Character in Filenames — `C:tmpsaf…` Is Not a Real Colon; PowerShell Matching Fails; Use Bash for Cleanup | lines 5162-5185 |
-| #242 | [Build] | `tseslint.parser.parse` Is Not a Function — Meta-Package Exports `parseForESLint`, Not `parse` | lines 5186-5205 |
-| #243 | [Runtime] | Orca MCP Bulk Tool Schema Assumptions — `bulk_update_tickets` Does Not Accept Status; `bulk_relate` Takes a Different Shape | lines 5206-5225 |
-| #244 | [Build] | `.githooks/` Scripts and Root `package.json` Scripts Fail When Run from a Subdirectory CWD | lines 5226-5245 |
-| #245 | [Runtime] | jq String/Array Operations Error on Null Input — Guard with `// ""` or `// []` Before Any Op That Assumes Non-Null | lines 5246-5268 |
-| #246 | [Build] | Design Doc File Paths Are Intent, Not Ground Truth — Verify With `find` Before Importing; Worktree Relative Paths Resolve Within the Worktree | lines 5269-5288 |
-| #247 | [Data] | Regenerate Tool With Relative Path Resolved Against Process Directory Scans Zero Files and Silently Overwrites Source of Truth | lines 5289-5309 |
-| #248 | [Build] | Reusing a Merged Branch Name Opens a PR from the Stale Remote Branch — Near-Miss: 388-File Revert Almost Landed | lines 5310-5330 |
-| #249 | [Build] | `gh pr merge --match-head-commit` Rejects Wrong or Abbreviated SHAs — Always Read `headRefOid`, Never Type One | lines 5331-5355 |
-| #250 | [Build] | Shared Feature Branch + Shared Worktree With Two Agents — Rebase by One Agent Blocks the Other's Push and Recovery | lines 5356-5376 |
-| #251 | [Build] | Heredoc With `\'` Inside the Body Errors "Unexpected EOF While Looking for Matching ''" — Use Write/Edit, Never Inline Heredocs | lines 5377-5397 |
-| #252 | [Test] | Node-Version-Gated Test Skips Hide CI Failures — Never Report Green While Files Are Skipped | lines 5398-5417 |
-| #253 | [Build] | Label Removal Re-Triggers Required Status Checks Into Pending — Wait for `CLEAN` Before Merging | lines 5418-5437 |
-| #255 | [Build] | `git fetch origin pull/N/head:refs/remotes/pr/N` Fails Silently on the Shared Checkout — Use `FETCH_HEAD` Instead | lines 5438-5457 |
-| #256 | [Build] | `gh pr merge --auto` on an Already-Mergeable PR Returns "Pull Request Is in Clean Status" — Retry Once | lines 5458-5477 |
-| #257 | [Build] | Windows Backslash Paths in the Bash Tool Are Stripped as Escape Characters — Use Forward Slashes | lines 5478-5497 |
-| #258 | [Build] | Joint-GV Ticket Worktree Name Collision — Two Roles Both Use the Ticket Key, Second `worktree add` Fails "Already Exists" | lines 5498-5517 |
-| #259 | [Build] | Local Rebase Not Pushed Leaves Divergent History — Later Commit Push Is Rejected Non-Fast-Forward | lines 5518-5537 |
-| #260 | [Process] | T1 PR Armed Before All Assigned Reviewers Approved — "Lead Reviewing" Does Not Waive Quality's Pass | lines 5538-5557 |
-| #261 | [Build] | Compound Bash Call With File Write + Long-Running CLI (commit, pr create) Hits 120s Timeout — Command Silently Backgrounded, Never Completes | lines 5558-5579 |
-| #263 | [Build] | jq `\(` String Interpolation Mangled by Bash Double-Quoting in `--jq` Argument — Write the Program to a File | lines 5580-5599 |
-| #264 | [Build] | `MSYS_NO_PATHCONV=1` Suppresses All MSYS Path Translation Including `/dev/null` — Use PowerShell for HTTP Probes on Windows | lines 5600-5620 |
-| #266 | [Process] | `gh pr merge --auto` Rejected on a Draft PR — Run `gh pr ready` First | lines 5621-5641 |
-| #267 | [Build] | `import.meta` Is Illegal Inside `new Function()` Bodies — Always Plain Script Context | lines 5642-5661 |
-| #269 | [Build] | `az bicep build --stdout` Crashes With `UnicodeEncodeError` on Windows — Use `--outfile` Instead | lines 5662-5681 |
-| #270 | [Build] | Multi-Heredoc Bash Command With Code Containing Quotes Breaks Bash Parsing — "Unexpected EOF While Looking for Matching `'`" | lines 5682-5701 |
-| #271 | [Build] | PowerShell Cmdlets Piped Outside `pwsh -Command "..."` Are Parsed by Bash — "Command Not Found" | lines 5702-5721 |
-| #273 | [Build] | `-WhatIf` Propagates Through `SupportsShouldProcess` to All Cmdlets — Writes Are Silently Skipped | lines 5722-5741 |
-| #274 | [Build] | Stale Deployment Resource Name in AGENTS.md Causes `ResourceNotFound` — Always Query Live Names | lines 5742-5762 |
-| #275 | [Build] | `git branch -d` Blocked After Merge — Stale Worktree Still Checked Out on the Branch | lines 5763-5782 |
-| #277 | [Build] | Backtick Inside a Double-Quoted Shell Argument Triggers Command Substitution — Use Single Quotes | lines 5783-5803 |
-| #278 | [Process] | `--match-head-commit` Pin Checked Only at Arming — Subsequent Push Leaves Auto-Merge Armed on Unapproved Head | lines 5804-5824 |
-| #279 | [Build] | `ResourceNotFound` on a Lazy-Initialized Storage Directory Is Not a Misconfiguration Signal | lines 5825-5844 |
-| #281 | [Build] | `statusCheckRollup` Mixes Check Runs and Status Contexts — `.name` Is Null on Status Context Entries | lines 5845-5865 |
-| #282 | [Build] | KQL `has` Matches Whole Terms Only — Use `contains` for Codes Embedded in a Larger Token | lines 5866-5886 |
-| #283 | [Build] | GitHub Only Discovers `workflow_dispatch` Definitions From the Default Branch — New Workflows Not Dispatchable Until Merged | lines 5887-5906 |
-| #285 | [Build] | Parallel `pnpm exec` Across Workspace Packages Collides on pnpm 11 Stale-Dep Install — Run One First | lines 5907-5926 |
-| #286 | [Build] | Worktree Isolation Guard Blocks `git -C <shared-checkout> worktree add` — Push `HEAD:<branch>` as Workaround | lines 5927-5946 |
-| #287 | [Build] | gh Token Lacks `read:packages` Scope — 403 on GHCR Packages API; Prefer Deploy Workflow Log for Container Tag Diagnosis | lines 5947-5968 |
-| #288 | [Build] | Concurrent Agents Chose the Same Branch Name — Foreign Commit Rides Into the Wrong PR | lines 5969-5988 |
-| #289 | [Build] | T1 Approval-Guard Stale FAILURE Blocks Auto-Merge Arm — Re-run Failed Check After Approval Comment | lines 5989-6009 |
-| #290 | [Build] | `gh pr edit` Has No `--head` Flag — Cannot Retarget Head Branch; Close and Reopen PR | lines 6010-6029 |
-| #291 | [Build] | `git push --force-with-lease` Blocked by Auto-Mode Destructive Classifier — Push to New Branch Name Instead | lines 6030-6049 |
-| #292 | [Build] | Command Substitution Inside `gh pr merge` Triggers Isolation Hook — Split Into Two Commands | lines 6050-6069 |
-| #293 | [Build] | Edit Anchor Matches at Wrong Nesting Level — Injected Code Lands Outside Describe Block | lines 6070-6089 |
-| #294 | [Build] | Absolute Path to `.bin/` Binary Blocked by Bash Isolation Hook — Use `pnpm exec` Instead | lines 6090-6109 |
-| #295 | [Build] | `grep -r` from Worktree Root Hits 120s Timeout — Use the Grep Tool Instead | lines 6110-6129 |
-| #299 | [Process] | Blocked-State Details Belong on the Ticket, Not Status Text | lines 6130-6149 |
-| #300 | [Build] | GHCR Tag Writes Require `write:packages` Scope — Escalate to Azure/Lead | lines 6150-6169 |
-| #301 | [Build] | Rebasing a Multi-Commit Stack That Includes Already-Landed Commits Causes Conflicts — Cherry-Pick Only the Needed Commits | lines 6170-6189 |
-| #302 | [Research] | Run Recipe Copied from Pilot Without Verifying Config Fields Took Effect — Paid Batch Ran Wrong | lines 6190-6209 |
-| #303 | [Build] | Edit Left Placeholder `raise ImportError` in Analysis Script | lines 6210-6228 |
-| #304 | [Build] | GitHub Rulesets API Returns 403 for Private Repos Without GitHub Pro | lines 6229-6248 |
-| #305 | [Build] | `gh api -X PUT .../contents/README.md` Returns 422 'sha wasn't supplied' on Empty Repo | lines 6249-6268 |
-| #306 | [Build] | Azure CLI `az monitor log-analytics query` Exits 3 When Workspace Name Is Wrong | lines 6269-6288 |
-| #307 | [Build] | Windows-Native Tools Don't Resolve MSYS/Bash Paths — `/tmp` and `/c/...` Are Bash-Only Translations | lines 6289-6311 |
-| #308 | [Build] | jq Rejects Escaped Regex Backreference in Shell-Quoted String — Use `test()` With Simple Pattern or Separate File | lines 6312-6331 |
-| #309 | [Build] | `gh pr create --label` Fails When Label Does Not Exist in Repo | lines 6332-6351 |
-| #310 | [Build] | `git branch -d` Refuses Verification-Only PR Branch — Use `-D` When Branch Holds No Real Work | lines 6352-6372 |
-| #311 | [Build] | `gh pr merge --auto` Rejected on Already-Mergeable PR — Merge Directly Without `--auto` | lines 6373-6391 |
-| #312 | [Build] | `git push` Rejected Non-Fast-Forward After Rebase — Use `--force-with-lease` on Own Unshared PR Branch | lines 6392-6411 |
-| #313 | [Build] | `git commit -- <pathspec> -m "msg"` Treats `-m` as Pathspec — Always Put Options Before `--` | lines 6412-6431 |
-| #314 | [Build] | `gh api -f` Sends String Values — Use `-F` for Typed JSON (Booleans, Integers, Nulls) | lines 6432-6451 |
-| #315 | [Build] | `gh workflow run --ref` Returns 404 When Workflow File Only Exists on a Feature Branch | lines 6452-6471 |
-| #316 | [Build] | PR Opened by Another Agent Between Push and `gh pr create` — Check for Existing PR at Create Time | lines 6472-6493 |
-| #317 | [Build] | `git merge --ff-only origin/main` Refuses Due to Shared-Tree Dirty File — Diagnose Phantom vs Real WIP Before Acting | lines 6494-6515 |
-| #318 | [Build] | PowerShell Backtick/`[ref]` Syntax Fails When Embedded in `pwsh -Command` via Bash Tool — Write as `.ps1` File | lines 6516-6535 |
-| #319 | [Research] | Independent Cross-Check of Measurement Output Catches Instrument Bugs, Not Just System Bugs | lines 6536-6555 |
-| #320 | [Build] | `__dirname` Undefined in ESM/tsx Scripts — Use `fileURLToPath(import.meta.url)` | lines 6556-6575 |
-| #321 | [Build] | ONNX Embedder Writes `[onnxEmbedding]` Log Lines to stdout Before JSON — Strip at Exact `[` Line, Not First `\n[` | lines 6576-6596 |
-| #322 | [Build] | `gh pr merge --auto` on All-Green PR Completes Immediately — No Window to `--disable-auto` | lines 6597-6616 |
-| #323 | [Build] | Auto-Mode Classifier Blocks `git restore` on a Phantom File as "Irreversible Local Destruction" — Escalate to PI | lines 6617-6637 |
-| #324 | [Build] | `gh api .../dispatches` and `gh workflow run` Require a Branch or Tag Name for `ref` — Not a Commit SHA | lines 6638-6657 |
-| #325 | [Build] | `az monitor log-analytics query -w` Requires Workspace `customerId` GUID, Not Workspace Name | lines 6658-6677 |
-| #326 | [Build] | Fabricated Infrastructure URL Instead of Reading Canonical Source — "Couldn't Resolve Host" | lines 6678-6697 |
-| #327 | [Build] | `gh pr diff <N> -- <path>` Fails — `gh pr diff` Does Not Support Pathspec Filtering | lines 6698-6717 |
-| #328 | [Research] | Reproduce Through the Production Read Path Before Declaring a Live Bug | lines 6718-6738 |
-| #329 | [Build] | Failed Write in a Parallel Batch Does Not Stop the Subsequent Commit — Verify Content With `git show HEAD:<file>` | lines 6739-6759 |
-| #330 | [Build] | `node -e "require('<pkg>')"` Fails MODULE_NOT_FOUND in Worktree Without `npm ci` — Use Installed Repo Tooling Instead | lines 6760-6779 |
-| #331 | [Build] | Shell `$VAR` Expands Python Module Constants as Empty — Import the Module to Resolve the Path | lines 6780-6799 |
-| #337 | [Build] | `Invoke-AsAgentApp` Not Found — `AgentAppToken.psm1` Must Be Explicitly Imported First | lines 6800-6821 |
-| #338 | [Build] | `git log -1 <sha>` Returns "unknown revision" — SHA Belongs to a Sibling Repo | lines 6822-6841 |
-| #339 | [Research] | `null` Entries in JSON Arrays Cause `AttributeError` on `.get()` — Guard Before Dereferencing | lines 6842-6861 |
-| #340 | [Build] | `jq` Not Installed on Windows — Use PowerShell `ConvertFrom-Json` or `gh --jq` Instead | lines 6862-6883 |
-| #332 | [Build] | PR Body Edit Re-Triggers Required Checks — Arm With `--auto` After Body Edits, Not Direct Merge | lines 6884-6903 |
-| #333 | [Build] | Hook Blocks Compound Bash Command With `$(...)` Variable Substitution — Split Into Two Separate Calls | lines 6904-6924 |
-| #334 | [Build] | jq Object Literal Key Starting With a Digit Fails to Parse — Quote Numeric Keys | lines 6925-6944 |
-| #335 | [Build] | KQL Reserved Words as Column Aliases in `summarize`/`extend` Produce SYN0002 | lines 6945-6964 |
-| #336 | [Build] | `az containerapp show` Emits Extension WARNING to stdout — Redirect stderr Before Parsing JSON | lines 6965-6985 |
-| #341 | [Build] | `gh api` GHCR Package Endpoint Returns 403 — CLI Token Lacks `read:packages` Scope | lines 6986-7005 |
-| #342 | [Platform] | `submit_feedback` Always Fails — Record Orca Platform Issues as Tickets or Lessons Instead | lines 7006-7025 |
-| #343 | [Build] | Storage Data-Plane API Returns 403 — Agent CLI Identity Lacks RBAC Role on Storage Account | lines 7026-7045 |
-| #344 | [Research] | Filter Scoped Too Narrowly Silently Drops Data When Skip-Set Is Empty — Identity-Test on Real Data Required | lines 7046-7065 |
-| #345 | [Build] | Fresh Worktree Has No `node_modules` — AMENDED: Never Junction It to the Shared Checkout; Run `pnpm install` in the Worktree Instead | lines 7066-7090 |
-| #346 | [Build] | Azure Files Shares Are Not Valid ARM RBAC Scopes — Use Storage-Account-Level Scope Instead | lines 7091-7110 |
-| #347 | [Build] | Bash Tool Strips Backslashes From Windows Absolute Paths Passed to `pwsh -File` — Use PowerShell Tool Instead | lines 7111-7130 |
-| #348 | [Research] | JSON Array Element Assumed to Be Object Is a Plain String — Inspect Shape Before Dereferencing | lines 7131-7150 |
-| #349 | [Build] | `az` Writes cp1252 on Windows Despite `PYTHONIOENCODING=utf-8` — Specify Encoding Explicitly When Reading | lines 7151-7170 |
-| #350 | [Build] | String Pattern Match Including Trailing Comma Fails on Last JSON Entry — Match Without Comma and Validate | lines 7171-7190 |
-| #351 | [Build] | `gh repo view --json autoMergeAllowed` Is Not a Valid Field — Use `gh api` With `.allow_auto_merge` Instead | lines 7191-7210 |
-| #352 | [Test] | Pester `Mock -ModuleName` Body Runs in Test Scope — Private Module Functions Unreachable From Inside Mock Body | lines 7211-7230 |
-| #353 | [Build] | Dot-Sourcing a Top-Level `.ps1` Executes It Immediately — Capture Output With `$x = . ./Script.ps1`; No Callable Function Name Is Defined | lines 7231-7250 |
-| #354 | [Build] | `gh run list --workflow` Requires Display Name or Numeric ID — File Stem Alone Returns "Could Not Find Any Workflows" | lines 7251-7270 |
-| #355 | [Build] | `grep` Rejects Patterns Starting With `-` as Unknown Options — Use `grep -e "pattern"` or `grep -- "pattern"` | lines 7271-7290 |
-| #356 | [Build] | `diff` Exits 1 for "Files Differ" — Not an Error; Inspect the Differing Lines Before Concluding Anything Failed | lines 7291-7310 |
-| #357 | [Test] | Unpinned `AI_TRIAD_DATA_ROOT` Lets a Test Helper Write the Real Corpus — Set It to a Temp Dir in `BeforeAll` | lines 7311-7335 |
-| #358 | [Build] | `xargs` Exits 123 When a Sub-Invocation Returns Non-Zero — Informational When the Sub-Command Is `grep` | lines 7336-7355 |
-| #359 | [Build] | `find … -maxdepth N -iname … -o -iname …` Without Grouping Parens Produces a Malformed Expression — Use `\( … \)` or Two Separate `find` Calls | lines 7356-7375 |
-| #360 | [Research] | Over-Broad Quoted-String Regex Matches Windows Paths — Anchor Extraction Patterns to the ID Shape | lines 7376-7395 |
-| #361 | [Process] | `gh pr create` Partial Success — PR Created but Flags (--body-file, --reviewer) Not Applied; `|| true` Masks the Failure | lines 7396-7416 |
-| #362 | [Build] | `sed` Range Terminator on Exact Heading Literal Overruns When Heading Has Annotations — Use Prefix Match | lines 7417-7436 |
-| #363 | [Build] | Script Exit 1 From Benign Child-Process Stderr Noise Does Not Invalidate Complete Output — Verify Content, Not Just Exit Code | lines 7437-7456 |
-| #364 | [Research] | `None` Field Value Before `in` Check Raises `TypeError: argument of type 'NoneType' is not iterable` — Guard With `or ''` | lines 7457-7476 |
-| #365 | [Process] | A PR Body Saying "The Next Deploy Must Carry X" Is a Documentary Dependency, Not an Enforced One — Needs a Deploy-Time Check | lines 7477-7496 |
-| #366 | [Build] | `npx tsx` MODULE_NOT_FOUND Despite Being Listed in the pnpm Store — Drop to Plain Node for Ad-Hoc Scripts | lines 7497-7516 |
-| #367 | [Build] | Worktree `node_modules` Re-Locks Immediately After Deletion on Windows — "Device or Resource Busy" (Unresolved) | lines 7517-7536 |
-| #368 | [Build] | Nested `$(az ...)` Command Substitution Captures stderr Alongside stdout — Corrupts the Outer Command's Arg | lines 7537-7556 |
-| #369 | [Build] | Rebase Conflict Is a Pure Replay Artifact When Branch-Tip Content Already Matches `origin/main` — Diff Before Resolving | lines 7557-7576 |
-| #370 | [Process] | `install-if-stale.sh` Hardcodes `npm ci` Regardless of Detected Lockfile — Fails EUSAGE in pnpm Subprojects | lines 7577-7596 |
-| #371 | [Process] | "CI Green" Is Not "Deployable" — a Container Build Is a Separate Dispatch From CI | lines 7597-7616 |
-| #372 | [Build] | `pnpm install --ignore-scripts` (or `--frozen-lockfile --prefer-offline`) Worktree Has No Electron Binary — Postinstall Download Skipped | lines 7617-7637 |
-| #373 | [Process] | Silencing `git worktree add`'s Output Masks Exit 128 — `cd` Into the Failed Target Resolves Upward to the Shared Checkout Root | lines 7638-7658 |
-| #374 | [Process] | A WARN-FIRST `continue-on-error` Check Can Stay Permanently Red With No One Noticing | lines 7659-7678 |
-| #375 | [Build] | Worktree Path Guard Only Accepts the Relative `.worktrees/<name>` Form, Not an Absolute Path | lines 7679-7697 |
-| #376 | [Research] | Hand-Typed Positional Label List Drifts From the Source — Use an Id-Keyed List With a Length Assert | lines 7698-7717 |
-| #377 | [Process] | Referencing a Sibling Agent's Worktree Content Fails Once They Remove It — Don't Build on Borrowed, Transient State | lines 7718-7737 |
-| #378 | [Build] | Concurrent Review Sessions Collide on Electron's Hard-Coded `localhost:5173` — Never Kill an Unowned Dev Server | lines 7738-7758 |
-| #379 | [Build] | Vite's Served Root Is `src/renderer` — Served Paths Drop That Prefix, Causing False-Negative Fix-Verification Probes | lines 7759-7778 |
-| #380 | [Build] | Command Substitution Expanding Hundreds of Paths Into argv Hits the Windows/MSYS Argument Limit | lines 7779-7798 |
-| #381 | [Build] | pnpm's `hoisted` Linker Still Installs Per-Package `node_modules`, It Does Not Flatten the Whole Workspace | lines 7799-7818 |
-| #382 | [Process] | `Import-Module` With a Repo-Relative Path From the Wrong cwd Silently Resolves Nothing, Producing a Bogus Session That Masquerades as a Slow/Broken API | lines 7819-7838 |
-| #383 | [Research] | UTF-8 BOM in Corpus JSON Files Raises JSONDecodeError; a Silent `try`/`except` Masks the Undercounting | lines 7839-7858 |
-| #384 | [Build] | Piping an Already-Deserialized PSCustomObject Into `ConvertFrom-Json` Chokes on PowerShell's Own Object-Literal Syntax | lines 7859-7878 |
-| #385 | [Process] | `Invoke-AsAgentApp -ScriptBlock` Runs Silently on Success — No Terminal Output Does Not Mean Failure | lines 7879-7900 |
-| #386 | [Process] | GitHub Merge Queue and `gh pr merge --auto` Are Mutually Exclusive — Use `enqueuePullRequest` GraphQL Directly When a Queue Is Configured | lines 7901-7924 |
-| #387 | [Build] | Extracting a Single Bicep File Loses Relative Module References — Archive the Whole Tree to Build | lines 7925-7945 |
-| #388 | [Process] | A Stalled Merge Queue's Cause Needs Evidence, Not a Guess — Count Running Jobs Across the Org Before Naming a Cause | lines 7946-7966 |
-| #389 | [Data] | `autocrlf` Working-Tree Bytes Don't Match a Frozen List's LF-Based sha256 — Hash the Blob or a CRLF-Normalized Copy, Not the Raw Working-Tree File | lines 7967-7987 |
-| #390 | [Build] | `MSYS_NO_PATHCONV=1` Breaks `git -C <path>`, Not Just the Colon Revspec It's Meant to Fix | lines 7988-8007 |
-| #391 | [Build] | Windows/MSYS `ps` Is a Stripped-Down Build — Custom `-o` Format Flags Aren't Supported | lines 8008-8027 |
-| #392 | [Process] | An In-App Test Stubbed the Wrong Module — the Component's Import Path, Not the Alias Name, Determines What Gets Stubbed, and a Real Side Effect Fired on the PI's Machine | lines 8028-8048 |
-| #393 | [Research] | Grep-Matching a Prompt Artifact by Keyword Isn't the Same as Tracing the Actual Call Site That Invokes It | lines 8049-8069 |
-| #394 | [Build] | `Get-AIMetadata` Not Re-Exported by `AITriad.psd1` — Import `AIEnrich.psm1` Directly | lines 8070-8089 |
-| #395 | [Build] | PowerShell Array Literal Syntax (`@('a','b','c')`) Is Not Valid Bash — Only `pwsh` Can Parse It | lines 8090-8109 |
-| #396 | [Process] | `git worktree add` Exit 128 ("Branch Already Checked Out") Is a Signal Another Agent Already Claimed the Branch, Not Just a Git Mechanics Fact | lines 8110-8131 |
-| #397 | [Process] | The "WORKTREE PATH GUARD" PreToolUse Hook Substring-Matches the Phrase Anywhere in a Bash Command, Including Inside Quoted Heredoc Prose | lines 8132-8151 |
-| #398 | [Process] | Pushing to a Branch With an Active Merge-Queue Entry Is Rejected Outright (GH006) — `--disable-auto` Doesn't Reliably Dequeue It | lines 8152-8178 |
-| #399 | [Process] | The Worktree-Isolation Guard Has False-Positive Breadth — It Blocks Read-Only Ops on Sibling Repos and Misclassifies Inline Commands as "Too Complex to Verify" (Unresolved) | lines 8179-8200 |
-| #400 | [Build] | A Known-Baseline Error Count Masks a New Real Error Hiding in the Same Count — Diff the Specific Errors, Not Just the Ceiling | lines 8201-8221 |
-| #401 | [Build] | Never Guess the GitHub Repo Owner From Git-Committer Identity — Check `gh repo view --json nameWithOwner` First | lines 8222-8241 |
-| #402 | [Process] | Reusing a File Path From a Previous PR Head Breaks When the File Was Renamed — Re-List Artifact Paths on Every New Head | lines 8242-8262 |
-| #403 | [Build] | vitest/Node in a Junctioned-`node_modules` Worktree Couldn't Resolve a Dependency — Cause Unverified | lines 8263-8283 |
-| #404 | [Process] | A `grep -qv <sentinel>` Poll Loop False-Positives on Any Output Not Containing the Sentinel — Including Transient Garbage, Not Just a Real Value | lines 8284-8302 |
-| #405 | [Process] | A `gh pr view --jq .mergedAt` Poll Compared Against the String `"null"` in Bash Is Unreliable — Mechanism Unverified, Distinct From #404 | lines 8303-8320 |
-| #406 | [Environment] | PowerShell 7 Dropped Off the Bash PATH (and in One Case the PowerShell Tool Itself) Mid-Session, Correlated With an Account/Login Switch — PI-Only Fix | lines 8321-8342 |
-| #407 | [Build] | Chaining Two Separate `pwsh -Command` Invocations Across Bash's `|` Misparses the Second Command's Leading Pipe | lines 8343-8362 |
-| #408 | [Process] | `gh pr merge --auto --squash --match-head-commit` on a Merge-Queue-Protected Branch Doesn't Reliably Confirm Its Own Enqueue — Verify via GraphQL, Don't Trust the CLI's Apparent Effect | lines 8363-8382 |
-| #409 | [Build] | `git branch -d` Refuses a Squash-Merged Branch as "Not Fully Merged" Even Though Its Content Landed | lines 8383-8400 |
-| #410 | [Build] | `gh pr diff` Does Not Accept a Pathspec Argument — Unlike `git diff` | lines 8401-8417 |
-| #411 | [Environment] | `git push` Hangs on `git-credential-manager` Mid-Session — Cause Unverified, Requires Manual User Intervention | lines 8418-8435 |
-| #412 | [Build] | A Node Script That `mktemp`s an Extensionless Temp File and Then `import`s It as ESM Crashes With `ERR_UNKNOWN_FILE_EXTENSION` | lines 8436-8455 |
-| #413 | [Build] | A GraphQL Inline Fragment Can't Be Spread Directly on a List/Connection Field — It Must Go Through `.nodes { ... on Type }` | lines 8456-8473 |
-| #414 | [Build] | `az ad app` Commands' `--id` Flag Expects a GUID or Identifier URI, Not a Bare Display Name | lines 8474-8491 |
-| #415 | [Build] | `enqueue-pr.mjs` False-Failed When Armed Correctly but Checks Were Still Pending — Fixed | lines 8492-8509 |
-| #416 | [Build] | `git -C <dir> worktree add <relative-name>` Resolves the New Worktree's Path Against `-C`'s Target, Not the Caller's cwd | lines 8510-8527 |
-| #417 | [Build] | `gh pr create` Returning HTTP 502 Doesn't Mean the PR Wasn't Created — Check Before Retrying | lines 8528-8545 |
-| #418 | [Process] | A Claim Made During an Orca Outage Can't See an Existing Owner's Claim — Don't Start New Work While Orca Is Unreachable | lines 8546-8565 |
-| #419 | [Process] | The r/11 Shared-Drift `SyncBlocked` Predicate Is Tracked-Files-Only — It Reads False Even While `git merge --ff-only` Is Genuinely Refused | lines 8566-8583 |
-| #420 | [Build] | Junctioning a Worktree's `node_modules` to the Shared Checkout's Lets a `pnpm install` Inside the Worktree Corrupt the Shared Directory — Anchor t/4815 | lines 8584-8604 |
-| #421 | [Process] | A Test Built on a Hand-Written Fixture Can Pass Against a Shape Production Never Actually Returns — Only a Live-API Run Catches It | lines 8605-8622 |
-| #422 | [Build] | A Script Parsed `gh api`'s Output Without Checking Its Exit Code First — A Transient 5xx Produced Empty Output That Crashed the Parser | lines 8623-8640 |
-| #423 | [Build] | A JSON String Field Containing an Unescaped Quote Gets Re-Tokenized When Piped Across a Second `pwsh -Command` Process Boundary | lines 8641-8659 |
-| #424 | [Process] | A Shared Feature-Branch Name Already Checked Out Live in Another Agent's Worktree Blocks `git switch -c` — Commit to a Different Local Name, Push to the Shared Remote Branch | lines 8660-8678 |
-| #425 | [Process] | Two Agents Independently Resolving the Same Main-Conflict Raced Pushes to the Same Branch — `--force-with-lease` Caught It, Deferring to the Already-Landed Fix Resolved It | lines 8679-8696 |
-| #426 | [Build] | A Gate's Predicate Tests Passed Without `Set-StrictMode`, But the CI Step Calling Them Ran Under It — Every Staging Deploy Failed Closed for a Day | lines 8697-8715 |
-| #427 | [Build] | A Backslash Immediately Before `$varname` in a Double-Quoted Bash String Escapes the Dollar Sign Itself, Suppressing Expansion Entirely | lines 8716-8733 |
-| #428 | [Process] | A Service's Cold First Request After Idle Can Return an Empty Body Before It Times Out — JSON-Parsing It Crashes With No Indication the Response Was Simply Slow | lines 8734-8752 |
-| #429 | [Process] | A Counted `cd ..` Chain Can Miscount and Land Above the Intended Directory — Use Absolute Paths Instead | lines 8753-8770 |
-| #430 | [Build] | Stopping a Background `npm run dev` Doesn't Kill `concurrently`'s Children — An Orphaned Server Silently Serves Stale Code With No Error | lines 8771-8790 |
-| #431 | [Process] | A Mode Flag That Gates Writes Must Reset at Every Session-Swap Site From One Shared Reset Object — Production Data Loss (t/4907) | lines 8791-8809 |
-| #432 | [Process] | A Content-Correct but Non-Canonical-Bytes Data Mutation Can Evade Every Existing Proof Check — Corpus Writes Need a Canonical-Writer Byte Round Trip | lines 8810-8828 |
-| #433 | [Process] | A Pre-Existing Broken Vitest Snapshot Against Live Data Blocks Every Push Whose Import Graph Touches It — Unresolved, Needs an Owner (t/4891) | lines 8829-8845 |
+| #229 | [Build] | `gh --jq` Uses gojq — No Dotall `s` Flag; Avoid Non-Standard Regex Flags | lines 4865-4896 |
+| #230 | [Build] | `git rev-parse --short` Accepts Only One Revision — Passing Two Exits 128 | lines 4897-4917 |
+| #231 | [Build] | `node --check` Parses as CommonJS — False Negative on Top-Level `await` in `github-script` Bodies | lines 4918-4943 |
+| #232 | [Build] | `gh <subcommand> --json` Exits 1 on Unknown Field Name — Check Valid Fields Before Use | lines 4944-4969 |
+| #235 | [Security] | Unattributed Actor Used Shared jpsnover Token to Un-draft and Merge PRs — Draft Status Does Not Protect; `consult-hold` Label Is the Only Gate | lines 4970-4991 |
+| #233 | [Build] | `gh api .../actions/workflows` Paged at 30 — Repos With 40+ Workflows Look Like "Not Found" | lines 4992-5011 |
+| #234 | [Build] | Job-Level `continue-on-error: true` Makes Run Conclusion `success` Even When Steps Crash — Read Step Conclusion for Health Checks | lines 5012-5032 |
+| #236 | [Build] | `gh pr list --json commits` Exceeds GitHub Node Limit at Scale — Fetch Commits Per PR, Not in Bulk | lines 5033-5053 |
+| #237 | [Build] | `gh` Not on PATH in Bash/MSYS on Windows — Use PowerShell Tool for All `gh` Commands | lines 5054-5075 |
+| #238 | [Build] | Copying a Single Module to Scratchpad Breaks Relative Imports — Probe PR Modules in a Detached Worktree | lines 5076-5097 |
+| #239 | [Security] | Backticks in `gh … --body "…"` Execute as Command Substitution in Bash — Near-Miss: Backtick-Quoted `gh pr merge` in a PR Comment Body Was Executed | lines 5098-5118 |
+| #240 | [Test] | Repo-Wide Rewrite Must Exclude Its Own Files and Re-Run Every Touched Suite After Applying | lines 5119-5141 |
+| #241 | [Build] | GitHub GraphQL Does Not Follow Repo Transfer Redirects — Empty Result Is Unreadable, Not Clean | lines 5142-5162 |
+| #219 | [Build] | MSYS Stores Colon as Unicode Private-Use Character in Filenames — `C:tmpsaf…` Is Not a Real Colon; PowerShell Matching Fails; Use Bash for Cleanup | lines 5163-5186 |
+| #242 | [Build] | `tseslint.parser.parse` Is Not a Function — Meta-Package Exports `parseForESLint`, Not `parse` | lines 5187-5206 |
+| #243 | [Runtime] | Orca MCP Bulk Tool Schema Assumptions — `bulk_update_tickets` Does Not Accept Status; `bulk_relate` Takes a Different Shape | lines 5207-5226 |
+| #244 | [Build] | `.githooks/` Scripts and Root `package.json` Scripts Fail When Run from a Subdirectory CWD | lines 5227-5246 |
+| #245 | [Runtime] | jq String/Array Operations Error on Null Input — Guard with `// ""` or `// []` Before Any Op That Assumes Non-Null | lines 5247-5269 |
+| #246 | [Build] | Design Doc File Paths Are Intent, Not Ground Truth — Verify With `find` Before Importing; Worktree Relative Paths Resolve Within the Worktree | lines 5270-5289 |
+| #247 | [Data] | Regenerate Tool With Relative Path Resolved Against Process Directory Scans Zero Files and Silently Overwrites Source of Truth | lines 5290-5310 |
+| #248 | [Build] | Reusing a Merged Branch Name Opens a PR from the Stale Remote Branch — Near-Miss: 388-File Revert Almost Landed | lines 5311-5331 |
+| #249 | [Build] | `gh pr merge --match-head-commit` Rejects Wrong or Abbreviated SHAs — Always Read `headRefOid`, Never Type One | lines 5332-5356 |
+| #250 | [Build] | Shared Feature Branch + Shared Worktree With Two Agents — Rebase by One Agent Blocks the Other's Push and Recovery | lines 5357-5377 |
+| #251 | [Build] | Heredoc With `\'` Inside the Body Errors "Unexpected EOF While Looking for Matching ''" — Use Write/Edit, Never Inline Heredocs | lines 5378-5398 |
+| #252 | [Test] | Node-Version-Gated Test Skips Hide CI Failures — Never Report Green While Files Are Skipped | lines 5399-5418 |
+| #253 | [Build] | Label Removal Re-Triggers Required Status Checks Into Pending — Wait for `CLEAN` Before Merging | lines 5419-5438 |
+| #255 | [Build] | `git fetch origin pull/N/head:refs/remotes/pr/N` Fails Silently on the Shared Checkout — Use `FETCH_HEAD` Instead | lines 5439-5458 |
+| #256 | [Build] | `gh pr merge --auto` on an Already-Mergeable PR Returns "Pull Request Is in Clean Status" — Retry Once | lines 5459-5478 |
+| #257 | [Build] | Windows Backslash Paths in the Bash Tool Are Stripped as Escape Characters — Use Forward Slashes | lines 5479-5498 |
+| #258 | [Build] | Joint-GV Ticket Worktree Name Collision — Two Roles Both Use the Ticket Key, Second `worktree add` Fails "Already Exists" | lines 5499-5518 |
+| #259 | [Build] | Local Rebase Not Pushed Leaves Divergent History — Later Commit Push Is Rejected Non-Fast-Forward | lines 5519-5538 |
+| #260 | [Process] | T1 PR Armed Before All Assigned Reviewers Approved — "Lead Reviewing" Does Not Waive Quality's Pass | lines 5539-5558 |
+| #261 | [Build] | Compound Bash Call With File Write + Long-Running CLI (commit, pr create) Hits 120s Timeout — Command Silently Backgrounded, Never Completes | lines 5559-5580 |
+| #263 | [Build] | jq `\(` String Interpolation Mangled by Bash Double-Quoting in `--jq` Argument — Write the Program to a File | lines 5581-5600 |
+| #264 | [Build] | `MSYS_NO_PATHCONV=1` Suppresses All MSYS Path Translation Including `/dev/null` — Use PowerShell for HTTP Probes on Windows | lines 5601-5621 |
+| #266 | [Process] | `gh pr merge --auto` Rejected on a Draft PR — Run `gh pr ready` First | lines 5622-5642 |
+| #267 | [Build] | `import.meta` Is Illegal Inside `new Function()` Bodies — Always Plain Script Context | lines 5643-5662 |
+| #269 | [Build] | `az bicep build --stdout` Crashes With `UnicodeEncodeError` on Windows — Use `--outfile` Instead | lines 5663-5682 |
+| #270 | [Build] | Multi-Heredoc Bash Command With Code Containing Quotes Breaks Bash Parsing — "Unexpected EOF While Looking for Matching `'`" | lines 5683-5702 |
+| #271 | [Build] | PowerShell Cmdlets Piped Outside `pwsh -Command "..."` Are Parsed by Bash — "Command Not Found" | lines 5703-5722 |
+| #273 | [Build] | `-WhatIf` Propagates Through `SupportsShouldProcess` to All Cmdlets — Writes Are Silently Skipped | lines 5723-5742 |
+| #274 | [Build] | Stale Deployment Resource Name in AGENTS.md Causes `ResourceNotFound` — Always Query Live Names | lines 5743-5763 |
+| #275 | [Build] | `git branch -d` Blocked After Merge — Stale Worktree Still Checked Out on the Branch | lines 5764-5783 |
+| #277 | [Build] | Backtick Inside a Double-Quoted Shell Argument Triggers Command Substitution — Use Single Quotes | lines 5784-5804 |
+| #278 | [Process] | `--match-head-commit` Pin Checked Only at Arming — Subsequent Push Leaves Auto-Merge Armed on Unapproved Head | lines 5805-5825 |
+| #279 | [Build] | `ResourceNotFound` on a Lazy-Initialized Storage Directory Is Not a Misconfiguration Signal | lines 5826-5845 |
+| #281 | [Build] | `statusCheckRollup` Mixes Check Runs and Status Contexts — `.name` Is Null on Status Context Entries | lines 5846-5866 |
+| #282 | [Build] | KQL `has` Matches Whole Terms Only — Use `contains` for Codes Embedded in a Larger Token | lines 5867-5887 |
+| #283 | [Build] | GitHub Only Discovers `workflow_dispatch` Definitions From the Default Branch — New Workflows Not Dispatchable Until Merged | lines 5888-5907 |
+| #285 | [Build] | Parallel `pnpm exec` Across Workspace Packages Collides on pnpm 11 Stale-Dep Install — Run One First | lines 5908-5927 |
+| #286 | [Build] | Worktree Isolation Guard Blocks `git -C <shared-checkout> worktree add` — Push `HEAD:<branch>` as Workaround | lines 5928-5947 |
+| #287 | [Build] | gh Token Lacks `read:packages` Scope — 403 on GHCR Packages API; Prefer Deploy Workflow Log for Container Tag Diagnosis | lines 5948-5969 |
+| #288 | [Build] | Concurrent Agents Chose the Same Branch Name — Foreign Commit Rides Into the Wrong PR | lines 5970-5989 |
+| #289 | [Build] | T1 Approval-Guard Stale FAILURE Blocks Auto-Merge Arm — Re-run Failed Check After Approval Comment | lines 5990-6010 |
+| #290 | [Build] | `gh pr edit` Has No `--head` Flag — Cannot Retarget Head Branch; Close and Reopen PR | lines 6011-6030 |
+| #291 | [Build] | `git push --force-with-lease` Blocked by Auto-Mode Destructive Classifier — Push to New Branch Name Instead | lines 6031-6050 |
+| #292 | [Build] | Command Substitution Inside `gh pr merge` Triggers Isolation Hook — Split Into Two Commands | lines 6051-6070 |
+| #293 | [Build] | Edit Anchor Matches at Wrong Nesting Level — Injected Code Lands Outside Describe Block | lines 6071-6090 |
+| #294 | [Build] | Absolute Path to `.bin/` Binary Blocked by Bash Isolation Hook — Use `pnpm exec` Instead | lines 6091-6110 |
+| #295 | [Build] | `grep -r` from Worktree Root Hits 120s Timeout — Use the Grep Tool Instead | lines 6111-6130 |
+| #299 | [Process] | Blocked-State Details Belong on the Ticket, Not Status Text | lines 6131-6150 |
+| #300 | [Build] | GHCR Tag Writes Require `write:packages` Scope — Escalate to Azure/Lead | lines 6151-6170 |
+| #301 | [Build] | Rebasing a Multi-Commit Stack That Includes Already-Landed Commits Causes Conflicts — Cherry-Pick Only the Needed Commits | lines 6171-6190 |
+| #302 | [Research] | Run Recipe Copied from Pilot Without Verifying Config Fields Took Effect — Paid Batch Ran Wrong | lines 6191-6210 |
+| #303 | [Build] | Edit Left Placeholder `raise ImportError` in Analysis Script | lines 6211-6229 |
+| #304 | [Build] | GitHub Rulesets API Returns 403 for Private Repos Without GitHub Pro | lines 6230-6249 |
+| #305 | [Build] | `gh api -X PUT .../contents/README.md` Returns 422 'sha wasn't supplied' on Empty Repo | lines 6250-6269 |
+| #306 | [Build] | Azure CLI `az monitor log-analytics query` Exits 3 When Workspace Name Is Wrong | lines 6270-6289 |
+| #307 | [Build] | Windows-Native Tools Don't Resolve MSYS/Bash Paths — `/tmp` and `/c/...` Are Bash-Only Translations | lines 6290-6312 |
+| #308 | [Build] | jq Rejects Escaped Regex Backreference in Shell-Quoted String — Use `test()` With Simple Pattern or Separate File | lines 6313-6332 |
+| #309 | [Build] | `gh pr create --label` Fails When Label Does Not Exist in Repo | lines 6333-6352 |
+| #310 | [Build] | `git branch -d` Refuses Verification-Only PR Branch — Use `-D` When Branch Holds No Real Work | lines 6353-6373 |
+| #311 | [Build] | `gh pr merge --auto` Rejected on Already-Mergeable PR — Merge Directly Without `--auto` | lines 6374-6392 |
+| #312 | [Build] | `git push` Rejected Non-Fast-Forward After Rebase — Use `--force-with-lease` on Own Unshared PR Branch | lines 6393-6412 |
+| #313 | [Build] | `git commit -- <pathspec> -m "msg"` Treats `-m` as Pathspec — Always Put Options Before `--` | lines 6413-6432 |
+| #314 | [Build] | `gh api -f` Sends String Values — Use `-F` for Typed JSON (Booleans, Integers, Nulls) | lines 6433-6452 |
+| #315 | [Build] | `gh workflow run --ref` Returns 404 When Workflow File Only Exists on a Feature Branch | lines 6453-6472 |
+| #316 | [Build] | PR Opened by Another Agent Between Push and `gh pr create` — Check for Existing PR at Create Time | lines 6473-6494 |
+| #317 | [Build] | `git merge --ff-only origin/main` Refuses Due to Shared-Tree Dirty File — Diagnose Phantom vs Real WIP Before Acting | lines 6495-6516 |
+| #318 | [Build] | PowerShell Backtick/`[ref]` Syntax Fails When Embedded in `pwsh -Command` via Bash Tool — Write as `.ps1` File | lines 6517-6536 |
+| #319 | [Research] | Independent Cross-Check of Measurement Output Catches Instrument Bugs, Not Just System Bugs | lines 6537-6556 |
+| #320 | [Build] | `__dirname` Undefined in ESM/tsx Scripts — Use `fileURLToPath(import.meta.url)` | lines 6557-6576 |
+| #321 | [Build] | ONNX Embedder Writes `[onnxEmbedding]` Log Lines to stdout Before JSON — Strip at Exact `[` Line, Not First `\n[` | lines 6577-6597 |
+| #322 | [Build] | `gh pr merge --auto` on All-Green PR Completes Immediately — No Window to `--disable-auto` | lines 6598-6617 |
+| #323 | [Build] | Auto-Mode Classifier Blocks `git restore` on a Phantom File as "Irreversible Local Destruction" — Escalate to PI | lines 6618-6638 |
+| #324 | [Build] | `gh api .../dispatches` and `gh workflow run` Require a Branch or Tag Name for `ref` — Not a Commit SHA | lines 6639-6658 |
+| #325 | [Build] | `az monitor log-analytics query -w` Requires Workspace `customerId` GUID, Not Workspace Name | lines 6659-6678 |
+| #326 | [Build] | Fabricated Infrastructure URL Instead of Reading Canonical Source — "Couldn't Resolve Host" | lines 6679-6698 |
+| #327 | [Build] | `gh pr diff <N> -- <path>` Fails — `gh pr diff` Does Not Support Pathspec Filtering | lines 6699-6718 |
+| #328 | [Research] | Reproduce Through the Production Read Path Before Declaring a Live Bug | lines 6719-6739 |
+| #329 | [Build] | Failed Write in a Parallel Batch Does Not Stop the Subsequent Commit — Verify Content With `git show HEAD:<file>` | lines 6740-6760 |
+| #330 | [Build] | `node -e "require('<pkg>')"` Fails MODULE_NOT_FOUND in Worktree Without `npm ci` — Use Installed Repo Tooling Instead | lines 6761-6780 |
+| #331 | [Build] | Shell `$VAR` Expands Python Module Constants as Empty — Import the Module to Resolve the Path | lines 6781-6800 |
+| #337 | [Build] | `Invoke-AsAgentApp` Not Found — `AgentAppToken.psm1` Must Be Explicitly Imported First | lines 6801-6822 |
+| #338 | [Build] | `git log -1 <sha>` Returns "unknown revision" — SHA Belongs to a Sibling Repo | lines 6823-6842 |
+| #339 | [Research] | `null` Entries in JSON Arrays Cause `AttributeError` on `.get()` — Guard Before Dereferencing | lines 6843-6862 |
+| #340 | [Build] | `jq` Not Installed on Windows — Use PowerShell `ConvertFrom-Json` or `gh --jq` Instead | lines 6863-6884 |
+| #332 | [Build] | PR Body Edit Re-Triggers Required Checks — Arm With `--auto` After Body Edits, Not Direct Merge | lines 6885-6904 |
+| #333 | [Build] | Hook Blocks Compound Bash Command With `$(...)` Variable Substitution — Split Into Two Separate Calls | lines 6905-6925 |
+| #334 | [Build] | jq Object Literal Key Starting With a Digit Fails to Parse — Quote Numeric Keys | lines 6926-6945 |
+| #335 | [Build] | KQL Reserved Words as Column Aliases in `summarize`/`extend` Produce SYN0002 | lines 6946-6965 |
+| #336 | [Build] | `az containerapp show` Emits Extension WARNING to stdout — Redirect stderr Before Parsing JSON | lines 6966-6986 |
+| #341 | [Build] | `gh api` GHCR Package Endpoint Returns 403 — CLI Token Lacks `read:packages` Scope | lines 6987-7006 |
+| #342 | [Platform] | `submit_feedback` Always Fails — Record Orca Platform Issues as Tickets or Lessons Instead | lines 7007-7026 |
+| #343 | [Build] | Storage Data-Plane API Returns 403 — Agent CLI Identity Lacks RBAC Role on Storage Account | lines 7027-7046 |
+| #344 | [Research] | Filter Scoped Too Narrowly Silently Drops Data When Skip-Set Is Empty — Identity-Test on Real Data Required | lines 7047-7066 |
+| #345 | [Build] | Fresh Worktree Has No `node_modules` — AMENDED: Never Junction It to the Shared Checkout; Run `pnpm install` in the Worktree Instead | lines 7067-7091 |
+| #346 | [Build] | Azure Files Shares Are Not Valid ARM RBAC Scopes — Use Storage-Account-Level Scope Instead | lines 7092-7111 |
+| #347 | [Build] | Bash Tool Strips Backslashes From Windows Absolute Paths Passed to `pwsh -File` — Use PowerShell Tool Instead | lines 7112-7131 |
+| #348 | [Research] | JSON Array Element Assumed to Be Object Is a Plain String — Inspect Shape Before Dereferencing | lines 7132-7151 |
+| #349 | [Build] | `az` Writes cp1252 on Windows Despite `PYTHONIOENCODING=utf-8` — Specify Encoding Explicitly When Reading | lines 7152-7171 |
+| #350 | [Build] | String Pattern Match Including Trailing Comma Fails on Last JSON Entry — Match Without Comma and Validate | lines 7172-7191 |
+| #351 | [Build] | `gh repo view --json autoMergeAllowed` Is Not a Valid Field — Use `gh api` With `.allow_auto_merge` Instead | lines 7192-7211 |
+| #352 | [Test] | Pester `Mock -ModuleName` Body Runs in Test Scope — Private Module Functions Unreachable From Inside Mock Body | lines 7212-7231 |
+| #353 | [Build] | Dot-Sourcing a Top-Level `.ps1` Executes It Immediately — Capture Output With `$x = . ./Script.ps1`; No Callable Function Name Is Defined | lines 7232-7251 |
+| #354 | [Build] | `gh run list --workflow` Requires Display Name or Numeric ID — File Stem Alone Returns "Could Not Find Any Workflows" | lines 7252-7271 |
+| #355 | [Build] | `grep` Rejects Patterns Starting With `-` as Unknown Options — Use `grep -e "pattern"` or `grep -- "pattern"` | lines 7272-7291 |
+| #356 | [Build] | `diff` Exits 1 for "Files Differ" — Not an Error; Inspect the Differing Lines Before Concluding Anything Failed | lines 7292-7311 |
+| #357 | [Test] | Unpinned `AI_TRIAD_DATA_ROOT` Lets a Test Helper Write the Real Corpus — Set It to a Temp Dir in `BeforeAll` | lines 7312-7336 |
+| #358 | [Build] | `xargs` Exits 123 When a Sub-Invocation Returns Non-Zero — Informational When the Sub-Command Is `grep` | lines 7337-7356 |
+| #359 | [Build] | `find … -maxdepth N -iname … -o -iname …` Without Grouping Parens Produces a Malformed Expression — Use `\( … \)` or Two Separate `find` Calls | lines 7357-7376 |
+| #360 | [Research] | Over-Broad Quoted-String Regex Matches Windows Paths — Anchor Extraction Patterns to the ID Shape | lines 7377-7396 |
+| #361 | [Process] | `gh pr create` Partial Success — PR Created but Flags (--body-file, --reviewer) Not Applied; `|| true` Masks the Failure | lines 7397-7417 |
+| #362 | [Build] | `sed` Range Terminator on Exact Heading Literal Overruns When Heading Has Annotations — Use Prefix Match | lines 7418-7437 |
+| #363 | [Build] | Script Exit 1 From Benign Child-Process Stderr Noise Does Not Invalidate Complete Output — Verify Content, Not Just Exit Code | lines 7438-7457 |
+| #364 | [Research] | `None` Field Value Before `in` Check Raises `TypeError: argument of type 'NoneType' is not iterable` — Guard With `or ''` | lines 7458-7477 |
+| #365 | [Process] | A PR Body Saying "The Next Deploy Must Carry X" Is a Documentary Dependency, Not an Enforced One — Needs a Deploy-Time Check | lines 7478-7497 |
+| #366 | [Build] | `npx tsx` MODULE_NOT_FOUND Despite Being Listed in the pnpm Store — Drop to Plain Node for Ad-Hoc Scripts | lines 7498-7517 |
+| #367 | [Build] | Worktree `node_modules` Re-Locks Immediately After Deletion on Windows — "Device or Resource Busy" (Unresolved) | lines 7518-7537 |
+| #368 | [Build] | Nested `$(az ...)` Command Substitution Captures stderr Alongside stdout — Corrupts the Outer Command's Arg | lines 7538-7557 |
+| #369 | [Build] | Rebase Conflict Is a Pure Replay Artifact When Branch-Tip Content Already Matches `origin/main` — Diff Before Resolving | lines 7558-7577 |
+| #370 | [Process] | `install-if-stale.sh` Hardcodes `npm ci` Regardless of Detected Lockfile — Fails EUSAGE in pnpm Subprojects | lines 7578-7597 |
+| #371 | [Process] | "CI Green" Is Not "Deployable" — a Container Build Is a Separate Dispatch From CI | lines 7598-7617 |
+| #372 | [Build] | `pnpm install --ignore-scripts` (or `--frozen-lockfile --prefer-offline`) Worktree Has No Electron Binary — Postinstall Download Skipped | lines 7618-7638 |
+| #373 | [Process] | Silencing `git worktree add`'s Output Masks Exit 128 — `cd` Into the Failed Target Resolves Upward to the Shared Checkout Root | lines 7639-7659 |
+| #374 | [Process] | A WARN-FIRST `continue-on-error` Check Can Stay Permanently Red With No One Noticing | lines 7660-7679 |
+| #375 | [Build] | Worktree Path Guard Only Accepts the Relative `.worktrees/<name>` Form, Not an Absolute Path | lines 7680-7698 |
+| #376 | [Research] | Hand-Typed Positional Label List Drifts From the Source — Use an Id-Keyed List With a Length Assert | lines 7699-7718 |
+| #377 | [Process] | Referencing a Sibling Agent's Worktree Content Fails Once They Remove It — Don't Build on Borrowed, Transient State | lines 7719-7738 |
+| #378 | [Build] | Concurrent Review Sessions Collide on Electron's Hard-Coded `localhost:5173` — Never Kill an Unowned Dev Server | lines 7739-7759 |
+| #379 | [Build] | Vite's Served Root Is `src/renderer` — Served Paths Drop That Prefix, Causing False-Negative Fix-Verification Probes | lines 7760-7779 |
+| #380 | [Build] | Command Substitution Expanding Hundreds of Paths Into argv Hits the Windows/MSYS Argument Limit | lines 7780-7799 |
+| #381 | [Build] | pnpm's `hoisted` Linker Still Installs Per-Package `node_modules`, It Does Not Flatten the Whole Workspace | lines 7800-7819 |
+| #382 | [Process] | `Import-Module` With a Repo-Relative Path From the Wrong cwd Silently Resolves Nothing, Producing a Bogus Session That Masquerades as a Slow/Broken API | lines 7820-7839 |
+| #383 | [Research] | UTF-8 BOM in Corpus JSON Files Raises JSONDecodeError; a Silent `try`/`except` Masks the Undercounting | lines 7840-7859 |
+| #384 | [Build] | Piping an Already-Deserialized PSCustomObject Into `ConvertFrom-Json` Chokes on PowerShell's Own Object-Literal Syntax | lines 7860-7879 |
+| #385 | [Process] | `Invoke-AsAgentApp -ScriptBlock` Runs Silently on Success — No Terminal Output Does Not Mean Failure | lines 7880-7901 |
+| #386 | [Process] | GitHub Merge Queue and `gh pr merge --auto` Are Mutually Exclusive — Use `enqueuePullRequest` GraphQL Directly When a Queue Is Configured | lines 7902-7925 |
+| #387 | [Build] | Extracting a Single Bicep File Loses Relative Module References — Archive the Whole Tree to Build | lines 7926-7946 |
+| #388 | [Process] | A Stalled Merge Queue's Cause Needs Evidence, Not a Guess — Count Running Jobs Across the Org Before Naming a Cause | lines 7947-7967 |
+| #389 | [Data] | `autocrlf` Working-Tree Bytes Don't Match a Frozen List's LF-Based sha256 — Hash the Blob or a CRLF-Normalized Copy, Not the Raw Working-Tree File | lines 7968-7988 |
+| #390 | [Build] | `MSYS_NO_PATHCONV=1` Breaks `git -C <path>`, Not Just the Colon Revspec It's Meant to Fix | lines 7989-8008 |
+| #391 | [Build] | Windows/MSYS `ps` Is a Stripped-Down Build — Custom `-o` Format Flags Aren't Supported | lines 8009-8028 |
+| #392 | [Process] | An In-App Test Stubbed the Wrong Module — the Component's Import Path, Not the Alias Name, Determines What Gets Stubbed, and a Real Side Effect Fired on the PI's Machine | lines 8029-8049 |
+| #393 | [Research] | Grep-Matching a Prompt Artifact by Keyword Isn't the Same as Tracing the Actual Call Site That Invokes It | lines 8050-8070 |
+| #394 | [Build] | `Get-AIMetadata` Not Re-Exported by `AITriad.psd1` — Import `AIEnrich.psm1` Directly | lines 8071-8090 |
+| #395 | [Build] | PowerShell Array Literal Syntax (`@('a','b','c')`) Is Not Valid Bash — Only `pwsh` Can Parse It | lines 8091-8110 |
+| #396 | [Process] | `git worktree add` Exit 128 ("Branch Already Checked Out") Is a Signal Another Agent Already Claimed the Branch, Not Just a Git Mechanics Fact | lines 8111-8132 |
+| #397 | [Process] | The "WORKTREE PATH GUARD" PreToolUse Hook Substring-Matches the Phrase Anywhere in a Bash Command, Including Inside Quoted Heredoc Prose | lines 8133-8152 |
+| #398 | [Process] | Pushing to a Branch With an Active Merge-Queue Entry Is Rejected Outright (GH006) — `--disable-auto` Doesn't Reliably Dequeue It | lines 8153-8179 |
+| #399 | [Process] | The Worktree-Isolation Guard Has False-Positive Breadth — It Blocks Read-Only Ops on Sibling Repos and Misclassifies Inline Commands as "Too Complex to Verify" (Unresolved) | lines 8180-8201 |
+| #400 | [Build] | A Known-Baseline Error Count Masks a New Real Error Hiding in the Same Count — Diff the Specific Errors, Not Just the Ceiling | lines 8202-8222 |
+| #401 | [Build] | Never Guess the GitHub Repo Owner From Git-Committer Identity — Check `gh repo view --json nameWithOwner` First | lines 8223-8242 |
+| #402 | [Process] | Reusing a File Path From a Previous PR Head Breaks When the File Was Renamed — Re-List Artifact Paths on Every New Head | lines 8243-8263 |
+| #403 | [Build] | vitest/Node in a Junctioned-`node_modules` Worktree Couldn't Resolve a Dependency — Cause Unverified | lines 8264-8284 |
+| #404 | [Process] | A `grep -qv <sentinel>` Poll Loop False-Positives on Any Output Not Containing the Sentinel — Including Transient Garbage, Not Just a Real Value | lines 8285-8303 |
+| #405 | [Process] | A `gh pr view --jq .mergedAt` Poll Compared Against the String `"null"` in Bash Is Unreliable — Mechanism Unverified, Distinct From #404 | lines 8304-8321 |
+| #406 | [Environment] | PowerShell 7 Dropped Off the Bash PATH (and in One Case the PowerShell Tool Itself) Mid-Session, Correlated With an Account/Login Switch — PI-Only Fix | lines 8322-8343 |
+| #407 | [Build] | Chaining Two Separate `pwsh -Command` Invocations Across Bash's `|` Misparses the Second Command's Leading Pipe | lines 8344-8363 |
+| #408 | [Process] | `gh pr merge --auto --squash --match-head-commit` on a Merge-Queue-Protected Branch Doesn't Reliably Confirm Its Own Enqueue — Verify via GraphQL, Don't Trust the CLI's Apparent Effect | lines 8364-8383 |
+| #409 | [Build] | `git branch -d` Refuses a Squash-Merged Branch as "Not Fully Merged" Even Though Its Content Landed | lines 8384-8401 |
+| #410 | [Build] | `gh pr diff` Does Not Accept a Pathspec Argument — Unlike `git diff` | lines 8402-8418 |
+| #411 | [Environment] | `git push` Hangs on `git-credential-manager` Mid-Session — Cause Unverified, Requires Manual User Intervention | lines 8419-8436 |
+| #412 | [Build] | A Node Script That `mktemp`s an Extensionless Temp File and Then `import`s It as ESM Crashes With `ERR_UNKNOWN_FILE_EXTENSION` | lines 8437-8456 |
+| #413 | [Build] | A GraphQL Inline Fragment Can't Be Spread Directly on a List/Connection Field — It Must Go Through `.nodes { ... on Type }` | lines 8457-8474 |
+| #414 | [Build] | `az ad app` Commands' `--id` Flag Expects a GUID or Identifier URI, Not a Bare Display Name | lines 8475-8492 |
+| #415 | [Build] | `enqueue-pr.mjs` False-Failed When Armed Correctly but Checks Were Still Pending — Fixed | lines 8493-8510 |
+| #416 | [Build] | `git -C <dir> worktree add <relative-name>` Resolves the New Worktree's Path Against `-C`'s Target, Not the Caller's cwd | lines 8511-8528 |
+| #417 | [Build] | `gh pr create` Returning HTTP 502 Doesn't Mean the PR Wasn't Created — Check Before Retrying | lines 8529-8546 |
+| #418 | [Process] | A Claim Made During an Orca Outage Can't See an Existing Owner's Claim — Don't Start New Work While Orca Is Unreachable | lines 8547-8566 |
+| #419 | [Process] | The r/11 Shared-Drift `SyncBlocked` Predicate Is Tracked-Files-Only — It Reads False Even While `git merge --ff-only` Is Genuinely Refused | lines 8567-8584 |
+| #420 | [Build] | Junctioning a Worktree's `node_modules` to the Shared Checkout's Lets a `pnpm install` Inside the Worktree Corrupt the Shared Directory — Anchor t/4815 | lines 8585-8605 |
+| #421 | [Process] | A Test Built on a Hand-Written Fixture Can Pass Against a Shape Production Never Actually Returns — Only a Live-API Run Catches It | lines 8606-8623 |
+| #422 | [Build] | A Script Parsed `gh api`'s Output Without Checking Its Exit Code First — A Transient 5xx Produced Empty Output That Crashed the Parser | lines 8624-8641 |
+| #423 | [Build] | A JSON String Field Containing an Unescaped Quote Gets Re-Tokenized When Piped Across a Second `pwsh -Command` Process Boundary | lines 8642-8660 |
+| #424 | [Process] | A Shared Feature-Branch Name Already Checked Out Live in Another Agent's Worktree Blocks `git switch -c` — Commit to a Different Local Name, Push to the Shared Remote Branch | lines 8661-8679 |
+| #425 | [Process] | Two Agents Independently Resolving the Same Main-Conflict Raced Pushes to the Same Branch — `--force-with-lease` Caught It, Deferring to the Already-Landed Fix Resolved It | lines 8680-8697 |
+| #426 | [Build] | A Gate's Predicate Tests Passed Without `Set-StrictMode`, But the CI Step Calling Them Ran Under It — Every Staging Deploy Failed Closed for a Day | lines 8698-8716 |
+| #427 | [Build] | A Backslash Immediately Before `$varname` in a Double-Quoted Bash String Escapes the Dollar Sign Itself, Suppressing Expansion Entirely | lines 8717-8734 |
+| #428 | [Process] | A Service's Cold First Request After Idle Can Return an Empty Body Before It Times Out — JSON-Parsing It Crashes With No Indication the Response Was Simply Slow | lines 8735-8753 |
+| #429 | [Process] | A Counted `cd ..` Chain Can Miscount and Land Above the Intended Directory — Use Absolute Paths Instead | lines 8754-8771 |
+| #430 | [Build] | Stopping a Background `npm run dev` Doesn't Kill `concurrently`'s Children — An Orphaned Server Silently Serves Stale Code With No Error | lines 8772-8791 |
+| #431 | [Process] | A Mode Flag That Gates Writes Must Reset at Every Session-Swap Site From One Shared Reset Object — Production Data Loss (t/4907) | lines 8792-8810 |
+| #432 | [Process] | A Content-Correct but Non-Canonical-Bytes Data Mutation Can Evade Every Existing Proof Check — Corpus Writes Need a Canonical-Writer Byte Round Trip | lines 8811-8829 |
+| #433 | [Process] | A Pre-Existing Broken Vitest Snapshot Against Live Data Blocks Every Push Whose Import Graph Touches It — Unresolved, Needs an Owner (t/4891) | lines 8830-8847 |
+| #434 | [Process] | An Orca Outage During a T2 Second-Opinion Round Can Turn a Completed Review Into a False "SO Did Not Review" | lines 8848-8864 |
 
-417 entries indexed.
+418 entries indexed.

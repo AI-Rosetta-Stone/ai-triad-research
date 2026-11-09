@@ -4875,6 +4875,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 - 2026-11-03 — DevOps Lead (p/26#402, **manual join-string variant**): a jq filter manually interpolating `\",\"` as an escaped comma-join separator failed to parse — jq rejected the escaped backslash-quote inside the string. Fix: used the built-in `[.labels[].name] | join(",")` (or `@tsv` for array output) instead of hand-building the join string.
 - 2026-11-04 — Design (p/472#23): `test("^Approved \\(")` inside a double-quoted shell argument — the shell and jq layers both mangled the escape. Fix: dropped the regex entirely and piped plain output through `grep -i`.
 - 2026-11-04 — DevOps Lead (p/26#423, **new prevention technique + notable consequence**): `test("^Approved \\(Tech Lead\\)")` inside a single-quoted bash string — same `\(` interpolation trap, "unexpected token Lead." Fix: used a character class (`[(]`/`[)]`) instead of a backslash escape for the literal parens, as an alternative to `contains()`/`grep`. **Consequence worth noting:** this parse failure was inside a background approval watcher's loop, which silently looped on the error instead of failing loudly — caught and stopped before it acted on bad data.
+- 2026-11-06 — Quality/Tech Lead (p/447#38): `test("Ack \\(ServerAPI\\)")` — same `\(` interpolation trap, "unexpected token" from gojq in Git Bash. Fix: `contains("Ack (ServerAPI)")`, no escaping needed.
 
 **Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq. Separately, `\(` inside a jq string literal is the string interpolation syntax (`\(expr)`), not a literal backslash-paren — using it in a regex pattern produces an unterminated string error.
 
@@ -4887,7 +4888,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 6. **Alternative to escaping: use a character class for a literal paren in a jq regex** — `[(]` and `[)]` match a literal `(`/`)` without any backslash-escape ambiguity at all, sidestepping the `\(` interpolation trap entirely.
 7. **If this trap occurs inside a background/looping watcher process, confirm the loop fails loudly rather than silently retrying on the parse error** — a silent loop on a jq parse failure can mean the watcher never actually evaluates real data, which is a more severe failure mode than a one-shot script crash.
 
-**Status:** Active — 11 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant; DevOps Lead p/26#402 — manual join-string variant, fixed with built-in `join()`; Design p/472#23 — same trap, fixed by dropping regex for `grep -i`; DevOps Lead p/26#423 — same trap inside a background approval watcher, caught before it acted on bad data; fixed with a character-class escape).
+**Status:** Active — 12 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead; Chat p/687#12 — `test("Approved \(Design\)")`, same trap; Tech Lead p/335#268 — same trap, different escaping variant; DevOps Lead p/26#402 — manual join-string variant, fixed with built-in `join()`; Design p/472#23 — same trap, fixed by dropping regex for `grep -i`; DevOps Lead p/26#423 — same trap inside a background approval watcher, caught before it acted on bad data; fixed with a character-class escape; Quality/Tech Lead p/447#38 — same trap, fixed with `contains()`).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -8843,3 +8844,21 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Unresolved — 1 instance (Shared Lib p/5#67, t/4891). Escalated to the PI; needs an owner.
 
 **Applies To:** All agents pushing changes whose import graph touches `relevantNodesRealEmbedParity.test.ts`; confirm pre-existing failure via `origin/main` before investigating your own change.
+
+## #434 [Process] An Orca Outage During a T2 Second-Opinion Round Can Turn a Completed Review Into a False "SO Did Not Review"
+
+**Pattern:** A Second Opinion completes and posts their clearing comment directly on the PR(s) under T2 review, at the exact head. Separately, the governance process (and the people/agents relaying its status) check the SO's EMAIL THREAD reply, not the PR comment, to determine whether a review happened. If Orca is unreachable during the review window (`send_ping`/`reply_email` unavailable), the email reply never gets sent even though the PR clearance is already posted — and the process then records "SO did not review," which is false: the review happened, only the notification channel was down.
+
+**Instances:**
+- 2026-11-06 — Second Opinion (p/691#28, e/436): Orca reported "restarting" for the whole session (60+ retries from 22:57Z), blocking `reply_email`/`send_ping` while a T2 round was in progress. Clearances were posted on PRs #4649/#4654 at the time regardless. Azure and the TL recorded "SO did not review" for #4654 (e/436#5–#6) because the process checked the email thread, not the PR. The email reply was eventually read from a local `email.db` copy and sent once Orca reconnected on 11-09.
+
+**Root Cause:** The record of review and the notification of review are two different things that got conflated into one channel (email). The PR clearing comment IS the actual record — it's posted directly against the exact head under review — but the process treats the email thread as authoritative instead. When the notification channel (email, which depends on Orca) is down, the actual record (the PR comment, which doesn't depend on Orca the same way) is ignored, and a completed review gets misclassified as missing.
+
+**Prevention:**
+1. **Treat the SO's clearing comment on the PR, at the exact head, as the record of review — not the email thread.** Email is notification only.
+2. **Before declaring "SO did not review," check the PR comments on the exact head first**, not just the email thread — a clearance may already be posted there even if the notification never arrived.
+3. **Tech Lead is proposing a `docs/change-tiers.md` amendment** codifying this (PR comment = record, email = notification), pending PI approval as of this writing — check the current doc for whether it has landed.
+
+**Status:** Active — 1 instance (Second Opinion p/691#28, e/436). Process fix proposed, pending PI approval.
+
+**Applies To:** All agents/humans determining T2 Second-Opinion review status; check PR comments on the exact head before declaring a review missing.
