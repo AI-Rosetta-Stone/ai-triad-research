@@ -50,6 +50,18 @@ Describe 'Get-StagingCurrentDeployComparison (t/4932)' {
         $r.CurrentSha | Should -Be ''
     }
 
+    # Quality should-fix (#4679, p/780#29): exit 0 with non-JSON output (a stderr warning the
+    # caller failed to filter out of its 2>&1 capture, the t/1500 trap) must NOT throw --
+    # ConvertFrom-Json's own exception must be caught and turned into ReadFailed.
+    It 'az exits 0 but Output is not valid JSON: ReadFailed, no throw, git merge-base never called' {
+        $r = Get-StagingCurrentDeployComparison -BuiltSha 'abc1234' `
+            -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-old111'; TrafficWeight = 100 }) } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "WARNING: some az warning`n[{""name"":""DEPLOY_SHA"",""value"":""old111""}]" } } `
+            -GitMergeBaseFn { throw 'must not be called when the JSON parse failed' }
+        $r.ReadFailed | Should -Be $true
+        $r.CurrentSha | Should -Be ''
+    }
+
     It 'merge-base exit 0: built SHA IS an ancestor, not unknown' {
         $r = Get-StagingCurrentDeployComparison -BuiltSha 'old111' `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-new999'; TrafficWeight = 100 }) } `

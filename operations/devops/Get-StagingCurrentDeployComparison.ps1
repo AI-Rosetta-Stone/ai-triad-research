@@ -29,11 +29,14 @@ Scriptblock, no args, returning an array of active-revision objects with `Name` 
 `TrafficWeight` properties (the live implementation wraps `Get-ContainerAppRevision -Mode Active`).
 
 .PARAMETER AzRevisionShowFn
-Scriptblock taking `($AppName, $ResourceGroup, $RevisionName)`, returning
-`@{ ExitCode = <int>; Output = <string> }` -- `Output` is the JSON text of
-`properties.template.containers[0].env` on success, or the error text on failure. The live
-implementation must capture `$LASTEXITCODE` itself, immediately after the native `az` call
-(S1, #4679: a native command does not throw under `$ErrorActionPreference='Stop'`).
+Scriptblock taking `($RevisionName)`, returning `@{ ExitCode = <int>; Output = <string> }` --
+`Output` is the JSON text of `properties.template.containers[0].env` on success, or the error
+text on failure. The live implementation must capture `$LASTEXITCODE` itself, immediately after
+the native `az` call (S1, #4679: a native command does not throw under
+`$ErrorActionPreference='Stop'`), and must filter stderr `[ErrorRecord]` lines out of a `2>&1`
+capture before returning `Output` -- mixing them corrupts the JSON even on exit 0 (Quality
+review, #4679, the same t/1500 trap `Invoke-Az.ps1` documents: `az` can emit warnings to stderr
+on an otherwise-successful call).
 
 .PARAMETER GitMergeBaseFn
 Scriptblock taking `($BuiltSha, $CurrentSha)`, returning the exit code (int) of
@@ -59,7 +62,15 @@ function Get-StagingCurrentDeployComparison {
         return [PSCustomObject]@{ CurrentSha = ''; ReadFailed = $true; IsAncestor = $null; AncestorUnknown = $false }
     }
 
-    $EnvVars = $AzResult.Output | ConvertFrom-Json
+    # Quality should-fix (#4679, p/780#29): exit 0 does not guarantee $AzResult.Output is valid
+    # JSON -- a stderr warning the caller failed to filter out of a 2>&1 capture corrupts it
+    # (the t/1500 trap Invoke-Az.ps1 documents). A parse failure is ReadFailed, same as an az
+    # exit failure, never an uncaught exception.
+    try {
+        $EnvVars = $AzResult.Output | ConvertFrom-Json
+    } catch {
+        return [PSCustomObject]@{ CurrentSha = ''; ReadFailed = $true; IsAncestor = $null; AncestorUnknown = $false }
+    }
     $DeployShaVar = @($EnvVars | Where-Object { $_.name -eq 'DEPLOY_SHA' })
     if ($DeployShaVar.Count -eq 0) {
         return [PSCustomObject]@{ CurrentSha = ''; ReadFailed = $true; IsAncestor = $null; AncestorUnknown = $false }

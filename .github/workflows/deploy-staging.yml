@@ -99,9 +99,16 @@ jobs:
               # S1 (Lead review, #4679): `az` is a NATIVE command -- it does NOT throw on
               # failure even under $ErrorActionPreference='Stop'. $LASTEXITCODE must be checked
               # explicitly, immediately after the call, before any other statement resets it.
-              $Out = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              # Quality should-fix (#4679, p/780#29): PowerShell represents stderr from a native
+              # command as [ErrorRecord] objects when captured via 2>&1. Mixing those into the
+              # JSON corrupts it even on exit 0 -- the t/1500 trap Invoke-Az.ps1 documents (`az`
+              # can emit a warning to stderr on an otherwise-successful call). Keep only the
+              # non-ErrorRecord (stdout) lines.
+              $RawOut = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
                 --revision $RevisionName --query 'properties.template.containers[0].env' -o json 2>&1
-              @{ ExitCode = $LASTEXITCODE; Output = $Out }
+              $AzExit = $LASTEXITCODE
+              $StdoutLines = @($RawOut | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+              @{ ExitCode = $AzExit; Output = ($StdoutLines | Out-String).Trim() }
             } `
             -GitMergeBaseFn {
               param($Built, $Current)
