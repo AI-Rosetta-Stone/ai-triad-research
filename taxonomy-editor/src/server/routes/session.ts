@@ -17,7 +17,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, getClientIp } from '../httpKit.js';
+import { json, error, getClientIp, query } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
 import { deriveStorageUserId } from '../security/userContext.js';
@@ -29,6 +29,7 @@ import { isAdmin } from '../community/community.js';
 import * as analytics from '../community/analytics.js';
 import { parseCookies } from '../httpCookies.js';
 import { anonSessionCreatedCookie, readValidCreatedMs } from './anonSessionCreated.js';
+import { internalTesterCookie, isInternalTester, internalTesterPage } from './internalTester.js';
 import * as allowlistStore from '../storage/allowlistStore.js';
 import type { UserSession } from '../../../../lib/allowlist/types.js';
 // Re-exported so server.ts's pre-route anon mint sites import it here (keeps the
@@ -200,9 +201,26 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
     json(res, profile);
   });
 
-  post('/api/analytics/event', (_req, res, body) => {
+  // t/4962: GET /api/analytics/internal?on=1|0 tags or untags the caller's own browser as an
+  // internal tester. No auth: the cookie affects only this browser's analytics events.
+  get('/api/analytics/internal', (req, res) => {
+    const on = query(req, 'on');
+    if (on !== '1' && on !== '0') { error(res, 'on must be 1 or 0', 400); return; }
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex',
+      'Set-Cookie': internalTesterCookie(on === '1'),
+    });
+    res.end(internalTesterPage(on === '1'));
+  });
+
+  post('/api/analytics/event', (req, res, body) => {
     const raw = (body as { events?: unknown[] }).events;
     if (!Array.isArray(raw)) { json(res, { error: 'events array required' }, 400); return; }
+    // t/4962: only the server-set tester cookie marks traffic internal; a client-supplied
+    // `internal` field is never copied (each event is rebuilt field by field below).
+    const internal = isInternalTester(req);
     // Sanitize: only keep events that have the required string fields
     const events: analytics.AnalyticsEvent[] = [];
     for (const e of raw) {
@@ -219,6 +237,7 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
         category: o.category.slice(0, 50),
         detail: (typeof o.detail === 'object' && o.detail !== null ? o.detail : {}) as Record<string, unknown>,
         duration_ms: typeof o.duration_ms === 'number' ? o.duration_ms : undefined,
+        ...(internal ? { internal: true } : {}),
       });
     }
     analytics.appendEvents(events).catch((e) => {
