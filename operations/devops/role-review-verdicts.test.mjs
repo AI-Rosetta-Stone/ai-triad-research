@@ -139,3 +139,68 @@ test('fail-closed backstop does not fire on unrelated text with no "changes requ
   const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
   assert.equal(v.size, 0);
 });
+
+// Quality nit 1 (p/780#48): the backstop originally scanned the WHOLE body, which could match
+// "changes requested" or a parenthesized name deep in later, unrelated prose. Scoped to the
+// first line only now.
+test('nit 1: "changes requested" mentioned only on a LATER line of an otherwise-valid Approved body does not false-positive', () => {
+  const reviews = [{
+    body: 'Approved (Design): looks good.\nNo changes requested from Quality on this one.',
+    login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z',
+  }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('Design').kind, 'approved');
+  assert.equal(v.has('(unparseable)'), false);
+});
+
+test('nit 1: a role name in parentheses on a LATER line does not get picked up by the backstop\'s role extraction', () => {
+  const reviews = [{
+    body: 'changes requested, details below\n(Quality) will confirm separately once fixed',
+    login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z',
+  }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  // The role-bearing parenthesis is on line 2, out of scope -- falls back to the sentinel, not 'Quality'.
+  assert.equal(v.get('(unparseable)').kind, 'changes_requested');
+  assert.equal(v.has('Quality'), false);
+});
+
+test('nit 1: the backstop still fires when "changes requested" AND the role are both on the first line (unchanged)', () => {
+  const reviews = [{ body: 'changes requested (Quality) -- will detail below\nmore text here', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' }];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('Quality').kind, 'changes_requested');
+  assert.equal(v.get('Quality').unparsed, true);
+});
+
+// Quality nit 2 (p/780#48): an unparseable block has no identifiable role, so nothing else
+// naturally overwrites its Map key -- it would latch forever even after a real, later approval
+// for whatever role it actually meant. Fixed: superseded by ANY later entry at all.
+test('nit 2: an unparseable block IS cleared once a later entry (any role) exists', () => {
+  const reviews = [
+    { body: 'changes requested for real this time, will detail separately', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' },
+    { body: 'Approved (Design): fixed, re-reviewed.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T11:00:00Z' },
+  ];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.has('(unparseable)'), false);
+  assert.equal(v.get('Design').kind, 'approved');
+});
+
+test('nit 2: an unparseable block is NOT cleared when nothing later exists -- still blocks', () => {
+  const reviews = [
+    { body: 'Approved (Design): fine.', login: APP, commitId: HEAD, submittedAt: '2026-11-09T09:00:00Z' },
+    { body: 'changes requested for real this time, will detail separately', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' },
+  ];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  assert.equal(v.get('(unparseable)').kind, 'changes_requested');
+  assert.equal(v.get('Design').kind, 'approved'); // unaffected -- a different, real role key
+});
+
+test('nit 2: a later entry that is ITSELF unparseable also counts as "something newer" and clears the earlier one', () => {
+  const reviews = [
+    { body: 'changes requested, round 1', login: APP, commitId: HEAD, submittedAt: '2026-11-09T10:00:00Z' },
+    { body: 'changes requested, round 2, still vague', login: APP, commitId: HEAD, submittedAt: '2026-11-09T11:00:00Z' },
+  ];
+  const v = latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: null });
+  // The LATEST unparseable entry survives (Map overwrite on the same key) -- still blocks, just
+  // reflecting round 2, not "cleared to nothing."
+  assert.equal(v.get('(unparseable)').kind, 'changes_requested');
+});

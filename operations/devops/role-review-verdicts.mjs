@@ -43,6 +43,18 @@
  * doesn't match the grammar is NEVER silently dropped -- it registers as a `changes_requested`
  * verdict anyway (role name best-effort extracted, or `'(unparseable)'`), so the sweep still
  * blocks on it. Fails closed, not open, on an unrecognized shape.
+ *
+ * TWO NITS (Quality, p/780#48, approving #4696 with both left for follow-up):
+ * 1. The backstop above originally scanned the WHOLE body for "changes requested" and for a
+ *    role in ANY parenthesized group, which could match deep in unrelated prose (e.g. a long
+ *    `Approved (Design):` comment that later explains "no changes requested from Quality").
+ *    Scoped to the FIRST LINE only now, matching the strict grammar's own anchoring.
+ * 2. A block keyed `'(unparseable)'` (role extraction totally failed) could never be cleared --
+ *    nothing else naturally produces that exact key, so it would latch forever even after a
+ *    real, later `Approved (<role>):` for whatever role it actually meant. Since we don't know
+ *    which role it was, it's now treated as superseded by ANY later entry at all (see
+ *    `latestRoleVerdicts`'s post-processing) -- a later signal of any kind makes the ambiguous
+ *    one stale information, not a fresh verdict to keep blocking on.
  */
 
 function effectiveTimeOf(item, kind) {
@@ -58,6 +70,7 @@ const LEADING_MARKDOWN_RE = /^[*_]+\s*/;
 const VERDICT_RE = /^(Approved|Changes requested|Design-exempt)\s*\(([^)]+)\)[:,.]\s*(.*)$/s;
 const LOOSE_CHANGES_REQUESTED_RE = /changes requested/i;
 const LOOSE_ROLE_RE = /\(([^)]+)\)/;
+const UNPARSEABLE_ROLE = '(unparseable)';
 
 function stripLeadingMarkdown(body) {
   return String(body ?? '').trim().replace(LEADING_MARKDOWN_RE, '');
@@ -75,10 +88,13 @@ function parseVerdict(rawBody) {
   // Fail-closed backstop: the strict grammar didn't match, but the text still says "changes
   // requested" -- never silently treat this as "no verdict." Best-effort role extraction from
   // the first parenthesized group; falls back to a fixed label so the sweep always has a role
-  // string to put in its skip reason.
-  if (LOOSE_CHANGES_REQUESTED_RE.test(stripped)) {
-    const roleMatch = LOOSE_ROLE_RE.exec(stripped);
-    return { role: roleMatch ? roleMatch[1].trim() : '(unparseable)', kind: 'changes_requested', unparsed: true };
+  // string to put in its skip reason. Nit 1 (Quality, p/780#48): scoped to the FIRST LINE only
+  // -- the same anchoring the strict grammar already uses -- so a long body that only mentions
+  // "changes requested" or a parenthesized name deep in later prose can't false-positive.
+  const firstLine = stripped.split('\n', 1)[0];
+  if (LOOSE_CHANGES_REQUESTED_RE.test(firstLine)) {
+    const roleMatch = LOOSE_ROLE_RE.exec(firstLine);
+    return { role: roleMatch ? roleMatch[1].trim() : UNPARSEABLE_ROLE, kind: 'changes_requested', unparsed: true };
   }
   return null;
 }
@@ -120,5 +136,19 @@ export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSh
 
   const latest = new Map();
   for (const e of entries) latest.set(e.role, { kind: e.kind, at: e.iso, unparsed: e.unparsed ?? false });
+
+  // Nit 2 (Quality, p/780#48): an UNPARSEABLE_ROLE entry has no identifiable role, so it can
+  // never naturally be overwritten by a later real verdict (that verdict keys on its OWN role
+  // name, a different Map key). Since we don't know which role the ambiguous entry actually
+  // meant, treat it as superseded by ANY later entry at all -- once something newer exists
+  // from the reviewer App, the ambiguous block is stale information, not a verdict still worth
+  // blocking on.
+  const unparseable = latest.get(UNPARSEABLE_ROLE);
+  if (unparseable) {
+    const unparseableAtMs = new Date(unparseable.at).getTime();
+    const supersededByNewer = entries.some((e) => e.role !== UNPARSEABLE_ROLE && e.at > unparseableAtMs);
+    if (supersededByNewer) latest.delete(UNPARSEABLE_ROLE);
+  }
+
   return latest;
 }
