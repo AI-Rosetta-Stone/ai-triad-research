@@ -1213,6 +1213,43 @@ async function casRenameWrite(
   return { ok: false, lastErr: new Error(`CAS retries exhausted after ${RENAME_CAS_MAX_ATTEMPTS} attempts`) };
 }
 
+/**
+ * t/4894 follow-up (TL t/4894#4): after a successful admin rename of a shared community
+ * Op-Ed, refresh its EXISTING public share in place, using the same projection as
+ * publishing (`writePublicCommunityOpEd`) — so the public copy doesn't keep showing the
+ * old topic at the same link. Never mints a share for an item that wasn't already shared
+ * (checks the registry first, same as mintAndProjectCommunityOpEd, but without its
+ * mint-on-absence branch). Best-effort: a refresh failure is WARN-logged and does not
+ * fail the rename — the admin's rename to the published item already succeeded.
+ */
+async function refreshCommunityOpedShareIfShared(id: string): Promise<void> {
+  try {
+    const existing = await getCommunityOpedShareEntry(id);
+    if (!existing) return; // never shared — never create one here
+    const lookup = await getCommunityOpEd(id);
+    if (!lookup.found) {
+      // Defensive: the rename that triggers this just wrote the item, so this "shouldn't"
+      // happen — but if it does, the public copy silently goes stale with no trace, which is
+      // exactly the bug class this follow-up exists to close. WARN rather than return quietly.
+      log.server.warn({ id, reason: lookup.reason }, 'Could not re-read a just-renamed community op-ed to refresh its public share (best-effort)');
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'community', level: 'warn',
+        message: `Could not re-read community op-ed ${id} to refresh its public share after rename — the public copy may show the old topic`,
+        error: { name: 'Error', message: `getCommunityOpEd: ${lookup.reason}`, stack: undefined },
+      });
+      return;
+    }
+    await writePublicCommunityOpEd(lookup.item as unknown as CommunityOpEdItem, existing.shareId);
+  } catch (err) {
+    log.server.warn({ id, err }, 'Failed to refresh the public share for a renamed community op-ed (best-effort)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'community', level: 'warn',
+      message: `Failed to refresh the public share for renamed community op-ed ${id} — the public copy may show the old topic until the next refresh`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+}
+
 export async function renameCommunityItem(
   type: CommunityType,
   id: string,
@@ -1244,6 +1281,7 @@ export async function renameCommunityItem(
   if (result.ok) {
     await invalidateListingIndex(backend, dir);
     log.server.info({ id, type, by }, 'Community item renamed');
+    if (type === 'opeds') await refreshCommunityOpedShareIfShared(id); // t/4894 follow-up
     return;
   }
 
