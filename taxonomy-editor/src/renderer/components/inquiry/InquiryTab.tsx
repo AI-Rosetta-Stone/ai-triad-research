@@ -211,13 +211,6 @@ export function InquiryTab() {
       ? 'This question is still running — try deleting it again once it finishes.'
       : mapErrorToUserMessage(err), []);
 
-  const handleDeleteOne = useCallback((jobId: string) => {
-    deleteHistoryItem(jobId).catch(err => {
-      recordError('inquiry-tab', 'Failed to delete inquiry', err);
-      flash(`Delete failed: ${deleteFailureMessage(err)}`);
-    });
-  }, [deleteHistoryItem, deleteFailureMessage, flash]);
-
   const myLibRows = useMemo<InquiryMyLibRow[]>(() => history.map(h => ({ ...h, id: h.jobId })), [history]);
 
   const rowActions = useCallback((row: InquiryMyLibRow): LibraryRowEditAction[] => [
@@ -330,25 +323,11 @@ export function InquiryTab() {
           <BulkDeleteInquiryDialog
             rows={myLibRows}
             selectedIds={selectedIds}
-            onCancel={() => setShowBulkDeleteConfirm(false)}
-            onConfirm={async () => {
-              for (const id of selectedIds) {
-                try {
-                  await deleteHistoryItem(id);
-                } catch (err) {
-                  getGlobalRecorder()?.record({
-                    type: 'system.error',
-                    component: 'inquiry-tab',
-                    level: 'error',
-                    message: 'Failed to delete inquiry (bulk)',
-                    error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-                  });
-                  flash(`Delete failed: ${deleteFailureMessage(err)}`);
-                }
-              }
-              setShowBulkDeleteConfirm(false);
-              exitEditMode();
-            }}
+            setSelectedIds={setSelectedIds}
+            setShowBulkDeleteConfirm={setShowBulkDeleteConfirm}
+            exitEditMode={exitEditMode}
+            deleteHistoryItem={deleteHistoryItem}
+            deleteFailureMessage={deleteFailureMessage}
           />
         )}
       </>
@@ -363,18 +342,66 @@ export function InquiryTab() {
   );
 }
 
-// ── Bulk delete confirmation dialog (t/4898, mirrors DebateTab's BulkDeleteDialog) ──
+// ── Bulk delete confirmation dialog (t/4898) ──
+// Design required fix (p/29#274): must not close/exit-edit-mode on a partial failure, losing
+// track of which question(s) failed — matches the pattern approved for Chat's bulk delete
+// (#4585/ChatBulkDeleteDialog): stay open, show "Deleted X of Y", keep the failed ones selected.
 
-function BulkDeleteInquiryDialog({ rows, selectedIds, onCancel, onConfirm }: {
+function BulkDeleteInquiryDialog({ rows, selectedIds, setSelectedIds, setShowBulkDeleteConfirm, exitEditMode, deleteHistoryItem, deleteFailureMessage }: {
   rows: InquiryMyLibRow[];
   selectedIds: Set<string>;
-  onCancel: () => void;
-  onConfirm: () => Promise<void>;
+  setSelectedIds: (ids: Set<string>) => void;
+  setShowBulkDeleteConfirm: (show: boolean) => void;
+  exitEditMode: () => void;
+  deleteHistoryItem: (jobId: string) => Promise<void>;
+  deleteFailureMessage: (err: unknown) => string;
 }) {
-  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4901
   const [deleting, setDeleting] = useState(false);
+  const [partialError, setPartialError] = useState<{ deletedCount: number; total: number; failedTitles: string; message?: string } | null>(null);
+  const { dialogRef, titleId } = useDialog({ onCancel: () => setShowBulkDeleteConfirm(false), closeOnEscape: !deleting }); // t/4901
+
+  const handleConfirm = async () => {
+    setDeleting(true);
+    setPartialError(null);
+    const ids = Array.from(selectedIds);
+    const failedIds: string[] = [];
+    let lastErr: unknown = null;
+    let deletedCount = 0;
+    for (const id of ids) {
+      try {
+        await deleteHistoryItem(id);
+        deletedCount++;
+      } catch (err) {
+        failedIds.push(id);
+        lastErr = err;
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'inquiry-tab', level: 'warn',
+          message: `Failed to delete inquiry ${id} during bulk delete (WARN: continuing with the remaining selected questions)`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+      }
+    }
+    setDeleting(false);
+    if (failedIds.length === 0) {
+      setShowBulkDeleteConfirm(false);
+      exitEditMode();
+      return;
+    }
+    setSelectedIds(new Set(failedIds));
+    const failedTitles = failedIds.map(id => {
+      const row = rows.find(r => r.id === id);
+      return row ? inquiryRowDisplayTitle(row) : id;
+    }).join(', ');
+    // A single-item selection that fails gets the specific reason (e.g. "still running") rather
+    // than the generic "Couldn't delete: X" — a multi-item batch keeps the generic aggregate
+    // message even if only one of them failed, since "boom"/a raw error message isn't useful
+    // alongside a title that already names it.
+    const message = ids.length === 1 ? deleteFailureMessage(lastErr) : undefined;
+    setPartialError({ deletedCount, total: ids.length, failedTitles, message });
+  };
+
   return (
-    <div className="dialog-overlay" onClick={() => { if (!deleting) onCancel(); }}>
+    <div className="dialog-overlay" onClick={() => { if (!deleting) setShowBulkDeleteConfirm(false); }}>
       <div ref={dialogRef} className="dialog bulk-delete-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
         <h3 id={titleId}>Delete {selectedIds.size} question{selectedIds.size !== 1 ? 's' : ''}?</h3>
         <div className="bulk-delete-list">
@@ -384,14 +411,21 @@ function BulkDeleteInquiryDialog({ rows, selectedIds, onCancel, onConfirm }: {
             </div>
           ))}
         </div>
+        {partialError ? (
+          <div className="bulk-delete-error" role="alert">
+            {partialError.message
+              ? `Deleted ${partialError.deletedCount} of ${partialError.total}. ${partialError.message}`
+              : `Deleted ${partialError.deletedCount} of ${partialError.total}. Couldn't delete: ${partialError.failedTitles}.`}
+          </div>
+        ) : null}
         <div className="dialog-actions">
-          <button className="btn" disabled={deleting} onClick={onCancel}>Cancel</button>
+          <button className="btn" disabled={deleting} onClick={() => setShowBulkDeleteConfirm(false)}>Cancel</button>
           <button
             className="btn btn-danger"
             disabled={deleting}
-            onClick={async () => { setDeleting(true); await onConfirm(); }}
+            onClick={() => void handleConfirm()}
           >
-            Delete {selectedIds.size} Question{selectedIds.size !== 1 ? 's' : ''}
+            {deleting ? 'Deleting…' : `Delete ${selectedIds.size} Question${selectedIds.size !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>
