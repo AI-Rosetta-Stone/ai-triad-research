@@ -406,6 +406,27 @@ export const ARM_EVENT_RE = /^auto_(merge|squash|rebase|update)_enabled$/;
  *   per PR that shows a ready+arm hit.
  * @returns {Array<{prNumber:number, readyAt:string, armedAt:string, deltaSeconds:number, actor:string, heldAtArmTime:boolean, heldLabels:string[], signatureType:'arm'|'merge-equivalent'}>}
  */
+// t/4947 (from the t/4939 forensics, t/4939#12): #4648 was `ready_for_review` -> `added_to_
+// merge_queue` 5s later -> `merged` ~566s after THAT. `ARM_EVENT_RE` doesn't match `added_to_
+// merge_queue`, so the arm-pairing loop below never fired; the merge-equivalent loop's 60s
+// window (MERGE_EQUIVALENT_WINDOW_SECONDS) is also too short for the full ready-to-merged
+// delta once normal queue dwell is added, so THAT never fired either. #4648 was invisible to
+// both arms.
+//
+// Fix, scoped to detectSweepSignature only: `added_to_merge_queue` counts as arm-equivalent
+// for the PAIRING logic here, measuring ready-to-ENQUEUE (which IS what SWEEP_WINDOW_SECONDS
+// already measures) rather than ready-to-merged. This does NOT widen the exported
+// `ARM_EVENT_RE` itself -- pr-triage.yml's candidate-PR filter and merge-guard-reconcile.mjs's
+// `autoMerge` detection both import that same constant for a DIFFERENT purpose (distinguishing
+// a real arm event from GitHub's instant-merge / ready-merged-equivalent path), and every
+// merge-queue PR fires `added_to_merge_queue` normally -- folding it into `ARM_EVENT_RE` there
+// would reclassify essentially all merge-queue merges as `autoMerge: true`, collapsing that
+// script's own autoMerge/armEquivalent distinction (t/3695#30). pr-triage.yml's own event
+// fetch filter is updated separately to include `added_to_merge_queue` in its `relevant` set.
+function isArmOrQueueEvent(eventName) {
+  return ARM_EVENT_RE.test(eventName) || eventName === 'added_to_merge_queue';
+}
+
 export function detectSweepSignature(events, liveLabelsByPr) {
   const byPr = new Map();
   for (const e of events ?? []) {
@@ -437,9 +458,10 @@ export function detectSweepSignature(events, liveLabelsByPr) {
       if (sorted[i].event !== 'ready_for_review') continue;
       const readyAt = Date.parse(sorted[i].createdAt);
 
-      // Arm pairing: the first ARM_EVENT_RE match after this ready_for_review.
+      // Arm pairing: the first ARM_EVENT_RE (or added_to_merge_queue, t/4947) match after
+      // this ready_for_review.
       for (let j = i + 1; j < sorted.length; j++) {
-        if (!ARM_EVENT_RE.test(sorted[j].event)) continue;
+        if (!isArmOrQueueEvent(sorted[j].event)) continue;
         const armedAt = Date.parse(sorted[j].createdAt);
         const deltaSeconds = (armedAt - readyAt) / 1000;
         if (deltaSeconds >= 0 && deltaSeconds <= SWEEP_WINDOW_SECONDS) {
@@ -453,9 +475,11 @@ export function detectSweepSignature(events, liveLabelsByPr) {
       }
 
       // Merge-equivalent pairing (t/4131): the first 'merged' event after this ready_for_review,
-      // provided no arm event occurs strictly between them.
+      // provided no arm event (or added_to_merge_queue, t/4947) occurs strictly between them --
+      // otherwise the arm-pairing loop above already covers this ready event, and this loop
+      // would double-count the same hit under the merge-equivalent's wider window.
       for (let j = i + 1; j < sorted.length; j++) {
-        if (ARM_EVENT_RE.test(sorted[j].event)) break; // an arm event rules out this pairing
+        if (isArmOrQueueEvent(sorted[j].event)) break; // an arm/queue event rules out this pairing
         if (sorted[j].event !== 'merged') continue;
         const mergedAt = Date.parse(sorted[j].createdAt);
         const deltaSeconds = (mergedAt - readyAt) / 1000;
