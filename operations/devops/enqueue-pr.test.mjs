@@ -424,7 +424,11 @@ test('fetchGuardRun: LIVE call against a fixed known commit (#4675 head SHA) ret
     return;
   }
   const KNOWN_SHA = 'f505537d90ca7cd3e0aa79dccb23aaea1cb0db90'; // #4675's own head SHA (t/4939), NOT its merge commit d0b4ee2b8
-  const result = fetchGuardRun('AI-Rosetta-Stone/ai-triad-research', KNOWN_SHA);
+  // Quality nit (p/780#35): prefer the runner-provided slug (GITHUB_REPOSITORY, set by Actions)
+  // over the hard-coded one, given the org move (e/293) -- falls back to the hard-coded slug
+  // when run locally, where that env var isn't set.
+  const REPO = process.env.GITHUB_REPOSITORY || 'AI-Rosetta-Stone/ai-triad-research';
+  const result = fetchGuardRun(REPO, KNOWN_SHA);
   if (result.lookupError) {
     const cls = classifyGhApiError(result.error);
     if (cls === 'network_error' || cls === 'server_error') {

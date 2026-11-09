@@ -144,12 +144,6 @@ function queryQueueState(repo, prNumber, ghFn = gh) {
 }
 
 /**
- * Latest `t1-approval-guard` check run at `headSha` from the `github-actions` App, or `null`
- * on a lookup error (caller refuses on null+error). Filters by `app.slug` BEFORE picking the
- * latest run (Quality should-fix, p/780#25) -- filtering after would let a newer run from a
- * different app hide an older, still-current `github-actions` run.
- */
-/**
  * PURE. Classifies a `gh api` failure so a live test (or a future caller) can tell a transient
  * platform blip from a real regression. TL condition (p/648#363, t/4939):
  *  - 'network_error' / 'server_error' (5xx): skip, don't fail -- a GitHub-side blip must never
@@ -165,6 +159,12 @@ export function classifyGhApiError(err) {
   return 'unknown';
 }
 
+/**
+ * Latest `t1-approval-guard` check run at `headSha` from the `github-actions` App, or `null`
+ * on a lookup error (caller refuses on null+error). Filters by `app.slug` BEFORE picking the
+ * latest run (Quality should-fix, p/780#25) -- filtering after would let a newer run from a
+ * different app hide an older, still-current `github-actions` run.
+ */
 export function fetchGuardRun(repo, headSha, ghFn = gh) {
   try {
     // t/4939 live bug (Lead, p/648#361): any `-F`/`-f` flag makes `gh api` default to POST,
