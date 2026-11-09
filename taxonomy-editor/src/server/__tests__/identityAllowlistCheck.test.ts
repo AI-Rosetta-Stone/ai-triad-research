@@ -90,9 +90,12 @@ describe('findUnreachableAllowlistEntries — ADMIN_USERS (t/43: aligned with is
   });
 });
 
-describe('ADMIN_USERS reachability agrees with isAdminStableId (t/43)', () => {
+describe('AGREEMENT GUARD: canProduceStableId must agree with community.isAdminStableId (t/43)', () => {
   afterEach(() => { vi.unstubAllEnvs(); });
 
+  // If you changed isAdminStableId (or its private isQualifiedEntry parser) and this fails, the
+  // /health identityAllowlistUnreachable count no longer reflects who can actually be admin:
+  // update canProduceStableId / adminUserUnreachableReason to match.
   // Every entry the check passes must be one isAdminStableId grants when that stableId signs in;
   // every bare entry it flags must be one isAdminStableId never grants.
   it.each(['github:6188114', 'aad:tenant-1-obj-1', 'GitHub:42'])('%s: reachable, and isAdminStableId matches it', (entry) => {
