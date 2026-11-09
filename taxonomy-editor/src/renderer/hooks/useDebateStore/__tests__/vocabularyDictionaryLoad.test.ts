@@ -87,4 +87,26 @@ describe('vocabulary dictionary load (t/37)', () => {
     expect(useDebateStore.getState().activeDebate?.transcript).toHaveLength(2);
     expect(useDebateStore.getState().vocabularyTerms?.standardized).toHaveLength(1);
   });
+
+  // t/37#6: beginDebate had its own loader that dropped an empty dictionary without a log or a warning.
+  it('beginDebate: an empty dictionary logs the WARN and surfaces the bare-terms warning', async () => {
+    // Earlier tests load read-only community data; beginDebate refuses to run on that.
+    useDebateStore.setState({ activeDebate: makeSession({ phase: 'clarification' }) as never, communityReadOnly: false });
+    mockApi.loadDictionary.mockResolvedValue(EMPTY);
+    await useDebateStore.getState().beginDebate();
+    expect(useDebateStore.getState().vocabularyTerms).toBeNull();
+    expect(recorded.some(e => e.level === 'warn' && /Dictionary loaded empty \(ensureVocabulary\)/.test(e.message ?? ''))).toBe(true);
+    expect(useDebateStore.getState().debateWarnings.some((w: string) => w.includes('Vocabulary dictionary unavailable'))).toBe(true);
+  });
+
+  it('beginDebate: uses an already-loaded dictionary instead of refetching', async () => {
+    useDebateStore.setState({
+      activeDebate: makeSession({ phase: 'clarification' }) as never,
+      communityReadOnly: false,
+      vocabularyTerms: { standardized: DICT.standardized as never, colloquial: DICT.colloquial as never },
+    });
+    await useDebateStore.getState().beginDebate();
+    expect(mockApi.loadDictionary).not.toHaveBeenCalled();
+    expect(useDebateStore.getState().debateWarnings.some((w: string) => w.includes('Vocabulary'))).toBe(false);
+  });
 });
