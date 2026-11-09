@@ -6,9 +6,9 @@
 // .github/workflows -- `node --test` on this file failed outright before this change. Every
 // pre-existing assertion is preserved verbatim; only the test-runner API changed.
 
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue } from './enqueue-pr.mjs';
+import { classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR } from './enqueue-pr.mjs';
 
 test('classifyEnqueueOutcome: is queued when both isInMergeQueue and mergeQueueEntry are present', () => {
   assert.deepEqual(classifyEnqueueOutcome({
@@ -217,4 +217,153 @@ test('classifyT1GuardForEnqueue: tierCheckDisagreesOnT0 is only consulted for T0
     classifyT1GuardForEnqueue({ tier: 'T1', isDraft: false, guardRun: GHA_SUCCESS, tierCheckDisagreesOnT0: true }),
     { allow: true, reason: 'guard_success', warn: null },
   );
+});
+
+// t/4939 shim tests (Quality, p/780#25): proving the WIRING, not just the predicate. Moving
+// the refusal check below `gh pr merge` in enqueuePR would keep every test above green --
+// these three exist specifically to catch that class of regression. `gh` is injected via
+// `enqueuePR`'s options so no real CLI call happens in a unit test.
+
+function fakeGhTracking() {
+  const calls = [];
+  const fn = (args) => { calls.push(args); return fn.next(args); };
+  fn.calls = calls;
+  fn.next = () => { throw new Error('fakeGhTracking: no response configured for this call'); };
+  return fn;
+}
+
+const T1_PR_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T1\n\nsome PR body', isDraft: false });
+
+// Both refusal tests mock the FULL happy-path chain (graphql queue reads, pr merge) too, not
+// just the calls up to the refusal. If the refusal check were ever moved below `gh pr merge`
+// (Quality's own demonstration, p/780#25), these would stop rejecting at all -- `assert.rejects`
+// would fail outright -- rather than accidentally "passing" by rejecting for an unrelated
+// unmocked-call error. A naive version of these tests that omits the happy-path mocks and
+// merely asserts `assert.rejects(...)` is vacuous: it also "passes" when the refusal is gone,
+// because the call then hits some OTHER unmocked gh invocation and throws for the wrong reason.
+function happyPathNext(prView) {
+  let graphqlCalls = 0;
+  return (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return prView;
+    if (joined.includes('graphql') && joined.includes('enablePullRequestAutoMerge')) {
+      throw new Error('the GraphQL fallback mutation must never be called in the success path');
+    }
+    if (joined.includes('graphql')) {
+      graphqlCalls += 1;
+      const queued = graphqlCalls > 1;
+      return JSON.stringify({ data: { repository: { pullRequest: {
+        state: 'OPEN', mergedAt: null, mergeCommit: null,
+        isInMergeQueue: queued, mergeQueueEntry: queued ? { position: 1, state: 'QUEUED' } : null,
+        headRefOid: 'cafebabe', mergeStateStatus: 'CLEAN', autoMergeRequest: null,
+      } } } });
+    }
+    if (args[0] === 'pr' && args[1] === 'merge') return '✓ Auto-merge enabled';
+    return undefined; // let the caller's own next() handle check-runs and anything else
+  };
+}
+
+test('enqueuePR shim: a T1 PR with no guard run is refused, and gh pr merge is never invoked', async () => {
+  const fakeGh = fakeGhTracking();
+  const happy = happyPathNext(T1_PR_VIEW);
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) return JSON.stringify({ check_runs: [] });
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, gh: fakeGh }), /refusing to arm\/enqueue.*guard_missing/s);
+  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 0);
+});
+
+test('enqueuePR shim: a failed t1-approval-guard lookup is refused, warns, and gh pr merge is never invoked', async () => {
+  const fakeGh = fakeGhTracking();
+  const happy = happyPathNext(T1_PR_VIEW);
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) throw new Error('simulated API failure');
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+
+  const warnMock = mock.method(console, 'warn', () => {});
+  try {
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, gh: fakeGh }), /could not verify t1-approval-guard/);
+    assert.ok(warnMock.mock.calls.some((c) => /WARN/.test(String(c.arguments[0]))));
+  } finally {
+    warnMock.mock.restore();
+  }
+  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 0);
+});
+
+test('enqueuePR shim: positive control -- a T1 PR with guard success DOES reach gh pr merge', async () => {
+  const fakeGh = fakeGhTracking();
+  let graphqlCalls = 0;
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return T1_PR_VIEW;
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) {
+      return JSON.stringify({ check_runs: [
+        { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T00:00:00Z' },
+      ] });
+    }
+    if (joined.includes('graphql') && joined.includes('enablePullRequestAutoMerge')) {
+      throw new Error('the GraphQL fallback mutation must never be called in the success path');
+    }
+    if (joined.includes('graphql')) {
+      graphqlCalls += 1;
+      const queued = graphqlCalls > 1;
+      return JSON.stringify({ data: { repository: { pullRequest: {
+        state: 'OPEN', mergedAt: null, mergeCommit: null,
+        isInMergeQueue: queued, mergeQueueEntry: queued ? { position: 1, state: 'QUEUED' } : null,
+        headRefOid: 'cafebabe', mergeStateStatus: 'CLEAN', autoMergeRequest: null,
+      } } } });
+    }
+    if (args[0] === 'pr' && args[1] === 'merge') return '✓ Auto-merge enabled';
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, gh: fakeGh });
+  assert.equal(result.state, 'queued');
+  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
+});
+
+test('enqueuePR shim: fetchGuardRun filters by app.slug BEFORE picking the latest run (should-fix) -- ' +
+  'a newer non-github-actions run does not hide an older real guard success', async () => {
+  const fakeGh = fakeGhTracking();
+  let graphqlCalls = 0;
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return T1_PR_VIEW;
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) {
+      // The non-github-actions run is NEWER (later started_at). Filtering after sorting would
+      // pick this one first, read it as not-github-actions, and refuse as "missing" -- wrong,
+      // since a real github-actions success exists. Filtering before sorting picks it correctly.
+      return JSON.stringify({ check_runs: [
+        { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T00:00:00Z' },
+        { status: 'completed', conclusion: 'neutral', app: { slug: 'some-other-bot' }, started_at: '2026-11-09T01:00:00Z' },
+      ] });
+    }
+    if (joined.includes('graphql') && joined.includes('enablePullRequestAutoMerge')) {
+      throw new Error('the GraphQL fallback mutation must never be called in the success path');
+    }
+    if (joined.includes('graphql')) {
+      graphqlCalls += 1;
+      const queued = graphqlCalls > 1;
+      return JSON.stringify({ data: { repository: { pullRequest: {
+        state: 'OPEN', mergedAt: null, mergeCommit: null,
+        isInMergeQueue: queued, mergeQueueEntry: queued ? { position: 1, state: 'QUEUED' } : null,
+        headRefOid: 'cafebabe', mergeStateStatus: 'CLEAN', autoMergeRequest: null,
+      } } } });
+    }
+    if (args[0] === 'pr' && args[1] === 'merge') return '✓ Auto-merge enabled';
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, gh: fakeGh });
+  assert.equal(result.state, 'queued');
+  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
 });

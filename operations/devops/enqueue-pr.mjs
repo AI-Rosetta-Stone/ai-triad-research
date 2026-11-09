@@ -121,27 +121,38 @@ export function formatSilentMissWarning({ repo, prNumber, cliOutput, priorAutoMe
   );
 }
 
+// t/4939 (Quality, p/780#25): `gh` is a module-level default so `enqueuePR`'s shim can be
+// exercised with a fake CLI in tests -- a real `gh` call in a unit test is itself the bug
+// class this file exists to prevent, and (as Quality demonstrated) moving the refusal check
+// below `gh pr merge` would otherwise leave every existing test green. Every internal helper
+// takes `ghFn` as its last parameter, defaulting to the real `gh`, and `enqueuePR` threads one
+// override through all of them.
 function gh(args, options = {}) {
   return execFileSync('gh', args, { encoding: 'utf8', ...options });
 }
 
-function queryQueueState(repo, prNumber) {
+function queryQueueState(repo, prNumber, ghFn = gh) {
   const [owner, name] = repo.split('/');
   const query =
     'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){' +
     'pullRequest(number:$number){state mergedAt mergeCommit{oid} isInMergeQueue mergeQueueEntry{position state} headRefOid ' +
     'mergeStateStatus autoMergeRequest{mergeMethod enabledAt enabledBy{login}}}}}';
   const out = JSON.parse(
-    gh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${prNumber}`]),
+    ghFn(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${prNumber}`]),
   );
   return out.data.repository.pullRequest;
 }
 
-/** Latest `t1-approval-guard` check run at `headSha`, or `null` on a lookup error (caller refuses on null+error). */
-function fetchGuardRun(repo, headSha) {
+/**
+ * Latest `t1-approval-guard` check run at `headSha` from the `github-actions` App, or `null`
+ * on a lookup error (caller refuses on null+error). Filters by `app.slug` BEFORE picking the
+ * latest run (Quality should-fix, p/780#25) -- filtering after would let a newer run from a
+ * different app hide an older, still-current `github-actions` run.
+ */
+function fetchGuardRun(repo, headSha, ghFn = gh) {
   try {
-    const out = JSON.parse(gh(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
-    const runs = out.check_runs ?? [];
+    const out = JSON.parse(ghFn(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
+    const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions');
     if (!runs.length) return { run: null, lookupError: false };
     runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
     return { run: runs[0], lookupError: false };
@@ -151,9 +162,9 @@ function fetchGuardRun(repo, headSha) {
 }
 
 /** Best-effort, never throws: true when `tier-check`'s latest completed run at `headSha` concluded `failure`. */
-function tierCheckDisagreesAt(repo, headSha) {
+function tierCheckDisagreesAt(repo, headSha, ghFn = gh) {
   try {
-    const out = JSON.parse(gh(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
+    const out = JSON.parse(ghFn(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
     const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions' && r.status === 'completed');
     if (!runs.length) return false;
     runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
@@ -163,12 +174,12 @@ function tierCheckDisagreesAt(repo, headSha) {
   }
 }
 
-function enqueueViaMutation(repo, prNumber, headSha) {
-  const nodeId = gh(['pr', 'view', String(prNumber), '-R', repo, '--json', 'id', '-q', '.id']).trim();
+function enqueueViaMutation(repo, prNumber, headSha, ghFn = gh) {
+  const nodeId = ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'id', '-q', '.id']).trim();
   const mutation =
     'mutation($pullRequestId:ID!,$headSha:GitObjectID!){enablePullRequestAutoMerge(input:{' +
     'pullRequestId:$pullRequestId,mergeMethod:SQUASH,expectedHeadOid:$headSha}){pullRequest{autoMergeRequest{mergeMethod}}}}';
-  gh(['api', 'graphql', '-f', `query=${mutation}`, '-f', `pullRequestId=${nodeId}`, '-f', `headSha=${headSha}`]);
+  ghFn(['api', 'graphql', '-f', `query=${mutation}`, '-f', `pullRequestId=${nodeId}`, '-f', `headSha=${headSha}`]);
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -180,13 +191,13 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000 } = {}) {
-  const prMeta = JSON.parse(gh(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh } = {}) {
+  const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
 
-  const { run: guardRun, lookupError, error: guardLookupErr } = fetchGuardRun(repo, headSha);
-  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha) : false;
+  const { run: guardRun, lookupError, error: guardLookupErr } = fetchGuardRun(repo, headSha, ghFn);
+  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn) : false;
 
   if (lookupError) {
     console.warn(
@@ -217,17 +228,17 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000 } = {}) {
     );
   }
 
-  const before = queryQueueState(repo, prNumber);
+  const before = queryQueueState(repo, prNumber, ghFn);
 
   let cliOutput = '';
   try {
-    cliOutput = gh(['pr', 'merge', String(prNumber), '-R', repo, '--auto', '--squash', '--match-head-commit', headSha]);
+    cliOutput = ghFn(['pr', 'merge', String(prNumber), '-R', repo, '--auto', '--squash', '--match-head-commit', headSha]);
   } catch (err) {
     cliOutput = String(err.stdout || err.message || err);
   }
 
   await sleep(sleepMs);
-  const after = queryQueueState(repo, prNumber);
+  const after = queryQueueState(repo, prNumber, ghFn);
   const afterOutcome = classifyEnqueueOutcome(after, { before });
   if (afterOutcome.state === 'merged' || afterOutcome.state === 'already_merged') {
     const sha = after.mergeCommit?.oid ?? 'unknown';
@@ -249,9 +260,9 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000 } = {}) {
 
   console.warn(formatSilentMissWarning({ repo, prNumber, cliOutput, priorAutoMergeRequest: before.autoMergeRequest }));
 
-  enqueueViaMutation(repo, prNumber, headSha);
+  enqueueViaMutation(repo, prNumber, headSha, ghFn);
   await sleep(sleepMs);
-  const afterFallback = queryQueueState(repo, prNumber);
+  const afterFallback = queryQueueState(repo, prNumber, ghFn);
   const fallbackOutcome = classifyEnqueueOutcome(afterFallback);
   if (fallbackOutcome.state === 'not_armed') {
     throw new Error(
