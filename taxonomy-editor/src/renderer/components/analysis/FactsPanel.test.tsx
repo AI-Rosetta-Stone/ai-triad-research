@@ -32,25 +32,77 @@ describe('FactsPanel (t/1025, t/1906)', () => {
     await waitFor(() => expect(screen.getByText(/No source evidence linked/)).toBeInTheDocument());
   });
 
-  it('lists facts and expands one (firing onSelectFact) on click', async () => {
+  it('lists facts; clicking an already-expanded card collapses it (firing onSelectFact(null))', async () => {
     const onSelectFact = vi.fn();
     render(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} />);
-    await waitFor(() => expect(screen.getByText('Economic growth')).toBeInTheDocument());
+    // t/4919: the only (first) fact is default-expanded once facts load, so doc-42 ends up
+    // visible without a click — but the label (always rendered, expanded or not) can commit
+    // one render before the separate default-expand effect's setExpanded(0) does, so this
+    // must itself be awaited rather than asserted synchronously right after the label's own
+    // waitFor (that race is real: it was intermittently failing when another test ran first
+    // and perturbed the exact timing).
+    await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
+    expect(screen.getByText('Economic growth')).toBeInTheDocument();
     expect(screen.getByText(/1 fact from source documents/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Economic growth'));
-    // Doc id only appears in the expanded detail.
+    expect(screen.queryByText(/doc-42/)).not.toBeInTheDocument();
+    expect(onSelectFact).toHaveBeenCalledWith(null);
+
+    fireEvent.click(screen.getByText('Economic growth'));
     expect(screen.getByText(/doc-42/)).toBeInTheDocument();
     expect(onSelectFact).toHaveBeenCalledWith(expect.objectContaining({ label: 'Economic growth' }));
+  });
+
+  describe('default-expand first fact (t/4919)', () => {
+    it('expands the first fact on mount (async load) without calling onSelectFact', async () => {
+      const onSelectFact = vi.fn();
+      render(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} />);
+      await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
+      expect(screen.getByText('Economic growth').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true');
+      // The reset effect calls onSelectFact(null) on mount/node-change (unchanged, pre-existing
+      // behavior) — but the default-expand path itself must never call it with a fact.
+      expect(onSelectFact).not.toHaveBeenCalledWith(expect.objectContaining({ label: expect.any(String) }));
+    });
+
+    it('re-applies the default to the new node\'s first fact on a node change', async () => {
+      const onSelectFact = vi.fn();
+      const { rerender } = render(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} />);
+      await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
+
+      rerender(<FactsPanel nodeId="node-mention" onSelectFact={onSelectFact} />);
+      await waitFor(() => expect(screen.getByText(/Anthropic released a model/)).toBeInTheDocument());
+      expect(screen.getByText('Model release').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('collapsing the default-expanded fact works, and it does not reopen on an unrelated re-render', async () => {
+      const onSelectFact = vi.fn();
+      const { rerender } = render(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} />);
+      await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText('Economic growth'));
+      expect(screen.queryByText(/doc-42/)).not.toBeInTheDocument();
+
+      // Re-render with the same nodeId (e.g. a parent re-render) — must not reopen the
+      // collapsed card (Quality's condition, t/4919#4: defaultAppliedFor is a ref, so the
+      // [facts, nodeId] effect is a no-op once already applied for this node).
+      rerender(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} onSelectRef={undefined} />);
+      expect(screen.queryByText(/doc-42/)).not.toBeInTheDocument();
+    });
+
+    it('an empty fact list renders without throwing and applies no default', async () => {
+      render(<FactsPanel nodeId="node-empty" />);
+      await waitFor(() => expect(screen.getByText(/No source evidence linked/)).toBeInTheDocument());
+    });
   });
 
   it('linkifies a stored mention and routes via the wired onSelectRef (t/1906)', async () => {
     const onSelectRef = vi.fn();
     render(<FactsPanel nodeId="node-mention" onSelectRef={onSelectRef} />);
     // Links render only in the EXPANDED claim (the muted collapsed preview stays plain
-    // text for WCAG AA — see FactsPanel §9 note). Expand the card first.
+    // text for WCAG AA — see FactsPanel §9 note). t/4919: the only (first) fact is
+    // default-expanded once facts load, so no click is needed to expand it here.
     await waitFor(() => expect(screen.getByText('Model release')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Model release'));
     // "Anthropic" in the expanded claim renders as a ref-link button (kind via aria-label).
     const link = await screen.findByRole('button', { name: /Organization: Anthropic/ });
     expect(link).toHaveClass('ref-link');
@@ -61,8 +113,8 @@ describe('FactsPanel (t/1025, t/1906)', () => {
 
   it('renders mentions as PLAIN text when no onSelectRef is wired (t/1977 — no dead links)', async () => {
     render(<FactsPanel nodeId="node-mention" />); // no co-mounted pane → no handler
+    // t/4919: default-expanded, no click needed.
     await waitFor(() => expect(screen.getByText('Model release')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Model release'));
     // The claim text is present, but "Anthropic" is NOT a link (would be a dead click).
     expect(screen.getByText(/Anthropic released a model/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Organization: Anthropic/ })).toBeNull();
