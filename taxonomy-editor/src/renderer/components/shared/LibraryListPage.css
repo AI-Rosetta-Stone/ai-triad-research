@@ -18,6 +18,7 @@
 
 .lib-header-row1 {
   display: flex;
+  flex-wrap: wrap; /* t/54: the actions drop under the title when they don't fit */
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -31,8 +32,11 @@
 
 .lib-header-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  row-gap: 8px;
+  min-width: 0;
 }
 
 .lib-btn-primary, .lib-btn-secondary {
@@ -54,16 +58,18 @@
 .lib-btn-primary:hover { background: var(--lib-accent-hover); border-color: var(--lib-accent-hover); }
 .lib-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* t/54 (Design t/54#2): tokens only, so every theme follows. The old hard-coded light background
+   with a theme-driven text color made these white-on-white in dark. */
 .lib-btn-secondary {
-  background: #faf8f4;
-  border: 1px solid #d9d1c6;
+  background: var(--bg-secondary);
+  border: 1px solid var(--lib-border-control);
   color: var(--lib-text);
 }
-.lib-btn-secondary:hover { background: #fff; border-color: #c9bfb2; }
+.lib-btn-secondary:hover { background: var(--lib-row-hover); border-color: var(--lib-text-faded); }
 .lib-btn-secondary.lib-btn-danger { color: var(--lib-accent); border-color: var(--lib-accent); }
 .lib-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.lib-editmode-actions { display: flex; align-items: center; gap: 8px; }
+.lib-editmode-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 8px; }
 
 .lib-header-row2 {
   display: flex;
@@ -134,13 +140,13 @@
   padding: 7px 10px;
   border-radius: 5px;
   border: 1px solid var(--lib-border-control);
-  background: #fbf9f6;
+  background: var(--bg-secondary);
   color: var(--lib-text);
 }
 .lib-search:focus {
   outline: none;
   border-color: var(--lib-accent);
-  background: #fff;
+  background: var(--lib-bg);
 }
 
 /* ── §2 table (CSS grid) ── */
@@ -339,7 +345,7 @@
   border: 1px solid var(--lib-accent);
   border-radius: 4px;
   padding: 3px 6px;
-  background: #fff;
+  background: var(--lib-bg);
   color: var(--lib-text);
 }
 
@@ -386,19 +392,19 @@
   font-size: 12px;
   padding: 3px 9px;
   border: 1px solid var(--lib-border-control);
-  background: #fbf9f6;
+  background: var(--bg-secondary);
   border-radius: 5px;
   cursor: pointer;
   color: var(--lib-text);
   white-space: nowrap;
 }
-.lib-action-btn:hover { background: #fff; border-color: #c9bfb2; }
+.lib-action-btn:hover { background: var(--lib-row-hover); border-color: var(--lib-text-faded); }
 .lib-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .lib-row-icon-btn {
   appearance: none;
   border: 1px solid var(--lib-border-control);
-  background: #fbf9f6;
+  background: var(--bg-secondary);
   border-radius: 5px;
   cursor: pointer;
   width: 24px;
@@ -409,7 +415,7 @@
   font-size: 12px;
   color: var(--lib-text);
 }
-.lib-row-icon-btn:hover { background: #fff; border-color: #c9bfb2; }
+.lib-row-icon-btn:hover { background: var(--lib-row-hover); border-color: var(--lib-text-faded); }
 .lib-row-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .lib-export-menu-wrap { position: relative; }
@@ -419,7 +425,7 @@
   top: calc(100% + 4px);
   right: 0;
   min-width: 140px;
-  background: #fff;
+  background: var(--lib-bg);
   border: 1px solid var(--lib-border-control);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(43, 38, 34, 0.12);
@@ -484,7 +490,7 @@
     row-gap: var(--sp-2);
   }
   .lib-title { flex: 1; min-width: 0; }
-  .lib-header-actions { flex: 0 0 auto; display: flex; gap: var(--sp-2); order: 3; }
+  .lib-header-actions { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: var(--sp-2); row-gap: var(--sp-2); order: 3; }
 
   /* Sort bar */
   .lib-phone-sort-bar {
@@ -529,7 +535,7 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .lib-phone-sort-direction:hover { background: #fff; border-color: #c9bfb2; }
+  .lib-phone-sort-direction:hover { background: var(--lib-row-hover); border-color: var(--lib-text-faded); }
 
   /* Phone list container */
   .lib-phone-list {
@@ -627,13 +633,13 @@
     justify-content: center;
     flex-shrink: 0;
   }
-  .lib-phone-actions-btn:hover { background: #fff; border-color: #c9bfb2; }
+  .lib-phone-actions-btn:hover { background: var(--lib-row-hover); border-color: var(--lib-text-faded); }
   .lib-phone-actions-menu {
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
     min-width: 120px;
-    background: #fff;
+    background: var(--lib-bg);
     border: 1px solid var(--lib-border-control);
     border-radius: var(--radius-sm);
     box-shadow: 0 8px 24px rgba(43, 38, 34, 0.12);
