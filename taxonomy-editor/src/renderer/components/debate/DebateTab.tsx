@@ -528,7 +528,8 @@ export function DebateTab() {
     onCopy: (row) => { void handleCopyCommunity(row); },
     // t/4898 (Design t/4898#4): admin rename/delete on Community rows.
     adminRename: (cd, title) => { renameItem('debates', cd.id, title).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'error', message: 'Failed to admin-rename community debate', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); }); },
-    adminDelete: (cd, reason) => { removeItem('debates', cd.id, reason).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'error', message: 'Failed to admin-delete community debate', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); }); },
+    // t/50: return the promise and rethrow after recording, so LibraryListPage's bulk delete (t/49) sees failures.
+    adminDelete: (cd, reason) => removeItem('debates', cd.id, reason).catch((err: unknown) => { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'error', message: 'Failed to admin-delete community debate', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); throw err; }),
     showCopy: () => !auth?.anonymous,
     onBrief: (row) => rowBrief.openRowBrief({ id: row.id, title: debateSafeTitle(row), phase: row.phase ?? '' }),
     briefWebOnly: isElectronMode(),
