@@ -107,32 +107,58 @@ jobs:
               $RawOut = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
                 --revision $RevisionName --query 'properties.template.containers[0].env' -o json 2>&1
               $AzExit = $LASTEXITCODE
+              # t/4932 live incident: a native command's exit code persists in $LASTEXITCODE
+              # across subsequent statements. Reset right after capturing it (t/4252 pattern),
+              # same reason as the merge-base/cat-file resets below -- defense in depth, since
+              # this scriptblock runs inside the same step as those calls.
+              $global:LASTEXITCODE = 0
               $StdoutLines = @($RawOut | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
               @{ ExitCode = $AzExit; Output = ($StdoutLines | Out-String).Trim() }
             } `
+            -GitCommitExistsFn {
+              param($Sha)
+              git cat-file -e "$Sha^{commit}" 2>$null
+              $Exists = ($LASTEXITCODE -eq 0)
+              $global:LASTEXITCODE = 0
+              $Exists
+            } `
             -GitMergeBaseFn {
-              param($Built, $Current)
-              # S2 (Lead review, #4679): exit 0 = ancestor, exit 1 = genuinely not an ancestor,
-              # exit 128 (or anything else) = $Current isn't in this checkout's history at all
-              # (e.g. a branch build) -- the check could not run, not "definitely not an ancestor."
-              git merge-base --is-ancestor $Built $Current
-              $LASTEXITCODE
+              param($Ancestor, $Descendant)
+              # t/4932 (TL correction, p/916#12/#14): the POSITIVE relation. exit 0 = $Ancestor
+              # (staging's current deploy) IS an ancestor of $Descendant (the built SHA) -- a
+              # genuine forward deploy. exit 1 = not an ancestor -- covers BOTH a downgrade and a
+              # diverged build, which must both block and don't need to be told apart here.
+              # Anything else (typically 128) means one of the two objects doesn't resolve in this
+              # checkout; GitCommitExistsFn above already ruled out $Ancestor's counterpart
+              # (BuiltSha) being the missing one before this is even called, so landing here always
+              # means $Ancestor (CurrentSha) is the one missing.
+              git merge-base --is-ancestor $Ancestor $Descendant
+              $ExitCode = $LASTEXITCODE
+              # Live incident (p/648#377): this exit code (0 OR 1, both legitimate outcomes) would
+              # otherwise leak through to become the WHOLE STEP's reported result with no explicit
+              # `exit`, causing `gate` to report failure even when the script's logic is correct,
+              # and `deploy-staging`'s `needs: [gate]` to skip every real deploy. Reset immediately.
+              $global:LASTEXITCODE = 0
+              $ExitCode
             }
 
           if ($Result.ReadFailed) {
             Write-Host "::warning::could not read staging's current DEPLOY_SHA (az failure or missing env var) -- failing closed."
           } elseif ([string]::IsNullOrWhiteSpace($Result.CurrentSha)) {
             Write-Host "No active revision (true first deploy) -- ancestor check skipped."
-          } elseif ($Result.AncestorUnknown) {
-            Write-Host "::warning::git merge-base --is-ancestor could not verify built SHA $env:BUILT_SHA vs. current DEPLOY_SHA $($Result.CurrentSha) -- not in this checkout's history."
+          } elseif ($Result.BuiltMissing) {
+            Write-Host "::warning::built SHA $env:BUILT_SHA does not resolve in this checkout -- cannot verify, blocking."
+          } elseif ($Result.CurrentMissing) {
+            Write-Host "::warning::staging's current DEPLOY_SHA $($Result.CurrentSha) does not resolve in this checkout (built SHA does) -- likely an off-main/force-pushed deploy."
           } else {
-            Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA $($Result.CurrentSha): $($Result.IsAncestor)"
+            Write-Host "Current DEPLOY_SHA $($Result.CurrentSha) is-ancestor-of built SHA $($env:BUILT_SHA): $($Result.CurrentIsAncestorOfBuilt)"
           }
 
           Add-Content -Path $env:GITHUB_OUTPUT -Value "current_sha=$($Result.CurrentSha)"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "read_failed=$($Result.ReadFailed.ToString().ToLowerInvariant())"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor=$(if ($null -eq $Result.IsAncestor) { '' } else { $Result.IsAncestor.ToString().ToLowerInvariant() })"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=$($Result.AncestorUnknown.ToString().ToLowerInvariant())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "current_is_ancestor_of_built=$(if ($null -eq $Result.CurrentIsAncestorOfBuilt) { '' } else { $Result.CurrentIsAncestorOfBuilt.ToString().ToLowerInvariant() })"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "built_missing=$($Result.BuiltMissing.ToString().ToLowerInvariant())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "current_missing=$($Result.CurrentMissing.ToString().ToLowerInvariant())"
 
       - name: Decide whether to deploy (t/4932)
         id: verdict
@@ -141,15 +167,17 @@ jobs:
           PUSHED: ${{ steps.built.outputs.pushed }}
           BUILT_SHA: ${{ steps.built.outputs.sha }}
           CURRENT_SHA: ${{ steps.compare.outputs.current_sha }}
-          IS_ANCESTOR: ${{ steps.compare.outputs.is_ancestor }}
+          CURRENT_IS_ANCESTOR_OF_BUILT: ${{ steps.compare.outputs.current_is_ancestor_of_built }}
           READ_FAILED: ${{ steps.compare.outputs.read_failed }}
-          ANCESTOR_UNKNOWN: ${{ steps.compare.outputs.ancestor_unknown }}
+          BUILT_MISSING: ${{ steps.compare.outputs.built_missing }}
+          CURRENT_MISSING: ${{ steps.compare.outputs.current_missing }}
         run: |
           . ./operations/devops/Get-StagingDeployGateVerdict.ps1
-          $IsAncestorBool = if ([string]::IsNullOrWhiteSpace($env:IS_ANCESTOR)) { $null } else { $env:IS_ANCESTOR -eq 'true' }
+          $IsAncestorBool = if ([string]::IsNullOrWhiteSpace($env:CURRENT_IS_ANCESTOR_OF_BUILT)) { $null } else { $env:CURRENT_IS_ANCESTOR_OF_BUILT -eq 'true' }
           $Result = Get-StagingDeployGateVerdict -Pushed ($env:PUSHED -eq 'true') -BuiltSha $env:BUILT_SHA `
-            -CurrentDeploySha $env:CURRENT_SHA -BuiltShaIsAncestorOfCurrent $IsAncestorBool `
-            -CurrentDeployReadFailed ($env:READ_FAILED -eq 'true') -AncestorCheckUnknownCommit ($env:ANCESTOR_UNKNOWN -eq 'true')
+            -CurrentDeploySha $env:CURRENT_SHA -CurrentIsAncestorOfBuilt $IsAncestorBool `
+            -CurrentDeployReadFailed ($env:READ_FAILED -eq 'true') `
+            -BuiltMissing ($env:BUILT_MISSING -eq 'true') -CurrentMissing ($env:CURRENT_MISSING -eq 'true')
           Add-Content -Path $env:GITHUB_OUTPUT -Value "proceed=$($Result.Proceed.ToString().ToLowerInvariant())"
           if ($Result.Warn) {
             Write-Host "::warning::Auto-Deploy to Staging ($(if ($Result.Proceed) { 'PROCEEDING WITH GAP' } else { 'SKIPPED' })): $($Result.Reason)"
