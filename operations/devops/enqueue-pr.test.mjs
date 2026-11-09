@@ -10,7 +10,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR,
-  fetchGuardRun, classifyGhApiError,
+  fetchGuardRun, classifyGhApiError, pickAuthoritativeGuardRun,
 } from './enqueue-pr.mjs';
 
 test('classifyEnqueueOutcome: is queued when both isInMergeQueue and mergeQueueEntry are present', () => {
@@ -369,6 +369,78 @@ test('enqueuePR shim: fetchGuardRun filters by app.slug BEFORE picking the lates
   const result = await enqueuePR('o/r', 42, { sleepMs: 0, gh: fakeGh });
   assert.equal(result.state, 'queued');
   assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
+});
+
+// t/4939 live incident (#4694 enqueue refusal, 2026-11-09): ci.yml also has a job named
+// `t1-approval-guard`, co-located for the merge_group queue re-check, which legitimately
+// SKIPS on every normal pull_request event (its `if:` only matches merge_group). That skip
+// shares the exact check-run name with the real PR-side gate (`t1-approval-guard.yml`). Picking
+// "latest by started_at" is a timing race: ci.yml is a large, slow, many-job workflow that often
+// finishes its meaningless skip AFTER the single-job standalone gate finishes its real success --
+// shadowing a genuine approval purely by luck of the clock.
+test('pickAuthoritativeGuardRun: a later SKIPPED run never shadows an earlier real success (the #4694 race)', () => {
+  const runs = [
+    { status: 'completed', conclusion: 'success', started_at: '2026-11-09T17:08:58Z' },
+    { status: 'completed', conclusion: 'skipped', started_at: '2026-11-09T17:14:43Z' },  // later, but meaningless
+  ];
+  assert.equal(pickAuthoritativeGuardRun(runs).conclusion, 'success');
+});
+
+test('pickAuthoritativeGuardRun: a later SKIPPED run never shadows an earlier FAILURE either (fail-closed, not fail-open)', () => {
+  const runs = [
+    { status: 'completed', conclusion: 'failure', started_at: '2026-11-09T17:08:58Z' },
+    { status: 'completed', conclusion: 'skipped', started_at: '2026-11-09T17:14:43Z' },
+  ];
+  assert.equal(pickAuthoritativeGuardRun(runs).conclusion, 'failure');
+});
+
+test('pickAuthoritativeGuardRun: among several non-skipped runs, the latest still wins (unchanged prior behavior)', () => {
+  const runs = [
+    { status: 'completed', conclusion: 'failure', started_at: '2026-11-09T17:00:00Z' },
+    { status: 'completed', conclusion: 'success', started_at: '2026-11-09T17:08:58Z' },  // latest real evaluation
+    { status: 'completed', conclusion: 'skipped', started_at: '2026-11-09T17:14:43Z' },
+  ];
+  assert.equal(pickAuthoritativeGuardRun(runs).conclusion, 'success');
+});
+
+test('pickAuthoritativeGuardRun: all runs skipped -> falls back to the latest skip (still correctly fail-closed)', () => {
+  const runs = [
+    { status: 'completed', conclusion: 'skipped', started_at: '2026-11-09T17:00:00Z' },
+    { status: 'completed', conclusion: 'skipped', started_at: '2026-11-09T17:14:43Z' },
+  ];
+  const r = pickAuthoritativeGuardRun(runs);
+  assert.equal(r.conclusion, 'skipped');
+  assert.equal(r.started_at, '2026-11-09T17:14:43Z');
+});
+
+test('pickAuthoritativeGuardRun: empty/null input returns null', () => {
+  assert.equal(pickAuthoritativeGuardRun([]), null);
+  assert.equal(pickAuthoritativeGuardRun(null), null);
+  assert.equal(pickAuthoritativeGuardRun(undefined), null);
+});
+
+test('fetchGuardRun: a later ci.yml merge_group skip does not shadow an earlier t1-approval-guard.yml success (live #4694 shape), real argv still has -X GET', () => {
+  const calls = [];
+  const fakeGh = (args) => {
+    calls.push(args);
+    const joined = args.join(' ');
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) {
+      return JSON.stringify({ check_runs: [
+        // The REAL gate (t1-approval-guard.yml), finished first.
+        { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T17:08:58Z' },
+        // ci.yml's co-located merge_group-only job, finished later on this ordinary PR run,
+        // legitimately skipped since github.event_name != 'merge_group'.
+        { status: 'completed', conclusion: 'skipped', app: { slug: 'github-actions' }, started_at: '2026-11-09T17:14:43Z' },
+      ] });
+    }
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+  const result = fetchGuardRun('o/r', 'abc123', fakeGh);
+  assert.equal(result.lookupError, false);
+  assert.equal(result.run.conclusion, 'success');
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].includes('-X'), 'argv must include -X GET, not just -F (t/4939 regression)');
+  assert.ok(calls[0].includes('GET'), 'argv must include -X GET, not just -F (t/4939 regression)');
 });
 
 // t/4939 live incident (Lead, p/648#361): `enqueue-pr.mjs:154`/`:167` passed `-F check_name=X`
