@@ -160,6 +160,29 @@ export function classifyGhApiError(err) {
 }
 
 /**
+ * PURE. Picks the check-run `fetchGuardRun` should treat as authoritative, from every
+ * `github-actions`-app run named `t1-approval-guard` at the head.
+ *
+ * Live bug (#4694 enqueue refusal, 2026-11-09): ci.yml also has a job named `t1-approval-guard`
+ * co-located for the merge_group queue re-check (t/4939#4) -- `if: github.event_name ==
+ * 'merge_group'`. On an ordinary `pull_request` run that job's `if:` is false, so it legitimately
+ * reports `skipped`, UNDER THE SAME CHECK-RUN NAME as the real PR-side gate
+ * (`t1-approval-guard.yml`). Picking "latest by started_at" is a RACE: ci.yml is a large,
+ * many-job workflow that often finishes its skip later than the single-job standalone gate
+ * finishes its real evaluation, so the meaningless skip can shadow a genuine `success` purely by
+ * timing. A `skipped` conclusion carries no information (it never evaluated anything) and must
+ * never be allowed to outrank an actual evaluation of the same check name, regardless of which
+ * finished later. Prefer the latest NON-skipped run; fall back to the latest skipped run only
+ * when nothing else exists (still correctly fail-closed -- the real gate genuinely never ran).
+ */
+export function pickAuthoritativeGuardRun(runs) {
+  if (!runs?.length) return null;
+  const sorted = [...runs].sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  const nonSkipped = sorted.filter((r) => r.conclusion !== 'skipped');
+  return nonSkipped.length ? nonSkipped[0] : sorted[0];
+}
+
+/**
  * Latest `t1-approval-guard` check run at `headSha` from the `github-actions` App, or `null`
  * on a lookup error (caller refuses on null+error). Filters by `app.slug` BEFORE picking the
  * latest run (Quality should-fix, p/780#25) -- filtering after would let a newer run from a
@@ -173,8 +196,7 @@ export function fetchGuardRun(repo, headSha, ghFn = gh) {
     const out = JSON.parse(ghFn(['api', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
     const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions');
     if (!runs.length) return { run: null, lookupError: false };
-    runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
-    return { run: runs[0], lookupError: false };
+    return { run: pickAuthoritativeGuardRun(runs), lookupError: false };
   } catch (err) {
     return { run: null, lookupError: true, error: err };
   }
