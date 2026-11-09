@@ -16,6 +16,7 @@ import path from 'path';
 import { getConfig } from '../runtimeConfig.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { ANALYTICS_EXCLUDED_SESSIONS, ANALYTICS_AMBIGUOUS_SESSIONS } from './analyticsExclusions.js';
 
 // ── Types ──
 
@@ -27,6 +28,57 @@ export interface AnalyticsEvent {
   category: string;
   detail: Record<string, unknown>;
   duration_ms?: number;
+  /** t/4960/t/4962: stamped ONLY by ServerAPI's event-POST handler, from the tester cookie —
+   *  never set anywhere in this file, and a client-supplied value in the body is ignored on
+   *  that side. Absent for normal traffic. */
+  internal?: boolean;
+}
+
+/**
+ * t/4960: opt-in flags to INCLUDE a class this file excludes from analysis by default.
+ * All four classes are read independently — `excludeAmbiguous` is the one exception where
+ * the default direction is reversed (ambiguous sessions count unless this is set).
+ */
+export interface AnalyticsExclusionOptions {
+  /** Include sessions in `ANALYTICS_EXCLUDED_SESSIONS` (staging-leak, pi-test). Default: excluded. */
+  includeListed?: boolean;
+  /** Include events with `internal === true`. Default: excluded. */
+  includeInternal?: boolean;
+  /** Include system identities (`smoke-probe`, any `smoke-*` user or session). Default: excluded. */
+  includeSystem?: boolean;
+  /** ALSO exclude the 2 ambiguous staging-leak sessions. Default: they count. */
+  excludeAmbiguous?: boolean;
+}
+
+/** `smoke-probe` and any `smoke-*` user or session (TL t/4960#1) — CI/synthetic traffic,
+ *  distinct from the frozen staging-leak smoke sessions (those are listed, not pattern-matched). */
+function isSystemIdentity(evt: AnalyticsEvent): boolean {
+  // Quality p/634#11: stored lines are JSON.parse-cast without validation (readEvents), so a
+  // malformed/legacy event missing `user` or `session_id` must not throw here — one bad line
+  // would otherwise fail every analytics query, not just skip that one event.
+  const user = typeof evt.user === 'string' ? evt.user : '';
+  const sessionId = typeof evt.session_id === 'string' ? evt.session_id : '';
+  return user === 'smoke-probe' || user.startsWith('smoke-') || sessionId.startsWith('smoke-');
+}
+
+/**
+ * Apply the three default-exclude classes (t/4960) to a batch of events, returning the
+ * survivors and how many were dropped — callers log the count at debug level per TL's
+ * "log, at debug level, how many events were excluded per query" requirement.
+ *
+ * `ANALYTICS_EXCLUSION_WINDOW` is NEVER consulted here (TL t/4960#3 condition 1) — exclusion
+ * is by session id alone, since `pi-test` sessions fall outside the staging-leak window.
+ */
+function applyExclusions(events: AnalyticsEvent[], opts?: AnalyticsExclusionOptions): { kept: AnalyticsEvent[]; excludedCount: number } {
+  let excludedCount = 0;
+  const kept = events.filter((evt) => {
+    if (!opts?.includeListed && ANALYTICS_EXCLUDED_SESSIONS.has(evt.session_id)) { excludedCount++; return false; }
+    if (opts?.excludeAmbiguous && ANALYTICS_AMBIGUOUS_SESSIONS.has(evt.session_id)) { excludedCount++; return false; }
+    if (!opts?.includeInternal && evt.internal === true) { excludedCount++; return false; }
+    if (!opts?.includeSystem && isSystemIdentity(evt)) { excludedCount++; return false; }
+    return true;
+  });
+  return { kept, excludedCount };
 }
 
 interface UserSummary {
@@ -229,8 +281,12 @@ export async function appendEvents(events: AnalyticsEvent[]): Promise<void> {
   }
 }
 
-/** Read all events in a date range (inclusive). */
-async function readEvents(from: string, to: string): Promise<AnalyticsEvent[]> {
+/**
+ * Read all events in a date range (inclusive), with the t/4960 default-exclude filter applied.
+ * Single chokepoint: every public query function funnels through here, so the filter (and its
+ * debug-level excluded-count log) applies exactly once, never duplicated per query.
+ */
+async function readEvents(from: string, to: string, exclusionOpts?: AnalyticsExclusionOptions): Promise<AnalyticsEvent[]> {
   if (!backend) return [];
 
   const events: AnalyticsEvent[] = [];
@@ -247,7 +303,11 @@ async function readEvents(from: string, to: string): Promise<AnalyticsEvent[]> {
     }
   }
 
-  return events;
+  const { kept, excludedCount } = applyExclusions(events, exclusionOpts);
+  if (excludedCount > 0) {
+    log.analytics.debug({ from, to, excludedCount, totalRead: events.length }, 'analytics: excluded events for this query (t/4960)');
+  }
+  return kept;
 }
 
 // ── Aggregation accumulators ──
@@ -311,8 +371,8 @@ function meanSessionDurationMs(sessionTimes: Map<string, SessionEntry>): number 
 }
 
 /** Query aggregated analytics for a date range. */
-export async function queryAggregated(from: string, to: string): Promise<QueryResult> {
-  const events = await readEvents(from, to);
+export async function queryAggregated(from: string, to: string, exclusionOpts?: AnalyticsExclusionOptions): Promise<QueryResult> {
+  const events = await readEvents(from, to, exclusionOpts);
 
   const userSet = new Set<string>();
   const sessionSet = new Set<string>();
@@ -370,8 +430,8 @@ export async function queryAggregated(from: string, to: string): Promise<QueryRe
 }
 
 /** Query raw events for a specific user and/or session. */
-export async function queryRawEvents(from: string, to: string, user?: string, sessionId?: string): Promise<AnalyticsEvent[]> {
-  const events = await readEvents(from, to);
+export async function queryRawEvents(from: string, to: string, user?: string, sessionId?: string, exclusionOpts?: AnalyticsExclusionOptions): Promise<AnalyticsEvent[]> {
+  const events = await readEvents(from, to, exclusionOpts);
   return events.filter(e =>
     (!user || e.user === user) && (!sessionId || e.session_id === sessionId)
   );
@@ -636,9 +696,9 @@ function buildTree(state: EngState, withUsers: boolean): EngagementTree {
 export async function queryEngagement(
   from: string,
   to: string,
-  opts?: { user?: string; session?: string; includeSessions?: boolean },
+  opts?: { user?: string; session?: string; includeSessions?: boolean } & AnalyticsExclusionOptions,
 ): Promise<EngagementQueryResult> {
-  const events = await readEvents(from, to);
+  const events = await readEvents(from, to, opts);
   const dwellEvents = events.filter(e => e.event_type === 'view.dwell');
   const billable = computeBillableEngagedMs(dwellEvents);
   const aggState = mkState(!!opts?.includeSessions);
@@ -698,8 +758,9 @@ export async function querySubjectBreakdown(
   subjectId: string,
   groupBy: 'user' | 'session',
   user?: string,
+  exclusionOpts?: AnalyticsExclusionOptions,
 ): Promise<SubjectBreakdownResult> {
-  const events = await readEvents(from, to);
+  const events = await readEvents(from, to, exclusionOpts);
   const matching = events.filter(e =>
     e.event_type === 'view.dwell' &&
     typeof e.detail.subject_id === 'string' && e.detail.subject_id === subjectId &&
