@@ -87,6 +87,11 @@ interface InquiryStoreState {
   /** Leaves the list screen without disturbing any in-flight ask/poll state. */
   closeList: () => void;
   fetchHistory: () => Promise<void>;
+  /** My-row rename/delete (t/4898). Optimistic, same shape as useCommunityStore's
+   *  removeItem/renameItem — rethrow on failure so the caller (InquiryTab) can map a delete's
+   *  409 "still running" to a friendlier message; this store doesn't special-case it. */
+  renameHistoryItem: (jobId: string, title: string) => Promise<void>;
+  deleteHistoryItem: (jobId: string) => Promise<void>;
   /** Opens a past question from history directly onto the Answer screen (t/3620). */
   openFromHistory: (jobId: string) => Promise<void>;
   /** t/4562: opens a community question directly onto the Answer screen — mirrors
@@ -335,6 +340,42 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
         set({ historyLoading: false, historyError: err instanceof Error ? err.message : String(err) });
+      }
+    },
+
+    renameHistoryItem: async (jobId, title) => {
+      const prev = get().history;
+      set({ history: prev.map(h => (h.jobId === jobId ? { ...h, title } : h)) });
+      try {
+        await api.renameInquiry(jobId, title);
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'inquiry-store',
+          level: 'error',
+          message: `renameHistoryItem failed for ${jobId}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        set({ history: prev });
+        throw err;
+      }
+    },
+
+    deleteHistoryItem: async (jobId) => {
+      const prev = get().history;
+      set({ history: prev.filter(h => h.jobId !== jobId) });
+      try {
+        await api.deleteInquiry(jobId);
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'inquiry-store',
+          level: 'error',
+          message: `deleteHistoryItem failed for ${jobId}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        set({ history: prev });
+        throw err;
       }
     },
 

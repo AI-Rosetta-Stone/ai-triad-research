@@ -12,15 +12,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { inquiryDisplayTitle } from '@lib/inquiry';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { useCommunityStore, type CommunityInquiry } from '../../hooks/useCommunityStore';
-import type { InquiryResultSummary } from '../../bridge/types';
+import type { InquiryResultSummary, InquiryResult } from '../../bridge/types';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
+import { useDialog } from '../shared/useDialog'; // t/4901
 import { InquiryAskPanel } from './InquiryAskPanel';
 import { InquiryRunningPanel } from './InquiryRunningPanel';
 import { InquiryAnswerPanel } from './InquiryAnswerPanel';
 import { LibraryListPage } from '../shared/LibraryListPage';
-import type { LibraryListPageConfig, LibraryVariant } from '../shared/LibraryListPage.types';
+import type {
+  LibraryListPageConfig, LibraryVariant, LibraryEditModeAction, LibraryRowEditAction,
+} from '../shared/LibraryListPage.types';
 import { InquiryGettingStarted } from './InquiryGettingStarted';
 import './inquiryShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
 import './InquiryTab.css';
@@ -42,6 +46,18 @@ export function formatLibDate(iso: string): string {
 
 export function inquiryCommunityAuthor(entry: CommunityInquiry): string | undefined {
   return entry.community_metadata?.submitted_by_display;
+}
+
+/** t/4898 (TL note, t/4898#2): always display via lib's `inquiryDisplayTitle()`, never an
+ *  inline fallback — covers both the My row (`InquiryResultSummary`, flat `title`/`question`)
+ *  and the Community row (`CommunityInquiry`, same two fields, now that admin rename writes
+ *  `title`). Neither row carries a full `request`, so `request` is a minimal stand-in cast —
+ *  the function only ever reads `request.title`/`request.question` off it. */
+function inquiryRowDisplayTitle(row: InquiryMyLibRow | InquiryCommunityLibRow): string {
+  return inquiryDisplayTitle({
+    title: row.title,
+    request: { question: row.question } as InquiryResult['request'],
+  }) || 'Untitled question';
 }
 
 function recordError(component: string, message: string, err: unknown): void {
@@ -68,10 +84,12 @@ function useNewQuestionDialog() {
 export function InquiryTab() {
   const {
     history, historyLoading, stopPolling, openFromHistory, openCommunityResult, reset, setQuestion, fetchHistory, openList,
+    renameHistoryItem, deleteHistoryItem,
   } = useInquiryStore(useShallow(s => ({
     history: s.history, historyLoading: s.historyLoading, stopPolling: s._stopPolling,
     openFromHistory: s.openFromHistory, openCommunityResult: s.openCommunityResult, reset: s.reset,
     setQuestion: s.setQuestion, fetchHistory: s.fetchHistory, openList: s.openList,
+    renameHistoryItem: s.renameHistoryItem, deleteHistoryItem: s.deleteHistoryItem,
   })));
   const screen = useInquiryStore(s => s.screen());
   const { inquiries, communityLoading, fetchInquiries, copyItem } = useCommunityStore(useShallow(s => ({
@@ -80,6 +98,19 @@ export function InquiryTab() {
 
   const [status, setStatus] = useState<string | null>(null);
   const { show: showAskDialog, open: openAskDialog, close: closeAskDialog } = useNewQuestionDialog();
+
+  // Edit mode (t/4898): rename via the shared TitleCell, single/bulk delete with a confirm
+  // step — mirrors DebateTab's edit mode, minus reorder (questions aren't reorderable).
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+
+  const exitEditMode = useCallback(() => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+    setRenamingId(null);
+  }, []);
 
   // Poll-loop bounds (TL t/3583#4 point 3): unmount cleanup so navigating away from this tab
   // doesn't leave a dangling setTimeout chain polling forever.
@@ -149,16 +180,63 @@ export function InquiryTab() {
     });
   }, [copyItem, fetchHistory, flash]);
 
+  const handleRename = useCallback((jobId: string, title: string) => {
+    renameHistoryItem(jobId, title).catch(err => {
+      recordError('inquiry-tab', 'Failed to rename inquiry', err);
+      flash(`Rename failed: ${mapErrorToUserMessage(err)}`);
+    });
+  }, [renameHistoryItem, flash]);
+
+  // t/4898 (Quality, t/4898#3/p/356#166): a still-running delete is a plain HTTP 409 on web
+  // (desktop never hits this — no persisted file exists until the run finishes). Mapped here
+  // rather than in the store or bridge, which both just rethrow whatever the API call throws.
+  const deleteFailureMessage = useCallback((err: unknown): string =>
+    (err as { httpStatus?: number }).httpStatus === 409
+      ? 'This question is still running — try deleting it again once it finishes.'
+      : mapErrorToUserMessage(err), []);
+
+  const handleDeleteOne = useCallback((jobId: string) => {
+    deleteHistoryItem(jobId).catch(err => {
+      recordError('inquiry-tab', 'Failed to delete inquiry', err);
+      flash(`Delete failed: ${deleteFailureMessage(err)}`);
+    });
+  }, [deleteHistoryItem, deleteFailureMessage, flash]);
+
   const myLibRows = useMemo<InquiryMyLibRow[]>(() => history.map(h => ({ ...h, id: h.jobId })), [history]);
+
+  const rowActions = useCallback((row: InquiryMyLibRow): LibraryRowEditAction[] => [
+    { icon: 'rename', label: `Rename "${inquiryRowDisplayTitle(row)}"`, onClick: () => setRenamingId(row.id) },
+  ], []);
+
+  const editModeActions: LibraryEditModeAction[] = [
+    { label: 'All', onClick: () => setSelectedIds(new Set(myLibRows.map(r => r.id))) },
+    { label: 'None', onClick: () => setSelectedIds(new Set()) },
+    ...(selectedIds.size > 0 ? [{ label: `Delete ${selectedIds.size}`, variant: 'danger' as const, onClick: () => setShowBulkDeleteConfirm(true) }] : []),
+    { label: 'Done', onClick: exitEditMode },
+  ];
 
   const libConfig: LibraryListPageConfig<InquiryMyLibRow, InquiryCommunityLibRow> = useMemo(() => ({
     title: 'Ask a Question',
     newLabel: '+ New Question',
     onNew: handleOpenNew,
-    showEdit: false,
+    showEdit: true,
     // No anonymous-session special-casing exists for inquiries today (unlike Debates) — My
     // content is per-session the same way it is for everyone else.
     anonymousHasMyContent: true,
+    editMode: {
+      active: editMode,
+      onEnter: () => setEditMode(true),
+      onExit: exitEditMode,
+      actions: editModeActions,
+      selectedIds,
+      onToggleSelect: (id) => setSelectedIds(prev => {
+        if (!myLibRows.some(r => r.id === id)) return prev; // guard: edit mode is My-only
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      }),
+      rowActions,
+    },
     titleHeader: 'Question',
     columns: [
       {
@@ -178,7 +256,10 @@ export function InquiryTab() {
         render: (row, variant) => <span className="lib-date">{formatLibDate(inquiryLibDate(row, variant))}</span>,
       },
     ],
-    getTitle: row => row.question || 'Untitled question',
+    getTitle: row => inquiryRowDisplayTitle(row),
+    onRename: handleRename,
+    renamingId,
+    setRenamingId,
     secondaryLine: (row, variant) => {
       if (variant !== 'community') return null;
       const entry = row as InquiryCommunityLibRow;
@@ -199,7 +280,10 @@ export function InquiryTab() {
     // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Web-only per the ticket
     // (canOpenInNewWindow already gates Electron, which has no inquiry popout window type).
     itemPlace: row => ({ tool: 'inquiry', id: row.id, path: `/inquiry/${row.id}` }),
-  }), [handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy]);
+  }), [
+    handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy, handleRename,
+    editMode, exitEditMode, editModeActions, selectedIds, myLibRows, rowActions, renamingId,
+  ]);
 
   // t/4666: the New question dialog opens OVER the list rather than replacing it — the list
   // page stays rendered behind it (Design spec), so it shows whenever the store says 'list' OR
@@ -223,6 +307,25 @@ export function InquiryTab() {
           restoreKey="inquiry"
         />
         {showAskDialog && <InquiryAskPanel onClose={handleCloseAskDialog} onStarted={closeAskDialog} />}
+        {showBulkDeleteConfirm && (
+          <BulkDeleteInquiryDialog
+            rows={myLibRows}
+            selectedIds={selectedIds}
+            onCancel={() => setShowBulkDeleteConfirm(false)}
+            onConfirm={async () => {
+              for (const id of selectedIds) {
+                try {
+                  await deleteHistoryItem(id);
+                } catch (err) {
+                  recordError('inquiry-tab', 'Failed to delete inquiry (bulk)', err);
+                  flash(`Delete failed: ${deleteFailureMessage(err)}`);
+                }
+              }
+              setShowBulkDeleteConfirm(false);
+              exitEditMode();
+            }}
+          />
+        )}
       </>
     );
   }
@@ -231,6 +334,42 @@ export function InquiryTab() {
     <div className="inquiry-tab">
       {screen === 'running' && <InquiryRunningPanel />}
       {screen === 'answer' && <InquiryAnswerPanel />}
+    </div>
+  );
+}
+
+// ── Bulk delete confirmation dialog (t/4898, mirrors DebateTab's BulkDeleteDialog) ──
+
+function BulkDeleteInquiryDialog({ rows, selectedIds, onCancel, onConfirm }: {
+  rows: InquiryMyLibRow[];
+  selectedIds: Set<string>;
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const { dialogRef, titleId } = useDialog({ onCancel }); // t/4901
+  const [deleting, setDeleting] = useState(false);
+  return (
+    <div className="dialog-overlay" onClick={() => { if (!deleting) onCancel(); }}>
+      <div ref={dialogRef} className="dialog bulk-delete-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h3 id={titleId}>Delete {selectedIds.size} question{selectedIds.size !== 1 ? 's' : ''}?</h3>
+        <div className="bulk-delete-list">
+          {rows.filter(r => selectedIds.has(r.id)).map(r => (
+            <div key={r.id} className="bulk-delete-item">
+              <span className="bulk-delete-item-title">{inquiryRowDisplayTitle(r)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="dialog-actions">
+          <button className="btn" disabled={deleting} onClick={onCancel}>Cancel</button>
+          <button
+            className="btn btn-danger"
+            disabled={deleting}
+            onClick={async () => { setDeleting(true); await onConfirm(); }}
+          >
+            Delete {selectedIds.size} Question{selectedIds.size !== 1 ? 's' : ''}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
