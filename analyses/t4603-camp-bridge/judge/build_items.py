@@ -1,8 +1,8 @@
-"""t/4880: build judge inputs for the t/4742 sheet (88 items).
+"""t/4880: build judge inputs for a label sheet (default: the t/4742 sheet, 88 items).
 
-Reads label_sheet.json and the live taxonomy node descriptions. Writes items.json with
-the rendered prompt per item. The reference labels are NOT included here; score.py joins them.
-Usage: python build_items.py <prompt.md> <out.json>
+Reads the sheet and the live taxonomy node descriptions. Writes items.json with the
+rendered prompt per item. The reference labels are NOT included here; score.py joins them.
+Usage: python build_items.py <prompt.md> <out.json> [sheet.json]
 """
 import json
 import os
@@ -23,7 +23,8 @@ for name in ('accelerationist.json', 'safetyist.json', 'skeptic.json', 'situatio
     for n in (d['nodes'] if isinstance(d, dict) else d):
         nodes[n['id']] = (n.get('label') or '', n.get('description') or '')
 
-with open(os.path.join(HERE, '..', 'label_sheet.json'), encoding='utf-8') as f:
+sheet_path = sys.argv[3] if len(sys.argv) > 3 else os.path.join(HERE, '..', 'label_sheet.json')
+with open(sheet_path, encoding='utf-8') as f:
     sheet = json.load(f)
 
 flat = lambda t: ' '.join(map(str, t)) if isinstance(t, list) else (t or '')

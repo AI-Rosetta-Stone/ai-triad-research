@@ -3,7 +3,8 @@
 Reference = the label where v2 raters A and B agree (binary: genuine vs bad).
 Pass bar (stipulated, t/4880#2): on agreed off-tag items, bad-recall >= 0.8 AND
 genuine items dropped <= 1 in 5. Every rate is reported with its counts.
-Usage: python score.py <judge_out.jsonl>
+Usage: python score.py <judge_out.jsonl> [label_key.json raterA.json raterB.json]
+(defaults: the t/4742 sheet's key and v2 rater files)
 """
 import collections
 import json
@@ -18,9 +19,15 @@ def load(p):
     with open(p, encoding='utf-8') as f:
         return json.load(f)
 
-key = load(os.path.join(D, 'label_key.json'))
-A = {k: v['label'] for k, v in load(os.path.join(D, 'reliability', 'v2_raterA_labels_t4742.json')).items()}
-B = {k: v['label'] for k, v in load(os.path.join(D, 'reliability', 'v2_raterB_labels_t4742.json')).items()}
+if len(sys.argv) > 4:
+    key_path, a_path, b_path = sys.argv[2], sys.argv[3], sys.argv[4]
+else:
+    key_path = os.path.join(D, 'label_key.json')
+    a_path = os.path.join(D, 'reliability', 'v2_raterA_labels_t4742.json')
+    b_path = os.path.join(D, 'reliability', 'v2_raterB_labels_t4742.json')
+key = load(key_path)
+A = {k: v['label'] for k, v in load(a_path).items()}
+B = {k: v['label'] for k, v in load(b_path).items()}
 
 out, bad_parse = {}, []
 with open(sys.argv[1], encoding='utf-8') as f:

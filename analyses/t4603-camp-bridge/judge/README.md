@@ -28,3 +28,29 @@ The question is whether an LLM judge can catch off-tag key_points whose document
 ## Next
 - Confirm on a held-out sample. That needs a fresh extraction sample and a two-rater pass; the judge run itself costs about $0.10.
 - Then a PowerShell implementation ticket: the judge as a post-extraction step, a deterministic pre-drop for `does not (propose|articulate|engage)` placeholders, and drop counts by relation in `model_info`.
+
+## Held-out check (2026-11-09): v1 does NOT generalize
+
+- **Held-out set:** the t/4603 sheet (`../label_sheet_t4603.json`, 90 items), which wasn't used to tune v1. It covers the same 14 docs, so the items are held out but the documents are not.
+- **Reference labels:** two fresh blind raters on rubric v2: A is Sonnet, B is Opus (`../reliability/v2_rater{A,B}_labels_t4603.json`).
+  - Binary κ **0.62** (n=90, p_e 0.54).
+  - Bad prevalence is 0.58 for A and 0.73 for B, a **gap of 0.16**, so this sheet misses the t/4881 reliability criterion (gap ≤ 0.10). B is stricter.
+  - Scoring therefore uses only items where both raters agree: 74 items, 47 of them off-tag.
+- **Judge:** v1, one run (`out_v1_holdout_t4603.jsonl`). Spend upper bound is $0.10, bringing the t/4880 total to $0.38.
+
+| subset | bad caught | genuine dropped | pass |
+|---|---|---|---|
+| off-tag (agreed) | **30/40 (0.75)** | 0/7 | **no**: recall is below 0.8 |
+| new off-tag | 11/18 (0.61) | 0/4 | — |
+| new on-tag | 9/11 | 0/16 | — |
+
+**Why it misses.** I read all 10 missed bad off-tag items for diagnosis only; nothing was tuned on them. v1's added paragraph ("use the POINT's non-framing content"; "a core part counts") made the judge **accept the summarizer's inference** instead of checking the document. It now passes:
+- inference added by the point (C15, C77);
+- wrong-scope mappings (C28, C77);
+- checklist boilerplate (C22);
+- content the node's own `Excludes:` list rules out (C72);
+- null-node items (C01, C47).
+
+The v0 → v1 edit traded recall for genuine retention on the calibration set, and the trade didn't hold.
+
+**Consequence.** **Don't wire v1 in.** A v2 would restore span-primacy (the point only *locates* the argument and never supplies it), add an explicit `Excludes:` check, route boilerplate to `not_a_claim`, add a wrong-scope rule, and give null-node items a camp-level rule. Because these 10 items have now been read, the t/4603 sheet can't validate v2. **v2 needs a fresh-document sample:** a new extraction run plus a two-rater pass, which means a PI spend decision.
