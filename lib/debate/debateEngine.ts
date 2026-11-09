@@ -626,6 +626,7 @@ export class DebateEngine {
     }
 
     // Log calibration data point (non-blocking, never fails the debate)
+    let calibrationWritten = false;
     try {
       // ── ASYNC-ORDERING GUARANTEE (settle-gate) ─────────────────────────────
       // Awaits pending claim-verifications (t/1781 fire-and-forget) before
@@ -667,6 +668,7 @@ export class DebateEngine {
         dataPoint.coherence_gate_miss = true;
       }
       appendCalibrationLog(dataPoint, this.config.calibrationDataRoot ?? dataRoot);
+      calibrationWritten = true;
 
       // Post-debate adaptive threshold write-back
       this._claimPipeline.runPostDebateCalibration(dataRoot);
@@ -799,8 +801,7 @@ export class DebateEngine {
         getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Reflection proposal generation failed', error: { name: (reflErr as Error).name ?? 'Error', message: String(reflErr), stack: (reflErr as Error).stack } });
       }
     } catch (calErr) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Calibration logging failed', error: { name: (calErr as Error).name ?? 'Error', message: String(calErr), stack: (calErr as Error).stack } });
-      this.warn('Calibration logging', calErr, 'Non-critical — debate results unaffected');
+      this.warn('Calibration logging', calErr, calibrationWritten ? 'Calibration row was written; the post-debate steps after it were skipped. Debate results unaffected' : 'Skipped: this debate was NOT written to the calibration log and post-debate calibration did not run. Debate results unaffected'); // warn() also records the FR event (t/58)
     }
 
     return this.session;

@@ -7,7 +7,11 @@
 // count/roles, diagnostics presence, session field population.
 // This proves the orchestration seams are intact across all 3 cluster extractions.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// t/57: keep engine.run() off the real ai-triad-data calibration log.
+vi.mock('../calibrationLogger.js', async (importOriginal) =>
+  (await import('./hermeticCalibration.js')).hermeticCalibrationLogger(importOriginal));
 import { DebateEngine } from '../debateEngine.js';
 import type { DebateConfig } from '../debateEngine.js';
 import type { ExtendedAIAdapter, GenerateOptions } from '../aiAdapter.js';
