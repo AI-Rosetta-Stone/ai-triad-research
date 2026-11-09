@@ -90,56 +90,42 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-          $Active = @(Get-ContainerAppRevision -Mode Active -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}')
-          $CurrentSha = ''
-          $ReadFailed = $false
-          if ($Active.Count -gt 0) {
-            $Top = @($Active | Sort-Object -Property TrafficWeight -Descending)[0]
-            # S1 (Lead review, #4679): `az` is a NATIVE command -- it does NOT throw on failure
-            # even under $ErrorActionPreference='Stop'. $LASTEXITCODE must be checked explicitly,
-            # immediately after the call, before any other PowerShell statement can reset it.
-            $EnvJson = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $Top.Name --query 'properties.template.containers[0].env' -o json 2>&1
-            $AzExit = $LASTEXITCODE
-            if ($AzExit -ne 0) {
-              Write-Host "::warning::az containerapp revision show failed (exit $AzExit) reading revision '$($Top.Name)': $EnvJson"
-              $ReadFailed = $true
-            } else {
-              $EnvVars = $EnvJson | ConvertFrom-Json
-              $DeployShaVar = @($EnvVars | Where-Object { $_.name -eq 'DEPLOY_SHA' })
-              if ($DeployShaVar.Count -gt 0) {
-                $CurrentSha = $DeployShaVar[0].value
-              } else {
-                Write-Host "::warning::active revision '$($Top.Name)' has no DEPLOY_SHA env var -- cannot determine its deployed commit."
-                $ReadFailed = $true
-              }
+          . ./operations/devops/Get-StagingCurrentDeployComparison.ps1
+
+          $Result = Get-StagingCurrentDeployComparison -BuiltSha $env:BUILT_SHA `
+            -GetActiveRevisionFn { Get-ContainerAppRevision -Mode Active -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}' } `
+            -AzRevisionShowFn {
+              param($RevisionName)
+              # S1 (Lead review, #4679): `az` is a NATIVE command -- it does NOT throw on
+              # failure even under $ErrorActionPreference='Stop'. $LASTEXITCODE must be checked
+              # explicitly, immediately after the call, before any other statement resets it.
+              $Out = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+                --revision $RevisionName --query 'properties.template.containers[0].env' -o json 2>&1
+              @{ ExitCode = $LASTEXITCODE; Output = $Out }
+            } `
+            -GitMergeBaseFn {
+              param($Built, $Current)
+              # S2 (Lead review, #4679): exit 0 = ancestor, exit 1 = genuinely not an ancestor,
+              # exit 128 (or anything else) = $Current isn't in this checkout's history at all
+              # (e.g. a branch build) -- the check could not run, not "definitely not an ancestor."
+              git merge-base --is-ancestor $Built $Current
+              $LASTEXITCODE
             }
-          }
-          # S1: an active revision EXISTS but could not be read is NOT the same as no active
-          # revision at all (a true first deploy). Only the latter is safe to treat as "nothing
-          # to compare against" below.
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "current_sha=$CurrentSha"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "read_failed=$($ReadFailed.ToString().ToLowerInvariant())"
-          if ($ReadFailed -or [string]::IsNullOrWhiteSpace($CurrentSha)) {
-            if (-not $ReadFailed) { Write-Host "No active revision (true first deploy) -- ancestor check skipped." }
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor="
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=false"
+
+          if ($Result.ReadFailed) {
+            Write-Host "::warning::could not read staging's current DEPLOY_SHA (az failure or missing env var) -- failing closed."
+          } elseif ([string]::IsNullOrWhiteSpace($Result.CurrentSha)) {
+            Write-Host "No active revision (true first deploy) -- ancestor check skipped."
+          } elseif ($Result.AncestorUnknown) {
+            Write-Host "::warning::git merge-base --is-ancestor could not verify built SHA $env:BUILT_SHA vs. current DEPLOY_SHA $($Result.CurrentSha) -- not in this checkout's history."
           } else {
-            # S2 (Lead review, #4679): exit 0 = ancestor, exit 1 = genuinely not an ancestor,
-            # exit 128 (or anything else) = CurrentSha isn't in this checkout's history at all
-            # (e.g. a branch build) -- the check could not run, not "definitely not an ancestor."
-            git merge-base --is-ancestor $env:BUILT_SHA $CurrentSha
-            $MergeBaseExit = $LASTEXITCODE
-            $IsAncestor = ($MergeBaseExit -eq 0)
-            $Unknown = ($MergeBaseExit -ne 0 -and $MergeBaseExit -ne 1)
-            if ($Unknown) {
-              Write-Host "::warning::git merge-base --is-ancestor exited $MergeBaseExit (not 0/1) for built SHA $env:BUILT_SHA vs. current DEPLOY_SHA ${CurrentSha} -- $CurrentSha is not in this checkout's history; the ancestor guard could not verify."
-            } else {
-              Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA ${CurrentSha}: $IsAncestor"
-            }
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor=$($IsAncestor.ToString().ToLowerInvariant())"
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=$($Unknown.ToString().ToLowerInvariant())"
+            Write-Host "Built SHA $env:BUILT_SHA is-ancestor-of current DEPLOY_SHA $($Result.CurrentSha): $($Result.IsAncestor)"
           }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "current_sha=$($Result.CurrentSha)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "read_failed=$($Result.ReadFailed.ToString().ToLowerInvariant())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "is_ancestor=$(if ($null -eq $Result.IsAncestor) { '' } else { $Result.IsAncestor.ToString().ToLowerInvariant() })"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "ancestor_unknown=$($Result.AncestorUnknown.ToString().ToLowerInvariant())"
 
       - name: Decide whether to deploy (t/4932)
         id: verdict
