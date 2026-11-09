@@ -21,9 +21,19 @@
 // this wrapper exists to catch.
 //
 //   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber>
+//
+// t/4939 (interim refusal, Quality-approved design + 3 should-fixes): #4648 merged with no
+// approval and CHANGES_REQUESTED still active, because `t1-approval-guard` isn't a required
+// status check yet (promotion is a separate T2 change, step 3 of t/4939). Until then, this
+// wrapper refuses to arm/enqueue a T1 PR whose guard verdict isn't a clean `success` at the
+// head, refuses any draft outright, and refuses on the guard's own `failure` verdict
+// regardless of declared tier. It does NOT cover a direct `gh pr merge --auto` call or the
+// sweep paths (t0-enqueue-sweep, dependabot-enqueue-sweep) -- the required-context promotion
+// is the real fix for those.
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { extractTier } from './tier-check-predicate.mjs';
 
 /**
  * PURE. Classifies a queue-state read into one of five outcomes:
@@ -46,6 +56,59 @@ export function classifyEnqueueOutcome({ state, isInMergeQueue, mergeQueueEntry,
   if (isInMergeQueue === true && mergeQueueEntry != null) return { state: 'queued' };
   if (autoMergeRequest != null) return { state: 'armed_waiting' };
   return { state: 'not_armed' };
+}
+
+/**
+ * PURE. Decides whether enqueue-pr.mjs may arm/enqueue a PR, given its declared tier, draft
+ * state, and the latest `t1-approval-guard` check run at the head SHA.
+ *
+ * `guardRun` is `{ status, conclusion, app: { slug } }` or `null`/missing if no such run
+ * exists at the head. A run from any app other than `github-actions` is ignored (should-fix
+ * 2, Quality t/4939#2) -- treated exactly like a missing run, never a green light.
+ *
+ * `tierCheckDisagreesOnT0` (should-fix 3, WARN-only arm, Quality t/4939#2): true when the PR
+ * declares `Tier: T0` but `tier-check`'s own completed run at the head concluded `failure`.
+ * `tier-check`'s verdict isn't trusted enough yet to BLOCK on (t/4939#1), so this never
+ * changes `allow` -- it only surfaces a `warn` string for the caller to log, and the
+ * blocking version of should-fix 3 is a named follow-up, not done here.
+ *
+ * Returns `{ allow, reason, warn }`. `reason` is one of: 'draft', 'guard_failure',
+ * 'guard_success', 'guard_missing', 'guard_in_progress', 'guard_queued',
+ * 'guard_<other-conclusion>', 'tier_exempt'.
+ */
+export function classifyT1GuardForEnqueue({ tier, isDraft, guardRun, tierCheckDisagreesOnT0 = false }) {
+  if (isDraft) return { allow: false, reason: 'draft', warn: null };
+
+  const effRun = guardRun && guardRun.app?.slug === 'github-actions' ? guardRun : null;
+  const conclusion = effRun && effRun.status === 'completed' ? effRun.conclusion : null;
+
+  // The guard's own failing verdict blocks regardless of declared tier -- it's the guard
+  // speaking for itself, not a tier-gated rule.
+  if (conclusion === 'failure') return { allow: false, reason: 'guard_failure', warn: null };
+
+  const knownTier = tier === 'T0' || tier === 'T1' || tier === 'T2';
+  // An unparseable tier is fail-closed: treated exactly like a declared T1 (Quality t/4939#2).
+  const treatAsT1 = !knownTier || tier === 'T1';
+
+  if (treatAsT1) {
+    if (conclusion === 'success') return { allow: true, reason: 'guard_success', warn: null };
+    const reason = !effRun
+      ? 'guard_missing'
+      : effRun.status === 'in_progress'
+        ? 'guard_in_progress'
+        : effRun.status === 'queued'
+          ? 'guard_queued'
+          : `guard_${conclusion ?? 'unknown'}`;
+    return { allow: false, reason, warn: null };
+  }
+
+  // T0 or T2: the guard isn't required here (T0 has no approval rule; T2 is gated by
+  // consult-hold elsewhere). should-fix 3's WARN-only arm: flag disagreement, never block.
+  const warn = tier === 'T0' && tierCheckDisagreesOnT0
+    ? "tier-check's completed run at this head disagrees with the declared Tier: T0 -- review " +
+      'manually; enqueue-pr does not block on this signal yet (t/4939 follow-up).'
+    : null;
+  return { allow: true, reason: 'tier_exempt', warn };
 }
 
 /** PURE. Formats the WARN logged on a silent CLI miss, so the message shape is testable. */
@@ -74,6 +137,32 @@ function queryQueueState(repo, prNumber) {
   return out.data.repository.pullRequest;
 }
 
+/** Latest `t1-approval-guard` check run at `headSha`, or `null` on a lookup error (caller refuses on null+error). */
+function fetchGuardRun(repo, headSha) {
+  try {
+    const out = JSON.parse(gh(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
+    const runs = out.check_runs ?? [];
+    if (!runs.length) return { run: null, lookupError: false };
+    runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+    return { run: runs[0], lookupError: false };
+  } catch (err) {
+    return { run: null, lookupError: true, error: err };
+  }
+}
+
+/** Best-effort, never throws: true when `tier-check`'s latest completed run at `headSha` concluded `failure`. */
+function tierCheckDisagreesAt(repo, headSha) {
+  try {
+    const out = JSON.parse(gh(['api', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
+    const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions' && r.status === 'completed');
+    if (!runs.length) return false;
+    runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+    return runs[0].conclusion === 'failure';
+  } catch {
+    return false;
+  }
+}
+
 function enqueueViaMutation(repo, prNumber, headSha) {
   const nodeId = gh(['pr', 'view', String(prNumber), '-R', repo, '--json', 'id', '-q', '.id']).trim();
   const mutation =
@@ -92,7 +181,42 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * doesn't result in the PR being queued or armed.
  */
 export async function enqueuePR(repo, prNumber, { sleepMs = 5000 } = {}) {
-  const headSha = gh(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid', '-q', '.headRefOid']).trim();
+  const prMeta = JSON.parse(gh(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
+  const headSha = prMeta.headRefOid;
+  const tier = extractTier(prMeta.body);
+
+  const { run: guardRun, lookupError, error: guardLookupErr } = fetchGuardRun(repo, headSha);
+  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha) : false;
+
+  if (lookupError) {
+    console.warn(
+      `WARN: enqueue-pr could not look up t1-approval-guard's check run for #${prNumber} on ${repo} ` +
+      `at ${headSha} (${guardLookupErr?.message ?? 'API error'}). Refusing rather than risk arming an unapproved T1 PR.`,
+    );
+    throw new Error(
+      `enqueue-pr: refusing #${prNumber} on ${repo} -- could not verify t1-approval-guard's state at ${headSha}.\n` +
+      '  Goal:       land the PR only once its approval guard verdict is confirmed.\n' +
+      '  Problem:    the check-runs API lookup for t1-approval-guard failed.\n' +
+      '  Location:   operations/devops/enqueue-pr.mjs (fetchGuardRun).\n' +
+      '  Next steps: check gh auth / API rate limits, then rerun.',
+    );
+  }
+
+  const verdict = classifyT1GuardForEnqueue({ tier, isDraft: prMeta.isDraft, guardRun, tierCheckDisagreesOnT0 });
+  if (verdict.warn) console.warn(`WARN: ${verdict.warn} (#${prNumber} on ${repo}, head ${headSha})`);
+  if (!verdict.allow) {
+    throw new Error(
+      `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (${verdict.reason}).\n` +
+      `  Goal:       land #${prNumber} via the merge queue.\n` +
+      `  Problem:    ${verdict.reason === 'draft'
+        ? 'the PR is still a draft.'
+        : `t1-approval-guard at ${headSha} is ${verdict.reason.replace(/^guard_/, '')}, and the declared tier (${tier ?? 'none'}) requires a clean pass.`}\n` +
+      '  Location:   operations/devops/enqueue-pr.mjs (classifyT1GuardForEnqueue, t/4939).\n' +
+      '  Next steps: get an `Approved (<role>):` comment or review, wait for t1-approval-guard ' +
+      'to go green on this exact head, then rerun. This is the same incident class as #4648/#3343/#3364.',
+    );
+  }
+
   const before = queryQueueState(repo, prNumber);
 
   let cliOutput = '';
