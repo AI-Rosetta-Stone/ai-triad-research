@@ -45,6 +45,20 @@ describe('electron-bridge inquiry delegation', () => {
 
     await expect(mod.api.getInquiry('missing-job')).rejects.toThrow();
   });
+
+  // t/4898/t/4895: desktop parity for rename/delete.
+  it('delegates renameInquiry/deleteInquiry to window.electronAPI', async () => {
+    const renameInquiry = vi.fn().mockResolvedValue(undefined);
+    const deleteInquiry = vi.fn().mockResolvedValue(undefined);
+    (globalThis as Record<string, unknown>).window = { electronAPI: { renameInquiry, deleteInquiry } };
+    const mod = await import('../electron-bridge');
+
+    await mod.api.renameInquiry('job-1', 'New title');
+    expect(renameInquiry).toHaveBeenCalledWith('job-1', 'New title');
+
+    await mod.api.deleteInquiry('job-1');
+    expect(deleteInquiry).toHaveBeenCalledWith('job-1');
+  });
 });
 
 describe('web-bridge inquiry REST calls', () => {
@@ -113,5 +127,39 @@ describe('web-bridge inquiry REST calls', () => {
 
     const [path] = resilientFetch.mock.calls[0];
     expect(path).toBe('/api/inquiry/a%2Fb');
+  });
+
+  // t/4898/t/4897: rename/delete — AppAPI types these Promise<void> (Quality, t/4898#3/p/356#166),
+  // so the web route's response body is discarded rather than returned to the caller.
+  it('renameInquiry PATCHes /api/inquiry/:jobId with {title} and resolves void', async () => {
+    resilientFetch.mockResolvedValue(jsonResponse({ jobId: 'job-9', title: 'New title' }));
+    const { api } = await import('../web-bridge');
+
+    const result = await api.renameInquiry('job-9', 'New title');
+
+    expect(result).toBeUndefined();
+    const [path, init] = resilientFetch.mock.calls[0];
+    expect(path).toBe('/api/inquiry/job-9');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body)).toEqual({ title: 'New title' });
+  });
+
+  it('deleteInquiry DELETEs /api/inquiry/:jobId and resolves void', async () => {
+    resilientFetch.mockResolvedValue(jsonResponse({ jobId: 'job-9', deleted: true }));
+    const { api } = await import('../web-bridge');
+
+    const result = await api.deleteInquiry('job-9');
+
+    expect(result).toBeUndefined();
+    const [path, init] = resilientFetch.mock.calls[0];
+    expect(path).toBe('/api/inquiry/job-9');
+    expect(init.method).toBe('DELETE');
+  });
+
+  it('deleteInquiry surfaces a 409 (still running) as an httpStatus-tagged error, not a generic failure', async () => {
+    resilientFetch.mockResolvedValue(jsonResponse({ error: 'Inquiry is still running — wait for it to finish before deleting' }, 409));
+    const { api } = await import('../web-bridge');
+
+    await expect(api.deleteInquiry('job-9')).rejects.toMatchObject({ httpStatus: 409 });
   });
 });
