@@ -162,7 +162,7 @@ a.vocab-term,
   margin-left: 12px;
   margin-top: 2px;
   font-size: var(--text-md);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-style: italic;
   line-height: 1.4;
 }
@@ -174,13 +174,11 @@ a.vocab-term,
   border-radius: 4px;
   border-left: 3px solid transparent;
   background: transparent;
-  opacity: 0.7;
 }
 
 .vocab-def-active {
   border-left: 3px solid var(--focus-ring, #3b82f6);
   background: var(--bg-selected, rgba(59,130,246,0.08));
-  opacity: 1;
 }
 
 .vocab-def-header {
@@ -191,22 +189,13 @@ a.vocab-term,
   flex-wrap: wrap;
 }
 
-.vocab-active-badge {
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--focus-ring, #3b82f6);
-  flex-shrink: 0;
-}
-
 .vocab-def-link {
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
   flex-shrink: 0;
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vocab-def-link-active {
@@ -215,7 +204,7 @@ a.vocab-term,
 }
 
 .vocab-def-when {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--text-md);
 }
 
@@ -229,19 +218,57 @@ a.vocab-term,
   font-size: var(--text-md);
   margin-top: 2px;
   line-height: 1.4;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vocab-def-text-active {
   color: var(--text-secondary);
 }
 
-.vocab-def-link-solo {
+/* t/38: each term card reads quote → speaker's view → other POVs' views. */
+.vocab-section {
+  margin-top: 6px;
+}
+
+.vocab-section-label {
+  margin-left: 12px;
+  font-size: var(--text-2xs);
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  color: var(--text-primary);
-  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.vocab-section-label .vocab-def-camp {
+  font-size: inherit;
+}
+
+.vocab-pov-group {
+  margin-top: 2px;
+}
+
+.vocab-pov-group-label {
+  margin-left: 20px;
+  margin-top: 4px;
+}
+
+.vocab-pov-group .vocab-def {
+  margin-left: 20px;
+}
+
+.vocab-def-camp-none {
+  color: var(--text-secondary);
+}
+
+.vocab-def-missing {
+  font-size: var(--text-md);
+  margin-top: 2px;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.vocab-term-card > .vocab-def-missing {
+  margin-left: 12px;
 }
 
 .vocab-ambiguous-when {
@@ -249,7 +276,7 @@ a.vocab-term,
   margin-top: 3px;
   font-size: var(--text-md);
   font-style: italic;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vocab-ambiguous-count {

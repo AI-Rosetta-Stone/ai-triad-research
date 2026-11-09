@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LineageTermsView, VocabTermCard, VocabTermsView } from './VocabularyPanel';
 import type { VocabResolution } from '../../utils/vocabularyAnnotations';
@@ -195,7 +195,7 @@ describe('VocabTermCard', () => {
         navigateToLineage={mockNavigateToLineage}
       />,
     );
-    expect(screen.getByText('accelerationist')).toBeInTheDocument();
+    expect(screen.getByText('Accelerationist')).toBeInTheDocument();
   });
 
   it('calls navigateToLineage when a resolution link is clicked', async () => {
@@ -251,6 +251,99 @@ describe('VocabTermCard', () => {
       />,
     );
     expect(screen.getByText(/discussing different risk models/)).toBeInTheDocument();
+  });
+
+  // t/38: quote -> this POV's view -> other POVs' views
+  describe('own-POV and other-POV sections', () => {
+    const dict = {
+      resolves_to: [
+        { standardized_term: 'deployment_competitive', when: 'market context', default_for_camp: 'accelerationist' },
+        { standardized_term: 'deployment_staged', when: 'risk context', default_for_camp: 'safetyist' },
+        { standardized_term: 'deployment_harm', when: 'impact context', default_for_camp: 'skeptic' },
+        { standardized_term: 'deployment_generic', when: 'any context' },
+      ],
+    };
+    const defLookup = new Map([
+      ['deployment_competitive', { display: 'Competitive deployment', definition: 'Shipping to win the market.' }],
+      ['deployment_staged', { display: 'Staged deployment', definition: 'Release in gated phases.' }],
+      ['deployment_harm', { display: 'Harmful deployment', definition: 'Rollout that shifts costs onto the public.' }],
+      ['deployment_generic', { display: 'Deployment', definition: 'Putting a system into use.' }],
+    ]);
+
+    function renderCard() {
+      return render(
+        <VocabTermCard
+          bare="deployment"
+          dict={dict}
+          resolved="deployment_competitive"
+          defLookup={defLookup}
+          navigateToLineage={mockNavigateToLineage}
+          sourceSentence="Silence counts as non-deployment."
+          speakerPov="accelerationist"
+        />,
+      );
+    }
+
+    it('puts the resolved sense under the speaker POV view with its definition', () => {
+      const { container } = renderCard();
+      const own = container.querySelector('.vocab-section-own') as HTMLElement;
+      expect(own).not.toBeNull();
+      expect(own.querySelector('.vocab-section-label')?.textContent).toBe('Accelerationist view');
+      expect(within(own).getByText('Competitive deployment')).toBeInTheDocument();
+      expect(within(own).getByText('Shipping to win the market.')).toBeInTheDocument();
+      expect(within(own).queryByText('Staged deployment')).not.toBeInTheDocument();
+    });
+
+    it('lists every other sense under other POVs, labelled by POV, with definitions', () => {
+      const { container } = renderCard();
+      const other = container.querySelector('.vocab-section-other') as HTMLElement;
+      expect(other.querySelector('.vocab-section-label')?.textContent).toBe('Other POVs\u2019 views');
+      const groups = [...other.querySelectorAll('.vocab-pov-group')] as HTMLElement[];
+      expect(groups.map(g => g.querySelector('.vocab-pov-group-label')?.textContent)).toEqual(['Safetyist', 'Skeptic', 'Other sense']);
+      expect(within(groups[0]).getByText('Staged deployment')).toBeInTheDocument();
+      expect(within(groups[0]).getByText('Release in gated phases.')).toBeInTheDocument();
+      expect(within(groups[1]).getByText('Rollout that shifts costs onto the public.')).toBeInTheDocument();
+      expect(within(groups[2]).getByText('Putting a system into use.')).toBeInTheDocument();
+      expect(within(other).queryByText('Competitive deployment')).not.toBeInTheDocument();
+    });
+
+    it('renders the quote before the two sections', () => {
+      const { container } = renderCard();
+      const card = container.querySelector('.vocab-term-card') as HTMLElement;
+      expect([...card.children].map(c => c.className)).toEqual([
+        'vocab-term-name',
+        'vocab-source-sentence',
+        'vocab-section vocab-section-own',
+        'vocab-section vocab-section-other',
+      ]);
+    });
+
+    it('shows a missing definition visibly instead of collapsing to a raw ID', () => {
+      render(
+        <VocabTermCard
+          bare="risk"
+          dict={{ resolves_to: [
+            { standardized_term: 'risk_innovation', when: 'growth context', default_for_camp: 'accelerationist' },
+            { standardized_term: 'risk_catastrophic', when: 'x-risk context', default_for_camp: 'safetyist' },
+          ] }}
+          resolved="risk_innovation"
+          defLookup={new Map([['risk_catastrophic', { display: 'Catastrophic risk', definition: '' }]])}
+          navigateToLineage={mockNavigateToLineage}
+          speakerPov="accelerationist"
+        />,
+      );
+      expect(screen.getByText('risk_innovation')).toBeInTheDocument();
+      expect(screen.getByText('Catastrophic risk')).toBeInTheDocument();
+      expect(screen.getAllByText('No definition in the dictionary')).toHaveLength(2);
+    });
+
+    it('falls back to the resolved sense camp when no speaker POV is given', () => {
+      const { container } = render(
+        <VocabTermCard bare="deployment" dict={dict} resolved="deployment_staged" defLookup={defLookup} navigateToLineage={mockNavigateToLineage} />,
+      );
+      const own = container.querySelector('.vocab-section-own') as HTMLElement;
+      expect(own.querySelector('.vocab-section-label')?.textContent).toBe('Safetyist view');
+    });
   });
 });
 
@@ -333,5 +426,71 @@ describe('VocabTermsView', () => {
     render(<VocabTermsView resolutions={resolutions} />);
     // The dict data from vocabTerms should appear (standardized term link)
     expect(screen.getByText('agi')).toBeInTheDocument();
+  });
+
+  it('renders the quote and candidate senses for an ambiguous term (t/38)', () => {
+    mockVocabTerms = [
+      {
+        colloquial_term: 'harm',
+        resolves_to: [
+          { standardized_term: 'harm_physical', when: 'injury', default_for_camp: 'safetyist' },
+          { standardized_term: 'harm_economic', when: 'loss', default_for_camp: 'skeptic' },
+        ],
+      },
+    ];
+    mockStdTerms = [
+      { canonical_form: 'harm_physical', display_form: 'Physical harm', definition: 'Bodily injury.' },
+      { canonical_form: 'harm_economic', display_form: 'Economic harm', definition: 'Financial loss.' },
+    ];
+    const text = 'Courts enforce harm claims. A lasting harm slips past the audit stack. Care beats risk.';
+    const { container } = render(
+      <VocabTermsView
+        resolutions={[]}
+        ambiguities={[{ colloquial: 'harm', offset: text.indexOf('lasting harm') + 8 }]}
+        statementText={text}
+        speakerPov="accelerationist"
+      />,
+    );
+    const block = container.querySelector('.vocab-ambiguous-block') as HTMLElement;
+    // offset picks the second sentence, not the first that also contains "harm"
+    expect(block.querySelector('.vocab-source-sentence')?.textContent).toContain('A lasting harm slips past the audit stack.');
+    expect(within(block).getByText('Candidate senses')).toBeInTheDocument();
+    expect(within(block).getByText('Physical harm')).toBeInTheDocument();
+    expect(within(block).getByText('Bodily injury.')).toBeInTheDocument();
+    expect(within(block).getByText('Economic harm')).toBeInTheDocument();
+    expect(block.querySelector('.vocab-section-own')).toBeNull();
+  });
+
+  it('shows a readable no-senses line for an ambiguous term missing from the dictionary', () => {
+    const text = 'A lasting harm slips past the audit stack.';
+    const { container } = render(
+      <VocabTermsView resolutions={[]} ambiguities={[{ colloquial: 'harm', offset: 10 }]} statementText={text} />,
+    );
+    const block = container.querySelector('.vocab-ambiguous-block') as HTMLElement;
+    expect(block.querySelector('.vocab-source-sentence')?.textContent).toContain('A lasting harm');
+    expect(within(block).getByText('No senses in the dictionary for this term')).toBeInTheDocument();
+  });
+
+  it('exposes each section as a labelled group', () => {
+    mockVocabTerms = [
+      { colloquial_term: 'AGI', resolves_to: [
+        { standardized_term: 'agi', when: 'broadly', default_for_camp: 'safetyist' },
+        { standardized_term: 'agi_market', when: 'products', default_for_camp: 'accelerationist' },
+      ] },
+    ];
+    render(<VocabTermsView resolutions={[{ colloquial: 'AGI', canonical: 'agi', offset: 0 }]} speakerPov="safetyist" />);
+    expect(screen.getByRole('group', { name: 'Safetyist view' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Other POVs’ views' })).toBeInTheDocument();
+    expect(screen.queryByText('No senses in the dictionary for this term')).not.toBeInTheDocument();
+  });
+
+  it('passes the speaker POV to resolved term cards', () => {
+    mockVocabTerms = [
+      { colloquial_term: 'AGI', resolves_to: [{ standardized_term: 'agi', when: 'broadly', default_for_camp: 'safetyist' }] },
+    ];
+    const { container } = render(
+      <VocabTermsView resolutions={[{ colloquial: 'AGI', canonical: 'agi', offset: 0 }]} speakerPov="skeptic" />,
+    );
+    expect(container.querySelector('.vocab-section-own .vocab-section-label')?.textContent).toBe('Skeptic view');
   });
 });
