@@ -8,7 +8,10 @@
 
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR } from './enqueue-pr.mjs';
+import {
+  classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR,
+  fetchGuardRun, classifyGhApiError,
+} from './enqueue-pr.mjs';
 
 test('classifyEnqueueOutcome: is queued when both isInMergeQueue and mergeQueueEntry are present', () => {
   assert.deepEqual(classifyEnqueueOutcome({
@@ -366,4 +369,74 @@ test('enqueuePR shim: fetchGuardRun filters by app.slug BEFORE picking the lates
   const result = await enqueuePR('o/r', 42, { sleepMs: 0, gh: fakeGh });
   assert.equal(result.state, 'queued');
   assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
+});
+
+// t/4939 live incident (Lead, p/648#361): `enqueue-pr.mjs:154`/`:167` passed `-F check_name=X`
+// with no `-X GET` -- any `-F`/`-f` flag makes `gh api` default to POST, which 404s a GET-only
+// route. Every prior test mocked `ghFn` without checking the ARGV it was called with, so this
+// shipped silently and blocked every T1 enqueue (fail-closed, but still blocked real work).
+
+test('fetchGuardRun: the real argv passed to ghFn includes -X GET (t/4939 regression guard)', () => {
+  const calls = [];
+  const fakeGh = (args) => {
+    calls.push(args);
+    return JSON.stringify({ check_runs: [
+      { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T00:00:00Z' },
+    ] });
+  };
+  const result = fetchGuardRun('o/r', 'abc123', fakeGh);
+  assert.equal(calls.length, 1);
+  const xIndex = calls[0].indexOf('-X');
+  assert.notEqual(xIndex, -1, `expected -X in argv, got: ${JSON.stringify(calls[0])}`);
+  assert.equal(calls[0][xIndex + 1], 'GET', `expected -X GET, got: ${JSON.stringify(calls[0])}`);
+  assert.equal(result.run?.conclusion, 'success');
+});
+
+test('classifyGhApiError: a 404 is not_found (fail, not skip -- TL, p/648#363)', () => {
+  assert.equal(classifyGhApiError(new Error('gh: Not Found (HTTP 404)')), 'not_found');
+});
+
+test('classifyGhApiError: a 5xx is server_error (skip, not fail -- a GitHub blip must never red the gate)', () => {
+  assert.equal(classifyGhApiError({ stderr: 'HTTP 503 Service Unavailable' }), 'server_error');
+  assert.equal(classifyGhApiError({ stderr: 'HTTP 500 Internal Server Error' }), 'server_error');
+});
+
+test('classifyGhApiError: a network failure is network_error (skip, not fail)', () => {
+  assert.equal(classifyGhApiError(new Error('could not resolve host: api.github.com')), 'network_error');
+  assert.equal(classifyGhApiError(new Error('connect ECONNREFUSED 140.82.112.6:443')), 'network_error');
+});
+
+test('classifyGhApiError: anything else (including an unparseable response shape) is unknown (fail)', () => {
+  assert.equal(classifyGhApiError(new Error('Unexpected token W in JSON at position 0')), 'unknown');
+  assert.equal(classifyGhApiError(undefined), 'unknown');
+});
+
+// LIVE, read-only (TL ask, p/648#362/#363): exercises the REAL `gh` binary against a fixed,
+// known commit -- #4675's own HEAD sha (never its squash-merge commit, which carries no
+// check-run of its own -- checks run against the PR's head, not the synthetic merge commit) --
+// to prove the actual invocation (not a mock) returns a run, not a 404. Skips (never fails)
+// when no token is available, or on a transient network/5xx; only a 404 or an unparseable
+// shape fails, since that is exactly the class of regression this incident was.
+test('fetchGuardRun: LIVE call against a fixed known commit (#4675 head SHA) returns a real run', (t) => {
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (!token) {
+    t.skip('GH_TOKEN/GITHUB_TOKEN not set in this environment -- skipping the live gh api call');
+    return;
+  }
+  const KNOWN_SHA = 'f505537d90ca7cd3e0aa79dccb23aaea1cb0db90'; // #4675's own head SHA (t/4939), NOT its merge commit d0b4ee2b8
+  // Quality nit (p/780#35): prefer the runner-provided slug (GITHUB_REPOSITORY, set by Actions)
+  // over the hard-coded one, given the org move (e/293) -- falls back to the hard-coded slug
+  // when run locally, where that env var isn't set.
+  const REPO = process.env.GITHUB_REPOSITORY || 'AI-Rosetta-Stone/ai-triad-research';
+  const result = fetchGuardRun(REPO, KNOWN_SHA);
+  if (result.lookupError) {
+    const cls = classifyGhApiError(result.error);
+    if (cls === 'network_error' || cls === 'server_error') {
+      t.skip(`transient (${cls}), not a regression: ${result.error?.message ?? result.error}`);
+      return;
+    }
+    assert.fail(`fetchGuardRun failed with a non-transient error (${cls}): ${result.error?.message ?? result.error}`);
+  }
+  assert.ok(result.run, 'expected a real t1-approval-guard run on the known commit, got none');
+  assert.equal(result.run.app?.slug, 'github-actions');
 });
