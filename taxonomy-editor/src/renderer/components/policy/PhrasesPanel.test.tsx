@@ -85,6 +85,27 @@ describe('PhrasesPanel default-expand (t/4919)', () => {
     expect(screen.getByText('Another node\'s claim')).toBeInTheDocument();
   });
 
+  // Regression (TL review on #4648, p/356#162): the test above happens to use the SAME archetype
+  // key for both nodes, so it can't distinguish "re-applied correctly" from "stale key coincidentally
+  // matches". With DIFFERENT first archetypes, the stale render (before this node switch's reset
+  // effect runs) defaults open the PREVIOUS node's archetype and marks the once-per-node guard
+  // "applied" for the new node — permanently blocking the new node's real first archetype.
+  it('a node switch with a DIFFERENT first archetype expands the new node\'s own first archetype, not the previous node\'s', async () => {
+    loadSyntheticCorpus.mockResolvedValue({
+      pov: 'acc',
+      entries: [
+        syntheticEntry({ node_id: 'acc-B-001', statement: 'Node A claim', archetype: 'surface_claim' }),
+        syntheticEntry({ node_id: 'acc-B-002', statement: 'Node B implication', archetype: 'policy_implication' }),
+      ],
+    });
+    const { rerender } = render(<PhrasesPanel nodeId="acc-B-001" />);
+    await waitFor(() => expect(screen.getByText('Surface Claims').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+
+    rerender(<PhrasesPanel nodeId="acc-B-002" />);
+    await waitFor(() => expect(screen.getByText('Policy Implications').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+    expect(screen.getByText('Node B implication')).toBeInTheDocument();
+  });
+
   it('the legacy-corpus fallback renders a flat list with nothing to default-expand', async () => {
     loadSyntheticCorpus.mockResolvedValue({ pov: 'acc', entries: [] });
     readResearchFile.mockResolvedValue({ pairs: [{ text: 'A legacy phrase', node_id: 'acc-B-001', source: 'x', weight: 1 }] });

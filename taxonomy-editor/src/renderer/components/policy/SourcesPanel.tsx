@@ -76,9 +76,14 @@ function recordFetchError(nodeId: string, err: unknown, keptCached: boolean): vo
 }
 
 /** Load a node's sources: the cached copy at once if there is one, then the server's (replacing it if newer). */
-function useNodeSources(nodeId: string): { data: NodeSources | null; error: string | null } {
+function useNodeSources(nodeId: string): { data: NodeSources | null; error: string | null; loadedFor: string | null } {
   const [data, setData] = useState<NodeSources | null>(() => _nodeCache.get(nodeId) ?? null);
   const [error, setError] = useState<string | null>(null);
+  // t/4919 fix (TL review on #4648, p/356#162): the node id `data`/`error` actually belong to.
+  // Right after `nodeId` changes, this hook's state still reflects the PREVIOUS node for one
+  // render (this effect hasn't fired yet) — a caller defaulting an "open the first X" state off
+  // `data` alone defaults against stale, previous-node data. Gate on `loadedFor === nodeId`.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +91,7 @@ function useNodeSources(nodeId: string): { data: NodeSources | null; error: stri
     const cached = _nodeCache.get(nodeId);
     setData(cached ?? null);
     setError(null);
+    setLoadedFor(nodeId); // data (cached-or-null) now legitimately reflects this node
     if (cached) recordFirstRender(nodeId, performance.now() - startedAt, 'hit', cached);
 
     api.getNodeSources(nodeId).then((fresh) => {
@@ -102,7 +108,7 @@ function useNodeSources(nodeId: string): { data: NodeSources | null; error: stri
     return () => { cancelled = true; };
   }, [nodeId]);
 
-  return { data, error };
+  return { data, error, loadedFor };
 }
 
 function DocumentRow({ group: g, card, expanded, onToggle }: {
@@ -165,7 +171,7 @@ interface SourcesPanelProps {
 }
 
 export function SourcesPanel({ nodeId }: SourcesPanelProps) {
-  const { data, error } = useNodeSources(nodeId);
+  const { data, error, loadedFor } = useNodeSources(nodeId);
   const [expanded, setExpanded] = useState<string | null>(null);
   // t/4919: track which node's first group we've already defaulted open, so a background
   // revalidation (new `data` identity, same node) doesn't reopen a group the user collapsed.
@@ -181,12 +187,14 @@ export function SourcesPanel({ nodeId }: SourcesPanelProps) {
   );
 
   // t/4919: default the first group open, once per node, only after the data has loaded.
+  // `loadedFor === nodeId` guards against the stale render right after a node switch, where
+  // `groups` (and this effect's own closure) can still reflect the PREVIOUS node (fix, p/356#162).
   useEffect(() => {
-    if (groups.length > 0 && defaultAppliedFor.current !== nodeId) {
+    if (loadedFor === nodeId && groups.length > 0 && defaultAppliedFor.current !== nodeId) {
       setExpanded(groups[0].canonicalDocId);
       defaultAppliedFor.current = nodeId;
     }
-  }, [groups, nodeId]);
+  }, [loadedFor, groups, nodeId]);
 
   if (error) return <div className="sources-panel-error" role="alert">{error}</div>;
   if (!data) return <div className="sources-panel-loading">Loading source references...</div>;

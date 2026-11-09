@@ -138,6 +138,26 @@ describe('SourcesPanel default-expand (t/4919)', () => {
     await act(async () => { resolveRevalidate({ ...TWO_REFS, indexVersion: 2 }); });
     expect(screen.getByText('AI Governance Report').closest('button')).toHaveAttribute('aria-expanded', 'false');
   });
+
+  // Regression (TL review on #4648, p/356#162): on a node switch, the render right after the
+  // nodeId prop changes still has the PREVIOUS node's `data`/`groups` in scope (this component's
+  // own effects run before useNodeSources' fetch effect resolves). The once-per-node ref guard
+  // was getting marked "applied" for the NEW nodeId using the OLD node's first group — which then
+  // permanently blocked the new node's real first group from ever opening.
+  it('switching nodes expands the NEW node\'s first group, not a stale default carried over from the previous node', async () => {
+    getNodeSources.mockResolvedValueOnce(payload([
+      ref({ docId: 'doc-x', canonicalDocId: 'doc-x', title: 'Node A Source X', point: 'px' }),
+    ]));
+    const { rerender } = render(<SourcesPanel nodeId="acc-B-001" />);
+    await waitFor(() => expect(screen.getByText('Node A Source X').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+
+    getNodeSources.mockResolvedValueOnce(payload([
+      ref({ docId: 'doc-y', canonicalDocId: 'doc-y', title: 'Node B Source Y', point: 'py' }),
+    ]));
+    rerender(<SourcesPanel nodeId="acc-B-002" />);
+    await waitFor(() => expect(screen.getByText('Node B Source Y').closest('button')).toHaveAttribute('aria-expanded', 'true'));
+    expect(screen.queryByText('Node A Source X')).toBeNull();
+  });
 });
 
 describe('SourcesPanel per-node cache', () => {
