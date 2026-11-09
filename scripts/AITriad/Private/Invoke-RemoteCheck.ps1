@@ -156,6 +156,13 @@ function Invoke-RemoteCheck {
             # PSCustomObject -- .PSObject.Properties[x] reflects the Hashtable TYPE's own
             # .NET members (Keys/Values/Count), never the JSON keys inside it, so it would
             # always miss. Check ContainsKey first for that shape.
+            # Quality nit (t/4913, e/437#2): ContainsKey is case-SENSITIVE, while
+            # PSCustomObject's .PSObject.Properties[x] lookup is case-INSENSITIVE -- the two
+            # branches below don't match -ExpectedField identically for a caller that passes a
+            # differently-cased field name than the body actually has. No known caller does
+            # this today (every -ExpectedField value in this module matches its JSON exactly),
+            # but it's a latent inconsistency worth knowing about, not one to silently paper
+            # over by hand-rolling a case-insensitive hashtable lookup here.
             $HasField = if ($Body -is [hashtable]) { $Body.ContainsKey($ExpectedField) } else { $null -ne $Body -and $null -ne $Body.PSObject.Properties[$ExpectedField] }
             if (-not $HasField) {
                 $Success = $false
