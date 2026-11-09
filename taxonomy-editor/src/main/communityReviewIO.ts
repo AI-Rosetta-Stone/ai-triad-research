@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import crypto from 'crypto';
+import os from 'os';
+import { assertSafeId } from '../../../lib/electron-shared/safeId.js';
 import { ActionableError } from '../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { sanitizeText, type SanitizeWarning } from '../../../lib/sanitize/contentSanitizerCore.js';
@@ -41,6 +43,33 @@ function renameFieldFor(type: CommunityType): 'title' | 'topic' {
 
 function assertNeverCommunityType(type: never): never {
   throw new Error(`Unhandled community type: ${String(type)}`);
+}
+
+const COMMUNITY_TYPES = new Set<CommunityType>(['chats', 'debates', 'opeds', 'inquiries']);
+
+/** t/4895 (Quality p/664#33): `type`'s TS type is erased at the Electron IPC boundary — a
+ *  renderer-supplied value is `unknown` at runtime, so an unrecognized string must be rejected
+ *  explicitly rather than trusted into `communityPrefixFor`'s exhaustive switch (whose `default`
+ *  only guards a MISSING arm at compile time, not a bad runtime value). */
+function assertCommunityType(type: unknown): CommunityType {
+  if (typeof type !== 'string' || !COMMUNITY_TYPES.has(type as CommunityType)) {
+    throw new ActionableError({
+      goal: 'Validate the community item type',
+      problem: `Invalid community type: ${String(type)}`,
+      location: 'communityReviewIO.ts → assertCommunityType',
+      nextSteps: [`Use one of: ${[...COMMUNITY_TYPES].join(', ')}`],
+    });
+  }
+  return type as CommunityType;
+}
+
+/** t/4895 (TL p/577#78 / t/4895#4): getClient() writes to the SHARED community blob container
+ *  via DefaultAzureCredential — that's service-level infra auth, not a per-user identity, so
+ *  there is no signed-in Azure principal to record here. The OS username is the best available
+ *  actor (mirrors nodeDeleteLog.ts / taxonomyHandlers.ts's local-identity fallback) — every
+ *  desktop admin action on the shared container must be attributable, never '_local'. */
+function desktopAdminActor(): string {
+  return `desktop:${os.userInfo().username}`;
 }
 
 interface Submission {
@@ -346,21 +375,28 @@ class CommunityReviewClient {
   }
 
   async removePublishedItem(type: CommunityType, id: string, reason?: string): Promise<void> {
-    const prefix = communityPrefixFor(type);
-    const blobName = `community/${type}/${prefix}${id}.json`;
+    const safeType = assertCommunityType(type);
+    assertSafeId(id, 'community id'); // t/4895 (Quality p/664#33): block path traversal before any blob name is built
+    const prefix = communityPrefixFor(safeType);
+    const blobName = `community/${safeType}/${prefix}${id}.json`;
 
     const raw = await this.readBlob(blobName);
-    if (!raw) throw new Error(`Community item not found: ${type}/${id}`);
+    if (!raw) throw new ActionableError({
+      goal: 'Remove a community item',
+      problem: `Community item not found: ${safeType}/${id}`,
+      location: 'communityReviewIO.ts → removePublishedItem',
+      nextSteps: ['Verify the community item exists'],
+    });
 
     const itemData = JSON.parse(raw) as Record<string, unknown>;
     await this.deleteBlob(blobName);
 
     const auditRecord = {
       id,
-      type,
+      type: safeType,
       title: titleOf(itemData),
       submitted_by: (asRecord(itemData.community_metadata as unknown).submitted_by_display as string) ?? 'unknown',
-      removed_by: '_local',
+      removed_by: desktopAdminActor(),
       removed_at: new Date().toISOString(),
       reason: reason ?? null,
     };
@@ -378,6 +414,8 @@ class CommunityReviewClient {
    *  against. No listing-index invalidation either — getQueue()/getStats() list blobs live on
    *  every call, so there's no cache to go stale. */
   async renamePublishedItem(type: CommunityType, id: string, title: string, reason?: string): Promise<void> {
+    const safeType = assertCommunityType(type);
+    assertSafeId(id, 'community id'); // t/4895 (Quality p/664#33): block path traversal before any blob name is built
     const newTitle = title.trim();
     if (!newTitle || newTitle.length > 200) {
       throw new ActionableError({
@@ -388,17 +426,22 @@ class CommunityReviewClient {
       });
     }
 
-    const prefix = communityPrefixFor(type);
-    const blobName = `community/${type}/${prefix}${id}.json`;
-    const field = renameFieldFor(type);
+    const prefix = communityPrefixFor(safeType);
+    const blobName = `community/${safeType}/${prefix}${id}.json`;
+    const field = renameFieldFor(safeType);
 
     const raw = await this.readBlob(blobName);
-    if (!raw) throw new Error(`Community item not found: ${type}/${id}`);
+    if (!raw) throw new ActionableError({
+      goal: 'Rename a community item',
+      problem: `Community item not found: ${safeType}/${id}`,
+      location: 'communityReviewIO.ts → renamePublishedItem',
+      nextSteps: ['Verify the community item exists'],
+    });
     const item = JSON.parse(raw) as Record<string, unknown>;
     const fromValue = typeof item[field] === 'string' ? item[field] as string : null;
 
     const auditRecord = {
-      id, type, by: '_local', at: new Date().toISOString(), from: fromValue, to: newTitle, reason: reason ?? null,
+      id, type: safeType, by: desktopAdminActor(), at: new Date().toISOString(), from: fromValue, to: newTitle, reason: reason ?? null,
     };
     // Audit FIRST — before any mutation of the published file (mirrors the server's ordering).
     await this.writeBlob(

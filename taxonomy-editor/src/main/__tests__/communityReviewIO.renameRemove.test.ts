@@ -9,6 +9,7 @@
 // this module talks to Azure, not Electron — the fake just avoids a real network call).
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import os from 'os';
 
 const blobStore = new Map<string, string>();
 
@@ -86,6 +87,28 @@ describe('adminRemoveCommunityItem — all 4 types (t/4895)', () => {
     await expect(adminRemoveCommunityItem('chats', 'xyz')).rejects.toThrow(/not found/i);
     expect(blobStore.has('community/opeds/oped-xyz.json')).toBe(true); // untouched
   });
+
+  it('records a real desktop:<os user> actor, never "_local" (TL p/577#78 — shared container)', async () => {
+    blobStore.set('community/chats/chat-abc123.json', JSON.stringify({ title: 'x' }));
+    await adminRemoveCommunityItem('chats', 'abc123');
+    const [audit] = auditRecordsUnder('community/_removals/');
+    expect(audit.removed_by).toBe(`desktop:${os.userInfo().username}`);
+  });
+
+  it('rejects a path-traversal id before building a blob name — writes and deletes nothing (Quality p/664#33)', async () => {
+    blobStore.set('community/chats/chat-../../../secret.json', 'should never be reached');
+    const before = new Map(blobStore);
+    await expect(adminRemoveCommunityItem('chats', '../../../secret')).rejects.toThrow(/Invalid community id/);
+    expect(blobStore).toEqual(before); // nothing written, nothing deleted
+  });
+
+  it('rejects an unrecognized type at runtime, before any blob access (Quality p/664#33)', async () => {
+    blobStore.set('community/chats/chat-abc123.json', JSON.stringify({ title: 'x' }));
+    const before = new Map(blobStore);
+    // @ts-expect-error -- deliberately an invalid runtime value; TS types are erased over IPC
+    await expect(adminRemoveCommunityItem('widgets', 'abc123')).rejects.toThrow(/Invalid community type/);
+    expect(blobStore).toEqual(before);
+  });
 });
 
 describe('adminRenameCommunityItem — all 4 types (t/4895/t/4894)', () => {
@@ -132,5 +155,27 @@ describe('adminRenameCommunityItem — all 4 types (t/4895/t/4894)', () => {
     const updated = JSON.parse(blobStore.get('community/opeds/oped-abc.json')!);
     expect(updated.topic).toBe('New topic');
     expect(updated.title).toBe('should-not-be-touched');
+  });
+
+  it('records a real desktop:<os user> actor, never "_local" (TL p/577#78 — shared container)', async () => {
+    blobStore.set('community/chats/chat-abc123.json', JSON.stringify({ title: 'Old' }));
+    await adminRenameCommunityItem('chats', 'abc123', 'New');
+    const [audit] = auditRecordsUnder('community/_edits/');
+    expect(audit.by).toBe(`desktop:${os.userInfo().username}`);
+  });
+
+  it('rejects a path-traversal id before building a blob name — writes nothing, no audit record (Quality p/664#33)', async () => {
+    blobStore.set('community/chats/chat-../../../secret.json', 'should never be reached');
+    const before = new Map(blobStore);
+    await expect(adminRenameCommunityItem('chats', '../../../secret', 'New')).rejects.toThrow(/Invalid community id/);
+    expect(blobStore).toEqual(before); // nothing written, no audit record either
+  });
+
+  it('rejects an unrecognized type at runtime, before any blob access (Quality p/664#33)', async () => {
+    blobStore.set('community/chats/chat-abc123.json', JSON.stringify({ title: 'x' }));
+    const before = new Map(blobStore);
+    // @ts-expect-error -- deliberately an invalid runtime value; TS types are erased over IPC
+    await expect(adminRenameCommunityItem('widgets', 'abc123', 'New')).rejects.toThrow(/Invalid community type/);
+    expect(blobStore).toEqual(before);
   });
 });
