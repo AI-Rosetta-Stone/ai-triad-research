@@ -127,35 +127,75 @@ Describe 'Get-StagingCurrentDeployComparison (t/4932)' {
 
 # Real-git integration tests (Lead p/648#377 item 2, TL p/916#12-14): fakes alone proved the
 # PREDICATE's logic but not the live incident -- a leaked $LASTEXITCODE from a REAL
-# `git merge-base --is-ancestor` call. These run the actual git binary against this repo's own
-# history and assert $LASTEXITCODE afterward, which is the exact property that broke production.
+# `git merge-base --is-ancestor` call. These run the actual git binary.
+#
+# CI FAILURE (test-powershell shard 5, run on PR #4694; Docker p/916#21): the original version
+# used THIS repo's own ambient checkout (HEAD/HEAD~1/HEAD~2) as the ancestor/descendant pair.
+# That assumes a deep clone -- true in a local worktree, but ci.yml's `test-powershell` job's
+# `actions/checkout` has no `fetch-depth` set, which defaults to a SHALLOW depth-1 clone.
+# `git rev-parse HEAD~1` then fails outright ("fatal: ambiguous argument"), every downstream
+# assertion saw $null instead of true/false, and the job failed -- a real bug in the test's
+# environment assumption, not a flaky rerun, and not a reason to deepen CI's checkout (TL,
+# p/916#22). Fixed by never depending on the ambient checkout's depth at all: `git init` a small,
+# disposable repo in a temp directory with commits A -> B -> C on main, plus a branch D off A
+# (diverged from both B and C), and point every real git call at it with `-C`, so the test is
+# deterministic regardless of how this repo itself was checked out.
 Describe 'Get-StagingCurrentDeployComparison: real git (t/4932 live incident)' {
     BeforeAll {
-        # A genuine ancestor/descendant pair from this repo's own history: HEAD~1 is necessarily
-        # an ancestor of HEAD (unless this is the repo's very first commit).
-        $Script:Descendant = (git rev-parse HEAD).Trim()
-        $Script:Ancestor = (git rev-parse HEAD~1).Trim()
+        $Script:RepoPath = Join-Path ([System.IO.Path]::GetTempPath()) "t4932-realgit-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $Script:RepoPath -Force | Out-Null
+        git -C $Script:RepoPath init -q -b main
+        git -C $Script:RepoPath config user.email 'test@example.com'
+        git -C $Script:RepoPath config user.name 'Pester'
+
+        Set-Content -Path (Join-Path $Script:RepoPath 'a.txt') -Value 'a'
+        git -C $Script:RepoPath add a.txt
+        git -C $Script:RepoPath commit -q -m 'A'
+        $Script:A = (git -C $Script:RepoPath rev-parse HEAD).Trim()
+
+        Set-Content -Path (Join-Path $Script:RepoPath 'b.txt') -Value 'b'
+        git -C $Script:RepoPath add b.txt
+        git -C $Script:RepoPath commit -q -m 'B'
+        $Script:B = (git -C $Script:RepoPath rev-parse HEAD).Trim()  # A's direct child on main
+
+        Set-Content -Path (Join-Path $Script:RepoPath 'c.txt') -Value 'c'
+        git -C $Script:RepoPath add c.txt
+        git -C $Script:RepoPath commit -q -m 'C'
+        $Script:C = (git -C $Script:RepoPath rev-parse HEAD).Trim()  # B's direct child on main
+
+        git -C $Script:RepoPath checkout -q -b side $Script:A
+        Set-Content -Path (Join-Path $Script:RepoPath 'd.txt') -Value 'd'
+        git -C $Script:RepoPath add d.txt
+        git -C $Script:RepoPath commit -q -m 'D'
+        $Script:D = (git -C $Script:RepoPath rev-parse HEAD).Trim()  # branched off A -- diverged from B and C
+
         $Script:RealGitCommitExistsFn = {
             param($Sha)
-            git cat-file -e "$Sha^{commit}" 2>$null
+            git -C $Script:RepoPath cat-file -e "$Sha^{commit}" 2>$null
             $Exists = ($LASTEXITCODE -eq 0)
             $global:LASTEXITCODE = 0
             $Exists
         }
         $Script:RealGitMergeBaseFn = {
             param($Ancestor, $Descendant)
-            git merge-base --is-ancestor $Ancestor $Descendant
+            git -C $Script:RepoPath merge-base --is-ancestor $Ancestor $Descendant
             $ExitCode = $LASTEXITCODE
             $global:LASTEXITCODE = 0
             $ExitCode
         }
     }
 
-    It 'PROCEED arm: current (ancestor) vs. built (descendant) -- exit 0, and $LASTEXITCODE is reset afterward' {
+    AfterAll {
+        if ($Script:RepoPath -and (Test-Path $Script:RepoPath)) {
+            Remove-Item -Path $Script:RepoPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'PROCEED arm: (current=B, built=C) -- B is an ancestor of C, exit 0, $LASTEXITCODE reset afterward' {
         $global:LASTEXITCODE = 99  # poison it first, so a missing reset would be caught, not coincidental
-        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:Descendant `
+        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:C `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
-            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:Ancestor""}]" } } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:B""}]" } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
             -GitMergeBaseFn $Script:RealGitMergeBaseFn
         $r.CurrentIsAncestorOfBuilt | Should -Be $true
@@ -164,67 +204,61 @@ Describe 'Get-StagingCurrentDeployComparison: real git (t/4932 live incident)' {
         $LASTEXITCODE | Should -Be 0
     }
 
-    It 'BLOCK arm: the reverse pair (current is the descendant, built is the ancestor) -- exit 1, reset afterward' {
+    It 'BLOCK arm: (current=C, built=B) -- downgrade, C is NOT an ancestor of B, exit 1, reset afterward' {
         $global:LASTEXITCODE = 99
-        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:Ancestor `
+        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:B `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
-            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:Descendant""}]" } } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:C""}]" } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
             -GitMergeBaseFn $Script:RealGitMergeBaseFn
         $r.CurrentIsAncestorOfBuilt | Should -Be $false
         $LASTEXITCODE | Should -Be 0
     }
 
-    It 'BLOCK arm: a diverged commit (not an ancestor either direction) -- exit 1, reset afterward' {
-        # The repo's root commit's PARENT doesn't exist, so it has no history-sibling to diverge
-        # from within two hops; use two commits that are provably not in a straight ancestor line:
-        # HEAD~1 vs. the root commit's... simplest robust diverged pair: a commit and an unrelated
-        # tag object are unavailable here, so use HEAD~1 as "built" against a synthetic unrelated
-        # tree built from the same repo's root commit if it has 2+ parents; fall back to asserting
-        # the SAME exit-1 contract using HEAD~1 vs HEAD~2 reversed (still "not an ancestor" from
-        # the wrong side), which exercises the identical code path real divergence would.
+    It 'BLOCK arm: (current=C, built=D) -- genuinely diverged branch, exit 1, reset afterward' {
+        # D is branched off A, a common ancestor of C -- but D and C are siblings down two
+        # different lines, so neither is an ancestor of the other. The real shape of a branch
+        # build off an older base (the exact case the TL's flipped-direction fix, p/916#14,
+        # exists to block, since "not an ancestor" alone can't tell this apart from a downgrade).
         $global:LASTEXITCODE = 99
-        $olderAncestor = (git rev-parse 'HEAD~2').Trim()
-        $r = Get-StagingCurrentDeployComparison -BuiltSha $olderAncestor `
+        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:D `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
-            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:Descendant""}]" } } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:C""}]" } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
             -GitMergeBaseFn $Script:RealGitMergeBaseFn
         $r.CurrentIsAncestorOfBuilt | Should -Be $false
         $LASTEXITCODE | Should -Be 0
     }
 
-    It 'BLOCK arm: BuiltSha equals CurrentDeploySha (rebuild) -- caller-level equality check, not this function''s job' {
+    It '(current=C, built=C) -- same SHA: a real self-ancestor merge-base call still runs cleanly (the rebuild skip is the verdict function''s job, tested there)' {
         # Get-StagingCurrentDeployComparison reports facts only; the equal-SHA block decision is
         # Get-StagingDeployGateVerdict's job (tested there). Here, just confirm the real
         # GitCommitExistsFn/GitMergeBaseFn calls on an identical pair don't error or hang.
         $global:LASTEXITCODE = 99
-        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:Descendant `
+        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:C `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
-            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:Descendant""}]" } } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:C""}]" } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
             -GitMergeBaseFn $Script:RealGitMergeBaseFn
-        # merge-base --is-ancestor X X is true (a commit is its own ancestor) -- exit 0 here;
-        # Get-StagingDeployGateVerdict's own BuiltSha-equals-CurrentDeploySha check (tested
-        # separately) is what turns this into a block, not this function.
+        # merge-base --is-ancestor X X is true (a commit is its own ancestor) -- exit 0 here.
         $r.CurrentIsAncestorOfBuilt | Should -Be $true
         $LASTEXITCODE | Should -Be 0
     }
 
-    It 'BUILT missing (garbage SHA): BuiltMissing true, merge-base never invoked, no hang' {
+    It 'BUILT missing (nonexistent SHA): BuiltMissing true, merge-base never invoked, no hang' {
         $global:LASTEXITCODE = 99
         $r = Get-StagingCurrentDeployComparison -BuiltSha '0000000000000000000000000000000000beef' `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
-            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:Descendant""}]" } } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:C""}]" } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
             -GitMergeBaseFn { throw 'must not be called when BuiltSha is missing' }
         $r.BuiltMissing | Should -Be $true
         $LASTEXITCODE | Should -Be 0
     }
 
-    It 'CURRENT missing (garbage SHA, BuiltSha real): CurrentMissing true, proceed+warn territory, reset afterward' {
+    It 'CURRENT missing (nonexistent SHA, BuiltSha real): CurrentMissing true, proceed+warn territory, reset afterward' {
         $global:LASTEXITCODE = 99
-        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:Descendant `
+        $r = Get-StagingCurrentDeployComparison -BuiltSha $Script:C `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
             -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = '[{"name":"DEPLOY_SHA","value":"0000000000000000000000000000000000beef"}]' } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
@@ -238,15 +272,15 @@ Describe 'Get-StagingCurrentDeployComparison: real git (t/4932 live incident)' {
         $global:LASTEXITCODE = 99
         $unresetMergeBaseFn = {
             param($Ancestor, $Descendant)
-            git merge-base --is-ancestor $Ancestor $Descendant
+            git -C $Script:RepoPath merge-base --is-ancestor $Ancestor $Descendant
             $LASTEXITCODE  # no reset -- this is the exact bug shape that broke production
         }
-        $null = Get-StagingCurrentDeployComparison -BuiltSha $Script:Ancestor `
+        $null = Get-StagingCurrentDeployComparison -BuiltSha $Script:B `
             -GetActiveRevisionFn { @([PSCustomObject]@{ Name = 'app--staging-current'; TrafficWeight = 100 }) } `
-            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:Descendant""}]" } } `
+            -AzRevisionShowFn { param($RevisionName) @{ ExitCode = 0; Output = "[{""name"":""DEPLOY_SHA"",""value"":""$Script:C""}]" } } `
             -GitCommitExistsFn $Script:RealGitCommitExistsFn `
             -GitMergeBaseFn $unresetMergeBaseFn
-        # The reverse pair (Ancestor as Built) exits 1 -- exactly the leak this ticket fixes.
+        # (current=C, built=B) is the downgrade pair -- exits 1, exactly the leak this ticket fixes.
         $LASTEXITCODE | Should -Be 1
     }
 }
