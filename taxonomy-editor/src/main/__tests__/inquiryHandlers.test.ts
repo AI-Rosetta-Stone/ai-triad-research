@@ -52,7 +52,8 @@ const runInquiryPipeline = vi.hoisted(() => vi.fn());
 vi.mock('../../../../lib/debate/inquiryPipeline.js', () => ({ runInquiryPipeline }));
 
 const saveDebateSession = vi.hoisted(() => vi.fn(async () => undefined));
-vi.mock('../debateIO.js', () => ({ saveDebateSession }));
+const deleteDebateSession = vi.hoisted(() => vi.fn());
+vi.mock('../debateIO.js', () => ({ saveDebateSession, deleteDebateSession }));
 
 import { ipcMain } from 'electron';
 import { runHeadlessDebate } from '../../../../lib/debate/headlessRunner.js';
@@ -329,5 +330,129 @@ describe('inquiryHandlers — saves the debate session for My Debates (t/4682)',
     const { job } = await createAndWait(h);
     expect(job.status).toBe('done');
     expect(saveDebateSession).not.toHaveBeenCalled();
+  });
+});
+
+// t/4895/t/4892: desktop parity for rename/delete — mirrors the server's
+// renameInquiryResult/deleteInquiryResult (storage/inquiryResultStore.ts) exactly.
+describe('inquiryHandlers — rename-inquiry / delete-inquiry (t/4895)', () => {
+  beforeEach(() => {
+    (ipcMain.handle as unknown as { mockReset: () => void }).mockReset();
+    runInquiryPipeline.mockReset();
+    deleteDebateSession.mockReset();
+    (runHeadlessDebate as unknown as { mockReset: () => void }).mockReset();
+    fs.rmSync(TMP, { recursive: true, force: true });
+    fs.mkdirSync(TMP, { recursive: true });
+    registerInquiryHandlers();
+  });
+  afterEach(() => { fs.rmSync(TMP, { recursive: true, force: true }); });
+
+  describe('rename-inquiry', () => {
+    it('sets title on both the result file and the index row, leaving question untouched', async () => {
+      runInquiryPipeline.mockResolvedValue(fakeResult());
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      await h['rename-inquiry'](null, jobId, '  My New Title  ');
+
+      const list = (await h['list-inquiries'](null)) as { jobId: string; question: string; title?: string }[];
+      const row = list.find(e => e.jobId === jobId);
+      expect(row?.title).toBe('My New Title'); // trimmed
+      expect(row?.question).toBe(VALID_REQUEST.question); // unchanged
+
+      const view = (await h['get-inquiry'](null, jobId)) as { result?: { title?: string; request: { question: string } } };
+      expect(view.result?.title).toBe('My New Title');
+      expect(view.result?.request.question).toBe(VALID_REQUEST.question);
+    });
+
+    it('rejects an empty or whitespace-only title (no write)', async () => {
+      runInquiryPipeline.mockResolvedValue(fakeResult());
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      expect(() => h['rename-inquiry'](null, jobId, '   ')).toThrow(/empty/);
+      const list = (await h['list-inquiries'](null)) as { jobId: string; title?: string }[];
+      expect(list.find(e => e.jobId === jobId)?.title).toBeUndefined();
+    });
+
+    it('rejects a title over 200 characters', async () => {
+      runInquiryPipeline.mockResolvedValue(fakeResult());
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      expect(() => h['rename-inquiry'](null, jobId, 'x'.repeat(201))).toThrow(/200/);
+    });
+
+    it('404s on an unknown jobId', () => {
+      const h = handlers();
+      expect(() => h['rename-inquiry'](null, 'never-existed', 'Title')).toThrow(/not found/);
+    });
+
+    it('rejects an unsafe jobId before touching the filesystem', () => {
+      const h = handlers();
+      expect(() => h['rename-inquiry'](null, '../secret', 'Title')).toThrow(/Invalid inquiry job id/);
+    });
+  });
+
+  describe('delete-inquiry', () => {
+    it('deletes the result file and its index row', async () => {
+      runInquiryPipeline.mockResolvedValue(fakeResult());
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      h['delete-inquiry'](null, jobId);
+
+      const list = (await h['list-inquiries'](null)) as { jobId: string }[];
+      expect(list.find(e => e.jobId === jobId)).toBeUndefined();
+      expect(() => h['rename-inquiry'](null, jobId, 'x')).toThrow(/not found/); // file is gone
+    });
+
+    it('deletes the linked debate session, best-effort, when debateId is set', async () => {
+      const resultWithDebate = { ...fakeResult(), debateId: 'deb-1' } as InquiryResult;
+      runInquiryPipeline.mockResolvedValue(resultWithDebate);
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      await h['delete-inquiry'](null, jobId);
+
+      expect(deleteDebateSession).toHaveBeenCalledWith('deb-1');
+    });
+
+    it('never calls deleteDebateSession when no debateId is set', async () => {
+      runInquiryPipeline.mockResolvedValue(fakeResult());
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      await h['delete-inquiry'](null, jobId);
+
+      expect(deleteDebateSession).not.toHaveBeenCalled();
+    });
+
+    it('a deleteDebateSession failure is best-effort — the delete still completes', async () => {
+      const resultWithDebate = { ...fakeResult(), debateId: 'deb-2' } as InquiryResult;
+      runInquiryPipeline.mockResolvedValue(resultWithDebate);
+      deleteDebateSession.mockImplementation(() => { throw new Error('debate file locked'); });
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      await h['delete-inquiry'](null, jobId); // does not throw
+
+      const list = (await h['list-inquiries'](null)) as { jobId: string }[];
+      expect(list.find(e => e.jobId === jobId)).toBeUndefined();
+    });
+
+    it('404s on an unknown jobId, and a second delete is a clean 404', async () => {
+      runInquiryPipeline.mockResolvedValue(fakeResult());
+      const h = handlers();
+      const { jobId } = await createAndWait(h);
+
+      h['delete-inquiry'](null, jobId);
+      expect(() => h['delete-inquiry'](null, jobId)).toThrow(/not found/);
+    });
+
+    it('rejects an unsafe jobId before touching the filesystem', () => {
+      const h = handlers();
+      expect(() => h['delete-inquiry'](null, '../secret')).toThrow(/Invalid inquiry job id/);
+    });
   });
 });

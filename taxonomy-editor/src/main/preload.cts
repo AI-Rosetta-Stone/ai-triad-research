@@ -776,8 +776,11 @@ function buildElectronApi() {
     ipcRenderer.invoke('admin-review-detail', groupId),
   adminReviewAction: (action: unknown): Promise<void> =>
     ipcRenderer.invoke('admin-review-action', action),
-  adminRemoveCommunityItem: (type: string, id: string, reason?: string): Promise<void> =>
+  adminRemoveCommunityItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, reason?: string): Promise<void> =>
     ipcRenderer.invoke('admin-remove-community-item', type, id, reason),
+  // t/4895/t/4894: admin rename with an audit record, all 4 community types.
+  renameCommunityItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, title: string, reason?: string): Promise<void> =>
+    ipcRenderer.invoke('admin-rename-community-item', type, id, title, reason),
 
   // Op-Ed Studio (t/2575, t/2591)
   createOpEdSet: (payload: { topic: string; url?: string; params: unknown; voices: string[] }): Promise<{ set_id: string }> =>
@@ -866,6 +869,11 @@ function buildElectronApi() {
     result: InquiryResult, title: string, format: 'json' | 'markdown' | 'pdf',
   ): Promise<{ cancelled: boolean; filePath?: string }> =>
     ipcRenderer.invoke('export-inquiry-to-file', result, title, format),
+  // t/4895/t/4892: desktop parity for rename/delete.
+  renameInquiry: (jobId: string, title: string): Promise<void> =>
+    ipcRenderer.invoke('rename-inquiry', jobId, title),
+  deleteInquiry: (jobId: string): Promise<void> =>
+    ipcRenderer.invoke('delete-inquiry', jobId),
   };
 }
 

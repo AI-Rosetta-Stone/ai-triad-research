@@ -29,7 +29,7 @@ export interface ElectronAPI {
     title: string,
     format: 'json' | 'markdown' | 'pdf',
   ) => Promise<{ cancelled: boolean; filePath?: string }>;
-  // t/4895/t/4892: desktop parity for rename/delete.
+  /** t/4895/t/4892: desktop parity for rename/delete. */
   renameInquiry: (jobId: string, title: string) => Promise<void>;
   deleteInquiry: (jobId: string) => Promise<void>;
 
@@ -352,7 +352,7 @@ export interface ElectronAPI {
   adminReviewDetail: (groupId: string) => Promise<unknown>;
   adminReviewAction: (action: unknown) => Promise<void>;
   adminRemoveCommunityItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, reason?: string) => Promise<void>;
-  // t/4895/t/4894: admin rename with an audit record, all 4 community types.
+  /** t/4895/t/4894: admin rename with an audit record, all 4 community types. */
   renameCommunityItem: (type: 'chats' | 'debates' | 'opeds' | 'inquiries', id: string, title: string, reason?: string) => Promise<void>;
 
   // Organizations. Were marked optional pending ElectronMain wiring; all unconditionally
