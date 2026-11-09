@@ -13,15 +13,26 @@ SHAs older than staging's `a8be306`; each one triggered a deploy of an EXISTING 
 A separate smoke regression (#4646) happened to block every one -- without it, staging would
 have been downgraded.
 
-Two independent guards, either one sufficient to skip:
-  1. the triggering run did not actually push (an A/B/dry-run `workflow_dispatch`);
-  2. the built SHA is an ancestor of (or equal to) staging's CURRENT `DEPLOY_SHA` -- a rebuild
-     of something already superseded, which would be a downgrade or a no-op redeploy.
+LIVE INCIDENT (p/648#377, p/916#11-18): #4679's first real post-merge run showed the ancestor
+check's own exit code leaking through to become the WHOLE gate STEP's reported result, so
+`deploy-staging`'s `needs: [gate]` SKIPPED every legitimate forward deploy regardless of this
+function's verdict. Fixed at the workflow-step layer with a `$global:LASTEXITCODE = 0` reset
+(t/4252 pattern) -- see `deploy-staging.yml`'s `compare` step. Separately, the TL (p/916#12/#14)
+found the ORIGINAL predicate direction was itself unsound: "built is not an ancestor of current"
+also reads true for a DIVERGED build (a branch build off an older base), which would then
+PROCEED and deploy a non-main image. The predicate is now the POSITIVE relation -- see
+`Get-StagingCurrentDeployComparison.ps1`'s header for the full exit-code table.
 
-This function is the PURE decision core: it takes already-computed facts (the push flag, and
-whether `git merge-base --is-ancestor` already said yes) and returns a verdict plus a reason
-string for the WARN. The impure git/CLI calls (run-name parsing, `git merge-base`, reading
-staging's current DEPLOY_SHA via `az`) are the caller's job (deploy-staging.yml's gate job).
+Three independent guards, any one sufficient to skip:
+  1. the triggering run did not actually push (an A/B/dry-run `workflow_dispatch`);
+  2. the built SHA does not descend from staging's CURRENT `DEPLOY_SHA` (downgrade or diverged);
+  3. `CurrentDeploySha` can't be confirmed missing from `BuiltSha` -- except that one, S2 (below),
+     is a WARN-and-proceed, not a skip, by design (recovery path).
+
+This function is the PURE decision core: it takes already-computed facts and returns a verdict
+plus a reason string for the WARN. The impure git/CLI calls (run-name parsing, `git merge-base`,
+`git cat-file`, reading staging's current DEPLOY_SHA via `az`) are the caller's job
+(`deploy-staging.yml`'s `gate` job, via `Get-StagingCurrentDeployComparison.ps1`).
 
 .PARAMETER Pushed
 Whether the triggering Container Image run actually pushed (Get-PushFlagFromRunName.ps1).
@@ -33,12 +44,6 @@ The commit Container Image actually built (Get-BuiltShaFromRunName.ps1).
 Staging's current `DEPLOY_SHA` env var, or $null/empty on a first deploy (nothing to compare
 against, so the ancestor guard cannot fire).
 
-.PARAMETER BuiltShaIsAncestorOfCurrent
-$true when `git merge-base --is-ancestor $BuiltSha $CurrentDeploySha` exited 0 (the built commit
-is already in staging's history, i.e. not newer), $false when it exited 1 (genuinely not an
-ancestor) -- the caller computes this because it requires a git checkout; $null when there was
-no current deploy to compare against (a true first deploy, nothing to check).
-
 .PARAMETER CurrentDeployReadFailed
 S1 (Lead review, #4679): $true when an active revision EXISTS but its `DEPLOY_SHA` could not be
 determined -- the `az containerapp revision show` call itself failed (non-zero exit; a native
@@ -47,12 +52,25 @@ env var was missing from the response. Distinct from "no active revision at all"
 deploy, which proceeds normally) -- here SOMETHING is running and we can't prove deploying won't
 downgrade it, so this fails closed with a WARN, never silently proceeds.
 
-.PARAMETER AncestorCheckUnknownCommit
-S2 (Lead review, #4679): $true when `git merge-base --is-ancestor` exited 128 (or any code other
-than 0/1) rather than a clean 0/1 -- `CurrentDeploySha` isn't in this checkout's history at all
-(for example, a branch build whose base diverged). Proceeding is still correct (an unreachable
-commit can't be proven to be an ancestor), but it must WARN, not pass silently, since the
-ancestor guard genuinely could not run.
+.PARAMETER CurrentIsAncestorOfBuilt
+$true when `git merge-base --is-ancestor $CurrentDeploySha $BuiltSha` exited 0 -- staging's
+current deploy IS in the built commit's history, i.e. a genuine forward deploy. $false when it
+exited 1 -- NOT an ancestor, which covers both a downgrade (built is older) and a diverged build
+(different branch); both must block, and the predicate doesn't need to tell them apart. $null
+when there's nothing to compare (no current deploy at all, or one of the two commits couldn't be
+resolved -- see BuiltMissing/CurrentMissing below, which take precedence).
+
+.PARAMETER BuiltMissing
+TL correction (p/916#17): $true when `git cat-file -e "$BuiltSha^{commit}"` failed -- the built
+commit doesn't even resolve in this checkout. Proceeding would deploy an image this checkout
+can't verify is a real commit, so this always BLOCKS, regardless of CurrentIsAncestorOfBuilt.
+
+.PARAMETER CurrentMissing
+S2 (Lead review #4679, scoped by TL p/916#17): $true when `BuiltSha` was confirmed resolvable
+but `CurrentDeploySha` was not (merge-base itself returned neither 0 nor 1 -- typically 128 --
+with `BuiltMissing` false). This is the legitimate recovery case: staging is on an off-main or
+force-pushed SHA that this checkout's history doesn't contain. Proceeds, but WARNs, since the
+forward-deploy guard genuinely could not verify this one.
 #>
 function Get-StagingDeployGateVerdict {
     [CmdletBinding()]
@@ -60,9 +78,10 @@ function Get-StagingDeployGateVerdict {
         [Parameter(Mandatory)] [bool] $Pushed,
         [string] $BuiltSha,
         [string] $CurrentDeploySha,
-        [Nullable[bool]] $BuiltShaIsAncestorOfCurrent,
         [bool] $CurrentDeployReadFailed = $false,
-        [bool] $AncestorCheckUnknownCommit = $false
+        [Nullable[bool]] $CurrentIsAncestorOfBuilt = $null,
+        [bool] $BuiltMissing = $false,
+        [bool] $CurrentMissing = $false
     )
 
     if (-not $Pushed) {
@@ -92,29 +111,47 @@ function Get-StagingDeployGateVerdict {
         }
     }
 
-    if ($BuiltShaIsAncestorOfCurrent -eq $true) {
+    if ($BuiltMissing) {
         return [PSCustomObject]@{
             Proceed = $false
             Warn    = $true
-            Reason  = "built SHA $BuiltSha is an ANCESTOR of staging's current DEPLOY_SHA " +
-                      "$CurrentDeploySha -- deploying it would be a downgrade."
+            Reason  = "built SHA $BuiltSha does not resolve in this checkout -- refusing to " +
+                      "deploy an image this checkout cannot even verify is a real commit."
         }
     }
 
-    if ($AncestorCheckUnknownCommit) {
+    if (-not $CurrentDeploySha) {
+        return [PSCustomObject]@{
+            Proceed = $true
+            Warn    = $false
+            Reason  = "no active revision found -- first deploy, nothing to compare against."
+        }
+    }
+
+    if ($CurrentMissing) {
         return [PSCustomObject]@{
             Proceed = $true
             Warn    = $true
             Reason  = "proceeding, but staging's current DEPLOY_SHA ($CurrentDeploySha) was not " +
-                      "found in this checkout's history (git merge-base exited 128, not 0/1) -- " +
-                      "the non-downgrade guard could not verify this deploy; visibility gap, not a block."
+                      "found in this checkout's history (built SHA $BuiltSha is resolvable, but " +
+                      "the merge-base call could not place current) -- likely an off-main or " +
+                      "force-pushed staging deploy; a main build can always recover it."
+        }
+    }
+
+    if ($CurrentIsAncestorOfBuilt -eq $true) {
+        return [PSCustomObject]@{
+            Proceed = $true
+            Warn    = $false
+            Reason  = "staging's current DEPLOY_SHA is an ancestor of the built SHA -- forward deploy confirmed."
         }
     }
 
     return [PSCustomObject]@{
-        Proceed = $true
-        Warn    = $false
-        Reason  = "pushed, and not an ancestor of (or equal to) the current deploy -- proceeding."
+        Proceed = $false
+        Warn    = $true
+        Reason  = "built SHA $BuiltSha does not descend from staging's current DEPLOY_SHA " +
+                  "$CurrentDeploySha (downgrade or diverged build) -- refusing."
     }
 }
 
