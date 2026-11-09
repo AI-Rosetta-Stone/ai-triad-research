@@ -30,6 +30,7 @@ import * as analytics from '../community/analytics.js';
 import { parseCookies } from '../httpCookies.js';
 import { anonSessionCreatedCookie, readValidCreatedMs } from './anonSessionCreated.js';
 import { internalTesterCookie, isInternalTester, internalTesterPage } from './internalTester.js';
+import { parseExclusionParams } from './analyticsExclusionParams.js';
 import * as allowlistStore from '../storage/allowlistStore.js';
 import type { UserSession } from '../../../../lib/allowlist/types.js';
 // Re-exported so server.ts's pre-route anon mint sites import it here (keeps the
@@ -84,10 +85,11 @@ function deriveRequestUserId(req: IncomingMessage): string {
 async function serveSubjectBreakdown(
   res: ServerResponse, from: string, to: string,
   subject: string, groupBy: string | undefined, user: string | undefined,
+  exclusion: analytics.AnalyticsExclusionOptions,
 ): Promise<void> {
   if (!requireAdmin(res)) return;
   if (groupBy !== 'user' && groupBy !== 'session') { error(res, "groupBy must be 'user' or 'session'", 400); return; }
-  json(res, await analytics.querySubjectBreakdown(from, to, subject, groupBy, user));
+  json(res, await analytics.querySubjectBreakdown(from, to, subject, groupBy, user, exclusion));
 }
 
 /** Engagement tree (+ §7.1 session scope, §7.2 sessions list). The session scope,
@@ -97,10 +99,11 @@ async function serveEngagementTree(
   res: ServerResponse, from: string, to: string,
   user: string | undefined, session: string | undefined,
   currentUserId: string, admin: boolean,
+  exclusion: analytics.AnalyticsExclusionOptions,
 ): Promise<void> {
   const needsAdmin = session !== undefined || (user !== undefined && user !== currentUserId);
   if (needsAdmin && !requireAdmin(res)) return;
-  const { users, sessions, ...rest } = await analytics.queryEngagement(from, to, { user, session, includeSessions: admin });
+  const { users, sessions, ...rest } = await analytics.queryEngagement(from, to, { user, session, includeSessions: admin, ...exclusion });
   json(res, admin ? { ...rest, users, ...(sessions ? { sessions } : {}) } : rest);
 }
 
@@ -272,13 +275,15 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
     const to = url.searchParams.get('to') || new Date().toISOString().slice(0, 10);
     const user = url.searchParams.get('user') || undefined;
     const sessionId = url.searchParams.get('session_id') || undefined;
+    const exclusion = parseExclusionParams(url.searchParams);
+    if ('invalid' in exclusion) { error(res, exclusion.invalid, 400); return; }
 
     if (user || sessionId) {
       // t/850: raw per-user/session events expose other users' telemetry — admin only.
       if (!requireAdmin(res)) return;
-      json(res, { events: await analytics.queryRawEvents(from, to, user, sessionId) });
+      json(res, { events: await analytics.queryRawEvents(from, to, user, sessionId, exclusion) });
     } else {
-      json(res, await analytics.queryAggregated(from, to));
+      json(res, await analytics.queryAggregated(from, to, exclusion));
     }
   });
 
@@ -305,10 +310,12 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
     // t/2526 safe-ID validation at the boundary, before any query.
     if (session !== undefined && !isSafeId(session)) { error(res, 'Invalid session id', 400); return; }
     if (subject !== undefined && !isSafeId(subject)) { error(res, 'Invalid subject id', 400); return; }
+    const exclusion = parseExclusionParams(url.searchParams);
+    if ('invalid' in exclusion) { error(res, exclusion.invalid, 400); return; }
 
     const currentUserId = deriveRequestUserId(req);
-    if (subject !== undefined) { await serveSubjectBreakdown(res, from, to, subject, groupBy, user); return; }
-    await serveEngagementTree(res, from, to, user, session, currentUserId, isAdmin(currentUserId));
+    if (subject !== undefined) { await serveSubjectBreakdown(res, from, to, subject, groupBy, user, exclusion); return; }
+    await serveEngagementTree(res, from, to, user, session, currentUserId, isAdmin(currentUserId), exclusion);
   });
 
   // ── Focus node (inter-app communication) ──
