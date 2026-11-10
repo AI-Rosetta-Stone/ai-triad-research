@@ -138,7 +138,7 @@
   width: 100%;
   padding: 5px 8px;
   font-size: var(--text-sm);
-  border: 1px solid var(--border-color, #d0d7de);
+  border: 1px solid var(--input-border);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary, #1f2328);
@@ -149,7 +149,7 @@
   padding: 5px 8px;
   font-size: var(--text-sm);
   font-family: var(--font-mono, monospace);
-  border: 1px solid var(--border-color, #d0d7de);
+  border: 1px solid var(--input-border);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary, #1f2328);
