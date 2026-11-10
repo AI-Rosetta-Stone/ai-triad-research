@@ -130,7 +130,7 @@ export function buildLoginPage(showAnonymous: boolean): string {
     --radius-md:8px;
     --color-acc:#e89450;
     --color-saf:#7da3d6;
-    --color-skp:#a888c8;
+    --color-skp:#b69bd1;
     --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     --font-serif:Georgia,'Times New Roman',serif;
   }
