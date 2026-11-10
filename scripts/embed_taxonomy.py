@@ -39,7 +39,13 @@ import numpy as np
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _FALLBACK_TAXONOMY_DIR = _SCRIPT_DIR.parent / "taxonomy" / "Origin"
 MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_REPO = "sentence-transformers/all-MiniLM-L6-v2"
 NLI_MODEL_NAME = "cross-encoder/nli-deberta-v3-small"
+# t/62: both models load at the commit pinned here -- the same file CI's
+# fetch_embed_models.py reads (t/55), so an upstream re-upload can't move prod
+# embeddings without CI seeing it. MODEL_NAME stays the short name for the
+# embeddings.json envelope.
+MODEL_PINS_FILE = _SCRIPT_DIR / "embed_model_pins.json"
 # t/4572 (SO C1, t/4572#1): a hardcoded column order here is exactly the class of bug that
 # shipped -- NLI_LABELS used to assume [entailment, neutral, contradiction], but the real
 # checkpoint's config.id2label is {0: contradiction, 1: entailment, 2: neutral}. Different
@@ -185,12 +191,41 @@ def _resolve_taxonomy_dir(override=None, conflicts_override=None):
     return TAXONOMY_DIR
 
 
+def _model_revision(repo_id, pins_file=None):
+    """The pinned commit for repo_id from embed_model_pins.json (t/62).
+
+    No fallback to the unpinned `main`: a missing or unreadable pin is an error,
+    because loading `main` is exactly the silent CI/prod skew the pin prevents.
+    """
+    pins_file = Path(pins_file) if pins_file else MODEL_PINS_FILE
+    try:
+        pins = json.loads(pins_file.read_text(encoding="utf-8"))["models"]
+        revision = pins[repo_id]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(
+            f"Goal: Load {repo_id} at its pinned revision\n"
+            f"Problem: no usable pin in {pins_file} ({type(exc).__name__}: {exc}).\n"
+            "Location: embed_taxonomy.py _model_revision\n"
+            f"Next Steps: Restore {pins_file.name} from main, or add {repo_id!r} under \"models\" "
+            "with a full commit sha. Unpinned `main` is never used (t/62)."
+        ) from exc
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError(
+            f"Goal: Load {repo_id} at its pinned revision\n"
+            f"Problem: the pin in {pins_file} is {revision!r}, not a 40-hex commit sha.\n"
+            "Location: embed_taxonomy.py _model_revision\n"
+            "Next Steps: Pin a commit, not a branch or tag (t/62)."
+        )
+    return revision
+
+
 def _load_model():
-    """Load the sentence-transformer model (downloads on first run)."""
+    """Load the sentence-transformer model at its pinned revision (downloads on first run)."""
     from sentence_transformers import SentenceTransformer
 
-    print(f"Loading model '{MODEL_NAME}'...", file=sys.stderr)
-    return SentenceTransformer(MODEL_NAME, trust_remote_code=False)
+    revision = _model_revision(MODEL_REPO)
+    print(f"Loading model '{MODEL_NAME}'@{revision[:7]}...", file=sys.stderr)
+    return SentenceTransformer(MODEL_REPO, revision=revision, trust_remote_code=False)
 
 
 def _nli_label_order_error(problem):
@@ -217,8 +252,9 @@ def _load_nli_model():
     """
     from sentence_transformers import CrossEncoder
 
-    print(f"Loading NLI model '{NLI_MODEL_NAME}'...", file=sys.stderr)
-    model = CrossEncoder(NLI_MODEL_NAME, trust_remote_code=False)
+    revision = _model_revision(NLI_MODEL_NAME)
+    print(f"Loading NLI model '{NLI_MODEL_NAME}'@{revision[:7]}...", file=sys.stderr)
+    model = CrossEncoder(NLI_MODEL_NAME, revision=revision, trust_remote_code=False)
 
     id2label = getattr(getattr(model, "config", None), "id2label", None)
     if not id2label:

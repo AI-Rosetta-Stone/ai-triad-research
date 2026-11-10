@@ -11,6 +11,7 @@
     "scripts/requirements.txt",
     "scripts/embed_taxonomy.py",
     ".github/ci/fetch_embed_models.py",
+    "scripts/embed_model_pins.json",
     ".github/ci/assert_embed_stability.py",
     ".github/ci/embed_reference.json",
     ".github/actions/checkout-ai-triad-data/**",
