@@ -50,12 +50,12 @@
 }
 
 .lib-btn-primary {
-  background: var(--lib-accent);
-  border: 1px solid var(--lib-accent);
+  background: var(--danger-fill); /* t/198 S5: white on --lib-accent (--danger) was 3.76 */
+  border: 1px solid var(--danger-fill);
   color: #fff;
   font-weight: 600;
 }
-.lib-btn-primary:hover { background: var(--lib-accent-hover); border-color: var(--lib-accent-hover); }
+.lib-btn-primary:hover { background: var(--danger-fill-hover); border-color: var(--danger-fill-hover); }
 .lib-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* t/54 (Design t/54#2): tokens only, so every theme follows. The old hard-coded light background
