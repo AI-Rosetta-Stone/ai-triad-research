@@ -35,6 +35,7 @@ import { registerOpedRoutes } from './oped.js';
 import { registerBriefExportsRoutes } from './briefExports.js';
 import { registerInquiryRoutes } from './inquiry.js';
 import { registerTemplatesRoutes } from './templates.js';
+import { registerDocumentsRoutes } from './documents.js';
 import { registerSupportRoutes } from './support.js';
 import { registerHarvestRoutes } from './harvest.js';
 import { registerSourcesRoutes } from './sources.js';
@@ -75,6 +76,7 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerBriefExportsRoutes(router, ctx);
   registerInquiryRoutes(router, ctx); // t/3581 — POST /api/inquiry (202) + GET /api/inquiry/:jobId. Unique prefix; order-independent.
   registerTemplatesRoutes(router, ctx);
+  registerDocumentsRoutes(router, ctx); // t/274 — POST /api/documents/extract (sign-in required, 10 MB limit)
   registerSupportRoutes(router, ctx);
   registerHarvestRoutes(router, ctx);
   registerSourcesRoutes(router, ctx);
