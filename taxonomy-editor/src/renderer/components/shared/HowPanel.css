@@ -1,4 +1,9 @@
-/* ─── How Panel (shared for Chat and OpEd) ────────────── */
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * The shared "How" panel (t/173), moved from ChatWorkspace.css's .chat-how-* rules (t/4824, t/4855,
+ * t/4856) so Chat and the Op-Ed reader share one look.
+ */
 
 .how-panel {
   margin-top: 8px;
@@ -51,13 +56,12 @@
 .how-unavailable {
   margin: 0;
   font-size: var(--text-sm);
+  /* t/4824 (Design): --text-muted fails AA here; --text-secondary clears it. */
   color: var(--text-secondary);
   font-style: italic;
 }
 
-/* t/4855 (t/4848 follow-up): ~15 visible lines at this font-size/line-height before scrolling.
-   t/4856 (Design): type tokens instead of a hardcoded 13px, max-height in em so it tracks the
-   token's actual size rather than a number that would drift if --text-sm ever changes. */
+/* ~15 visible lines before scrolling (t/4855); type tokens and an em max-height (t/4856). */
 .how-textbox {
   margin: 0;
   max-height: calc(1.5em * 15);
