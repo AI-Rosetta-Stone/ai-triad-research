@@ -213,6 +213,21 @@ export async function runInquiryPipeline(
     : undefined;
   const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
 
+  // ── Inquiry anchor validation (t/284): ensure topic.final === request.question ──────
+  // For inquiry debates, the topic must stay anchored to the user's literal question.
+  // If it drifted (e.g. due to accidental reframe), throw so the user knows.
+  if (session.topic.final !== request.question) {
+    throw new ActionableError({
+      goal: `Anchor inquiry debate to user's question: "${request.question.slice(0, 60)}"`,
+      problem: `topic.final drifted to: "${session.topic.final.slice(0, 60)}" — inquiry debates must not reframe the question`,
+      location: 'lib/debate/inquiryPipeline.ts › runInquiryPipeline',
+      nextSteps: [
+        'Check that wisdomAutoReframe is false in inquiryConfig.ts for this request',
+        'If the debate legitimately refined the question, store the refinement as topic.critique_suggestion instead',
+      ],
+    });
+  }
+
   // ── Stage 4: project trust ─────────────────────────────────────────────────
   deps.onStage?.('projecting');
   const rawMetrics = getRawMetrics(session);
