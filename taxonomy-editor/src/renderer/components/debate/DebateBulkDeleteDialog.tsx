@@ -75,8 +75,9 @@ export function BulkDeleteDialog({
       return s ? sessionTitle(s) : id;
     }).join(', ');
     // A single-item selection that fails gets its own reason; a multi-item batch keeps the generic
-    // aggregate message even if only one failed (matches BulkDeleteInquiryDialog).
-    const message = ids.length === 1 ? mapErrorToUserMessage(lastErr) : undefined;
+    // aggregate message even if only one failed (matches BulkDeleteInquiryDialog). A delete isn't an
+    // AI call, so a 429 must not suggest switching models (t/127, t/108).
+    const message = ids.length === 1 ? mapErrorToUserMessage(lastErr, { kind: 'operation' }) : undefined;
     setPartialError({ deletedCount, total: ids.length, failedTitles, message });
   };
 
