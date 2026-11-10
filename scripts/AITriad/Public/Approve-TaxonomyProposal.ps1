@@ -100,6 +100,7 @@ function Approve-TaxonomyProposal {
             $ProposalData.proposals[$Index] | Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
             return [PSCustomObject]@{ Success = $true; Error = $null }
         }
+        # Keep ShouldProcess gate at call site; helper is side-effect only when gate passes.
         $Result = Invoke-ProposalApply -Proposal $Proposal
         if ($Result.Success) {
             Write-OK "Applied: $($Proposal.action) $($Proposal.suggested_id)"
@@ -181,11 +182,13 @@ function Approve-TaxonomyProposal {
         foreach ($Item in $Pending) {
             Show-Proposal -Idx $Item.Index -P $Item.Proposal
 
-            $Result = _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Item.Index -Proposal $Item.Proposal -DryRun:$DryRun
-            if ($Result.Success) {
-                $ApprovedCount++
-            } else {
-                $FailedCount++
+            if ($PSCmdlet.ShouldProcess("Proposal $($Item.Index) ($($Item.Proposal.action) $($Item.Proposal.suggested_id))", 'Apply')) {
+                $Result = _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Item.Index -Proposal $Item.Proposal -DryRun:$DryRun
+                if ($Result.Success) {
+                    $ApprovedCount++
+                } else {
+                    $FailedCount++
+                }
             }
         }
 
@@ -260,7 +263,9 @@ function Approve-TaxonomyProposal {
         Show-Proposal -Idx $Index -P $P
 
         if ($Approve) {
-            _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Index -Proposal $P -DryRun:$DryRun | Out-Null
+            if ($PSCmdlet.ShouldProcess("Proposal $Index ($($P.action) $($P.suggested_id))", 'Apply')) {
+                _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Index -Proposal $P -DryRun:$DryRun | Out-Null
+            }
         } else {
             $P | Add-Member -NotePropertyName 'status' -NotePropertyValue 'rejected' -Force
             Write-Info 'Rejected'
