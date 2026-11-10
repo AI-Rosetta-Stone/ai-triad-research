@@ -18,6 +18,7 @@ import { getStorageUserId, isAnonymousUser, runWithUser, type UserContext } from
 import { getUserContentBackend, assertSafeId, isSafeId, readTaxonomyFile } from './fileIO.js';
 import { loadOpedSet } from './opedStore.js';
 import { confirmShareStillRegistered } from './shareRevokeGuard.js';
+import { readShareRegistry as readRegistryFile, updateShareRegistry } from './shareRegistry.js';
 import { log } from '../logger.js';
 import { AppliedTagSchema, type TagMode } from '../../../../lib/schema/povTags.js';
 
@@ -226,13 +227,12 @@ export async function projectPublicOpEd(set: OpEdSet, shareId: string): Promise<
   };
 }
 
-async function readShareRegistry(): Promise<Record<string, string>> {
-  const raw = await getUserContentBackend().readFile(shareRegistryPath());
-  if (raw === null) return {};
-  try { return JSON.parse(raw) as Record<string, string>; } catch { /* telemetry — silent by design */ return {}; }
+function readShareRegistry(): Promise<Record<string, string>> {
+  return readRegistryFile(getUserContentBackend(), shareRegistryPath());
 }
-async function writeShareRegistry(reg: Record<string, string>): Promise<void> {
-  await getUserContentBackend().writeFile(shareRegistryPath(), JSON.stringify(reg, null, 2));
+/** t/117: compare-and-swap registry update — see shareRegistry.ts. */
+function updateRegistry<T>(mutate: (reg: Record<string, string>) => { changed: boolean; result: T }): Promise<T> {
+  return updateShareRegistry(getUserContentBackend(), shareRegistryPath(), 'oped', mutate);
 }
 function confirmOpedShare(setId: string, shareId: string): Promise<boolean> {
   return confirmShareStillRegistered({
@@ -261,8 +261,20 @@ export async function publishOpedShare(setId: string): Promise<{ shareId: string
     JSON.stringify(await projectPublicOpEd(set, shareId), null, 2),
   );
   if (!existing) {
-    reg[setId] = shareId;
-    await writeShareRegistry(reg);
+    // t/117: add only if still absent — a concurrent publish that minted its own shareId wins,
+    // and the guard below then removes our copy. On give-up, drop the orphan we just wrote.
+    try {
+      await updateRegistry((r) => {
+        if (r[setId]) return { changed: false, result: undefined };
+        r[setId] = shareId;
+        return { changed: true, result: undefined };
+      });
+    } catch (err) {
+      await getUserContentBackend().deleteFile(publicOpedPath(shareId)).catch((delErr) => {
+        log.server.warn({ err: delErr, shareId }, 'oped share orphan cleanup after registry failure failed (best-effort)');
+      });
+      throw err;
+    }
   }
   // t/4937: an unpublish may have raced the write above — never leave a revoked link live.
   if (!(await confirmOpedShare(setId, shareId))) return null;
@@ -298,13 +310,16 @@ export async function refreshOpedShareIfShared(setId: string): Promise<boolean> 
 export async function unpublishOpedShare(setId: string): Promise<boolean> {
   assertSafeId(setId, 'oped-set id');
   if (isAnonymousUser()) return false;
-  const reg = await readShareRegistry();
-  const shareId = reg[setId];
-  if (!shareId) return false;
   // t/4937: registry entry goes FIRST, so a publish/refresh whose write lands after the delete
   // below re-reads a registry that no longer names this shareId and removes its own copy.
-  delete reg[setId];
-  await writeShareRegistry(reg);
+  // t/117: compare-and-swap, so a concurrent registry write can't put the entry back.
+  const shareId = await updateRegistry((r) => {
+    const current = r[setId];
+    if (!current) return { changed: false, result: undefined };
+    delete r[setId];
+    return { changed: true, result: current };
+  });
+  if (!shareId) return false;
   await getUserContentBackend().deleteFile(publicOpedPath(shareId)).catch((err) => {
     log.server.warn({ err, shareId }, 'oped share public-copy delete failed (best-effort)');
   });

@@ -8,6 +8,25 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { gitBlobSha } from './gitBlobSha.js';
 
+/** t/117: tail of the in-flight conditional-write chain per absolute path. Module-level so
+ *  every FilesystemBackend instance in this process shares it. */
+const conditionalWriteTails = new Map<string, Promise<unknown>>();
+
+/** t/117: run `fn` after every earlier conditional write to the same path has settled, so a
+ *  `baseSha` check and its rename can't interleave with another conditional write in this
+ *  process. Does not cover a second process writing the same directory. */
+async function serializeConditionalWrite<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const key = path.resolve(filePath);
+  const run = (conditionalWriteTails.get(key) ?? Promise.resolve()).then(fn, fn);
+  const tail = run.then(() => undefined, () => undefined);
+  conditionalWriteTails.set(key, tail);
+  try {
+    return await run;
+  } finally {
+    if (conditionalWriteTails.get(key) === tail) conditionalWriteTails.delete(key);
+  }
+}
+
 /**
  * FilesystemBackend — local disk implementation of StorageBackend.
  *
@@ -69,22 +88,38 @@ export class FilesystemBackend implements StorageBackend {
    * concurrent-replica scenario t/4184 closes for GitHubAPIBackend. Direct
    * fileIO callers that omit `baseSha` skip the check entirely, same as
    * GitHubAPIBackend's no-baseSha fallback.
+   *
+   * t/117: conditional writes to one path are serialized in-process, so two
+   * concurrent same-process writers (the share registry's compare-and-swap,
+   * two tabs on one local server) can't both pass the check — the second sees
+   * the first's content and gets WRITE_CONFLICT. A second process writing the
+   * same directory is still unguarded.
    */
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     if (opts?.baseSha !== undefined) {
-      const current = await this.readFile(filePath);
-      const currentSha = current === null ? '' : gitBlobSha(current);
-      if (currentSha !== opts.baseSha) {
-        throw new ActionableError({
-          goal: `Save ${filePath}`,
-          problem: 'The file changed since you loaded it (someone else saved a conflicting change).',
-          location: `FilesystemBackend.writeFile(${filePath})`,
-          nextSteps: ['Reload the file to see the latest version', 'Re-apply your change and save again'],
-          httpStatus: 409,
-          code: 'WRITE_CONFLICT',
-        });
-      }
+      const baseSha = opts.baseSha;
+      return serializeConditionalWrite(filePath, () => this.checkedWrite(filePath, content, baseSha));
     }
+    return this.writeUnchecked(filePath, content);
+  }
+
+  private async checkedWrite(filePath: string, content: string, baseSha: string): Promise<{ version: string }> {
+    const current = await this.readFile(filePath);
+    const currentSha = current === null ? '' : gitBlobSha(current);
+    if (currentSha !== baseSha) {
+      throw new ActionableError({
+        goal: `Save ${filePath}`,
+        problem: 'The file changed since you loaded it (someone else saved a conflicting change).',
+        location: `FilesystemBackend.writeFile(${filePath})`,
+        nextSteps: ['Reload the file to see the latest version', 'Re-apply your change and save again'],
+        httpStatus: 409,
+        code: 'WRITE_CONFLICT',
+      });
+    }
+    return this.writeUnchecked(filePath, content);
+  }
+
+  private async writeUnchecked(filePath: string, content: string): Promise<{ version: string }> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = filePath + '.tmp';
     await fs.writeFile(tmpPath, content, 'utf-8');

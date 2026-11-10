@@ -33,7 +33,16 @@ const hooks: { beforeWrite?: (p: string) => Promise<void>; beforeDelete?: (p: st
 const fakeBackend = {
   backendName: 'fake',
   async readFile(p: string) { return files.has(p) ? files.get(p)! : null; },
-  async writeFile(p: string, content: string) { await hooks.beforeWrite?.(p); files.set(p, content); },
+  // t/117: versioned reads + `baseSha` enforcement, checked AFTER the hook so a hook can land a
+  // concurrent write between a caller's read and its write.
+  async readFileWithVersion(p: string) { return files.has(p) ? { content: files.get(p)!, version: gitBlobSha(files.get(p)!) } : null; },
+  async writeFile(p: string, content: string, opts?: { baseSha?: string }) {
+    await hooks.beforeWrite?.(p);
+    if (opts?.baseSha !== undefined && (files.has(p) ? gitBlobSha(files.get(p)!) : '') !== opts.baseSha) {
+      throw Object.assign(new Error('conflict'), { code: 'WRITE_CONFLICT' });
+    }
+    files.set(p, content);
+  },
   async deleteFile(p: string) { await hooks.beforeDelete?.(p); files.delete(p); },
   async listDirectory() { return []; },
   async fileExists(p: string) { return files.has(p); },
@@ -46,6 +55,7 @@ vi.mock('../storage/fileIO.js', async (importOriginal) => {
 });
 
 import path from 'path';
+import { gitBlobSha } from '../storage/gitBlobSha.js';
 import { runWithUser, type UserContext } from '../security/userContext.js';
 import { publishInquiryShare, unpublishInquiryShare, loadPublicInquiryShare, refreshInquiryShareIfShared } from '../storage/inquiryShareStore.js';
 import { resolveDataPath } from '../config.js';
@@ -318,5 +328,27 @@ describe('inquiryShareStore (t/3627)', () => {
 
     expect(registryAtDelete).toBeDefined();
     expect(registryAtDelete!['job-1']).toBeUndefined();
+  });
+
+  // ─── two concurrent share actions by one owner (t/117) ─────────────────────
+
+  it('publish(B) overlapping unpublish(A) does not re-add A; a later refresh(A) stays revoked', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+    const { shareId: sA } = (await runWithUser(OWNER, () => publishInquiryShare('job-1')))!;
+
+    // publish(B) reads the registry {A}, then unpublish(A) lands just before B's registry write.
+    hooks.beforeWrite = async (p) => {
+      if (p !== registryPath) return;
+      delete hooks.beforeWrite;
+      expect(await runWithUser(OWNER, () => unpublishInquiryShare('job-1'))).toBe(true);
+    };
+    const b = await runWithUser(OWNER, () => publishInquiryShare('job-2'));
+    expect(b).not.toBeNull();
+
+    const reg = JSON.parse(files.get(registryPath)!);
+    expect(reg['job-1']).toBeUndefined();
+    expect(reg['job-2']).toBe(b!.shareId);
+    expect(await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'))).toBe(false);
+    expect(files.has(publicInquiryPath(sA))).toBe(false);
   });
 });
