@@ -1,0 +1,25 @@
+{
+  "ticket": "t/213",
+  "status": "enumerated manual marks; NOT authorized to write on their own",
+  "ruling": "TL t/213#8 (p/37#40): banner-substring title match rejected as a general rule; this pair recorded as an enumerated manual mark. It rides the next duplicate_of batch that gets an independent recount and PI sign-off on the frozen list's hash. No standalone write.",
+  "sources_commit": "ec7deb133e1d6ceeb4996c2d8e4c5246cd01feb9",
+  "marks": [
+    {
+      "set": 12,
+      "id": "office-public-affairs-weight-management-companies-kurbo-inc-2026",
+      "duplicate_of": "weight-management-companies-kurbo-inc-ww-international-inc-2026",
+      "duplicate_of_ref": "t213-manual-2026-11#12",
+      "canonical_reason": "clean title (no DOJ page banner); 3 data references vs 2 (TL t/213#8)",
+      "pre_sha256": {
+        "metadata.json": "ac8abe76d8073a966cd8fd0a7b96123fbd0bb2df7f7e603d7fb8b955b7c689f7",
+        "canonical_metadata.json": "11949ff5c6856ce30713bee74198fcd5575371f722f85e5eb33cac697d697c5c"
+      },
+      "evidence": {
+        "raw": "the same PDF in both raw/ folders, byte-identical: git blob 8b007a5202f2aaca125c11a30604d628c09771a8, 187298 bytes",
+        "snapshot": "difflib ratio 0.956; the only differing lines are the 'Title :' header and the H1, where the copy's title carries the 'Office of Public Affairs ... United States Department of Justice' page banner. Bodies identical. snapshot.md sha256: copy 31f98619d27c9eb9c50814d7c211957b59dd8b3313e775c5149be868267be6f9, canonical 677df7d214f075fcee42a8f30dcb2bc13f94e7ba5bcfde2c20ec9f71ac46f169",
+        "why_no_identity_edge": "4.2: body ~96 words, under the 1.3 100-word floor, so no computed hash and no recorded content_sha256; 4.3: both url fields empty; 4.4: ids are not a -N pair; title keys differ (banner)",
+        "summaries": "both docs have summaries/<id>.json"
+      }
+    }
+  ]
+}

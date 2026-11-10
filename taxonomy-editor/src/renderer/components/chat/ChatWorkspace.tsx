@@ -107,11 +107,12 @@ function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; sele
  * (`makeRefLinkSpan`), which this component does not touch. pol-* and sit-* ids flow through the
  * same `TaxNodeDetail` unchanged — it already resolves policy/situation PinnedData variants.
  */
-export function TaxonomyRefsSection({ refs }: { refs: TaxonomyRef[] }) {
+export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; emptyText?: string }) {
   const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
   const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
 
-  if (!refs || refs.length === 0) return null;
+  // t/165: an answer with no refs says so rather than leaving the "Why" eyebrow over nothing.
+  if (!refs || refs.length === 0) return emptyText ? <p className="chat-why-empty">{emptyText}</p> : null;
 
   return (
     <div className="chat-taxonomy-refs">
@@ -187,7 +188,7 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         <MessageBubble role={isUser ? 'user' : 'assistant'} className="chat-message-content markdown-body prose">
           <Markdown remarkPlugins={[remarkGfm, remarkColorizePov, remarkLinkifyRefs]} components={mdComponents}>{entry.content}</Markdown>
         </MessageBubble>
-        <TaxonomyRefsSection refs={entry.taxonomy_refs} />
+        <TaxonomyRefsSection refs={entry.taxonomy_refs} emptyText={isUser ? undefined : 'No taxonomy grounding recorded for this answer.'} />
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
@@ -241,8 +242,9 @@ function ChatHowSection({ title, defaultExpanded, children }: { title: string; d
 /** Raw Prompt/Response content: the real text in a ~15-visible-line scroll box when the server has
  *  captured it (t/4848), or the "not available" message when it hasn't — a missing value for an
  *  older/in-flight turn never reads as a rendering bug. */
-function ChatHowRawContent({ value, label }: { value: string | undefined; label: string }) {
-  if (!value) return <p className="chat-how-unavailable">Not available for this response yet.</p>;
+function ChatHowRawContent({ value, label, missingText }: { value: string | undefined; label: string; missingText: string }) {
+  // t/165: absent for entries saved before t/4848 (and openings until t/169), by contract.
+  if (!value) return <p className="chat-how-unavailable">{missingText}</p>;
   // t/4856 (Design): tabIndex + aria-label so the scrollable box is keyboard-reachable and its
   // content is announced, matching the section title it sits under.
   return <pre className="chat-how-textbox" tabIndex={0} aria-label={label}>{value}</pre>;
@@ -260,10 +262,10 @@ function ChatHowPanel({ rawPrompt, rawResponse }: { rawPrompt: string | undefine
       {expanded && (
         <div className="chat-how-body">
           <ChatHowSection title="Raw Prompt" defaultExpanded>
-            <ChatHowRawContent value={rawPrompt} label="Raw Prompt" />
+            <ChatHowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
           </ChatHowSection>
           <ChatHowSection title="Raw Response" defaultExpanded={false}>
-            <ChatHowRawContent value={rawResponse} label="Raw Response" />
+            <ChatHowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
           </ChatHowSection>
           <ChatHowSection title="Methods" defaultExpanded={false}>
             <ul className="chat-how-methods-list">

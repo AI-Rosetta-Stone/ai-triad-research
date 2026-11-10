@@ -1,6 +1,6 @@
 # Semantic Tint Tokens
 
-**Author:** Design · **Status:** Spec, ready to implement · **Ticket:** t/124 (parent t/123; folds in t/48 and t/66)
+**Author:** Design · **Status:** Tokens landed (#4853 `94da26140`; bkc Skeptic in #4864); per-owner migration in progress under t/123 · **Ticket:** t/124 (parent t/123; folds in t/48 and t/66)
 **Last updated:** 2026-11-10
 
 ## Problem
@@ -78,7 +78,9 @@ Each camp colour on its own tint is ≥ 4.62:1 in every theme.
 
 The dark `--color-skp` value changes from `#a888c8` to **`#b69bd1`**. Before, it was 4.37:1 on the ambiguous block and 4.06:1 on hover. After, it's 4.62 on `--bg-hover`, 5.35 on the ambiguous block, 7.26 on primary and 5.73 on `--color-skp-bg`.
 
-It's a light lift of the same hue, so it still reads as Skeptic purple next to Safetyist blue, which differs in hue. The other themes are unchanged.
+It's a light lift of the same hue, so it still reads as Skeptic purple next to Safetyist blue, which differs in hue.
+
+**bkc addendum** (Quality, t/48#4): bkc `--color-skp` had the same gap (4.13 on hover, 4.06 on tertiary). It changes from `#a882be` to **`#b18fc5`**: 5.97 on primary, 5.77 on secondary, 4.68 on tertiary, 4.76 on hover, 5.34 on `--color-skp-bg`. Light and harvard are unchanged. The login page's own copy of the dark value was synced in #4859.
 
 ### t/66: input boundaries
 
@@ -108,7 +110,36 @@ Owners replace the hand-rolled pair with the token pair. The common patterns:
 
 A solid `--focus-ring` fill stays on `--text-on-focus-ring` (t/123). It isn't a tint.
 
-Anything that doesn't fit a row (BDI category colours, one-off hues) goes back to Design on the owner's ticket. Don't invent a new pair.
+Anything that doesn't fit a row or a standing rule below goes back to Design on the owner's ticket. Don't invent a new pair.
+
+## Standing rules for off-map cases
+
+These come from the first round of migration questions (t/188, t/189, t/191, t/192, t/193, t/194). Apply them without asking. A PR that applies only map rows plus these rules is still a quick approval from the diff.
+
+| # | Case | Rule | Measured (lowest across themes) |
+|---|---|---|---|
+| S1 | **Neutral chip or tint**: muted text on a muted tint, or a grey badge (closed, retired, unverifiable, cross-tier) | `color: var(--text-secondary); background: var(--bg-tertiary)` | 4.87 (bkc) |
+| S2 | **`--focus-ring` used as a tint** behind a label | the info pair. The selection colour isn't a label colour (t/189). | per the info row |
+| S3 | **`--focus-ring` or a hue used as plain text, with no tint** | the matching tone's `-text` (`--info-text`, `--success-text`, …). Every `-text` passes on primary and secondary. | per the tone row |
+| S4 | **Selected or active state on a solid fill** (an active tab or pill) | `background: var(--focus-ring); color: var(--text-on-focus-ring, #fff)` (t/123). Not `--info` as a solid fill. | 4.70 (bkc) |
+| S5 | **Solid destructive fill with text** (danger button, danger count badge) | `background: var(--danger-fill); color: #fff`. **New token, below.** Not `--danger`, which is 3.76:1 with white. | 4.83 |
+| S6 | **Solid warning fill with text** (an active warning toggle) | the warning pair, tinted. There's no solid warning fill with legible text in every theme. | per the warning row |
+| S7 | **Highlight mark** (search hit, matched span) | `color: var(--text-primary); background: var(--warning-bg)` | 11.46 (bkc) |
+| S8 | **Hover on a tinted element** | keep the same `-bg` (they're solid, so there's no alpha to lift). On hover, strengthen the border to the tone's `-text`. Base border: the tone's `-border` where it exists (error, warning), otherwise transparent. Don't use `filter: brightness()`, which also changes the text contrast. | — |
+| S9 | **Identity hues that aren't status** (chat modes, one-off method or DOLCE hues) | the tone pair with the **same hue**: orange/amber → warning, green → success, blue/cyan/teal → info, indigo/purple → violet. **Exception:** if the warning pair would make a neutral item read as a problem next to green siblings, use info instead. | per the tone row |
+| S10 | **A camp colour as a generic action fill** (Accept, Apply) | the solid accent pairing: `background: var(--accent-text); color: var(--bg-primary)` (t/104). Camp colours mean camps, not actions. | 6.18 |
+| S11 | **`var(--bg, …)`**: `--bg` is defined in no theme, so it falls back to the hard-coded value (often `#fff`) | `var(--bg-primary)`, or `var(--bg-input)` for an input, select or textarea background. It's a bug fix, not a tint. | — |
+| S12 | **Icon-only button on a solid fill** (glyph, no text) | the 3:1 non-text bar applies, not 4.5. White on `--danger` (≥ 3.76) passes. The checker may still count it; note it in the PR. | 3.76 |
+
+**New token for S5:** `--danger-fill`, used as the background with white text.
+
+| | light | dark | bkc | harvard |
+|---|---|---|---|---|
+| value | `#dc2626` | `#dc2626` | `#dc2626` | `#A5182A` |
+| white on it | 4.83 | 4.83 | 4.83 | 7.60 |
+| vs page (non-text) | 4.83 | 3.67 | 3.41 | 7.17 |
+
+The global `.btn-danger` (`styles.css`, `background: var(--danger)` with white text) should move to it too.
 
 ## Rollout
 
@@ -119,4 +150,4 @@ Anything that doesn't fit a row (BDI category colours, one-off hues) goes back t
 
    Design reviews it with harvard and dark screenshots of one badge per tone and a focused input. It ratchets the ceiling.
 2. **Per-owner children** under t/123: each migrates its files via the map, lowers the ceiling, and gets Design approval from the diff when it only applies map rows.
-3. Once step 1 merges, Design records the tokens in `design-system.md`.
+3. Once step 1 merges, Design records the tokens in `design-system.md`. (Done in the same PR that set this spec's status to landed.)

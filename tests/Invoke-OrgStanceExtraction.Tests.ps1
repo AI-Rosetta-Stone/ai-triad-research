@@ -112,6 +112,31 @@ Describe 'Invoke-OrgStanceExtraction (t/1553 Stage 1)' -Tag 'taxonomy' {
         }
     }
 
+    It 'stamps extraction_prompt_sha, the sha256 of the prompt template, on every claim (t/228)' {
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            Mock Invoke-AIByUsage -MockWith {
+                [PSCustomObject]@{ Text = '{"claims":[{"text":"a","canonical_proposition":"X ought Y","polarity":"asserts","extraction_confidence":0.9}]}'; Model = 'stub' }
+            }
+            $null = Invoke-OrgStanceExtraction -Concurrency 1 -OutputPath $ClaimsPath -Confirm:$false 3>$null 6>$null
+            $expected = (Get-FileHash -LiteralPath (Join-Path $script:ModuleRoot 'Prompts' 'org-stance-extraction.prompt') -Algorithm SHA256).Hash.ToLowerInvariant()
+            $claims = @((Get-Content $ClaimsPath -Raw | ConvertFrom-Json).claims)
+            $claims.Count | Should -Be 2
+            foreach ($c in $claims) { $c.extraction_prompt_sha | Should -BeExactly $expected }
+        }
+    }
+
+    It 'both claim builders (sequential and -Parallel) stamp extraction_prompt_sha (t/228)' {
+        # The -Parallel path re-imports the module per runspace, so Pester mocks can't reach it; assert
+        # structurally that each hashtable carrying extraction_model also carries extraction_prompt_sha.
+        $path = Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'Public' 'Invoke-OrgStanceExtraction.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $builders = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] -and
+            @($n.KeyValuePairs | Where-Object { $_.Item1.Extent.Text -eq 'extraction_model' }).Count }, $true))
+        $builders.Count | Should -Be 2
+        foreach ($b in $builders) { @($b.KeyValuePairs | Where-Object { $_.Item1.Extent.Text -eq 'extraction_prompt_sha' }).Count | Should -Be 1 }
+    }
+
     It 'Idempotence: re-run against the same set writes zero new claims' {
         InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
             param($ClaimsPath)

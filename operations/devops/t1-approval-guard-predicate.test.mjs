@@ -6,8 +6,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateT1ApprovalGuard, ownerSlugFromBranch } from './t1-approval-guard-predicate.mjs';
+import { readFileSync, mkdtempSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { evaluateT1ApprovalGuard, ownerSlugFromBranch, latestRoleVerdicts as inlinedLatestRoleVerdicts } from './t1-approval-guard-predicate.mjs';
+import { latestRoleVerdicts as sharedLatestRoleVerdicts } from './role-review-verdicts.mjs';
+import { inlinedRegionFrom, currentRegionOf } from './sync-inlined-role-review-verdicts.mjs';
 import { classifyMergeGroupApprovals } from './t1-approval-guard-merge-group-predicate.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 const PUSH = '2026-10-17T18:00:00Z';
 const BEFORE_PUSH = '2026-10-17T17:00:00Z';
@@ -690,4 +698,58 @@ test('FAIL CLOSED: reviews present but no headSha -> missing-head-sha, never a s
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'missing-head-sha');
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+});
+
+// ── t/200: the predicate must load ALONE (the pre-#4804 YAML copies only this file) ──
+const predicatePath = path.join(here, 't1-approval-guard-predicate.mjs');
+
+test('t/200 NO DRIFT: the inlined role-review-verdicts region is byte-identical to role-review-verdicts.mjs', () => {
+  const region = currentRegionOf(readFileSync(predicatePath, 'utf8'));
+  assert.notEqual(region, null, 'the BEGIN/END INLINED markers must be present in the predicate');
+  assert.equal(region, inlinedRegionFrom(readFileSync(path.join(here, 'role-review-verdicts.mjs'), 'utf8')),
+    'drift: run `node operations/devops/sync-inlined-role-review-verdicts.mjs` after editing role-review-verdicts.mjs');
+});
+
+test('t/200 SELF-CONTAINED: the predicate has no static or dynamic import of anything', () => {
+  const code = readFileSync(predicatePath, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  assert.ok(!/^\s*import\s/m.test(code), 'no static import');
+  assert.ok(!/\bimport\s*\(/.test(code), 'no dynamic import()');
+  assert.ok(!/\brequire\s*\(/.test(code), 'no require()');
+});
+
+test('t/200 BEHAVIOUR-EQUAL: the inlined latestRoleVerdicts matches the shared one on the gate fixtures', () => {
+  const input = {
+    reviews: [
+      { commitId: HEAD, state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): ok' },
+      { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED', submittedAt: BEFORE_PUSH, login: REVIEWER_LOGIN, body: 'Changes requested (Design): no' },
+      { commitId: HEAD, state: 'CHANGES_REQUESTED', submittedAt: AFTER_PUSH, login: 'human', body: '' },
+    ],
+    comments: [{ body: '**Changes requested (Quality), at abc**', createdAt: AFTER_PUSH, login: REVIEWER_LOGIN }],
+    reviewerAppLogin: REVIEWER_LOGIN, headSha: HEAD, lastPushAt: PUSH,
+  };
+  for (const mode of ['gate', undefined]) {
+    assert.deepEqual([...inlinedLatestRoleVerdicts({ ...input, mode })], [...sharedLatestRoleVerdicts({ ...input, mode })]);
+  }
+});
+
+test('t/200 ISOLATED LOAD: copied ALONE into an empty dir, the predicate imports and gives both verdicts', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 't200-predicate-alone-'));
+  try {
+    const alone = path.join(dir, 't1-approval-guard-predicate.mjs');
+    copyFileSync(predicatePath, alone);
+    assert.deepEqual(readdirSync(dir), ['t1-approval-guard-predicate.mjs'], 'nothing else is next to it');
+    const { evaluateT1ApprovalGuard: isolated } = await import(pathToFileURL(alone).href);
+    const base = { body: 'Tier: T1', headRefName: 'devops/t200', headSha: HEAD, lastPushAt: PUSH, reviewerAppLogin: REVIEWER_LOGIN, approvalComments: [] };
+    const approved = isolated({ ...base, botReviews: [{ commitId: HEAD, state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): ok' }] });
+    assert.equal(approved.pass, true);
+    assert.equal(approved.reason, 'approved-after-push');
+    const blocked = isolated({ ...base, botReviews: [
+      { commitId: HEAD, state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): ok' },
+      { commitId: HEAD, state: 'CHANGES_REQUESTED', submittedAt: AFTER_PUSH, login: 'human', body: 'please fix' },
+    ] });
+    assert.equal(blocked.pass, false);
+    assert.equal(blocked.reason, 'changes-requested-outstanding');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

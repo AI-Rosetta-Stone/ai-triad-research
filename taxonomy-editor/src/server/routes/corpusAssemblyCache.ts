@@ -82,10 +82,13 @@ async function assemble(pov: string): Promise<AssembledCorpus> {
   // t/4433: score only the selectable set, as loadTaxonomy does. Superseded nodes stay in the file
   // for history but must never be relevance candidates, attribution targets or grounding nodes.
   const allPovNodes = povFile?.nodes ?? [];
-  const { isSuperseded } = buildSupersessionIndex(allPovNodes);
-  const povNodes = allPovNodes.filter(n => !isSuperseded(n.id));
   const sitFile = await fileIO.readTaxonomyFile('situations', { ref: 'main' }) as { nodes?: SituationNode[] };
-  const situationNodes = sitFile?.nodes ?? [];
+  const allSituationNodes = sitFile?.nodes ?? [];
+  // t/219: the same filter loadTaxonomy applies — ONE supersession index over POV nodes + situations
+  // (t/4872), whose isSuperseded drops either kind. Situations used to pass through unfiltered.
+  const { isSuperseded } = buildSupersessionIndex<PovNode | SituationNode>([...allPovNodes, ...allSituationNodes]);
+  const povNodes = allPovNodes.filter(n => !isSuperseded(n.id));
+  const situationNodes = allSituationNodes.filter(n => !isSuperseded(n.id));
   // loadSyntheticEmbeddings already reads with { ref: 'main' } internally (fileIO).
   const synth = synthVectorsForAssembly(await fileIO.loadSyntheticEmbeddings());
   const { nodeEmbeddings, allNodeIds } = await assembleNodeEmbeddings(pov, povNodes, situationNodes, corpusEmbed, synth);

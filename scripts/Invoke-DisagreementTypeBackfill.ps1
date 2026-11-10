@@ -19,18 +19,55 @@
     Stop after the seed check (do not run the full pass).
 .PARAMETER Model
     AI model to use. Default: gemini-3.5-flash-lite.
+.PARAMETER Ids
+    Restrict the full pass to these situation ids (a frozen /data-mutation list, Orca t/4861 / t/214).
+    An id not in situations.json, or one that already has disagreement_type, is an error, so a
+    frozen list can't silently shrink. Omit to classify every unpopulated node, as before.
+.PARAMETER ExcludeIds
+    Situation ids to leave out of the full pass (e.g. one approved for retirement). Requires
+    -ExcludeReason, which is logged with every excluded id.
+.PARAMETER ExcludeReason
+    Why -ExcludeIds are excluded; recorded in the run output.
+.EXAMPLE
+    ./Invoke-DisagreementTypeBackfill.ps1 -DryRun -Ids sit-484,sit-485,sit-487,sit-488,sit-489,sit-490,sit-491,sit-492,sit-493 `
+        -ExcludeIds sit-486 -ExcludeReason 'approved for retirement by the PI; retire mechanism not built yet (Orca t/4861)'
 #>
 [CmdletBinding()]
 param(
     [string]$SituationsPath = '',
     [switch]$DryRun,
     [switch]$SeedOnly,
-    [string]$Model = 'gemini-3.5-flash-lite'
+    [string]$Model = 'gemini-3.5-flash-lite',
+    [string[]]$Ids = @(),
+    [string[]]$ExcludeIds = @(),
+    [string]$ExcludeReason = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+
+function Select-BackfillTarget {
+    # Pure (Orca t/4861, t/214): scope the full pass to a frozen -Ids list and drop -ExcludeIds,
+    # logging each exclusion with its reason. A frozen id that is unknown or already populated is
+    # an error rather than a silent skip.
+    param([object[]]$Candidates, [string[]]$Ids = @(), [string[]]$ExcludeIds = @(), [string]$ExcludeReason = '')
+    if ($ExcludeIds.Count -and [string]::IsNullOrWhiteSpace($ExcludeReason)) {
+        throw 'Invoke-DisagreementTypeBackfill: -ExcludeIds requires -ExcludeReason (it is recorded with each excluded id).'
+    }
+    $byId = @{}; foreach ($c in $Candidates) { $byId[[string]$c.id] = $c }
+    $out = if ($Ids.Count) {
+        $missing = @($Ids | Where-Object { -not $byId.ContainsKey($_) })
+        if ($missing.Count) {
+            throw "Invoke-DisagreementTypeBackfill: -Ids not found among unpopulated situations (unknown, or disagreement_type already set): $($missing -join ', ')"
+        }
+        @($Ids | ForEach-Object { $byId[$_] })
+    } else { @($Candidates) }
+    foreach ($x in $ExcludeIds) {
+        Write-Warning "Invoke-DisagreementTypeBackfill: excluding $x ($ExcludeReason)"
+    }
+    @($out | Where-Object { [string]$_.id -notin $ExcludeIds })
+}
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'AIEnrich.psm1') -Force -WarningAction SilentlyContinue
@@ -251,6 +288,7 @@ $toClassify = @($Nodes | Where-Object {
     -not ($_.PSObject.Properties['disagreement_type'] -and
           -not [string]::IsNullOrWhiteSpace([string]$_.disagreement_type))
 })
+$toClassify = @(Select-BackfillTarget -Candidates $toClassify -Ids $Ids -ExcludeIds $ExcludeIds -ExcludeReason $ExcludeReason)
 Write-Host "  Nodes to classify: $($toClassify.Count)" -ForegroundColor Cyan
 
 $counts = @{ definitional = 0; interpretive = 0; structural = 0; insufficient = 0; error = 0 }

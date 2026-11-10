@@ -22,8 +22,8 @@
   align-items: center;
   margin-left: 8px;
   padding: 1px 6px;
-  background: rgba(96, 165, 250, 0.15);
-  color: var(--focus-ring);
+  background: var(--info-bg);
+  color: var(--info-text);
   border-radius: var(--radius-md);
   font-size: var(--text-2xs);
   font-weight: 600;

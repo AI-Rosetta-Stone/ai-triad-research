@@ -1025,7 +1025,38 @@ jobs:
         # t/3897, FLIPPED: `--if-present` dropped, same reasoning as Lint above.
         if: matrix.app != 'taxonomy-editor'
         working-directory: ${{ matrix.app }}
-        run: pnpm run test
+        # t/161 (t/61): these apps run lib's dataRootGuard globalSetup (t/158, t/159). The hits file and
+        # tee'd log feed the report below, the same isolated sink taxonomy-editor gets in
+        # test-electron-vitest. pipefail keeps vitest's own exit code through the tee.
+        env:
+          DATA_ROOT_GUARD_HITS_FILE: ${{ runner.temp }}/dataroot-guard-app/${{ matrix.app }}/hits.jsonl
+        run: |
+          set -o pipefail
+          pnpm run test 2>&1 | tee "$RUNNER_TEMP/vitest-${{ matrix.app }}.log"
+
+      - name: Report DATA-ROOT-TEST-WRITE hits and live-fire for this app (warn-only, t/161)
+        # Warn-only sink (#2070 pattern), like test-electron-vitest's per-shard report. Each app runs
+        # unsharded, so its OWN hits file must carry the live-fire positive control (livefire >= 1).
+        if: always() && matrix.app != 'taxonomy-editor'
+        continue-on-error: true
+        shell: bash
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          bash .github/ci/data-root-guard-report.sh app "$RUNNER_TEMP/vitest-$APP.log" "$APP"
+          bash .github/ci/data-root-guard-report.sh app-livefire "$RUNNER_TEMP/dataroot-guard-app/$APP" "$APP"
+
+      - name: Upload DATA-ROOT guard hits file for this app (t/161)
+        # Deliberately NOT named data-root-guard-hits-*: test-electron-coverage downloads that pattern for
+        # taxonomy-editor's cross-shard tally, and these files must not join it (t/161#2).
+        if: always() && matrix.app != 'taxonomy-editor'
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: dataroot-guard-app-hits-${{ matrix.app }}
+          path: ${{ runner.temp }}/dataroot-guard-app/${{ matrix.app }}/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # taxonomy-editor's vitest suite (with coverage thresholds and the DATA-ROOT-TEST-WRITE
       # report) moved OUT of this job into `test-electron-vitest` (3 parallel shards) +

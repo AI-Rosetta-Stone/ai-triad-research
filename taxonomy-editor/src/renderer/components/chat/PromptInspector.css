@@ -232,8 +232,8 @@
   overflow-y: auto;
 }
 .pi-placeholder {
-  background: rgba(37, 99, 235, 0.15);
-  color: #2563eb;
+  background: var(--info-bg);
+  color: var(--info-text);
   border-radius: var(--radius-sm);
   padding: 0 2px;
 }

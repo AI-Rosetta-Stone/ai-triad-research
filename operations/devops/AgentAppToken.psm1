@@ -233,8 +233,12 @@ function New-AgentAppTokenError {
     param([string] $Problem, [string] $NextSteps)
     $cmd = Get-Command New-ActionableError -ErrorAction SilentlyContinue
     if ($cmd) {
+        # AITriad's New-ActionableError returns $null unless asked for a mode, which would make the
+        # caller `throw $null`; the local devops helpers have no -PassThru and always return text (t/243).
+        $mode = @{}
+        if ($cmd.Parameters -and $cmd.Parameters.ContainsKey('PassThru')) { $mode.PassThru = $true }
         return (New-ActionableError -Goal 'Mint a GitHub App installation token for an agent role (t/4096)' `
-            -Problem $Problem -Location 'operations/devops/AgentAppToken.psm1' -NextSteps $NextSteps)
+            -Problem $Problem -Location 'operations/devops/AgentAppToken.psm1' -NextSteps $NextSteps @mode)
     }
     "Goal: Mint a GitHub App installation token for an agent role (t/4096)`nError: $Problem`nLocation: operations/devops/AgentAppToken.psm1`nResolve: $NextSteps"
 }

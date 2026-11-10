@@ -29,8 +29,8 @@ say() { echo "$*" >> "$SUMMARY_FILE"; }
 warn() { echo "::warning::$*"; }
 
 report_shard() {
-  local log="$1" shard="$2" summary="" installed=false hits=()
-  local title="### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $shard/3)"
+  local log="$1" shard="$2" label="${3:-taxonomy-editor, shard $2/3}" summary="" installed=false hits=()
+  local title="### DATA-ROOT-TEST-WRITE (vitest, $label)"
   if [ -f "$log" ]; then
     summary=$(grep -oE 'DATA-ROOT-GUARD-SUMMARY (hits=|guard not installed).*' "$log" | head -1)
     if [ -n "$summary" ]; then
@@ -55,7 +55,7 @@ report_shard() {
     [ -n "$summary" ] && say "\`$summary\`"
   else
     say "$title: guard not installed -- 0 hits is NOT a clean result"
-    warn "DATA-ROOT guard not installed in vitest shard $shard/3; its 0 hits is NOT a clean result (t/64)"
+    warn "DATA-ROOT guard not installed in vitest ($label); its 0 hits is NOT a clean result (t/64)"
   fi
   # Extra teardown lines (unparseable hits-file lines, the over-cap tail) go along verbatim.
   if [ -f "$log" ]; then
@@ -65,8 +65,8 @@ report_shard() {
 }
 
 report_livefire() {
-  local dir="$1" files=() installed=0 livefire=0 offenders=0
-  local title="### DATA-ROOT guard positive control (vitest, all shards)"
+  local dir="$1" label="${2:-all shards}" files=() installed=0 livefire=0 offenders=0
+  local title="### DATA-ROOT guard positive control (vitest, $label)"
   [ -d "$dir" ] && mapfile -t files < <(find "$dir" -name '*.jsonl' -type f | sort)
   if [ "${#files[@]}" -eq 0 ]; then
     say "$title: no hits files -- the positive control can't be checked, so 0 hits is NOT a clean result"
@@ -150,6 +150,18 @@ self_test() {
   printf 'not json\n' > "$t/lf-empty/hits-1.jsonl"
   check "livefire: unparseable file -> loud (fails closed as not installed)" 1 "$me" livefire "$t/lf-empty"
 
+  # t/161 app modes: same logic, per-app titles; an unsharded app must carry its own live-fire hit.
+  check "app: poviewer, installed, 0 hits -> quiet" 0 "$me" app "$t/clean.log" poviewer
+  hdr | grep -q '(vitest, poviewer): 0 hits$' || { echo "FAIL app header"; fails=$((fails+1)); }
+  check "app: no marker -> loud, names the app" 1 "$me" app "$t/none.log" workflow-app
+  mkdir -p "$t/app-ok" "$t/app-zero"
+  cp "$t/lf-ok/hits-2.jsonl" "$t/app-ok/hits-poviewer.jsonl"
+  check "app-livefire: own control present -> quiet" 0 "$me" app-livefire "$t/app-ok" poviewer
+  hdr | grep -q '(vitest, poviewer): livefire=1' || { echo "FAIL app-livefire header"; fails=$((fails+1)); }
+  cp "$t/lf-ok/hits-1.jsonl" "$t/app-zero/hits-summary-viewer.jsonl"
+  check "app-livefire: installed but no control -> loud" 1 "$me" app-livefire "$t/app-zero" summary-viewer
+  check "app-livefire: no hits file -> loud" 1 "$me" app-livefire "$t/absent-app" summary-viewer
+
   rm -rf "$t"
   [ "$fails" -eq 0 ] && echo "data-root-guard-report self-test: all passed" || echo "data-root-guard-report self-test: $fails failure(s)"
   return "$fails"
@@ -158,7 +170,10 @@ self_test() {
 case "${1:-}" in
   shard) report_shard "${2:-}" "${3:-?}" ;;
   livefire) report_livefire "${2:-}" ;;
+  # t/161: the unsharded matrix apps (poviewer, summary-viewer, workflow-app) in test-electron.
+  app) report_shard "${2:-}" "${3:-?}" "${3:-?}" ;;
+  app-livefire) report_livefire "${2:-}" "${3:-?}" ;;
   --self-test) self_test; exit $? ;;
-  *) echo "usage: $0 shard <log> <shard> | livefire <dir> | --self-test" >&2; exit 0 ;;
+  *) echo "usage: $0 shard <log> <shard> | livefire <dir> | app <log> <app> | app-livefire <dir> <app> | --self-test" >&2; exit 0 ;;
 esac
 exit 0

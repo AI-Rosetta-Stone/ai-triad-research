@@ -5,7 +5,7 @@
    inline `style={{}}` (values incl. var(--*)/color-mix preserved exactly).
    Unique `inr-` prefix (CSS is global). */
 
-.inr-hl-mark { background: var(--warning); color: var(--text-primary); border-radius: 2px; padding: 0 1px; }
+.inr-hl-mark { background: var(--warning-bg); color: var(--text-primary); border-radius: 2px; padding: 0 1px; }
 
 .inr-subscore-row { padding-left: 18px; margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .inr-subscore-item { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }
@@ -36,8 +36,8 @@
 .inr-atk-edge { margin-top: 4px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--danger) 30%, transparent); }
 .inr-sup-edge { margin-top: 4px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--success) 30%, transparent); }
 
-.inr-ca-node { font-weight: 700; padding: 1px 5px; border-radius: 3px; background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
-.inr-ra-node { font-weight: 700; padding: 1px 5px; border-radius: 3px; background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.inr-ca-node { font-weight: 700; padding: 1px 5px; border-radius: 3px; background: var(--error-bg); color: var(--error-text); }
+.inr-ra-node { font-weight: 700; padding: 1px 5px; border-radius: 3px; background: var(--success-bg); color: var(--success-text); }
 
 .inr-goto-btn-danger { padding: 0 4px; border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); border-radius: 3px; background: none; color: var(--danger); cursor: pointer; font-weight: 600; }
 .inr-goto-btn-success { padding: 0 4px; border: 1px solid color-mix(in srgb, var(--success) 40%, transparent); border-radius: 3px; background: none; color: var(--success); cursor: pointer; font-weight: 600; }
