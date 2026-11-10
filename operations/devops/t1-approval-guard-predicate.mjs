@@ -31,7 +31,8 @@
  *
  * t/4096 Reviewer switch-over: during the transition, a T1 PR can be approved EITHER way --
  * the legacy `Approved (<role>):` comment, OR a real GitHub review left by the reviewer App
- * (`state: 'APPROVED'`, submitted after the latest push).
+ * (originally `state: 'APPROVED'` after the latest push; since t/116, its role-tagged body bound
+ * to the current head -- see the t/116 block below).
  *
  * TL correction (PR #3487 review): arm 5 proved GitHub refuses an App's approval of a PR **the
  * App itself authored** -- it does NOT prove a human-authored PR is self-approval-safe. Every PR
@@ -44,7 +45,37 @@
  * still start with `Approved (<role>):`, and that role must not match the head branch's owner
  * slug. It is also restricted to the configured reviewer App's own login (`reviewerAppLogin`) --
  * a human's review or any other App's review must not silently satisfy this gate.
+ *
+ * t/116 (a) (TL decision t/116#3, HIGH; rule refined by the TL in p/12#58, recorded on
+ * t/116#8): ROLE VERDICTS, NOT REVIEW STATE. The gate used to pre-filter reviews on
+ * `state === 'APPROVED'` and never looked at CHANGES_REQUESTED at all, so once any
+ * `Approved (<role>):` existed after the push, a later CHANGES_REQUESTED from anyone (another
+ * role through the same shared reviewer-App account -- the #4686 class -- or a human) did not
+ * revoke it. Now every verdict comes from `latestRoleVerdicts({ ..., mode: 'gate' })` in
+ * role-review-verdicts.mjs, the ONE shared implementation (tier-check R6, t/116 (b), is meant to
+ * reuse it). That module documents the slots and the clearing rules. In short:
+ *   - APPROVALS ARE HEAD-BOUND: a review at `commitId === headSha`, or a comment after
+ *     `lastPushAt`. A push invalidates them.
+ *   - A CHANGES-REQUEST IS STICKY ACROSS PUSHES: it blocks until the same role (reviewer App) or
+ *     the same login (human) approves later, or the review is dismissed. A push, a comment, or
+ *     another role's approval never clears it. Role-less App latches clear only by dismissal
+ *     (or, for a comment, editing or deleting it).
+ *   - Ties go to the block.
+ * This predicate adds only the T1 policy on top: ANY outstanding request blocks; otherwise it
+ * passes on an at-head approval from the reviewer App or a comment (never a human review, TL
+ * blocking 2, PR #3487) whose role is not the branch owner's (self-approval). A reviewer-App
+ * review's verdict is its body, so a COMMENTED-state review whose body is `Approved (<role>):`
+ * counts, exactly as the same text in a comment always has.
+ *
+ * `missing-head-sha`: reviews present but no `headSha` fails closed explicitly (no review could
+ * be bound to the head, so no review approval could count anyway).
+ *
+ * DEPENDENCY: imports ./role-review-verdicts.mjs. t1-approval-guard.yml and ci.yml's merge_group
+ * arm copy this file into a temp dir from main's tip, so they must copy role-review-verdicts.mjs
+ * into the SAME dir (both do, from the same base tip).
  */
+
+import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 
 function parseTier(body) {
   const firstLine = String(body ?? '').trim().split('\n')[0].trim();
@@ -65,54 +96,39 @@ function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
-// Shared by both arms: an "Approved (<role>):" body, past the owner-slug self-approval check.
-// Returns the matched role string, or null if the text doesn't match or it's a self-approval.
-function matchApprovalBody(rawBody, ownerSlug) {
-  const m = /^Approved \(([^)]+)\):/.exec(String(rawBody ?? '').trim());
-  if (!m) return null;
-  const role = normalizeRole(m[1]);
-  if (ownerSlug && role.startsWith(ownerSlug)) return null; // self-approval by the PR's own owning role
-  return m[1];
-}
-
-export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
+export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
   const tier = parseTier(body);
   if (tier !== 'T1') {
     return { pass: true, tier, reason: 'not-t1' };
   }
 
+  // `botReviews` keeps its historical name so a caller and a predicate from different commits
+  // still agree (the merge_group arm runs a PR's ci.yml against main's predicate), but callers
+  // now pass EVERY review on the PR, human ones included, each with `commitId`.
+  const reviews = botReviews || [];
+  if (reviews.length > 0 && !headSha) {
+    return { pass: false, tier, reason: 'missing-head-sha' };
+  }
+
+  const slots = latestRoleVerdicts({
+    reviews, comments: approvalComments || [], reviewerAppLogin, headSha, lastPushAt, mode: 'gate',
+  });
+
+  const blockers = [...slots.values()].filter((s) => s.kind === 'changes_requested');
+  if (blockers.length > 0) {
+    return {
+      pass: false, tier, reason: 'changes-requested-outstanding',
+      blockers: blockers.map((b) => ({ role: b.role, at: b.at, source: b.source })),
+    };
+  }
+
   const ownerSlug = ownerSlugFromBranch(headRefName);
-  const pushTime = lastPushAt ? new Date(lastPushAt).getTime() : 0;
-
-  const matches = [];
-  for (const c of approvalComments || []) {
-    const role = matchApprovalBody(c?.body, ownerSlug);
-    if (!role) continue;
-    const effective = c.updatedAt ?? c.createdAt;
-    if (!effective) continue;
-    if (new Date(effective).getTime() <= pushTime) continue; // approval predates the latest push
-    matches.push({ role, at: effective });
-  }
-
-  // t/4096 Reviewer switch-over: a real bot APPROVED review after the latest push also satisfies
-  // the gate, but ONLY from the configured reviewer App's own login, and ONLY when its review
-  // body still passes the SAME owner-slug self-approval check as a comment -- every PR here is
-  // authored by `jpsnover`, so GitHub's own App-self-approval refusal (t/4096 arm 5) does not
-  // apply to a human-authored PR reviewed by any agent running as the reviewer App.
-  for (const r of botReviews || []) {
-    // lint:review-state-ok: pre-filter only; the role verdict is matchApprovalBody on the body below. Known gap (t/4957): another role's later CHANGES_REQUESTED via the same App account doesn't revoke this; migrate to latestRoleVerdicts
-    if (String(r?.state ?? '').toUpperCase() !== 'APPROVED') continue;
-    if (!reviewerAppLogin || r?.login !== reviewerAppLogin) continue;
-    const role = matchApprovalBody(r?.body, ownerSlug);
-    if (!role) continue;
-    const effective = r.submittedAt;
-    if (!effective) continue;
-    if (new Date(effective).getTime() <= pushTime) continue; // review predates the latest push
-    matches.push({ role, at: effective });
-  }
-
-  if (matches.length > 0) {
-    return { pass: true, tier, reason: 'approved-after-push', approver: matches[0] };
+  const approvals = [...slots.values()]
+    .filter((s) => s.kind === 'approved' && s.atHead && s.source !== 'human-review')
+    .filter((s) => !(ownerSlug && normalizeRole(s.role).startsWith(ownerSlug))) // self-approval by the owning role
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  if (approvals.length > 0) {
+    return { pass: true, tier, reason: 'approved-after-push', approver: { role: approvals[0].role, at: approvals[0].at } };
   }
   return { pass: false, tier, reason: 'no-post-push-approval' };
 }

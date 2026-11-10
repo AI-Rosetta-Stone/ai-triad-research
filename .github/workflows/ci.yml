@@ -1766,7 +1766,7 @@ jobs:
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
       - name: t1-approval-guard predicate + workflow-extraction suites
-        run: node --test operations/devops/t1-approval-guard-predicate.test.mjs operations/devops/t1-approval-guard-workflow.test.mjs
+        run: node --test operations/devops/t1-approval-guard-predicate.test.mjs operations/devops/t1-approval-guard-workflow.test.mjs operations/devops/role-review-verdicts.test.mjs
 
       # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
       # end-to-end arms that run each workflow's real script against a mocked API.
@@ -3590,6 +3590,9 @@ jobs:
               fs.writeFileSync(p, text);
               return p;
             }
+            // t/116: the predicate imports ./role-review-verdicts.mjs, so it goes in the same temp dir
+            // first (loadFromBase keeps basenames). Same file list as t1-approval-guard.yml.
+            loadFromBase('operations/devops/role-review-verdicts.mjs');
             const { evaluateT1ApprovalGuard } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-predicate.mjs')).href);
             const { classifyMergeGroupApprovals } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-merge-group-predicate.mjs')).href);
             const enumeratorPath = loadFromBase('operations/devops/get-merge-group-prs.sh');
@@ -3624,23 +3627,23 @@ jobs:
               const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
               const rawComments = await withRetry(`issues.listComments #${prNumber}`, () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
-              const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at }));
+              const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at, login: c.user?.login }));
 
-              // t/4096 Reviewer switch-over: a real bot APPROVED review also satisfies the gate,
-              // same arm as t1-approval-guard.yml.
+              // t/4096 + t/116: EVERY review (human ones too, with commit_id) goes to the predicate,
+              // which binds approvals to the head and blocks on any outstanding changes-request
+              // (sticky across pushes). Same mapping and call as t1-approval-guard.yml (keep them
+              // identical).
               const rawReviews = await withRetry(`pulls.listReviews #${prNumber}`, () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
-              const botReviews = rawReviews
-                .filter((r) => r.user?.type === 'Bot')
-                .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body }));
+              const botReviews = rawReviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id }));
 
-              const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
-              core.info(`t1-approval-guard (merge_group): #${prNumber} tier=${result.tier} pass=${result.pass} reason=${result.reason}`);
+              const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, headSha: pr.head.sha, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
+              core.info(`t1-approval-guard (merge_group): #${prNumber} tier=${result.tier} pass=${result.pass} reason=${result.reason}${result.blockers ? ' blockers=' + JSON.stringify(result.blockers) : ''}`);
               perPrResults.push({ number: prNumber, result });
             }
 
             const verdict = classifyMergeGroupApprovals(perPrResults);
             if (!verdict.pass) {
-              core.setFailed(`t1-approval-guard (merge_group): PR(s) #${verdict.failingNumbers.join(', #')} in this batch have no post-push approval. FAILING CLOSED.`);
+              core.setFailed(`t1-approval-guard (merge_group): PR(s) #${verdict.failingNumbers.join(', #')} in this batch have no post-push approval or have an outstanding changes-request (see the per-PR reasons above). FAILING CLOSED.`);
             } else {
               core.info('t1-approval-guard (merge_group): every T1 member in this batch is approved after its latest push.');
             }

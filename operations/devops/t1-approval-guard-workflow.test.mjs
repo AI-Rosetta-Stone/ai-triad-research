@@ -43,3 +43,53 @@ test('ATTACK ARM (t/4266): fully decoupled from gate-self-health -- rewriting th
   assert.ok(!/needs\.gate-self-health/.test(workflow), 'the step must not read gate-self-health\'s outcome');
   assert.ok(!scriptCodeLines().includes('node --test'), 't1-approval-guard.yml must never execute a test suite itself (moved to ci.yml, t/4266)');
 });
+
+// ── t/116 (a): the PR-side guard and ci.yml's merge_group arm feed the predicate IDENTICAL inputs ──
+const ciYml = readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
+
+function mergeGroupJob() {
+  const start = ciYml.indexOf('\n  t1-approval-guard:\n');
+  assert.ok(start >= 0, 'ci.yml must still define the t1-approval-guard merge_group job');
+  const rest = ciYml.slice(start + 1);
+  const next = rest.slice(1).search(/\n  [a-z0-9-]+:\n/);
+  return next >= 0 ? rest.slice(0, next + 1) : rest;
+}
+
+// The one line that builds `name` in each workflow, whitespace-trimmed.
+function lineDefining(text, re) {
+  const hits = text.split('\n').map((l) => l.trim()).filter((l) => re.test(l) && !l.startsWith('//'));
+  assert.equal(hits.length, 1, `expected exactly one line matching ${re}, got ${hits.length}`);
+  return hits[0];
+}
+
+test('t/116 PARITY: both arms call evaluateT1ApprovalGuard with the same arguments, including headSha', () => {
+  const re = /evaluateT1ApprovalGuard\(\{/;
+  const prSide = lineDefining(workflow, re).replace(/^const result = /, '');
+  const mgSide = lineDefining(mergeGroupJob(), re).replace(/^const result = /, '');
+  assert.equal(mgSide, prSide);
+  assert.match(prSide, /headSha: pr\.head\.sha/);
+});
+
+test('t/116 PARITY: both arms map reviews and comments identically (every review, with commitId and login)', () => {
+  for (const re of [/^const botReviews = /, /^const approvalComments = /]) {
+    assert.equal(lineDefining(mergeGroupJob(), re), lineDefining(workflow, re));
+  }
+  const reviews = lineDefining(workflow, /^const botReviews = /);
+  assert.match(reviews, /commitId: r\.commit_id/);
+  assert.ok(!/type === 'Bot'/.test(reviews), 'human reviews must reach the predicate so their changes-requests block (t/116#3)');
+  assert.match(lineDefining(workflow, /^const approvalComments = /), /login: c\.user\?\.login/);
+});
+
+test('t/116: both arms put role-review-verdicts.mjs from the BASE tip next to the predicate (it is imported relatively)', () => {
+  assert.match(scriptCodeLines(), /git show \$\{baseTipSha\}:operations\/devops\/role-review-verdicts\.mjs/);
+  const mg = mergeGroupJob();
+  const verdictsAt = mg.indexOf("loadFromBase('operations/devops/role-review-verdicts.mjs')");
+  const predicateAt = mg.indexOf("loadFromBase('operations/devops/t1-approval-guard-predicate.mjs')");
+  assert.ok(verdictsAt >= 0 && predicateAt > verdictsAt, 'ci.yml must load role-review-verdicts.mjs before importing the predicate');
+});
+
+test('t/116 (TL rule from #4771): CANNOT EVALUATE posts failure, never neutral, on either arm', () => {
+  assert.ok(!/['"`]neutral['"`]/.test(scriptCodeLines()), 't1-approval-guard.yml must not post a neutral conclusion');
+  assert.match(scriptCodeLines(), /postCheckRun\(pr\.head\.sha, 'failure', 't1-approval-guard: [^']*CANNOT EVALUATE[^']*'/);
+  assert.ok(!/['"`]neutral['"`]/.test(mergeGroupJob()), 'the merge_group arm must not post a neutral conclusion');
+});
