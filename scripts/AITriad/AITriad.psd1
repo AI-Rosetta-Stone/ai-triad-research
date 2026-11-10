@@ -179,6 +179,7 @@
         'Get-TaxEditorImage'
         'Deploy-TaxEditorImage'
         'Set-TaxEditorKnownGood'
+        'Set-TaxEditorPinnedTag'
         'Restore-TaxEditorKnownGood'
         'Test-TaxEditorInfra'
         'Deploy-TaxEditorInfra'

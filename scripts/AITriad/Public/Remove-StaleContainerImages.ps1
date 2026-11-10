@@ -19,6 +19,11 @@ function Remove-StaleContainerImages {
         tagged index's manifest can't be read, nothing is deleted and the
         reason is returned in Failures.
 
+        t/121: prod pins a digest, and a container.yml re-run can move
+        sha-<commit> off it. deploy-azure.yml therefore tags every digest it
+        pins with a non-moving pinned-* tag (Set-TaxEditorPinnedTag), so that
+        digest stays a tagged version here and keeps its children protected.
+
         Supports -WhatIf and -Confirm — the delete step is guarded by
         ShouldProcess, so `-WhatIf` lists exactly what would be deleted
         without touching the registry.

@@ -16,10 +16,13 @@ function Get-StaleImageDeletionVerdict {
         A version may be deleted only if ALL of these hold:
           1. Its tags property is present and empty. An absent property is
              treated as unknown and kept (fail safe, t/3679#9 section 1).
-          2. Its digest is not that of a version carrying one of
-             -ProtectedTags (default: known-good). Rule 1 already implies
-             this; it is checked on its own so that a future change to rule 1
-             cannot delete the rollback target.
+          2. Its digest is not that of a version carrying a tag that matches
+             one of -ProtectedTags (default: known-good and pinned-*). Rule 1
+             already implies this; it is checked on its own so that a future
+             change to rule 1 cannot delete the rollback target, or a digest
+             a deploy pinned (t/121: deploy-azure tags the exact digest it
+             pins as pinned-<run>-<attempt>-<hex12>, because a container.yml
+             re-run can move sha-<commit> off it).
           3. Its digest is not in -ProtectedDigests. The caller passes the
              child manifests of every tagged image index here. GHCR lists an
              index's platform manifest and attestation manifest as separate
@@ -38,7 +41,8 @@ function Get-StaleImageDeletionVerdict {
     .PARAMETER ProtectedDigests
         Digests (sha256:...) that must never be deleted.
     .PARAMETER ProtectedTags
-        Tags whose versions must never be deleted. Default: known-good.
+        Tags (wildcards allowed, -like) whose versions must never be deleted.
+        Default: known-good, pinned-*.
     #>
     [CmdletBinding()]
     param(
@@ -59,7 +63,7 @@ function Get-StaleImageDeletionVerdict {
 
         [Parameter()]
         [AllowEmptyCollection()]
-        [string[]]$ProtectedTags = @('known-good')
+        [string[]]$ProtectedTags = @('known-good', 'pinned-*')
     )
 
     Set-StrictMode -Version Latest
@@ -85,9 +89,14 @@ function Get-StaleImageDeletionVerdict {
     })
 
     # Rule 2, independent of rule 1: the digest of any version carrying a protected tag is protected.
+    $IsProtectedTag = {
+        param([string]$Tag)
+        foreach ($P in @($ProtectedTags)) { if ($P -and $Tag -like $P) { return $true } }
+        $false
+    }
     foreach ($V in @($Versions)) {
         $Tags = @(Get-GhcrVersionTag -Version $V)
-        if (@($Tags | Where-Object { $_ -in $ProtectedTags }).Count -gt 0 -and $V.PSObject.Properties['name']) {
+        if (@($Tags | Where-Object { & $IsProtectedTag $_ }).Count -gt 0 -and $V.PSObject.Properties['name']) {
             [void]$Protected.Add([string]$V.name)
         }
     }
