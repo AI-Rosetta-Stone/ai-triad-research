@@ -16,7 +16,7 @@ Ask a Question is a research inquiry feature that enables users to pose a questi
 
 ## What a Good Answer Looks Like
 
-A successful answer has four properties:
+A successful answer has five properties:
 
 1. **Grounded Why:** The answer shows positions held by specific POV camps and cites which taxonomy nodes (beliefs, goals, methods) ground each position. The user can trace the answer back to source material.
 
@@ -24,7 +24,9 @@ A successful answer has four properties:
 
 3. **Convergence Made Visible:** The answer identifies claims on which two or more camps agree, even if they reached those claims for different reasons.
 
-4. **Honest Uncertainty:** The answer carries two certainty qualifiers:
+4. **Direct Answer:** The answer directly addresses the user's question with a clear statement, not a summary of debate positions. The debate is evidence for the answer, not the answer itself.
+
+5. **Honest Uncertainty:** The answer carries two certainty qualifiers:
    - A **single-run caveat:** This is one debate run, not a replicated finding. The replication standard in social science is n ≥ 10. This result is an exploratory draft.
    - **Per-metric trust projection:** If the debate was truncated by budget, rate limits, or other faults, the answer explicitly marks which metrics are unreliable under those conditions.
 
@@ -42,7 +44,7 @@ Success is measured by user research and system diagnostics:
 
 - **Debate Completion Rate:** The debate engine completes its full turn sequence without budget exhaustion. (A truncated run yields low-trust metrics per t/1671.)
 - **Synthesis Fidelity:** The synthesized answer cites only nodes from the grounding envelope; no hallucinated claims appear in the structured output.
-- **Citation Coverage:** The average answer cites ≥60% of the grounding nodes, showing the synthesis engaged with the scaffold the grounding stage provided.
+- **Meaningful Engagement:** The synthesis meaningfully engages with the grounding nodes, building positions from taxonomy content rather than generating generic conclusions.
 
 ## Design Principles
 
@@ -58,9 +60,7 @@ Success is measured by user research and system diagnostics:
 
 This feature has real boundaries:
 
-- **Cost.** A single inquiry run costs real API budget (typically $0.50–$2.00 depending on taxonomy size and debate depth). The system enforces per-user concurrency limits and job timeouts to prevent resource exhaustion.
-
-- **Time.** Each run takes 3–10 minutes. Users cannot treat this as a synchronous search. The feature uses an async job model; users poll for results.
+- **Time.** Each run takes 2–60 minutes depending on fidelity level (see `lib/inquiry/durationEstimate.ts`). Quick fidelity: 2–8 min; standard: 8–25 min; deep: 30–60 min. Users cannot treat this as a synchronous search. The feature uses an async job model; users poll for results.
 
 - **Scope.** The question is answered only with respect to the taxonomy's current content. If the taxonomy lacks a POV on a topic, the answer reflects that gap ("The taxonomy has little that speaks directly to this question").
 
