@@ -37,10 +37,10 @@ export function token(theme: string, name: string): string {
   return m[1];
 }
 
-/** `prop: var(--x)` or `prop: var(--x, fallback)` from a rule in `css` → `--x`. */
+/** A rule's CSS custom property value (extracts `<name>` from `prop: var(<name>)` or `prop: var(<name>, fallback)`). */
 export function ruleVar(css: string, selector: string, prop: string): string {
   const m = block(css, `${selector} {`).match(new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*(?:[0-9a-z]+ solid )?var\\((--[a-z-]+)(?:\\s*,[^)]*)?\\)`));
-  if (!m) throw new Error(`${selector} has no ${prop}: var(--…)`);
+  if (!m) throw new Error(`${selector} has no ${prop}: var(<name>)`);
   return m[1];
 }
 
