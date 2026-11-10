@@ -100,6 +100,7 @@ export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approva
   // authored by `jpsnover`, so GitHub's own App-self-approval refusal (t/4096 arm 5) does not
   // apply to a human-authored PR reviewed by any agent running as the reviewer App.
   for (const r of botReviews || []) {
+    // lint:review-state-ok: pre-filter only; the role verdict is matchApprovalBody on the body below. Known gap (t/4957): another role's later CHANGES_REQUESTED via the same App account doesn't revoke this; migrate to latestRoleVerdicts
     if (String(r?.state ?? '').toUpperCase() !== 'APPROVED') continue;
     if (!reviewerAppLogin || r?.login !== reviewerAppLogin) continue;
     const role = matchApprovalBody(r?.body, ownerSlug);

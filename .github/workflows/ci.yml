@@ -2626,6 +2626,16 @@ jobs:
         continue-on-error: true
         shell: bash
         run: bash .github/ci/data-root-guard-report.sh --self-test
+      # t/105 (t/4957): one shared reviewer App account means GitHub's reviewDecision and a review's
+      # `state` can't carry a role's verdict; read role verdicts via latestRoleVerdicts. WARN-ONLY:
+      # this job is in ci-gate's needs, so without continue-on-error these would block. Making it
+      # blocking is a separate, higher-tier change.
+      - name: Review-state gating lint (WARN-ONLY, t/105)
+        continue-on-error: true
+        run: node .github/scripts/check-review-state-gating.mjs
+      - name: Review-state gating lint arms (WARN-ONLY, t/105)
+        continue-on-error: true
+        run: node --test .github/scripts/check-review-state-gating.test.mjs
 
   # ── ci-filter-coverage: each paths-filtered job's test read-set covered by its own filter
   # (t/4140, third occurrence of the class: t/2025, t/3189, t/4029). NO path filter of its own —
