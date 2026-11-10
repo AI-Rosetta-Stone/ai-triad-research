@@ -97,6 +97,8 @@ export interface DebateConfig {
   wisdomReframeThreshold?: number;
   /** Auto-apply rewritten topic when below threshold. Default: true. When false, score is computed but topic is not reframed. */
   wisdomAutoReframe?: boolean;
+  /** Enable ArCo (Argument Clarification, Resolution decomposition) for query anchoring in inquiry debates (t/284). Moves clause decomposition and embedding outside clarification phase. Default: false. */
+  anchorToResolution?: boolean;
   /** Embedding callback for crux registry dedup and seeding. When provided, enables cross-debate crux persistence. */
   embedFn?: (text: string) => Promise<number[]>;
   /** Enable salience beacon in draft prompts to reduce scope drift (experiment). */

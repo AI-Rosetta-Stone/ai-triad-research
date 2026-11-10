@@ -432,7 +432,16 @@ export class TopicPipeline {
     await this.embedResolutionAnchors();
   }
 
-  private async decomposeResolutionIntoClauses(): Promise<void> {
+  // ── ArCo Phase: Resolution Anchoring ────────────────────────
+  // Moved out of clarification (t/284) so it can run independently when anchorToResolution: true.
+  // This method runs both decomposition and embedding together.
+
+  async runResolutionAnchoring(): Promise<void> {
+    await this.decomposeResolutionIntoClauses();
+    await this.embedResolutionAnchors();
+  }
+
+  async decomposeResolutionIntoClauses(): Promise<void> {
     const resolution = this.ctx.session.topic.final;
     if (!resolution || resolution.trim().length === 0) return;
 
@@ -454,7 +463,7 @@ export class TopicPipeline {
     }
   }
 
-  private async embedResolutionAnchors(): Promise<void> {
+  async embedResolutionAnchors(): Promise<void> {
     const adapter = this.ctx.adapter as ExtendedAIAdapter;
     if (!adapter.computeQueryEmbedding) return;
     const resolution = this.ctx.session.topic.final;

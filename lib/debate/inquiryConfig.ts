@@ -129,6 +129,8 @@ export function deriveDebateConfig(
     temperature: effectiveTemperature,
     turnValidation: { enabled: true },
     stageModels: { evaluator: evaluatorModel },
+    wisdomAutoReframe: false,
+    anchorToResolution: true,
     ...(profile.phaseBoundsOverride ? { phaseBoundsOverride: profile.phaseBoundsOverride } : {}),
     ...(soulResolver ? { soulResolver } : {}),
   };
