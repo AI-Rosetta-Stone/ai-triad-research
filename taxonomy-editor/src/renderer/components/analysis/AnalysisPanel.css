@@ -399,7 +399,7 @@
   cursor: pointer;
 }
 .analysis-diff-accept-btn:hover {
-  opacity: 0.85;
+  background: var(--accent-hover);
 }
 .analysis-diff-accepted {
   display: inline-block;
