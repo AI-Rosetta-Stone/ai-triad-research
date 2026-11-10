@@ -193,4 +193,30 @@ describe('listUserJobRecords (t/181)', () => {
     put(uc, getInquiryJobsDir(id), 'job-1.json', inquiry('job-1', id));
     expect(await listUserJobRecords(id, 'inquiry')).toHaveLength(1);
   });
+
+  it('t/268 (item 5): GitHub listDirectory degraded [] with circuit breaker → throws, fails closed for job caps', async () => {
+    // Mock GitHubAPIBackend instance that returns [] (degraded) but listDirectoryStrict throws (transient).
+    // Use a real GitHubAPIBackend instance to pass instanceof check.
+    const { GitHubAPIBackend } = await import('../storage/githubAPIBackend.js');
+    // Create a minimal instance with mocked methods (avoid full init).
+    const mockBackend = Object.create(GitHubAPIBackend.prototype);
+    mockBackend.backendName = 'github-api';
+    mockBackend.listDirectory = vi.fn().mockResolvedValue([]);
+    mockBackend.listDirectoryStrict = vi.fn().mockRejectedValue(
+      Object.assign(new Error('circuit breaker open'), { kind: 'transient' as const })
+    );
+    mockBackend.readFile = vi.fn().mockResolvedValue(null);
+    mockBackend.writeFile = vi.fn().mockResolvedValue({ version: '' });
+    mockBackend.writeFileIfAbsent = vi.fn().mockResolvedValue('created' as const);
+    mockBackend.deleteFile = vi.fn().mockResolvedValue(undefined);
+    mockBackend.fileExists = vi.fn().mockResolvedValue(false);
+
+    const realBackend = getUserContentBackend();
+    try {
+      setUserContentBackend(mockBackend as unknown as StorageBackend);
+      await expect(listUserJobRecords('owner-1', 'inquiry')).rejects.toMatchObject({ code: 'JOB_RECORD_LIST_FAILED' });
+    } finally {
+      setUserContentBackend(realBackend);
+    }
+  });
 });
