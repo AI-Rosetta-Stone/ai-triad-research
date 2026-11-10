@@ -71,7 +71,7 @@
   font-size: 0.6875rem;
   font-weight: 600;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-acc, #b84e13) 15%, transparent);
+  background: var(--color-acc-bg);
   color: var(--color-acc, #b84e13);
   letter-spacing: 0.02em;
   text-transform: uppercase;
