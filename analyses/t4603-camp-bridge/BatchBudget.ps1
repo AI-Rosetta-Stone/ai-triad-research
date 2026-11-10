@@ -65,11 +65,15 @@ function Get-RunSpendUsd {
         Total USD spent by this run, from AI call log entries at or after -Since. Throws when spend
         can't be measured.
     .DESCRIPTION
-        Per entry: (InputTokens - CachedInputTokens) * input rate + CachedInputTokens * cached rate +
-        OutputTokens * output rate, priced by the entry's own Model. Throws when the log is missing or
-        unreadable (and -RequireLog is set), when a line won't parse (it could hide spend), or when an
-        entry in the window lacks token counts (a call whose spend isn't recorded). Returns the total and
-        the count of entries in the window.
+        Per entry, under the t/107 call-log contract (tests/fixtures/ai-call-log/README.md, optional token
+        fields): InputTokens is ALL input for every backend (cache reads and writes included), OutputTokens
+        is all billed output (Gemini thinking included). Cost = (InputTokens - CachedInputTokens) * input
+        rate + CachedInputTokens * cached rate + OutputTokens * output rate, priced by the entry's own Model.
+        Throws (fail closed, t/106 + t/113) when: the log is missing or unreadable (with -RequireLog); a line
+        won't parse; an entry has no usable Datetime (it can't be placed outside this run); an entry lacks
+        token counts, unless its Status is a numeric 4xx/5xx (an HTTP failure, not billed: counted $0 with a
+        WARN); or an entry carries CacheCreationInputTokens > 0 (Claude cache writes bill at 1.25x-2x
+        input and ai-models.json has no write price). Returns the total and the count of entries in the window.
     #>
     [CmdletBinding()]
     param(
@@ -106,17 +110,40 @@ function Get-RunSpendUsd {
                 -Problem "Line $LineNo of '$LogPath' won't parse, and an unreadable record could hide spend" `
                 -Location $Loc -NextSteps @('Inspect or rotate the log (Clear-AICallLog), then re-run; logged docs are skipped') -Throw
         }
-        $When = if ($Rec.Datetime -is [datetime]) { $Rec.Datetime.ToUniversalTime() }
-                elseif ($Rec.Datetime) { ([datetime]::Parse([string]$Rec.Datetime, [cultureinfo]::InvariantCulture, 'RoundtripKind')).ToUniversalTime() }
-                else { [datetime]::MinValue }
+        # An undatable record can't be proven to predate this run, so it can't be skipped (t/113).
+        $When = $null
+        try {
+            if ($Rec.Datetime -is [datetime]) { $When = $Rec.Datetime.ToUniversalTime() }
+            elseif (-not [string]::IsNullOrWhiteSpace([string]$Rec.Datetime)) {
+                $When = ([datetime]::Parse([string]$Rec.Datetime, [cultureinfo]::InvariantCulture, 'RoundtripKind')).ToUniversalTime()
+            }
+        }
+        catch { $When = $null }
+        if ($null -eq $When) {
+            New-ActionableError -Goal 'Measure batch spend from the AI call log' `
+                -Problem "Line $LineNo of '$LogPath' (entry ID $($Rec.ID)) has no usable Datetime ('$($Rec.Datetime)'), so it can't be placed before this run and could be this run's spend" `
+                -Location $Loc -NextSteps @('Inspect or rotate the log (Clear-AICallLog), then re-run; logged docs are skipped') -Throw
+        }
         if ($When -lt $SinceUtc) { continue }
         $Entries++
         $Missing = @($script:SpendTokenFields | Where-Object { $null -eq $Rec.PSObject.Properties[$_] -or $null -eq $Rec.$_ })
         if ($Missing.Count -gt 0) {
+            # A numeric 4xx/5xx is an HTTP failure the provider doesn't bill; anything else without usage
+            # (200, 'error' = no HTTP response so possibly processed, '?', unknown strings) is unknown spend.
+            if ([string]$Rec.Status -match '^[45]\d\d$') {
+                Write-Warning "WARN: call-log entry ID $($Rec.ID) ($($Rec.Model)) failed with HTTP $($Rec.Status) and recorded no tokens; counting it as `$0 (not billed) (t/113)"
+                continue
+            }
             New-ActionableError -Goal 'Measure batch spend from the AI call log' `
-                -Problem "Call-log entry ID $($Rec.ID) (model '$($Rec.Model)', $($Rec.Datetime)) has no $($Missing -join '/'), so that call's spend is unknown" `
+                -Problem "Call-log entry ID $($Rec.ID) (model '$($Rec.Model)', status '$($Rec.Status)', $($Rec.Datetime)) has no $($Missing -join '/'), so that call's spend is unknown" `
                 -Location $Loc `
-                -NextSteps @('The backend reported no usage; pick a model whose backend returns token counts', 'Or confirm the call-log writer records tokens (t/106 child)') -Throw
+                -NextSteps @('The backend reported no usage; pick a model whose backend returns token counts', "Status 'error' means no HTTP response; the request may still have been billed") -Throw
+        }
+        $Writes = if ($Rec.PSObject.Properties['CacheCreationInputTokens'] -and $null -ne $Rec.CacheCreationInputTokens) { [double]$Rec.CacheCreationInputTokens } else { 0.0 }
+        if ($Writes -gt 0) {
+            New-ActionableError -Goal 'Measure batch spend from the AI call log' `
+                -Problem "Call-log entry ID $($Rec.ID) (model '$($Rec.Model)') wrote $Writes cache tokens; cache writes bill at 1.25x-2x input and ai-models.json has no cache-write price, so pricing them at the input rate would under-count" `
+                -Location $Loc -NextSteps @('Turn off prompt caching (cache_control) for batch runs', 'Or add a cache-write price to the ai-models.json pricing schema, then price it here') -Throw
         }
         $Model = [string]$Rec.Model
         if (-not $Prices.ContainsKey($Model)) { $Prices[$Model] = Get-ModelPricing -ModelsJsonPath $ModelsJsonPath -Model $Model }

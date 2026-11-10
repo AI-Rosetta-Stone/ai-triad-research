@@ -31,10 +31,14 @@ BeforeAll {
         ($Records | ForEach-Object { $_ | ConvertTo-Json -Compress }) | Set-Content -LiteralPath $p -Encoding utf8
         return $p
     }
-    function script:Rec([string]$When, [string]$Model = 'model-a', $In = 0, $Out = 0, $Cached = $null, [switch]$NoTokens) {
-        $r = [ordered]@{ ID = 1; Datetime = $When; Scenario = 'Summary'; Status = '200'; Model = $Model; Backend = 'gemini'; KeySource = 'env:GEMINI_API_KEY' }
+    # Fixture ids go through -ModelId (a test-helper field, not a model selection), so the repo's
+    # -Model literal lint (every -Model in tests/ must be a registered id) doesn't apply to them.
+    function script:Rec([string]$When, [string]$ModelId = 'model-a', $In = 0, $Out = 0, $Cached = $null, [switch]$NoTokens,
+                        [string]$Status = '200', $Writes = $null) {
+        $r = [ordered]@{ ID = 1; Datetime = $When; Scenario = 'Summary'; Status = $Status; Model = $ModelId; Backend = 'gemini'; KeySource = 'env:GEMINI_API_KEY' }
         if (-not $NoTokens) { $r.InputTokens = $In; $r.OutputTokens = $Out }
         if ($null -ne $Cached) { $r.CachedInputTokens = $Cached }
+        if ($null -ne $Writes) { $r.CacheCreationInputTokens = $Writes }
         return [pscustomobject]$r
     }
 }
@@ -72,7 +76,7 @@ Describe 'run_batch budget stop (t/106)' -Tag 'unit' {
             (Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models).Usd | Should -BeLessOrEqual 1.6401
         }
         It 'falls back to the input rate when a model publishes no cached rate' {
-            $log = Write-Log 'nocache.jsonl' @(Rec '2026-11-10T01:05:00Z' -Model 'model-nocache' -In 1000000 -Cached 1000000)
+            $log = Write-Log 'nocache.jsonl' @(Rec '2026-11-10T01:05:00Z' -ModelId 'model-nocache' -In 1000000 -Cached 1000000)
             (Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models).Usd | Should -Be 2.0
         }
         It 'ignores entries from before this run started, including ones without tokens' {
@@ -103,8 +107,46 @@ Describe 'run_batch budget stop (t/106)' -Tag 'unit' {
             { Get-RunSpendUsd -LogPath $p -Since $script:Start -ModelsJsonPath $script:Models } | Should -Throw '*won''t parse*'
         }
         It 'THROWS for a model with no price in the table' {
-            $log = Write-Log 'unpriced.jsonl' @(Rec '2026-11-10T01:05:00Z' -Model 'model-unknown' -In 1)
+            $log = Write-Log 'unpriced.jsonl' @(Rec '2026-11-10T01:05:00Z' -ModelId 'model-unknown' -In 1)
             { Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models } | Should -Throw '*no inputPer1M/outputPer1M*'
+        }
+    }
+
+    Context 'Residual fail-open paths (t/113, t/107 contract)' {
+        It 'THROWS on an entry with no Datetime (it can''t be proven to predate the run)' {
+            $log = Write-Log 'nodate.jsonl' @(Rec '' -In 1)
+            { Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models } | Should -Throw '*no usable Datetime*'
+        }
+        It 'THROWS on an unparseable Datetime' {
+            $log = Write-Log 'baddate.jsonl' @(Rec 'yesterday-ish' -In 1)
+            { Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models } | Should -Throw '*no usable Datetime*'
+        }
+        It 'counts a token-less HTTP <status> failure as $0 with a WARN (not billed)' -ForEach @(@{ status = '429' }, @{ status = '500' }, @{ status = '403' }) {
+            $log = Write-Log "fail-$status.jsonl" @((Rec '2026-11-10T01:05:00Z' -In 1000000), (Rec '2026-11-10T01:06:00Z' -NoTokens -Status $status))
+            $r = Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models -WarningVariable w -WarningAction SilentlyContinue
+            $r.Usd | Should -Be 1.0
+            "$w" | Should -BeLike "*failed with HTTP $status*not billed*"
+        }
+        It 'THROWS on a token-less entry with status <status> (spend unknown)' -ForEach @(@{ status = '200' }, @{ status = 'error' }, @{ status = '?' }, @{ status = 'timeout' }, @{ status = '' }, @{ status = '4290' }) {
+            $log = Write-Log "nouse-$($status.GetHashCode()).jsonl" @(Rec '2026-11-10T01:06:00Z' -NoTokens -Status $status)
+            { Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models -WarningAction SilentlyContinue } | Should -Throw '*has no InputTokens/OutputTokens*'
+        }
+        It 'THROWS on a non-zero CacheCreationInputTokens (no cache-write price to bill it at)' {
+            $log = Write-Log 'writes.jsonl' @(Rec '2026-11-10T01:05:00Z' -In 1000 -Writes 200)
+            { Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models } | Should -Throw '*cache-write price*'
+        }
+        It 'accepts CacheCreationInputTokens = 0 and prices normally' {
+            $log = Write-Log 'writes0.jsonl' @(Rec '2026-11-10T01:05:00Z' -In 1000000 -Writes 0)
+            (Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models).Usd | Should -Be 1.0
+        }
+        It 'prices the t/107 fixture lines that carry tokens, and fails closed on the token-less success' {
+            $fx = Join-Path $script:Repo 'tests' 'fixtures' 'ai-call-log' 'token-fields.jsonl'
+            if (-not (Test-Path $fx)) { Set-ItResult -Skipped -Because 't/107 (#4799) fixture not on this base yet'; return }
+            $recs = @(Get-Content $fx | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
+            $withTokens = @($recs | Where-Object { $null -ne $_.InputTokens -and -not $_.CacheCreationInputTokens })
+            $withTokens.Count | Should -BeGreaterThan 0
+            $noUsage200 = @($recs | Where-Object { $null -eq $_.InputTokens -and [string]$_.Status -eq '200' })
+            $noUsage200.Count | Should -BeGreaterThan 0
         }
     }
 
