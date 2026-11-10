@@ -21,6 +21,7 @@ fi
 if [ ! -f "$CHECKS" ] && [ "$SKIP_TS" != "skip" ]; then
   echo "pre-push: WARN $CHECKS not found (branch predates it?); skipping TypeScript checks." >&2
 fi
+CTRL_LINT="$ROOT/.github/scripts/check-control-chars.mjs"
 ZERO=0000000000000000000000000000000000000000
 # The checks read the working tree, so they only describe a pushed commit that is the
 # checked-out one. Pushing any other ref (git push origin some-other-branch) would check
@@ -42,13 +43,31 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     branch=${remote_ref#refs/heads/}
     sh "$QUEUE_GUARD" "$branch" || { status=1; continue; }
   fi
-  if [ "$SKIP_TS" = "skip" ] || [ ! -f "$CHECKS" ]; then
-    continue
-  fi
   base=$(git merge-base "$local_sha" origin/main 2>/dev/null)
   if [ -z "$base" ] && [ "$remote_sha" != "$ZERO" ]; then base=$remote_sha; fi
   if [ -z "$base" ]; then
     echo "pre-push: WARN no origin/main to diff $local_ref against; skipping checks." >&2
+    continue
+  fi
+  # t/128: raw control bytes in the files this push changes (invisible in PR diffs). Fast, so it runs
+  # even under AITRIAD_PREPUSH=skip; AITRIAD_CONTROLCHARS=skip is its own visible override.
+  if [ "${AITRIAD_CONTROLCHARS:-}" = "skip" ]; then
+    echo "pre-push: WARN control-character check skipped by AITRIAD_CONTROLCHARS=skip; CI still runs it." >&2
+  elif [ ! -f "$CTRL_LINT" ] || ! command -v node >/dev/null 2>&1; then
+    echo "pre-push: WARN control-character check unavailable (no node or no $CTRL_LINT); CI still runs it." >&2
+  else
+    changed=$(git diff --name-only --diff-filter=ACMR "$base" "$local_sha" 2>/dev/null)
+    if [ -n "$changed" ]; then
+      # shellcheck disable=SC2086 # one path per word; repo paths here have no spaces
+      ( cd "$ROOT" && node "$CTRL_LINT" $changed >/tmp/ctrl-lint.$$ 2>&1 ) || {
+        grep -v '^::warning' /tmp/ctrl-lint.$$ >&2
+        echo "pre-push: BLOCKED raw control byte(s) in changed files (t/128). Replace them with an escape, or allowlist the file with a reason in .github/ci/control-chars-allowlist.json." >&2
+        status=1
+      }
+      rm -f /tmp/ctrl-lint.$$
+    fi
+  fi
+  if [ "$SKIP_TS" = "skip" ] || [ ! -f "$CHECKS" ]; then
     continue
   fi
   sh "$CHECKS" "$base" "$local_sha" || status=1
