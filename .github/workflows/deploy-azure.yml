@@ -534,9 +534,21 @@ jobs:
             exit 1
           fi
           # t/4732: staging's dedicated free-tier key. Empty falls back to the shared prod pool key
-          # (main.bicep stagingExtraFreeTier), so say so instead of falling back silently.
+          # (main.bicep stagingExtraFreeTier, cap back to 200), so say so instead of falling back silently.
+          # SO condition 3 (t/261): once the staging app HOLDS free-tier-gemini-key-staging, an empty
+          # secret would make this apply drop a secret its active revision references. ACA rejects that,
+          # and the rejection would fail the PROD deploy too (one apply). Fail here, before any change.
+          # Reads secret NAMES only (az containerapp secret list never returns values without --show-values).
           if [ "$STAGING_FREE_TIER_KEY_SET" != "true" ]; then
-            echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging falls back to the SHARED prod free-tier key pool (free-tier-gemini-key)."
+            if ! STAGING_SECRET_NAMES=$(az containerapp secret list -n "${{ env.CONTAINER_APP_NAME }}-staging" -g "${{ env.RESOURCE_GROUP }}" --query "[].name" -o tsv); then
+              echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty and the staging app's secret names could not be read, so this run can't rule out dropping a secret the staging revision still references. Refusing to deploy (fail-closed). Restore the GitHub secret, or check the Azure login."
+              exit 1
+            fi
+            if printf '%s\n' "$STAGING_SECRET_NAMES" | grep -qx 'free-tier-gemini-key-staging'; then
+              echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty, but the staging app already holds secret free-tier-gemini-key-staging. Applying would drop a secret its active revision references, and ACA would reject the whole apply, prod included. Restore the GitHub secret before deploying."
+              exit 1
+            fi
+            echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging falls back to the SHARED prod free-tier key pool (free-tier-gemini-key), at the interim cap of 200."
           fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \

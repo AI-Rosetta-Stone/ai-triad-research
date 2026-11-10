@@ -94,8 +94,10 @@ param stagingLoadTestSize bool = false
 // (freeTierGeminiKeyStaging, secret free-tier-gemini-key-staging). Staging's calls now draw on its
 // own pool, not prod's. The cap is '300': room for staging's smoke/acceptance runs, still well under
 // the code default (1500), and a bound on the staging key's own spend (the PI owns this number).
-// If freeTierGeminiKeyStaging is empty, staging falls back to the shared pool (the deploy WARNs), and
-// this cap is again the only thing protecting prod's quota.
+// If freeTierGeminiKeyStaging is empty, staging falls back to the shared pool (the deploy WARNs).
+// The cap then has to protect prod's quota again, so stagingFreePoolCap below drops back to the
+// interim '200' (SO condition 1, t/261). Test-StagingEnvCliDrift compares against this param's
+// default, so in that fallback arm it reports a Mismatch, a deliberate visible signal.
 @description('FREE_POOL_DAILY_CALLS_CAP override for staging (t/4732). Staging has its own Gemini free-tier key; this bounds that key\'s daily calls. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
 param freePoolDailyCallsCapStaging string = '300'
 
@@ -277,6 +279,8 @@ var freeTierEnabled = !empty(freeTierGeminiKey)
 var freeTierSecretName = 'free-tier-gemini-key'
 var freeTierStagingKeyProvided = !empty(freeTierGeminiKeyStaging)
 var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
+// t/4732 SO condition 1: the higher cap applies only on staging's own key. On the shared-pool fallback it's the interim 200.
+var stagingFreePoolCap = freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
 var oauthSecrets = concat(
@@ -780,7 +784,7 @@ var stagingEnvOverrides = [
   // t/4728: staging's free-pool calls cap, declared so it survives a prod Bicep apply instead
   // of drifting via CLI. t/4732: staging has its own free-tier key now; the cap bounds that key's
   // daily calls -- see the param above.
-  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
+  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: stagingFreePoolCap }
   // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
   // (near freePoolDailyCallsCapStaging) for the incident history and rationale.
   { name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }

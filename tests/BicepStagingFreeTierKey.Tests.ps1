@@ -64,6 +64,19 @@ Describe 'staging-only Gemini free-tier key (t/4732)' {
         $env | Should -Match '\bstagingExtraFreeTier\b'
         $env | Should -Not -Match '\bextraFreeTier\b'
     }
+
+    It 'SO condition 1: the staging cap is 300 only on staging''s own key, else the interim 200' {
+        $script:Bicep | Should -Match "(?m)^param freePoolDailyCallsCapStaging string = '300'\s*$"
+        Get-VarLine 'stagingFreePoolCap' | Should -Be "freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'"
+        $script:Bicep | Should -Match "\{ name: 'FREE_POOL_DAILY_CALLS_CAP', value: stagingFreePoolCap \}"
+        $script:Bicep | Should -Not -Match "\{ name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging \}"
+    }
+
+    It 'the staging cap stays in Sync-StagingEnv''s managed-name set, so a staging deploy never orphan-deletes it' {
+        $bicepPath = Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep'
+        $names = & (Join-Path $PSScriptRoot '..' 'operations' 'devops' 'Get-BicepBaseEnv.ps1') -BicepPath $bicepPath -ForStaging -NamesOnly
+        @($names) | Should -Contain 'FREE_POOL_DAILY_CALLS_CAP'
+    }
 }
 
 Describe 'deploy-azure.yml passes the staging key without exposing it (t/4732)' {
@@ -81,5 +94,19 @@ Describe 'deploy-azure.yml passes the staging key without exposing it (t/4732)' 
         $script:Workflow | Should -Match '::warning::WARN t/4732: secrets\.FREE_TIER_GEMINI_KEY_STAGING is empty'
         # Never put the secret itself into a step env var (only the two --parameters call sites).
         $script:Workflow | Should -Not -Match '(?m)^\s+[A-Z_]+:\s*\$\{\{ secrets\.FREE_TIER_GEMINI_KEY_STAGING \}\}\s*$'
+    }
+
+    It 'SO condition 3: an empty key fails the deploy (before any apply) when staging already holds the staging secret' {
+        $block = [regex]::Match($script:Workflow, '(?s)if \[ "\$STAGING_FREE_TIER_KEY_SET" != "true" \]; then(.*?)\n          fi\n').Groups[1].Value
+        $block | Should -Not -BeNullOrEmpty
+        # Names only, fail-closed if they can't be read, refuse if the staging secret is present...
+        $block | Should -Match 'az containerapp secret list -n "\$\{\{ env\.CONTAINER_APP_NAME \}\}-staging"'
+        $block | Should -Not -Match '--show-values'
+        $block | Should -Match "grep -qx 'free-tier-gemini-key-staging'"
+        ([regex]::Matches($block, '(?m)^\s+exit 1\s*$')).Count | Should -Be 2
+        # ...and only then WARN and fall back.
+        $block.IndexOf('::warning::WARN t/4732') | Should -BeGreaterThan $block.LastIndexOf('exit 1')
+        # It runs in the what-if step, which precedes the Bicep apply.
+        $script:Workflow.IndexOf('STAGING_FREE_TIER_KEY_SET: ') | Should -BeLessThan $script:Workflow.IndexOf('- name: Deploy Bicep template')
     }
 }
