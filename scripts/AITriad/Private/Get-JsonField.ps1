@@ -15,8 +15,10 @@ function Test-JsonField {
         True when a parsed JSON body carries the named field, whatever its shape.
     .DESCRIPTION
         IDictionary → .Contains($Name). PSCustomObject → a property named $Name.
-        $null, strings and value types have no JSON fields → $false. A field that
-        is present with a null value is present ($true); use Get-JsonField to read it.
+        $null, strings, value types and arrays have no JSON fields → $false. A field
+        that is present with a null value is present ($true); use Get-JsonField to read it.
+        Case: PSCustomObject and [ordered] lookups ignore case, but ConvertFrom-Json
+        -AsHashtable returns a CASE-SENSITIVE table, so pass the exact JSON key name.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -26,6 +28,8 @@ function Test-JsonField {
     )
     if ($null -eq $Body -or $Body -is [string] -or $Body -is [ValueType]) { return $false }
     if ($Body -is [System.Collections.IDictionary]) { return [bool]$Body.Contains($Name) }
+    # A JSON array has no fields; its .NET members (Count, Length) are not keys (Quality, t/103#4).
+    if ($Body -is [System.Collections.IEnumerable]) { return $false }
     return ($null -ne $Body.PSObject.Properties[$Name])
 }
 
