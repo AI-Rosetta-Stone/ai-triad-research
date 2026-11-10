@@ -35,6 +35,12 @@ describe('HowPanel', () => {
     await userEvent.click(screen.getByText('How'));
 
     expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
+    const responseToggle = screen.getByRole('button', { name: 'Raw Response' });
+    expect(responseToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Raw response not recorded for this message.')).not.toBeInTheDocument();
+
+    await userEvent.click(responseToggle);
+    expect(responseToggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
   });
 });
