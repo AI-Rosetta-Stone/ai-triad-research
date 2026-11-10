@@ -1692,9 +1692,10 @@ function Invoke-AIApi {
         [scriptblock]$CallLogger
     )
 
-    # t/107: no caller logger → the registered default, so every caller is logged at this choke point.
-    # The cascade forwards $CallLogger explicitly, so each fallback link logs its own entry once.
-    if (-not $CallLogger -and $script:AIDefaultCallLogger) { $CallLogger = $script:AIDefaultCallLogger }
+    # t/107, t/150: no caller logger → this module's default, so every call is logged once whatever the
+    # import order. Only the HOOK uses the default; the cascade still forwards the caller's own
+    # -CallLogger (or none), and each fallback link resolves the same default itself.
+    $LogHook = if ($CallLogger) { $CallLogger } else { $script:AIDefaultCallLogger }
 
     # -- Resolve model info from registry -------------------------------------
     $ModelInfo = $script:ModelRegistry[$Model]
@@ -1769,7 +1770,7 @@ function Invoke-AIApi {
     # failure $null-return, so a failure is logged too (TL C, cond.3); after the envelope parse below
     # for a successful one, so the entry carries its token usage (t/107). Fail-safe (cond.2).
     $HookArgs = @{
-        CallLogger = $CallLogger; Model = $Model; Backend = $Backend
+        CallLogger = $LogHook; Model = $Model; Backend = $Backend
         KeySourceLabel = $KeySourceLabel; ResolvedKey = $ResolvedKey; Prompt = $Prompt
     }
 
@@ -2409,5 +2410,52 @@ function Repair-TruncatedJson {
 Set-Alias -Name 'Invoke-GeminiApi'   -Value 'Invoke-AIApi'
 Set-Alias -Name 'Get-GeminiMetadata' -Value 'Get-AIMetadata'
 
-Export-ModuleMember -Function Invoke-AIApi, Get-AIMetadata, Resolve-AIApiKey, Get-AIApiKeySource, Test-AIApiKeyGeminiOnlyRefusal, Repair-TruncatedJson, Measure-PromptTokens, Set-AIApiCorrelationId, Protect-SensitiveText, Set-AIDefaultCallLogger `
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Call Log writer, owned by THIS module (t/150, TL p/37#25)
+#
+# Logging is a property of Invoke-AIApi, not of who imported it: AIEnrich alone, AITriad alone, or
+# both, every call writes exactly one entry. The writer is NOT a copy: the same AITriad source files
+# (call log + data-root resolution, which honours AI_TRIAD_DATA_ROOT > .aitriad.json > platform, incl.
+# the t/3869 worktree→main-checkout rule) are dot-sourced into this module's scope, so both modules
+# resolve the same ai-call-log.jsonl. A caller-supplied -CallLogger (Invoke-AIByUsage) still replaces
+# the default for that call, so nothing is logged twice.
+# ─────────────────────────────────────────────────────────────────────────────
+$_aitriadDir = @((Join-Path $PSScriptRoot 'AITriad'), $PSScriptRoot) |   # dev: scripts/AITriad; gallery: flat module root
+    Where-Object { Test-Path (Join-Path $_ 'Private' 'AICallLog.ps1') } | Select-Object -First 1
+if ($_aitriadDir) {
+    # Root detection mirrors AITriad.psm1's (the AICallLog parity test pins both to the same log path).
+    $script:ModuleRoot = $_aitriadDir
+    $_repo = Resolve-Path (Join-Path $_aitriadDir '..' '..') -ErrorAction SilentlyContinue
+    if ($_repo -and ((Test-Path (Join-Path $_repo.Path '.aitriad.json')) -or (Test-Path (Join-Path $_repo.Path 'CLAUDE.md')))) {
+        $script:RepoRoot = $_repo.Path; $script:IsDevInstall = $true
+    } else {
+        $script:RepoRoot = $_aitriadDir; $script:IsDevInstall = $false
+    }
+    . (Join-Path $_aitriadDir 'Private' 'New-ActionableError.ps1')
+    . (Join-Path $_aitriadDir 'Public' 'Get-WorktreeMainRoot.ps1')
+    . (Join-Path $_aitriadDir 'Private' 'Resolve-DataPath.ps1')
+    . (Join-Path $_aitriadDir 'Private' 'AICallLog.ps1')
+    # Module scope, no GetNewClosure: the block keeps AIEnrich's session state, so the writer resolves.
+    $script:AIDefaultCallLogger = {
+        param($RetryCount, $Status, $Context)
+        Write-AICallLogFromContext -RetryCount $RetryCount -Status $Status -Context $Context
+    }
+} else {
+    Write-Warning "AIEnrich: AI call-log writer not found next to the module (looked for AITriad/Private/AICallLog.ps1); Invoke-AIApi calls will NOT be logged, and Test-AICallLogReady will report false (t/150)."
+}
+Remove-Variable _aitriadDir, _repo -ErrorAction SilentlyContinue
+
+function Test-AIDefaultCallLoggerRegistered {
+    <#
+    .SYNOPSIS
+        True when this module instance's Invoke-AIApi has a default call logger (t/150). Used by
+        AITriad's Test-AICallLogReady; a caller can't see $script: state across module boundaries.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return ($null -ne $script:AIDefaultCallLogger)
+}
+
+Export-ModuleMember -Function Invoke-AIApi, Get-AIMetadata, Resolve-AIApiKey, Get-AIApiKeySource, Test-AIApiKeyGeminiOnlyRefusal, Repair-TruncatedJson, Measure-PromptTokens, Set-AIApiCorrelationId, Protect-SensitiveText, Set-AIDefaultCallLogger, Test-AIDefaultCallLoggerRegistered `
                     -Alias    Invoke-GeminiApi, Get-GeminiMetadata

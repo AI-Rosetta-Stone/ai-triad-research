@@ -20,6 +20,10 @@ BeforeAll {
 
     # Functions actually exported by the psm1 (via Export-ModuleMember)
     $script:ModuleExports = @((Get-Module AITriad).ExportedFunctions.Keys)
+
+    # t/150: functions AITriad deliberately RE-EXPORTS from its nested AIEnrich (no Public/ file). Each
+    # one must really be defined by AIEnrich; anything else without a Public/ file is still an orphan.
+    $script:ReExported = @('Invoke-AIApi')
 }
 
 Describe 'AITriad module export-list sync' -Tag 'module' {
@@ -35,12 +39,20 @@ Describe 'AITriad module export-list sync' -Tag 'module' {
     }
 
     It 'Export-ModuleMember has no entries without a backing Public/*.ps1 file' {
-        $Orphans = @($script:ModuleExports | Where-Object { $_ -notin $script:PublicFiles })
+        $Orphans = @($script:ModuleExports | Where-Object { $_ -notin $script:PublicFiles -and $_ -notin $script:ReExported })
         $Orphans.Count | Should -Be 0 -Because "No backing .ps1 in Public/: $($Orphans -join ', ')"
     }
 
     It 'FunctionsToExport has no entries without a backing Public/*.ps1 file' {
-        $Orphans = @($script:PsdExports | Where-Object { $_ -notin $script:PublicFiles })
+        $Orphans = @($script:PsdExports | Where-Object { $_ -notin $script:PublicFiles -and $_ -notin $script:ReExported })
         $Orphans.Count | Should -Be 0 -Because "No backing .ps1 in Public/: $($Orphans -join ', ')"
+    }
+
+    It 'every re-exported function is exported by both lists and really defined by AIEnrich (t/150)' {
+        foreach ($Name in $script:ReExported) {
+            $Name | Should -BeIn $script:ModuleExports
+            $Name | Should -BeIn $script:PsdExports
+            (Get-Module AITriad).ExportedFunctions[$Name].ScriptBlock.Module.Name | Should -Be 'AIEnrich'
+        }
     }
 }

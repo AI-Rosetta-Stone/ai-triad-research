@@ -749,18 +749,11 @@ foreach ($_name in @('DocConverters', 'AIEnrich')) {
     }
 }
 
-# t/107: every Invoke-AIApi call that passes no -CallLogger (the summary pipeline and the other direct
-# callers) logs through this one hook. Created here, in module scope and WITHOUT GetNewClosure, so it
-# keeps AITriad's session state and reaches the private writer when AIEnrich invokes it. Invoke-AIByUsage
-# passes its own logger, which replaces this one for that call (no double entry). Flag off → the writer's
-# single early return.
-if (Get-Command Set-AIDefaultCallLogger -ErrorAction SilentlyContinue) {
-    Set-AIDefaultCallLogger -Logger {
-        param($RetryCount, $Status, $Context)
-        Write-AICallLogFromContext -RetryCount $RetryCount -Status $Status -Context $Context
-    }
-} else {
-    Write-Warning 'AITriad: AIEnrich.psm1 has no Set-AIDefaultCallLogger; direct Invoke-AIApi calls will not be AI-call-logged (t/107).'
+# t/107 → t/150: AIEnrich registers its OWN default call logger at import (logging is a property of
+# Invoke-AIApi, whatever the import order — TL p/37#25), so AITriad no longer registers one; it only
+# checks. Invoke-AIByUsage still passes its own logger, which replaces the default for that call.
+if (-not (Get-Command Test-AIDefaultCallLoggerRegistered -ErrorAction SilentlyContinue) -or -not (Test-AIDefaultCallLoggerRegistered)) {
+    Write-Warning 'AITriad: the loaded AIEnrich has no default AI call logger; direct Invoke-AIApi calls will not be AI-call-logged (t/150). Test-AICallLogReady reports this.'
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1122,6 +1115,10 @@ Export-ModuleMember -Function @(
     'Get-ViteDevStatus'
     # t/3869 — resolves the true main-checkout root from inside any worktree (nested or sibling)
     'Get-WorktreeMainRoot'
+    # t/150 — Invoke-AIApi re-exported from the nested AIEnrich (the instance that logs), and a
+    # spend-guard preflight that reports whether calls will reach the AI call log
+    'Invoke-AIApi'
+    'Test-AICallLogReady'
     # t/2330 — Debate session state diagnostic
     'Get-DebateSessionState'
     # t/2335 — Debate index field-type integrity check (per-session files)
