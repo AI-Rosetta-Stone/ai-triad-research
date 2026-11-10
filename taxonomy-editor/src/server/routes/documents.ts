@@ -5,10 +5,8 @@
 // Requires sign-in. Enforces 10 MB body limit. Maps ActionableError from shared lib to HTTP response.
 // Stub: extractDocumentText not yet integrated (blocking t/273 merge).
 
-import http from 'http';
-import { ActionableError } from '../../../lib/debate/errors.js';
-import { error, json, post } from '../httpKit.js';
 import type { Router } from '../httpKit.js';
+import { json, error } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -27,8 +25,10 @@ const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024; // 10 MB
  *
  * t/274 (t/271 feature, blocked on t/273 for extractDocumentText interface)
  */
-export function registerDocumentsRoutes(router: Router, ctx: ServerCtx): void {
-  post(router, '/api/documents/extract', async (req: http.IncomingMessage, res: http.ServerResponse) => {
+export function registerDocumentsRoutes(r: Router, _ctx: ServerCtx): void {
+  const { post } = r;
+
+  post('/api/documents/extract', async (_req, res) => {
     // t/274: Stub implementation. Once t/273 lands and extractDocumentText is available,
     // integrate the shared lib call here.
     //
