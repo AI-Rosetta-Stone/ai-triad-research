@@ -21,5 +21,6 @@
   ],
   "data_commit": "e8c0ea432f6fd9cf6619554f9af4bdebfaf6a440",
   "situations_pre_sha256": "4b68214a31dce55b44bdfbd8f7d9cb4f98716d424acc699127f1fd58d0b57e3b",
+  "hash_basis": "sha256-lf",
   "not_in_scope": "linked_nodes (no writer exists; source unresolved, p/92#1), plain_description, evidence_provenance"
 }
