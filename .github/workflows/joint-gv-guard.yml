@@ -75,6 +75,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       - name: Check joint-gv label + auto-merge state
         env:

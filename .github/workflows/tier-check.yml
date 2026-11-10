@@ -33,6 +33,10 @@ jobs:
   tier-check:
     runs-on: ubuntu-latest
     continue-on-error: true
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: true
+    if: github.event.issue.pull_request || !github.event.issue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
