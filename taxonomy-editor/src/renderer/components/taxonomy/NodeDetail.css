@@ -122,9 +122,9 @@
 }
 
 .node-detail-title-line[data-cat="Conflict"] {
-  background: rgba(239, 68, 68, 0.08);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-border);
 }
 
 .node-detail-title-sep {
@@ -195,7 +195,7 @@
 
 .nd-header-id {
   font-size: var(--text-2xs);
-  color: var(--text-muted);
+  color: var(--text-secondary); /* t/198 S1: muted was 4.21 on the chip */
   font-family: var(--font-mono, monospace);
   padding: 2px 8px;
   border-radius: var(--radius-sm);
@@ -253,25 +253,25 @@
   border: 1px solid rgba(46, 170, 170, 0.25);
 }
 .nd-priority-badge[data-priority="5"] {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.3);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border-color: var(--error-border);
 }
 .nd-priority-badge[data-priority="4"] {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.3);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-color: var(--warning-border);
 }
 .nd-priority-badge[data-priority="3"] {
-  background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--info-bg);
+  color: var(--info-text);
+  border-color: transparent;
 }
 .nd-priority-badge[data-priority="2"],
 .nd-priority-badge[data-priority="1"] {
-  background: rgba(107, 114, 128, 0.12);
-  color: #9ca3af;
-  border-color: rgba(107, 114, 128, 0.25);
+  background: var(--bg-tertiary); /* t/198 S1: neutral badge */
+  color: var(--text-secondary);
+  border-color: transparent;
 }
 
 .nd-header-actions {
@@ -506,9 +506,9 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(96, 165, 250, 0.12);
-  color: var(--focus-ring);
-  border: 1px solid rgba(96, 165, 250, 0.25);
+  background: var(--info-bg); /* t/198 S2: --focus-ring was a tint here */
+  color: var(--info-text);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -777,13 +777,13 @@
 }
 
 .evidence-item-badge-support {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .evidence-item-badge-contradict {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .evidence-item-sim {
