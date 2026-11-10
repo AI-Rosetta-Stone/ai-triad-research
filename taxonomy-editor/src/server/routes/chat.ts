@@ -23,7 +23,7 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext } from './generationContext.js';
-import { getApiKeys, hasApiKey, type AIBackend } from '../config.js';
+import { getApiKeys, hasApiKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
 import {
   reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, admitOrDrawDownDebateCall,
@@ -195,6 +195,34 @@ async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResp
   return { ok: true, reservationId: debateResult.fallbackReservationId, debateReservationId: debateResult.debateReservationId };
 }
 
+/** Guard branch: enforce backend allowed and rate limits.
+ *  Returns false if the handler should proceed; true if access was denied (response written). */
+function enforceChatAccess(res: http.ServerResponse, tier: ReturnType<typeof proxyTiers.resolveTier>, backend: AIBackend, isFree: boolean, limitKey: string): boolean {
+  if (!proxyTiers.isBackendAllowed(tier, backend)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Backend '${backend}' not available on your tier`, tier_level: tier.level }));
+    return true;
+  }
+
+  const rpmCheck = isFree
+    ? rateLimiter.checkRate(limitKey, tier.limits.requestsPerMinute, 60_000)
+    : rateLimiter.checkRequestRate(limitKey, tier.limits.requestsPerMinute);
+  if (!rpmCheck.allowed) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Rate limit exceeded', limitType: 'requests_per_minute', retryAfterMs: rpmCheck.retryAfterMs }));
+    return true;
+  }
+
+  const tokenCheck = rateLimiter.checkTokenLimit(limitKey, tier.limits.tokensPerDay);
+  if (!tokenCheck.allowed) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Daily token limit exceeded', limitType: 'tokens_per_day' }));
+    return true;
+  }
+
+  return false;
+}
+
 /** Pure mirror of routes/ai.ts resolveExplicitAiKey — including the t/4486 geo gate on BOTH
  *  the free-tier branch and the BYOK fallback (getFreePoolKeys is the sole injection-path
  *  reader of the pool; t/4486#4 TL review found the fallback was a fourth bypass), and the
@@ -214,6 +242,9 @@ async function resolveExplicitAiKey(
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    // t/204: the user's own stored Settings key comes before the free pool (and its geo gate).
+    const stored = await getStoredUserKeysBeforeFreePool(backend);
+    if (stored.length > 0) return { ok: true, key: stored.length === 1 ? stored[0] : stored, reservationId: null, debateReservationId: null };
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {
@@ -286,27 +317,8 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
     try {
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
 
-      if (!proxyTiers.isBackendAllowed(tier, backend)) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Backend '${backend}' not available on your tier`, tier_level: tier.level }));
-        return;
-      }
-
-      // Rate limits: RPM + daily token budget (mirrors /api/ai/generate).
-      const rpmCheck = isFree
-        ? rateLimiter.checkRate(limitKey, tier.limits.requestsPerMinute, 60_000)
-        : rateLimiter.checkRequestRate(limitKey, tier.limits.requestsPerMinute);
-      if (!rpmCheck.allowed) {
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Rate limit exceeded', limitType: 'requests_per_minute', retryAfterMs: rpmCheck.retryAfterMs }));
-        return;
-      }
-      const tokenCheck = rateLimiter.checkTokenLimit(limitKey, tier.limits.tokensPerDay);
-      if (!tokenCheck.allowed) {
-        res.writeHead(429, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Daily token limit exceeded', limitType: 'tokens_per_day' }));
-        return;
-      }
+      // Enforce backend allowlist and rate limits (RPM + daily token budget).
+      if (enforceChatAccess(res, tier, backend, isFree, limitKey)) return;
 
       const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, linkedDebateId);
       if (!keyResult.ok) return;

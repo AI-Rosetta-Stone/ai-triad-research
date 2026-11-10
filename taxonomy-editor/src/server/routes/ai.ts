@@ -24,7 +24,7 @@ import * as allowlistStore from '../storage/allowlistStore.js';
 import { EMBEDDING_COMPUTE_CHUNK, EMBEDDINGS_REQUEST_TIMEOUT_MS, type GenerateTextProgress } from '../ai/aiBackends.js';
 import { log, getRequestContext, getRequestId } from '../logger.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
-import { hasApiKey, getPaidGeminiFallbackKey, type AIBackend } from '../config.js';
+import { hasApiKey, getPaidGeminiFallbackKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
@@ -77,6 +77,15 @@ const BACKEND_DISPLAY: Record<AIBackend, string> = {
 // ── POST /api/ai/generate guard/step helpers (extracted from the handler, ADR-007)
 // Each guard returns true when it has already sent a response (caller must return).
 type ResolvedTier = ReturnType<typeof proxyTiers.resolveTier>;
+
+/** Guard branch: enforce access controls and resolve the execution tier.
+ *  Returns false if the handler should proceed; true if access was denied (response written). */
+function enforceGenerateAccess(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, backend: AIBackend, debateId: string | undefined, isFree: boolean, limitKey: string): boolean {
+  if (enforceAnonDebateGate(res, isFree, debateId)) return true;
+  if (enforceBackendAllowed(res, tier, backend)) return true;
+  if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return true;
+  return false;
+}
 
 /** Per-IP (free) / per-user RPM + daily-token limits. 429 + log/record on breach. */
 function enforceAiRateLimits(res: http.ServerResponse, isFree: boolean, limitKey: string, tier: ResolvedTier, backend: AIBackend): boolean {
@@ -168,6 +177,9 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    // t/204: the user's own stored Settings key comes before the free pool (and its geo gate).
+    const stored = await getStoredUserKeysBeforeFreePool(backend);
+    if (stored.length > 0) return { ok: true, key: stored.length === 1 ? stored[0] : stored, reservationId: null, debateReservationId: null };
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {
@@ -501,15 +513,9 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Free-tier cost is bounded by tokensPerDay + per-IP rate limits; the redundant
       // per-prompt char cap was removed in t/812 (broke long debate prompts).
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
-      // t/3230: a single anonymous debate drains the shared free Gemini key pool (K=4) → 429 storm
-      // → ~485s retry → user-facing 500. Block free-tier debate generation (reversible via the
-      // `anon-debates` flag) BEFORE any key/provider call — covers debate rounds AND the fact-check
-      // `search` calls (both carry debateId). Authenticated debates + non-debate free-tier untouched.
-      if (enforceAnonDebateGate(res, isFree, debateId)) return; // 403 when anon debates disabled
-      if (enforceBackendAllowed(res, tier, backend)) return; // 403 if backend not on tier
-
-      // Rate limiting: per-IP RPM (free tier) / per-user RPM + daily token budget (429 on breach).
-      if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return;
+      // Enforce access controls: anon debates, backend allowlist, rate limits.
+      // Each guard returns true if access was denied (response already written).
+      if (enforceGenerateAccess(req, res, tier, backend, debateId, isFree, limitKey)) return;
 
       // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
@@ -900,10 +906,13 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
         // t/4489: BYOK user with their own key — use it, skip free pool entirely (and its geo gate).
         nliKeys = [clientKey];
       } else {
+        // t/204: a signed-in user's stored Settings key comes before the free pool.
+        const stored = await getStoredUserKeysBeforeFreePool('gemini');
+        if (stored.length > 0) nliKeys = stored;
         // t/4486: the ONLY other injection site besides resolveExplicitAiKey — must go through
         // the same geo-gated accessor (TL review, t/4486#2: this route bypassed
         // resolveGenerationContext entirely, so a guard placed only there would miss it).
-        if (proxyTiers.freeTierEnabled()) {
+        else if (proxyTiers.freeTierEnabled()) {
           const poolResult = await getFreePoolKeys(req, res);
           if (!poolResult.ok) return; // 403 free_pool_region already written
           nliKeys = poolResult.keys;
