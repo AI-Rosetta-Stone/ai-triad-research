@@ -143,6 +143,19 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     pollTimer = setTimeout(() => void poll(jobId), delay);
   }
 
+  /** poll()'s terminal 404 tail (t/3723): stop the loop and, unless superseded, show the
+   *  "no longer available" failure. The record() stays in poll()'s catch (ADR-003). */
+  function handleInquiryNotFound(jobId: string): void {
+    clearPollTimer();
+    if (get().jobId === jobId) {
+      set({
+        status: 'failed',
+        error: 'This inquiry is no longer available. The server restarted while it was running, so the run was lost. Starting a new inquiry will re-run it.',
+        pollError: null,
+      });
+    }
+  }
+
   async function poll(jobId: string): Promise<void> {
     // Ceiling: a lost job (swept server-side, or a stuck desktop process) must not poll forever.
     if (performance.now() - pollStartedAt > POLL_CEILING_MS) {
@@ -175,14 +188,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
           data: { attempt: consecutivePollFailures + 1, backoff_interval_ms: null, is_terminal: true },
         });
-        clearPollTimer();
-        if (get().jobId === jobId) {
-          set({
-            status: 'failed',
-            error: 'This inquiry is no longer available. The server restarted while it was running, so the run was lost. Starting a new inquiry will re-run it.',
-            pollError: null,
-          });
-        }
+        handleInquiryNotFound(jobId);
         return;
       }
 
