@@ -1,5 +1,5 @@
 {
-  "dispositions": "research/comp-linguist/analyses/t4704-provenance-review/dispositions.json @ 61c7d4c0 (sha256 dc2a4c377d2954bd...)",
+  "dispositions": "research/comp-linguist/analyses/t4704-provenance-review/dispositions.json @ d092ad21 (PR #4924 head)",
   "operation": {
     "re-point": "url := to; resolved_url := to; provenance := [{scheme: url, id: to, confidence: verified}] + (entries whose id != from); the bad search entry is dropped",
     "remove": "url := \"\"; resolved_url and the from-provenance entry removed; provenance key removed when it becomes empty (440 docs have no provenance key; none has [])"
@@ -384,9 +384,9 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/holland-knight-llp_artificialintelligence-ai-intellectualproperty-activity-7443413714344566784-aPL8",
-      "post_sha256": "4ed0a761bfa2754b78f45ad4372e3fbda9dd041590e003452bd594e277a8dd2a",
+      "post_sha256": "3e4df2618ba7781602dac22a1b12d4394121e644e85be7d26306d004b849745f",
       "pre_sha256": "219f69a289da1d364d571a106b094fc95dafaed0aee796cc26f59992f6e4c81f",
-      "to": "https://www.whitehouse.gov/wp-content/uploads/2026/03/03.20.26-National-Policy-Framework-for-Artificial-Intelligence-Legislative-Recommendations.pdf"
+      "to": "https://www.hklaw.com/en/insights/publications/2026/03/white-house-releases-a-national-policy-framework-for-artificial-intelligence"
     },
     {
       "disposition": "re-point",
@@ -398,9 +398,9 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/holland-knight-llp_artificialintelligence-ai-intellectualproperty-activity-7443413714344566784-aPL8",
-      "post_sha256": "c1654b4e247a8fbed73ff0e0a2b0c6b6d4fc8ad6c5991987c9410a35397dea00",
+      "post_sha256": "8a3d91bbdb5ec7b2d2ae1cb322d2d849b88da75706dafb58892dd46499db9976",
       "pre_sha256": "839b86968ceebfe36ae17f727f3e4a10cff0cd782de2dceb6be14b4a46db6017",
-      "to": "https://www.whitehouse.gov/wp-content/uploads/2026/03/03.20.26-National-Policy-Framework-for-Artificial-Intelligence-Legislative-Recommendations.pdf"
+      "to": "https://www.hklaw.com/en/insights/publications/2026/03/white-house-releases-a-national-policy-framework-for-artificial-intelligence"
     },
     {
       "disposition": "re-point",
