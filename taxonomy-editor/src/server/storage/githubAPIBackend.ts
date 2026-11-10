@@ -1550,7 +1550,12 @@ export class GitHubAPIBackend implements StorageBackend {
     }, callId);
     // No `sha` in the body: GitHub refuses the PUT for an existing file with 422 "\"sha\" wasn't
     // supplied". Any OTHER 422 is a real validation failure and must not read as 'exists'.
-    if (resp.status === 409 || (resp.status === 422 && /\bsha\b/i.test(resp.error ?? ''))) return 'exists';
+    // t/181 (Quality blocker): 409 means "modified concurrently", possibly on another path or ref,
+    // so we must re-read to confirm the file actually exists before returning 'exists'.
+    if (resp.status === 409) {
+      return this.handleCreateConflict(repoPath, content, ref, creds, callId);
+    }
+    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) return 'exists';
     if (!resp.ok) {
       throw new ActionableError({
         goal: `Create ${repoPath} on GitHub only if absent`,
@@ -1562,6 +1567,49 @@ export class GitHubAPIBackend implements StorageBackend {
     const newSha = (resp.data as { content?: { sha?: string } })?.content?.sha ?? '';
     await this.writeToDiskCache(repoPath, content, newSha, '');
     return 'created';
+  }
+
+  private async handleCreateConflict(
+    repoPath: string, content: string, ref: string, creds: SyncCredentials, callId: string,
+  ): Promise<WriteIfAbsentResult> {
+    const status = await this.getSessionBranchFileStatus(repoPath, ref);
+    if (status.kind === 'present') return 'exists';
+    if (status.kind === 'unavailable') {
+      throw new ActionableError({
+        goal: `Verify file status after concurrent modification on ${repoPath}`,
+        problem: 'GitHub API returned 409 (concurrent modification), but could not verify whether the file exists.',
+        location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+        nextSteps: ['Retry the operation', 'Check GitHub API status'],
+        httpStatus: 503,
+        code: 'GITHUB_CONFLICT_UNRESOLVED',
+      });
+    }
+    // status.kind === 'absent': the 409 was on a different path or a transient branch state.
+    // Retry once before failing. Per AGENTS.md, log the fallback path taken.
+    log.github.warn(
+      { callId, repoPath, ref },
+      `Retrying create on 409 (concurrent modification) after verifying file absent on ${repoPath}`,
+    );
+    const retryResp = await this.rest.request(creds, 'PUT', `/repos/${creds.repo}/contents/${repoPath}`, {
+      message: `Create ${repoPath}`,
+      content: Buffer.from(content, 'utf-8').toString('base64'),
+      branch: ref,
+    }, callId);
+    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) return 'exists';
+    if (retryResp.ok) {
+      const newSha = (retryResp.data as { content?: { sha?: string } })?.content?.sha ?? '';
+      await this.writeToDiskCache(repoPath, content, newSha, '');
+      return 'created';
+    }
+    // Retry also failed — throw the error
+    throw new ActionableError({
+      goal: `Create ${repoPath} on GitHub only if absent`,
+      problem: `GitHub API returned ${retryResp.status}: ${retryResp.error}`,
+      location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+      nextSteps: ['Check GitHub API status', 'Retry the operation'],
+      httpStatus: retryResp.status === 409 ? 409 : undefined,
+      code: retryResp.status === 409 ? 'GITHUB_CONCURRENT_WRITE' : undefined,
+    });
   }
 
   async writeBinaryFile(filePath: string, content: Buffer, opts?: { ref?: string }): Promise<void> {
