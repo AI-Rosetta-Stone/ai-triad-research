@@ -127,13 +127,12 @@ function Invoke-SmokeGitHubPhase {
 function Get-SmokeTotalEventCount {
     # Guarded extractor: pull summary.totalEvents from an Invoke-RemoteCheck result,
     # or $null when the read failed / the field is absent (StrictMode-safe).
+    # Body may be a PSCustomObject or a Hashtable — read through Get-JsonField (t/4934).
     param($Check)
-    if ($Check.Success -and $Check.Body -and
-        $Check.Body.PSObject.Properties['summary'] -and $Check.Body.summary -and
-        $Check.Body.summary.PSObject.Properties['totalEvents']) {
-        return [int]$Check.Body.summary.totalEvents
-    }
-    return $null
+    if (-not $Check.Success) { return $null }
+    $Total = Get-JsonField (Get-JsonField $Check.Body 'summary') 'totalEvents'
+    if ($null -eq $Total) { return $null }
+    return [int]$Total
 }
 
 # t/53: since t/4960 analytics excludes system identities (smoke-probe, smoke-*) from
@@ -182,8 +181,8 @@ function Get-SmokeAnalyticsEventJson {
 function Get-SmokeAnalyticsWriteResult {
     param($WriteCheck)
     $WriteOk = $false
-    if ($WriteCheck.Success -and $WriteCheck.Body -and $WriteCheck.Body.PSObject.Properties['ok']) {
-        $WriteOk = [bool]$WriteCheck.Body.ok
+    if ($WriteCheck.Success) {
+        $WriteOk = [bool](Get-JsonField $WriteCheck.Body 'ok' -Default $false)
     }
     $WritePass = $WriteCheck.Success -and $WriteOk
     $Fields = @{
@@ -232,12 +231,11 @@ function Get-SmokeAnalyticsDwellResult {
     $DwellErr  = $null
     if (-not $AfterCheck.Success) {
         $DwellErr = "after-read failed (status=$($AfterCheck.StatusCode)) — cannot check eventTypes"
-    } elseif (-not $AfterCheck.Body -or -not $AfterCheck.Body.PSObject.Properties['eventTypes']) {
+    } elseif (-not (Test-JsonField $AfterCheck.Body 'eventTypes')) {
         $DwellErr = "eventTypes field missing from /api/analytics/query response"
     } else {
-        $EventTypes  = $AfterCheck.Body.eventTypes
-        $DwellProp   = $EventTypes.PSObject.Properties['view.dwell']
-        $DwellCount  = if ($DwellProp) { [int]$DwellProp.Value } else { 0 }
+        $EventTypes  = Get-JsonField $AfterCheck.Body 'eventTypes'
+        $DwellCount  = [int](Get-JsonField $EventTypes 'view.dwell' -Default 0)
         $DwellPass   = ($DwellCount -ge 1)
         if (-not $DwellPass) {
             $DwellErr = "view.dwell absent or zero in eventTypes after probe write (count=$DwellCount) — event not persisted or event_type mis-routed"
@@ -355,14 +353,14 @@ function Get-SmokeOpedFilesDetail {
     # The one-line verdict for the oped-files check, given the parsed body.
     param([bool]$Pass, [bool]$JsonOk, [bool]$BodyOk, $Check, $Json)
     if ($Pass) {
-        $count = if ($Json -and $Json.PSObject.Properties['assets']) { @($Json.assets).Count } else { 0 }
+        $count = if (Test-JsonField $Json 'assets') { @(Get-JsonField $Json 'assets').Count } else { 0 }
         return "all assets present ($count files)"
     }
     if (-not $JsonOk) {
         return "non-JSON response (content-type=$($Check.ContentType), status=$($Check.StatusCode)) — endpoint unreachable or returned interstitial"
     }
     if (-not $BodyOk) {
-        $missing = if ($Json -and $Json.PSObject.Properties['missing']) { ($Json.missing -join ', ') } else { 'ok:false (no missing list)' }
+        $missing = if (Test-JsonField $Json 'missing') { ((Get-JsonField $Json 'missing') -join ', ') } else { 'ok:false (no missing list)' }
         return "MISSING: $missing (status=$($Check.StatusCode))"
     }
     return "failed (status=$($Check.StatusCode))"
@@ -388,7 +386,7 @@ function Invoke-SmokeOpedFilesPhase {
     # Require JSON content-type + ok:true — a 200 text/html response is the Sign-In
     # interstitial (any unknown GET before the endpoint is in PUBLIC_EXACT_PATHS).
     $JsonOk = [bool]($Check.ContentType -and ($Check.ContentType -like '*json*'))
-    $BodyOk = [bool]($Json -and $Json.PSObject.Properties['ok'] -and [bool]$Json.ok)
+    $BodyOk = [bool](Get-JsonField $Json 'ok' -Default $false)
     $Pass   = [bool]($Check.Success -and $JsonOk -and $BodyOk)
     $Detail = Get-SmokeOpedFilesDetail -Pass $Pass -JsonOk $JsonOk -BodyOk $BodyOk -Check $Check -Json $Json
 
@@ -493,8 +491,8 @@ function Invoke-SmokeIdentityAllowlistPhase {
     try {
         $Check = Invoke-RemoteCheck -BaseUrl $BaseUrl -Path '/health' -Method 'GET' `
             -TimeoutSec $TimeoutSec -ExpectedField 'identityAllowlistUnreachable'
-        if ($Check.Success -and $Check.Body -and $Check.Body.PSObject.Properties['identityAllowlistUnreachable']) {
-            $Count = [int]$Check.Body.identityAllowlistUnreachable
+        if ($Check.Success -and (Test-JsonField $Check.Body 'identityAllowlistUnreachable')) {
+            $Count = [int](Get-JsonField $Check.Body 'identityAllowlistUnreachable')
             $Status = if ($Count -le $script:SmokeIdentityAllowlistKnownPendingCount) { 'ok' } else { 'breach' }
         }
     } catch {
