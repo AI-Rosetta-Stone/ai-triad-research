@@ -56,3 +56,15 @@ test('a pipe in a title or category never adds a table column (t/226)', () => {
   assert.ok(rows[0].includes(String.raw`[A\|B]`));
   assert.ok(rows[1].includes('`verify \\| tail`'));
 });
+
+test('a backslash before a pipe cannot unescape it; other backslashes are untouched (t/226)', () => {
+  const src = ['## #1 [Build] `a\\|b` and `c\\\\|d`', 'x', '## #2 [Test] Intercepts `Module\\Cmdlet` and `\\( … \\)`', 'y', ''].join('\n');
+  const rows = renderIndex(parseEntries(src)).split('\n').filter((l) => /^\| (#\d|—)/.test(l));
+  // A pipe is a cell boundary only if an even number of backslashes precede it (GFM row splitting).
+  const boundaries = (r) => [...r.matchAll(/(\\*)\|/g)].filter((m) => m[1].length % 2 === 0).length;
+  for (const r of rows) assert.equal(boundaries(r), 5, r);
+  assert.ok(rows[0].includes(String.raw`a\\\|b`), rows[0]);     // 1 backslash doubled, then \|
+  assert.ok(rows[0].includes(String.raw`c\\\\\|d`), rows[0]);   // 2 doubled to 4, then \|
+  assert.ok(rows[1].includes(String.raw`Module\Cmdlet`), rows[1]);
+  assert.ok(rows[1].includes(String.raw`\( … \)`), rows[1]);
+});

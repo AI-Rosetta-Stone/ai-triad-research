@@ -49,7 +49,11 @@ export function parseEntries(text) {
 }
 
 // Escape table pipes as \| (GFM honours it even inside code spans). '\|' would be just '|' (t/226).
-const cell = (s) => s.replace(/\|/g, '\\|');
+// Backslashes directly before a pipe are doubled first, so `a\|b` can't become `a\\|`, where the
+// backslash escapes itself and the pipe splits the cell (CodeQL js/incomplete-sanitization).
+// Other backslashes are left alone: in a GFM table cell's code span only \| is unescaped, so
+// doubling them would corrupt titles like `Module\Cmdlet` and break grep on the index.
+const cell = (s) => s.replace(/(\\*)\|/g, (_, bs) => `${bs}${bs}\\|`);
 
 export function renderIndex(entries) {
   const out = [
