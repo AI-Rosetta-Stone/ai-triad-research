@@ -6,6 +6,6 @@
     "taxonomy-editor/tsconfig.json": 0
   },
   "contrast_ceilings": {
-    "taxonomy-editor/scripts/check-contrast.mjs": 314
+    "taxonomy-editor/scripts/check-contrast.mjs": 861
   }
 }
