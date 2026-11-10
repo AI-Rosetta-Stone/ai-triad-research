@@ -57,6 +57,11 @@ describe('findUnreachableAllowlistEntries — READ_ONLY_PRINCIPALS (AC: the thre
 
 const BARE_REASON = 'bare entry with no idp: prefix; isAdminStableId never matches it (t/4328)';
 const BAD_QUALIFIED_REASON = 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+const GITHUB_SHAPE_REASON = 'github: id must be the numeric GitHub user id, not a login; no sign-in records this stableId';
+const AAD_SHAPE_REASON = 'aad: id must be <tenant-guid>-<object-guid>; no sign-in records this stableId';
+const TID = '72f988bf-86f1-41af-91ab-2d7cd011db47';
+const OID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+const AAD_ENTRY = `aad:${TID}-${OID}`;
 
 describe('findUnreachableAllowlistEntries — ADMIN_USERS (t/43: aligned with isAdminStableId)', () => {
   it("prod's qualified github:<id> entry is reachable — not flagged", () => {
@@ -64,7 +69,16 @@ describe('findUnreachableAllowlistEntries — ADMIN_USERS (t/43: aligned with is
   });
 
   it('a qualified aad:<tid>-<oid> entry is reachable, and case is ignored like getAdminUsers', () => {
-    expect(findUnreachableAllowlistEntries(['aad:tenant-1-obj-1', 'GitHub:42'], new Set())).toEqual([]);
+    expect(findUnreachableAllowlistEntries([`AAD:${TID.toUpperCase()}-${OID}`, 'GitHub:42'], new Set())).toEqual([]);
+  });
+
+  it('t/47: a github login instead of the numeric user id is flagged with its own reason', () => {
+    expect(findUnreachableAllowlistEntries(['github:jpsnover'], new Set()).map(u => u.reason)).toEqual([GITHUB_SHAPE_REASON]);
+  });
+
+  it('t/47: an aad oid without its tenant id, or a non-GUID pair, is flagged with its own reason', () => {
+    const unreachable = findUnreachableAllowlistEntries([`aad:${OID}`, 'aad:tenant-1-obj-1'], new Set());
+    expect(unreachable.map(u => u.reason)).toEqual([AAD_SHAPE_REASON, AAD_SHAPE_REASON]);
   });
 
   it('a bare legacy name is flagged, even when IDENTITY_MAP maps a sign-in onto it', () => {
@@ -82,7 +96,7 @@ describe('findUnreachableAllowlistEntries — ADMIN_USERS (t/43: aligned with is
 
   it('a qualified entry no sign-in records as a stableId is flagged', () => {
     const unreachable = findUnreachableAllowlistEntries(['google:user@gmail.com', 'github:', 'github:a b'], new Set());
-    expect(unreachable.map(u => u.reason)).toEqual([BAD_QUALIFIED_REASON, BAD_QUALIFIED_REASON, BAD_QUALIFIED_REASON]);
+    expect(unreachable.map(u => u.reason)).toEqual([BAD_QUALIFIED_REASON, GITHUB_SHAPE_REASON, GITHUB_SHAPE_REASON]);
   });
 
   it('a whitespace-only entry is skipped, not flagged', () => {
@@ -98,7 +112,7 @@ describe('AGREEMENT GUARD: canProduceStableId must agree with community.isAdminS
   // update canProduceStableId / adminUserUnreachableReason to match.
   // Every entry the check passes must be one isAdminStableId grants when that stableId signs in;
   // every bare entry it flags must be one isAdminStableId never grants.
-  it.each(['github:6188114', 'aad:tenant-1-obj-1', 'GitHub:42'])('%s: reachable, and isAdminStableId matches it', (entry) => {
+  it.each(['github:6188114', AAD_ENTRY, 'GitHub:42'])('%s: reachable, and isAdminStableId matches it', (entry) => {
     vi.stubEnv('ADMIN_USERS', entry);
     expect(findUnreachableAllowlistEntries(getAdminUsers(), new Set())).toEqual([]);
     expect(isAdminStableId(entry.toLowerCase())).toBe(true);
