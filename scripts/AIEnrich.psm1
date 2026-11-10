@@ -1131,21 +1131,47 @@ function Invoke-AIApiRequest {
     return Invoke-AIRestWithRetry @Send -Uri $Request.Uri -Headers $Request.Headers -Body $Request.Body
 }
 
+# t/107: the logger Invoke-AIApi uses when its caller passes no -CallLogger. AITriad registers one at
+# import (AITriad.psm1, after this module loads), so EVERY Invoke-AIApi caller is logged at this one
+# choke point -- the summary pipeline and the ~60 other direct callers, plus any future one -- not
+# just Invoke-AIByUsage. A caller that passes its own -CallLogger (Invoke-AIByUsage) replaces the
+# default for that call, so nothing is logged twice. $null when AIEnrich is imported on its own.
+$script:AIDefaultCallLogger = $null
+
+function Set-AIDefaultCallLogger {
+    <#
+    .SYNOPSIS
+        Registers (or, with $null, clears) the AI Call Log hook Invoke-AIApi uses when its caller
+        passes no -CallLogger (t/107).
+    .DESCRIPTION
+        The scriptblock is called like any -CallLogger: ($RetryCount, $Status, $Context). Define it
+        in the registering module's own scope (no GetNewClosure) so it keeps that module's session
+        state and can reach its private writer.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()][scriptblock]$Logger)
+    $script:AIDefaultCallLogger = $Logger
+}
+
 function Invoke-AICallLogHook {
     <#
     .SYNOPSIS
         Fires Invoke-AIApi's injected AI Call Log hook once per call (t/3242; moved by t/4135 B2).
     .DESCRIPTION
-        Runs before both the failure return and the success extraction, so a failed call is
-        logged too. The status is 200 on success, else the HTTP code, else 'error' (a failure
-        with no HTTP response), else '?' (no attempt made). The third argument is the t/4088
-        context { Model; Backend; KeySource } of the link ACTUALLY called. Fail-safe: anything
-        the hook (or building its context) throws is a WARN, never a failed AI call. Whatever
-        the hook writes to the pipeline is passed through to the caller, as before.
+        A failed call fires it before the failure return, so a failure is logged too; a successful
+        HTTP call fires it after the envelope parse, so the entry can carry the call's token usage
+        (t/107). The status is 200 on success, else the HTTP code, else 'error' (a failure with no
+        HTTP response), else '?' (no attempt made). The third argument is the context
+        { Model; Backend; KeySource; PromptStart } of the link ACTUALLY called (t/4088), plus
+        InputTokens / OutputTokens (and CachedInputTokens, when the provider reports it) only when
+        -Usage carries them (t/107): a call with no usage has NO token members, never 0s. Fail-safe:
+        anything the hook (or building its context) throws is a WARN, never a failed AI call.
+        Whatever the hook writes to the pipeline is passed through to the caller, as before.
     #>
     [CmdletBinding()]
     param([scriptblock]$CallLogger, $Response, $LastError, [int]$Attempt,
-          [string]$Model, [string]$Backend, [string]$KeySourceLabel, [string]$ResolvedKey)
+          [string]$Model, [string]$Backend, [string]$KeySourceLabel, [string]$ResolvedKey,
+          [string]$Prompt, $Usage)
     if (-not $CallLogger) { return }
     if ($null -ne $Response -and $null -eq $LastError) { $LogStatus = 200 }
     elseif ($LastError -and $LastError.Exception.Response) { $LogStatus = $LastError.Exception.Response.StatusCode.value__ }
@@ -1154,12 +1180,30 @@ function Invoke-AICallLogHook {
     # t/4088: Backend is the registry value Invoke-AIApi resolved, never a prefix guess. A
     # two-argument logger still works; it just ignores the third argument.
     try {
-        $LogContext = [pscustomobject]@{
-            Model     = $Model
-            Backend   = $Backend
-            KeySource = ConvertTo-AICallLogKeySource -SourceLabel $KeySourceLabel -Backend $Backend -Key $ResolvedKey
+        $PromptStart = [string]$Prompt
+        if ($PromptStart.Length -gt 160) { $PromptStart = $PromptStart.Substring(0, 160) }
+        $LogContext = [ordered]@{
+            Model       = $Model
+            Backend     = $Backend
+            KeySource   = ConvertTo-AICallLogKeySource -SourceLabel $KeySourceLabel -Backend $Backend -Key $ResolvedKey
+            PromptStart = $PromptStart
         }
-        & $CallLogger $Attempt ([string]$LogStatus) $LogContext
+        if ($null -ne $Usage -and $Usage.PSObject.Properties['InputTokens'] -and $Usage.PSObject.Properties['OutputTokens']) {
+            # The log is a budget guard (TL p/37#10): every BILLED token class must be counted, in one
+            # convention across backends. InputTokens is ALL input, INCLUDING cached reads and cache
+            # writes; CachedInputTokens / CacheCreationInputTokens are the subsets billed at other rates.
+            $Num = { param($n) if ($Usage.PSObject.Properties[$n]) { [int]$Usage.$n } else { 0 } }
+            $CacheRead  = & $Num 'CacheReadTokens'       # Claude: reported outside input_tokens
+            $CacheWrite = & $Num 'CacheCreationTokens'   # Claude: reported outside input_tokens
+            $LogContext.InputTokens  = [int]$Usage.InputTokens + $CacheRead + $CacheWrite
+            # OutputTokens is BILLED output: Gemini's thinking tokens are billed at the output rate but
+            # reported apart from candidatesTokenCount (Quality, t/107). Omitting them under-reads spend.
+            $LogContext.OutputTokens = [int]$Usage.OutputTokens + (& $Num 'ThoughtsTokens')
+            if ($Usage.PSObject.Properties['CachedTokens']) { $LogContext.CachedInputTokens = [int]$Usage.CachedTokens }   # Gemini (already inside promptTokenCount)
+            elseif ($Usage.PSObject.Properties['CacheReadTokens']) { $LogContext.CachedInputTokens = $CacheRead }
+            if ($Usage.PSObject.Properties['CacheCreationTokens']) { $LogContext.CacheCreationInputTokens = $CacheWrite }
+        }
+        & $CallLogger $Attempt ([string]$LogStatus) ([pscustomobject]$LogContext)
     }
     catch { Write-Warning "Invoke-AIApi: call-logger threw ($($_.Exception.Message)); continuing (audit log is non-fatal)." }
 }
@@ -1343,7 +1387,8 @@ function ConvertFrom-AIGeminiEnvelope {
     .SYNOPSIS
         Parses a Gemini generateContent response (t/4135 B2) into { Text; Truncated; Usage },
         or WARNs and returns $null when generation was blocked or the shape is unexpected.
-        Truncated is finishReason MAX_TOKENS; Usage carries CachedTokens (0 when absent).
+        Truncated is finishReason MAX_TOKENS; Usage carries CachedTokens and ThoughtsTokens
+        (each 0 when absent; t/107).
     #>
     [CmdletBinding()]
     param($Response)
@@ -1365,11 +1410,15 @@ function ConvertFrom-AIGeminiEnvelope {
         $um = $Response.usageMetadata
         if ($um) {
             $CachedCount = if ($um.PSObject.Properties['cachedContentTokenCount']) { [int]($um.cachedContentTokenCount) } else { 0 }
+            # t/107: thinking tokens are billed at the output rate but are NOT in candidatesTokenCount.
+            # Kept separate (OutputTokens keeps its meaning for existing readers); the AI call log adds them.
+            $ThoughtsCount = if ($um.PSObject.Properties['thoughtsTokenCount']) { [int]($um.thoughtsTokenCount) } else { 0 }
             $Usage = [PSCustomObject]@{
-                InputTokens  = [int]($um.promptTokenCount)
-                OutputTokens = [int]($um.candidatesTokenCount)
-                CachedTokens = $CachedCount
-                TotalTokens  = [int]($um.totalTokenCount)
+                InputTokens    = [int]($um.promptTokenCount)
+                OutputTokens   = [int]($um.candidatesTokenCount)
+                CachedTokens   = $CachedCount
+                TotalTokens    = [int]($um.totalTokenCount)
+                ThoughtsTokens = $ThoughtsCount
             }
         }
     } catch {
@@ -1398,6 +1447,13 @@ function ConvertFrom-AIClaudeEnvelope {
                 InputTokens  = [int]($u.input_tokens)
                 OutputTokens = [int]($u.output_tokens)
                 TotalTokens  = [int]($u.input_tokens) + [int]($u.output_tokens)
+            }
+            # t/107: Anthropic bills cache reads and cache writes at their own rates and reports them
+            # OUTSIDE input_tokens. Added only when the response carries them, so the usual shape is unchanged.
+            foreach ($Pair in @(@('cache_read_input_tokens', 'CacheReadTokens'), @('cache_creation_input_tokens', 'CacheCreationTokens'))) {
+                if ($u.PSObject.Properties[$Pair[0]] -and $null -ne $u.($Pair[0])) {
+                    $Usage | Add-Member -NotePropertyName $Pair[1] -NotePropertyValue ([int]$u.($Pair[0]))
+                }
             }
         }
     } catch {
@@ -1631,10 +1687,14 @@ function Invoke-AIApi {
         [string[]]$FallbackModels,
         [switch]$SkipTokenCheck,
         # t/3242 — optional AI Call Log hook (IoC). A scriptblock invoked once per call with
-        # ($RetryCount, $Status). Defined in AITriad (Invoke-AIByUsage) so it retains that module's
-        # affinity and can reach the AITriad-private Write-AICallLogEntry across the module boundary.
+        # ($RetryCount, $Status, $Context). Omitted → the logger registered with
+        # Set-AIDefaultCallLogger (t/107), if any; passing one replaces the default for this call.
         [scriptblock]$CallLogger
     )
+
+    # t/107: no caller logger → the registered default, so every caller is logged at this choke point.
+    # The cascade forwards $CallLogger explicitly, so each fallback link logs its own entry once.
+    if (-not $CallLogger -and $script:AIDefaultCallLogger) { $CallLogger = $script:AIDefaultCallLogger }
 
     # -- Resolve model info from registry -------------------------------------
     $ModelInfo = $script:ModelRegistry[$Model]
@@ -1705,12 +1765,16 @@ function Invoke-AIApi {
     $Response  = $Call.Response
     $LastError = $Call.LastError
 
-    # t/3242 — AI Call Log capture (IoC), fired ONCE per call HERE, before the failure $null-return
-    # AND the success extraction, so a failed call is logged too (TL C, cond.3). Fail-safe (cond.2).
-    Invoke-AICallLogHook -CallLogger $CallLogger -Response $Response -LastError $LastError -Attempt $Call.Attempt `
-        -Model $Model -Backend $Backend -KeySourceLabel $KeySourceLabel -ResolvedKey $ResolvedKey
+    # t/3242 — AI Call Log capture (IoC), fired ONCE per call: here for a failed call, before the
+    # failure $null-return, so a failure is logged too (TL C, cond.3); after the envelope parse below
+    # for a successful one, so the entry carries its token usage (t/107). Fail-safe (cond.2).
+    $HookArgs = @{
+        CallLogger = $CallLogger; Model = $Model; Backend = $Backend
+        KeySourceLabel = $KeySourceLabel; ResolvedKey = $ResolvedKey; Prompt = $Prompt
+    }
 
     if ($null -ne $LastError -or $null -eq $Response) {
+        Invoke-AICallLogHook @HookArgs -Response $Response -LastError $LastError -Attempt $Call.Attempt
         $StatusCode = Get-AIApiFailureStatusCode -LastError $LastError
         Write-AIApiFailure -Backend $Backend -LastError $LastError -StatusCode $StatusCode -ResolvedKey $ResolvedKey -TimeoutSec $TimeoutSec
 
@@ -1740,6 +1804,8 @@ function Invoke-AIApi {
         }
     }
     $Parsed = ConvertFrom-AIResponseEnvelope -Backend $Backend -Model $Model -Response $Response
+    $ParsedUsage = if ($null -ne $Parsed) { $Parsed.Usage } else { $null }
+    Invoke-AICallLogHook @HookArgs -Response $Response -LastError $null -Attempt $Call.Attempt -Usage $ParsedUsage
     if ($null -ne $Parsed) { return & $BuildAIResult $Parsed $Response }
 
     # t/4854: Gemini content-block (finishReason not STOP/MAX_TOKENS, e.g. RECITATION) is a
@@ -1762,9 +1828,9 @@ function Invoke-AIApi {
     Write-Warning "$($Backend): retrying $Model once after finishReason=$BlockedReason (content may have been blocked)"
     $RetryCall = Invoke-AIApiRequest -RequestArgs $RequestArgs -TimeoutSec $TimeoutSec -MaxRetries 1 -RetryDelays @(2)
     if ($null -eq $RetryCall.LastError -and $null -ne $RetryCall.Response) {
-        Invoke-AICallLogHook -CallLogger $CallLogger -Response $RetryCall.Response -LastError $null -Attempt $RetryCall.Attempt `
-            -Model $Model -Backend $Backend -KeySourceLabel $KeySourceLabel -ResolvedKey $ResolvedKey
         $RetryParsed = ConvertFrom-AIResponseEnvelope -Backend $Backend -Model $Model -Response $RetryCall.Response
+        $RetryUsage = if ($null -ne $RetryParsed) { $RetryParsed.Usage } else { $null }
+        Invoke-AICallLogHook @HookArgs -Response $RetryCall.Response -LastError $null -Attempt $RetryCall.Attempt -Usage $RetryUsage
         if ($null -ne $RetryParsed) { return & $BuildAIResult $RetryParsed $RetryCall.Response }
     }
 
@@ -2343,5 +2409,5 @@ function Repair-TruncatedJson {
 Set-Alias -Name 'Invoke-GeminiApi'   -Value 'Invoke-AIApi'
 Set-Alias -Name 'Get-GeminiMetadata' -Value 'Get-AIMetadata'
 
-Export-ModuleMember -Function Invoke-AIApi, Get-AIMetadata, Resolve-AIApiKey, Get-AIApiKeySource, Test-AIApiKeyGeminiOnlyRefusal, Repair-TruncatedJson, Measure-PromptTokens, Set-AIApiCorrelationId, Protect-SensitiveText `
+Export-ModuleMember -Function Invoke-AIApi, Get-AIMetadata, Resolve-AIApiKey, Get-AIApiKeySource, Test-AIApiKeyGeminiOnlyRefusal, Repair-TruncatedJson, Measure-PromptTokens, Set-AIApiCorrelationId, Protect-SensitiveText, Set-AIDefaultCallLogger `
                     -Alias    Invoke-GeminiApi, Get-GeminiMetadata

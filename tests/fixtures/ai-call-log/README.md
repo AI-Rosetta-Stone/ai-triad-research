@@ -25,6 +25,25 @@ Every writer appends one compact JSON object per line to the same file, with the
 
 Readers read fields **by presence**. A line written before t/4088 has only fields 1–7, and readers treat 8–10 as `''`.
 
+### Optional token fields (t/107)
+
+A writer **may** append these after field 10, in this order, and only when the provider reported usage for the call:
+
+| # | Field | Type | Value |
+|---|---|---|---|
+| 11 | `InputTokens` | int | **all** billed input tokens, **including** the cached-read and cache-write subsets below |
+| 12 | `OutputTokens` | int | **all** billed output tokens, **including** thinking/reasoning tokens |
+| 13 | `CachedInputTokens` | int | the cache-read subset of `InputTokens` (billed at `cachedInputPer1M`). Gemini: `cachedContentTokenCount`, which Gemini omits on a cache miss, so a Gemini line carries `0` then. Claude: `cache_read_input_tokens`, when present. |
+| 14 | `CacheCreationInputTokens` | int | the cache-write subset of `InputTokens` (Claude `cache_creation_input_tokens`, when present). Billed above the input rate; `ai-models.json` stores **no** cache-write price, so a pricing reader must not price a non-zero value at the input rate. |
+
+This log is a **budget guard** (t/106), so every billed token class is counted, in **one convention across backends**:
+- **Input:** price as `(InputTokens − CachedInputTokens − CacheCreationInputTokens) × input + CachedInputTokens × cachedInput + CacheCreationInputTokens × cacheWrite`. The writer normalises each backend to it: Gemini's `promptTokenCount` already includes cached tokens; Claude's `input_tokens` excludes cache reads and writes, so they're added back.
+- **Output:** Gemini's `thoughtsTokenCount` (billed at the output rate, reported apart from `candidatesTokenCount`) is added in. Claude, OpenAI and the chat-completions backends already include thinking/reasoning in their output count.
+- OpenAI-style backends don't report a cached split here, so their cached input prices at the full input rate. That over-counts, which is the safe direction for a guard.
+- `InputTokens` and `OutputTokens` are written together or not at all. The two cache fields only appear alongside them.
+- **A missing token field means "unknown", never 0.** A call that reported no usage (including a blocked or empty response whose envelope couldn't be parsed) is written without the fields. The PowerShell writer WARNs on a `200` without usage, so a spend reader can tell "no spend source" from "free"; t/106 fails closed on it.
+- The PowerShell writer emits them (`Write-AICallLogEntry`, fed from `Invoke-AIApi`'s parsed usage). The TS writers don't, and are unaffected; every reader must accept a line with or without them. `token-fields.jsonl` holds reader cases for both.
+
 ## `KeySource`: closed vocabulary
 
 `KeySource` records where the key came from. **It never records the key, or any part of it.**
@@ -61,3 +80,17 @@ Each line is a record every writer must be able to **produce**, and every reader
 | 10 | a **legacy** 7-field line written before t/4088; readers must accept it, and `Model`, `Backend` and `KeySource` read as `''` |
 
 Line 10 is a reader case only. New writers always emit all 10 fields.
+
+`conformance.jsonl` stays at these 10 lines: the TS writer tests count its writer lines.
+
+## `token-fields.jsonl` (t/107)
+
+Reader cases for the optional token fields, kept out of `conformance.jsonl` so the TS writer tests (which don't emit tokens) are untouched.
+
+| Line | Case |
+|---|---|
+| 1 | success with `InputTokens` + `OutputTokens` (claude: no cached count) |
+| 2 | success with all three, including `CachedInputTokens` (gemini) |
+| 3 | success **without** token fields (the provider reported no usage): tokens read as absent, not 0 |
+| 4 | a failed call (`429`), no token fields |
+| 5 | Claude with prompt caching: `InputTokens` includes both cache subsets; `CachedInputTokens` + `CacheCreationInputTokens` |
