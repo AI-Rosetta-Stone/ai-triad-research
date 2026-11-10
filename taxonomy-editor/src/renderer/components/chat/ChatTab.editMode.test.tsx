@@ -182,6 +182,39 @@ describe('ChatTab — table-view edit mode delete (t/4896)', () => {
     expect(screen.getByTestId('edit-mode-bar')).toBeInTheDocument();
   });
 
+  // t/89 (mirrors InquiryTab): a lone selected chat that fails gets its own mapped reason, not
+  // the generic "Couldn't delete: <title>" aggregate.
+  it('a single selected chat that fails shows its specific error, not the generic aggregate', async () => {
+    deleteChatMock.mockRejectedValue(new Error('429 rate limit exceeded'));
+    render(<ChatTab />);
+    fireEvent.click(screen.getByTestId('enter-edit-mode'));
+    fireEvent.click(screen.getByTestId('row-chat-2'));
+    fireEvent.click(screen.getByTestId('action-Delete 1'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete 1 chat$/ }));
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Deleted 0 of 1. API rate limited. Wait a minute and try again, or switch to a different model in Settings.',
+      );
+    });
+    expect(screen.queryByText(/Couldn't delete/)).toBeNull();
+  });
+
+  it('a multi-item batch where every delete fails keeps the generic aggregate message', async () => {
+    deleteChatMock.mockRejectedValue(new Error('429 rate limit exceeded'));
+    render(<ChatTab />);
+    fireEvent.click(screen.getByTestId('enter-edit-mode'));
+    fireEvent.click(screen.getByTestId('row-chat-1'));
+    fireEvent.click(screen.getByTestId('row-chat-2'));
+    fireEvent.click(screen.getByTestId('action-Delete 2'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete 2 chats$/ }));
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent("Deleted 0 of 2. Couldn't delete: First chat, Second chat.");
+    });
+    expect(screen.queryByText(/rate limited/)).toBeNull();
+  });
+
   // t/4901: shared dialog a11y contract, including the deleting-in-progress Esc guard that
   // mirrors this dialog's pre-existing `!deleting &&` overlay-click guard.
   it('has role/aria-modal/aria-labelledby, and Esc is disabled while deleting (t/4901)', async () => {

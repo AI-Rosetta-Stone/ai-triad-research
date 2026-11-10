@@ -32,6 +32,7 @@ import { api } from '@bridge';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkColorizePov } from '../../utils/colorizePovPlugin';
+import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './ChatTab.css';
 
 const MODE_LABELS: Record<ChatMode, string> = {
@@ -771,8 +772,15 @@ export function ChatTab() {
     }
   };
 
+  // t/89: caught here because deleteChat rethrows a failed delete once t/93 lands, and the
+  // split-list "Yes" button fires this as `void handleDelete(id)`. The store records the error
+  // and sets chatError, so this only keeps the rejection from going unhandled.
   const handleDelete = async (id: string) => {
-    await deleteChat(id);
+    try {
+      await deleteChat(id);
+    } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-tab', level: 'warn', message: `Failed to delete chat ${id} (WARN: the store reports it via chatError)`, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    }
     setConfirmDeleteId(null);
   };
 
@@ -892,7 +900,7 @@ function ChatBulkDeleteDialog({
   // t/4896 (Design): a failed delete must not strand the dialog on "Deleting…" or hide which
   // ones succeeded — track per-id outcome, keep the dialog open and the failed ids selected on
   // any failure so the user can see what happened and retry just those.
-  const [partialError, setPartialError] = useState<{ deletedCount: number; total: number; failedTitles: string } | null>(null);
+  const [partialError, setPartialError] = useState<{ deletedCount: number; total: number; failedTitles: string; message?: string } | null>(null);
   // t/4901: Esc mirrors the existing overlay-click guard below — disabled while deleting.
   const { dialogRef, titleId } = useDialog({ onCancel: () => setShowBulkDeleteConfirm(false), closeOnEscape: !deleting });
 
@@ -901,6 +909,7 @@ function ChatBulkDeleteDialog({
     setPartialError(null);
     const ids = Array.from(selectedIds);
     const failedIds: string[] = [];
+    let lastErr: unknown = null;
     let deletedCount = 0;
     for (const id of ids) {
       try {
@@ -908,6 +917,7 @@ function ChatBulkDeleteDialog({
         deletedCount++;
       } catch (err) {
         failedIds.push(id);
+        lastErr = err;
         getGlobalRecorder()?.record({
           type: 'system.error', component: 'chat-tab', level: 'warn',
           message: `Failed to delete chat ${id} during bulk delete (WARN: continuing with the remaining selected chats)`,
@@ -923,7 +933,10 @@ function ChatBulkDeleteDialog({
     }
     setSelectedIds(new Set(failedIds));
     const failedTitles = failedIds.map(id => sessions.find(s => s.id === id)?.title ?? id).join(', ');
-    setPartialError({ deletedCount, total: ids.length, failedTitles });
+    // t/89 (mirrors InquiryTab's BulkDeleteInquiryDialog): a single-item selection that fails gets
+    // its own reason; a multi-item batch keeps the aggregate "Couldn't delete: X" message.
+    const message = ids.length === 1 ? mapErrorToUserMessage(lastErr) : undefined;
+    setPartialError({ deletedCount, total: ids.length, failedTitles, message });
   };
 
   return (
@@ -940,7 +953,9 @@ function ChatBulkDeleteDialog({
         </div>
         {partialError ? (
           <div className="chat-bulk-delete-error" role="alert">
-            Deleted {partialError.deletedCount} of {partialError.total}. Couldn't delete: {partialError.failedTitles}.
+            {partialError.message
+              ? `Deleted ${partialError.deletedCount} of ${partialError.total}. ${partialError.message}`
+              : `Deleted ${partialError.deletedCount} of ${partialError.total}. Couldn't delete: ${partialError.failedTitles}.`}
           </div>
         ) : (
           <div className="chat-bulk-delete-note">This can't be undone.</div>
