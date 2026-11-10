@@ -16,6 +16,8 @@ vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
 }));
 vi.mock('remark-gfm', () => ({ default: {} }));
+const { mockRecord } = vi.hoisted(() => ({ mockRecord: vi.fn() }));
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 
 vi.mock('./utils', () => ({
   nodeIdToTab: () => ({ tab: 'skp', colorVar: 'var(--color-skp)' }),
@@ -154,6 +156,21 @@ describe('BdiGroundingView BDI grouping (t/187)', () => {
     const labels = [...container.querySelectorAll('.taxrefs-bdi-group-label')].map(el => el.textContent);
     expect(labels[labels.length - 1]).toBe('Situations (1)');
     expect(within(screen.getByRole('group', { name: 'Situations, 1 node' })).getByText('context')).toBeInTheDocument();
+  });
+
+  it('labels the policy block like the BDI groups (Design p/14#20)', () => {
+    render(<BdiGroundingView refs={MIXED} policyRefs={['pol-007', 'pol-008']} />);
+    const pol = screen.getByRole('group', { name: 'Policy actions, 2 actions' });
+    expect(within(pol).getByText('Policy actions (2)')).toBeInTheDocument();
+  });
+
+  it('shows an unrecognised node id under Situations and records a WARN', () => {
+    mockRecord.mockClear();
+    render(<BdiGroundingView refs={[{ node_id: 'zzz-unknown', relevance: 'odd', relevance_score: 0.1 }, { node_id: 'sit-001', relevance: 'ok', relevance_score: 0.2 }]} />);
+    expect(within(screen.getByRole('group', { name: 'Situations, 2 nodes' })).getByText('odd')).toBeInTheDocument();
+    expect(mockRecord).toHaveBeenCalledTimes(1);
+    expect(mockRecord.mock.calls[0][0]).toMatchObject({ level: 'warn', component: 'debate-workspace' });
+    expect(String(mockRecord.mock.calls[0][0].message)).toContain('zzz-unknown');
   });
 
   it('renders policy refs after all BDI groups', () => {

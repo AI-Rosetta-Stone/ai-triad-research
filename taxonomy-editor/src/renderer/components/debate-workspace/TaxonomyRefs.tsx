@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
@@ -17,6 +17,7 @@ import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import './TaxonomyRefs.css';
 
 // Prevents a TheoryLink click inside a <summary> from toggling its parent <details>
@@ -416,17 +417,28 @@ const BDI_GROUPS = [
   { key: 'situations', label: 'Situations' },
 ] as const;
 
-/** Category from a `{pov}-{category}-NNN` node id; `sit-NNN` (and anything unrecognised) is a situation. */
+/** Category from a `{pov}-{category}-NNN` node id, or `situations` for `sit-NNN`. An id matching
+ *  neither is shown under Situations so it stays visible, with a WARN (Design, p/14#20). */
 function bdiGroupKey(nodeId: string): string {
-  const cat = nodeId.split('-')[1];
-  return cat === 'desires' || cat === 'intentions' || cat === 'beliefs' ? cat : 'situations';
+  const [prefix, cat] = nodeId.split('-');
+  if (cat === 'desires' || cat === 'intentions' || cat === 'beliefs') return cat;
+  if (prefix !== 'sit') {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'debate-workspace',
+      level: 'warn',
+      message: `BDI grounding: node id "${nodeId}" has no BDI category and isn't a situation; showing it under Situations`,
+    });
+  }
+  return 'situations';
 }
 
 /** Non-empty BDI groups in BDI_GROUPS order, each sorted by relevance (desc). */
 function groupRefsByBdi(refs: TaxonomyRef[]): { key: string; label: string; refs: TaxonomyRef[] }[] {
   const sorted = [...refs].sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+  const keyed = sorted.map(r => ({ ref: r, key: bdiGroupKey(r.node_id) }));
   return BDI_GROUPS
-    .map(g => ({ key: g.key, label: g.label, refs: sorted.filter(r => bdiGroupKey(r.node_id) === g.key) }))
+    .map(g => ({ key: g.key, label: g.label, refs: keyed.filter(k => k.key === g.key).map(k => k.ref) }))
     .filter(g => g.refs.length > 0);
 }
 
@@ -457,7 +469,8 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
   toggleBdiNode: (nodeId: string) => void;
 }) {
   return (
-    <div className="taxrefs-policy-refs">
+    <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
+      <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
       <div className="debate-taxonomy-refs taxrefs-refs-mb">
         {polRefs.map((polRef, i) => {
           const { id } = resolvePolRef(polRef);
@@ -507,9 +520,10 @@ function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
   setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   toggleBdiNode: (nodeId: string) => void;
 }) {
+  const groups = useMemo(() => groupRefsByBdi(refs), [refs]);
   return (
     <div className="debate-reasoning-section-body">
-      {groupRefsByBdi(refs).map(g => (
+      {groups.map(g => (
         <BdiGroup key={g.key} label={g.label} refs={g.refs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
       ))}
       {polRefs.length > 0 && <PolicyRefsBlock polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />}
