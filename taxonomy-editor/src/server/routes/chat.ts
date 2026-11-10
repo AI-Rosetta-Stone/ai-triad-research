@@ -285,25 +285,6 @@ function writeSse(res: http.ServerResponse, payload: Record<string, unknown>): v
   try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* telemetry — silent by design */ }
 }
 
-/** Validate rate limits for chat-stream (mirrors /api/ai/generate pattern). */
-function validateChatRateLimits(res: http.ServerResponse, isFree: boolean, limitKey: string, tier: ResolvedTier): boolean {
-  const rpmCheck = isFree
-    ? rateLimiter.checkRate(limitKey, tier.limits.requestsPerMinute, 60_000)
-    : rateLimiter.checkRequestRate(limitKey, tier.limits.requestsPerMinute);
-  if (!rpmCheck.allowed) {
-    res.writeHead(429, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Rate limit exceeded', limitType: 'requests_per_minute', retryAfterMs: rpmCheck.retryAfterMs }));
-    return false;
-  }
-  const tokenCheck = rateLimiter.checkTokenLimit(limitKey, tier.limits.tokensPerDay);
-  if (!tokenCheck.allowed) {
-    res.writeHead(429, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Daily token limit exceeded', limitType: 'tokens_per_day' }));
-    return false;
-  }
-  return true;
-}
-
 /** Check key availability for backend (t/896 pattern: 422 if missing/unusable). */
 async function validateChatKeyAvailable(res: http.ServerResponse, backend: AIBackend, tier: ResolvedTier, explicitKey: string | string[] | undefined): Promise<string | null> {
   const haveExplicitKey = (typeof explicitKey === 'string' && explicitKey.length > 0) || (Array.isArray(explicitKey) && explicitKey.length > 0);
