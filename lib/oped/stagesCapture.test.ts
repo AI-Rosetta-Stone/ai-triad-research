@@ -112,7 +112,7 @@ describe('op-ed stage capture (t/171)', () => {
       'coherence-rejudge#1', 'readability-edit#1', 'grounding-reflection#1',
     ]);
     const gen = set.opeds[0].stages!.find(s => s.stage === 'generation')!;
-    expect(gen).toEqual({ stage: 'generation', attempt: 1, model: 'test-model', prompt: 'SYS\n\n---\n\nUSER', output: ESSAY });
+    expect(gen).toEqual({ stage: 'generation', attempt: 1, model: 'test-model', prompt: 'SYS\n\n---\n\nUSER', output: ESSAY, temperature: 0.8 });
     expect(set.opeds[0].stages!.every(s => s.error === undefined)).toBe(true);
   });
 
