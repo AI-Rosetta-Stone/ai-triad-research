@@ -37,6 +37,7 @@ secrets.json
 # Build output
 /build/
 taxonomy-editor/release/
+taxonomy-editor/test-results/
 scripts/AITriad/Provider/bin/
 
 # Research data artifacts — moved to ai-triad-data/research-artifacts/comp-linguist (t/1289).
