@@ -3058,6 +3058,14 @@ jobs:
         continue-on-error: true
         run: node --test operations/devops/precommit-hint-guard-parity.test.mjs
 
+      - name: Gate-verdict helper tests (WARN-FIRST — t/4496)
+        # The JS twin of operations/devops/GateVerdict.ps1 (PASS / FAIL / GATE-UNREADABLE). The
+        # PowerShell half is covered by tests/GateVerdict.Tests.ps1 in the Pester shards; this suite
+        # would otherwise run in no workflow (the t/3871 lesson). Built-ins only, no install.
+        # WARN-FIRST: flip by removing continue-on-error after >=1 green cycle (SO + TL GV).
+        continue-on-error: true
+        run: node --test operations/devops/gate-verdict.test.mjs
+
       - name: Scheduled-workflow health verdict + list lint (BLOCKING — t/4780, promoted from t/4058)
         # Pure verdict for main-ci-monitor's scheduled-workflow check, plus the LINT that every workflow
         # with `schedule:` is in operations/devops/scheduled-workflows.json (an unlisted one would be
