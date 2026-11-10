@@ -161,6 +161,7 @@ function Get-AICallLog {
             InputTokens       = if ($rec.PSObject.Properties['InputTokens'])       { [int]$rec.InputTokens }       else { $null }
             OutputTokens      = if ($rec.PSObject.Properties['OutputTokens'])      { [int]$rec.OutputTokens }      else { $null }
             CachedInputTokens = if ($rec.PSObject.Properties['CachedInputTokens']) { [int]$rec.CachedInputTokens } else { $null }
+            CacheCreationInputTokens = if ($rec.PSObject.Properties['CacheCreationInputTokens']) { [int]$rec.CacheCreationInputTokens } else { $null }
         }
     }
 }

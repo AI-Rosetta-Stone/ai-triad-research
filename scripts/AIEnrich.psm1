@@ -1189,9 +1189,19 @@ function Invoke-AICallLogHook {
             PromptStart = $PromptStart
         }
         if ($null -ne $Usage -and $Usage.PSObject.Properties['InputTokens'] -and $Usage.PSObject.Properties['OutputTokens']) {
-            $LogContext.InputTokens  = [int]$Usage.InputTokens
-            $LogContext.OutputTokens = [int]$Usage.OutputTokens
-            if ($Usage.PSObject.Properties['CachedTokens']) { $LogContext.CachedInputTokens = [int]$Usage.CachedTokens }
+            # The log is a budget guard (TL p/37#10): every BILLED token class must be counted, in one
+            # convention across backends. InputTokens is ALL input, INCLUDING cached reads and cache
+            # writes; CachedInputTokens / CacheCreationInputTokens are the subsets billed at other rates.
+            $Num = { param($n) if ($Usage.PSObject.Properties[$n]) { [int]$Usage.$n } else { 0 } }
+            $CacheRead  = & $Num 'CacheReadTokens'       # Claude: reported outside input_tokens
+            $CacheWrite = & $Num 'CacheCreationTokens'   # Claude: reported outside input_tokens
+            $LogContext.InputTokens  = [int]$Usage.InputTokens + $CacheRead + $CacheWrite
+            # OutputTokens is BILLED output: Gemini's thinking tokens are billed at the output rate but
+            # reported apart from candidatesTokenCount (Quality, t/107). Omitting them under-reads spend.
+            $LogContext.OutputTokens = [int]$Usage.OutputTokens + (& $Num 'ThoughtsTokens')
+            if ($Usage.PSObject.Properties['CachedTokens']) { $LogContext.CachedInputTokens = [int]$Usage.CachedTokens }   # Gemini (already inside promptTokenCount)
+            elseif ($Usage.PSObject.Properties['CacheReadTokens']) { $LogContext.CachedInputTokens = $CacheRead }
+            if ($Usage.PSObject.Properties['CacheCreationTokens']) { $LogContext.CacheCreationInputTokens = $CacheWrite }
         }
         & $CallLogger $Attempt ([string]$LogStatus) ([pscustomobject]$LogContext)
     }
@@ -1377,7 +1387,8 @@ function ConvertFrom-AIGeminiEnvelope {
     .SYNOPSIS
         Parses a Gemini generateContent response (t/4135 B2) into { Text; Truncated; Usage },
         or WARNs and returns $null when generation was blocked or the shape is unexpected.
-        Truncated is finishReason MAX_TOKENS; Usage carries CachedTokens (0 when absent).
+        Truncated is finishReason MAX_TOKENS; Usage carries CachedTokens and ThoughtsTokens
+        (each 0 when absent; t/107).
     #>
     [CmdletBinding()]
     param($Response)
@@ -1399,11 +1410,15 @@ function ConvertFrom-AIGeminiEnvelope {
         $um = $Response.usageMetadata
         if ($um) {
             $CachedCount = if ($um.PSObject.Properties['cachedContentTokenCount']) { [int]($um.cachedContentTokenCount) } else { 0 }
+            # t/107: thinking tokens are billed at the output rate but are NOT in candidatesTokenCount.
+            # Kept separate (OutputTokens keeps its meaning for existing readers); the AI call log adds them.
+            $ThoughtsCount = if ($um.PSObject.Properties['thoughtsTokenCount']) { [int]($um.thoughtsTokenCount) } else { 0 }
             $Usage = [PSCustomObject]@{
-                InputTokens  = [int]($um.promptTokenCount)
-                OutputTokens = [int]($um.candidatesTokenCount)
-                CachedTokens = $CachedCount
-                TotalTokens  = [int]($um.totalTokenCount)
+                InputTokens    = [int]($um.promptTokenCount)
+                OutputTokens   = [int]($um.candidatesTokenCount)
+                CachedTokens   = $CachedCount
+                TotalTokens    = [int]($um.totalTokenCount)
+                ThoughtsTokens = $ThoughtsCount
             }
         }
     } catch {
@@ -1432,6 +1447,13 @@ function ConvertFrom-AIClaudeEnvelope {
                 InputTokens  = [int]($u.input_tokens)
                 OutputTokens = [int]($u.output_tokens)
                 TotalTokens  = [int]($u.input_tokens) + [int]($u.output_tokens)
+            }
+            # t/107: Anthropic bills cache reads and cache writes at their own rates and reports them
+            # OUTSIDE input_tokens. Added only when the response carries them, so the usual shape is unchanged.
+            foreach ($Pair in @(@('cache_read_input_tokens', 'CacheReadTokens'), @('cache_creation_input_tokens', 'CacheCreationTokens'))) {
+                if ($u.PSObject.Properties[$Pair[0]] -and $null -ne $u.($Pair[0])) {
+                    $Usage | Add-Member -NotePropertyName $Pair[1] -NotePropertyValue ([int]$u.($Pair[0]))
+                }
             }
         }
     } catch {

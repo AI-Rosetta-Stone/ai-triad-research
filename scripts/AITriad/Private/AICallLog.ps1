@@ -114,8 +114,9 @@ function Write-AICallLogEntry {
           Model       registry id actually called (a cascade link logs its own)          (t/4088)
           Backend     ai-models.json backend of that model, never a prefix guess         (t/4088)
           KeySource   WHERE the key came from, closed vocabulary; never the key itself   (t/4088)
-          InputTokens / OutputTokens / CachedInputTokens   provider-reported usage, written only
-                      when reported (Cached only by backends that report it)            (t/107)
+          InputTokens / OutputTokens / CachedInputTokens / CacheCreationInputTokens
+                      billed usage, written only when reported. InputTokens includes the
+                      cached and cache-write subsets; OutputTokens includes thinking   (t/107)
     .PARAMETER KeySource
         Must be in the closed vocabulary (Test-AICallLogKeySource). Any other value is written as ''
         with a WARN, never as free-form text (TL t/4088#3).
@@ -168,6 +169,9 @@ function Write-AICallLogEntry {
         [Nullable[int]]$CachedInputTokens,
 
         [Parameter()]
+        [Nullable[int]]$CacheCreationInputTokens,
+
+        [Parameter()]
         [string]$Path
     )
     Set-StrictMode -Version Latest
@@ -210,6 +214,7 @@ function Write-AICallLogEntry {
             $record.InputTokens  = [int]$InputTokens
             $record.OutputTokens = [int]$OutputTokens
             if ($null -ne $CachedInputTokens) { $record.CachedInputTokens = [int]$CachedInputTokens }
+            if ($null -ne $CacheCreationInputTokens) { $record.CacheCreationInputTokens = [int]$CacheCreationInputTokens }
         }
         $line = $record | ConvertTo-Json -Compress -Depth 4
         Add-Content -LiteralPath $logPath -Value $line -Encoding utf8NoBOM
@@ -257,7 +262,7 @@ function Write-AICallLogFromContext {
         Backend     = [string](& $read 'Backend')
         KeySource   = [string](& $read 'KeySource')
     }
-    foreach ($n in 'InputTokens', 'OutputTokens', 'CachedInputTokens') {
+    foreach ($n in 'InputTokens', 'OutputTokens', 'CachedInputTokens', 'CacheCreationInputTokens') {
         $v = & $read $n
         if ($null -ne $v) { $entry[$n] = [int]$v }
     }

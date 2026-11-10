@@ -968,8 +968,9 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $r.Truncated | Should -BeFalse
             [object]::ReferenceEquals($r.RawResponse, $env) | Should -BeTrue
             if ($Backend -eq 'gemini') {
-                ($r.Usage.PSObject.Properties.Name -join ',') | Should -BeExactly 'InputTokens,OutputTokens,CachedTokens,TotalTokens'
-                "$($r.Usage.InputTokens),$($r.Usage.OutputTokens),$($r.Usage.CachedTokens),$($r.Usage.TotalTokens)" | Should -BeExactly '11,22,4,33'
+                # t/107: ThoughtsTokens added (0 when thoughtsTokenCount is absent); OutputTokens unchanged.
+                ($r.Usage.PSObject.Properties.Name -join ',') | Should -BeExactly 'InputTokens,OutputTokens,CachedTokens,TotalTokens,ThoughtsTokens'
+                "$($r.Usage.InputTokens),$($r.Usage.OutputTokens),$($r.Usage.CachedTokens),$($r.Usage.TotalTokens),$($r.Usage.ThoughtsTokens)" | Should -BeExactly '11,22,4,33,0'
             }
             else {
                 ($r.Usage.PSObject.Properties.Name -join ',') | Should -BeExactly 'InputTokens,OutputTokens,TotalTokens'

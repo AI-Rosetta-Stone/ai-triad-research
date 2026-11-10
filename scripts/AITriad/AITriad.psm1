@@ -621,7 +621,8 @@ class AICallLogEntry {
     # t/107: provider-reported usage; $null when the line has none (unknown spend, never 0).
     [Nullable[int]] $InputTokens
     [Nullable[int]] $OutputTokens
-    [Nullable[int]] $CachedInputTokens   # only backends that report cache reads (Gemini today)
+    [Nullable[int]] $CachedInputTokens          # cache-read subset of InputTokens (Gemini, Claude)
+    [Nullable[int]] $CacheCreationInputTokens   # cache-write subset of InputTokens (Claude)
 }
 
 # One batch entry for Set-PovNodeTags (t/3969, TL t/3969#2 cond B.1). A [string[]] property —

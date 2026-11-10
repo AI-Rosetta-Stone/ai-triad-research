@@ -26,7 +26,7 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
     $script:TokenFixture = Join-Path $PSScriptRoot 'fixtures' 'ai-call-log' 'token-fields.jsonl'
 
-    function script:New-GeminiEnvelope([switch]$NoUsage, [switch]$Cached) {
+    function script:New-GeminiEnvelope([switch]$NoUsage, [switch]$Cached, [int]$Thoughts = -1) {
         $env = [ordered]@{
             candidates = @([pscustomobject]@{
                     content      = [pscustomobject]@{ parts = @([pscustomobject]@{ text = '{"ok":true}' }) }
@@ -36,6 +36,7 @@ BeforeAll {
         if (-not $NoUsage) {
             $um = [ordered]@{ promptTokenCount = 1500; candidatesTokenCount = 250; totalTokenCount = 1750 }
             if ($Cached) { $um.cachedContentTokenCount = 1024 }
+            if ($Thoughts -ge 0) { $um.thoughtsTokenCount = $Thoughts }
             $env.usageMetadata = [pscustomobject]$um
         }
         [pscustomobject]$env
@@ -95,6 +96,33 @@ Describe 'AI call log tokens + default logger (t/107)' -Tag 'unit' {
         $rec.CachedInputTokens | Should -Be 0
     }
 
+    It 'Gemini thinking tokens are billed output: OutputTokens = candidates + thoughts (Quality, t/107)' {
+        Mock Invoke-RestMethod -ModuleName AIEnrich -MockWith { New-GeminiEnvelope -Thoughts 900 }
+        InModuleScope AITriad {
+            Invoke-AIApi -Prompt 'p' -Model 'gemini-3.5-flash-lite' -FallbackModels @() -SkipTokenCheck -WarningAction SilentlyContinue | Out-Null
+        }
+        $rec = (Read-Log)[0]
+        $rec.OutputTokens | Should -Be 1150 -Because '250 candidates + 900 thoughts; dropping thoughts under-reads spend (fail-open)'
+        $rec.InputTokens  | Should -Be 1500
+    }
+
+    It 'Claude cache reads/writes: InputTokens includes both; each subset logged (TL p/37#10)' {
+        $ctx = InModuleScope AIEnrich {
+            $u = (ConvertFrom-AIClaudeEnvelope -Response ([pscustomobject]@{
+                        content = @([pscustomobject]@{ type = 'text'; text = 'ok' }); stop_reason = 'end_turn'
+                        usage   = [pscustomobject]@{ input_tokens = 1000; output_tokens = 500; cache_read_input_tokens = 6000; cache_creation_input_tokens = 2000 }
+                    })).Usage
+            $script:Got = $null
+            Invoke-AICallLogHook -CallLogger { param($rc, $st, $c) $script:Got = $c } -Response 'r' -LastError $null -Attempt 0 `
+                -Model 'claude-opus-5' -Backend 'claude' -Prompt 'p' -Usage $u -WarningAction SilentlyContinue
+            $script:Got
+        }
+        $ctx.InputTokens              | Should -Be 9000 -Because 'input_tokens excludes cache reads and writes; the log convention includes them'
+        $ctx.OutputTokens             | Should -Be 500
+        $ctx.CachedInputTokens        | Should -Be 6000
+        $ctx.CacheCreationInputTokens | Should -Be 2000
+    }
+
     It 'the hook adds CachedInputTokens only when the usage carries a cached count (Claude/OpenAI shape)' {
         $ctx = InModuleScope AIEnrich {
             $script:Got = $null
@@ -106,6 +134,7 @@ Describe 'AI call log tokens + default logger (t/107)' -Tag 'unit' {
         $ctx.InputTokens  | Should -Be 7
         $ctx.OutputTokens | Should -Be 3
         $ctx.PSObject.Properties['CachedInputTokens'] | Should -BeNullOrEmpty
+        $ctx.PSObject.Properties['CacheCreationInputTokens'] | Should -BeNullOrEmpty
     }
 
     It 'no usage from the provider → entry WITHOUT token fields (never 0) and a WARN' {
@@ -183,7 +212,8 @@ Describe 'Write-AICallLogEntry token fields (t/107)' -Tag 'unit' {
 Describe 'Get-AICallLog reads lines with and without token fields (t/107)' -Tag 'unit' {
     It 'token-fields.jsonl: tokens where present, $null (not 0) where absent' {
         $e = @(Get-AICallLog -Path $script:TokenFixture)
-        $e.Count | Should -Be 4
+        $e.Count | Should -Be 5
+        $e[4].CachedInputTokens | Should -Be 6000; $e[4].CacheCreationInputTokens | Should -Be 2000
         $e[0].InputTokens | Should -Be 1200; $e[0].OutputTokens | Should -Be 340; $e[0].CachedInputTokens | Should -BeNullOrEmpty
         $e[1].CachedInputTokens | Should -Be 4096
         foreach ($i in 2, 3) {
