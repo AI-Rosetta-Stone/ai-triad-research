@@ -263,7 +263,8 @@ jobs:
             #
             # GHCR-CLEANUP COUPLING — SYNC WITH operations/devops/Remove-StaleContainerImages.ps1:
             # this tag is PERMANENT by design. ghcr-cleanup deletes only UNTAGGED images (>30d,
-            # keep 5 newest) — so a sha-tagged image is PRESERVED, which is what keeps a pinned
+            # keep 5 newest), and never the untagged child manifests (platform + attestation) of a
+            # tagged index (t/4966) — so a sha-tagged image is PRESERVED, which is what keeps a pinned
             # digest pullable on a recycle indefinitely (the outage-preventer, t/3679#8 SO finding 1;
             # also fixes t/3756 rollback-anchor expiry going forward). Tradeoff ACCEPTED: sha- tags
             # accumulate (never auto-pruned) — modest manifest storage; a bounded-retention policy is

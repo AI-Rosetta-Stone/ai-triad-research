@@ -146,7 +146,7 @@ Describe 'Get-KnownGoodLivenessVerdict' -Tag 'config' {
 Describe 'Test-TaxEditorKnownGoodLiveness (shim)' -Tag 'config' {
     BeforeAll {
         # The real Get-TaxEditorImage lives in the AITriad module; a stub makes it mockable here.
-        function Get-TaxEditorImage { param($Last, $Package) }
+        function Get-TaxEditorImage { param($Last, $Package, $Tag) }
         $script:ShimImages = @(
             [pscustomobject]@{ Tags = @('sha-39cc128', 'known-good'); CreatedAt = '2026-11-06T14:48:00Z' }
             1..7 | ForEach-Object { [pscustomobject]@{ Tags = @("sha-rebuild$_"); CreatedAt = "2026-11-06T17:$('{0:D2}' -f ($_ * 5)):00Z" } }
@@ -154,7 +154,28 @@ Describe 'Test-TaxEditorKnownGoodLiveness (shim)' -Tag 'config' {
     }
 
     BeforeEach {
-        Mock Get-TaxEditorImage { $script:ShimImages }
+        Mock Get-TaxEditorImage { $script:ShimImages } -ParameterFilter { -not $Tag }
+        Mock Get-TaxEditorImage { } -ParameterFilter { [bool]$Tag }
+    }
+
+    # t/4966 (#4712, run 42681187469): the known-good image was older than the newest 100 versions,
+    # so the window held no known-good and the verdict said "missing" while the tag still existed.
+    It 'finds known-good by tag when it is outside the newest-versions window (#4712 shape passes)' {
+        Mock Get-TaxEditorImage { @(1..20 | ForEach-Object { [pscustomobject]@{ Tags = @("sha-new$_"); CreatedAt = '2026-11-09T18:00:00Z' } }) } -ParameterFilter { -not $Tag }
+        Mock Get-TaxEditorImage { [pscustomobject]@{ Tags = @('sha-4b8d883', 'known-good'); CreatedAt = '2026-11-09T12:15:00Z' } } -ParameterFilter { $Tag -eq 'known-good' }
+        Mock gh { $global:LASTEXITCODE = 0; '2026-11-09T13:20:00Z'; '2026-11-09T01:40:00Z' }
+        $v = Test-TaxEditorKnownGoodLiveness -WarningAction SilentlyContinue
+        $v.Status | Should -Be 'ok'
+        $v.DeploysBehind | Should -Be 1
+        Should -Invoke Get-TaxEditorImage -Times 1 -ParameterFilter { $Tag -eq 'known-good' }
+    }
+
+    It 'still reports missing when the tag lookup finds nothing either' {
+        Mock Get-TaxEditorImage { @([pscustomobject]@{ Tags = @('sha-new1'); CreatedAt = '2026-11-09T18:00:00Z' }) } -ParameterFilter { -not $Tag }
+        Mock gh { $global:LASTEXITCODE = 0; '2026-11-09T13:20:00Z' }
+        $v = Test-TaxEditorKnownGoodLiveness -WarningAction SilentlyContinue
+        $v.Status | Should -Be 'missing'
+        $v.Pass | Should -BeFalse
     }
 
     It 'uses the prod-deploy basis when the run list reads cleanly (the #4640 shape passes)' {
