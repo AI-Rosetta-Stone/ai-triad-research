@@ -484,6 +484,27 @@ describe('VocabTermsView', () => {
     expect(screen.queryByText('No senses in the dictionary for this term')).not.toBeInTheDocument();
   });
 
+  it('quotes the sentence at the offset after many paragraph breaks (t/46)', () => {
+    // 15 paragraph breaks before an end-of-sentence term used to drift the offset into the next sentence.
+    const text = Array.from({ length: 15 }, (_, i) => `Point ${i} stands.`).join('\n\n')
+      + '\n\nWe fear rapid deployment.\n\nRegulators lag behind.';
+    const { container } = render(
+      <VocabTermsView
+        resolutions={[{ colloquial: 'deployment', canonical: 'deployment_competitive', offset: text.indexOf('deployment') + 'deployment'.length - 1 }]}
+        statementText={text}
+      />,
+    );
+    expect(container.querySelector('.vocab-source-sentence')?.textContent).toBe('\u201cWe fear rapid deployment.\u201d');
+  });
+
+  it('picks the occurrence at the offset when an earlier sentence also uses the term (t/46)', () => {
+    const text = 'Harm is real.\n\nPoint one stands.\n\nPoint two stands.\n\nA lasting harm slips past.';
+    const { container } = render(
+      <VocabTermsView resolutions={[]} ambiguities={[{ colloquial: 'harm', offset: text.lastIndexOf('harm') }]} statementText={text} />,
+    );
+    expect(container.querySelector('.vocab-ambiguous-block .vocab-source-sentence')?.textContent).toContain('A lasting harm slips past.');
+  });
+
   it('passes the speaker POV to resolved term cards', () => {
     mockVocabTerms = [
       { colloquial_term: 'AGI', resolves_to: [{ standardized_term: 'agi', when: 'broadly', default_for_camp: 'safetyist' }] },

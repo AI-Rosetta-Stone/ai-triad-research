@@ -13,14 +13,21 @@ import './VocabularyPanel.css';
 
 function extractSentence(text: string, term: string, offset?: number): string | undefined {
   const sentences = text.split(/(?<=[.!?])\s+/);
+  const lower = term.toLowerCase();
   if (offset != null) {
+    // t/46: locate each sentence's real start in the text. Summing lengths + 1 drifted one
+    // character per multi-char separator (e.g. a paragraph break), quoting the next sentence.
     let pos = 0;
     for (const s of sentences) {
-      if (offset >= pos && offset < pos + s.length) return s;
-      pos += s.length + 1;
+      const start = text.indexOf(s, pos);
+      if (start === -1) break;
+      if (offset >= start && offset < start + s.length) {
+        if (s.toLowerCase().includes(lower)) return s;
+        break;
+      }
+      pos = start + s.length;
     }
   }
-  const lower = term.toLowerCase();
   return sentences.find(s => s.toLowerCase().includes(lower));
 }
 
