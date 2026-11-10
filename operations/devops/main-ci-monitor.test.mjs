@@ -72,6 +72,67 @@ test('LOW NOTICE — non-CI failure surfaces even when CI is absent (never silen
   assert.equal(v.severity, 'notice');
   assert.match(v.reason, /absent/);
 });
+// ── t/4795: cancelled push run vs the merge_group run on the same SHA (both arms) ──
+// Real incident: head 85cc29fb, push run 41571547373 cancelled, merge_group run 41570755438 succeeded,
+// and the monitor still fired "main is RED".
+const mg = (conclusion, createdAt = '2026-11-01T10:00:00Z', name = CI) => ({ name, status: 'completed', conclusion, createdAt });
+test('t/4795 REGRESSION — cancelled push + successful merge_group CI → NOT red (benign supersede)', () => {
+  const v = classifyMainCI({ runs: [failed(CI, 'cancelled'), passed('Other')], mergeGroupRuns: [mg('success')], headAgeMs: FRESH });
+  assert.notEqual(v.severity, 'red');
+  assert.equal(v.state, 'green');
+  assert.equal(v.alert, false);
+  assert.deepEqual(v.failedHealth, []);
+  assert.match(v.reason, /merge_group/);
+});
+test('t/4795 — cancelled push + NO merge_group run → still red, as today', () => {
+  const v = classifyMainCI({ runs: [failed(CI, 'cancelled')], mergeGroupRuns: [], headAgeMs: FRESH });
+  assert.equal(v.severity, 'red');
+  assert.match(v.reason, /no merge_group/);
+});
+test('t/4795 — cancelled push + merge_group lookup failed (mergeGroupRuns absent) → red, never fails open', () => {
+  for (const mergeGroupRuns of [undefined, null]) {
+    const v = classifyMainCI({ runs: [failed(CI, 'cancelled')], mergeGroupRuns, headAgeMs: FRESH });
+    assert.equal(v.severity, 'red', String(mergeGroupRuns));
+  }
+});
+test('t/4795 — genuinely failed push (failure/timed_out/startup_failure) + successful merge_group → still red', () => {
+  for (const c of ['failure', 'timed_out', 'startup_failure']) {
+    const v = classifyMainCI({ runs: [failed(CI, c)], mergeGroupRuns: [mg('success')], headAgeMs: FRESH });
+    assert.equal(v.severity, 'red', c);
+    assert.deepEqual(v.failedHealth, [CI], c);
+  }
+});
+test('t/4795 — cancelled push + failed merge_group (failure/timed_out/startup_failure/cancelled) → red', () => {
+  for (const c of ['failure', 'timed_out', 'startup_failure', 'cancelled']) {
+    const v = classifyMainCI({ runs: [failed(CI, 'cancelled')], mergeGroupRuns: [mg(c)], headAgeMs: FRESH });
+    assert.equal(v.severity, 'red', c);
+  }
+});
+test('t/4795 — only an exact merge_group `success` excuses: skipped/in-flight merge_group → red', () => {
+  for (const r of [mg('skipped'), { name: CI, status: 'in_progress', conclusion: null }]) {
+    const v = classifyMainCI({ runs: [failed(CI, 'cancelled')], mergeGroupRuns: [r], headAgeMs: FRESH });
+    assert.equal(v.severity, 'red', JSON.stringify(r));
+  }
+});
+test('t/4795 — the LATEST merge_group CI run decides (a later failing re-run beats an earlier success)', () => {
+  const later = classifyMainCI({ runs: [failed(CI, 'cancelled')], headAgeMs: FRESH,
+    mergeGroupRuns: [mg('success', '2026-11-01T10:00:00Z'), mg('failure', '2026-11-01T11:00:00Z')] });
+  assert.equal(later.severity, 'red');
+  const fixed = classifyMainCI({ runs: [failed(CI, 'cancelled')], headAgeMs: FRESH,
+    mergeGroupRuns: [mg('failure', '2026-11-01T10:00:00Z'), mg('success', '2026-11-01T11:00:00Z')] });
+  assert.equal(fixed.state, 'green');
+});
+test('t/4795 — a successful merge_group run of a DIFFERENT workflow does not excuse a cancelled CI push', () => {
+  const v = classifyMainCI({ runs: [failed(CI, 'cancelled')], mergeGroupRuns: [mg('success', undefined, 'Other')], headAgeMs: FRESH });
+  assert.equal(v.severity, 'red');
+});
+test('t/4795 — excused cancelled CI push still surfaces a co-failing non-CI push workflow as a notice', () => {
+  const v = classifyMainCI({ runs: [failed(CI, 'cancelled'), failed('Debate-Tested Sweep')], mergeGroupRuns: [mg('success')], headAgeMs: FRESH });
+  assert.equal(v.severity, 'notice');
+  assert.deepEqual(v.failedOther, ['Debate-Tested Sweep']);
+  assert.match(v.reason, /merge_group/);
+});
+
 test('GREEN — CI passed, nothing failed → no alert', () => {
   const v = classifyMainCI({ runs: [passed(CI), passed('Other')], headAgeMs: OLD });
   assert.equal(v.severity, 'none');
