@@ -60,6 +60,7 @@ jobs:
       pull-requests: read
     concurrency:
       group: ${{ github.workflow }}-${{ github.run_id }}
+      cancel-in-progress: false
     steps:
       - name: Refuse merge while a consult-hold label is present
         env:
