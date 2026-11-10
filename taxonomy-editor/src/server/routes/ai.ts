@@ -78,6 +78,15 @@ const BACKEND_DISPLAY: Record<AIBackend, string> = {
 // Each guard returns true when it has already sent a response (caller must return).
 type ResolvedTier = ReturnType<typeof proxyTiers.resolveTier>;
 
+/** Guard branch: enforce access controls and resolve the execution tier.
+ *  Returns false if the handler should proceed; true if access was denied (response written). */
+function enforceGenerateAccess(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, backend: string, debateId: string | undefined, isFree: boolean, limitKey: string): boolean {
+  if (enforceAnonDebateGate(res, isFree, debateId)) return true;
+  if (enforceBackendAllowed(res, tier, backend)) return true;
+  if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return true;
+  return false;
+}
+
 /** Per-IP (free) / per-user RPM + daily-token limits. 429 + log/record on breach. */
 function enforceAiRateLimits(res: http.ServerResponse, isFree: boolean, limitKey: string, tier: ResolvedTier, backend: AIBackend): boolean {
   const rpmCheck = isFree
@@ -504,15 +513,9 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Free-tier cost is bounded by tokensPerDay + per-IP rate limits; the redundant
       // per-prompt char cap was removed in t/812 (broke long debate prompts).
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
-      // t/3230: a single anonymous debate drains the shared free Gemini key pool (K=4) → 429 storm
-      // → ~485s retry → user-facing 500. Block free-tier debate generation (reversible via the
-      // `anon-debates` flag) BEFORE any key/provider call — covers debate rounds AND the fact-check
-      // `search` calls (both carry debateId). Authenticated debates + non-debate free-tier untouched.
-      if (enforceAnonDebateGate(res, isFree, debateId)) return; // 403 when anon debates disabled
-      if (enforceBackendAllowed(res, tier, backend)) return; // 403 if backend not on tier
-
-      // Rate limiting: per-IP RPM (free tier) / per-user RPM + daily token budget (429 on breach).
-      if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return;
+      // Enforce access controls: anon debates, backend allowlist, rate limits.
+      // Each guard returns true if access was denied (response already written).
+      if (enforceGenerateAccess(req, res, tier, backend, debateId, isFree, limitKey)) return;
 
       // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
