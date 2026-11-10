@@ -3102,6 +3102,14 @@ jobs:
         continue-on-error: true
         run: node --test operations/devops/gate-verdict.test.mjs
 
+      - name: Actions cache budget verdict tests (WARN-FIRST — t/4931)
+        # Pure verdict for actions-cache-budget.yml (8 GB alarm; PASS / FAIL / GATE-UNREADABLE) plus
+        # its workflow-wiring checks. The scheduled workflow also runs it, but only every 6h on main;
+        # this re-checks it on the PR that edits it (t/3871). Built-ins only, no install.
+        # WARN-FIRST: flip by removing continue-on-error after >=1 green cycle (SO + TL GV).
+        continue-on-error: true
+        run: node --test operations/devops/actions-cache-budget.test.mjs
+
       - name: Scheduled-workflow health verdict + list lint (BLOCKING — t/4780, promoted from t/4058)
         # Pure verdict for main-ci-monitor's scheduled-workflow check, plus the LINT that every workflow
         # with `schedule:` is in operations/devops/scheduled-workflows.json (an unlisted one would be

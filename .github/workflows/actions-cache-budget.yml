@@ -1,0 +1,113 @@
+name: Actions cache budget alarm
+
+# t/4931 (Interweave t/102): ALERT ONLY. Never deletes a cache.
+#
+# The repo's 10 GB Actions cache went over budget twice in two days (10.95 GB, evicting Trivy's DB
+# and breaking container builds, then 13.93 GB) and nobody knew until a build broke. This reads
+# cache usage + the paginated cache list every 6h and, over 8 GB, opens (or comments on) ONE issue
+# labelled `cache-budget-alert` listing the top cache keys with their refs, the top key prefixes,
+# the top refs and any non-main ref over 1 GB. It auto-closes the issue once usage is back at or
+# under 8 GB. Logic and tests: operations/devops/actions-cache-budget.mjs (+ .test.mjs).
+#
+# Verdicts (operations/devops/gate-verdict.mjs, t/4496): PASS / FAIL / GATE-UNREADABLE. An
+# unreadable cache API is NEVER clean: it does not auto-close an open alert, and it fails this run
+# so health-monitor's consecutive-failure check surfaces a monitor that keeps going blind.
+#
+# Expected step-ups that are not leaks (t/102#3): hf-embed-Linux-* (~600 MB) and the ONNX model
+# cache each rotate once; the per-key table lets a reader tell that apart from runaway growth.
+
+on:
+  schedule:
+    - cron: '41 */6 * * *'  # every 6h at :41 (t/4501: off round-minute marks)
+  workflow_dispatch:
+
+permissions:
+  contents: read   # actions/checkout, to load operations/devops/actions-cache-budget.mjs
+  actions: read    # GET .../actions/cache/usage and .../actions/caches
+  issues: write    # the one cache-budget-alert issue
+
+concurrency:
+  group: actions-cache-budget
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Self-health — verdict unit suite
+        run: node --test operations/devops/actions-cache-budget.test.mjs
+
+      - name: Evaluate cache usage against the 8 GB budget
+        id: evaluate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const ws = process.env.GITHUB_WORKSPACE;
+            const budget = await import(pathToFileURL(`${ws}/operations/devops/actions-cache-budget.mjs`).href);
+            const gv = await import(pathToFileURL(`${ws}/operations/devops/gate-verdict.mjs`).href);
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            let input;
+            try {
+              input = await budget.fetchCacheData(github, owner, repo);
+            } catch (err) {
+              core.warning(`WARN: could not read the Actions cache API (${err && err.message}); the verdict is GATE-UNREADABLE, not clean, and no open alert is auto-closed.`);
+              input = { readError: err };
+            }
+            const result = budget.evaluateCacheBudget(input);
+            await gv.emitGateVerdict(core, result);
+            core.setOutput('can_auto_close', String(result.canAutoClose));
+            if (result.verdict === gv.VERDICTS.FAIL) {
+              core.setOutput('body', budget.formatAlertBody(result, { runUrl }));
+            }
+            if (result.verdict === gv.VERDICTS.UNREADABLE) {
+              core.setFailed(`actions-cache-budget could not evaluate: ${result.reason}`);
+            }
+
+      - name: Open or update the cache-budget alert issue
+        # Main ref only (as #4774): a dispatch from another branch reads the same repo-wide cache but
+        # must not file, comment on or close the alert.
+        if: steps.evaluate.outputs.verdict == 'FAIL' && github.ref == 'refs/heads/main'
+        env:
+          BODY: ${{ steps.evaluate.outputs.body }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const body = process.env.BODY;
+            // listForRepo also returns pull requests; keep issues only, so a PR carrying the label is
+            // never commented on (t/133). per_page 10, not 1, so a labelled PR can't hide the issue.
+            const listed = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'cache-budget-alert', per_page: 10 });
+            const existing = listed.data.filter(i => !i.pull_request);
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing[0].number, body: `Still over budget:\n\n${body}` });
+              core.info(`Commented on open cache-budget alert #${existing[0].number}`);
+            } else {
+              const { data: issue } = await github.rest.issues.create({
+                owner, repo,
+                title: 'Actions cache over the 8 GB budget',
+                body,
+                labels: ['cache-budget-alert', 'alert-escalated'],
+              });
+              core.info(`Opened cache-budget alert #${issue.number}`);
+            }
+
+      - name: Auto-close the alert once back under budget
+        if: steps.evaluate.outputs.verdict == 'PASS' && steps.evaluate.outputs.can_auto_close == 'true' && github.ref == 'refs/heads/main'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            // Issues only: never comment on or close a pull request carrying the label (t/133).
+            const listed = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'cache-budget-alert' });
+            for (const issue of listed.data.filter(i => !i.pull_request)) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Resolved: Actions cache usage is back at or under the 8 GB budget. Run: ${runUrl}` });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+              core.info(`Auto-closed cache-budget alert #${issue.number}`);
+            }
