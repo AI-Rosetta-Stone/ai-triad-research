@@ -321,6 +321,7 @@ class StaleImageCleanupResult {
     [string]  $Owner
     [int]     $TotalUntagged
     [int]     $KeptCount
+    [int]     $ProtectedCount   # t/4966: candidates spared as known-good or a tagged index's child
     [int]     $DeletedCount
     [long[]]  $DeletedIds
     [string[]] $Failures

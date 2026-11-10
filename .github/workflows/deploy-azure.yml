@@ -1490,8 +1490,9 @@ jobs:
   # Set-TaxEditorKnownGood was manual-only and never actually run, consistently, across the org
   # move — so the documented known-good rollback (Restore-TaxEditorKnownGood) had no target
   # (t/4170 ask 1, confirmed not a cleanup bug: Remove-StaleContainerImages only deletes
-  # UNTAGGED versions). This job makes it part of every successful deploy instead of a manual
-  # step nobody remembers to run.
+  # UNTAGGED versions, and since t/4966 never the untagged child manifests of a tagged index
+  # either). This job makes it part of every successful deploy instead of a manual
+  # step nobody remembers to run. It is the ONLY writer of the known-good tag.
   #
   # SO C3 (t/4170, p/682#28): a SEPARATE job, not a step in `deploy`, so packages:write (needed
   # to PUT the known-good tag via the GHCR OCI API) is scoped to only the one job that needs it —
@@ -1559,7 +1560,9 @@ jobs:
             # SO C2: assert known-good resolves to the digest actually serving traffic — "any
             # known-good exists" can't fail and proves nothing (e.g. a stale prior tag surviving
             # a failed PUT would pass that check).
-            $Check = @(Get-TaxEditorImage -Last 20 | Where-Object { $_.IsKnownGood })
+            # t/4966: by tag, not -Last 20. Versions list newest-built first, so -Last 20 missed an
+            # image built 7+ builds ago and warned falsely (run 42699525844, 21:14Z).
+            $Check = @(Get-TaxEditorImage -Tag 'known-good' | Where-Object { $_.IsKnownGood })
             if ($Check.Count -eq 0) {
               Write-Host "::warning::t/4170: known-good was set (cmdlet returned $($Result | ConvertTo-Json -Compress)) but no image reports IsKnownGood on re-check (GHCR propagation lag, or a real failure)."
             } elseif ($Check[0].Digest -ne $DeployedDigest) {
