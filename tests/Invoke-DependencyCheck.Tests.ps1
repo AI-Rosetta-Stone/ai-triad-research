@@ -302,6 +302,20 @@ Describe 'Invoke-DependencyCheck (t/3910)' -Tag 'summary' {
     }
 
     Context 'DOCKER & NEO4J (section 7b)' {
+        It 'the section label says Docker is required for the Taxonomy Editor container, optional only for Neo4j (Orca t/4757)' {
+            InModuleScope AITriad {
+                Mock Write-DepSection { }
+                Mock Write-DepWarn { }; Mock Write-DepPass { }; Mock Write-DepSkip { }
+                Mock Get-Command { $null } -ParameterFilter { $Name -eq 'docker' }
+                Test-DepDockerNeo4j -Ctx @{} -IsInstallMode $false -Fix $false -Platform 'windows' 6>$null
+                Should -Invoke Write-DepSection -Times 1 -Exactly -ParameterFilter {
+                    $Message -like 'DOCKER*' -and $Message -match 'required for the Taxonomy Editor container' -and
+                    $Message -match 'optional if only using Neo4j'
+                }
+                Should -Invoke Write-DepSection -Times 0 -Exactly -ParameterFilter { $Message -match '^DOCKER & NEO4J \(optional' }
+            }
+        }
+
         It 'docker not installed is a WARN' {
             $env:GEMINI_API_KEY = 'fake-key'
             InModuleScope AITriad {
