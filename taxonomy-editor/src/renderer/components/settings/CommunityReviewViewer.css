@@ -119,8 +119,8 @@
   font-size: var(--text-2xs);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
-  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   vertical-align: middle;
 }
 
