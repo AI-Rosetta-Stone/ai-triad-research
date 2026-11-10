@@ -525,6 +525,26 @@ jobs:
             exit 1
           fi
 
+      - name: Snapshot serving revision env before the Bicep apply (warn-only, t/4935)
+        # t/4935: the what-if above reports containers[0].env as an unevaluated ARM expression, so it
+        # cannot see a dropped secretRef or a wrong override. Snapshot the serving revision's env as
+        # (name, secretRef, HMAC-SHA256 of the value under a per-run key in RUNNER_TEMP) — never a raw
+        # value — so "Diff container env" below can compare it with the new revision before traffic
+        # shifts. WARN-ONLY: read-only az, the script always exits 0, plus continue-on-error and a
+        # timeout, so it can never block or alter the deploy. Blocking is a separate T2 change.
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SERVING_REVISION: ${{ steps.current_revision.outputs.revision }}
+        run: |
+          ./operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1 `
+            -AppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -RevisionName $env:SERVING_REVISION `
+            -OutFile (Join-Path $env:RUNNER_TEMP 't4935-env-before.json') `
+            -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
+
       - name: Deploy Bicep template
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5  # v2
         id: deploy
@@ -726,6 +746,33 @@ jobs:
             exit 1
           }
           Write-Host "t/3679 assert OK: revision is digest-pinned to '$($env:EXPECTED_REF)' (value-equal), provisioningState=$($Info.prov)."
+
+      - name: Diff container env, serving vs new revision (warn-only, t/4935)
+        # t/4935: snapshot the new 0%-traffic revision's env the same way as the pre-apply snapshot and
+        # diff them by name (added / removed / changed). Anything not declared in
+        # operations/devops/azure/container-env-expected-changes.json prints a ::warning:: with names
+        # and hash prefixes only. Runs before "Shift traffic to new revision". WARN-ONLY: never blocks
+        # or alters the deploy (read-only az, script exits 0, continue-on-error, timeout).
+        # !cancelled(): also run after an earlier step failed, so the env evidence exists for a
+        # rolled-back deploy too; the step only reads.
+        if: ${{ !cancelled() && steps.new_revision.outputs.revision != '' }}
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          NEW_REVISION: ${{ steps.new_revision.outputs.revision }}
+        run: |
+          ./operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1 `
+            -AppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -RevisionName $env:NEW_REVISION `
+            -OutFile (Join-Path $env:RUNNER_TEMP 't4935-env-after.json') `
+            -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
+          ./operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1 -Diff `
+            -BeforeFile (Join-Path $env:RUNNER_TEMP 't4935-env-before.json') `
+            -AfterFile (Join-Path $env:RUNNER_TEMP 't4935-env-after.json') `
+            -ExpectedChangesFile ./operations/devops/azure/container-env-expected-changes.json `
+            -Label '${{ env.CONTAINER_APP_NAME }}'
 
       - name: Health check new revision
         id: health_check
