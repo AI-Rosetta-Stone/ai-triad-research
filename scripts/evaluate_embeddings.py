@@ -359,7 +359,7 @@ def cmd_rerank(args):
     Reads a single JSON object from stdin:
         {"query": "...",
          "candidates": [{"id": "acc-beliefs-001", "text": "Label. Description"}, ...],
-         "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"}   # optional
+         "reranker_model": "cross-encoder/ms-marco-MiniLM-L6-v2"}   # optional
 
     Writes a JSON array to stdout, sorted by score descending:
         [{"id": "...", "score": <sigmoid(logit) 0-1>, "raw": <logit>}, ...]
@@ -424,7 +424,7 @@ def main():
     rb.add_argument("--top-k", type=int, default=10, help="Top-K candidates to rerank (default: 10)")
     rb.add_argument(
         "--reranker-model",
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        default="cross-encoder/ms-marco-MiniLM-L6-v2",
         help="Cross-encoder model for reranking",
     )
 
@@ -434,7 +434,7 @@ def main():
     )
     rr.add_argument(
         "--reranker-model",
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        default="cross-encoder/ms-marco-MiniLM-L6-v2",
         help="Cross-encoder model (stdin 'reranker_model' overrides this)",
     )
 
