@@ -22,6 +22,7 @@ import { resolveDataPath } from '../config.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
 import { loadInquiryResult } from './inquiryResultStore.js';
+import { confirmShareStillRegistered } from './shareRevokeGuard.js';
 import { toPublicInquiryShare, PublicInquiryShareReadSchema, type PublicInquiryShare } from '../../../../lib/inquiry/index.js';
 import { log } from '../logger.js';
 
@@ -46,6 +47,12 @@ async function readShareRegistry(): Promise<Record<string, string>> {
 async function writeShareRegistry(reg: Record<string, string>): Promise<void> {
   await getUserContentBackend().writeFile(shareRegistryPath(), JSON.stringify(reg, null, 2));
 }
+function confirmInquiryShare(jobId: string, shareId: string): Promise<boolean> {
+  return confirmShareStillRegistered({
+    kind: 'inquiry', id: jobId, shareId, publicPath: publicInquiryPath(shareId), readRegistry: readShareRegistry,
+    backend: getUserContentBackend(),
+  });
+}
 
 /**
  * Publish an owner's inquiry result to a durable public URL. OWNER-ONLY: `loadInquiryResult`
@@ -68,6 +75,8 @@ export async function publishInquiryShare(jobId: string): Promise<{ shareId: str
     reg[jobId] = shareId;
     await writeShareRegistry(reg);
   }
+  // t/4937: an unpublish may have raced the write above — never leave a revoked link live.
+  if (!(await confirmInquiryShare(jobId, shareId))) return null;
   return { shareId };
 }
 
@@ -87,7 +96,7 @@ export async function refreshInquiryShareIfShared(jobId: string): Promise<boolea
   if (!result) return false; // defensive; caller already has the result at this point
   const share: PublicInquiryShare = toPublicInquiryShare(result);
   await getUserContentBackend().writeFile(publicInquiryPath(shareId), JSON.stringify(share, null, 2));
-  return true;
+  return confirmInquiryShare(jobId, shareId); // t/4937
 }
 
 /**
@@ -101,11 +110,13 @@ export async function unpublishInquiryShare(jobId: string): Promise<boolean> {
   const reg = await readShareRegistry();
   const shareId = reg[jobId];
   if (!shareId) return false;
+  // t/4937: registry entry goes FIRST, so a publish/refresh whose write lands after the delete
+  // below re-reads a registry that no longer names this shareId and removes its own copy.
+  delete reg[jobId];
+  await writeShareRegistry(reg);
   await getUserContentBackend().deleteFile(publicInquiryPath(shareId)).catch((err) => {
     log.server.warn({ err, shareId }, 'inquiry share public-copy delete failed (best-effort)');
   });
-  delete reg[jobId];
-  await writeShareRegistry(reg);
   return true;
 }
 
