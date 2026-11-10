@@ -11,6 +11,12 @@
 // copy. On a WRITE_CONFLICT the mutation is re-applied to a fresh read, up to
 // REGISTRY_CAS_MAX_ATTEMPTS times, then an ActionableError.
 //
+// A registry that doesn't parse as an id → shareId object is CORRUPT, and corrupt fails closed
+// (t/126): reading it as `{}` let the next publish overwrite it, so every other shareId it held
+// became a public link with no registry entry, which nobody could revoke. Writes refuse with an
+// ActionableError and leave the file untouched; read-only callers (refresh, revoke guard) still see
+// no entry — which already never writes — but log an ERROR instead of staying silent.
+//
 // Atomicity comes from the backend's `baseSha` precondition: AzureBlobBackend maps it to a native
 // If-Match / If-None-Match:* (atomic); FilesystemBackend serializes conditional writes per path
 // in-process (t/117); GitHubAPIBackend sends the blob SHA on the Contents PUT.
@@ -30,35 +36,80 @@ export const REGISTRY_CAS_MAX_ATTEMPTS = 5;
 /** Version token of an absent file — `baseSha: ''` means "create only if still absent". */
 const ABSENT_VERSION = '';
 
-function parseRegistry(raw: string | null): ShareRegistry {
-  if (raw === null) return {};
-  try { return JSON.parse(raw) as ShareRegistry; } catch { /* telemetry — silent by design */ return {}; }
+type ParsedRegistry = { ok: true; reg: ShareRegistry } | { ok: false; reason: string };
+
+function isShareRegistry(v: unknown): v is ShareRegistry {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+    && Object.values(v).every(s => typeof s === 'string');
 }
 
-async function readWithVersion(backend: StorageBackend, registryPath: string): Promise<{ reg: ShareRegistry; version: string }> {
+function parseRegistry(raw: string | null): ParsedRegistry {
+  if (raw === null) return { ok: true, reg: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, reason: `not valid JSON (${(err as Error).message})` };
+  }
+  return isShareRegistry(parsed) ? { ok: true, reg: parsed } : { ok: false, reason: 'not an object of id → shareId strings' };
+}
+
+function logCorrupt(registryPath: string, reason: string, action: string): void {
+  log.server.error({ registryPath, reason, cause: 'share-registry-corrupt' },
+    `share registry is corrupt (${reason}) — ${action}. Repair or restore ${registryPath} (t/126)`);
+}
+
+function corruptRegistryError(registryPath: string, kind: string, reason: string): ActionableError {
+  return new ActionableError({
+    goal: `Update the ${kind} share registry`,
+    problem: `The share registry is corrupt (${reason}). Refusing to overwrite it: that would orphan every public share it lists as an unrevocable link.`,
+    location: `storage/shareRegistry.ts updateShareRegistry(${registryPath})`,
+    nextSteps: [
+      `Restore ${registryPath} from a backup or blob version, or repair its JSON to an object of id → shareId`,
+      'List public/{inquiries,opeds}/ for shareIds the registry should hold before editing it',
+    ],
+    httpStatus: 500,
+    code: 'SHARE_REGISTRY_CORRUPT',
+  });
+}
+
+async function readWithVersion(backend: StorageBackend, registryPath: string, kind: string): Promise<{ reg: ShareRegistry; version: string }> {
+  const { raw, version } = await readRawWithVersion(backend, registryPath);
+  const parsed = parseRegistry(raw);
+  if (!parsed.ok) {
+    logCorrupt(registryPath, parsed.reason, 'refusing to write');
+    throw corruptRegistryError(registryPath, kind, parsed.reason);
+  }
+  return { reg: parsed.reg, version };
+}
+
+async function readRawWithVersion(backend: StorageBackend, registryPath: string): Promise<{ raw: string | null; version: string }> {
   if (backend.readFileWithVersion) {
     const snap = await backend.readFileWithVersion(registryPath);
-    return snap === null
-      ? { reg: {}, version: ABSENT_VERSION }
-      : { reg: parseRegistry(snap.content), version: snap.version };
+    return snap === null ? { raw: null, version: ABSENT_VERSION } : { raw: snap.content, version: snap.version };
   }
   // Every production backend implements readFileWithVersion; all of them version by git blob
   // SHA, so hashing a plain read gives the same token.
   log.server.warn({ registryPath, backend: backend.backendName, cause: 'share-registry-no-readFileWithVersion' },
     'share registry: backend has no readFileWithVersion; deriving the version from gitBlobSha(content)');
   const raw = await backend.readFile(registryPath);
-  return { reg: parseRegistry(raw), version: raw === null ? ABSENT_VERSION : gitBlobSha(raw) };
+  return { raw, version: raw === null ? ABSENT_VERSION : gitBlobSha(raw) };
 }
 
+/** Read-only view. A corrupt registry reads as no entries (callers then never write) and ERRORs. */
 export async function readShareRegistry(backend: StorageBackend, registryPath: string): Promise<ShareRegistry> {
-  return parseRegistry(await backend.readFile(registryPath));
+  const parsed = parseRegistry(await backend.readFile(registryPath));
+  if (parsed.ok) return parsed.reg;
+  logCorrupt(registryPath, parsed.reason, 'treating it as holding no shares for this read');
+  return {};
 }
 
 /**
  * Compare-and-swap update. `mutate` gets a fresh copy of the registry on every attempt (it may
  * run more than once, so it must be a pure function of its input) and returns
  * `{ changed, result }`; nothing is written when `changed` is false. Retries a WRITE_CONFLICT on
- * a re-read; any other write error is rethrown as-is.
+ * a re-read; any other write error is rethrown as-is. A corrupt registry throws
+ * SHARE_REGISTRY_CORRUPT without writing (t/126).
  */
 export async function updateShareRegistry<T>(
   backend: StorageBackend,
@@ -67,7 +118,7 @@ export async function updateShareRegistry<T>(
   mutate: (reg: ShareRegistry) => { changed: boolean; result: T },
 ): Promise<T> {
   for (let attempt = 1; attempt <= REGISTRY_CAS_MAX_ATTEMPTS; attempt++) {
-    const { reg, version } = await readWithVersion(backend, registryPath);
+    const { reg, version } = await readWithVersion(backend, registryPath, kind);
     const { changed, result } = mutate(reg);
     if (!changed) return result;
     try {

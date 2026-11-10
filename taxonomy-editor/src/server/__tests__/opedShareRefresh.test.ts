@@ -205,4 +205,16 @@ describe('refreshOpedShareIfShared (t/4927)', () => {
     expect(await runWithUser(OWNER, () => refreshOpedShareIfShared('set-1'))).toBe(false);
     expect(files.has(publicOpedPath(sA))).toBe(false);
   });
+
+  // ─── corrupt registry fails closed (t/126) ─────────────────────────────────
+
+  it('publish against a corrupt registry is refused: registry preserved, no orphan public copy', async () => {
+    const corrupt = '{"set-1":"11111111-1111-4111-8111-111111111111","set-3":"2222'; // truncated write
+    files.set(registryPath, corrupt);
+    mockLoadOpedSet.mockResolvedValue(makeSet('Topic'));
+
+    await expect(runWithUser(OWNER, () => publishOpedShare('set-2'))).rejects.toMatchObject({ code: 'SHARE_REGISTRY_CORRUPT' });
+    expect(files.get(registryPath)).toBe(corrupt);
+    expect([...files.keys()].filter(k => k.startsWith(publicOpedPath('x').slice(0, -'x.json'.length)))).toEqual([]);
+  });
 });
