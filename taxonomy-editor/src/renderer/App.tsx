@@ -4,6 +4,7 @@
 import { useEffect, useState, Suspense, type ReactNode } from 'react';
 import './App.css';
 import { api } from '@bridge';
+import { useAppZoom } from './hooks/useAppZoom';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import ErrorBoundary from '../../../lib/electron-shared/components/ErrorBoundary';
 import { useTaxonomyStore, initAIModels } from './hooks/useTaxonomyStore';
@@ -574,13 +575,7 @@ function MainApp() {
     return () => mq.removeEventListener('change', handler);
   }, [colorScheme]);
 
-  // Apply zoom level. 112.5% (18px root) is the comfortable web baseline (t/2416); the zoom
-  // control multiplies against it, so "zoom 100%" == the baseline and taxonomy-editor-zoom still
-  // round-trips as a percentage (default 100).
-  useEffect(() => {
-    const BASE_FONT_PCT = 112.5;
-    document.documentElement.style.fontSize = `${(BASE_FONT_PCT * zoomLevel) / 100}%`;
-  }, [zoomLevel]);
+  useAppZoom(zoomLevel, zoomIn, zoomOut, zoomReset); // t/163: one zoom model
 
   // Apply pane spacing
   useEffect(() => {
@@ -599,25 +594,6 @@ function MainApp() {
   useEffect(() => {
     document.documentElement.setAttribute('data-touch', String(isTouch));
   }, [isTouch]);
-
-  // Zoom keyboard shortcuts: Ctrl+= / Ctrl+- / Ctrl+0
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key === '=' || e.key === '+') {
-        e.preventDefault();
-        zoomIn();
-      } else if (e.key === '-') {
-        e.preventDefault();
-        zoomOut();
-      } else if (e.key === '0') {
-        e.preventDefault();
-        zoomReset();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [zoomIn, zoomOut, zoomReset]);
 
   // Screenshot capture: Ctrl+Shift+S — resizes to 960x600, captures, saves via dialog
   useEffect(() => {
