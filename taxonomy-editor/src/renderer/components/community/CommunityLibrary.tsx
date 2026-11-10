@@ -10,6 +10,7 @@ import { useFlag } from '../../hooks/useFeatureFlags';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { TOAST_DURATION_INFO, TOAST_DURATION_ERROR } from '../../constants';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
+import { useDialog } from '../shared/useDialog';
 import './CommunityLibrary.css';
 
 type Tab = 'chats' | 'debates' | 'opeds' | 'inquiries';
@@ -58,36 +59,39 @@ export function RemoveConfirmPopover({ title, onConfirm, onCancel }: {
   onCancel: () => void;
 }) {
   const [reason, setReason] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  // t/81: the shared dialog a11y contract (role/aria-modal/labelled title, Tab trap, Esc, focus
+  // in on open and back to the ✕ opener on close) instead of a hand-rolled Escape listener.
+  // Initial focus goes to the reason textarea rather than Cancel (t/4901's destructive-confirm
+  // default): typing a reason is this popover's purpose, so the old autoFocus was deliberate.
+  // Passed as initialFocusRef, not autoFocus — autoFocus would move focus BEFORE useDialog's
+  // mount effect captures the opener, so focus would never return to the ✕ on close.
+  const { dialogRef, titleId } = useDialog({ onCancel, initialFocusRef: reasonRef });
 
+  // A popover, not an overlay dialog: an outside click still dismisses it (useDialog doesn't).
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onCancel();
+      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) onCancel();
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [onCancel]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onCancel]);
+  }, [onCancel, dialogRef]);
 
   return (
-    <div className="community-remove-popover" ref={ref}>
-      <div className="community-remove-popover-title">Remove from Community Library?</div>
+    <div className="community-remove-popover" ref={dialogRef} role="dialog" aria-modal aria-labelledby={titleId}>
+      <div className="community-remove-popover-title" id={titleId}>Remove from Community Library?</div>
       <div className="community-remove-popover-detail">
         <strong>{title}</strong>
       </div>
       <textarea
+        ref={reasonRef}
         className="community-remove-reason"
         rows={2}
         maxLength={200}
         value={reason}
         onChange={e => setReason(e.target.value)}
         placeholder="Reason (optional)"
-        autoFocus
+        aria-label="Reason (optional)"
       />
       <div className="community-remove-actions">
         <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>
