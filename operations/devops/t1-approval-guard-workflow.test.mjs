@@ -87,3 +87,9 @@ test('t/116: both arms put role-review-verdicts.mjs from the BASE tip next to th
   const predicateAt = mg.indexOf("loadFromBase('operations/devops/t1-approval-guard-predicate.mjs')");
   assert.ok(verdictsAt >= 0 && predicateAt > verdictsAt, 'ci.yml must load role-review-verdicts.mjs before importing the predicate');
 });
+
+test('t/116 (TL rule from #4771): CANNOT EVALUATE posts failure, never neutral, on either arm', () => {
+  assert.ok(!/['"`]neutral['"`]/.test(scriptCodeLines()), 't1-approval-guard.yml must not post a neutral conclusion');
+  assert.match(scriptCodeLines(), /postCheckRun\(pr\.head\.sha, 'failure', 't1-approval-guard: [^']*CANNOT EVALUATE[^']*'/);
+  assert.ok(!/['"`]neutral['"`]/.test(mergeGroupJob()), 'the merge_group arm must not post a neutral conclusion');
+});

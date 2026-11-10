@@ -3630,8 +3630,9 @@ jobs:
               const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at, login: c.user?.login }));
 
               // t/4096 + t/116: EVERY review (human ones too, with commit_id) goes to the predicate,
-              // which binds each to the head and blocks on any outstanding changes-request. Same
-              // mapping and call as t1-approval-guard.yml (keep them identical).
+              // which binds approvals to the head and blocks on any outstanding changes-request
+              // (sticky across pushes). Same mapping and call as t1-approval-guard.yml (keep them
+              // identical).
               const rawReviews = await withRetry(`pulls.listReviews #${prNumber}`, () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
               const botReviews = rawReviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id }));
 
@@ -3642,7 +3643,7 @@ jobs:
 
             const verdict = classifyMergeGroupApprovals(perPrResults);
             if (!verdict.pass) {
-              core.setFailed(`t1-approval-guard (merge_group): PR(s) #${verdict.failingNumbers.join(', #')} in this batch have no post-push approval or have changes requested at the head (see the per-PR reasons above). FAILING CLOSED.`);
+              core.setFailed(`t1-approval-guard (merge_group): PR(s) #${verdict.failingNumbers.join(', #')} in this batch have no post-push approval or have an outstanding changes-request (see the per-PR reasons above). FAILING CLOSED.`);
             } else {
               core.info('t1-approval-guard (merge_group): every T1 member in this batch is approved after its latest push.');
             }

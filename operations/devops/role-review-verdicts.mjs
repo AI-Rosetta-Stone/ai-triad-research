@@ -117,7 +117,8 @@ function parseVerdict(rawBody) {
  * latest verdict per role (role names are kept as written in the tag, e.g. `'Design'`,
  * `'Tech Lead'` -- callers normalize/compare as needed).
  */
-export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt }) {
+export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt, mode }) {
+  if (mode === 'gate') return gateRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt });
   const pushMs = lastPushAt ? new Date(lastPushAt).getTime() : 0;
   const entries = [];
 
@@ -152,4 +153,127 @@ export function latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSh
   const latest = new Map();
   for (const e of entries) latest.set(e.role, { kind: e.kind, at: e.iso, unparsed: e.unparsed ?? false });
   return latest;
+}
+
+/*
+ * `mode: 'gate'` (t/116, TL p/12#58 recorded on t/116#8): the semantics a MERGE GATE needs. The
+ * default mode above is unchanged for its existing callers (t0-enqueue-sweep.mjs).
+ *
+ *   - APPROVALS ARE HEAD-BOUND. An approval satisfies a gate only if it is at the current head:
+ *     a review with `commitId === headSha`, or a comment after `lastPushAt`. A push invalidates it.
+ *   - A CHANGES-REQUEST IS STICKY ACROSS PUSHES. It stays outstanding whatever the head, until the
+ *     SAME slot (the same role for the reviewer App, the same login for a human) posts a later
+ *     approval (at any head), or the review is dismissed. A push does not clear it. Neither does a
+ *     plain comment, a `Design-exempt`, or another role's or login's approval.
+ *   - SLOTS. Reviewer-App reviews and comments: the role from the body (normalized, so `Tech Lead`
+ *     and `TechLead` are one slot), with this module's full grammar and fail-closed backstop. An
+ *     App review whose STATE is CHANGES_REQUESTED but whose body doesn't parse as a request is
+ *     still a request (state may add a block, never an approval), for the body's role if it names
+ *     one, else `(unparseable)`. Other logins' REVIEWS: a human review has no role tag, so its
+ *     verdict is its GitHub state, one slot per login (`@<login>`); GitHub's per-user overwrite
+ *     (#4686) can't hit a per-login slot. Other logins' COMMENTS (the legacy shared-login path):
+ *     strict grammar only, because status chatter that mentions "changes requested" must not
+ *     latch a block.
+ *   - DISMISSED (any review): a clearing entry for its slot. It never counts as an approval, and
+ *     it ends the slot's outstanding request, which is GitHub's meaning of a dismissal.
+ *
+ * CLEARING RULES (Quality-TechLead review of #4804, t/116), one per kind of block:
+ *   1. ROLE block (App review or comment `Changes requested (<role>)`, or an App review with
+ *      CHANGES_REQUESTED state whose body names a role): clears ONLY on a later `Approved
+ *      (<role>)` for that same role (any head; it satisfies a gate only at the head), or by
+ *      dismissing the request review. Another role's approval, an exemption, a comment, or a
+ *      push never clears it.
+ *   2. HUMAN block (`@<login>`, a CHANGES_REQUESTED review): clears ONLY on that login's later
+ *      APPROVED review, or a DISMISSED review (the request itself dismissed, or that login's
+ *      later review dismissed). COMMENTED never clears it.
+ *   3. ROLE-LESS App latches -- the fail-closed `(unparseable)` request, and an App review whose
+ *      only signal is its CHANGES_REQUESTED state with no role in the body: each gets its own
+ *      per-review/comment slot, so NO approval can clear it (there is no way to tell that an
+ *      approval answers it, the #4686 lesson, p/780#54). The defined clear is: DISMISS that review
+ *      (it then contributes nothing), or for a comment, EDIT it into a parseable verdict or
+ *      DELETE it (the gate re-reads bodies every run). Both are always available to a maintainer,
+ *      so the latch never has to last forever.
+ *   4. TIES: entries with the same timestamp sort a changes-request last, so the block wins.
+ *
+ * Returns `Map<slot, { role, kind, at, atHead, unparsed, source }>`. `kind` is `'approved'`,
+ * `'changes_requested'`, `'exempt'` or `'cleared'`. A gate blocks on any `changes_requested`
+ * entry, and may accept an `'approved'` entry only when `atHead` is true (and, for its own policy,
+ * not a `@<login>` slot if only the reviewer App may approve).
+ */
+function gateSlotKey(role) {
+  if (role === UNPARSEABLE_ROLE || role.startsWith('@')) return role;
+  return String(role).toLowerCase().replace(/[^a-z]/g, '');
+}
+
+// A review's GitHub state, upper-cased. Read only to (a) give a role-less human review a verdict,
+// (b) add a block when an App review's body doesn't say so, and (c) honor a dismissal.
+function reviewStateOf(r) {
+  return String(r?.state ?? '').toUpperCase();
+}
+
+function gateRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt }) {
+  const pushMs = lastPushAt ? new Date(lastPushAt).getTime() : 0;
+  const entries = [];
+  // A role-less latch gets its OWN slot per review/comment, so no verdict for some other concern
+  // can supersede it, and dismissing one latched review can't clear a different one.
+  const push = (e) => entries.push({
+    ...e,
+    slot: e.role === UNPARSEABLE_ROLE ? `${UNPARSEABLE_ROLE}#${entries.length}` : gateSlotKey(e.role),
+    atMs: new Date(e.at).getTime(),
+  });
+
+  for (const r of reviews || []) {
+    if (!r?.login || !r?.submittedAt) continue;
+    const state = reviewStateOf(r);
+    const atHead = Boolean(headSha) && r.commitId === headSha;
+    if (reviewerAppLogin && r.login === reviewerAppLogin) {
+      let parsed = parseVerdict(r.body);
+      if (state === 'DISMISSED') {
+        // A dismissed review clears its role's outstanding request. A dismissed role-less review
+        // simply stops existing: its own per-review latch is gone, and nothing else is touched.
+        if (parsed && parsed.role !== UNPARSEABLE_ROLE) {
+          push({ role: parsed.role, kind: 'cleared', at: r.submittedAt, atHead, unparsed: false, source: 'app-review' });
+        }
+        continue;
+      }
+      // lint:review-state-ok: state only ADDS a block for an App review whose body doesn't already request changes; it never grants an approval (t/116)
+      if (state === 'CHANGES_REQUESTED' && parsed?.kind !== 'changes_requested') {
+        parsed = { role: parsed?.role ?? UNPARSEABLE_ROLE, kind: 'changes_requested', unparsed: !parsed };
+      }
+      if (!parsed) continue;
+      push({ role: parsed.role, kind: parsed.kind, at: r.submittedAt, atHead, unparsed: parsed.unparsed ?? false, source: 'app-review' });
+      continue;
+    }
+    // A human (or other-App) review: no role tag, so its state is the verdict, one slot per login.
+    let kind = null;
+    // lint:review-state-ok: per-LOGIN slot for a role-less human review, never shared across roles; an approval here only clears this login's own request, never satisfies a gate (t/116)
+    if (state === 'CHANGES_REQUESTED') kind = 'changes_requested';
+    else if (state === 'APPROVED') kind = 'approved'; // lint:review-state-ok: same per-login human slot as above; clears only this login's request (t/116)
+    else if (state === 'DISMISSED') kind = 'cleared';
+    if (!kind) continue; // COMMENTED / PENDING: not a verdict, and does not clear a request
+    push({ role: `@${r.login}`, kind, at: r.submittedAt, atHead, unparsed: false, source: 'human-review' });
+  }
+
+  for (const c of comments || []) {
+    const isApp = Boolean(reviewerAppLogin) && c?.login === reviewerAppLogin;
+    const parsed = parseVerdict(c?.body);
+    if (!parsed) continue;
+    if (!isApp && parsed.unparsed) continue; // strict grammar only off the reviewer App
+    const at = effectiveTimeOf(c, 'comment');
+    if (!at) continue;
+    const atHead = new Date(at).getTime() > pushMs;
+    push({ role: parsed.role, kind: parsed.kind, at, atHead, unparsed: parsed.unparsed ?? false, source: isApp ? 'app-comment' : 'comment' });
+  }
+
+  // Oldest first; on a tie a changes-request sorts last, so it wins (fail closed).
+  entries.sort((a, b) => (a.atMs - b.atMs) || ((a.kind === 'changes_requested') - (b.kind === 'changes_requested')));
+
+  const slots = new Map();
+  for (const e of entries) {
+    const prev = slots.get(e.slot);
+    // Only an approval, a dismissal or a newer request may replace an outstanding request.
+    if (prev?.kind === 'changes_requested' && e.kind === 'exempt') continue;
+    slots.set(e.slot, { role: e.role, kind: e.kind, at: e.at, atHead: e.atHead, unparsed: e.unparsed, source: e.source });
+  }
+  return slots;
 }

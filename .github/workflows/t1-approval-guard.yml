@@ -250,18 +250,18 @@ jobs:
               return;
             }
 
-            if (result.reason === 'changes-requested-at-head') {
+            if (result.reason === 'changes-requested-outstanding') {
               const who = result.blockers.map((b) => `\`${b.role}\` (${b.at})`).join(', ');
               await postVerdictComment(prNumber, [
                 MARKER,
-                `**t1-approval-guard: FAILING** — changes are requested at the current head by ${who}.`,
+                `**t1-approval-guard: FAILING** — a changes-request is still outstanding from ${who}.`,
                 '',
-                'Any outstanding changes-request at the head blocks a T1 PR, whatever other roles approved (t/116). It clears when that role posts a later `Approved (<role>):` at this head, when that human approves or dismisses their review, or on a new push.',
+                'An outstanding changes-request blocks a T1 PR, whatever other roles approved, and a new push does NOT clear it (t/116, TL p/12#58). It clears only when the same role posts a later `Approved (<role>):` (the same human approves, for a human review), or when the review is dismissed. A request with no recognizable role clears only by dismissing that review (or editing or deleting that comment).',
                 '',
                 '_This check is warn-only (not yet a required context) — see t/4247._',
               ].join('\n'));
-              await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has changes requested at the head by ${who}.`);
-              core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has changes requested at the head by ${who}.`);
+              await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
+              core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
               return;
             }
 

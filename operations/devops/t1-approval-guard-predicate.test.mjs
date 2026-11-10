@@ -184,7 +184,7 @@ test('FIRE ARM: t/4096: a bot review with state CHANGES_REQUESTED does not satis
     reviewerAppLogin: REVIEWER_LOGIN,
   });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
 });
 
 test('t/116 (deliberate change): a reviewer-App COMMENTED review whose body is "Approved (<role>):" counts -- the body is the verdict, as in a comment', () => {
@@ -341,7 +341,7 @@ test('BLOCKS (#4686 shape): Approved (Quality) then Changes requested (Design) a
     appReview('Changes requested (Design): fix the layout', T_2, { state: 'CHANGES_REQUESTED' }),
   ] });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
   assert.deepEqual(r.blockers.map((b) => b.role), ['Design']);
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
 });
@@ -352,7 +352,7 @@ test('BLOCKS: the SAME role on the same App account approves, then requests chan
     appReview('Changes requested (Quality): found a bug', T_2, { state: 'CHANGES_REQUESTED' }),
   ] });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
 });
 
@@ -362,7 +362,7 @@ test('BLOCKS: a later APPROVED-state review for ANOTHER role does not clear an e
     appReview('Approved (Quality): fine', T_2, { state: 'APPROVED' }),
   ] });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
   assert.deepEqual(r.blockers.map((b) => b.role), ['Design']);
 });
 
@@ -372,7 +372,7 @@ test('BLOCKS: a legacy comment approval, then a reviewer-App changes-request rev
     reviews: [appReview('Changes requested (Design): no', T_2)],
   });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
 });
 
 test('BLOCKS: a reviewer-App changes-request COMMENT after the push, despite an approval review', () => {
@@ -381,7 +381,7 @@ test('BLOCKS: a reviewer-App changes-request COMMENT after the push, despite an 
     comments: [{ body: '**Changes requested (Design), at bbbb**: no', createdAt: T_2, login: REVIEWER_LOGIN }],
   });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
 });
 
 test('BLOCKS: the PR owner role requesting changes still blocks (the self-check only stops self-APPROVAL)', () => {
@@ -390,7 +390,7 @@ test('BLOCKS: the PR owner role requesting changes still blocks (the self-check 
     appReview('Changes requested (DevOps Lead): hold, I found an issue', T_2),
   ] });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
 });
 
 test('BLOCKS: an App review with CHANGES_REQUESTED state but an unrecognized body (state may add a block, never an approval)', () => {
@@ -399,7 +399,7 @@ test('BLOCKS: an App review with CHANGES_REQUESTED state but an unrecognized bod
     appReview('see inline notes', T_2, { state: 'CHANGES_REQUESTED' }),
   ] });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
 });
 
 test('BLOCKS: an unparseable App changes-request latches; a later approval by some role does not clear it', () => {
@@ -431,29 +431,187 @@ test('UNBLOCKS across sources: an App review changes-request, then the same role
   assert.equal(r.approver.role, 'Quality');
 });
 
-test('OLD HEAD IGNORED: a changes-request bound to an older head does not block an approval at the current head', () => {
+// ── TL p/12#58 (t/116#8): approvals are head-bound; a changes-request is STICKY across pushes ──
+
+test('TL #1 BLOCKS: request changes (Design), push, ANOTHER role approves at the new head', () => {
   const r = guard({ reviews: [
     appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED' }),
+    appReview('Approved (Quality): fine', T_1, { state: 'APPROVED' }),
+  ] });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'changes-requested-outstanding');
+  assert.deepEqual(r.blockers.map((b) => b.role), ['Design']);
+  assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+});
+
+test('TL #1 BLOCKS (human): a human requests changes, push, the App approves at the new head', () => {
+  const r = guard({ reviews: [
     humanReview('CHANGES_REQUESTED', BEFORE_PUSH, { commitId: OLD_HEAD }),
     appReview('Approved (Quality): fine', T_1, { state: 'APPROVED' }),
+  ] });
+  assert.equal(r.pass, false);
+  assert.deepEqual(r.blockers.map((b) => b.role), ['@jpsnover']);
+  assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+});
+
+test('TL #1 BLOCKS (comment): a pre-push App changes-request comment survives the push', () => {
+  const r = guard({
+    reviews: [appReview('Approved (Quality): fine', T_1)],
+    comments: [{ body: 'Changes requested (Design): no', createdAt: BEFORE_PUSH, login: REVIEWER_LOGIN }],
+  });
+  assert.equal(r.pass, false);
+  assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+});
+
+test('TL #2 UNBLOCKS: request changes (Design), push, the SAME role approves at the new head', () => {
+  const r = guard({ reviews: [
+    appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED' }),
+    appReview('Approved (Design): fixed', T_1, { state: 'APPROVED' }),
+  ] });
+  assert.equal(r.pass, true);
+  assert.equal(r.approver.role, 'Design');
+  assert.deepEqual(mergeGroup(r), { pass: true, failingNumbers: [] });
+});
+
+test('TL #2 UNBLOCKS (human): a human requests changes, push, the SAME human approves at the new head; the App approval stands', () => {
+  const r = guard({ reviews: [
+    humanReview('CHANGES_REQUESTED', BEFORE_PUSH, { commitId: OLD_HEAD }),
+    humanReview('APPROVED', T_1),
+    appReview('Approved (Quality): fine', T_2, { state: 'APPROVED' }),
   ] });
   assert.equal(r.pass, true);
   assert.deepEqual(mergeGroup(r), { pass: true, failingNumbers: [] });
 });
 
-test('OLD HEAD IGNORED: an approval bound to an older head does not satisfy the gate, even if submitted after the push time', () => {
+test('TL #3 UNBLOCKS: a CHANGES_REQUESTED review that is then dismissed (App role, and human)', () => {
+  for (const dismissed of [
+    appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'DISMISSED' }),
+    humanReview('DISMISSED', BEFORE_PUSH, { commitId: OLD_HEAD }),
+  ]) {
+    const r = guard({ reviews: [dismissed, appReview('Approved (Quality): fine', T_1, { state: 'APPROVED' })] });
+    assert.equal(r.pass, true, `dismissed ${dismissed.login} request should not block`);
+    assert.deepEqual(mergeGroup(r), { pass: true, failingNumbers: [] });
+  }
+});
+
+test('TL #4 BLOCKS: request changes, push, the SAME role re-reviews with ANOTHER changes-request at the new head', () => {
+  const r = guard({ reviews: [
+    appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED' }),
+    appReview('Approved (Quality): fine', T_1, { state: 'APPROVED' }),
+    appReview('Changes requested (Design): still wrong', T_2, { state: 'CHANGES_REQUESTED' }),
+  ] });
+  assert.equal(r.pass, false);
+  assert.deepEqual(r.blockers.map((b) => b.role), ['Design']);
+  assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+});
+
+test('an approval at the OLD head clears that role request but cannot satisfy the gate after a push', () => {
+  const r = guard({ reviews: [
+    appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD }),
+    appReview('Approved (Design): fixed', '2026-10-17T17:30:00Z', { commitId: OLD_HEAD }),
+  ] });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
+});
+
+test('OLD HEAD: an approval bound to an older head does not satisfy the gate, even if submitted after the push time', () => {
   const r = guard({ reviews: [appReview('Approved (Quality): fine', T_1, { commitId: OLD_HEAD, state: 'APPROVED' })] });
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'no-post-push-approval');
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
 });
 
-test('OLD HEAD IGNORED: an App changes-request comment from before the latest push does not block', () => {
-  const r = guard({
-    reviews: [appReview('Approved (Quality): fine', T_1)],
-    comments: [{ body: 'Changes requested (Design): no', createdAt: BEFORE_PUSH, login: REVIEWER_LOGIN }],
-  });
-  assert.equal(r.pass, true);
+test('a plain COMMENTED human review or an exemption by the same role never clears a request across a push', () => {
+  const human = guard({ reviews: [
+    humanReview('CHANGES_REQUESTED', BEFORE_PUSH, { commitId: OLD_HEAD }),
+    humanReview('COMMENTED', T_1, { body: 'looks better' }),
+    appReview('Approved (Quality): fine', T_2),
+  ] });
+  assert.equal(human.pass, false);
+  const role = guard({ reviews: [
+    appReview('Changes requested (Design): fix', BEFORE_PUSH, { commitId: OLD_HEAD }),
+    appReview('Design-exempt (Design): not a UI change', T_1),
+    appReview('Approved (Quality): fine', T_2),
+  ] });
+  assert.equal(role.pass, false);
+});
+
+// ── Quality-TechLead (#4804 review): ties go to the block; every latch has a defined clear ──
+
+test('TIE: an approval and a changes-request from the SAME role at the same timestamp -> blocked (both orders)', () => {
+  const approve = appReview('Approved (Design): ok', T_1);
+  const request = appReview('Changes requested (Design): no', T_1);
+  for (const reviews of [[approve, request], [request, approve]]) {
+    const r = guard({ reviews });
+    assert.equal(r.pass, false);
+    assert.equal(r.reason, 'changes-requested-outstanding');
+    assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+  }
+});
+
+test('TIE: an APPROVED and a CHANGES_REQUESTED review from the SAME human at the same timestamp -> blocked (both orders)', () => {
+  const approve = humanReview('APPROVED', T_2);
+  const request = humanReview('CHANGES_REQUESTED', T_2);
+  for (const humans of [[approve, request], [request, approve]]) {
+    const r = guard({ reviews: [appReview('Approved (Quality): fine', T_1), ...humans] });
+    assert.equal(r.pass, false);
+    assert.deepEqual(r.blockers.map((b) => b.role), ['@jpsnover']);
+    assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+  }
+});
+
+test('CLEAR (unparseable latch): it survives a push and any later approval, and clears only when that review is dismissed', () => {
+  const latched = guard({ reviews: [
+    appReview('Changes requested -- see below', BEFORE_PUSH, { commitId: OLD_HEAD }),
+    appReview('Approved (Design): fine', T_1),
+    appReview('Approved (Quality): fine', T_2),
+  ] });
+  assert.equal(latched.pass, false);
+  assert.equal(latched.blockers[0].role, '(unparseable)');
+  const cleared = guard({ reviews: [
+    appReview('Changes requested -- see below', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'DISMISSED' }),
+    appReview('Approved (Quality): fine', T_2),
+  ] });
+  assert.equal(cleared.pass, true);
+});
+
+test('CLEAR (unparseable latch, comment): it clears when the comment is edited into a parseable verdict or deleted', () => {
+  const app = (body, extra = {}) => ({ body, createdAt: BEFORE_PUSH, login: REVIEWER_LOGIN, ...extra });
+  const approval = appReview('Approved (Quality): fine', T_1);
+  assert.equal(guard({ reviews: [approval], comments: [app('changes requested, see thread')] }).pass, false);
+  assert.equal(guard({ reviews: [approval], comments: [app('Approved (Design): resolved', { updatedAt: T_2 })] }).pass, true);
+  assert.equal(guard({ reviews: [approval], comments: [] }).pass, true);
+});
+
+test('CLEAR (App state-only latch): a role-less CHANGES_REQUESTED-state App review survives other approvals, and clears only on dismissal', () => {
+  const latched = guard({ reviews: [
+    appReview('see inline notes', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED' }),
+    appReview('Approved (Quality): fine', T_1, { state: 'APPROVED' }),
+  ] });
+  assert.equal(latched.pass, false);
+  assert.equal(latched.blockers[0].role, '(unparseable)');
+  const cleared = guard({ reviews: [
+    appReview('see inline notes', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'DISMISSED' }),
+    appReview('Approved (Quality): fine', T_1, { state: 'APPROVED' }),
+  ] });
+  assert.equal(cleared.pass, true);
+});
+
+test('CLEAR (App state-only, role named in the body): it is that role block, so the same role re-approving clears it and another role does not', () => {
+  const request = appReview('Approved (Design): actually no', T_1, { state: 'CHANGES_REQUESTED' });
+  const other = guard({ reviews: [request, appReview('Approved (Quality): fine', T_2)] });
+  assert.equal(other.pass, false);
+  assert.deepEqual(other.blockers.map((b) => b.role), ['Design']);
+  assert.equal(guard({ reviews: [request, appReview('Approved (Design): fixed', T_2)] }).pass, true);
+});
+
+test('dismissing ONE role-less latch does not clear a DIFFERENT role-less latch', () => {
+  const r = guard({ reviews: [
+    appReview('see inline notes', BEFORE_PUSH, { commitId: OLD_HEAD, state: 'DISMISSED' }),
+    appReview('changes requested, more notes', T_1),
+    appReview('Approved (Quality): fine', T_2),
+  ] });
+  assert.equal(r.pass, false);
 });
 
 test('BLOCKS: a HUMAN CHANGES_REQUESTED review at the head blocks an App approval', () => {
@@ -462,7 +620,7 @@ test('BLOCKS: a HUMAN CHANGES_REQUESTED review at the head blocks an App approva
     humanReview('CHANGES_REQUESTED', T_2, { body: 'please hold this' }),
   ] });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
   assert.deepEqual(r.blockers.map((b) => b.role), ['@jpsnover']);
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
 });
@@ -516,7 +674,7 @@ test('a strict "Changes requested (<role>):" COMMENT from the shared human login
     comments: [{ body: 'Changes requested (Tech Lead): not yet', createdAt: T_2, login: HUMAN }],
   });
   assert.equal(r.pass, false);
-  assert.equal(r.reason, 'changes-requested-at-head');
+  assert.equal(r.reason, 'changes-requested-outstanding');
 });
 
 test('status chatter on the shared login that merely MENTIONS "changes requested" does not latch a block', () => {

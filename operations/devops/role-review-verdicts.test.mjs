@@ -208,3 +208,63 @@ test('nit 2: a later entry that is ITSELF unparseable overwrites the earlier one
   // overwrite applies (unrelated to the latch) -- still blocks, just reflecting round 2.
   assert.equal(v.get('(unparseable)').kind, 'changes_requested');
 });
+
+// ── mode: 'gate' (t/116, TL p/12#58 on t/116#8): head-bound approvals, sticky changes-requests ──
+const OLD = 'old999';
+const PUSH_AT = '2026-11-09T12:00:00Z';
+const g = (reviews, comments = []) => latestRoleVerdicts({ reviews, comments, reviewerAppLogin: APP, headSha: HEAD, lastPushAt: PUSH_AT, mode: 'gate' });
+const blocks = (m) => [...m.values()].filter((v) => v.kind === 'changes_requested').map((v) => v.role);
+
+test('gate: DEFAULT mode is unchanged -- an old-head request is still dropped for existing callers (t0-enqueue-sweep)', () => {
+  const reviews = [{ body: 'Changes requested (Design): no', login: APP, commitId: OLD, submittedAt: '2026-11-09T11:00:00Z' }];
+  assert.equal(latestRoleVerdicts({ reviews, comments: [], reviewerAppLogin: APP, headSha: HEAD, lastPushAt: PUSH_AT }).size, 0);
+  assert.deepEqual(blocks(g(reviews)), ['Design']);
+});
+
+test('gate: a request is sticky across a push; another role at the new head does not clear it, the same role does', () => {
+  const request = { body: 'Changes requested (Design): no', login: APP, commitId: OLD, submittedAt: '2026-11-09T11:00:00Z' };
+  assert.deepEqual(blocks(g([request, { body: 'Approved (Quality): ok', login: APP, commitId: HEAD, submittedAt: '2026-11-09T13:00:00Z' }])), ['Design']);
+  const v = g([request, { body: 'Approved (Design): ok', login: APP, commitId: HEAD, submittedAt: '2026-11-09T13:00:00Z' }]);
+  assert.deepEqual(blocks(v), []);
+  assert.equal(v.get('design').atHead, true);
+});
+
+test('gate: approvals carry atHead (review commit === head; comment after the push)', () => {
+  const v = g(
+    [{ body: 'Approved (Quality): ok', login: APP, commitId: OLD, submittedAt: '2026-11-09T13:00:00Z' }],
+    [{ body: 'Approved (Tech Lead): ok', login: 'jpsnover', createdAt: '2026-11-09T13:00:00Z' }],
+  );
+  assert.equal(v.get('quality').atHead, false);
+  assert.equal(v.get('techlead').atHead, true);
+});
+
+test('gate: human reviews are per-login state slots; DISMISSED and the same login APPROVED clear, COMMENTED does not', () => {
+  const req = { state: 'CHANGES_REQUESTED', login: 'alice', commitId: OLD, submittedAt: '2026-11-09T11:00:00Z' };
+  assert.deepEqual(blocks(g([req])), ['@alice']);
+  assert.deepEqual(blocks(g([req, { state: 'COMMENTED', login: 'alice', commitId: HEAD, submittedAt: '2026-11-09T13:00:00Z' }])), ['@alice']);
+  assert.deepEqual(blocks(g([req, { state: 'APPROVED', login: 'bob', commitId: HEAD, submittedAt: '2026-11-09T13:00:00Z' }])), ['@alice']);
+  assert.deepEqual(blocks(g([req, { state: 'APPROVED', login: 'alice', commitId: HEAD, submittedAt: '2026-11-09T13:00:00Z' }])), []);
+  assert.deepEqual(blocks(g([{ ...req, state: 'DISMISSED' }])), []);
+});
+
+test('gate: a tie between an approval and a request in one slot goes to the request', () => {
+  const at = '2026-11-09T13:00:00Z';
+  const a = { body: 'Approved (Design): ok', login: APP, commitId: HEAD, submittedAt: at };
+  const r = { body: 'Changes requested (Design): no', login: APP, commitId: HEAD, submittedAt: at };
+  assert.deepEqual(blocks(g([a, r])), ['Design']);
+  assert.deepEqual(blocks(g([r, a])), ['Design']);
+});
+
+test('gate: role-less latches get one slot each; dismissal removes only its own', () => {
+  const v = g([
+    { body: 'changes requested, see thread', login: APP, commitId: OLD, submittedAt: '2026-11-09T11:00:00Z', state: 'DISMISSED' },
+    { body: 'notes', login: APP, commitId: HEAD, submittedAt: '2026-11-09T13:00:00Z', state: 'CHANGES_REQUESTED' },
+    { body: 'Approved (Quality): ok', login: APP, commitId: HEAD, submittedAt: '2026-11-09T14:00:00Z' },
+  ]);
+  assert.deepEqual(blocks(v), ['(unparseable)']);
+});
+
+test('gate: loose "changes requested" text from a non-App comment is ignored; the strict grammar blocks', () => {
+  assert.deepEqual(blocks(g([], [{ body: 'Addressed the changes requested (Design).', login: 'jpsnover', createdAt: '2026-11-09T13:00:00Z' }])), []);
+  assert.deepEqual(blocks(g([], [{ body: 'Changes requested (Design): no', login: 'jpsnover', createdAt: '2026-11-09T11:00:00Z' }])), ['Design']);
+});
