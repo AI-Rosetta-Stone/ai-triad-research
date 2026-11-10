@@ -25,7 +25,7 @@ import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateInde
 import { createBackendAdapter } from './backendAdapter.js';
 import type { StorageBackendAdapter } from './backendAdapter.js';
 import type { ChatSession, DryRunReport } from './types.js';
-import { createFilesystemBackend } from '../../../../../src/server/storage/filesystemBackend.js';
+import { FilesystemBackend } from '../../src/server/storage/filesystemBackend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -105,7 +105,7 @@ async function main() {
   console.log(`Base path: ${baseDataPath}`);
   console.log('');
 
-  const storageBackend = createFilesystemBackend();
+  const storageBackend = new FilesystemBackend();
   const backend = createBackendAdapter(storageBackend);
 
   // DRY RUN MODE

@@ -8,7 +8,7 @@ import * as os from 'os';
 
 import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateIndex } from '../archive.js';
 import { createBackendAdapter } from '../backendAdapter.js';
-import { createFilesystemBackend } from '../../../../../src/server/storage/filesystemBackend.js';
+import { FilesystemBackend } from '../../src/server/storage/filesystemBackend.js';
 import type { StorageBackendAdapter } from '../backendAdapter.js';
 import { analyzeChatSession, generateDryRunReport, formatDryRunReport } from '../dryRun.js';
 import { replayChatSession, processChatBatch } from '../batchRunner.js';
@@ -21,7 +21,7 @@ describe('Archive Module with Backend Adapter', () => {
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'chat-regen-test-'));
-    const storageBackend = createFilesystemBackend();
+    const storageBackend = new FilesystemBackend();
     backend = createBackendAdapter(storageBackend);
   });
 
@@ -52,7 +52,7 @@ describe('Archive Module with Backend Adapter', () => {
 
     const archived = await listArchivedVersions(oldChatFixture.id, tempDir, backend);
     expect(archived.length).toBe(2);
-    expect(archived[0].timestamp).toBeGreaterThan(archived[1].timestamp);
+    expect(archived[0].timestamp.localeCompare(archived[1].timestamp)).toBeGreaterThan(0);
   });
 
   it('restores most recent archived version', async () => {
