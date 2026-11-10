@@ -24,7 +24,28 @@ Gate configuration metadata (exemptions, override thresholds, "warning-only unti
 
 A **new** gate that will **block** a deploy must first run **non-blocking (warn) against the real target environment for at least one green cycle** before it's promoted to blocking.
 - Offline both-arms proof (rule 1) is necessary but not sufficient. A probe validated only against mocks or locally can carry its own gap into prod. In t/2683, an analytics smoke promoted straight to blocking failed on its *own* missing-anon-session bug, not a real defect, and took down both deploys.
-- Promotion to blocking is a separate, deliberate step, gated on evidence that the probe ran green against a real deployment. Making a gate blocking is **T2**.
+- Promotion to blocking is a separate, deliberate step, gated on evidence that the probe produced **real verdicts** against a real deployment (checklist below). Making a gate blocking is **T2**.
+
+**A green run is not a verdict (t/4496).** A warn-only gate that can't read its target (403, missing file, auth failure) exits 0 and leaves the step green, the same as a clean pass. The share-freshness gate ran green for an unknown period while getting a 403 (t/4390). So a warn-only gate reports one of three verdicts, never two:
+
+| Verdict | Meaning |
+|---|---|
+| `PASS` | Read real content; found nothing wrong. |
+| `FAIL` | Read real content; found the condition the gate checks for. |
+| `GATE-UNREADABLE` | Couldn't read (or couldn't evaluate) the target. **No verdict, not a pass.** Always carries a reason. |
+
+Use the shared helpers rather than ad-hoc `::warning::` lines. Both write the verdict to the step summary and to step outputs `gate=`, `verdict=` and `reason=`:
+- PowerShell: `operations/devops/GateVerdict.ps1` (`New-GateVerdict`, `Get-GateReadFailureReason`, `Write-GateVerdict`).
+- JavaScript or `github-script`: `operations/devops/gate-verdict.mjs` (`makeGateVerdict`, `classifyReadFailure`, `emitGateVerdict`). Load it from the base branch's tip, not the PR head; the loading snippet is in the file header.
+- Worked example: the prod/staging digest-parity gate (`operations/devops/Test-ProdStagingDigestParity.ps1`, `tests/Test-ProdStagingDigestParity.Tests.ps1`). A clean target gives `PASS`, a skewed one gives `FAIL`, and a simulated 403 gives `GATE-UNREADABLE`.
+
+**Promotion checklist (warn-only to blocking).** The T2 promotion PR must cite all of the following:
+1. **At least one real verdict run.** A link to a run against the real target whose step output or summary shows `verdict=PASS` or `verdict=FAIL` on real content. A green run that shows no verdict doesn't count, and neither does a `GATE-UNREADABLE` run.
+2. **Evidence it isn't stuck in `GATE-UNREADABLE`.** The verdicts from the gate's recent real runs (at least the last 5, or all of them if there are fewer), with none in `GATE-UNREADABLE`, or each one explained and fixed. A gate that is mostly unreadable has never really run.
+3. **How the blocking gate treats `GATE-UNREADABLE`.** Say whether an unreadable target will block (fail closed) or warn, and why. Never let it fall through as a pass.
+4. The offline both-arms proof from rule 1 still applies: the predicate tests cover `PASS`, `FAIL` and `GATE-UNREADABLE`.
+
+A gate that predates the helpers must adopt them, or show an equivalent three-state output, before it can be promoted.
 
 ## 4. Guard Testability (t/2971)
 
