@@ -86,14 +86,15 @@ describe('globalSetup', () => {
     expect(fs.existsSync(file)).toBe(true);
   });
 
-  it('without a preset, uses a temp file and deletes it after a clean run', () => {
+  it('without a preset, uses a file in a private temp dir and deletes the dir after a clean run', () => {
     delete process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const teardown = setup();
     const file = process.env[DATA_ROOT_GUARD_HITS_FILE_ENV]!;
-    expect(file.startsWith(os.tmpdir())).toBe(true);
+    expect(path.basename(path.dirname(file))).toMatch(/^data-root-guard-.{6}$/); // a private mkdtemp dir
+    expect(path.dirname(path.dirname(file))).toBe(path.resolve(os.tmpdir()));
     fs.appendFileSync(file, jsonl(installed));
     teardown();
-    expect(fs.existsSync(file)).toBe(false);
+    expect(fs.existsSync(path.dirname(file))).toBe(false);
   });
 });

@@ -106,8 +106,11 @@ export function summarizeGuardHits(text: string, hitsFile: string): DataRootGuar
 /** vitest globalSetup: returns the teardown. */
 export default function setup(): () => void {
   const preset = process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
-  const hitsFile = preset || path.join(os.tmpdir(), `data-root-guard-hits-${process.pid}-${Date.now()}.jsonl`);
-  fs.mkdirSync(path.dirname(hitsFile), { recursive: true });
+  // No preset: a private mkdtemp directory (0700, unpredictable name), never a guessable name in the shared
+  // temp dir (CodeQL js/insecure-temporary-file).
+  const tempDir = preset ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'data-root-guard-'));
+  const hitsFile = preset || path.join(tempDir!, 'hits.jsonl');
+  if (preset) fs.mkdirSync(path.dirname(hitsFile), { recursive: true });
   fs.writeFileSync(hitsFile, ''); // a fresh file per run: a preset path may hold a previous run's hits
   process.env[DATA_ROOT_GUARD_HITS_FILE_ENV] = hitsFile;
 
@@ -120,6 +123,6 @@ export default function setup(): () => void {
     }
     const summary = summarizeGuardHits(text, hitsFile);
     console.log(['', ...summary.lines].join('\n'));
-    if (!preset && summary.installed && summary.hits === 0) fs.rmSync(hitsFile, { force: true });
+    if (tempDir && summary.installed && summary.hits === 0) fs.rmSync(tempDir, { recursive: true, force: true });
   };
 }
