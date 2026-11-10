@@ -8,7 +8,7 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg, #1e1e1e);
+  background: var(--bg-primary); /* t/198: --bg is defined in no theme, so this was always #1e1e1e */
   color: var(--text-primary, #d4d4d4);
 }
 

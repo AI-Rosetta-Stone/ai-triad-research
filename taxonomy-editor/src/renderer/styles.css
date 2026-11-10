@@ -67,6 +67,7 @@
   --error-color: var(--danger); /* generic error red — alias, single source like --error */
   --error-text: #B42318; /* foreground; AA on --bg-primary (paired w/ --success-text) AND on --error-bg */
   --error-bg: #FDECEC;
+  --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #a16207;
   --success-bg: #eff6f1;
@@ -160,6 +161,7 @@
   --error-color: var(--danger);
   --error-text: #FCA5A5; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2A1616;
+  --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #f59e0b;
   --success-bg: #143430;
@@ -253,6 +255,7 @@
   --error-color: var(--danger);
   --error-text: #FF9B9B; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2E1A1C;
+  --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #d9a441;
   --success-bg: #1a4326;
@@ -344,6 +347,7 @@
   --error-color: var(--danger);
   --error-text: #A5182A; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #F5E2E2;
+  --danger-fill: #A5182A;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #876208;
   --success-bg: #e8ebe6;
@@ -1451,8 +1455,8 @@ body {
 }
 
 .btn-danger {
-  background: var(--danger);
-  border-color: var(--danger);
+  background: var(--danger-fill);
+  border-color: var(--danger-fill);
   color: #fff;
 }
 
