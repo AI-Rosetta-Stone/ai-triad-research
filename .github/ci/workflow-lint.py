@@ -88,8 +88,9 @@ def parse_step_key(line):
     return None, indent
 
 
-def lint_file(path, content):
-    """Return list of violation strings for one workflow file."""
+def lint_file(path, content, required_contexts=()):
+    """Return list of violation strings for one workflow file. `required_contexts`: the posted
+    check-run names of main's required contexts (from the SSOT), for Check 5's t/4963 arms."""
     errs = []
     lines = content.splitlines()
 
@@ -153,12 +154,75 @@ def lint_file(path, content):
     errs.extend(_check_permissions_allowlist(path, content))
 
     # ── Check 5: a merge_group-gated job with `needs:` must carry !cancelled() (t/4939) ──
-    errs.extend(_check_mergegroup_guard_cancelled(path, content))
+    # Widened by t/4963: a job with `needs:` that POSTS a required context must carry
+    # `always()` or `!cancelled()` in its `if:` (and must have an `if:` at all).
+    errs.extend(_check_mergegroup_guard_cancelled(path, content, required_contexts))
 
     return errs
 
 
-def _check_mergegroup_guard_cancelled(path, content):
+# t/4963 (SO, Interweave t/70#6): the ONLY status functions that make a required job with
+# `needs:` safe are `always()` and `!cancelled()` -- both run the job on the normal path even when
+# an upstream need skipped. `success()` IS the implicit default (written out, it is exactly the
+# t/4939 bug); `failure()` / bare `cancelled()` mean the job doesn't run on the normal path at all.
+# So those three never count as safe. Word-boundary so e.g. `my_always()` doesn't match, and
+# `!cancelled()` requires the `!` (whitespace after it allowed).
+SAFE_STATUS_FN_RE = re.compile(r'(?<![\w.-])always\s*\(\s*\)|!\s*cancelled\s*\(\s*\)')
+
+
+# t/4963 audit (agent-devops/notes/t70-audit.md): contexts Check 5 treats as required ON TOP of the
+# SSOT (.github/ci/required-contexts.json). `t1-approval-guard` is not in branch protection yet,
+# but t/4939 plans to promote it, and ci.yml's merge_group job already posts that name. Linting it
+# now means the promotion can't land on top of a job that silently skips. This only widens what
+# Check 5 checks; it does not touch R1-R5 or the SSOT's drift guard.
+CHECK5_PENDING_CONTEXTS = ('t1-approval-guard',)
+
+
+# A YAML block-scalar header: `|` (literal) or `>` (folded), with an optional chomping indicator
+# (`-`/`+`) and an optional indentation indicator (1-9), in either order (`>-`, `|+`, `>2-`, `|-2`).
+_BLOCK_SCALAR_HDR_RE = re.compile(r'^[|>](?:[+-]?[1-9]?|[1-9][+-])$')
+
+
+def _job_if_text(lines, if_idx, end):
+    """Return a job's `if:` expression as one string, comments stripped (Interweave t/70 SO
+    requirement: a multi-line `if:` must not evade Check 5). Handles:
+      - the inline form (`if: expr`);
+      - a block scalar, folded (`if: >`, `>-`, `>+`) or literal (`if: |`, `|-`, `|+`), with an
+        optional indentation indicator: the header line carries no expression, the body is every
+        following line indented deeper than the `if:` key;
+      - a plain or quoted scalar continued onto deeper-indented lines (`if: a &&` / `  b`).
+    Every continuation line is indented deeper than the `if:` key itself (relative, not a fixed
+    column), so nested `if:`s work too. A `#` line inside a literal block is YAML text, not a
+    comment, but GitHub's expression syntax has no `#` comment either; stripping it errs toward
+    flagging, never toward hiding a missing status function."""
+    if_line = lines[if_idx]
+    if_indent = len(if_line) - len(if_line.lstrip())
+    first = _strip_comment(if_line.split(':', 1)[1]).strip()
+    parts = [] if _BLOCK_SCALAR_HDR_RE.match(first) else [first]
+    for k in range(if_idx + 1, end):
+        line = lines[k]
+        if line.strip() == '':
+            continue
+        if len(line) - len(line.lstrip()) <= if_indent:
+            break
+        parts.append(_strip_comment(line).strip())
+    return ' '.join(p for p in parts if p)
+
+
+def _job_posted_name(lines, job_idx, job_id, end):
+    """The check-run name a job posts: its `name:` if set, else its id (t/3691 invariant, same as
+    _find_reporting_job). Returns None for a matrixed job: it posts `name (value)`, never the bare
+    name, so it can never satisfy a bare required context."""
+    strat_idx = _find_key(lines, 'strategy', 4, job_idx + 1, end)
+    if strat_idx != -1 and _find_key(lines, 'matrix', 6, strat_idx + 1, end) != -1:
+        return None
+    name_idx = _find_key(lines, 'name', 4, job_idx + 1, end)
+    if name_idx == -1:
+        return job_id
+    return _strip_comment(lines[name_idx].split(':', 1)[1]).strip().strip('\'"')
+
+
+def _check_mergegroup_guard_cancelled(path, content, required_contexts=()):
     """Check 5 (t/4939 recurrence guard, DevOps Lead p/648#386 item 3): a job gated on
     `github.event_name == 'merge_group'` with its own `needs:` dependency, but with no
     `!cancelled()` in its `if:`, silently skips in every merge_group batch forever.
@@ -174,7 +238,24 @@ def _check_mergegroup_guard_cancelled(path, content):
     `!cancelled()` forces the `if:` to be a real expression (GitHub no longer wraps it in an
     implicit success()), so the job runs whenever its own event/needs-result conditions hold,
     independent of the rest of the chain's skip/success shape.
+
+    WIDENED (t/4963, Interweave t/70): the merge_group arm above only fires when the `if:`
+    mentions `merge_group`. The same implicit success() silently skips ANY job with `needs:`,
+    and when that job posts a REQUIRED context, GitHub counts the skip as passing. So for a
+    job with `needs:` whose posted check-run name (its `name:`, else its id) is in
+    `required_contexts`, two more shapes are blocking:
+      (b) an `if:` with neither `always()` nor `!cancelled()` -- with no status function it
+          inherits the implicit success() over the whole upstream chain; an explicit
+          `success()` is that same default (skips when upstream skips), and `failure()` /
+          bare `cancelled()` don't run the job on the normal path (SO, t/70#6);
+      (c) no `if:` at all -- same implicit success(): one failed or skipped need skips the
+          job, and the skipped required context reads as green.
+    Scans EVERY workflow file, not just the SSOT's named one: a required context can be posted
+    by a second, same-named job elsewhere (ci.yml's merge_group consult-hold-guard /
+    joint-gv-guard), which is exactly where t/4939 hid. `required_contexts` defaults to empty,
+    which keeps the original merge_group-only behaviour for the pre-existing fixtures.
     """
+    required = set(required_contexts or ())
     lines = content.splitlines()
     jobs_idx = _find_key(lines, 'jobs', 0)
     if jobs_idx < 0:
@@ -188,19 +269,39 @@ def _check_mergegroup_guard_cancelled(path, content):
             continue
         end = _block_end(lines, i, 2)
         needs_idx = _find_key(lines, 'needs', 4, i + 1, end)
+        if needs_idx < 0:
+            continue
         if_idx = _find_key(lines, 'if', 4, i + 1, end)
-        if needs_idx < 0 or if_idx < 0:
+        posted = _job_posted_name(lines, i, m.group(1), end)
+        is_required = posted is not None and posted in required
+        if if_idx < 0:
+            if is_required:
+                findings.append(
+                    f"{path}:{i + 1}: job \"{m.group(1)}\" posts required context \"{posted}\" and "
+                    f"has `needs:` but no `if:` -- GitHub applies an implicit success() over the "
+                    f"whole upstream chain, so one failed or skipped need SKIPS this job and the "
+                    f"skipped required context counts as passing. Add an `if:` with an explicit "
+                    f"status function, e.g. `if: ${{{{ !cancelled() && ... }}}}` (t/4963)."
+                )
             continue
-        if_line = lines[if_idx]
-        if 'merge_group' not in if_line:
-            continue
-        if '!cancelled()' not in if_line:
+        if_text = _job_if_text(lines, if_idx, end)
+        if 'merge_group' in if_text and '!cancelled()' not in if_text:
             findings.append(
                 f"{path}:{if_idx + 1}: job \"{m.group(1)}\" is merge_group-gated with a `needs:` "
                 f"dependency but its `if:` has no `!cancelled()` -- the implicit success() "
                 f"requires the WHOLE upstream chain (including needs' own skipped/path-filtered "
                 f"dependencies) to succeed, so the job silently skips and GitHub reports that "
                 f"skip as a satisfied required context (t/4939#22)."
+            )
+        elif is_required and not SAFE_STATUS_FN_RE.search(if_text):
+            findings.append(
+                f"{path}:{if_idx + 1}: job \"{m.group(1)}\" posts required context \"{posted}\" and "
+                f"has `needs:`, but its `if:` has neither `always()` nor `!cancelled()` -- with no "
+                f"status function GitHub wraps it in an implicit success() over the whole upstream "
+                f"chain (an explicit success() is the same thing; failure()/cancelled() don't run "
+                f"on the normal path), so an upstream skip SKIPS this job and the skipped required "
+                f"context counts as passing. Use `if: ${{{{ !cancelled() && ... }}}}` "
+                f"(t/4963, t/4939#22)."
             )
     return findings
 
@@ -1568,6 +1669,117 @@ jobs:
     else:
         print('  PASS: merge_group !cancelled() check ignores a job whose if: never mentions merge_group')
 
+    # Check 5 widened (t/4963): a job with `needs:` that POSTS a required context. One fixture
+    # per new shape, both arms. (label, job header + keys, expect_flag). The required-context set
+    # is the SSOT's real four contexts.
+    rc_set = ('ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard')
+    rc_cases = [
+        # Shape (b): `if:` with no status function, no merge_group (the arm t/4939's check missed).
+        ('(b) required, needs, if without status fn -> flag',
+         "  consult-hold-guard:\n    name: consult-hold-guard\n    if: github.event_name == 'pull_request'\n    needs: [ci-gate]\n", True),
+        ('(b) required, needs, if with !cancelled() -> silent',
+         "  consult-hold-guard:\n    name: consult-hold-guard\n    if: ${{ !cancelled() && github.event_name == 'pull_request' }}\n    needs: [ci-gate]\n", False),
+        ('(b) required, needs, if: always() -> silent',
+         "  ci-gate:\n    name: ci-gate\n    needs: [changes]\n    if: always()\n", False),
+        # SO (t/70#6): success() is the implicit default written out; failure()/cancelled() don't
+        # run on the normal path. None of them is safe -> all flag. Only always()/!cancelled() pass.
+        ('(b) required, needs, if: success() -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: success()\n", True),
+        ('(b) required, needs, if: success() && x -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: success() && github.ref != ''\n", True),
+        ('(b) required, needs, if: ${{ success() && x }} -> flag',
+         "  consult-hold-guard:\n    needs: [ci-gate]\n    if: ${{ success() && github.event_name == 'merge_group' && !contains(github.ref, 'x') }}\n", True),
+        ('(b) required, needs, if: failure() -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: failure()\n", True),
+        ('(b) required, needs, if: failure() || x -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: ${{ failure() || github.ref != '' }}\n", True),
+        ('(b) required, needs, if: cancelled() || x (no !) -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: cancelled() || github.ref != ''\n", True),
+        ('(b) required, needs, if: success() || !cancelled() -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: success() || ! cancelled()\n", False),
+        # Shape (b), posted-name routing: reported by job id (no name:) -> flag; a job whose id is a
+        # required context but whose name: is something else posts THAT name -> not a reporter.
+        ('(b) required by job id (no name:), bare if -> flag',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: github.ref != ''\n", True),
+        ('(b) id matches a context but name: differs -> silent',
+         "  joint-gv-guard:\n    name: something-else\n    needs: [ci-gate]\n    if: github.ref != ''\n", False),
+        ('(b) quoted name: with a space, bare if -> flag',
+         "  analyze:\n    name: 'CodeQL Analysis'\n    needs: [setup]\n    if: github.event_name != 'schedule'\n", True),
+        # Shape (b) multi-line `if:` (Interweave t/70 SO requirement): folded (`>-`, `>`) and
+        # literal (`|`, `|-`) block scalars, plus a plain-scalar continuation. The header line
+        # carries no expression; the status fn may sit on any continuation line. Both arms each.
+        ('(b) folded >- if without status fn -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.event_name == 'push' ||\n      github.event_name == 'pull_request'\n", True),
+        ('(b) folded >- if with !cancelled() on a continuation line -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.event_name == 'push' &&\n      !cancelled()\n", False),
+        ('(b) folded > if without status fn -> flag',
+         "  consult-hold-guard:\n    needs: [ci-gate]\n    if: >\n      github.event_name == 'pull_request'\n", True),
+        ('(b) folded > if with always() -> silent',
+         "  consult-hold-guard:\n    needs: [ci-gate]\n    if: >\n      always() &&\n      github.event_name == 'pull_request'\n", False),
+        ('(b) literal | if without status fn -> flag',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: |\n      github.event_name == 'pull_request' &&\n      needs.ci-gate.result == 'success'\n", True),
+        ('(b) literal | if with !cancelled() -> silent',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: |\n      !cancelled() &&\n      needs.ci-gate.result == 'success'\n", False),
+        ('(b) literal |- with indentation indicator, no status fn -> flag',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: |2-\n      github.ref != ''\n", True),
+        ('(b) block-scalar body comment mentioning always() does not count -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-  # always() later\n      github.ref != ''\n", True),
+        ('(b) plain scalar continued onto a deeper line, no status fn -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      github.event_name == 'push'\n", True),
+        ('(b) plain scalar continued, !cancelled() on the continuation -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      !cancelled()\n", False),
+        ('(b) block-scalar success() only -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-\n      success() &&\n      github.ref != ''\n", True),
+        ('(b) block-scalar if stops at the next job key (status fn in a later step if) -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.ref != ''\n    steps:\n      - if: always()\n        run: echo hi\n", True),
+        # Arm (a), the t/4939 merge_group arm, written as a block scalar: before t/70 the
+        # merge_group test read only the `if: >-` header line and missed this entirely. ci.yml's
+        # three guards would have evaded Check 5 had they been written this way.
+        ('(a) block-scalar merge_group if without !cancelled() (not required) -> flag',
+         "  some-guard:\n    needs: [ci-gate]\n    if: >-\n      github.event_name == 'merge_group' &&\n      needs.ci-gate.result == 'success'\n", True),
+        ('(a) block-scalar merge_group if with !cancelled() -> silent',
+         "  some-guard:\n    needs: [ci-gate]\n    if: >-\n      !cancelled() &&\n      github.event_name == 'merge_group'\n", False),
+        # Shape (b) comment trap: a status fn mentioned only in a trailing comment doesn't count.
+        ('(b) status fn only in a trailing comment -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != ''  # TODO add always()\n", True),
+        # Shape (c): `needs:` and no `if:` at all.
+        ('(c) required, needs, no if: -> flag',
+         "  ci-gate:\n    name: ci-gate\n    needs: [changes]\n", True),
+        ('(c) required, no needs, no if: -> silent (nothing upstream to skip on)',
+         "  ci-gate:\n    name: ci-gate\n", False),
+        # Negative controls: scope stays limited to required contexts and to jobs with needs:.
+        ('not required, needs, bare if -> silent',
+         "  some-job:\n    needs: [ci-gate]\n    if: github.ref != ''\n", False),
+        ('not required, needs, no if -> silent',
+         "  some-job:\n    needs: [ci-gate]\n", False),
+        ('required, no needs, bare if -> silent',
+         "  consult-hold-guard:\n    if: github.ref != ''\n", False),
+        ('matrixed job named like a context (posts "name (v)") -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != ''\n    strategy:\n      matrix:\n        x: [1, 2]\n", False),
+    ]
+    for label, job, expect_flag in rc_cases:
+        fixture = ("permissions:\n  contents: read\njobs:\n" + job +
+                   "    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    steps:\n      - run: echo hi\n")
+        got = _check_mergegroup_guard_cancelled('fixture_rc', fixture, rc_set)
+        if bool(got) != expect_flag or len(got) > 1:
+            failures.append(f'Check 5 widened (t/4963) {label}: got {got}')
+        else:
+            print(f'  PASS: Check 5 widened (t/4963) {label}')
+
+    # The widened arms must also be reachable through lint_file (the real entry point), and must
+    # stay off when no required-context set is passed (the pre-t/4963 call shape).
+    fixture_rc_entry = ("permissions:\n  contents: read\njobs:\n  ci-gate:\n    needs: [changes]\n"
+                        "    if: github.ref != ''\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n"
+                        "    steps:\n      - run: echo hi\n")
+    if not any('required context "ci-gate"' in e for e in lint_file('fixture_rc_entry', fixture_rc_entry, rc_set)):
+        failures.append('Check 5 widened (t/4963): lint_file did not pass required_contexts through to Check 5')
+    else:
+        print('  PASS: Check 5 widened (t/4963) is reachable through lint_file')
+    if lint_file('fixture_rc_entry', fixture_rc_entry):
+        failures.append('Check 5 widened (t/4963): flagged with no required-context set (the old call shape)')
+    else:
+        print('  PASS: Check 5 widened (t/4963) is off when no required-context set is passed')
+
     if failures:
         for f in failures:
             print(f'  FAIL: {f}')
@@ -1587,10 +1799,16 @@ if not workflows:
     print('workflow-lint: no workflows found in .github/workflows/')
     sys.exit(1)
 
+# t/4963: Check 5's required-context arms need the posted names of main's required contexts.
+# A missing/malformed SSOT yields an empty set here, but it is never silent: the required-context
+# block below turns that same SSOT error into a hard error.
+_check5_contexts = tuple(e.get('context') for e in load_required_contexts()[0] if e.get('context')) \
+    + CHECK5_PENDING_CONTEXTS
+
 for path in workflows:
     with open(path, encoding='utf-8') as f:
         content = f.read()
-    errors.extend(lint_file(path, content))
+    errors.extend(lint_file(path, content, _check5_contexts))
 
 # ── t/3646: required-context checks ──────────────────────────────────────────
 # Rule findings are WARN-ONLY until REQUIRED_CONTEXT_BLOCKING flips (a deliberate
