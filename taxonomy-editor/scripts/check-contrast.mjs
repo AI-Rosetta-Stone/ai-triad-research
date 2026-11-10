@@ -639,7 +639,9 @@ for (const v of unmeasured) {
 }
 
 if (args.includes('--json')) {
-  console.log(JSON.stringify({ findings, undefinedTokens: [...undefinedTokens] }, null, 2));
+  // t/147: `unmeasured` rides in the payload too. check-contrast.sh shows stderr only when the gate
+  // fails, so contrast-gate.mjs is what surfaces these on a green run.
+  console.log(JSON.stringify({ findings, undefinedTokens: [...undefinedTokens], unmeasured: [...unmeasured] }, null, 2));
 } else {
   const contrastFindings = findings.filter((f) => f.kind === 'contrast');
   const fillFindings = findings.filter((f) => f.kind === 'undefined-fill');

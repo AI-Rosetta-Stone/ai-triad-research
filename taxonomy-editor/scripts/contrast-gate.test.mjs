@@ -65,6 +65,28 @@ describe('contrast gate — ratchet arms', () => {
   });
 });
 
+describe('contrast gate — unmeasured color-mix values (t/147)', () => {
+  const withUnmeasured = (n, unmeasured) => JSON.stringify({ ...JSON.parse(payload(n)), unmeasured });
+
+  it('warns about unmeasured values on a PASSING run, where stderr is never shown', () => {
+    const r = evaluateContrastGate({ stdout: withUnmeasured(2, ['color-mix(in srgb, red 50%, currentColor)']), exitCode: 1, ceiling: 5 });
+    assert.equal(r.verdict, 'OK');
+    assert.equal(r.warnings.length, 1);
+    assert.match(r.warnings[0], /not measured.*currentColor/);
+  });
+
+  it('warns on a failing run too', () => {
+    const r = evaluateContrastGate({ stdout: withUnmeasured(4, ['color-mix(in oklch, a, b, c)']), exitCode: 1, ceiling: 3 });
+    assert.equal(r.verdict, 'FAIL');
+    assert.equal(r.warnings.length, 1);
+  });
+
+  it('has no warnings when the payload lists none (or predates the field)', () => {
+    assert.deepEqual(evaluateContrastGate({ stdout: withUnmeasured(1, []), exitCode: 1, ceiling: 5 }).warnings, []);
+    assert.deepEqual(evaluateContrastGate({ stdout: payload(1), exitCode: 1, ceiling: 5 }).warnings, []);
+  });
+});
+
 describe('check-contrast.mjs --json — complete output through a pipe (t/111 root cause)', () => {
   it('stdout parses in full when piped (process.exit() used to truncate it on Linux)', () => {
     const script = join(dirname(fileURLToPath(import.meta.url)), 'check-contrast.mjs');
@@ -72,6 +94,7 @@ describe('check-contrast.mjs --json — complete output through a pipe (t/111 ro
     assert.ok(res.status === 0 || res.status === 1, `exit ${res.status}: ${res.stderr}`);
     const parsed = JSON.parse(res.stdout);
     assert.ok(Array.isArray(parsed.findings));
+    assert.ok(Array.isArray(parsed.unmeasured), 'unmeasured must be in the payload for the gate to warn (t/147)');
     assert.ok(res.stdout.length > 64 * 1024, `payload ${res.stdout.length} bytes should exceed a pipe buffer, or this test proves nothing`);
   });
 });
