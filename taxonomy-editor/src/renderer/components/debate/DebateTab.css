@@ -84,8 +84,8 @@
 }
 
 .debate-phase-badge.phase-closed {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--text-muted);
+  color: #fff;
 }
 
 .debate-session-item-delete {
