@@ -23,6 +23,12 @@ export const OpEdParamsSchema = z.object({
   authorBio: z.string().optional(),
   model: z.string(),
   tagSelection: TagSelectionSchema.passthrough().optional(),
+  // t/203: generation tuning. Declared so a stored set keeps them; ranges are enforced (clamp + WARN) by
+  // generate.ts at run time, not here, so a stored out-of-range value never makes a set unreadable.
+  maxGroundingNodes: z.number().optional(),
+  maxSituations: z.number().optional(),
+  temperature: z.number().optional(),
+  voiceOnly: z.boolean().optional(),
 });
 
 export const OpEdGroundingRefSchema = z.object({
@@ -42,6 +48,7 @@ export const OpEdStageSchema = z.object({
   prompt: z.string(),
   output: z.string(),
   error: z.string().optional(),
+  temperature: z.number().optional(),
 });
 
 export const OpEdMemberSchema = z.object({

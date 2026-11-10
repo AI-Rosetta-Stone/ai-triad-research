@@ -18,6 +18,14 @@ export interface OpEdParams {
   /** POV tag for ONE member (t/3960). The member whose `pov` matches gets the tag soul and the tag
    *  filter; every other member runs exactly as untagged. Absent: an untagged set, as before. */
   tagSelection?: TagSelection;
+  /** Max BDI grounding nodes per camp (t/203). Integer 0–40; default 12; 0 = no BDI grounding. */
+  maxGroundingNodes?: number;
+  /** Max situation nodes, shared across camps (t/203). Integer 0–15; default 3. */
+  maxSituations?: number;
+  /** Sampling temperature for the generation call only (t/203). 0–2; default 0.8. */
+  temperature?: number;
+  /** Skip grounding entirely and argue from the camp voice alone (t/203). Default false. */
+  voiceOnly?: boolean;
 }
 
 /** Which soul file voiced a member (t/3960; t/4007). `file` is soul-docs-relative (e.g. "skeptic.soul.json");
@@ -107,6 +115,8 @@ export interface OpEdStage {
   output: string;
   /** Present only when the call threw. */
   error?: string;
+  /** The sampling temperature the call was sent with (t/203). */
+  temperature?: number;
 }
 
 /** Outcome record for the readability edit pass (t/3707). Written for CL validation tooling; log-only. */
