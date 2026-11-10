@@ -5,9 +5,9 @@
 # Tests that ShouldProcess gate prevents proposal application during -WhatIf.
 
 BeforeAll {
-    # Import AITriad module - use full path to worktree scripts directory
-    $RepoRoot = Split-Path $PSScriptRoot -Parent | Split-Path -Parent  # Go up: tests -> batch-3 -> .worktrees
-    $RepoRoot = Split-Path $RepoRoot -Parent  # Now at repo root
+    # Import AITriad module - resolve repo root from test directory
+    # Works in both worktree ($PSScriptRoot/.. = repo root) and CI ($GITHUB_WORKSPACE/tests)
+    $RepoRoot = Split-Path $PSScriptRoot -Parent  # Go up: tests -> repo root
     $ModulePath = Join-Path $RepoRoot 'scripts/AITriad/AITriad.psd1'
     
     if (-not (Test-Path $ModulePath)) {
