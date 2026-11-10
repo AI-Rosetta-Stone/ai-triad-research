@@ -307,6 +307,78 @@ async function assertMutationOk(method: string, path: string, res: Response, goa
   }
 }
 
+/** post's 429 interceptor (t/86, extracted for the complexity budget): rate-limit → ActionableError with limit details. */
+async function handleRateLimitResponse(res: Response, budgetWarning: string | null): Promise<void> {
+  if (res.status !== 429) return;
+  const data = await res.json().catch(bridgeWarn('Failed to parse rate-limit response body', {})) as Record<string, unknown>;
+  if (data.limitType === 'tokens_per_day' && !budgetWarning) onQuotaMilestone(100, (data.resetsAt as string | undefined));
+  const msg = data.limitType === 'tokens_per_day'
+    ? 'Daily token limit exceeded. Try again tomorrow or use your own API key.'
+    : `Rate limit exceeded. Retry in ${Math.ceil((data.retryAfterMs as number || 60000) / 1000)}s.`;
+  const err = new ActionableError({
+    goal: 'Call AI backend',
+    problem: msg,
+    location: 'web-bridge.post',
+    nextSteps: ['Wait for the rate limit to reset', 'Use your own API key to avoid shared limits'],
+  });
+  Object.assign(err, { limitType: String(data.limitType ?? ''), retryAfterS: Math.ceil((data.retryAfterMs as number || 60000) / 1000), rateLimitSource: data.rate_limit_source, limit: data.limit, current: data.current }); // 429 retry_after_s (t/3054) + rate_limit_source/limit/current for anon client-only FR (t/3107)
+  throwHttpError(429, err);
+}
+
+/** post's 400 interceptor for /api/ai/generate|search: context_too_long / free-tier max_prompt_chars (t/86). */
+async function handleGenerateBadRequest(res: Response, path: string): Promise<void> {
+  if (res.status !== 400 || (path !== '/api/ai/generate' && path !== '/api/ai/search')) return;
+  const data = await res.json().catch(bridgeWarn('Failed to parse 400 response body', {})) as Record<string, unknown>;
+  if (data.error === 'context_too_long') {
+    const err = new ActionableError({
+      goal: 'Generate AI response',
+      problem: (data.message as string) || 'Input exceeds the model context window.',
+      location: 'web-bridge.post',
+      nextSteps: ['Try a shorter prompt or fewer debate rounds', 'Switch to a model with a larger context window in Settings'],
+    });
+    (err as ActionableError & { errorCode: string }).errorCode = 'context_too_long';
+    throwHttpError(400, err);
+  }
+  if (data.limitType === 'max_prompt_chars') {
+    throwHttpError(400, new ActionableError({
+      goal: 'Generate AI response',
+      problem: `Prompt exceeds the ${(data.limit as number)?.toLocaleString() ?? ''} character limit for the free tier.`,
+      location: 'web-bridge.post',
+      nextSteps: ['Shorten your prompt or debate topic', 'Use your own API key to remove the limit'],
+    }));
+  }
+}
+
+/** post's 422 interceptor for /api/ai/generate: missing_api_key (t/86). */
+async function handleMissingApiKey(res: Response, path: string): Promise<void> {
+  if (res.status !== 422 || path !== '/api/ai/generate') return;
+  const data = await res.json().catch(bridgeWarn('Failed to parse 422 response body', {})) as Record<string, unknown>;
+  if (data.error === 'missing_api_key') {
+    throwHttpError(422, new ActionableError({
+      goal: 'Generate AI response',
+      problem: (data.message as string) || `No API key configured for ${(data.backend as string) || 'the selected backend'}.`,
+      location: 'web-bridge.post',
+      nextSteps: ['Open Settings → API Keys and add a key for this backend', 'Switch to a backend that has a key configured'],
+    }));
+  }
+}
+
+/** put's 409 interceptor for /api/debates: save_in_progress → errorCode-tagged error the store retries (t/86). */
+async function throwIfSaveInProgress(res: Response, path: string): Promise<void> {
+  if (res.status !== 409 || path !== '/api/debates') return;
+  const data = await res.json().catch(bridgeWarn('Failed to parse 409 response body', {})) as Record<string, unknown>;
+  if (data.error === 'save_in_progress') {
+    const err = new ActionableError({
+      goal: 'Save debate session',
+      problem: 'Another save is already in progress for this debate.',
+      location: 'web-bridge.put',
+      nextSteps: ['The save will be retried automatically'],
+    });
+    (err as ActionableError & { errorCode: string }).errorCode = 'save_in_progress';
+    throwHttpError(409, err);
+  }
+}
+
 async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptions, extraHeaders?: Record<string, string>): Promise<T> {
   const res = await mutationRequest('POST', path, body, opts, extraHeaders);
   const budgetWarning = res.headers.get('X-Token-Budget-Warning');
@@ -316,55 +388,9 @@ async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptio
       onQuotaMilestone(milestone, res.headers.get('X-Token-Budget-Resets') ?? undefined);
     }
   }
-  if (res.status === 429) {
-    const data = await res.json().catch(bridgeWarn('Failed to parse rate-limit response body', {})) as Record<string, unknown>;
-    if (data.limitType === 'tokens_per_day' && !budgetWarning) {
-      onQuotaMilestone(100, (data.resetsAt as string | undefined));
-    }
-    const msg = data.limitType === 'tokens_per_day'
-      ? 'Daily token limit exceeded. Try again tomorrow or use your own API key.'
-      : `Rate limit exceeded. Retry in ${Math.ceil((data.retryAfterMs as number || 60000) / 1000)}s.`;
-    const err = new ActionableError({
-      goal: 'Call AI backend',
-      problem: msg,
-      location: 'web-bridge.post',
-      nextSteps: ['Wait for the rate limit to reset', 'Use your own API key to avoid shared limits'],
-    });
-    Object.assign(err, { limitType: String(data.limitType ?? ''), retryAfterS: Math.ceil((data.retryAfterMs as number || 60000) / 1000), rateLimitSource: data.rate_limit_source, limit: data.limit, current: data.current }); // 429 retry_after_s (t/3054) + rate_limit_source/limit/current for anon client-only FR (t/3107)
-    throwHttpError(429, err);
-  }
-  if (res.status === 400 && (path === '/api/ai/generate' || path === '/api/ai/search')) {
-    const data = await res.json().catch(bridgeWarn('Failed to parse 400 response body', {})) as Record<string, unknown>;
-    if (data.error === 'context_too_long') {
-      const err = new ActionableError({
-        goal: 'Generate AI response',
-        problem: (data.message as string) || 'Input exceeds the model context window.',
-        location: 'web-bridge.post',
-        nextSteps: ['Try a shorter prompt or fewer debate rounds', 'Switch to a model with a larger context window in Settings'],
-      });
-      (err as ActionableError & { errorCode: string }).errorCode = 'context_too_long';
-      throwHttpError(400, err);
-    }
-    if (data.limitType === 'max_prompt_chars') {
-      throwHttpError(400, new ActionableError({
-        goal: 'Generate AI response',
-        problem: `Prompt exceeds the ${(data.limit as number)?.toLocaleString() ?? ''} character limit for the free tier.`,
-        location: 'web-bridge.post',
-        nextSteps: ['Shorten your prompt or debate topic', 'Use your own API key to remove the limit'],
-      }));
-    }
-  }
-  if (res.status === 422 && path === '/api/ai/generate') {
-    const data = await res.json().catch(bridgeWarn('Failed to parse 422 response body', {})) as Record<string, unknown>;
-    if (data.error === 'missing_api_key') {
-      throwHttpError(422, new ActionableError({
-        goal: 'Generate AI response',
-        problem: (data.message as string) || `No API key configured for ${(data.backend as string) || 'the selected backend'}.`,
-        location: 'web-bridge.post',
-        nextSteps: ['Open Settings → API Keys and add a key for this backend', 'Switch to a backend that has a key configured'],
-      }));
-    }
-  }
+  await handleRateLimitResponse(res, budgetWarning);
+  await handleGenerateBadRequest(res, path);
+  await handleMissingApiKey(res, path);
   await assertMutationOk('POST', path, res, 'Send data to server');
   return res.json();
 }
@@ -397,19 +423,7 @@ async function put<T = unknown>(path: string, body?: unknown, opts?: FetchOption
     }
     throw err;
   }
-  if (res.status === 409 && path === '/api/debates') {
-    const data = await res.json().catch(bridgeWarn('Failed to parse 409 response body', {})) as Record<string, unknown>;
-    if (data.error === 'save_in_progress') {
-      const err = new ActionableError({
-        goal: 'Save debate session',
-        problem: 'Another save is already in progress for this debate.',
-        location: 'web-bridge.put',
-        nextSteps: ['The save will be retried automatically'],
-      });
-      (err as ActionableError & { errorCode: string }).errorCode = 'save_in_progress';
-      throwHttpError(409, err);
-    }
-  }
+  await throwIfSaveInProgress(res, path);
   if (!res.ok) {
     const text = await res.text();
     throwHttpError(res.status, new ActionableError({
