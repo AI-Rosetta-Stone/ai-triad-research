@@ -101,6 +101,10 @@ async function streamChatWithProgress(
     }
   });
   // t/4848: subscribe to generation context for raw prompt and response
+  if (!api.onChatStreamGenerationContext) {
+    // t/169: a bridge without the listener records no raw fields, so the How panel stays empty. Say so.
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: 'WARN: api.onChatStreamGenerationContext is unavailable; this answer will have no raw_prompt/raw_response for the How panel', error: { name: 'MissingBridgeMethod', message: 'onChatStreamGenerationContext is undefined', stack: '' } });
+  }
   const unsubGenContext = api.onChatStreamGenerationContext?.((context) => {
     if (context.raw_prompt) rawFields.raw_prompt = context.raw_prompt;
     if (context.raw_response) rawFields.raw_response = context.raw_response;
@@ -460,7 +464,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       );
       const userContent = chatOpeningPrompt(activeChat.mode, activeChat.topic);
 
-      const { text: fullText } = await streamChatWithProgress(
+      const { text: fullText, rawFields } = await streamChatWithProgress(
         systemInstruction,
         [{ role: 'user', content: userContent }],
         model,
@@ -476,12 +480,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       const { response, taxonomyRefs } = parseChatResponse(fullText, model);
 
+      // t/169: the opening answer carries raw_prompt/raw_response for the How panel, like sendMessage's (t/4848).
       const entry: ChatEntry = {
         id: generateId(),
         timestamp: nowISO(),
         speaker: activeChat.pover,
         content: response,
         taxonomy_refs: taxonomyRefs,
+        ...rawFields,
       };
 
       const updated = {

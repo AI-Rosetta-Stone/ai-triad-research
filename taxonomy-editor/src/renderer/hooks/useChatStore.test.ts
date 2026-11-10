@@ -675,4 +675,52 @@ describe('useChatStore', () => {
       expect('raw_response' in last).toBe(false);
     });
   });
+
+  // t/169: the opening answer dropped rawFields, so every chat's first How panel was empty (t/165).
+  describe('generateOpening — How panel raw fields (t/169)', () => {
+    const raw = { raw_prompt: 'System: s | User: open', raw_response: '{"response":"hello"}' };
+    const withListener = () => {
+      (mockApi as Record<string, unknown>).onChatStreamGenerationContext = vi.fn((cb: (c: typeof raw) => void) => {
+        cb(raw);
+        return () => {};
+      });
+    };
+    const warned = () => mockRecord.mock.calls.some(([e]) => e.level === 'warn' && /onChatStreamGenerationContext/.test(e.message));
+    afterEach(() => { delete (mockApi as Record<string, unknown>).onChatStreamGenerationContext; });
+
+    it('stores the raw prompt and response on the opening entry and saves them', async () => {
+      withListener();
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      const opening = useChatStore.getState().activeChat!.transcript[0];
+      expect(opening).toMatchObject(raw);
+      const saved = mockApi.saveChatSession.mock.calls.at(-1)![0] as { transcript: Array<Record<string, unknown>> };
+      expect(saved.transcript[0]).toMatchObject(raw);
+    });
+
+    it('keeps the raw fields through a save/load round trip', async () => {
+      withListener();
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      const saved = mockApi.saveChatSession.mock.calls.at(-1)![0];
+      mockApi.loadChatSession.mockResolvedValueOnce(JSON.parse(JSON.stringify(saved)));
+      await useChatStore.getState().loadChat('chat-1');
+      expect(useChatStore.getState().activeChat!.transcript[0]).toMatchObject(raw);
+    });
+
+    it('records a WARN when the bridge has no generation-context listener, and adds no empty keys', async () => {
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      expect(warned()).toBe(true);
+      const opening = useChatStore.getState().activeChat!.transcript[0];
+      expect('raw_prompt' in opening).toBe(false);
+    });
+
+    it('does not WARN when the listener exists', async () => {
+      withListener();
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      expect(warned()).toBe(false);
+    });
+  });
 });
