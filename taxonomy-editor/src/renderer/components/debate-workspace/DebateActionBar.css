@@ -427,7 +427,7 @@
 .session-step.active .session-step-dot {
   border-color: var(--focus-ring, #3b82f6);
   background: var(--focus-ring, #3b82f6);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring, #3b82f6) 20%, transparent);
 }
 .session-step.completed .session-step-dot {
@@ -866,7 +866,7 @@
 .debate-continue-primary,
 .debate-continue-caret {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   border: none;
   font-weight: 700;
   cursor: pointer;
