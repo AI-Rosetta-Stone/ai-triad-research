@@ -1513,7 +1513,9 @@ jobs:
     # known-good-liveness job correctly reporting "missing" since 04:55Z — not a wiring bug, the
     # disable switch was simply never removed after its own trigger condition landed. Checkable
     # fact, acted on directly (Pre-Authorized-Trigger Discipline).
-    if: needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true'
+    # t/121: explicit !cancelled() (workflow-lint Check 5 convention). The deploy-success term
+    # below already implies it, so the gate is unchanged.
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true' }}
     timeout-minutes: 10
     continue-on-error: true  # SO C3: a checkout/login/module-import failure must not fail the
                               # job and turn an otherwise-successful deploy run red.
@@ -1533,6 +1535,36 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── t/121: tag the EXACT digest this deploy pinned, with a tag that never moves ──
+      # GHCR cleanup protects images BY TAG; prod pins BY DIGEST. A container.yml re-run for the
+      # same commit (for example a CVE base-image rebuild) moves sha-<commit> to a NEW digest and
+      # leaves the pinned one untagged, so ghcr-cleanup could delete it and its child manifests
+      # after 30 days, and a minReplicas:0 cold start would then fail to pull (a prod outage).
+      # pinned-<run_id>-<attempt>-<hex12> is a separate tag per deploy and is never moved
+      # (Set-TaxEditorPinnedTag refuses to move one); Get-StaleImageDeletionVerdict protects
+      # pinned-* by pattern as well as by "tagged". Retirement of old pinned tags is a follow-up.
+      # Uses this job's existing token (packages:write); no new permission. Runs BEFORE known-good
+      # so a known-good failure can't skip it.
+      # WARN-ONLY, like the known-good step: a tagging failure must never fail the deploy or touch
+      # the traffic shift, which has already completed by the time this job runs.
+      - name: Tag the deployed digest with a non-moving pinned tag (t/121)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+            $Pin = Set-TaxEditorPinnedTag -ImageRef $env:DEPLOYED_IMAGE_REF -RunId $env:RUN_ID -RunAttempt ([int]$env:RUN_ATTEMPT) -Confirm:$false
+            Write-Host "t/121: $($Pin.Action): $($Pin.Tag) -> $($Pin.Digest)"
+          } catch {
+            Write-Host "::warning::t/121: could not tag the deployed digest ($env:DEPLOYED_IMAGE_REF) with a pinned tag: $($_.Exception.Message) - deploy succeeded, but this digest is protected from ghcr-cleanup only while sha-<commit> or known-good still names it."
+            Write-Warning "t/121: pinned-tag fallback taken: the deployed digest was NOT pinned this deploy ($($_.Exception.Message))"
+          }
 
       - name: Set known-good image tag and assert it resolves to the deployed digest
         shell: pwsh
