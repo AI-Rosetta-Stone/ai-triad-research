@@ -512,3 +512,36 @@ test('fetchGuardRun: LIVE call against a fixed known commit (#4675 head SHA) ret
   assert.ok(result.run, 'expected a real t1-approval-guard run on the known commit, got none');
   assert.equal(result.run.app?.slug, 'github-actions');
 });
+
+// t/73: expectedHeadOid pins the enqueue to the head the caller verified.
+const guardSuccessNext = (prView) => {
+  const happy = happyPathNext(prView);
+  return (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) {
+      return JSON.stringify({ check_runs: [
+        { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T00:00:00Z' },
+      ] });
+    }
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+};
+
+test('enqueuePR shim (t/73): expectedHeadOid that no longer matches the head is refused before any guard read or gh pr merge', async () => {
+  const fakeGh = fakeGhTracking();
+  fakeGh.next = guardSuccessNext(T1_PR_VIEW);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, gh: fakeGh, expectedHeadOid: 'deadbeef' }), /head moved from deadbeef to cafebabe/);
+  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 0);
+  assert.equal(fakeGh.calls.filter((a) => a.join(' ').includes('check-runs')).length, 0);
+});
+
+test('enqueuePR shim (t/73): a matching expectedHeadOid proceeds and pins --match-head-commit to it', async () => {
+  const fakeGh = fakeGhTracking();
+  fakeGh.next = guardSuccessNext(T1_PR_VIEW);
+  await enqueuePR('o/r', 42, { sleepMs: 0, gh: fakeGh, expectedHeadOid: 'cafebabe' });
+  const merges = fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge');
+  assert.equal(merges.length, 1);
+  assert.deepEqual(merges[0].slice(-2), ['--match-head-commit', 'cafebabe']);
+});

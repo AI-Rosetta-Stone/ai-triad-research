@@ -27,13 +27,26 @@
 // status check yet (promotion is a separate T2 change, step 3 of t/4939). Until then, this
 // wrapper refuses to arm/enqueue a T1 PR whose guard verdict isn't a clean `success` at the
 // head, refuses any draft outright, and refuses on the guard's own `failure` verdict
-// regardless of declared tier. It does NOT cover a direct `gh pr merge --auto` call or the
-// sweep paths (t0-enqueue-sweep, dependabot-enqueue-sweep) -- the required-context promotion
-// is the real fix for those.
+// regardless of declared tier. It does NOT cover a direct `gh pr merge --auto` call -- the
+// required-context promotion is the real fix for that. The sweeps (t0-, t1- and
+// dependabot-enqueue-sweep) DO get this refusal, because they all enqueue through
+// `enqueuePR()`, which runs it on every call (t/73 corrected this comment).
+//
+// t/73 (Orca t/4820): the approval-at-head check (`fetchGuardRun` + `approvalAtHeadVerdict` /
+// `classifyT1GuardForEnqueue` + `pickAuthoritativeGuardRun`) moved unchanged to
+// t1-approval-at-head.mjs so the T1 enqueue sweep imports the same code. It is re-exported
+// below. `enqueuePR` also takes an optional `expectedHeadOid`: when set, it refuses unless the
+// PR's head is still that SHA, so a sweep that checked the approval at one head never arms a
+// newer one.
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
+import {
+  approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun,
+} from './t1-approval-at-head.mjs';
+
+export { approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun };
 
 /**
  * PURE. Classifies a queue-state read into one of five outcomes:
@@ -56,59 +69,6 @@ export function classifyEnqueueOutcome({ state, isInMergeQueue, mergeQueueEntry,
   if (isInMergeQueue === true && mergeQueueEntry != null) return { state: 'queued' };
   if (autoMergeRequest != null) return { state: 'armed_waiting' };
   return { state: 'not_armed' };
-}
-
-/**
- * PURE. Decides whether enqueue-pr.mjs may arm/enqueue a PR, given its declared tier, draft
- * state, and the latest `t1-approval-guard` check run at the head SHA.
- *
- * `guardRun` is `{ status, conclusion, app: { slug } }` or `null`/missing if no such run
- * exists at the head. A run from any app other than `github-actions` is ignored (should-fix
- * 2, Quality t/4939#2) -- treated exactly like a missing run, never a green light.
- *
- * `tierCheckDisagreesOnT0` (should-fix 3, WARN-only arm, Quality t/4939#2): true when the PR
- * declares `Tier: T0` but `tier-check`'s own completed run at the head concluded `failure`.
- * `tier-check`'s verdict isn't trusted enough yet to BLOCK on (t/4939#1), so this never
- * changes `allow` -- it only surfaces a `warn` string for the caller to log, and the
- * blocking version of should-fix 3 is a named follow-up, not done here.
- *
- * Returns `{ allow, reason, warn }`. `reason` is one of: 'draft', 'guard_failure',
- * 'guard_success', 'guard_missing', 'guard_in_progress', 'guard_queued',
- * 'guard_<other-conclusion>', 'tier_exempt'.
- */
-export function classifyT1GuardForEnqueue({ tier, isDraft, guardRun, tierCheckDisagreesOnT0 = false }) {
-  if (isDraft) return { allow: false, reason: 'draft', warn: null };
-
-  const effRun = guardRun && guardRun.app?.slug === 'github-actions' ? guardRun : null;
-  const conclusion = effRun && effRun.status === 'completed' ? effRun.conclusion : null;
-
-  // The guard's own failing verdict blocks regardless of declared tier -- it's the guard
-  // speaking for itself, not a tier-gated rule.
-  if (conclusion === 'failure') return { allow: false, reason: 'guard_failure', warn: null };
-
-  const knownTier = tier === 'T0' || tier === 'T1' || tier === 'T2';
-  // An unparseable tier is fail-closed: treated exactly like a declared T1 (Quality t/4939#2).
-  const treatAsT1 = !knownTier || tier === 'T1';
-
-  if (treatAsT1) {
-    if (conclusion === 'success') return { allow: true, reason: 'guard_success', warn: null };
-    const reason = !effRun
-      ? 'guard_missing'
-      : effRun.status === 'in_progress'
-        ? 'guard_in_progress'
-        : effRun.status === 'queued'
-          ? 'guard_queued'
-          : `guard_${conclusion ?? 'unknown'}`;
-    return { allow: false, reason, warn: null };
-  }
-
-  // T0 or T2: the guard isn't required here (T0 has no approval rule; T2 is gated by
-  // consult-hold elsewhere). should-fix 3's WARN-only arm: flag disagreement, never block.
-  const warn = tier === 'T0' && tierCheckDisagreesOnT0
-    ? "tier-check's completed run at this head disagrees with the declared Tier: T0 -- review " +
-      'manually; enqueue-pr does not block on this signal yet (t/4939 follow-up).'
-    : null;
-  return { allow: true, reason: 'tier_exempt', warn };
 }
 
 /** PURE. Formats the WARN logged on a silent CLI miss, so the message shape is testable. */
@@ -159,53 +119,10 @@ export function classifyGhApiError(err) {
   return 'unknown';
 }
 
-/**
- * PURE. Picks the check-run `fetchGuardRun` should treat as authoritative, from every
- * `github-actions`-app run named `t1-approval-guard` at the head.
- *
- * Live bug (#4694 enqueue refusal, 2026-11-09): ci.yml also has a job named `t1-approval-guard`
- * co-located for the merge_group queue re-check (t/4939#4) -- `if: github.event_name ==
- * 'merge_group'`. On an ordinary `pull_request` run that job's `if:` is false, so it legitimately
- * reports `skipped`, UNDER THE SAME CHECK-RUN NAME as the real PR-side gate
- * (`t1-approval-guard.yml`). Picking "latest by started_at" is a RACE: ci.yml is a large,
- * many-job workflow that often finishes its skip later than the single-job standalone gate
- * finishes its real evaluation, so the meaningless skip can shadow a genuine `success` purely by
- * timing. A `skipped` conclusion carries no information (it never evaluated anything) and must
- * never be allowed to outrank an actual evaluation of the same check name, regardless of which
- * finished later. Prefer the latest NON-skipped run; fall back to the latest skipped run only
- * when nothing else exists (still correctly fail-closed -- the real gate genuinely never ran).
- */
-export function pickAuthoritativeGuardRun(runs) {
-  if (!runs?.length) return null;
-  const sorted = [...runs].sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
-  const nonSkipped = sorted.filter((r) => r.conclusion !== 'skipped');
-  return nonSkipped.length ? nonSkipped[0] : sorted[0];
-}
-
-/**
- * Latest `t1-approval-guard` check run at `headSha` from the `github-actions` App, or `null`
- * on a lookup error (caller refuses on null+error). Filters by `app.slug` BEFORE picking the
- * latest run (Quality should-fix, p/780#25) -- filtering after would let a newer run from a
- * different app hide an older, still-current `github-actions` run.
- */
-export function fetchGuardRun(repo, headSha, ghFn = gh) {
-  try {
-    // t/4939 live bug (Lead, p/648#361): any `-F`/`-f` flag makes `gh api` default to POST,
-    // even on a GET-only route -- this 404s without `-X GET`. Confirmed live on #4679's own
-    // head: identical request, `-X GET` added, returns total_count: 1.
-    const out = JSON.parse(ghFn(['api', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=t1-approval-guard']));
-    const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions');
-    if (!runs.length) return { run: null, lookupError: false };
-    return { run: pickAuthoritativeGuardRun(runs), lookupError: false };
-  } catch (err) {
-    return { run: null, lookupError: true, error: err };
-  }
-}
-
 /** Best-effort, never throws: true when `tier-check`'s latest completed run at `headSha` concluded `failure`. */
 function tierCheckDisagreesAt(repo, headSha, ghFn = gh) {
   try {
-    // t/4939: same -F-forces-POST trap as fetchGuardRun above -- needs -X GET.
+    // t/4939: same -F-forces-POST trap as fetchGuardRun (t1-approval-at-head.mjs) -- needs -X GET.
     const out = JSON.parse(ghFn(['api', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
     const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions' && r.status === 'completed');
     if (!runs.length) return false;
@@ -233,18 +150,33 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh } = {}) {
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null } = {}) {
   const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
 
-  const { run: guardRun, lookupError, error: guardLookupErr } = fetchGuardRun(repo, headSha, ghFn);
-  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn) : false;
+  // t/73: a caller that verified the approval at a specific head pins the enqueue to it. Both
+  // arming paths below already pass `headSha` (`--match-head-commit`, `expectedHeadOid`), so
+  // refusing here when the head moved keeps them pinned to the APPROVED head, not just the
+  // current one.
+  if (expectedHeadOid && headSha !== expectedHeadOid) {
+    throw new Error(
+      `enqueue-pr: refusing #${prNumber} on ${repo} -- head moved from ${expectedHeadOid} to ${headSha}.\n` +
+      '  Goal:       enqueue the PR at the head its approval and checks were verified on.\n' +
+      '  Problem:    a new commit was pushed after the caller checked the PR.\n' +
+      '  Location:   operations/devops/enqueue-pr.mjs (expectedHeadOid pin, t/73).\n' +
+      '  Next steps: none for a sweep (the next run re-checks the new head); by hand, rerun after re-approval.',
+    );
+  }
 
-  if (lookupError) {
+  const guard = fetchGuardRun(repo, headSha, ghFn);
+  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn) : false;
+  const verdict = approvalAtHeadVerdict({ tier, isDraft: prMeta.isDraft, guard, tierCheckDisagreesOnT0 });
+
+  if (verdict.reason === 'guard_lookup_error') {
     console.warn(
       `WARN: enqueue-pr could not look up t1-approval-guard's check run for #${prNumber} on ${repo} ` +
-      `at ${headSha} (${guardLookupErr?.message ?? 'API error'}). Refusing rather than risk arming an unapproved T1 PR.`,
+      `at ${headSha} (${guard.error?.message ?? 'API error'}). Refusing rather than risk arming an unapproved T1 PR.`,
     );
     throw new Error(
       `enqueue-pr: refusing #${prNumber} on ${repo} -- could not verify t1-approval-guard's state at ${headSha}.\n` +
@@ -255,7 +187,6 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh 
     );
   }
 
-  const verdict = classifyT1GuardForEnqueue({ tier, isDraft: prMeta.isDraft, guardRun, tierCheckDisagreesOnT0 });
   if (verdict.warn) console.warn(`WARN: ${verdict.warn} (#${prNumber} on ${repo}, head ${headSha})`);
   if (!verdict.allow) {
     throw new Error(

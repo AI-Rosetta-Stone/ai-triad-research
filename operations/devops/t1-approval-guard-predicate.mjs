@@ -46,7 +46,10 @@
  * a human's review or any other App's review must not silently satisfy this gate.
  */
 
-function parseTier(body) {
+// Exported (with normalizeRole) for t1-enqueue-sweep.mjs (t/73), so the sweep reads the tier and
+// the self-approval role exactly as this guard does. Keep this file import-free: the guard and
+// ci.yml copy it alone into a temp dir and import it from there.
+export function parseTier(body) {
   const firstLine = String(body ?? '').trim().split('\n')[0].trim();
   const m = /^Tier:\s*(T[012])\b/i.exec(firstLine);
   return m ? m[1].toUpperCase() : null;
@@ -61,7 +64,7 @@ export function ownerSlugFromBranch(headRefName) {
   return seg.toLowerCase().replace(/[^a-z]/g, '');
 }
 
-function normalizeRole(role) {
+export function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
