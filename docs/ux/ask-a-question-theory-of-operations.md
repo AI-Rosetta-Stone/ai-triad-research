@@ -33,12 +33,16 @@ The pipeline stages are defined in `lib/debate/inquiryPipeline.ts:37` as: `'deri
 
 **Purpose:** Convert the user's question into a bounded debate by selecting relevant taxonomy nodes.
 
-**Input:** User's question; the taxonomy (`taxonomy/Origin/nodes.json`).
+**Input:** User's question; the taxonomy from the data repo (`ai-triad-data/taxonomy/Origin/`):
+- `accelerationist.json` (acc POV nodes)
+- `safetyist.json` (saf POV nodes)
+- `skeptic.json` (skp POV nodes)
+- `situations.json` (anchor situations)
 
 **Process:**
 
-1. Compute a query embedding using the shared embedding model (`ai.computeQueryEmbedding`).
-2. Search the taxonomy's embedding index (`taxonomy/Origin/embeddings.json`, model: all-MiniLM-L6-v2, 384-dim) for the k most similar nodes, per camp.
+1. Compute a query embedding using the shared embedding model (`ai.computeQueryEmbedding` in `lib/debate/aiAdapter.ts:75`).
+2. Search the taxonomy's embedding index (`ai-triad-data/taxonomy/Origin/embeddings.json`, model: all-MiniLM-L6-v2, 384-dim, relative to the **data** repo) for the k most similar nodes, per camp.
 3. Build a *grounding envelope*: an anchor situation (the root node defining the question's scope) plus per-camp node sets (beliefs, goals, methods relevant to the question).
 
 **Output:** A `GroundingEnvelope` containing:
