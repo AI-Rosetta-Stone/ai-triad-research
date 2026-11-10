@@ -343,7 +343,7 @@
   border: none;
   border-radius: var(--radius-md);
   background: var(--focus-ring, #3b82f6);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
