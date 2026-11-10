@@ -146,8 +146,8 @@
 }
 
 .phrases-audience-technical_researcher {
-  background: var(--info-bg); /* t/198 S9: teal identity hue */
-  color: var(--info-text);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 /* ─── Vocabulary confidence underlines ───────────────────── */
