@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { ActionableError } from '../debate/errors.js';
-import { contentSanitizerCore } from '../sanitize/contentSanitizer.js';
 import { detectFormat, type DocumentFormat } from './format.js';
 import { extractPdfText } from './extractPdf.js';
 import { extractDocxText } from './extractDocx.js';
@@ -13,6 +12,7 @@ import { extractionErrorStatus } from './types.js';
 
 const SIZE_LIMIT_BYTES = 10 * 1024 * 1024; // 10 MB
 const TEXT_LIMIT_CHARS = 500_000;
+const SANITIZER_CHUNK_SIZE = 32_000; // sanitizeText caps at 32 KB; process in chunks
 
 export async function extractDocumentText(
   bytes: Uint8Array,
@@ -72,7 +72,7 @@ export async function extractDocumentText(
     }
   } catch (e) {
     // Check for encrypted PDF
-    if (format === 'pdf' && e instanceof Error && e.message.includes('PasswordException')) {
+    if (format === 'pdf' && e instanceof Error && e.name === 'PasswordException') {
       throw createError('ENCRYPTED_DOCUMENT', {
         goal: 'Extract text from PDF',
         problem: 'PDF is password-protected or encrypted',
@@ -109,22 +109,43 @@ export async function extractDocumentText(
     });
   }
 
-  // Sanitize the extracted text
-  const { sanitized, warnings: sanitizeWarnings } = contentSanitizerCore(trimmed);
-  warnings.push(...sanitizeWarnings);
+  // Cap the output text length before sanitization
+  let cappedText = trimmed;
+  if (trimmed.length > TEXT_LIMIT_CHARS) {
+    cappedText = trimmed.slice(0, TEXT_LIMIT_CHARS);
+  }
 
-  // Cap the output text length
-  let finalText = sanitized;
-  if (finalText.length > TEXT_LIMIT_CHARS) {
-    finalText = finalText.slice(0, TEXT_LIMIT_CHARS);
-    warnings.push(`Text truncated from ${sanitized.length} to ${TEXT_LIMIT_CHARS} characters`);
+  // Simple text sanitization: remove null bytes and control characters (32 KB limit per chunk)
+  const sanitized = sanitizeTextInChunks(cappedText);
+
+  if (trimmed.length > TEXT_LIMIT_CHARS) {
+    warnings.push(`Text truncated from ${trimmed.length} to ${TEXT_LIMIT_CHARS} characters`);
   }
 
   return {
-    text: finalText,
+    text: sanitized,
     format,
     warnings,
   };
+}
+
+function sanitizeTextInChunks(text: string): string {
+  if (text.length <= SANITIZER_CHUNK_SIZE) {
+    return sanitizeChunk(text);
+  }
+
+  // Process in chunks respecting 32 KB limit
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += SANITIZER_CHUNK_SIZE) {
+    const chunk = text.slice(i, i + SANITIZER_CHUNK_SIZE);
+    chunks.push(sanitizeChunk(chunk));
+  }
+  return chunks.join('');
+}
+
+function sanitizeChunk(chunk: string): string {
+  // Remove null bytes and control characters (except whitespace)
+  return chunk.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
 }
 
 function createError(

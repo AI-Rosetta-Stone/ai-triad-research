@@ -4,10 +4,12 @@
 /**
  * Extract text from PDF using pdfjs-dist.
  * Uses lazy import to avoid loading pdfjs until needed.
+ * Uses Node legacy build with eval disabled per CVE-2024-4367.
  */
 export async function extractPdfText(bytes: Uint8Array): Promise<string> {
   // Lazy import: only load pdfjs when a PDF arrives
-  const pdfjsModule = await import('pdfjs-dist');
+  // Use dynamic import to avoid issues with legacy/main build variant resolution
+  const pdfjsModule = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const { getDocument } = pdfjsModule;
 
   // Use Node legacy build with no worker and eval disabled per TL spec

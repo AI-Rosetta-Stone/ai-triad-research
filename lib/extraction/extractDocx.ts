@@ -11,9 +11,14 @@ export async function extractDocxText(bytes: Uint8Array): Promise<string> {
   // Zip-bomb guard: check uncompressed size before extracting
   checkZipBombGuard(bytes);
 
+  // Convert to ArrayBuffer for mammoth (mammoth requires ArrayBuffer, not SharedArrayBuffer)
+  const arrayBuf = bytes.buffer instanceof SharedArrayBuffer 
+    ? (new Uint8Array(bytes)).buffer
+    : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+
   // Use mammoth's extractRawText for plain text extraction
   const result = await extractRawText({
-    arrayBuffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    arrayBuffer: arrayBuf as ArrayBuffer,
   });
 
   return result.value;
