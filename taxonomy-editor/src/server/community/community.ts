@@ -774,6 +774,56 @@ function projectInquiryFields(value: unknown, surface: Surface, path: string): u
   return undefined;
 }
 
+/** t/196: allowlist-project a value onto a subset of community-safe fields, dropping unknowns.
+ *  Each submission type carries different fields; the allowlist keeps the surface stable when
+ *  new fields are added. Per-type, with WARN on dropped fields (log-only in prod, test assertion).
+ *  The pattern mirrors @lib/inquiry/fieldClassification (t/3648) — explicit positive projection
+ *  beats an ever-growing denylist for security. For nested structures (opeds array), the allowlist
+ *  applies only to top-level keys; array contents use fieldClassification or pass through whole. */
+function projectToCommunityAllowlist(
+  data: Record<string, unknown> | undefined,
+  type: Submission['type'],
+): Record<string, unknown> {
+  if (!data) return {};
+
+  // Allowlist per submission type: top-level keys community readers should see
+  const ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
+    // Op-ed: topic (top-level), opeds array (members pass through; stages stripped separately)
+    oped: new Set(['topic', 'opeds']),
+    // Debate: id, title, stages, transcript, metadata, grounding (all pass through as-is)
+    debate: new Set(['id', 'title', 'stages', 'transcript', 'metadata', 'grounding', 'model', 'pover']),
+    // Chat: id, title, model, pover, transcript, metadata (all pass through as-is)
+    chat: new Set(['id', 'title', 'model', 'pover', 'transcript', 'metadata']),
+    // Inquiry: already handled via projectInquiryFields matrix (t/3648)
+    inquiry: new Set(),
+  };
+
+  if (type === 'inquiry') return data; // inquiry is handled separately below
+
+  const allowlist = ALLOWLIST[type];
+  const out: Record<string, unknown> = {};
+  const droppedFields: string[] = [];
+
+  for (const [key, value] of Object.entries(data)) {
+    if (allowlist.has(key)) {
+      out[key] = value;
+    } else {
+      droppedFields.push(key);
+    }
+  }
+
+  // t/196: WARN if unknown fields are dropped (fields added to submission types but
+  // not the allowlist — a producer oversight we need to catch).
+  if (droppedFields.length > 0 && (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development')) {
+    log.server.warn(
+      { type, droppedFields: droppedFields.slice(0, 20) },
+      `sanitizeForCommunity: dropped ${droppedFields.length} unknown field(s) from ${type} submission (t/196 — check if these should be allowlisted)`,
+    );
+  }
+
+  return out;
+}
+
 function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submission['type']): unknown {
   // t/2031: bound the ENTIRE recursive strip/sanitize walk under one wall-time
   // budget so a many-field crafted submission can't amplify per-field sanitize cost
@@ -783,8 +833,14 @@ function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submissi
   let d = withSanitizeBudget(
     () => stripSensitiveKeys(JSON.parse(JSON.stringify(data))),
   ) as Record<string, unknown>;
+
+  // t/196: allowlist-project per submission type (top-level keys only)
+  d = projectToCommunityAllowlist(d, type);
+
   // t/171: an op-ed's per-stage prompts carry the user's source material; never publish them.
+  // This is now part of the allowlist-based filtering but needs special handling for nested arrays.
   if (type === 'oped') d = stripOpEdStagesForCommunity(d);
+
   if (type === 'inquiry') {
     // t/3651: `id`/`created_at` are community-projection-owned bridging fields stamped by
     // submitToCommunity (t/3621), not part of InquiryResultSchema — the matrix classifies only
@@ -799,7 +855,7 @@ function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submissi
     // discipline. WARN on suppress: reaching this path means generation populated the field for a
     // degraded run — a producer bug (t/3735's scope), and it must be loud, not silently corrected.
     if (projected.synthesizedHeadline !== undefined) {
-      const { truncated, terminationReason } = deriveTruncation(data as InquiryResult);
+      const { truncated, terminationReason } = deriveTruncation(d as InquiryResult);
       if (truncated) {
         delete projected.synthesizedHeadline;
         log.server.warn(

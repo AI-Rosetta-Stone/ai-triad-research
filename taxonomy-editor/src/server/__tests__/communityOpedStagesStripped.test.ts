@@ -59,4 +59,19 @@ describe('Community publication strips op-ed stages (t/171)', () => {
     const { communityId } = await approveSubmission('d1');
     expect(published(communityId).stages).toEqual([{ name: 'context-rot' }]);
   });
+
+  // t/196: unknown new fields are dropped by allowlist (not published by default)
+  it('unknown fields on op-ed/chat/debate are dropped by allowlist', async () => {
+    seed('o2', 'oped', { topic: 'Safety', opeds: [{ pov: 'acc', headline: 'h' }], unknown_oped_field: 'should-drop' });
+    const { communityId: opedId } = await approveSubmission('o2');
+    expect(published(opedId)).not.toHaveProperty('unknown_oped_field');
+
+    seed('c1', 'chat', { id: 'c-1', title: 'Chat', transcript: [], unknown_chat_field: 'should-drop' });
+    const { communityId: chatId } = await approveSubmission('c1');
+    expect(published(chatId)).not.toHaveProperty('unknown_chat_field');
+
+    seed('d2', 'debate', { id: 'd-2', title: 'Debate', transcript: [], unknown_debate_field: 'should-drop' });
+    const { communityId: debateId } = await approveSubmission('d2');
+    expect(published(debateId)).not.toHaveProperty('unknown_debate_field');
+  });
 });
