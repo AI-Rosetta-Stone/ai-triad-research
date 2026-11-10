@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { mapErrorToUserMessage } from './errorMessages';
 import { ActionableError } from '@lib/debate/errors';
+import { nextStepsForStatus } from '../bridge/httpErrorSteps';
 
 describe('mapErrorToUserMessage — ActionableError surfaces .problem, not the raw block (t/2491)', () => {
   it('returns the one-line problem, not the full Goal/Error/Location/Resolve message', () => {
@@ -148,10 +149,10 @@ describe('mapErrorToUserMessage — kind option: operation-neutral timeout/5xx/5
       'The service is temporarily unavailable. Try again in a minute.'],
     ['JSON (AI response branch)', new Error('Unexpected token < in JSON response'),
       'The AI returned an invalid response. Try again — this sometimes happens with complex prompts.',
-      "The server's response couldn't be read. Try again, and reload if it keeps happening."],
+      "The data couldn't be read. Try again, and reload if it keeps happening."],
     ['JSON (data-file branch)', new Error('Unexpected token } in JSON at position 12'),
       'Data file is corrupted: Unexpected token } in JSON at position 12',
-      "The server's response couldn't be read. Try again, and reload if it keeps happening."],
+      "The data couldn't be read. Try again, and reload if it keeps happening."],
   ];
 
   it.each(cases)("%s: kind 'operation' gets the neutral text", (_label, err, _existing, operation) => {
@@ -167,5 +168,89 @@ describe('mapErrorToUserMessage — kind option: operation-neutral timeout/5xx/5
     const produced = cases.map(([, err]) => mapErrorToUserMessage(err, { kind: 'operation' }));
     // \bAI\b: a bare /AI/i would match "again" / "unavailable" in the table's own strings.
     for (const text of produced) expect(text).not.toMatch(/model|debate|\bAI\b|retrying|automatically/i);
+  });
+});
+
+describe('mapErrorToUserMessage — bridge ActionableErrors map by httpStatus, never raw HTTP/JSON (t/108)', () => {
+  // Built exactly as web-bridge.ts assertMutationOk/get do: raw problem + nextStepsForStatus, then
+  // throwHttpError stamps `httpStatus` on the instance.
+  function bridgeError(method: string, path: string, status: number, body: string): ActionableError {
+    const err = new ActionableError({
+      goal: 'Send data to server',
+      problem: `${method} ${path} failed with HTTP ${status}: ${body}`,
+      location: `web-bridge.${method.toLowerCase()}`,
+      nextSteps: nextStepsForStatus(status, body),
+    });
+    (err as ActionableError & { httpStatus: number }).httpStatus = status;
+    return err;
+  }
+  const del = (status: number, body: string) => bridgeError('DELETE', '/api/chats/chat-123', status, body);
+
+  const cases: Array<[number, string, 'ai' | 'operation' | undefined, string]> = [
+    // TL p/10#38: a bridge error with no kind defaults to 'operation'; only an explicit 'ai' gets AI text.
+    [429, '{"error":"Too many requests"}', undefined, 'Too many requests. Wait a minute and try again.'],
+    [429, '{"error":"Too many requests"}', 'operation', 'Too many requests. Wait a minute and try again.'],
+    [429, '{"error":"Too many requests"}', 'ai',
+      'API rate limited. Wait a minute and try again, or switch to a different model in Settings.'],
+    [500, '{"error":"Internal error"}', 'operation', 'The server ran into a problem. Try again in a moment.'],
+    // TL p/10#39: a bridge 5xx gets the operation text even when the caller says 'ai'.
+    [500, '{"error":"Internal error"}', undefined, 'The server ran into a problem. Try again in a moment.'],
+    [500, '{"error":"Internal error"}', 'ai', 'The server ran into a problem. Try again in a moment.'],
+    [502, '{"error":"Bad gateway"}', 'operation', "The server couldn't be reached. Try again in a moment."],
+    [503, '{"error":"Service unavailable"}', 'operation', 'The service is busy right now. Try again in a few seconds.'],
+    // Design t/108#10: 401 is a signed-out session, 403 a signed-in user without permission.
+    [401, '{"error":"Unauthorized"}', 'operation', 'Your session has expired. Sign in again.'],
+    [401, '{"error":"Unauthorized"}', undefined, 'Your session has expired. Sign in again.'],
+    [403, '{"error":"Forbidden"}', 'operation', "You don't have permission to do that."],
+    [403, '{"error":"Forbidden"}', undefined, "You don't have permission to do that."],
+    [404, '{"error":"Chat not found"}', 'operation', 'That item no longer exists.'],
+    [404, '{"error":"Chat not found"}', undefined, 'That item no longer exists.'],
+    [400, '{"error":"Bad request"}', 'operation', 'An unexpected error occurred. If this persists, try reloading.'],
+  ];
+
+  it.each(cases)('HTTP %i %s (kind %s) maps by status',(status, body, kind, expected) => {
+    expect(mapErrorToUserMessage(del(status, body), kind ? { kind } : undefined)).toBe(expected);
+  });
+
+  it('no mapped result contains raw HTTP status text or JSON', () => {
+    for (const [status, body, kind] of cases) {
+      const shown = mapErrorToUserMessage(del(status, body), kind ? { kind } : undefined);
+      expect(shown).not.toContain('HTTP 4');
+      expect(shown).not.toContain('HTTP 5');
+      expect(shown).not.toContain('{');
+    }
+  });
+
+  it('a status-less ActionableError still returns its problem', () => {
+    const err = new ActionableError({ goal: 'g', problem: 'Pop-up was blocked.', location: 'web-bridge · printBriefToPdf', nextSteps: [] });
+    expect(mapErrorToUserMessage(err, { kind: 'operation' })).toBe('Pop-up was blocked.');
+  });
+
+  it('a status-bearing problem the bridge words itself is kept verbatim (WRITE_CONFLICT, daily limit)', () => {
+    const conflict = new ActionableError({ goal: 'g', problem: 'Someone else changed this file. Reload to see their version.', location: 'web-bridge.post', nextSteps: [] });
+    Object.assign(conflict, { httpStatus: 409, code: 'WRITE_CONFLICT' });
+    expect(mapErrorToUserMessage(conflict)).toBe('Someone else changed this file. Reload to see their version.');
+    const daily = new ActionableError({ goal: 'g', problem: 'Daily token limit exceeded. Try again tomorrow or use your own API key.', location: 'web-bridge.post', nextSteps: [] });
+    Object.assign(daily, { httpStatus: 429 });
+    expect(mapErrorToUserMessage(daily)).toBe('Daily token limit exceeded. Try again tomorrow or use your own API key.');
+  });
+
+  // TL p/10#36: only the bridge's exact "<METHOD> <path> failed with HTTP <n>:" prefix is remapped.
+  it('a hand-written problem that merely quotes "HTTP <n>" is kept verbatim', () => {
+    const quoted = new ActionableError({ goal: 'g', problem: 'The upstream returned HTTP 429 earlier; your draft is saved locally.', location: 'web-bridge.post', nextSteps: [] });
+    Object.assign(quoted, { httpStatus: 429 });
+    expect(mapErrorToUserMessage(quoted, { kind: 'operation' })).toBe('The upstream returned HTTP 429 earlier; your draft is saved locally.');
+  });
+
+  // TL p/10#36: nothing retries a plain bridge call, so a bridge 5xx never promises a retry, under any
+  // kind. The plain-Error AI paths that do retry keep their wording (checked in the last assertion).
+  it('a bridge 5xx never promises an automatic retry, under any kind', () => {
+    for (const status of [500, 502, 503, 504, 529]) {
+      for (const kind of [undefined, 'ai', 'operation'] as const) {
+        const shown = mapErrorToUserMessage(del(status, '{"error":"x"}'), kind ? { kind } : undefined);
+        expect(shown, `HTTP ${status} kind ${String(kind)}`).not.toMatch(/retrying|automatically|shortly/i);
+      }
+    }
+    expect(mapErrorToUserMessage(new Error('500 Internal Server Error'))).toMatch(/Retrying automatically/);
   });
 });

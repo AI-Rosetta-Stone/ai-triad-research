@@ -10,7 +10,7 @@ export interface MapErrorOptions { kind?: 'ai' | 'operation' }
 export function mapErrorToUserMessage(err: unknown, opts?: MapErrorOptions): string {
   // ActionableError already carries a one-line human-readable `problem`; its `.message` is the full
   // Goal/Error/Location/Resolve block, which must never be surfaced raw to users (t/2491).
-  if (err instanceof ActionableError) return err.problem;
+  if (err instanceof ActionableError) return actionableErrorText(err, opts);
 
   const msg = err instanceof Error ? err.message : String(err);
   const errorCode = (err as Record<string, unknown> | null)?.errorCode;
@@ -35,6 +35,37 @@ export function mapErrorToUserMessage(err: unknown, opts?: MapErrorOptions): str
 // 'operation' calls get neutral text with no model/debate/auto-retry claims (t/108, t/122).
 function isOperation(opts: MapErrorOptions | undefined): boolean {
   return opts?.kind === 'operation';
+}
+
+const GENERIC_HTTP_TEXT = 'An unexpected error occurred. If this persists, try reloading.';
+
+// A bridge non-2xx carries `httpStatus` and a raw problem ("DELETE /api/chats/x failed with HTTP 429:
+// {...}") — map those by status (t/108). Problems the bridge words itself (WRITE_CONFLICT, daily token
+// limit, missing API key…) also carry a status but are already user-facing copy, and stay verbatim.
+// Matched by the bridge's exact prefix (web-bridge.ts get/mutation/put/patch), not "HTTP <n>"
+// anywhere, so a hand-written message that quotes a status isn't remapped (TL p/10#36).
+const BRIDGE_RAW_PROBLEM = /^[A-Z]+ \S+ failed with HTTP (\d{3}):/;
+
+function actionableErrorText(err: ActionableError, opts: MapErrorOptions | undefined): string {
+  const status = err.httpStatus;
+  const raw = BRIDGE_RAW_PROBLEM.exec(err.problem);
+  if (typeof status !== 'number' || !raw || Number(raw[1]) !== status) return err.problem;
+  return classifyHttpStatus(status, opts);
+}
+
+// Reuses the classifiers' own 429/503/529/500/502/504 text so the two paths can't drift (t/108).
+// - Bridge errors default to 'operation' unless the caller passes kind 'ai' explicitly: 48 callers pass
+//   no kind and many are plain server ops, where AI text would be false (TL p/10#38).
+// - 5xx always takes the 'operation' wording, whatever the kind: nothing retries a plain bridge call,
+//   so "Retrying automatically" / "Retrying shortly" would be false here (TL p/10#39).
+// - 401 is a signed-out session; 403 is a signed-in user without permission (Design t/108#10).
+function classifyHttpStatus(status: number, opts: MapErrorOptions | undefined): string {
+  if (status === 404) return 'That item no longer exists.';
+  if (status === 401) return 'Your session has expired. Sign in again.';
+  if (status === 403) return "You don't have permission to do that.";
+  const code = String(status);
+  const statusOpts: MapErrorOptions = { kind: status < 500 && opts?.kind === 'ai' ? 'ai' : 'operation' };
+  return classifyRateLimitError(code, statusOpts) ?? classifyServiceOverloadError(code, statusOpts) ?? classifyServerError(code, statusOpts) ?? GENERIC_HTTP_TEXT;
 }
 
 // Context window exceeded — check BEFORE rate-limit since both can mention "RESOURCE_EXHAUSTED"
@@ -98,7 +129,7 @@ function classifyApiKeyError(msg: string): string | null {
 // JSON parse errors
 function classifyJsonError(msg: string, opts: MapErrorOptions | undefined): string | null {
   if (!msg.includes('JSON') && !msg.includes('Unexpected token') && !msg.includes('parse')) return null;
-  if (isOperation(opts)) return "The server's response couldn't be read. Try again, and reload if it keeps happening.";
+  if (isOperation(opts)) return "The data couldn't be read. Try again, and reload if it keeps happening.";
   if (msg.includes('AI') || msg.includes('response') || msg.includes('generate')) {
     return 'The AI returned an invalid response. Try again — this sometimes happens with complex prompts.';
   }
@@ -157,8 +188,6 @@ function classifyConnectionError(msg: string, err: unknown, opts: MapErrorOption
   }
   // Generic HTTP 4xx/5xx not caught above (400, 401, 422, etc.) — last, so specific
   // guards (429, 500, 502/504, 503) always win over this catch-all (t/2906).
-  if (/HTTP [4-5]\d{2}/.test(msg)) {
-    return 'An unexpected error occurred. If this persists, try reloading.';
-  }
+  if (/HTTP [4-5]\d{2}/.test(msg)) return GENERIC_HTTP_TEXT;
   return null;
 }
