@@ -131,8 +131,10 @@ PLAN=$(echo "$CHANGED" | plan_for)
 
 BLOCK_HINT="Visible override: AITRIAD_PREPUSH=skip git push"
 # Test seam (tests/PrePushBlocking.Tests.ps1): lets the pwsh-missing arm run without stripping
-# PATH, which on Linux runners also strips git (/usr/bin holds both). It can only skip the
-# PowerShell check with a WARN, which AITRIAD_PREPUSH=skip already does more broadly.
+# PATH, which on Linux runners also strips git (/usr/bin holds both). It is used ONLY for the
+# presence test below; the check itself always runs the literal `pwsh`, so this variable can
+# only skip the PowerShell check with a WARN (never fake an `ok`), which AITRIAD_PREPUSH=skip
+# already does more broadly.
 PWSH=${AITRIAD_PREPUSH_PWSH:-pwsh}
 
 # TypeScript preconditions (t/289): if TypeScript checks are due and cannot run, BLOCK. Every
@@ -218,7 +220,7 @@ for step in $PLAN; do
         continue
       fi
       tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" &&
-        ( cd "$tmp" && "$PWSH" -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" "$@" ) >&2 ;;
+        ( cd "$tmp" && pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Test-PowerShellSyntax.ps1" "$@" ) >&2 ;;
     py_compile)
       label="Python py_compile ($# file(s))"; exact=1
       if ! pybin=$(find_python); then

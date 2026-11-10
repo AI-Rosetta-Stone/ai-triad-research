@@ -189,6 +189,15 @@ Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
             $res.Code | Should -Be 1
         }
 
+        It 'the AITRIAD_PREPUSH_PWSH seam cannot fake a pass: the check still runs the real pwsh' {
+            $r = New-ScratchRepo
+            Add-Commit $r @{ 'scripts/bad.ps1' = $script:BadPs } | Out-Null
+            $env:AITRIAD_PREPUSH_PWSH = 'true'
+            try { $res = Invoke-Checks $r } finally { Remove-Item Env:\AITRIAD_PREPUSH_PWSH -ErrorAction SilentlyContinue }
+            $res.Code | Should -Be 1
+            $res.Out | Should -Match 'scripts/bad\.ps1:3'
+        }
+
         It 'WARNS and passes when pwsh is not found' {
             # Via the script's AITRIAD_PREPUSH_PWSH seam, not by stripping PATH: on Linux runners
             # pwsh lives in /usr/bin beside git, so stripping it made the script lose git itself.
