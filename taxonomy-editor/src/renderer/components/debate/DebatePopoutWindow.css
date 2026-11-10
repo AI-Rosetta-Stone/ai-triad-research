@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
+  background: var(--bg-primary);
   color: var(--text-primary);
   font-family: system-ui, sans-serif;
 }
@@ -14,7 +14,7 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--bg-primary);
   color: var(--text-primary);
   font-family: system-ui, sans-serif;
 }
