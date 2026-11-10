@@ -14,19 +14,20 @@ function Get-PinnedImageTagName {
     .SYNOPSIS
         Pure. The non-moving GHCR tag a deploy puts on the exact digest it pins.
     .DESCRIPTION
-        Returns 'pinned-<runId>-<runAttempt>-<first 12 hex of the digest>'.
+        Returns 'pinned-<runId>-<first 12 hex of the digest>'.
         The digest prefix is part of the name, so one name can only ever be
         meant for one digest: a different digest always gets a different tag,
-        and the tag never has a reason to move. The run attempt is included
-        because "re-run all jobs" re-resolves the digest under the same run id.
+        and the tag never has a reason to move. The run attempt is NOT part of
+        the name: every writer in one run (the pre-deploy pin-digest job, the
+        post-deploy retry, a re-run of either) computes the same name for the
+        same digest and gets AlreadyPinned, and a "re-run all jobs" that
+        re-resolves a DIFFERENT digest gets a different name (t/121#5).
         The result always starts with 'pinned-', which ghcr-cleanup protects
         by pattern (Get-StaleImageDeletionVerdict -ProtectedTags).
     .PARAMETER Digest
         The pinned manifest digest, sha256:<64 hex>.
     .PARAMETER RunId
         The deploy's GitHub Actions run id (digits).
-    .PARAMETER RunAttempt
-        The deploy's run attempt (1 or more).
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -37,11 +38,7 @@ function Get-PinnedImageTagName {
 
         [Parameter(Mandatory)]
         [AllowEmptyString()]
-        [string]$RunId,
-
-        [Parameter()]
-        [ValidateRange(1, 1000)]
-        [int]$RunAttempt = 1
+        [string]$RunId
     )
 
     Set-StrictMode -Version Latest
@@ -64,7 +61,7 @@ function Get-PinnedImageTagName {
     }
 
     $Hex12 = $Digest.Substring('sha256:'.Length, 12).ToLowerInvariant()
-    "pinned-$RunId-$RunAttempt-$Hex12"
+    "pinned-$RunId-$Hex12"
 }
 
 function Get-PinnedImageTagVerdict {

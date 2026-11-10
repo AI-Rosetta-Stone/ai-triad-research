@@ -13,7 +13,7 @@ function Set-TaxEditorPinnedTag {
         minReplicas 0, the next cold start would then fail to pull.
 
         This cmdlet gives the pinned digest its own tag, named by the pure
-        Get-PinnedImageTagName ('pinned-<runId>-<attempt>-<hex12>'), so the
+        Get-PinnedImageTagName ('pinned-<runId>-<hex12>'), so the
         existing tag-based protection in Remove-StaleContainerImages (tagged
         versions and their untagged children) always covers it.
 
@@ -24,14 +24,14 @@ function Set-TaxEditorPinnedTag {
         is written (fail closed). It never writes the known-good tag; that
         stays with Set-TaxEditorKnownGood.
 
-        Only deploy-azure.yml's tag-known-good job calls it, with the token
-        that job already has (packages:write). Supports -WhatIf/-Confirm.
+        Only deploy-azure.yml calls it: the pin-digest job BEFORE deploy (the
+        guarantee) and an idempotent retry in tag-known-good after it. Both
+        compute the same tag, so the second gets AlreadyPinned. Supports
+        -WhatIf/-Confirm.
     .PARAMETER ImageRef
         The digest-pinned image ref the deploy used: <registry>/<repo>@sha256:<hex>.
     .PARAMETER RunId
         The deploy's GitHub Actions run id.
-    .PARAMETER RunAttempt
-        The deploy's run attempt. Default: 1.
     .PARAMETER Package
         GitHub package in owner/name format. Default: ai-rosetta-stone/taxonomy-editor.
     .EXAMPLE
@@ -52,10 +52,6 @@ function Set-TaxEditorPinnedTag {
         [string]$RunId,
 
         [Parameter()]
-        [ValidateRange(1, 1000)]
-        [int]$RunAttempt = 1,
-
-        [Parameter()]
         [string]$Package = 'ai-rosetta-stone/taxonomy-editor'
     )
 
@@ -72,7 +68,7 @@ function Set-TaxEditorPinnedTag {
             -AsErrorRecord)
     }
     $Digest = $RefParts.Digest
-    $TagName = Get-PinnedImageTagName -Digest $Digest -RunId $RunId -RunAttempt $RunAttempt
+    $TagName = Get-PinnedImageTagName -Digest $Digest -RunId $RunId
 
     if (-not $PSCmdlet.ShouldProcess("ghcr.io/$Package@$Digest", "Add non-moving tag '$TagName'")) {
         return

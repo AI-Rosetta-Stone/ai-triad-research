@@ -220,8 +220,56 @@ jobs:
       # so image existence is proven by successful digest resolution. A separate tag-existence check
       # would be redundant and would reintroduce a `:latest`/tag-name code path this change retires.
 
-  deploy:
+  # ── pin-digest: t/121 (SO condition t/121#5) ──────────────────────────────
+  # Prod pins revisions BY DIGEST, but GHCR cleanup protects images BY TAG. A container.yml re-run
+  # for the same commit (for example a CVE base-image rebuild) moves sha-<commit> to a NEW digest
+  # and leaves the pinned one untagged; after 30 days ghcr-cleanup could delete it and its child
+  # manifests, and a minReplicas:0 cold start would then fail to pull (a prod outage).
+  # This job tags preflight's resolved digest as pinned-<run_id>-<hex12> BEFORE deploy, so the
+  # digest is tagged before any revision (prod, or the staging template the same Bicep apply
+  # writes) references it, whatever happens after the traffic shift. The tag never moves
+  # (Set-TaxEditorPinnedTag refuses to move one), and Get-StaleImageDeletionVerdict protects
+  # pinned-* by pattern as well as by "tagged". Retiring old pinned tags is a follow-up.
+  #
+  # WARN-ONLY and NOT a gate: `deploy` waits for this job (needs:) only for ordering, and its
+  # `if:` reads preflight's result alone, so a registry hiccup here never blocks a deploy.
+  # packages:write is scoped to this job (the same class tag-known-good already holds, SO C3);
+  # preflight keeps its minimal permissions. No Azure login, so no id-token or environment.
+  pin-digest:
     needs: [preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Tag the digest this deploy will pin with a non-moving pinned tag (t/121)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+            $Pin = Set-TaxEditorPinnedTag -ImageRef $env:DEPLOYED_IMAGE_REF -RunId $env:RUN_ID -Confirm:$false
+            Write-Host "t/121: $($Pin.Action): $($Pin.Tag) -> $($Pin.Digest)"
+          } catch {
+            Write-Host "::warning::t/121: could not tag the digest to deploy ($env:DEPLOYED_IMAGE_REF) with a pinned tag: $($_.Exception.Message) - the deploy proceeds; tag-known-good retries the pin after a successful deploy."
+            Write-Warning "t/121: pinned-tag fallback taken: the digest was NOT pinned before deploy ($($_.Exception.Message))"
+          }
+
+  deploy:
+    # t/121: pin-digest is in needs: for ORDERING only (the pin lands before any revision pulls the
+    # digest). The if: reads preflight alone, so deploy's gating is unchanged: it runs exactly when
+    # preflight succeeded and the run isn't cancelled, whatever pin-digest's result.
+    needs: [preflight, pin-digest]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     timeout-minutes: 45  # SO C2 (t/4194, p/682#16): without this, a hung deploy holds the shared
@@ -1536,34 +1584,27 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ── t/121: tag the EXACT digest this deploy pinned, with a tag that never moves ──
-      # GHCR cleanup protects images BY TAG; prod pins BY DIGEST. A container.yml re-run for the
-      # same commit (for example a CVE base-image rebuild) moves sha-<commit> to a NEW digest and
-      # leaves the pinned one untagged, so ghcr-cleanup could delete it and its child manifests
-      # after 30 days, and a minReplicas:0 cold start would then fail to pull (a prod outage).
-      # pinned-<run_id>-<attempt>-<hex12> is a separate tag per deploy and is never moved
-      # (Set-TaxEditorPinnedTag refuses to move one); Get-StaleImageDeletionVerdict protects
-      # pinned-* by pattern as well as by "tagged". Retirement of old pinned tags is a follow-up.
-      # Uses this job's existing token (packages:write); no new permission. Runs BEFORE known-good
-      # so a known-good failure can't skip it.
-      # WARN-ONLY, like the known-good step: a tagging failure must never fail the deploy or touch
-      # the traffic shift, which has already completed by the time this job runs.
-      - name: Tag the deployed digest with a non-moving pinned tag (t/121)
+      # ── t/121: idempotent RETRY of the pre-deploy pin (pin-digest job is the guarantee) ──
+      # pin-digest tagged this run's digest BEFORE deploy (t/121#5: post-shift steps can fail with
+      # no rollback, so a pin gated on deploy success could leave prod on an unpinned digest). Here
+      # the same name, pinned-<run_id>-<hex12>, is computed again, so a pin-digest success makes this
+      # AlreadyPinned (no write), and a transient pin-digest failure gets one more try. Uses this
+      # job's existing packages:write; no new permission. WARN-ONLY, like the known-good step.
+      - name: Re-check the pinned tag on the deployed digest (t/121, idempotent retry)
         continue-on-error: true
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
           RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           try {
             Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-            $Pin = Set-TaxEditorPinnedTag -ImageRef $env:DEPLOYED_IMAGE_REF -RunId $env:RUN_ID -RunAttempt ([int]$env:RUN_ATTEMPT) -Confirm:$false
+            $Pin = Set-TaxEditorPinnedTag -ImageRef $env:DEPLOYED_IMAGE_REF -RunId $env:RUN_ID -Confirm:$false
             Write-Host "t/121: $($Pin.Action): $($Pin.Tag) -> $($Pin.Digest)"
           } catch {
-            Write-Host "::warning::t/121: could not tag the deployed digest ($env:DEPLOYED_IMAGE_REF) with a pinned tag: $($_.Exception.Message) - deploy succeeded, but this digest is protected from ghcr-cleanup only while sha-<commit> or known-good still names it."
-            Write-Warning "t/121: pinned-tag fallback taken: the deployed digest was NOT pinned this deploy ($($_.Exception.Message))"
+            Write-Host "::warning::t/121: could not confirm the pinned tag on the deployed digest ($env:DEPLOYED_IMAGE_REF): $($_.Exception.Message) - see the pin-digest job; if it also failed, this digest is protected from ghcr-cleanup only while sha-<commit> or known-good still names it."
+            Write-Warning "t/121: pinned-tag fallback taken: the post-deploy pin retry failed ($($_.Exception.Message))"
           }
 
       - name: Set known-good image tag and assert it resolves to the deployed digest

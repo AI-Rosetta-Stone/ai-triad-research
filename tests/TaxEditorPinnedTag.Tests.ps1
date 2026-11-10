@@ -24,18 +24,27 @@ BeforeAll {
 }
 
 Describe 'Get-PinnedImageTagName (t/121, pure)' -Tag 'health' {
-    It 'names the tag pinned-RUN-ATTEMPT-HEX12 (first 12 hex of the digest)' {
+    It 'names the tag pinned-RUNID-HEX12 (first 12 hex of the digest; no run attempt)' {
         InModuleScope AITriad {
-            Get-PinnedImageTagName -Digest "sha256:$('ab' * 32)" -RunId '42621970336' -RunAttempt 2 |
-                Should -Be 'pinned-42621970336-2-abababababab'
+            Get-PinnedImageTagName -Digest "sha256:$('ab' * 32)" -RunId '42621970336' |
+                Should -Be 'pinned-42621970336-abababababab'
         }
     }
 
     It 'is a valid OCI tag and always starts with pinned-' {
         InModuleScope AITriad {
-            $t = Get-PinnedImageTagName -Digest "sha256:$('F' * 64)" -RunId '99999999999999999999' -RunAttempt 1000
+            $t = Get-PinnedImageTagName -Digest "sha256:$('F' * 64)" -RunId '99999999999999999999'
             $t | Should -Match '^pinned-'
             $t | Should -MatchExactly '^[a-z0-9_][a-z0-9._-]{0,127}$'
+        }
+    }
+
+    It 'gives the same digest the same tag on every attempt of a run, so a re-run or the post-deploy retry is AlreadyPinned' {
+        InModuleScope AITriad {
+            $a = Get-PinnedImageTagName -Digest "sha256:$('a' * 64)" -RunId '7'
+            $b = Get-PinnedImageTagName -Digest "sha256:$('A' * 64)" -RunId '7'
+            $a | Should -Be $b
+            (Get-PinnedImageTagVerdict -Digest "sha256:$('a' * 64)" -ExistingDigest "sha256:$('a' * 64)").Action | Should -Be 'AlreadyPinned'
         }
     }
 
@@ -86,7 +95,7 @@ Describe 'Set-TaxEditorPinnedTag (t/121, shim)' -Tag 'health' {
         $script:Hex    = 'c' * 64
         $script:Digest = "sha256:$($script:Hex)"
         $script:Ref    = "ghcr.io/ai-rosetta-stone/taxonomy-editor@$($script:Digest)"
-        $script:Tag    = "pinned-123-1-$('c' * 12)"
+        $script:Tag    = "pinned-123-$('c' * 12)"
     }
     BeforeEach {
         # $script:TagState: the digest the pinned tag names in the fake registry ('' = 404).
@@ -264,10 +273,10 @@ Describe 'Cleanup keeps the digest a deploy pinned after sha-COMMIT moves (t/121
                 [pscustomobject]@{ StatusCode = 404; Content = ''; Headers = @{} }
             }
             Mock Invoke-RestMethod -ParameterFilter { $Method -eq 'PUT' } { $script:PutUri = $Uri }
-            $null = Set-TaxEditorPinnedTag -ImageRef $Ref -RunId '42621970336' -RunAttempt 1 -Confirm:$false
+            $null = Set-TaxEditorPinnedTag -ImageRef $Ref -RunId '42621970336' -Confirm:$false
             ($script:PutUri -split '/manifests/')[-1]
         }
-        $pinTag | Should -Match '^pinned-42621970336-1-1{12}$'
+        $pinTag | Should -Match '^pinned-42621970336-1{12}$'
 
         $deleted = Invoke-CleanupAfterRerun -PinnedTags @($pinTag)
         $deleted | Should -Be @(920)
@@ -288,7 +297,7 @@ Describe 'Cleanup keeps the digest a deploy pinned after sha-COMMIT moves (t/121
             $old = [datetimeoffset]::UtcNow.AddDays(-90).ToString('o')
             $versions = @(
                 [pscustomobject]@{ id = 1; name = 'sha256:p'; updated_at = $old
-                    metadata = [pscustomobject]@{ container = [pscustomobject]@{ tags = @('pinned-1-1-pppppppppppp') } } }
+                    metadata = [pscustomobject]@{ container = [pscustomobject]@{ tags = @('pinned-1-pppppppppppp') } } }
                 [pscustomobject]@{ id = 2; name = 'sha256:p'; updated_at = $old
                     metadata = [pscustomobject]@{ container = [pscustomobject]@{ tags = @() } } }
                 [pscustomobject]@{ id = 3; name = 'sha256:o'; updated_at = $old
@@ -301,39 +310,95 @@ Describe 'Cleanup keeps the digest a deploy pinned after sha-COMMIT moves (t/121
     }
 }
 
-Describe 'deploy-azure.yml wiring (t/121)' -Tag 'health' {
+Describe 'deploy-azure.yml wiring (t/121, t/121#5)' -Tag 'health' {
     BeforeAll {
-        $script:Wf = Get-Content (Join-Path $script:Root '.github' 'workflows' 'deploy-azure.yml') -Raw
-        $start = $script:Wf.IndexOf("`n  tag-known-good:")
-        $rest = $script:Wf.Substring($start + 1)
-        $next = [regex]::Match($rest.Substring(1), '(?m)^  [A-Za-z0-9_-]+:\s*$')
-        $script:Job = if ($next.Success) { $rest.Substring(0, $next.Index + 1) } else { $rest }
+        $script:Wf = (Get-Content (Join-Path $script:Root '.github' 'workflows' 'deploy-azure.yml') -Raw) -replace "`r`n", "`n"
+        # The text of one top-level job (from '  <name>:' to the next '  <job>:' line).
+        function script:Get-WfJob([string]$Name) {
+            $m = [regex]::Match($script:Wf, "(?ms)^  $([regex]::Escape($Name)):\s*\n(.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\z)")
+            if (-not $m.Success) { throw "job '$Name' not found in deploy-azure.yml" }
+            $m.Groups[1].Value
+        }
+        # A job-level key (4-space indent), for example needs, if, continue-on-error.
+        function script:Get-WfJobKey([string]$Job, [string]$Key) {
+            $m = [regex]::Match($Job, "(?m)^    $([regex]::Escape($Key)):[ \t]*([^\n#]*?)[ \t]*(#[^\n]*)?$")
+            if ($m.Success) { $m.Groups[1].Value } else { $null }
+        }
+        function script:Get-WfNeeds([string]$Job) {
+            $v = Get-WfJobKey $Job 'needs'
+            if (-not $v) { return @() }
+            @(($v.Trim('[', ']') -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        }
+        function script:Get-WfPermissions([string]$Job) {
+            $perm = [regex]::Match($Job, '(?s)\n    permissions:\n(.*?)\n    steps:').Groups[1].Value
+            @($perm -split "`n" | Where-Object { $_ -match '^      [a-z-]+:\s*[a-z]+' } | ForEach-Object { ($_ -replace '#.*$', '').Trim() })
+        }
+        $script:Pin    = Get-WfJob 'pin-digest'
+        $script:Deploy = Get-WfJob 'deploy'
+        $script:TagKg  = Get-WfJob 'tag-known-good'
+        $script:PreflightOnly = '${{ !cancelled() && needs.preflight.result == ''success'' }}'
     }
 
-    It 'only deploy-azure.yml calls Set-TaxEditorPinnedTag, once' {
-        $calls = @(Get-ChildItem (Join-Path $script:Root '.github' 'workflows') -File -Filter *.yml |
-            Select-String -Pattern '^\s*[^#]*Set-TaxEditorPinnedTag\s+-' |
-            ForEach-Object { Split-Path $_.Path -Leaf })
-        $calls | Should -Be @('deploy-azure.yml')
+    It 'pin-digest runs after preflight and BEFORE deploy (deploy needs it)' {
+        Get-WfNeeds $script:Pin | Should -Be @('preflight')
+        Get-WfNeeds $script:Deploy | Should -Contain 'pin-digest'
+        Get-WfNeeds $script:Deploy | Should -Contain 'preflight'
+        $script:Wf.IndexOf("`n  pin-digest:") | Should -BeLessThan $script:Wf.IndexOf("`n  deploy:")
     }
 
-    It 'calls it in the tag-known-good job, with the deployed digest ref and run id, before known-good' {
-        $script:Job | Should -Match 'Set-TaxEditorPinnedTag -ImageRef \$env:DEPLOYED_IMAGE_REF -RunId \$env:RUN_ID'
-        $script:Job.IndexOf('Set-TaxEditorPinnedTag') | Should -BeLessThan $script:Job.IndexOf('Set-TaxEditorKnownGood -')
+    It 'pin-digest does NOT gate deploy: deploy''s if reads preflight only, with !cancelled()' {
+        $if = Get-WfJobKey $script:Deploy 'if'
+        $if | Should -Be $script:PreflightOnly
+        $if | Should -Not -Match 'pin-digest'
     }
 
-    It 'the pinned-tag step is warn-only: continue-on-error, try/catch, ::warning:: and a WARN' {
-        $step = [regex]::Match($script:Job, '(?s)- name: Tag the deployed digest.*?(?=\n      - name: )').Value
-        $step | Should -Not -BeNullOrEmpty
+    It 'pin-digest runs whenever preflight succeeded (explicit !cancelled(), Check 5)' {
+        Get-WfJobKey $script:Pin 'if' | Should -Be $script:PreflightOnly
+    }
+
+    It 'pin-digest is warn-only: job and step continue-on-error, try/catch, ::warning:: and a WARN' {
+        Get-WfJobKey $script:Pin 'continue-on-error' | Should -Be 'true'
+        $step = [regex]::Match($script:Pin, '(?s)- name: Tag the digest this deploy will pin.*\z').Value
         $step | Should -Match 'continue-on-error: true'
-        $step | Should -Match '(?s)try \{.*Set-TaxEditorPinnedTag.*\} catch \{'
+        $step | Should -Match '(?s)try \{.*Set-TaxEditorPinnedTag -ImageRef \$env:DEPLOYED_IMAGE_REF -RunId \$env:RUN_ID -Confirm:\$false.*\} catch \{'
+        $step | Should -Match 'DEPLOYED_IMAGE_REF: \$\{\{ needs\.preflight\.outputs\.image_ref \}\}'
         $step | Should -Match '::warning::t/121'
         $step | Should -Match 'Write-Warning'
     }
 
-    It 'the job keeps exactly its existing permissions (no new permission)' {
-        $perm = [regex]::Match($script:Job, '(?s)\n    permissions:\n(.*?)\n    steps:').Groups[1].Value
-        @($perm -split "`n" | Where-Object { $_ -match '^\s+[a-z-]+:\s*[a-z]+' } | ForEach-Object { ($_ -replace '#.*$', '').Trim() }) |
-            Should -Be @('contents: read', 'id-token: write', 'packages: write')
+    It 'pin-digest has packages:write scoped to itself only, and no Azure identity' {
+        Get-WfPermissions $script:Pin | Should -Be @('contents: read', 'packages: write')
+        $script:Pin | Should -Not -Match 'azure/login'
+        Get-WfJobKey $script:Pin 'environment' | Should -BeNullOrEmpty
+    }
+
+    It 'preflight and deploy gain no job permissions; the workflow default stays packages: read' {
+        (Get-WfJob 'preflight') | Should -Not -Match '(?m)^    permissions:'
+        $script:Deploy | Should -Not -Match '(?m)^    permissions:'
+        $script:Wf | Should -Match '(?m)^  packages: read'
+    }
+
+    It 'tag-known-good keeps exactly its existing permissions' {
+        Get-WfPermissions $script:TagKg | Should -Be @('contents: read', 'id-token: write', 'packages: write')
+    }
+
+    It 'the post-deploy retry uses the same inputs (same tag, so AlreadyPinned), runs before known-good, warn-only' {
+        $step = [regex]::Match($script:TagKg, '(?s)- name: Re-check the pinned tag.*?(?=\n      - name: )').Value
+        $step | Should -Not -BeNullOrEmpty
+        $step | Should -Match 'continue-on-error: true'
+        $step | Should -Match 'Set-TaxEditorPinnedTag -ImageRef \$env:DEPLOYED_IMAGE_REF -RunId \$env:RUN_ID -Confirm:\$false'
+        $step | Should -Match 'DEPLOYED_IMAGE_REF: \$\{\{ needs\.preflight\.outputs\.image_ref \}\}'
+        $step | Should -Not -Match 'RunAttempt|run_attempt'
+        $step | Should -Match '::warning::t/121'
+        $script:TagKg.IndexOf('Set-TaxEditorPinnedTag') | Should -BeLessThan $script:TagKg.IndexOf('Set-TaxEditorKnownGood -')
+    }
+
+    It 'only deploy-azure.yml calls Set-TaxEditorPinnedTag: once in pin-digest, once in tag-known-good' {
+        $calls = @(Get-ChildItem (Join-Path $script:Root '.github' 'workflows') -File -Filter *.yml |
+            Select-String -Pattern '^\s*[^#]*Set-TaxEditorPinnedTag\s+-' |
+            ForEach-Object { Split-Path $_.Path -Leaf })
+        $calls | Should -Be @('deploy-azure.yml', 'deploy-azure.yml')
+        @([regex]::Matches($script:Pin, '(?m)^[^#\n]*Set-TaxEditorPinnedTag\s+-')).Count | Should -Be 1
+        @([regex]::Matches($script:TagKg, '(?m)^[^#\n]*Set-TaxEditorPinnedTag\s+-')).Count | Should -Be 1
     }
 }
