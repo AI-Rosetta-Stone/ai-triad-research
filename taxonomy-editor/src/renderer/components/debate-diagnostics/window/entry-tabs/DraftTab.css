@@ -36,19 +36,19 @@
 .draft-chip-success {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--success) 20%, transparent);
-  color: var(--success);
+  background: var(--success-bg);
+  color: var(--success-text);
   font-weight: 600;
 }
 
 .draft-parse-error {
   padding: 6px 8px;
   margin: 6px 0;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  background: var(--error-bg);
   border-left: 3px solid var(--danger);
   border-radius: 4px;
   font-size: 0.72rem;
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .draft-text-secondary { color: var(--text-secondary); }
@@ -559,8 +559,8 @@
   font-size: var(--text-2xs);
   padding: 1px 5px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
 }
 
@@ -586,11 +586,11 @@
 .draft-qcheck-parse-error {
   padding: 4px 6px;
   margin-top: 4px;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  background: var(--error-bg);
   border-left: 3px solid var(--danger);
   border-radius: 3px;
   font-size: var(--text-2xs);
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .draft-ta-title {
@@ -616,8 +616,8 @@
   border-radius: 3px;
   font-size: var(--text-2xs);
   font-weight: 600;
-  background: rgba(220, 38, 38, 0.1);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .draft-offscope-box {

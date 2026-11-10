@@ -25,8 +25,8 @@
 .clm-filter-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 20%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -61,7 +61,7 @@
 .clm-badge-extracting {
   padding: 2px 8px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-saf) 15%, transparent);
+  background: var(--color-saf-bg);
   color: var(--color-saf);
   font-weight: 600;
   font-size: var(--text-2xs);
@@ -70,8 +70,8 @@
 .clm-badge-failed {
   padding: 2px 8px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--danger) 15%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -180,7 +180,7 @@
   padding: 2px 6px;
   margin-bottom: 4px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-skp) 10%, transparent);
+  background: var(--color-skp-bg);
   color: var(--color-skp);
 }
 
@@ -371,8 +371,8 @@
   padding: 1px 6px;
   border-radius: 3px;
   font-size: var(--text-2xs);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .clm-raw-pre {
