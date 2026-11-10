@@ -21,8 +21,8 @@
 
 .param-source-badge { font-size: var(--text-2xs); font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); text-transform: uppercase; letter-spacing: 0.3px; }
 .param-source-initial { background: rgba(99,102,241,0.15); color: #6366f1; }
-.param-source-optimizer { background: rgba(34,197,94,0.15); color: #22c55e; }
-.param-source-manual { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.param-source-optimizer { background: var(--success-bg); color: var(--success-text); }
+.param-source-manual { background: var(--warning-bg); color: var(--warning-text); }
 
 .param-history-date { color: var(--text-muted); font-size: var(--text-2xs); }
 .param-history-meta { color: var(--text-muted); font-size: var(--text-2xs); margin-left: auto; }

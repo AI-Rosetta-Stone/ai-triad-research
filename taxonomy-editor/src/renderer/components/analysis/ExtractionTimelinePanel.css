@@ -304,8 +304,8 @@
   display: inline-block;
   margin-right: 6px;
   padding: 1px 6px;
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
+  background: var(--error-bg);
+  color: var(--error-text);
   border-radius: 3px;
   font-size: var(--text-2xs);
 }
@@ -339,8 +339,8 @@
 .etl-unattr-chip {
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
+  background: var(--error-bg);
+  color: var(--error-text);
   font-weight: 600;
 }
 
