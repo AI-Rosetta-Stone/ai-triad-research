@@ -187,3 +187,5 @@ ENV XDG_CONFIG_HOME=/home/aitriad/.config
 ENV XDG_DATA_HOME=/home/aitriad/.local/share
 # PYTHONUTF8=1: PEP 540 UTF-8 Mode — UTF-8 for stdio AND open() (t/2046, 7 fleet instances).
 ENV PYTHONUTF8=1
+
+# probe t/256: throwaway PR, never merged
