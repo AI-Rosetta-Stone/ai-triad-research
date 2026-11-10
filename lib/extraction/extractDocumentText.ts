@@ -1,0 +1,151 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+import { ActionableError } from '../debate/errors.js';
+import { contentSanitizerCore } from '../sanitize/contentSanitizer.js';
+import { detectFormat, type DocumentFormat } from './format.js';
+import { extractPdfText } from './extractPdf.js';
+import { extractDocxText } from './extractDocx.js';
+import { extractPlainText } from './extractPlain.js';
+import { extractHtmlText } from './extractHtml.js';
+import type { DocumentExtractionResult, DocumentExtractionCode } from './types.js';
+import { extractionErrorStatus } from './types.js';
+
+const SIZE_LIMIT_BYTES = 10 * 1024 * 1024; // 10 MB
+const TEXT_LIMIT_CHARS = 500_000;
+
+export async function extractDocumentText(
+  bytes: Uint8Array,
+  fileName: string
+): Promise<DocumentExtractionResult> {
+  // Size check before parsing
+  if (bytes.length > SIZE_LIMIT_BYTES) {
+    throw createError('SIZE_LIMIT_EXCEEDED', {
+      goal: 'Extract text from a document',
+      problem: `Document exceeds 10 MB size limit (${(bytes.length / 1024 / 1024).toFixed(2)} MB)`,
+      location: 'lib/extraction:extractDocumentText',
+      nextSteps: ['Use a smaller document', 'Try uploading a summary instead'],
+      httpStatus: extractionErrorStatus.SIZE_LIMIT_EXCEEDED,
+    });
+  }
+
+  // Detect format from magic bytes
+  let format: DocumentFormat;
+  try {
+    format = detectFormat(bytes);
+  } catch (e) {
+    throw createError('UNSUPPORTED_FORMAT', {
+      goal: 'Identify document format',
+      problem: `Could not determine file format for "${fileName}"`,
+      location: 'lib/extraction:detectFormat',
+      nextSteps: [
+        'Verify the file is a valid PDF, DOCX, TXT, MD, or HTML document',
+        'Check the file is not corrupted',
+      ],
+      innerError: e,
+      httpStatus: extractionErrorStatus.UNSUPPORTED_FORMAT,
+    });
+  }
+
+  // Extract text based on format
+  let extractedText: string;
+  const warnings: string[] = [];
+
+  try {
+    switch (format) {
+      case 'pdf':
+        extractedText = await extractPdfText(bytes);
+        break;
+      case 'docx':
+        extractedText = await extractDocxText(bytes);
+        break;
+      case 'txt':
+      case 'md':
+        extractedText = extractPlainText(bytes);
+        break;
+      case 'html':
+        extractedText = extractHtmlText(bytes);
+        break;
+      default:
+        const _exhaustive: never = format;
+        throw new Error(`Unhandled format: ${_exhaustive}`);
+    }
+  } catch (e) {
+    // Check for encrypted PDF
+    if (format === 'pdf' && e instanceof Error && e.message.includes('PasswordException')) {
+      throw createError('ENCRYPTED_DOCUMENT', {
+        goal: 'Extract text from PDF',
+        problem: 'PDF is password-protected or encrypted',
+        location: 'lib/extraction:extractPdfText',
+        nextSteps: ['Remove password protection', 'Use an unencrypted version of the PDF'],
+        innerError: e,
+        httpStatus: extractionErrorStatus.ENCRYPTED_DOCUMENT,
+      });
+    }
+
+    throw createError('EXTRACTION_FAILED', {
+      goal: `Extract text from ${format.toUpperCase()} document`,
+      problem: `Failed to extract text from document`,
+      location: 'lib/extraction:extract*Text',
+      nextSteps: [
+        'Verify the document is not corrupted',
+        'Try a different document',
+        'Check that the file format matches the extension',
+      ],
+      innerError: e,
+      httpStatus: extractionErrorStatus.EXTRACTION_FAILED,
+    });
+  }
+
+  // Check for empty content
+  const trimmed = extractedText.trim();
+  if (trimmed.length === 0) {
+    throw createError('EMPTY_DOCUMENT', {
+      goal: 'Extract text from document',
+      problem: 'Document contains no extractable text',
+      location: 'lib/extraction:extractDocumentText',
+      nextSteps: ['Verify the document contains readable text', 'Try a different document'],
+      httpStatus: extractionErrorStatus.EMPTY_DOCUMENT,
+    });
+  }
+
+  // Sanitize the extracted text
+  const { sanitized, warnings: sanitizeWarnings } = contentSanitizerCore(trimmed);
+  warnings.push(...sanitizeWarnings);
+
+  // Cap the output text length
+  let finalText = sanitized;
+  if (finalText.length > TEXT_LIMIT_CHARS) {
+    finalText = finalText.slice(0, TEXT_LIMIT_CHARS);
+    warnings.push(`Text truncated from ${sanitized.length} to ${TEXT_LIMIT_CHARS} characters`);
+  }
+
+  return {
+    text: finalText,
+    format,
+    warnings,
+  };
+}
+
+function createError(
+  code: DocumentExtractionCode,
+  opts: {
+    goal: string;
+    problem: string;
+    location: string;
+    nextSteps: string[];
+    innerError?: unknown;
+    httpStatus?: number;
+  }
+): ActionableError {
+  const error = new ActionableError({
+    goal: opts.goal,
+    problem: opts.problem,
+    location: opts.location,
+    nextSteps: opts.nextSteps,
+    innerError: opts.innerError instanceof Error ? opts.innerError : undefined,
+    code,
+    httpStatus: opts.httpStatus,
+  });
+  return error;
+}
