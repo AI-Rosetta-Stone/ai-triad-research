@@ -171,7 +171,7 @@
   border: 1px solid var(--border-color);
   border-radius: 3px;
   background: var(--bg-primary);
-  color: var(--focus-ring, #3b82f6);
+  color: var(--info-text);
   cursor: pointer;
 }
 
@@ -271,7 +271,7 @@
   border: 1px solid var(--border-color);
   border-radius: 3px;
   background: var(--bg-primary);
-  color: var(--focus-ring, #3b82f6);
+  color: var(--info-text);
   cursor: pointer;
 }
 
@@ -281,7 +281,7 @@
   border: 1px solid var(--border-color);
   border-radius: 3px;
   background: var(--bg-primary);
-  color: #22c55e;
+  color: var(--success-text);
   cursor: pointer;
   font-weight: 500;
 }

@@ -45,7 +45,7 @@
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   background: var(--accent-bg, #e8f0fe);
-  color: var(--focus-ring, #1a73e8);
+  color: var(--accent-text);
 }
 
 .analysis-elements {
@@ -393,8 +393,8 @@
   font-style: italic;
 }
 .analysis-diff-accept-btn {
-  background: var(--color-acc, #27AE60);
-  color: #fff;
+  background: var(--accent-text);
+  color: var(--bg-primary);
   border: none;
   cursor: pointer;
 }

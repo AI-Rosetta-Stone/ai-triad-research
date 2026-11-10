@@ -20,7 +20,7 @@
 .param-history-entry-header:hover { background: var(--bg-secondary); }
 
 .param-source-badge { font-size: var(--text-2xs); font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); text-transform: uppercase; letter-spacing: 0.3px; }
-.param-source-initial { background: rgba(99,102,241,0.15); color: #6366f1; }
+.param-source-initial { background: var(--violet-bg); color: var(--violet-text); }
 .param-source-optimizer { background: var(--success-bg); color: var(--success-text); }
 .param-source-manual { background: var(--warning-bg); color: var(--warning-text); }
 
