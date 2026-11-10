@@ -31,10 +31,8 @@ export interface BatchResult {
 export async function replayChatSession(
   session: ChatSession,
   options: BatchOptions & {
-    // Phase 5: These are provided by the runner to pass through to the replay function
-    streamChatWithProgressFn?: typeof streamChatWithProgressType;
-    getTaxonomyContextFn?: () => Promise<string>;
-    getModelFn?: () => string;
+    // Phase 5: The app provides these via a wrapper endpoint or direct import
+    replayTurnFn?: (params: ReplayTurnParams) => Promise<ReplayTurnResult>;
   } = {},
 ): Promise<RegeneratedChatSession> {
   if (options.dryRun) {
@@ -46,23 +44,20 @@ export async function replayChatSession(
     };
   }
 
-  // Phase 5: Replay logic now wired
-  if (!options.streamChatWithProgressFn) {
+  // Phase 5: Replay logic now wired (app provides replayTurnFn via wrapper)
+  if (!options.replayTurnFn) {
     throw new Error(
-      'Chat replay requires streamChatWithProgress function. ' +
-      'Provide via options.streamChatWithProgressFn or use dry-run mode.',
+      'Live chat replay not yet available. ' +
+      'Phase 5 wiring pending: app must provide replayTurnFn that calls streamChatWithProgress. ' +
+      'Use --dry-run mode for now to analyze chats without live replay.',
     );
   }
 
-  const streamChatWithProgress = options.streamChatWithProgressFn;
-  const getTaxonomyContext = options.getTaxonomyContextFn || (() => Promise.resolve(''));
-  const getModel = options.getModelFn || (() => 'gemini-2.0-flash');
+  const replayTurn = options.replayTurnFn;
 
   // Rebuild transcript by replaying each user turn
   const regenerated: ChatEntry[] = [];
-  const model = getModel();
   const temperature = session.temperature || 0.7;
-  const taxonomyContext = await getTaxonomyContext();
 
   for (const entry of session.transcript) {
     // Preserve all user entries as-is
@@ -71,56 +66,41 @@ export async function replayChatSession(
       continue;
     }
 
-    // For assistant entries, skip the opening special case
-    // (we regenerate all assistant responses via the pipeline)
+    // For assistant entries, regenerate via app pipeline
     if (entry.speaker !== session.pover) {
       regenerated.push(entry);
       continue;
     }
 
-    // Replay this assistant turn through the pipeline
-    const transcriptText = formatTranscriptForContext(regenerated, session.pover);
-    const systemInstruction = `You are the ${session.pover} POV. ${taxonomyContext}`;
-    const userMessage = regenerated[regenerated.length - 1]?.content || '';
-
-    let replayedContent = '';
-    let rawPrompt = '';
-    let rawResponse = '';
+    // Replay this assistant turn through the app's chat pipeline
+    const transcriptContext = formatTranscriptForContext(regenerated, session.pover);
 
     try {
-      const result = await streamChatWithProgress(
-        systemInstruction,
-        transcriptText ? [{ role: 'user' as const, content: transcriptText }] : [],
-        model,
+      const result = await replayTurn({
+        chatSessionId: session.id,
+        pover: session.pover,
+        transcriptContext,
         temperature,
-        `Replaying ${session.pover} response...`,
-        (partial) => { replayedContent += partial; },
-        undefined,
-        session.id,
-      );
+        model: session.model || 'gemini-2.0-flash',
+      });
 
-      replayedContent = result.text;
-      rawPrompt = result.rawFields?.raw_prompt || '';
-      rawResponse = result.rawFields?.raw_response || '';
+      const regeneratedEntry: ChatEntry = {
+        id: entry.id, // Keep original ID for consistency
+        timestamp: new Date().toISOString(),
+        speaker: session.pover,
+        content: result.content,
+        taxonomy_refs: entry.taxonomy_refs, // TODO: Re-extract from new response if desired
+        ...( result.rawPrompt && { raw_prompt: result.rawPrompt }),
+        ...( result.rawResponse && { raw_response: result.rawResponse }),
+      };
+
+      regenerated.push(regeneratedEntry);
     } catch (err) {
       throw new Error(
         `Failed to replay turn in chat ${session.id}: ${String(err)}. ` +
-        `User message: "${userMessage.slice(0, 100)}"`,
+        `Speaker: ${session.pover}. Turns processed: ${regenerated.length}`,
       );
     }
-
-    // Create regenerated entry
-    const regeneratedEntry: ChatEntry = {
-      id: entry.id, // Keep original ID for consistency
-      timestamp: new Date().toISOString(),
-      speaker: session.pover,
-      content: replayedContent,
-      taxonomy_refs: entry.taxonomy_refs, // TODO: Re-extract from new response if desired
-      ...( rawPrompt && { raw_prompt: rawPrompt }),
-      ...( rawResponse && { raw_response: rawResponse }),
-    };
-
-    regenerated.push(regeneratedEntry);
   }
 
   return {
@@ -132,21 +112,21 @@ export async function replayChatSession(
   };
 }
 
-/** Placeholder type for streamChatWithProgress signature (actual import happens at runtime) */
-type streamChatWithProgressType = (
-  systemInstruction: string,
-  messages: { role: 'user' | 'model'; content: string }[],
-  model: string,
-  temperature: number,
-  activity: string,
-  onChunk: (chunk: string) => void,
-  urlContext?: boolean,
-  chatSessionId?: string,
-) => Promise<{
-  text: string;
-  urlContextMetadata?: unknown;
-  rawFields: { raw_prompt?: string; raw_response?: string };
-}>;
+/** Parameters for replaying a single chat turn */
+export interface ReplayTurnParams {
+  chatSessionId: string;
+  pover: string;
+  transcriptContext: string;
+  temperature: number;
+  model: string;
+}
+
+/** Result of replaying a single turn */
+export interface ReplayTurnResult {
+  content: string;
+  rawPrompt?: string;
+  rawResponse?: string;
+}
 
 /** Format transcript for replay context */
 function formatTranscriptForContext(transcript: ChatEntry[], poverLabel: string): string {

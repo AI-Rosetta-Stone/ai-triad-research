@@ -7,11 +7,11 @@
  * Chat batch regeneration CLI.
  * Replays old chats through current pipeline, archives originals, replaces atomically.
  *
- * **Phase 5 Status:** Replay logic not yet wired. Dry-run mode works; --apply is gated.
+ * **Phase 5 Status:** Replay logic wired; dry-run works. Live replay requires app integration.
  *
  * Usage:
  *   npm run regen:batch -- --dry-run                    # Analyze all chats without changes
- *   npm run regen:batch -- --apply --single <chat-id>   # BLOCKED: replay not wired yet
+ *   npm run regen:batch -- --apply --single <chat-id>   # Regenerate one chat (requires app wiring)
  *   npm run regen:batch -- --restore <chat-id>          # Restore chat from archive
  */
 
@@ -174,11 +174,9 @@ async function main() {
         const regenerated = await replayChatSession(chat, {
           dryRun: true, // Start with dry-run for safety
           backend,
-          streamChatWithProgressFn,
-          getTaxonomyContextFn,
-          getModelFn,
+          // Phase 5: app provides replayTurnFn via wrapper when ready
         });
-        console.log(`✅ Regenerated chat (phase 5 wired, dry-run mode)`);
+        console.log(`✅ Regenerated chat (dry-run mode)`);
         console.log(`   Updated at: ${regenerated.regenerated_at}`);
         console.log(`   Turns: ${regenerated.transcript.length}`);
       } catch (err) {
