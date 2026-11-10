@@ -154,16 +154,20 @@ def lint_file(path, content, required_contexts=()):
     errs.extend(_check_permissions_allowlist(path, content))
 
     # ── Check 5: a merge_group-gated job with `needs:` must carry !cancelled() (t/4939) ──
-    # Widened by t/4963: a job with `needs:` that POSTS a required context must carry an
-    # explicit status function in its `if:` (and must have an `if:` at all).
+    # Widened by t/4963: a job with `needs:` that POSTS a required context must carry
+    # `always()` or `!cancelled()` in its `if:` (and must have an `if:` at all).
     errs.extend(_check_mergegroup_guard_cancelled(path, content, required_contexts))
 
     return errs
 
 
-# t/4963: any of these in an `if:` replaces GitHub's implicit success() wrapper. `!cancelled()`
-# matches via `cancelled()`. Word-boundary so e.g. `my_success()` (not a GitHub function) doesn't.
-STATUS_FN_RE = re.compile(r'(?<![\w.-])(?:always|success|failure|cancelled)\s*\(\s*\)')
+# t/4963 (SO, Interweave t/70#6): the ONLY status functions that make a required job with
+# `needs:` safe are `always()` and `!cancelled()` -- both run the job on the normal path even when
+# an upstream need skipped. `success()` IS the implicit default (written out, it is exactly the
+# t/4939 bug); `failure()` / bare `cancelled()` mean the job doesn't run on the normal path at all.
+# So those three never count as safe. Word-boundary so e.g. `my_always()` doesn't match, and
+# `!cancelled()` requires the `!` (whitespace after it allowed).
+SAFE_STATUS_FN_RE = re.compile(r'(?<![\w.-])always\s*\(\s*\)|!\s*cancelled\s*\(\s*\)')
 
 
 # t/4963 audit (agent-devops/notes/t70-audit.md): contexts Check 5 treats as required ON TOP of the
@@ -240,9 +244,10 @@ def _check_mergegroup_guard_cancelled(path, content, required_contexts=()):
     and when that job posts a REQUIRED context, GitHub counts the skip as passing. So for a
     job with `needs:` whose posted check-run name (its `name:`, else its id) is in
     `required_contexts`, two more shapes are blocking:
-      (b) an `if:` with no status function (`!cancelled()`, `always()`, `success()`,
-          `failure()` or `cancelled()`) -- it inherits the implicit success() over the
-          whole upstream chain;
+      (b) an `if:` with neither `always()` nor `!cancelled()` -- with no status function it
+          inherits the implicit success() over the whole upstream chain; an explicit
+          `success()` is that same default (skips when upstream skips), and `failure()` /
+          bare `cancelled()` don't run the job on the normal path (SO, t/70#6);
       (c) no `if:` at all -- same implicit success(): one failed or skipped need skips the
           job, and the skipped required context reads as green.
     Scans EVERY workflow file, not just the SSOT's named one: a required context can be posted
@@ -288,13 +293,15 @@ def _check_mergegroup_guard_cancelled(path, content, required_contexts=()):
                 f"dependencies) to succeed, so the job silently skips and GitHub reports that "
                 f"skip as a satisfied required context (t/4939#22)."
             )
-        elif is_required and not STATUS_FN_RE.search(if_text):
+        elif is_required and not SAFE_STATUS_FN_RE.search(if_text):
             findings.append(
                 f"{path}:{if_idx + 1}: job \"{m.group(1)}\" posts required context \"{posted}\" and "
-                f"has `needs:`, but its `if:` has no status function (!cancelled(), always(), "
-                f"success(), failure(), cancelled()) -- GitHub wraps it in an implicit success() "
-                f"over the whole upstream chain, so an upstream skip SKIPS this job and the "
-                f"skipped required context counts as passing (t/4963, t/4939#22)."
+                f"has `needs:`, but its `if:` has neither `always()` nor `!cancelled()` -- with no "
+                f"status function GitHub wraps it in an implicit success() over the whole upstream "
+                f"chain (an explicit success() is the same thing; failure()/cancelled() don't run "
+                f"on the normal path), so an upstream skip SKIPS this job and the skipped required "
+                f"context counts as passing. Use `if: ${{{{ !cancelled() && ... }}}}` "
+                f"(t/4963, t/4939#22)."
             )
     return findings
 
@@ -1674,12 +1681,22 @@ jobs:
          "  consult-hold-guard:\n    name: consult-hold-guard\n    if: ${{ !cancelled() && github.event_name == 'pull_request' }}\n    needs: [ci-gate]\n", False),
         ('(b) required, needs, if: always() -> silent',
          "  ci-gate:\n    name: ci-gate\n    needs: [changes]\n    if: always()\n", False),
-        ('(b) required, needs, if with success() -> silent',
-         "  ci-gate:\n    needs: [changes]\n    if: success() && github.ref != ''\n", False),
-        ('(b) required, needs, if with failure() -> silent',
-         "  ci-gate:\n    needs: [changes]\n    if: ${{ failure() || github.ref != '' }}\n", False),
-        ('(b) required, needs, if with cancelled() -> silent',
-         "  ci-gate:\n    needs: [changes]\n    if: cancelled() || github.ref != ''\n", False),
+        # SO (t/70#6): success() is the implicit default written out; failure()/cancelled() don't
+        # run on the normal path. None of them is safe -> all flag. Only always()/!cancelled() pass.
+        ('(b) required, needs, if: success() -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: success()\n", True),
+        ('(b) required, needs, if: success() && x -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: success() && github.ref != ''\n", True),
+        ('(b) required, needs, if: ${{ success() && x }} -> flag',
+         "  consult-hold-guard:\n    needs: [ci-gate]\n    if: ${{ success() && github.event_name == 'merge_group' && !contains(github.ref, 'x') }}\n", True),
+        ('(b) required, needs, if: failure() -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: failure()\n", True),
+        ('(b) required, needs, if: failure() || x -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: ${{ failure() || github.ref != '' }}\n", True),
+        ('(b) required, needs, if: cancelled() || x (no !) -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: cancelled() || github.ref != ''\n", True),
+        ('(b) required, needs, if: success() || !cancelled() -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: success() || ! cancelled()\n", False),
         # Shape (b), posted-name routing: reported by job id (no name:) -> flag; a job whose id is a
         # required context but whose name: is something else posts THAT name -> not a reporter.
         ('(b) required by job id (no name:), bare if -> flag',
@@ -1709,8 +1726,10 @@ jobs:
          "  ci-gate:\n    needs: [changes]\n    if: >-  # always() later\n      github.ref != ''\n", True),
         ('(b) plain scalar continued onto a deeper line, no status fn -> flag',
          "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      github.event_name == 'push'\n", True),
-        ('(b) plain scalar continued, status fn on the continuation -> silent',
-         "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      success()\n", False),
+        ('(b) plain scalar continued, !cancelled() on the continuation -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      !cancelled()\n", False),
+        ('(b) block-scalar success() only -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-\n      success() &&\n      github.ref != ''\n", True),
         ('(b) block-scalar if stops at the next job key (status fn in a later step if) -> flag',
          "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.ref != ''\n    steps:\n      - if: always()\n        run: echo hi\n", True),
         # Arm (a), the t/4939 merge_group arm, written as a block scalar: before t/70 the
