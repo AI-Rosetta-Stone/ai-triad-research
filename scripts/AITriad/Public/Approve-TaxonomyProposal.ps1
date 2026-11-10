@@ -110,6 +110,8 @@ function Approve-TaxonomyProposal {
         }
         return $Result
     }
+
+    function Show-Proposal {
         param([int]$Idx, [PSObject]$P)
 
         $Color = $ActionColors[$P.action]
