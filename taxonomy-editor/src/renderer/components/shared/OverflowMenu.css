@@ -83,7 +83,7 @@
 
 .btn-ghost.active {
   background: var(--bg-panel);
-  color: var(--focus-ring);
-  border-color: var(--focus-ring);
+  color: var(--info-text); /* t/198 S3 */
+  border-color: var(--info-text);
 }
 

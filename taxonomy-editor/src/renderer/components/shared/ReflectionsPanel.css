@@ -40,8 +40,8 @@
   border-radius: 4px;
   font-size: var(--text-2xs);
   font-weight: 700;
-  background: #22c55e22;
-  color: #22c55e;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .rp-text-sm-muted { font-size: 0.7rem; color: var(--text-muted); }
@@ -79,8 +79,8 @@
   font-size: var(--text-2xs);
   padding: 1px 6px;
   border-radius: 4px;
-  background: #22c55e22;
-  color: #22c55e;
+  background: var(--success-bg);
+  color: var(--success-text);
   cursor: pointer;
   font-weight: 600;
 }
@@ -133,8 +133,8 @@
   border-radius: 4px;
   font-size: var(--text-2xs);
   font-weight: 600;
-  background: #3b82f6;
-  color: #fff;
+  background: var(--info-bg); /* t/198 S9: was white on #3b82f6 (3.68) */
+  color: var(--info-text);
 }
 
 .rp-edit-textarea {
@@ -269,10 +269,10 @@
 
 .rp-enrich-pending {
   font-size: var(--text-2xs);
-  color: #3b82f6;
+  color: var(--info-text);
   margin-top: 4px;
   padding: 4px 8px;
-  background: rgba(59, 130, 246, 0.06);
+  background: var(--info-bg);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -283,10 +283,10 @@
 
 .rp-enrich-success {
   font-size: var(--text-2xs);
-  color: #22c55e;
+  color: var(--success-text);
   margin-top: 4px;
   padding: 4px 8px;
-  background: rgba(34, 197, 94, 0.06);
+  background: var(--success-bg);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -297,19 +297,19 @@
 
 .rp-enrich-error {
   font-size: var(--text-2xs);
-  color: #ef4444;
+  color: var(--error-text);
   margin-top: 4px;
   padding: 4px 8px;
-  background: rgba(239, 68, 68, 0.06);
+  background: var(--error-bg);
   border-radius: 4px;
 }
 
 .rp-apply-error {
-  color: #ef4444;
+  color: var(--error-text);
   font-size: 0.7rem;
   margin-top: 4px;
   padding: 6px 8px;
-  background: rgba(239, 68, 68, 0.08);
+  background: var(--error-bg);
   border-radius: 4px;
   white-space: pre-line;
 }
