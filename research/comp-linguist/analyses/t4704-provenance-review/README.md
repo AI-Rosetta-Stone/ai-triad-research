@@ -42,10 +42,24 @@ found four bad replacements, affecting 8 rows. I checked each fix against the li
 - `why-ai-will-save-world-2026`: an a16z podcast slug returning 404 → the essay at
   `https://a16z.com/ai-will-save-the-world/`.
 - `white-house-releases-national-policy-framework-artificial-2026` ×2: the whitehouse.gov homepage
-  → the March 2026 framework PDF.
+  → **Holland & Knight's alert** at
+  `https://www.hklaw.com/en/insights/publications/2026/03/white-house-releases-a-national-policy-framework-for-artificial-intelligence`.
+  A first fix pointed it at the White House framework PDF (#4903). The identity check below showed
+  that was wrong: the snapshot *is* the H&K alert (2026-03-27), which discusses the framework.
 
-16 of the 19 replacements return HTTP 200. The other 3 (PsyPost and two weforum.org pages) return
-403 to scripted requests (bot blocking), but search confirms each is the live document.
+**Identity check (snapshot vs replacement).** The write records each replacement as `verified`
+provenance, which makes it a trusted identity key (`docs/specs/source-identity.md` §3). So for each
+of the 19 replacement URLs I compared the corpus snapshot against the replacement document:
+- **16 are the same document.**
+- **2 are the same work on its canonical host.** `constructing-ai-speech-2026`'s snapshot is the
+  Colorado Law repository copy of the Yale Law Journal Forum article.
+  `floor-speech-artificial-intelligence-robotics-2026`'s snapshot is a Vote Smart reprint of the
+  floor speech, and the replacement is the Congressional Record.
+- **1 was a different document** (the H&K case above), now fixed.
+
+15 of the 19 replacements return HTTP 200. The other four return 403 to scripted requests (bot
+blocking): PsyPost, two weforum.org pages and hklaw.com. I confirmed each by search or by fetching
+it directly.
 
 **Provenance class:** derived (search-verified per entry, not stipulated) — see
 `research/comp-linguist/docs/review-deliverable-schema.md`.
