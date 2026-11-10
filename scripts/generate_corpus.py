@@ -154,7 +154,7 @@ def cmd_filter_statements(args):
 
 def cmd_export_embeddings(args):
     """Embed corpus statements and export in dual format."""
-    from sentence_transformers import SentenceTransformer
+    import embed_model_pins
 
     taxonomy_dir = _resolve_taxonomy_dir(args.taxonomy_dir)
     synthetic_dir = taxonomy_dir / "synthetic"
@@ -167,13 +167,21 @@ def cmd_export_embeddings(args):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     model_name = args.model or "all-MiniLM-L6-v2"
-    print(f"Loading model: {model_name}", file=sys.stderr)
-    model = SentenceTransformer(model_name, trust_remote_code=False)
+    # t/110: these embeddings are read in production (lib/debate/syntheticStatementLookup.ts), so the
+    # model must be PINNED -- an unpinned --model is refused, never loaded from `main` (TL p/37#17).
+    try:
+        revision = embed_model_pins.pinned_revision(model_name)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Loading model: {model_name}@{revision[:7]}", file=sys.stderr)
+    model = embed_model_pins.load_sentence_transformer(model_name)
 
     do_numpy = args.format in ("numpy", "all")
     do_json = args.format in ("json", "all")
 
-    json_output = {"metadata": {"model": model_name, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, "nodes": {}}
+    json_output = {"metadata": {"model": model_name, "model_revision": revision,
+                                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, "nodes": {}}
 
     for pov in ["acc", "saf", "skp"]:
         corpus_path = synthetic_dir / f"corpus_{pov}.json"
@@ -241,7 +249,7 @@ def cmd_export_embeddings(args):
         print(f"  JSON: {json_path.name} ({len(json_output['nodes'])} nodes)", file=sys.stderr)
 
     print("Export complete.", file=sys.stderr)
-    json.dump({"status": "ok", "nodes": len(json_output["nodes"])}, sys.stdout)
+    json.dump({"status": "ok", "nodes": len(json_output["nodes"]), "model": model_name, "model_revision": revision}, sys.stdout)
 
 
 def main():

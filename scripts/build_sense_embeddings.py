@@ -105,6 +105,22 @@ def main():
     terms = load_standardized_terms(dictionary_dir)
     existing = load_existing_embeddings(embeddings_path)
 
+    # t/110: sense_embeddings.json is consumed in production, so the model must be PINNED
+    # (scripts/embed_model_pins.json) -- an unpinned --model is refused, never loaded from `main`
+    # (TL p/37#17). The revision is recorded in the output and is part of the cache key.
+    import embed_model_pins
+
+    try:
+        revision = embed_model_pins.pinned_revision(args.model)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+    cached_revision = existing.get("model_revision")
+    if existing.get("entries") and cached_revision is None and existing.get("model") == args.model:
+        print(f"WARN: {embeddings_path.name} predates model_revision (t/110); treating its cached vectors "
+              f"as {revision[:7]}, the pin that matched `main` when it was introduced (t/62).", file=sys.stderr)
+        cached_revision = revision
+
     # Determine which terms need (re)embedding
     to_embed = []
     unchanged = {}
@@ -118,6 +134,7 @@ def main():
             and canonical in existing.get("entries", {})
             and existing["entries"][canonical].get("hash") == source_hash
             and existing.get("model") == args.model
+            and cached_revision == revision
         ):
             unchanged[canonical] = existing["entries"][canonical]
         else:
@@ -142,7 +159,7 @@ def main():
 
     if to_embed:
         try:
-            from sentence_transformers import SentenceTransformer
+            import sentence_transformers  # noqa: F401 -- fail early with the install hint
         except ImportError:
             print(
                 "ERROR: sentence-transformers not installed.\n"
@@ -151,9 +168,9 @@ def main():
             )
             sys.exit(1)
 
-        print(f"Loading model: {args.model}", file=sys.stderr)
+        print(f"Loading model: {args.model}@{revision[:7]}", file=sys.stderr)
         t0 = time.time()
-        model = SentenceTransformer(args.model)
+        model = embed_model_pins.load_sentence_transformer(args.model)
         print(f"Model loaded in {time.time() - t0:.1f}s", file=sys.stderr)
 
         texts = [build_embedding_text(term) for _, term, _ in to_embed]
@@ -173,6 +190,7 @@ def main():
     output = {
         "$schema_version": "1.0.0",
         "model": args.model,
+        "model_revision": revision,   # t/110: the pinned commit these vectors came from
         "dimensions": dimensions if dimensions else 0,
         "entries": new_entries,
     }

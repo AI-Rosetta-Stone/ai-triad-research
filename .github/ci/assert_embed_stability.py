@@ -10,6 +10,7 @@ the PR-time python-embed-smoke job (ci.yml) and the weekly embed-drift workflow.
 Run with HF_HUB_OFFLINE=1 so a red here is a real incompatibility, not a network
 outage (the caller downloads models in a separate, earlier step).
 """
+import importlib.util
 import json
 import os
 import sys
@@ -20,12 +21,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(HERE, "embed_reference.json"), encoding="utf-8") as fh:
     ref = json.load(fh)
 
-# Import after loading the fixture; an import/API break here is itself a failure.
-from sentence_transformers import CrossEncoder, SentenceTransformer
+# t/110: load through the shared pinned loader (scripts/embed_model_pins.py), at the same
+# revisions prod uses and fetch_embed_models.py cached. Imported after loading the fixture;
+# an import/API break here is itself a failure.
+_spec = importlib.util.spec_from_file_location(
+    "embed_model_pins", os.path.join(HERE, "..", "..", "scripts", "embed_model_pins.py"))
+embed_model_pins = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(embed_model_pins)
 
 # ── Embedding value-stability (the corpus-critical contract vs embeddings.json) ──
 emb = np.asarray(
-    SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2").encode(ref["sentence"]),
+    embed_model_pins.load_sentence_transformer("sentence-transformers/all-MiniLM-L6-v2").encode(ref["sentence"]),
     dtype=float,
 )
 assert emb.shape[0] == 384, f"embedding dim broken: expected 384, got {emb.shape[0]}"
@@ -38,7 +44,7 @@ assert cos >= ref["cosine_min"], (
 
 # ── CrossEncoder (NLI) load + value stability (contradiction-detection contract) ──
 scores = np.asarray(
-    CrossEncoder("cross-encoder/nli-deberta-v3-small").predict([tuple(ref["nli_pair"])]),
+    embed_model_pins.load_cross_encoder("cross-encoder/nli-deberta-v3-small").predict([tuple(ref["nli_pair"])]),
     dtype=float,
 )
 assert scores.shape[-1] == 3, f"NLI shape broken: expected 3 logits, got {scores.shape}"

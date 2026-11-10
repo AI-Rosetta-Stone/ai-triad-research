@@ -1,7 +1,8 @@
 {
-  "_comment": "t/62: the ONE source of truth for the Hugging Face model revisions. Read by scripts/embed_taxonomy.py (prod loads) and .github/ci/fetch_embed_models.py (CI cache, t/55), so CI and prod can't drift. Bump a pin deliberately: re-check .github/ci/embed_reference.json, and expect the CI HF cache key (which hashes this file) to rotate.",
+  "_comment": "t/62, t/110: the ONE source of truth for the Hugging Face model revisions. Read by scripts/embed_model_pins.py (every sentence-transformers load in scripts/) and .github/ci/fetch_embed_models.py (CI cache, t/55), so CI and prod can't drift. Bump a pin deliberately: re-check .github/ci/embed_reference.json, and expect the CI HF cache key (which hashes this file) to rotate. ms-marco is the live -CrossEncoderRerank reranker (TL p/37#19).",
   "models": {
     "sentence-transformers/all-MiniLM-L6-v2": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
-    "cross-encoder/nli-deberta-v3-small": "fa2804872c3b4bd748f38c0185cc85775361e735"
+    "cross-encoder/nli-deberta-v3-small": "fa2804872c3b4bd748f38c0185cc85775361e735",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": "233902d25c440f23af6f7d6e94d2946bac0bee0a"
   }
 }
