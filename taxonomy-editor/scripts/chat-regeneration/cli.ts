@@ -22,8 +22,10 @@ import { fileURLToPath } from 'url';
 import { generateDryRunReport, formatDryRunReport } from './dryRun.js';
 import { replayChatSession, processChatBatch } from './batchRunner.js';
 import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateIndex } from './archive.js';
-import { createFilesystemBackend } from './filesystemBackend.js';
+import { createBackendAdapter } from './backendAdapter.js';
+import type { StorageBackendAdapter } from './backendAdapter.js';
 import type { ChatSession, DryRunReport } from './types.js';
+import { createFilesystemBackend } from '../../../../../src/server/storage/filesystemBackend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -103,7 +105,8 @@ async function main() {
   console.log(`Base path: ${baseDataPath}`);
   console.log('');
 
-  const backend = createFilesystemBackend();
+  const storageBackend = createFilesystemBackend();
+  const backend = createBackendAdapter(storageBackend);
 
   // DRY RUN MODE
   if (opts.dryRun) {
@@ -167,21 +170,23 @@ async function main() {
       }
 
       try {
-        // Try to replay
-        const regenerated = await replayChatSession(chat);
-        console.log(`✅ Regenerated chat in memory`);
+        // Replay with backend and dry-run (no actual regeneration yet for first test)
+        const regenerated = await replayChatSession(chat, {
+          dryRun: true, // Start with dry-run for safety
+          backend,
+          streamChatWithProgressFn,
+          getTaxonomyContextFn,
+          getModelFn,
+        });
+        console.log(`✅ Regenerated chat (phase 5 wired, dry-run mode)`);
         console.log(`   Updated at: ${regenerated.regenerated_at}`);
         console.log(`   Turns: ${regenerated.transcript.length}`);
       } catch (err) {
-        // Catch Phase 5 blocker error and format as ActionableError
+        // Catch phase 5 errors and format as ActionableError
         const error = err as Error & { goal?: string; problem?: string; location?: string; nextSteps?: string };
-        console.error('\n❌ Chat replay not yet available (Phase 5 not wired)\n');
+        console.error('\n❌ Chat replay failed\n');
         console.error(formatActionableError(error));
         console.error('\n');
-        console.error('**What to do:**');
-        console.error('1. Phase 5 implementation pending: wire replayChatSession() to app\'s streamChatWithProgress()');
-        console.error('2. Use dry-run mode (--dry-run) for now to analyze chats without applying');
-        console.error('3. Once Phase 5 lands, --apply --single will work with real chat pipeline');
         process.exit(1);
       }
 

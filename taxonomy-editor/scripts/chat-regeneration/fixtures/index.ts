@@ -5,7 +5,7 @@
  * Fixture data for testing batch regeneration.
  */
 
-import type { ChatSession } from './types.js';
+import type { ChatSession } from '../types.js';
 
 /** Old chat fixture (no raw_prompt/raw_response, no ref labels). */
 export const oldChatFixture: ChatSession = {

@@ -6,8 +6,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
-import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateIndex, type StorageBackendAdapter } from '../archive.js';
-import { createFilesystemBackend } from '../filesystemBackend.js';
+import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateIndex } from '../archive.js';
+import { createBackendAdapter } from '../backendAdapter.js';
+import { createFilesystemBackend } from '../../../../../src/server/storage/filesystemBackend.js';
+import type { StorageBackendAdapter } from '../backendAdapter.js';
 import { analyzeChatSession, generateDryRunReport, formatDryRunReport } from '../dryRun.js';
 import { replayChatSession, processChatBatch } from '../batchRunner.js';
 import { oldChatFixture, newChatFixture } from '../fixtures/index.js';
@@ -19,7 +21,8 @@ describe('Archive Module with Backend Adapter', () => {
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'chat-regen-test-'));
-    backend = createFilesystemBackend();
+    const storageBackend = createFilesystemBackend();
+    backend = createBackendAdapter(storageBackend);
   });
 
   afterEach(async () => {
