@@ -452,6 +452,8 @@
 .bulk-delete-item-title { font-size: var(--text-sm); font-weight: 500; }
 .bulk-delete-item-meta { font-size: var(--text-2xs); color: var(--text-muted); }
 .bulk-delete-note { font-size: var(--text-xs); color: var(--text-muted); margin: 8px 0; font-style: italic; }
+/* t/88: partial-failure message (also used by BulkDeleteInquiryDialog) — same token as .chat-bulk-delete-error (t/4896, Design). */
+.bulk-delete-error { font-size: var(--text-xs); color: var(--error-text); margin: 8px 0; }
 /* AN node identifier on debate turns */
 .debate-an-id { font-size: var(--text-2xs); color: var(--text-muted); font-weight: 400; }
 /* Concession harvest styles (CH-2) */
