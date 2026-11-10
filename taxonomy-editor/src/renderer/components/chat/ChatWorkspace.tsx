@@ -33,6 +33,7 @@ import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
+import { HowPanel } from '../shared/HowPanel';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -205,80 +206,6 @@ const CHAT_HOW_METHODS_LINKS = [
   { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
   { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
 ];
-
-function ChatHowMethodsLink({ label, url }: { label: string; url: string }) {
-  return (
-    <button
-      type="button"
-      className="btn-ghost chat-how-methods-link"
-      onClick={() => {
-        void api.openExternal(url).catch((err: unknown) => {
-          getGlobalRecorder()?.record({
-            type: 'system.error', component: 'chat-how-panel', level: 'error',
-            message: 'Failed to open methods link',
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-        });
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ChatHowSection({ title, defaultExpanded, children }: { title: string; defaultExpanded: boolean; children: React.ReactNode }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  return (
-    <div className="chat-how-section">
-      <button type="button" className="chat-how-section-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
-        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
-        {title}
-      </button>
-      {expanded && <div className="chat-how-section-body">{children}</div>}
-    </div>
-  );
-}
-
-/** Raw Prompt/Response content: the real text in a ~15-visible-line scroll box when the server has
- *  captured it (t/4848), or the "not available" message when it hasn't — a missing value for an
- *  older/in-flight turn never reads as a rendering bug. */
-function ChatHowRawContent({ value, label, missingText }: { value: string | undefined; label: string; missingText: string }) {
-  // t/165: absent for entries saved before t/4848 (and openings until t/169), by contract.
-  if (!value) return <p className="chat-how-unavailable">{missingText}</p>;
-  // t/4856 (Design): tabIndex + aria-label so the scrollable box is keyboard-reachable and its
-  // content is announced, matching the section title it sits under.
-  return <pre className="chat-how-textbox" tabIndex={0} aria-label={label}>{value}</pre>;
-}
-
-/** Collapsed by default, below each POV response (t/4824). */
-function ChatHowPanel({ rawPrompt, rawResponse }: { rawPrompt: string | undefined; rawResponse: string | undefined }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="chat-how-panel">
-      <button type="button" className="chat-how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
-        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
-        How
-      </button>
-      {expanded && (
-        <div className="chat-how-body">
-          <ChatHowSection title="Raw Prompt" defaultExpanded>
-            <ChatHowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
-          </ChatHowSection>
-          <ChatHowSection title="Raw Response" defaultExpanded={false}>
-            <ChatHowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
-          </ChatHowSection>
-          <ChatHowSection title="Methods" defaultExpanded={false}>
-            <ul className="chat-how-methods-list">
-              {CHAT_HOW_METHODS_LINKS.map(link => (
-                <li key={link.url}><ChatHowMethodsLink label={link.label} url={link.url} /></li>
-              ))}
-            </ul>
-          </ChatHowSection>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Progress indicator ───────────────────────────────────
 

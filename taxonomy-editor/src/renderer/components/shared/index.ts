@@ -14,6 +14,7 @@ export * from './FireProgressIndicator';
 export * from './HamburgerMenu';
 export * from './HarvestDialog';
 export * from './HighlightedField';
+export * from './HowPanel';
 export * from './LinkedChip';
 export * from './NewNodeDialog';
 export * from './NewsReportModal';
