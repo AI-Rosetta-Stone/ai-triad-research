@@ -15,7 +15,13 @@ The revised design (t/3633#2) is deliberately conservative. Auto opposition-dete
 
 ## How the gate consumes it (PowerShell impl)
 
-In `consolidate_conflicts.py`, before emitting a candidate as a conflict: if the candidate's `claim_id` **OR** any normalized instance-assertion signature matches an entry in `demotion-manifest.json`, emit it **demoted** (not a conflict), and log the demotion (count + provenance `"in t/3350 manifest"`) per the fallback-path logging rule. This satisfies revised ACs 1–3. AC4 (no multi-instance conflict already in the corpus is dropped) holds because the manifest contains only the 432 single-instance standalone facts.
+In `consolidate_conflicts.py`, before emitting a candidate as a conflict, check it against `demotion-manifest.json` and **demote only single-instance candidates** (the class the manifest describes). For a candidate with exactly one instance, if its `claim_id` **OR** its normalized assertion signature matches an entry, emit it **demoted** (not a conflict), and log the demotion (count + provenance `"in t/3350 manifest"`) per the fallback-path logging rule. This satisfies revised ACs 1–3.
+
+A **multi-instance** candidate is never demoted by the manifest (AC4: no genuine conflict is dropped):
+- A signature match means it shares one assertion with a standalone fact. That does not make it a standalone fact.
+- A `claim_id` match means a demoted fact has gained instances since the manifest was built. The manifest's premise no longer holds for it, so emit it as a conflict with a `WARN` naming the id, and review it.
+
+A false conflict is loud and reviewable; a silently dropped genuine conflict is not. *(Corrected t/3633, p/70#7: this section first applied the signature fallback to every candidate and argued AC4 from the manifest's contents, which does not protect a multi-instance candidate that shares one assertion.)*
 
 - `claim_id` is content-derived (e.g. `conflict-36-out-of-38-gene-synthesis-providers-...`), so a regen from the same source should re-mint the same id, the primary key. `assertion_sigs` (lowercased, whitespace-collapsed, trailing-punctuation-stripped) is the fallback if a regen mints a different id.
 - **Refresh discipline:** if the demoted set legitimately changes (a new demotion batch), re-run the builder and commit the updated manifest; `--verify` in CI catches silent drift between the live set and the committed manifest.
