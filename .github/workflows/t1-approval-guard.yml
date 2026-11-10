@@ -216,6 +216,10 @@ jobs:
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-'));
             const predicatePath = path.join(tmpDir, 't1-approval-guard-predicate.mjs');
             fs.writeFileSync(predicatePath, basePredicateText);
+            // t/116: the predicate imports ./role-review-verdicts.mjs (latestRoleVerdicts), so the
+            // same base tip's copy goes in the same temp dir. Same file list as ci.yml's merge_group arm.
+            const baseVerdictsText = execSync(`git show ${baseTipSha}:operations/devops/role-review-verdicts.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            fs.writeFileSync(path.join(tmpDir, 'role-review-verdicts.mjs'), baseVerdictsText);
             const { evaluateT1ApprovalGuard } = await import(pathToFileURL(predicatePath).href);
 
             const commits = await withRetry('pulls.listCommits', () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }));
@@ -223,26 +227,41 @@ jobs:
             const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
             const rawComments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
-            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at }));
+            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at, login: c.user?.login }));
 
-            // t/4096 Reviewer switch-over: during the transition, a real bot review also satisfies
-            // the gate (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment.
-            // Fetch every bot review's body too -- the predicate applies the same owner-slug
-            // self-approval check to it that it applies to a comment (TL review, PR #3487
-            // blocking 1: a human-authored PR, reviewed by ANY agent running as the reviewer App,
-            // is not self-approval-safe by GitHub identity alone).
+            // t/4096 Reviewer switch-over: a real reviewer-App review also satisfies the gate
+            // (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment; the
+            // predicate applies the same owner-slug self-approval check to both (TL review, PR
+            // #3487 blocking 1).
+            // t/116: EVERY review is passed (human ones too, with commit_id): the predicate binds
+            // each to the head SHA, and any outstanding changes-request at the head -- another
+            // role through the shared App, or a human -- blocks. Only the reviewer App's role-tagged
+            // body can approve. Same mapping as ci.yml's merge_group arm (keep them identical).
             const rawReviews = await withRetry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
-            const botReviews = rawReviews
-              .filter((r) => r.user?.type === 'Bot')
-              .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body }));
+            const botReviews = rawReviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id }));
 
-            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
-            core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}`);
+            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, headSha: pr.head.sha, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
+            core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}${result.blockers ? ' blockers=' + JSON.stringify(result.blockers) : ''}`);
 
             if (result.pass) {
               const okSummary = result.reason === 'not-t1' ? 'not a T1 PR' : 'approved after the latest push';
               await postVerdictComment(prNumber, `${MARKER}\nt1-approval-guard: OK — ${okSummary}.`);
               await postCheckRun(pr.head.sha, 'success', 't1-approval-guard: OK', okSummary);
+              return;
+            }
+
+            if (result.reason === 'changes-requested-at-head') {
+              const who = result.blockers.map((b) => `\`${b.role}\` (${b.at})`).join(', ');
+              await postVerdictComment(prNumber, [
+                MARKER,
+                `**t1-approval-guard: FAILING** — changes are requested at the current head by ${who}.`,
+                '',
+                'Any outstanding changes-request at the head blocks a T1 PR, whatever other roles approved (t/116). It clears when that role posts a later `Approved (<role>):` at this head, when that human approves or dismisses their review, or on a new push.',
+                '',
+                '_This check is warn-only (not yet a required context) — see t/4247._',
+              ].join('\n'));
+              await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has changes requested at the head by ${who}.`);
+              core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has changes requested at the head by ${who}.`);
               return;
             }
 
@@ -254,6 +273,6 @@ jobs:
               '',
               '_This check is warn-only (not yet a required context) — see t/4247._',
             ].join('\n'));
-            await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has no post-push approval.`);
-            core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has no post-push approval.`);
+            await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has no post-push approval (${result.reason}).`);
+            core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has no post-push approval (${result.reason}).`);
             } // end run()
