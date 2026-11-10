@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { checkEdgeDomainRange, checkReferentialIntegrity, checkBdiConsistency, validateTaxonomy } from './validators.js';
+import { setCcToSitMapping } from './ccSitMapping.js';
 import type { Edge } from './taxonomyTypes.js';
 
 function makeEdge(overrides: Partial<Edge> = {}): Edge {
@@ -158,5 +159,42 @@ describe('checkReferentialIntegrity', () => {
     const result = checkReferentialIntegrity(data);
     const issues = result.issues.filter(i => i.code === 'EDGE_DANGLING_TARGET');
     expect(issues).toHaveLength(1);
+  });
+
+  it('accepts cc- IDs in situation_refs when mapping is loaded', () => {
+    // Set up the cc-to-sit mapping
+    setCcToSitMapping({ 'cc-001': 'sit-001', 'cc-002': 'sit-002' });
+
+    const data = {
+      ...baseTaxonomy,
+      accelerationist: {
+        nodes: [
+          { id: 'acc-desires-001', parent_id: null, children: [], situation_refs: ['cc-001'] },
+          { id: 'acc-desires-002', parent_id: null, children: [], situation_refs: ['cc-002', 'sit-001'] },
+        ],
+      },
+    };
+    // @ts-expect-error — simplified test data
+    const result = checkReferentialIntegrity(data);
+    const ccIssues = result.issues.filter(i => i.code === 'DANGLING_SITUATION_REF');
+    expect(ccIssues).toHaveLength(0);
+  });
+
+  it('rejects unknown IDs in situation_refs even with cc mapping loaded', () => {
+    setCcToSitMapping({ 'cc-001': 'sit-001' });
+
+    const data = {
+      ...baseTaxonomy,
+      accelerationist: {
+        nodes: [
+          { id: 'acc-desires-001', parent_id: null, children: [], situation_refs: ['unknown-999'] },
+        ],
+      },
+    };
+    // @ts-expect-error — simplified test data
+    const result = checkReferentialIntegrity(data);
+    const issues = result.issues.filter(i => i.code === 'DANGLING_SITUATION_REF');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toContain('unknown-999');
   });
 });

@@ -10,6 +10,7 @@
 import type { PovNode, SituationNode, Edge } from './taxonomyTypes.js';
 import { nodePovFromId } from './nodeIdUtils.js';
 import { POV_KEYS } from './types.js';
+import { hasCcToSitMapping } from './ccSitMapping.js';
 
 // ── Validation result ─────────────────────────────────────
 
@@ -112,12 +113,18 @@ export function checkReferentialIntegrity(data: TaxonomyData): ValidationResult 
       }
     }
 
-    // situation_refs must reference valid situation nodes
+    // situation_refs must reference valid situation nodes or legacy cc- IDs
     for (const ref of node.situation_refs) {
-      if (!sitIds.has(ref)) {
+      const isCcId = ref.startsWith('cc-');
+      const isSitId = sitIds.has(ref);
+      if (!isSitId && !isCcId) {
         issues.push(issue('error', 'DANGLING_SITUATION_REF', id,
-          `situation_refs entry '${ref}' does not exist`,
-          `Remove '${ref}' from situation_refs or add the missing situation node`));
+          `situation_refs entry '${ref}' does not exist (not a sit- ID and not a mappable cc- ID)`,
+          `Remove '${ref}' from situation_refs, or add the missing situation node`));
+      } else if (isCcId && !hasCcToSitMapping()) {
+        issues.push(issue('warning', 'UNMAPPED_CC_REFERENCE', id,
+          `situation_refs entry '${ref}' is a legacy cc- ID but cc-to-sit mapping has not been loaded`,
+          `Load the cc-to-sit mapping at startup before processing debates with legacy cc- references`));
       }
     }
   }
