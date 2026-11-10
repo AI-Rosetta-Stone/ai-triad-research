@@ -41,19 +41,31 @@ const GENERIC_HTTP_TEXT = 'An unexpected error occurred. If this persists, try r
 
 // A bridge non-2xx carries `httpStatus` and a raw problem ("DELETE /api/chats/x failed with HTTP 429:
 // {...}") — map those by status (t/108). Problems the bridge words itself (WRITE_CONFLICT, daily token
-// limit, missing API key…) also carry a status but no "HTTP <status>" text, and stay verbatim.
+// limit, missing API key…) also carry a status but are already user-facing copy, and stay verbatim.
+// Matched by the bridge's exact prefix (web-bridge.ts get/mutation/put/patch), not "HTTP <n>"
+// anywhere, so a hand-written message that quotes a status isn't remapped (TL p/10#36).
+const BRIDGE_RAW_PROBLEM = /^[A-Z]+ \S+ failed with HTTP (\d{3}):/;
+
 function actionableErrorText(err: ActionableError, opts: MapErrorOptions | undefined): string {
   const status = err.httpStatus;
-  if (typeof status !== 'number' || !err.problem.includes(`HTTP ${status}`)) return err.problem;
+  const raw = BRIDGE_RAW_PROBLEM.exec(err.problem);
+  if (typeof status !== 'number' || !raw || Number(raw[1]) !== status) return err.problem;
   return classifyHttpStatus(status, opts);
 }
 
 // Reuses the classifiers' own 429/503/529/500/502/504 text so the two paths can't drift (t/108).
+// - Bridge errors default to 'operation' unless the caller passes kind 'ai' explicitly: 48 callers pass
+//   no kind and many are plain server ops, where AI text would be false (TL p/10#38).
+// - 5xx always takes the 'operation' wording, whatever the kind: nothing retries a plain bridge call,
+//   so "Retrying automatically" / "Retrying shortly" would be false here (TL p/10#39).
+// - 401 is a signed-out session; 403 is a signed-in user without permission (Design t/108#10).
 function classifyHttpStatus(status: number, opts: MapErrorOptions | undefined): string {
   if (status === 404) return 'That item no longer exists.';
-  if (status === 401 || status === 403) return "You don't have permission to do that. Try signing in again.";
+  if (status === 401) return 'Your session has expired. Sign in again.';
+  if (status === 403) return "You don't have permission to do that.";
   const code = String(status);
-  return classifyRateLimitError(code, opts) ?? classifyServiceOverloadError(code, opts) ?? classifyServerError(code, opts) ?? GENERIC_HTTP_TEXT;
+  const statusOpts: MapErrorOptions = { kind: status < 500 && opts?.kind === 'ai' ? 'ai' : 'operation' };
+  return classifyRateLimitError(code, statusOpts) ?? classifyServiceOverloadError(code, statusOpts) ?? classifyServerError(code, statusOpts) ?? GENERIC_HTTP_TEXT;
 }
 
 // Context window exceeded — check BEFORE rate-limit since both can mention "RESOURCE_EXHAUSTED"

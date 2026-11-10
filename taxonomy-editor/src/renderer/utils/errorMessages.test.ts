@@ -187,14 +187,22 @@ describe('mapErrorToUserMessage — bridge ActionableErrors map by httpStatus, n
   const del = (status: number, body: string) => bridgeError('DELETE', '/api/chats/chat-123', status, body);
 
   const cases: Array<[number, string, 'ai' | 'operation' | undefined, string]> = [
-    [429, '{"error":"Too many requests"}', undefined,
-      'API rate limited. Wait a minute and try again, or switch to a different model in Settings.'],
+    // TL p/10#38: a bridge error with no kind defaults to 'operation'; only an explicit 'ai' gets AI text.
+    [429, '{"error":"Too many requests"}', undefined, 'Too many requests. Wait a minute and try again.'],
     [429, '{"error":"Too many requests"}', 'operation', 'Too many requests. Wait a minute and try again.'],
+    [429, '{"error":"Too many requests"}', 'ai',
+      'API rate limited. Wait a minute and try again, or switch to a different model in Settings.'],
     [500, '{"error":"Internal error"}', 'operation', 'The server ran into a problem. Try again in a moment.'],
+    // TL p/10#39: a bridge 5xx gets the operation text even when the caller says 'ai'.
+    [500, '{"error":"Internal error"}', undefined, 'The server ran into a problem. Try again in a moment.'],
+    [500, '{"error":"Internal error"}', 'ai', 'The server ran into a problem. Try again in a moment.'],
     [502, '{"error":"Bad gateway"}', 'operation', "The server couldn't be reached. Try again in a moment."],
     [503, '{"error":"Service unavailable"}', 'operation', 'The service is busy right now. Try again in a few seconds.'],
-    [401, '{"error":"Unauthorized"}', 'operation', "You don't have permission to do that. Try signing in again."],
-    [403, '{"error":"Forbidden"}', undefined, "You don't have permission to do that. Try signing in again."],
+    // Design t/108#10: 401 is a signed-out session, 403 a signed-in user without permission.
+    [401, '{"error":"Unauthorized"}', 'operation', 'Your session has expired. Sign in again.'],
+    [401, '{"error":"Unauthorized"}', undefined, 'Your session has expired. Sign in again.'],
+    [403, '{"error":"Forbidden"}', 'operation', "You don't have permission to do that."],
+    [403, '{"error":"Forbidden"}', undefined, "You don't have permission to do that."],
     [404, '{"error":"Chat not found"}', 'operation', 'That item no longer exists.'],
     [404, '{"error":"Chat not found"}', undefined, 'That item no longer exists.'],
     [400, '{"error":"Bad request"}', 'operation', 'An unexpected error occurred. If this persists, try reloading.'],
@@ -225,5 +233,24 @@ describe('mapErrorToUserMessage — bridge ActionableErrors map by httpStatus, n
     const daily = new ActionableError({ goal: 'g', problem: 'Daily token limit exceeded. Try again tomorrow or use your own API key.', location: 'web-bridge.post', nextSteps: [] });
     Object.assign(daily, { httpStatus: 429 });
     expect(mapErrorToUserMessage(daily)).toBe('Daily token limit exceeded. Try again tomorrow or use your own API key.');
+  });
+
+  // TL p/10#36: only the bridge's exact "<METHOD> <path> failed with HTTP <n>:" prefix is remapped.
+  it('a hand-written problem that merely quotes "HTTP <n>" is kept verbatim', () => {
+    const quoted = new ActionableError({ goal: 'g', problem: 'The upstream returned HTTP 429 earlier; your draft is saved locally.', location: 'web-bridge.post', nextSteps: [] });
+    Object.assign(quoted, { httpStatus: 429 });
+    expect(mapErrorToUserMessage(quoted, { kind: 'operation' })).toBe('The upstream returned HTTP 429 earlier; your draft is saved locally.');
+  });
+
+  // TL p/10#36: nothing retries a plain bridge call, so a bridge 5xx never promises a retry, under any
+  // kind. The plain-Error AI paths that do retry keep their wording (checked in the last assertion).
+  it('a bridge 5xx never promises an automatic retry, under any kind', () => {
+    for (const status of [500, 502, 503, 504, 529]) {
+      for (const kind of [undefined, 'ai', 'operation'] as const) {
+        const shown = mapErrorToUserMessage(del(status, '{"error":"x"}'), kind ? { kind } : undefined);
+        expect(shown, `HTTP ${status} kind ${String(kind)}`).not.toMatch(/retrying|automatically|shortly/i);
+      }
+    }
+    expect(mapErrorToUserMessage(new Error('500 Internal Server Error'))).toMatch(/Retrying automatically/);
   });
 });
