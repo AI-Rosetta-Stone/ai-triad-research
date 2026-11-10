@@ -92,6 +92,17 @@ describe('AzureBlobBackend (Azurite)', () => {
       .getBlobClient('taxonomy/t.json').exists()).toBe(true);
   });
 
+  it('writeFileIfAbsent creates once; a second create → exists and leaves the blob untouched (t/181)', async () => {
+    expect(await backend.writeFileIfAbsent('users/u1/inquiry-jobs/job-wia.json', '{"v":1}')).toBe('created');
+    expect(await backend.writeFileIfAbsent('users/u1/inquiry-jobs/job-wia.json', '{"v":2}')).toBe('exists');
+    expect(await backend.readFile('users/u1/inquiry-jobs/job-wia.json')).toBe('{"v":1}');
+  });
+
+  it('writeFileIfAbsent: concurrent creates of one blob → exactly one created (t/181)', async () => {
+    const results = await Promise.all([1, 2, 3, 4].map(i => backend.writeFileIfAbsent('users/u1/inquiry-jobs/job-race.json', `w${i}`)));
+    expect(results.filter(r => r === 'created')).toHaveLength(1);
+  });
+
   it('fileExists reflects presence', async () => {
     await backend.writeFile('taxonomy/exists.json', '{}');
     expect(await backend.fileExists('taxonomy/exists.json')).toBe(true);

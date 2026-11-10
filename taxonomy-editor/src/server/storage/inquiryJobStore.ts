@@ -48,7 +48,8 @@ import { resolveDataPath } from '../config.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
-import { getUserContentBackend, assertSafeId } from './fileIO.js';
+import { getUserContentBackend, assertSafeId, writeFileIfAbsentStrict } from './fileIO.js';
+import type { WriteIfAbsentResult } from './storageBackend.js';
 import type { InquiryJobStatus } from '../../../../lib/inquiry/index.js';
 
 // ── Staleness threshold (SO condition 8; e/221#6 framing correction) ──
@@ -123,13 +124,14 @@ export interface InquiryJobRecord {
   startedAt: number;
 }
 
-function getJobsDir(userId?: string): string {
+/** The per-user job-record directory ('_local' → the legacy unscoped dir). Exported for jobRecords.ts. */
+export function getInquiryJobsDir(userId?: string): string {
   const uid = userId ?? getStorageUserId();
   if (uid === '_local') return resolveDataPath('inquiry-jobs');
   return resolveDataPath(`users/${uid}/inquiry-jobs`);
 }
 function getJobFile(jobId: string): string {
-  return path.join(getJobsDir(), `job-${jobId}.json`);
+  return path.join(getInquiryJobsDir(), `job-${jobId}.json`);
 }
 
 // ── Public API ──
@@ -141,6 +143,16 @@ export async function saveInquiryJobRecord(record: InquiryJobRecord): Promise<vo
   if (isAnonymousUser()) return;
   assertSafeId(record.jobId, 'inquiry job id');
   await getUserContentBackend().writeFile(getJobFile(record.jobId), JSON.stringify(record, null, 2));
+}
+
+/** t/4216 (t/181): create-only save of a job's INITIAL record. `'exists'` means another replica or
+ *  an earlier request already created this jobId (deterministic for an idempotent request): load
+ *  that job, don't start a second one. Anonymous: no-op returning `'created'`, the same as
+ *  saveInquiryJobRecord — anonymous jobs have no durable record to collide on. */
+export async function createInquiryJobRecordIfAbsent(record: InquiryJobRecord): Promise<WriteIfAbsentResult> {
+  if (isAnonymousUser()) return 'created';
+  assertSafeId(record.jobId, 'inquiry job id');
+  return writeFileIfAbsentStrict(getUserContentBackend(), getJobFile(record.jobId), JSON.stringify(record, null, 2));
 }
 
 /** Load a job record by jobId for the current user; null if absent, anonymous, or parse error. */
