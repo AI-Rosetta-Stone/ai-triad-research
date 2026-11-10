@@ -152,7 +152,57 @@ def lint_file(path, content):
     # not just the job that would have used that permission.
     errs.extend(_check_permissions_allowlist(path, content))
 
+    # ── Check 5: a merge_group-gated job with `needs:` must carry !cancelled() (t/4939) ──
+    errs.extend(_check_mergegroup_guard_cancelled(path, content))
+
     return errs
+
+
+def _check_mergegroup_guard_cancelled(path, content):
+    """Check 5 (t/4939 recurrence guard, DevOps Lead p/648#386 item 3): a job gated on
+    `github.event_name == 'merge_group'` with its own `needs:` dependency, but with no
+    `!cancelled()` in its `if:`, silently skips in every merge_group batch forever.
+
+    Root cause: GitHub wraps a bare `if:` in an implicit success() unless the expression
+    itself calls a status-check function. success() requires the WHOLE upstream chain --
+    including any of `needs`' OWN path-filtered, often-skipped dependencies -- to have
+    succeeded. A job like `ci-gate` runs via always() and reports success on a skip-heavy
+    chain, but THIS job's own implicit success() gets no such treatment, so it skips. GitHub
+    then reports that skip as a SATISFIED required context: all three of consult-hold-guard,
+    joint-gv-guard and t1-approval-guard skipped in 25/25 sampled merge_group batches since
+    11-04 (t/4939#22) -- the queue-time re-check these jobs exist for never actually ran.
+    `!cancelled()` forces the `if:` to be a real expression (GitHub no longer wraps it in an
+    implicit success()), so the job runs whenever its own event/needs-result conditions hold,
+    independent of the rest of the chain's skip/success shape.
+    """
+    lines = content.splitlines()
+    jobs_idx = _find_key(lines, 'jobs', 0)
+    if jobs_idx < 0:
+        return []
+    jobs_end = _block_end(lines, jobs_idx, 0)
+    job_re = re.compile(r'^  ([A-Za-z0-9_-]+)\s*:')
+    findings = []
+    for i in range(jobs_idx + 1, jobs_end):
+        m = job_re.match(lines[i])
+        if not m:
+            continue
+        end = _block_end(lines, i, 2)
+        needs_idx = _find_key(lines, 'needs', 4, i + 1, end)
+        if_idx = _find_key(lines, 'if', 4, i + 1, end)
+        if needs_idx < 0 or if_idx < 0:
+            continue
+        if_line = lines[if_idx]
+        if 'merge_group' not in if_line:
+            continue
+        if '!cancelled()' not in if_line:
+            findings.append(
+                f"{path}:{if_idx + 1}: job \"{m.group(1)}\" is merge_group-gated with a `needs:` "
+                f"dependency but its `if:` has no `!cancelled()` -- the implicit success() "
+                f"requires the WHOLE upstream chain (including needs' own skipped/path-filtered "
+                f"dependencies) to succeed, so the job silently skips and GitHub reports that "
+                f"skip as a satisfied required context (t/4939#22)."
+            )
+    return findings
 
 
 def _check_permissions_allowlist(path, content):
@@ -1446,6 +1496,77 @@ jobs:
         failures.append('check_job_timeouts flagged a file with no jobs: block')
     else:
         print('  PASS: check_job_timeouts is silent on a file with no jobs: block')
+
+    # merge_group guard !cancelled() check (t/4939 recurrence guard): both arms.
+    fixture_mg_missing_cancelled = """\
+permissions:
+  contents: read
+jobs:
+  consult-hold-guard:
+    if: github.event_name == 'merge_group'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo hi
+"""
+    findings = _check_mergegroup_guard_cancelled('fixture_mg_missing', fixture_mg_missing_cancelled)
+    if len(findings) != 1 or 'consult-hold-guard' not in findings[0]:
+        failures.append(f'merge_group !cancelled() check MISSED a bare if: with needs: and merge_group, got {findings}')
+    else:
+        print('  PASS: merge_group !cancelled() check catches a bare if: with needs: and merge_group')
+
+    fixture_mg_has_cancelled = """\
+permissions:
+  contents: read
+jobs:
+  consult-hold-guard:
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo hi
+"""
+    findings = _check_mergegroup_guard_cancelled('fixture_mg_ok', fixture_mg_has_cancelled)
+    if findings:
+        failures.append(f'merge_group !cancelled() check FALSE-FLAGGED a job whose if: already has !cancelled(), got {findings}')
+    else:
+        print('  PASS: merge_group !cancelled() check ignores a job whose if: already has !cancelled()')
+
+    # Negative controls: no needs:, or no merge_group reference, must never flag.
+    fixture_mg_no_needs = """\
+permissions:
+  contents: read
+jobs:
+  some-job:
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo hi
+"""
+    if _check_mergegroup_guard_cancelled('fixture_mg_no_needs', fixture_mg_no_needs):
+        failures.append('merge_group !cancelled() check FALSE-FLAGGED a job with no needs: at all (nothing to skip on)')
+    else:
+        print('  PASS: merge_group !cancelled() check ignores a job with no needs:')
+
+    fixture_mg_not_merge_group = """\
+permissions:
+  contents: read
+jobs:
+  some-job:
+    if: github.event_name == 'pull_request'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo hi
+"""
+    if _check_mergegroup_guard_cancelled('fixture_mg_not_mg', fixture_mg_not_merge_group):
+        failures.append('merge_group !cancelled() check FALSE-FLAGGED a job whose if: never mentions merge_group')
+    else:
+        print('  PASS: merge_group !cancelled() check ignores a job whose if: never mentions merge_group')
 
     if failures:
         for f in failures:
