@@ -2636,6 +2636,15 @@ jobs:
       - name: Review-state gating lint arms (WARN-ONLY, t/105)
         continue-on-error: true
         run: node --test .github/scripts/check-review-state-gating.test.mjs
+      # t/128: raw ASCII control bytes (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F) in tracked text files are
+      # invisible in PR diffs (#4809: literal 0x08 for \b made a guard pass vacuously). WARN-ONLY first:
+      # this job is in ci-gate's needs, so continue-on-error keeps it advisory until a blocking follow-up.
+      - name: Control-character lint (WARN-ONLY, t/128)
+        continue-on-error: true
+        run: node .github/scripts/check-control-chars.mjs
+      - name: Control-character lint arms (WARN-ONLY, t/128)
+        continue-on-error: true
+        run: node --test .github/scripts/check-control-chars.test.mjs
 
   # ── ci-filter-coverage: each paths-filtered job's test read-set covered by its own filter
   # (t/4140, third occurrence of the class: t/2025, t/3189, t/4029). NO path filter of its own —
