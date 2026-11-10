@@ -205,6 +205,14 @@ Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
             $res.Out | Should -Match 'FAIL  Python py_compile'
         }
 
+        It 'a pushed top-level py_compile.py cannot shadow the stdlib module and fake a pass' {
+            $r = New-ScratchRepo
+            Add-Commit $r @{ 'py_compile.py' = "raise SystemExit(0)`n"; 'tools/bad.py' = "def f(:`n    pass`n" } | Out-Null
+            $res = Invoke-Checks $r
+            $res.Code | Should -Be 1
+            $res.Out | Should -Match 'FAIL  Python py_compile'
+        }
+
         It 'passes a .py that compiles and leaves no __pycache__ in the tree' {
             $r = New-ScratchRepo
             Add-Commit $r @{ 'tools/good.py' = "def f():`n    return 1`n" } | Out-Null

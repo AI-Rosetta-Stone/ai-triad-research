@@ -223,9 +223,11 @@ for step in $PLAN; do
 '
         continue
       fi
-      # Compiled inside the scratch dir, so no __pycache__ lands in the worktree.
+      # Compiled inside the scratch dir, so no __pycache__ lands in the worktree. -I (isolated):
+      # without it the scratch dir is sys.path[0], so a pushed top-level file named like a stdlib
+      # module (py_compile.py, importlib/...) would run instead of it and could fake a pass.
       tmp=$(mktemp -d) && extract_pushed "$tmp" "$@" &&
-        ( cd "$tmp" && "$pybin" -m py_compile "$@" ) ;;
+        ( cd "$tmp" && "$pybin" -I -m py_compile "$@" ) ;;
   esac
   rc=$?
   [ -n "$exact" ] && [ -n "$tmp" ] && rm -rf "$tmp" && tmp=""
