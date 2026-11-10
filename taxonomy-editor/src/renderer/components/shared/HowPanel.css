@@ -1,0 +1,93 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * The shared "How" panel (t/173), moved from ChatWorkspace.css's .chat-how-* rules (t/4824, t/4855,
+ * t/4856) so Chat and the Op-Ed reader share one look.
+ */
+
+.how-panel {
+  margin-top: 8px;
+}
+
+.how-toggle,
+.how-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.how-toggle:hover,
+.how-section-toggle:hover {
+  color: var(--text-primary);
+}
+
+.how-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 0.7em;
+}
+
+.how-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.how-body {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.how-section-body {
+  padding: 4px 0 8px 20px;
+}
+
+.how-unavailable {
+  margin: 0;
+  font-size: var(--text-sm);
+  /* t/4824 (Design): --text-muted fails AA here; --text-secondary clears it. */
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ~15 visible lines before scrolling (t/4855); type tokens and an em max-height (t/4856). */
+.how-textbox {
+  margin: 0;
+  max-height: calc(1.5em * 15);
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.how-methods-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.how-methods-link {
+  font-size: var(--text-sm);
+  padding: 4px 8px;
+}
