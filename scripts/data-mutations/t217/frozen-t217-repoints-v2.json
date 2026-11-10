@@ -1,0 +1,419 @@
+{
+  "dispositions": "research/comp-linguist/analyses/t4704-provenance-review/dispositions.json @ 61c7d4c0 (sha256 dc2a4c377d2954bd...)",
+  "operation": {
+    "re-point": "url := to; resolved_url := to; append provenance {scheme: url, id: to, confidence: verified} (existing vocabulary; the old search entry is kept)",
+    "remove": "url := \"\"; resolved_url := \"\"; provenance unchanged"
+  },
+  "serializer": "json.dumps(indent=2, ensure_ascii=False) + LF, per-file CRLF preserved; round-trips all 29 inputs byte-for-byte",
+  "sources_commit": "ec7deb133e1d6ceeb4996c2d8e4c5246cd01feb9",
+  "supersedes": "frozen-t217-repoints.json v1 (sha256 a69ca82055867739...): url only, which left the bad URL in resolved_url and provenance (t/217#6)",
+  "ticket": "t/217 (Orca t/4707)",
+  "version": 2,
+  "writes": [
+    {
+      "disposition": "re-point",
+      "doc_id": "adversarial-ai-threat-modeling-framework-aatmf-v3-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/kaiaizen_aatmf-v3-ai-threat-modeling-framework-activity-7428377489741340672-eWYH",
+      "post_sha256": "9701cdea80a1a6d1b3b945a9193de74ae108a41b8ab21aa5efbf5a575e854471",
+      "pre_sha256": "22bc0ebcdf0bd7d835db01084e8e36fcc5e8ae0bda110e214384288ae08b8e48",
+      "to": "https://aatmf.pages.dev/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "ai-index-report-2026-chapter-3-responsible-ai-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/joseantoniobowen_the-2026-ai-index-report-activity-7449888986455597057-KIV-",
+      "post_sha256": "d79eaec994e385d2a00a8364bc41869659a950dc0d000f25166307b362e78f65",
+      "pre_sha256": "1ce2db377b31111504893fccd19fa2c3838743e9f1f4fbab6d5dc797851dc468",
+      "to": "https://hai.stanford.edu/ai-index/2026-ai-index-report/responsible-ai"
+    },
+    {
+      "disposition": "remove",
+      "doc_id": "ai-policy-bulletin-2026",
+      "field": "url",
+      "fields": [
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/company/ai-policy-bulletin",
+      "post_sha256": "434c44d45be31267e4ff0d3710be5a0d349de76728397dccc8c507eea207b312",
+      "pre_sha256": "6dc18908d7c8cc8e9feaa8e1bd2274142179d5ed9b4d0242d02ab9b794919259",
+      "to": null
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "approach-technical-agi-safety-security-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://x.com/safe_paper/status/1909208950601621617",
+      "post_sha256": "89720a04909dde0214d5f42cc5014fd6f0e8e1e7b935a3f7b9e6b11acffd69ec",
+      "pre_sha256": "3f68876f6ca261b7667242235294a972d4bdfee17fb183af40c357b2b57f0e9f",
+      "to": "https://arxiv.org/abs/2504.01849"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "constructing-ai-speech-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://x.com/MargotKaminski/status/1790333201816183204",
+      "post_sha256": "0f047ad6dee18b44187b28d2436e64f347a984b990041f56391edbcbc9967a52",
+      "pre_sha256": "94faea6ecefac1577d335e42b1aca8732d0a96067055122cb08376539c6264fe",
+      "to": "https://www.yalelawjournal.org/forum/constructing-ai-speech"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "does-ai-need-constitution-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.tiktok.com/@newyorker/photo/7621360117535001869?lang=en",
+      "post_sha256": "0f1152dd75dbe38df2bbbe1200d42a9a8a6c61b83dbd14e4f42a92298d16793a",
+      "pre_sha256": "98484aad8eebf867b03410a61be515a15fe6acfde0b526d9a0f9a6f1207c97d7",
+      "to": "https://www.newyorker.com/magazine/2026/03/30/does-ai-need-a-constitution"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "extreme-power-concentration-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
+      "post_sha256": "49e94ff6d70609060c4c93b5e84bb76780177ee86fbf2ac19b4ad4e98c15c598",
+      "pre_sha256": "14b2da229bd2db6a5c29da48368d92e55700f81e8f68efd5d0919b3c1f747840",
+      "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "extreme-power-concentration-2026-1",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
+      "post_sha256": "284dea229c3a8c3da524f64125b6e19f1a43caa75f03f3b8ff309a58c1786b50",
+      "pre_sha256": "16f1f4a488304d7994f3b76c86d42b6727bf210877087b29b6bdf33176d2e22d",
+      "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "extreme-power-concentration-2026-2",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
+      "post_sha256": "b3e0efdcb3989055287cc2cdb87d33141052eaf2864d61ec9d222c87dcc5b1f0",
+      "pre_sha256": "03139a933e482486760bb8c0ce126cc9aa8fa9b0e953517c4d2cc1a8a87e1086",
+      "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "extreme-power-concentration-2026-3",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
+      "post_sha256": "58ebe24171687a3ebaaf49d343318d5f1ad5931406f244590858be353e8cf146",
+      "pre_sha256": "96c1c6653f99f716ef91590804ac06fe28eed7d2d6d0b61b9309265790d8130b",
+      "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "floor-speech-artificial-intelligence-robotics-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.facebook.com/Benzinga/posts/sen-bernie-sanders-i-vt-escalated-his-criticism-of-the-artificial-intelligence-b/1524955546296777/",
+      "post_sha256": "19ea6f90fd181ac0fefde2ac2fa6e68115760ad5447a3c5041e9bf47980a70eb",
+      "pre_sha256": "c0eba82d824689c837b89f318725d32c77686b7c5fa13c7206c89fa04583ba27",
+      "to": "https://www.govinfo.gov/link/crec/172/s/673"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "future-jobs-report-2025-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/saadiazahidi_jobs-workforces-skills-activity-7282674955731795968-OJfd",
+      "post_sha256": "33a8bf1dd588685013abfa33031fcc32c5503c460ace7d12cd6a86385c93668c",
+      "pre_sha256": "10e80b83c9755984766a46bbe1a099737058eaf597d76fd8c67a0f7d96343e3c",
+      "to": "https://www.weforum.org/reports/the-future-of-jobs-report-2025/in-full/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "military-ai-policy-by-contract-limits-procurement-as-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://substack.com/@lawfare/note/c-226430085",
+      "post_sha256": "fe4fcaa67de199a6735c9f1222906f4a73c120ef463f287b27b16cb185adca84",
+      "pre_sha256": "8cb38b0dd52c84e63aefd929564dc129f1925de9acdfc990779b1e2213d41688",
+      "to": "https://www.lawfaremedia.org/article/military-ai-policy-by-contract--the-limits-of-procurement-as-governance"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "new-economy-skills-unlocking-human-advantage-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/saadiazahidi_work-skills-singapore-activity-7404829843411976193-JJqv",
+      "post_sha256": "6664bec48a0cd3f2d268ab621eda175b6d7ac755aef81cf52867a0891fe1daab",
+      "pre_sha256": "1d472dfe946160b48c98215de06279139ad9f5d3efc5676e8a1a2271799767ae",
+      "to": "https://www.weforum.org/publications/new-economy-skills-unlocking-the-human-advantage/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "situational-awareness-decade-ahead-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/darien-schettler-bb0a5086_situational-awareness-the-decade-ahead-activity-7208846925079408641-7v4R",
+      "post_sha256": "f9634e3cab1f077d623f9a06b1c85a2fbc8f5c584c8dcbc45986be6d086a6e7e",
+      "pre_sha256": "18ed80ca83c93d5be861d31a9072cb1aa60e2941704b8b848775ae730fa4171b",
+      "to": "https://situational-awareness.ai/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/erwinloh_study-finds-nearly-two-thirds-of-ai-generated-activity-7397604150466781186-XZNv",
+      "post_sha256": "1776897136b7b5d77e7cf9ca0fcfa19ec014f8cd09dac6d77893b420a755cc83",
+      "pre_sha256": "b8bcc44e3d56e62b2198dab242bb93cb92478910248081ad8869343f00faabf3",
+      "to": "https://www.psypost.org/study-finds-nearly-two-thirds-of-ai-generated-citations-are-fabricated-or-contain-errors/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "synthetic-data-new-data-frontier-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/audreyduet_synthetic-data-the-new-data-frontier-wef-activity-7376254039895805952-N4ZA",
+      "post_sha256": "228e8aa046a66851d73fe4077b94a2e9a7e9f98e065c224a52debf3f97775740",
+      "pre_sha256": "ed0cfcf0a85a3faac9e6d0cb6d09b11746e5b55e98ae057b937aa124c594c053",
+      "to": "https://reports.weforum.org/docs/WEF_Synthetic_Data_2025.pdf"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "tech-media-telecom-tmt-predictions-2026-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/abelsun_tmt-predictions-2026-the-gap-narrows-but-activity-7396691814679810048-KqHq",
+      "post_sha256": "46633e76a539b9408a767d9c8b2e0c7f6790e75cef87b65219d477c2ed562c1a",
+      "pre_sha256": "60de260f0137ed8d1de2ca34bd7ef78e74a2f57ef7765ce5ea0c0a95b4ccd646",
+      "to": "https://www.deloitte.com/us/en/insights/industry/technology/technology-media-and-telecom-predictions.html"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "technological-optimism-appropriate-fear-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://medium.com/@gford1000/jack-clarks-technology-optimism-and-appropriate-fear-essay-is-a-wake-up-call-994e3718ac72",
+      "post_sha256": "18d6846ea2cec5de3c152b9a89c47e112d7f91c2b8a77a54aa3e60c25ff2ca1f",
+      "pre_sha256": "c78fbac2bcb7b4b12575545faad5c657851efa67b44707b780dea6054a589d8d",
+      "to": "https://jack-clark.net/2025/10/13/"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "transparency-ai-is-decline-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
+      "post_sha256": "00721c8bcf85ca7162721b84a37a2196f58779aebb4d80373719846e3cfb8233",
+      "pre_sha256": "b1cdb6bab4a9544fb70922a710e78df73f421a59adcc39f54a5585ae2e60c7f7",
+      "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "transparency-ai-is-decline-2026-1",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
+      "post_sha256": "005339c0073977d65d83504dbd2bc2a00176f57465379b239f693fdad94df248",
+      "pre_sha256": "7439b730911afa1d53aa8cd961744cdecb69b1e180e197eec7f64cbcda1da5ac",
+      "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "transparency-ai-is-decline-stanford-report-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
+      "post_sha256": "ab559825835d8a75c572076510440eafd6fdd420e2f432e32f3712c6eec356a3",
+      "pre_sha256": "cd5f98c11b80498000de9e2c5f87a56b74b10dff3de77c02a6694c167e795a5a",
+      "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "transparency-ai-is-decline-stanford-report-2026-1",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
+      "post_sha256": "4230f6b16b597792551169137aa7a6e86bdfc9b3b4ef7abd83614231d3a36f2b",
+      "pre_sha256": "d9b4d57dfb594a4b68f6ddb93810ab95d7ebd96da4bdc918a4a53be082120239",
+      "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "using-self-correcting-search-accelerate-materials-discovery-2026-1",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/josephfkrause_using-self-correcting-search-to-accelerate-activity-7445243603758592001-bJV8",
+      "post_sha256": "4d5d10f8e558207019cd21071476769359594dadbf2baf00fbf6150e93e19e48",
+      "pre_sha256": "447054e8c37d14a844d44d5f87c0bf81d6deeb89da27e509c8039770439f7f52",
+      "to": "https://www.goodfire.ai/research/self-correcting-search"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "using-self-correcting-search-accelerate-materials-discovery-2026-2",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/josephfkrause_using-self-correcting-search-to-accelerate-activity-7445243603758592001-bJV8",
+      "post_sha256": "8a7f921473b93fba22dd6840f7056a7585fd09f53e9d72b5eb6e700b4eaf895f",
+      "pre_sha256": "f32bc44fad95788f622dc271c706dce403cd3e06222e5d008929853ee9782bdf",
+      "to": "https://www.goodfire.ai/research/self-correcting-search"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "using-self-correcting-search-accelerate-materials-discovery-2026-3",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/josephfkrause_using-self-correcting-search-to-accelerate-activity-7445243603758592001-bJV8",
+      "post_sha256": "cae6fb5192c95213a6c184fb6ead769a14ceec9d5827a689e13b25b88a8c6107",
+      "pre_sha256": "2c8e1cc3a12a6ae347462f994b843498ed65bb52c69ee8f5062a1736142ac459",
+      "to": "https://www.goodfire.ai/research/self-correcting-search"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "white-house-releases-national-policy-framework-artificial-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/holland-knight-llp_artificialintelligence-ai-intellectualproperty-activity-7443413714344566784-aPL8",
+      "post_sha256": "dd4cadf2e3e8ec40c31291a2cd924926eac8006ae27ae5706218274fa62f8195",
+      "pre_sha256": "219f69a289da1d364d571a106b094fc95dafaed0aee796cc26f59992f6e4c81f",
+      "to": "https://www.whitehouse.gov/wp-content/uploads/2026/03/03.20.26-National-Policy-Framework-for-Artificial-Intelligence-Legislative-Recommendations.pdf"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "white-house-releases-national-policy-framework-artificial-2026-1",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.linkedin.com/posts/holland-knight-llp_artificialintelligence-ai-intellectualproperty-activity-7443413714344566784-aPL8",
+      "post_sha256": "3d31528ba895fb0deff87bba5c77ed15a36185bd154cecf289eeeb3fe6902faf",
+      "pre_sha256": "839b86968ceebfe36ae17f727f3e4a10cff0cd782de2dceb6be14b4a46db6017",
+      "to": "https://www.whitehouse.gov/wp-content/uploads/2026/03/03.20.26-National-Policy-Framework-for-Artificial-Intelligence-Legislative-Recommendations.pdf"
+    },
+    {
+      "disposition": "re-point",
+      "doc_id": "why-ai-will-save-world-2026",
+      "field": "url",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "from": "https://www.reddit.com/r/singularity/comments/142mhkn/worthy_read_why_ai_will_save_the_world_by_marc/",
+      "post_sha256": "3edc3a07c8bafbf1d39e2148055544a0b05793341ab3a94c7e662ce35d52fee2",
+      "pre_sha256": "613ab4f0cff72d2a50a7e52c7ba937f83f13f5ce379326c187635fd5d4480076",
+      "to": "https://a16z.com/ai-will-save-the-world/"
+    }
+  ]
+}
