@@ -31,7 +31,9 @@ describe('web-bridge adminReviewAction .httpStatus (t/3039)', () => {
   });
 
   it('resolves when the server accepts the action', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    // t/85: now routed through post(), which parses the body — the server route replies
+    // `{ ok: true }` (routes/admin.ts), so the fixture mirrors that contract.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })));
     await expect(api.adminReviewAction(ACTION)).resolves.toBeUndefined();
   });
 });

@@ -1457,30 +1457,16 @@ const rawApi: AppAPI = {
 
   // Admin Review (HTTP to server)
   adminReviewConfigured: () => Promise.resolve(true),
+  // t/85: routed through `get`/`post` instead of a bare `fetch()` (Network Resilience rule) —
+  // a non-2xx still throws an ActionableError carrying `.httpStatus`, and its message keeps the
+  // "HTTP {N}" substring CommunityReviewViewer's 409 check parses.
   adminReviewQueue: async () => {
-    const res = await fetch('/api/admin/review/queue');
-    if (!res.ok) throw new Error(`GET queue failed: HTTP ${res.status}`);
-    const body = await res.json();
-    return { items: body.items ?? body };
+    const body = await get<{ items?: unknown }>('/api/admin/review/queue');
+    return { items: (body.items ?? body) as Awaited<ReturnType<AppAPI['adminReviewQueue']>>['items'] };
   },
-  adminReviewStats: async () => {
-    const res = await fetch('/api/admin/review/stats');
-    if (!res.ok) throw new Error(`GET stats failed: HTTP ${res.status}`);
-    return res.json();
-  },
-  adminReviewDetail: async (groupId: string) => {
-    const res = await fetch(`/api/admin/review/detail/${encodeURIComponent(groupId)}`);
-    if (!res.ok) throw new Error(`GET detail failed: HTTP ${res.status}`);
-    return res.json();
-  },
-  adminReviewAction: async (action: unknown) => {
-    const res = await fetch('/api/admin/review/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(action),
-    });
-    if (!res.ok) throwHttpError(res.status, new ActionableError({ goal: 'Perform admin review action', problem: `POST /api/admin/review/action failed with HTTP ${res.status}`, location: 'web-bridge.adminReviewAction', nextSteps: ['Retry the action', 'Check the admin review server logs if it persists'] }));
-  },
+  adminReviewStats: () => get('/api/admin/review/stats'),
+  adminReviewDetail: (groupId: string) => get(`/api/admin/review/detail/${encodeURIComponent(groupId)}`),
+  adminReviewAction: (action: unknown) => post<void>('/api/admin/review/action', action).then(() => {}),
   // t/4898 (Quality, t/4898#3/p/356#166): routed through `del()` instead of a bare `fetch()` —
   // the Network Resilience rule's reason this needed its own workaround (`del` had no body
   // support) is gone now that `del` takes one.
