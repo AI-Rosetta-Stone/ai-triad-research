@@ -10,7 +10,7 @@ import { ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { PROJECT_ROOT, getDataRootPath, writeJsonFileAtomic } from '../fileIO.js';
-import { ActionableError } from '../../../../lib/debate/errors.js';
+import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 // Extensions that execute on open — blocked regardless of directory (M13, t/2531).
@@ -100,10 +100,32 @@ export function registerSystemHandlers(): void {
       properties: ['openFile'],
     });
     if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
-    const filePath = result.filePaths[0];
-    const fs = await import('fs');
-    const content = fs.readFileSync(filePath, 'utf-8');
-    return { cancelled: false, filePath, content };
+    
+    try {
+      const filePath = result.filePaths[0];
+      const fileName = path.basename(filePath);
+      
+      // t/275: read as bytes, not UTF-8 — PDF/DOCX need binary extraction (fixes t/284 debate bug too).
+      // Pass to lib's extractDocumentText (t/273) for format-aware text extraction.
+      const bytes = fs.readFileSync(filePath);
+      const { extractDocumentText } = await import('../../../../lib/debate/documentExtractor.js');
+      const extracted = await extractDocumentText(new Uint8Array(bytes), fileName);
+      
+      return { cancelled: false, fileName, content: extracted.text, format: extracted.format };
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'systemHandlers', level: 'error',
+        message: `Document extraction failed in pick-document-file: ${(err as Error).message}`,
+        error: { name: (err as Error).name ?? 'Error', message: String((err as Error).message ?? err), stack: (err as Error).stack },
+      });
+      if (err instanceof ActionableError) throw err;
+      throw new ActionableError({
+        goal: 'Extract text from document',
+        problem: errorMessage(err),
+        location: 'systemHandlers pick-document-file',
+        nextSteps: ['Check that the file is a valid PDF, DOCX, TXT, MD or HTML document'],
+      });
+    }
   });
 
   ipcMain.handle('pick-directory', async (_event, defaultPath?: string) => {

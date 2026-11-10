@@ -372,7 +372,9 @@ async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
       // lacks one. Add it here so Electron-run debates record soul_provenance like cli.ts does.
       // t/4713: onProgress is forwarded straight through to runHeadlessDebate's own param — the
       // debate-progress → fraction mapping lives entirely in debateProgressMapping.ts (onDebateProgress below).
-      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
+      // t/284: question is passed for inquiry anchoring (validation that topic.final === question in Phase 1.3).
+      // Debate Engine (t/284 / PR #4958) will consume it once core infrastructure lands.
+      runDebate: (config, question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
         .then(r => {
           debateSession = r.session;
           return { session: r.session, terminationReason: r.terminationReason };

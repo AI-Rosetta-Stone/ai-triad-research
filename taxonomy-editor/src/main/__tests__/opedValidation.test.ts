@@ -41,6 +41,42 @@ describe('validateCreateOpEdPayload (t/2908/t/2910)', () => {
   it('returns an actionable error with next steps', () => {
     const err = validateCreateOpEdPayload({ voices: [] });
     expect(err?.nextSteps.length).toBeGreaterThan(0);
-    expect(err?.problem).toMatch(/topic or a web-page URL/i);
+    expect(err?.problem).toMatch(/topic.*web-page URL.*document/i);
+  });
+
+  // t/275: document source mode (op-ed from extracted document text)
+  it('accepts a document source payload with text and name', () => {
+    expect(validateCreateOpEdPayload({
+      documentSource: { text: 'Extracted document text', name: 'research.pdf' },
+      voices,
+    })).toBeNull();
+  });
+
+  it('rejects document source with empty text', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: '', name: 'empty.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('empty');
+  });
+
+  it('rejects document source with blank name', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: '   ' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('name');
+  });
+
+  it('treats document source as a valid third mode alongside topic and url', () => {
+    // All three sources independently valid; first non-empty one is used
+    expect(validateCreateOpEdPayload({
+      topic: '',
+      url: '',
+      documentSource: { text: 'doc text', name: 'doc.pdf' },
+      voices,
+    })).toBeNull();
   });
 });
