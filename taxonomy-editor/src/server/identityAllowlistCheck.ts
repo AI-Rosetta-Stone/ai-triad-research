@@ -21,18 +21,20 @@ export interface UnreachableAllowlistEntry {
 
 /**
  * t/43: an ADMIN_USERS entry is unreachable unless isAdminStableId could match it. Since t/4328
- * and t/4706 that's only an idp-qualified entry (`github:<id>`, `aad:<tid>-<oid>`) that some
- * sign-in records as its stableId. A bare entry (a legacy name, an email) never matches, whatever
- * IDENTITY_MAP says. The t/4505 rule here predated qualified entries and flagged them instead.
+ * and t/4706 that's only an idp-qualified entry (`github:<id>`, `aad:<tid>-<oid>`, `google:<id>`)
+ * that some sign-in records as its stableId. A bare entry (a legacy name, an email) never
+ * matches, whatever IDENTITY_MAP says. The t/4505 rule here predated qualified entries and
+ * flagged them instead.
  */
 function adminUserUnreachableReason(name: string): string | null {
   if (!name.includes(':')) return 'bare entry with no idp: prefix; isAdminStableId never matches it (t/4328)';
   if (!canProduceStableId(name)) {
-    // t/47: say which shape was wrong — a login or a bare oid is the likely operator slip.
+    // t/47: say which shape was wrong — a login, a bare oid, or a non-numeric id is the likely operator slip.
     const idp = name.slice(0, name.indexOf(':')).toLowerCase();
     if (idp === 'github') return 'github: id must be the numeric GitHub user id, not a login; no sign-in records this stableId';
     if (idp === 'aad') return 'aad: id must be <tenant-guid>-<object-guid>; no sign-in records this stableId';
-    return 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+    if (idp === 'google') return 'google: id must be a numeric user id (1-128 digits); no sign-in records this stableId';
+    return 'idp-qualified, but no sign-in records this stableId (expected github:<id>, aad:<tid>-<oid>, or google:<id>)';
   }
   return null;
 }

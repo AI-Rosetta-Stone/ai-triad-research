@@ -56,9 +56,10 @@ describe('findUnreachableAllowlistEntries — READ_ONLY_PRINCIPALS (AC: the thre
 });
 
 const BARE_REASON = 'bare entry with no idp: prefix; isAdminStableId never matches it (t/4328)';
-const BAD_QUALIFIED_REASON = 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+const BAD_QUALIFIED_REASON = 'idp-qualified, but no sign-in records this stableId (expected github:<id>, aad:<tid>-<oid>, or google:<id>)';
 const GITHUB_SHAPE_REASON = 'github: id must be the numeric GitHub user id, not a login; no sign-in records this stableId';
 const AAD_SHAPE_REASON = 'aad: id must be <tenant-guid>-<object-guid>; no sign-in records this stableId';
+const GOOGLE_SHAPE_REASON = 'google: id must be a numeric user id (1-128 digits); no sign-in records this stableId';
 const TID = '72f988bf-86f1-41af-91ab-2d7cd011db47';
 const OID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const AAD_ENTRY = `aad:${TID}-${OID}`;
@@ -96,7 +97,7 @@ describe('findUnreachableAllowlistEntries — ADMIN_USERS (t/43: aligned with is
 
   it('a qualified entry no sign-in records as a stableId is flagged', () => {
     const unreachable = findUnreachableAllowlistEntries(['google:user@gmail.com', 'github:', 'github:a b'], new Set());
-    expect(unreachable.map(u => u.reason)).toEqual([BAD_QUALIFIED_REASON, GITHUB_SHAPE_REASON, GITHUB_SHAPE_REASON]);
+    expect(unreachable.map(u => u.reason)).toEqual([GOOGLE_SHAPE_REASON, GITHUB_SHAPE_REASON, GITHUB_SHAPE_REASON]);
   });
 
   it('a whitespace-only entry is skipped, not flagged', () => {

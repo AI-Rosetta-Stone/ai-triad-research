@@ -155,22 +155,27 @@ export function canProducePrincipal(idp: 'github' | 'aad', name: string): boolea
 }
 
 // t/47: the shapes real providers send. GitHub's nameidentifier is the numeric user id (never
-// the login; prod's working admin entry is github:6188114); AAD's tid and oid are both GUIDs.
+// the login; prod's working admin entry is github:6188114); AAD's tid and oid are both GUIDs;
+// Google's user id is a numeric string, 1-128 digits.
 const GITHUB_REAL_ID_RE = /^\d{1,20}$/;
 const GUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const AAD_REAL_ID_RE = new RegExp(`^${GUID}-${GUID}$`);
+const GOOGLE_REAL_ID_RE = /^\d{1,128}$/;
 
 /**
  * t/43: whether some sign-in can record `stableId` as its UserContext.stableId. Mirrors the
- * keys canonicalizeGithub/canonicalizeAad set: `github:<id>` or `aad:<tid>-<oid>`, lowercased.
- * t/47: the id must also have the shape the provider actually sends (numeric GitHub user id,
- * `<tenant-guid>-<object-guid>`), so `github:<login>` or `aad:<oid>` alone read as unreachable.
+ * keys canonicalizeGithub/canonicalizeAad/canonicalizeGoogle set: `github:<id>`, `aad:<tid>-<oid>`,
+ * or `google:<id>`, lowercased. t/47: the id must also have the shape the provider actually
+ * sends (numeric GitHub user id, `<tenant-guid>-<object-guid>`, or numeric Google user id),
+ * so `github:<login>`, `aad:<oid>`, or `google:user@gmail.com` alone read as unreachable.
  * Other idps never record a stableId (fillMissingName).
  */
 export function canProduceStableId(stableId: string): boolean {
-  const m = /^(github|aad):(.+)$/.exec(stableId.toLowerCase());
+  const m = /^(github|aad|google):(.+)$/.exec(stableId.toLowerCase());
   if (!m || !STABLE_ID_RE.test(m[2])) return false;
-  return (m[1] === 'github' ? GITHUB_REAL_ID_RE : AAD_REAL_ID_RE).test(m[2]);
+  if (m[1] === 'github') return GITHUB_REAL_ID_RE.test(m[2]);
+  if (m[1] === 'aad') return AAD_REAL_ID_RE.test(m[2]);
+  return GOOGLE_REAL_ID_RE.test(m[2]);
 }
 
 const warned = new Set<string>();
