@@ -91,7 +91,7 @@
 .pi-mode-pill:hover { background: var(--bg-secondary); }
 .pi-mode-active {
   background: var(--focus-ring);
-  color: white;
+  color: var(--text-on-focus-ring, #fff);
   border-color: var(--focus-ring);
 }
 .pi-mode-active:hover { background: var(--focus-ring); }
