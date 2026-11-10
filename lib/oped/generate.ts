@@ -17,7 +17,7 @@ import type { ScoredPovNode, ScoredSituationNode } from '../debate/taxonomyRelev
 import { scoreNodeRelevance, selectRelevantNodes, selectRelevantSituationNodes } from '../debate/taxonomyRelevance.js';
 import { loadTaxonomy } from '../debate/taxonomyLoader.js';
 import { computeEmbedding } from '../embeddings/onnxEmbedding.js';
-import type { OpEdMember, OpEdParams, OpEdSet, OpEdGroundingRef, EditingMeta, CoherenceMeta, OpEdSoulProvenance } from './types.js';
+import type { OpEdMember, OpEdParams, OpEdSet, OpEdGroundingRef, EditingMeta, CoherenceMeta, OpEdSoulProvenance, OpEdStage, OpEdStageName } from './types.js';
 import { resolveOutletBand } from './outletBands.js';
 import { loadAndAssemblePrompt, assembleReflectionPrompt, assembleSourceBriefPrompt, assembleReadabilityEditPrompt, assembleCoherenceJudgePrompt, assembleCoherenceRewritePrompt, type SourceBrief } from './promptLoader.js';
 import { FABRICATED_LEDE_GUARD } from './opedGuards.js';
@@ -501,6 +501,47 @@ interface EditResponse {
   edit_notes?: string;
 }
 
+// ── Per-stage capture (t/171) ─────────────────────────────────────────────────
+
+/** Max chars kept per captured prompt or output; past it the text is cut and marked (t/171). */
+export const OPED_STAGE_TEXT_CAP = 200_000;
+
+function capStageText(text: string, what: string, deps: OpEdGeneratorDeps, setId: string): string {
+  if (text.length <= OPED_STAGE_TEXT_CAP) return text;
+  const cut = text.length - OPED_STAGE_TEXT_CAP;
+  deps.recorder?.record({
+    type: 'system.error', component: 'opedGenerate', level: 'warn',
+    message: `Op-ed ${what} is ${text.length} chars, over the ${OPED_STAGE_TEXT_CAP}-char capture cap — stored truncated by ${cut} chars (set=${setId}, t/171)`,
+  });
+  return `${text.slice(0, OPED_STAGE_TEXT_CAP)}…[truncated ${cut} chars]`;
+}
+
+/**
+ * The ONE place a pipeline stage calls the model: forwards to adapter.generateText unchanged and appends the
+ * call (prompt, raw output or error) to `stages` in the order it ran. A throw is recorded, then rethrown, so
+ * every stage's existing error handling is unchanged.
+ */
+async function callStage(
+  stage: OpEdStageName,
+  prompt: string,
+  options: Parameters<AIAdapter['generateText']>[2],
+  stages: OpEdStage[],
+  request: GenerateOpEdRequest,
+  deps: OpEdGeneratorDeps,
+): Promise<string> {
+  const attempt = stages.filter(s => s.stage === stage).length + 1;
+  const model = request.params.model;
+  const capturedPrompt = capStageText(prompt, `${stage} prompt`, deps, request.set_id);
+  try {
+    const raw = await deps.adapter.generateText(prompt, model, options);
+    stages.push({ stage, attempt, model, prompt: capturedPrompt, output: capStageText(raw, `${stage} output`, deps, request.set_id) });
+    return raw;
+  } catch (err) {
+    stages.push({ stage, attempt, model, prompt: capturedPrompt, output: '', error: String(err) });
+    throw err;
+  }
+}
+
 async function runVoiceGeneration(
   pov: PovKey,
   groundingNodes: ScoredPovNode[],
@@ -510,6 +551,8 @@ async function runVoiceGeneration(
   sourceBrief: SourceBrief | undefined,
   /** The soul voicing this member: the tag soul for the tagged member, the base soul otherwise (voiceFor). */
   voiced: VoiceSoul,
+  /** Owned by the caller so the calls made before a throw survive onto the failed member (t/171). */
+  stages: OpEdStage[],
 ): Promise<OpEdMember> {
   const soul = voiced.soul;
   const band = resolveOutletBand(request.params.outlet);
@@ -535,12 +578,12 @@ async function runVoiceGeneration(
   // Prepend system to prompt — generateText has no separate system channel;
   // adapters that support adapter.generate() can be wired later for native system messages.
   const fullPrompt = `${system}\n\n---\n\n${user}`;
-  const rawText = await deps.adapter.generateText(fullPrompt, request.params.model, {
+  const rawText = await callStage('generation', fullPrompt, {
     maxTokens,
     temperature: 0.8,
     responseSchema: ESSAY_SCHEMA as Record<string, unknown>,
     signal: request.signal,
-  });
+  }, stages, request, deps);
 
   // t/3013: an empty AI response comes back as '' WITHOUT throwing — e.g. Gemini returns a
   // candidate with empty/absent text parts on a safety block or certain truncations, and
@@ -583,12 +626,12 @@ async function runVoiceGeneration(
       const valueHierarchyText = soul.value_hierarchy.map((v, i) => `${i + 1}. ${v}`).join('\n');
       const thesisText = request.params.thesis?.trim() ?? '';
       const judgePrompt = assembleCoherenceJudgePrompt(deps.promptsDir, body, thesisText, valueHierarchyText);
-      const judgeRaw = await deps.adapter.generateText(judgePrompt, request.params.model, {
+      const judgeRaw = await callStage('coherence-judge', judgePrompt, {
         maxTokens: 1200,
         temperature: 0.1,
         responseSchema: COHERENCE_JUDGE_SCHEMA as Record<string, unknown>,
         signal: request.signal,
-      });
+      }, stages, request, deps);
       const judgeResult = JSON.parse(stripCodeFences(judgeRaw)) as CoherenceJudgeResult;
       const checks = normalizeJudgeResult(judgeResult);
       const flags = validFlags(checks);
@@ -606,11 +649,11 @@ async function runVoiceGeneration(
       } else {
         const violationsText = buildCoherenceViolationsText(checks);
         const rewritePrompt = assembleCoherenceRewritePrompt(deps.promptsDir, body, violationsText);
-        const rewriteRaw = await deps.adapter.generateText(rewritePrompt, request.params.model, {
+        const rewriteRaw = await callStage('coherence-rewrite', rewritePrompt, {
           maxTokens,
           temperature: 0.3,
           signal: request.signal,
-        });
+        }, stages, request, deps);
         const candidate = stripCodeFences(rewriteRaw).trim();
 
         if (!candidate) {
@@ -630,12 +673,12 @@ async function runVoiceGeneration(
         } else {
           // Re-judge to verify the originally-flagged checks resolved.
           const reJudgePrompt = assembleCoherenceJudgePrompt(deps.promptsDir, candidate, thesisText, valueHierarchyText);
-          const reJudgeRaw = await deps.adapter.generateText(reJudgePrompt, request.params.model, {
+          const reJudgeRaw = await callStage('coherence-rejudge', reJudgePrompt, {
             maxTokens: 1200,
             temperature: 0.1,
             responseSchema: COHERENCE_JUDGE_SCHEMA as Record<string, unknown>,
             signal: request.signal,
-          });
+          }, stages, request, deps);
           const reJudgeResult = JSON.parse(stripCodeFences(reJudgeRaw)) as CoherenceJudgeResult;
           const reChecks = normalizeJudgeResult(reJudgeResult);
           const origFlagIds = new Set(flags.map(f => f.check_id));
@@ -695,12 +738,12 @@ async function runVoiceGeneration(
       const attemptEdit = async (temperature: number): Promise<string | null> => {
         const violations = buildViolationsText(beforeChecks, readTargets);
         const editPrompt = assembleReadabilityEditPrompt(deps.promptsDir, finalBody, violations);
-        const editRaw = await deps.adapter.generateText(editPrompt, request.params.model, {
+        const editRaw = await callStage('readability-edit', editPrompt, {
           maxTokens,
           temperature,
           responseSchema: EDIT_SCHEMA as Record<string, unknown>,
           signal: request.signal,
-        });
+        }, stages, request, deps);
         const editParsed = JSON.parse(stripCodeFences(editRaw)) as EditResponse;
         const candidate = editParsed.body_markdown ?? '';
         // Word-count collapse guard: discard if >40% shorter than original
@@ -852,12 +895,12 @@ async function runVoiceGeneration(
     // so a reflection failure can never block generation.
     const runReflection = async (temperature: number): Promise<boolean> => {
       try {
-        const reflRaw = await deps.adapter.generateText(reflPrompt, request.params.model, {
+        const reflRaw = await callStage('grounding-reflection', reflPrompt, {
           maxTokens: reflMaxTokens,
           temperature,
           responseSchema: REFLECTION_SCHEMA as Record<string, unknown>,
           signal: request.signal,
-        });
+        }, stages, request, deps);
         const reflParsed = JSON.parse(stripCodeFences(reflRaw)) as ReflectionResponse;
         const usageMap = new Map(reflParsed.grounding_usage.map(u => [u.id, u]));
         for (const ref of allGroundingRefs) {
@@ -948,6 +991,7 @@ async function runVoiceGeneration(
     ...(editingMeta && { editing_meta: editingMeta }),
     ...(coherenceMeta && { coherence_meta: coherenceMeta }),
     soul: voiced.provenance,
+    stages, // never empty here: the generation call above always records itself
   };
 }
 
@@ -977,15 +1021,17 @@ export async function* generateOpEdSet(
   // populated in the generation prompt. Non-fatal — falls through with undefined
   // so voices still generate from raw {{SOURCE_MATERIAL}} text on failure.
   let sourceBrief: SourceBrief | undefined;
+  // The set-level call (the source brief), copied into each member's stages as entry 0 (t/171).
+  const setStages: OpEdStage[] = [];
   if (request.sourceMaterial) {
     try {
       const briefPrompt = assembleSourceBriefPrompt(deps.promptsDir, request.sourceMaterial);
-      const briefRaw = await deps.adapter.generateText(briefPrompt, request.params.model, {
+      const briefRaw = await callStage('source-brief', briefPrompt, {
         maxTokens: 2000,
         temperature: 0.1,
         responseSchema: SOURCE_BRIEF_SCHEMA as Record<string, unknown>,
         signal: request.signal,
-      });
+      }, setStages, request, deps);
       const parsed = JSON.parse(stripCodeFences(briefRaw)) as SourceBrief;
       if (parsed.readable !== false) {
         sourceBrief = parsed;
@@ -1066,16 +1112,17 @@ export async function* generateOpEdSet(
       enqueue({ type: 'voice_cancelled', pov });
     } else {
       enqueue({ type: 'voice_start', pov });
+      const stages: OpEdStage[] = setStages.map(s => ({ ...s }));
       try {
         const member = withAppliedTag(
-          await runVoiceGeneration(pov, groundingByPov.get(pov) ?? [], sitNodes, request, deps, sourceBrief, voiceFor(pov, tagPlan, deps)),
+          await runVoiceGeneration(pov, groundingByPov.get(pov) ?? [], sitNodes, request, deps, sourceBrief, voiceFor(pov, tagPlan, deps), stages),
           appliedByPov.get(pov),
         );
         members.push({ pov, member });
         enqueue({ type: 'voice_complete', pov, member });
       } catch (err) {
         const cancelled = request.signal?.aborted;
-        members.push({ pov, member: { pov, status: cancelled ? 'cancelled' : 'failed', headline: '', subtitle: '', body: '', byline: '', disclosure: '', rhetorical_meta: '', wordCount: 0, grounding: [] } });
+        members.push({ pov, member: { pov, status: cancelled ? 'cancelled' : 'failed', headline: '', subtitle: '', body: '', byline: '', disclosure: '', rhetorical_meta: '', wordCount: 0, grounding: [], ...(stages.length > 0 && { stages }) } });
         if (cancelled) {
           enqueue({ type: 'voice_cancelled', pov });
         } else {
