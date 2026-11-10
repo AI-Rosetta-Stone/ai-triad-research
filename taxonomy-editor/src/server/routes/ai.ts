@@ -491,13 +491,14 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
   }
 
   /** Record the AI generate request to flight recorder (t/839, mirrors lib/debate aiAdapter). */
-  function recordGenerateRequest(backend: AIBackend, effectiveModel: string | undefined, prompt: string, tier: ResolvedTier, debateId: string | undefined): void {
+  function recordGenerateRequest(backend: AIBackend, effectiveModel: string | undefined, prompt: string, tier: ResolvedTier, debateId: string | undefined): string {
     const requestModel = effectiveModel ?? DEFAULT_MODEL;
     getGlobalRecorder()?.record({
       type: 'ai.request', component: 'ai-generate', level: 'info',
       message: `generate ${backend}/${requestModel}`,
       data: { model: requestModel, backend, tier: tier.level, promptLength: prompt?.length ?? 0, debateId },
     });
+    return requestModel;
   }
 
   // ── AI generation ──
@@ -556,7 +557,7 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       if (await enforceKeyPresent(res, backend, tier, explicitKey)) return;
 
       // t/839: record the AI request/response on the happy path.
-      recordGenerateRequest(backend, effectiveModel, prompt, tier, debateId);
+      const requestModel = recordGenerateRequest(backend, effectiveModel, prompt, tier, debateId);
 
       const usageOverrides = {
         ...(effectiveModel ? { model: effectiveModel } : {}),
