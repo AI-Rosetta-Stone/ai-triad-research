@@ -36,12 +36,19 @@ Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
         [IO.File]::WriteAllText((Join-Path $script:StubDir 'pnpm'), "#!/bin/sh`nexit 0`n")
         if (-not $IsWindows) { chmod +x (Join-Path $script:StubDir 'pnpm') }
 
-        # PATH with every directory holding the named command removed.
+        # PATH with every directory holding the named command removed. If that would also remove
+        # git (both in one directory, as pwsh and git are in /usr/bin on Linux), the test can't
+        # isolate the condition, so it is skipped rather than failing on "cannot find repo root".
         function Get-PathWithout([string]$Command) {
-            ($env:PATH -split [regex]::Escape($script:Sep) | Where-Object {
+            $kept = @($env:PATH -split [regex]::Escape($script:Sep) | Where-Object {
                 $_ -and -not (Get-ChildItem -LiteralPath $_ -Filter "$Command*" -File -ErrorAction SilentlyContinue |
                     Where-Object { $_.BaseName -eq $Command })
-            }) -join $script:Sep
+            })
+            $hasGit = $kept | Where-Object {
+                Get-ChildItem -LiteralPath $_ -Filter 'git*' -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq 'git' }
+            }
+            if (-not $hasGit) { Set-ItResult -Skipped -Because "removing $Command from PATH would also remove git" }
+            $kept -join $script:Sep
         }
 
         function New-ScratchRepo {
@@ -182,10 +189,13 @@ Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
             $res.Code | Should -Be 1
         }
 
-        It 'WARNS and passes when pwsh is not on PATH' {
+        It 'WARNS and passes when pwsh is not found' {
+            # Via the script's AITRIAD_PREPUSH_PWSH seam, not by stripping PATH: on Linux runners
+            # pwsh lives in /usr/bin beside git, so stripping it made the script lose git itself.
             $r = New-ScratchRepo
             Add-Commit $r @{ 'scripts/bad.ps1' = $script:BadPs } | Out-Null
-            $res = Invoke-Checks $r -Path (Get-PathWithout 'pwsh')
+            $env:AITRIAD_PREPUSH_PWSH = 'pwsh-not-installed-t289'
+            try { $res = Invoke-Checks $r } finally { Remove-Item Env:\AITRIAD_PREPUSH_PWSH -ErrorAction SilentlyContinue }
             $res.Code | Should -Be 0
             $res.Out | Should -Match 'WARN pwsh not found'
         }
