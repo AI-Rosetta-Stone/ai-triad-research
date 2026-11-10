@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7-labs
 
 # AI Triad Taxonomy Editor — Container Image
 # Multi-stage build: compile TypeScript, then copy artifacts to lean runtime.
