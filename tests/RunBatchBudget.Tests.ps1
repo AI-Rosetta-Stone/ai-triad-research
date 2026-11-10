@@ -127,7 +127,7 @@ Describe 'run_batch budget stop (t/106)' -Tag 'unit' {
             $r.Usd | Should -Be 1.0
             "$w" | Should -BeLike "*failed with HTTP $status*not billed*"
         }
-        It 'THROWS on a token-less entry with status <status> (spend unknown)' -ForEach @(@{ status = '200' }, @{ status = 'error' }, @{ status = '?' }, @{ status = 'timeout' }, @{ status = '' }, @{ status = '4290' }) {
+        It 'THROWS on a token-less entry with status <status> (spend unknown)' -ForEach @(@{ status = '200' }, @{ status = 'error' }, @{ status = '?' }, @{ status = 'timeout' }, @{ status = '' }, @{ status = '4290' }, @{ status = '408' }, @{ status = '504' }, @{ status = '524' }) {
             $log = Write-Log "nouse-$($status.GetHashCode()).jsonl" @(Rec '2026-11-10T01:06:00Z' -NoTokens -Status $status)
             { Get-RunSpendUsd -LogPath $log -Since $script:Start -ModelsJsonPath $script:Models -WarningAction SilentlyContinue } | Should -Throw '*has no InputTokens/OutputTokens*'
         }

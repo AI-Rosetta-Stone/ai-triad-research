@@ -19,6 +19,8 @@
 
 # Token fields the call-log record must carry for spend to be measurable (t/106 child, PowerShell).
 $script:SpendTokenFields = @('InputTokens', 'OutputTokens')
+# HTTP timeouts that can still be billed upstream (TL p/7#21): a token-less entry with one of these throws.
+$script:BilledTimeoutStatuses = @('408', '504', '524')
 
 function Test-SpendSourceReady {
     <#
@@ -71,8 +73,8 @@ function Get-RunSpendUsd {
         rate + CachedInputTokens * cached rate + OutputTokens * output rate, priced by the entry's own Model.
         Throws (fail closed, t/106 + t/113) when: the log is missing or unreadable (with -RequireLog); a line
         won't parse; an entry has no usable Datetime (it can't be placed outside this run); an entry lacks
-        token counts, unless its Status is a numeric 4xx/5xx (an HTTP failure, not billed: counted $0 with a
-        WARN); or an entry carries CacheCreationInputTokens > 0 (Claude cache writes bill at 1.25x-2x
+        token counts, unless its Status is a numeric 4xx/5xx other than the timeouts 408/504/524 (an HTTP
+        failure, not billed: counted $0 with a WARN); or an entry carries CacheCreationInputTokens > 0 (Claude cache writes bill at 1.25x-2x
         input and ai-models.json has no write price). Returns the total and the count of entries in the window.
     #>
     [CmdletBinding()]
@@ -128,9 +130,10 @@ function Get-RunSpendUsd {
         $Entries++
         $Missing = @($script:SpendTokenFields | Where-Object { $null -eq $Rec.PSObject.Properties[$_] -or $null -eq $Rec.$_ })
         if ($Missing.Count -gt 0) {
-            # A numeric 4xx/5xx is an HTTP failure the provider doesn't bill; anything else without usage
-            # (200, 'error' = no HTTP response so possibly processed, '?', unknown strings) is unknown spend.
-            if ([string]$Rec.Status -match '^[45]\d\d$') {
+            # A numeric 4xx/5xx is an HTTP failure the provider doesn't bill, EXCEPT the timeouts 408, 504
+            # and 524: a gateway can time out after the provider processed (and billed) the call. Anything
+            # else without usage (200, 'error' = no HTTP response, '?', unknown strings) is unknown spend.
+            if ([string]$Rec.Status -match '^[45]\d\d$' -and [string]$Rec.Status -notin $script:BilledTimeoutStatuses) {
                 Write-Warning "WARN: call-log entry ID $($Rec.ID) ($($Rec.Model)) failed with HTTP $($Rec.Status) and recorded no tokens; counting it as `$0 (not billed) (t/113)"
                 continue
             }
