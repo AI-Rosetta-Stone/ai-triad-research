@@ -288,6 +288,10 @@ jobs:
         with:
           fetch-depth: 0  # t/4194: full history, so the refuse-older-than-running guard's
                            # `git merge-base --is-ancestor` below can actually see both commits.
+          filter: blob:none  # t/4844 WP6: commits and trees only; blobs come for the checked-out
+                             # tree alone. Safe because the only history reads in this job are that
+                             # guard's `git rev-parse` + `git merge-base`, which need no blobs. A step
+                             # that reads an OLD commit's file contents would lazily fetch it per blob.
 
       - name: Wait for a concurrent staging deploy to finish (t/4194 SO C1)
         shell: pwsh
@@ -1329,6 +1333,30 @@ jobs:
           if ($Diag.SystemLogs) { $Diag.SystemLogs | ForEach-Object { Write-Host $_ } }
           else { Write-Host '(no system logs available)' }
 
+      # t/4844 WP6: visible failing-step gates. The three gates above always exit 0 and carry their
+      # verdict in outputs (diagnostics has no always(), see t/4252), so on a failed deploy only
+      # "Rollback on failure" went red and the run page never said WHICH gate failed. Each step below
+      # turns one gate's 'false' verdict into a red step of its own. They sit AFTER diagnostics (which
+      # must still run first) and BEFORE rollback, which keeps always() and runs regardless. == 'false'
+      # (not != 'true') so a gate that never ran (skipped or earlier failure) is not reported as failed.
+      - name: Gate failed — health check
+        if: always() && steps.health_check.outputs.healthy == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: health check (step 'Health check new revision' reported healthy=false). Its log names the cause; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
+      - name: Gate failed — mount readiness
+        if: always() && steps.mount_probe.outputs.ready == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: mount readiness (step 'Mount readiness probe (t/4513)' reported ready=false). Its log names the cause; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
+      - name: Gate failed — full smoke
+        if: always() && steps.acceptance.outputs.accepted == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: full smoke (step 'Acceptance tests — full smoke (pre-traffic shift)' reported accepted=false). Its log lists the failed endpoints; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
       - name: Re-authenticate before rollback
         if: always() && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
@@ -1363,7 +1391,10 @@ jobs:
           exit 1
 
       - name: Fail if unhealthy (no previous revision to rollback to)
-        if: (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
+        # always() (t/4844 WP6): a red "Gate failed" step above would otherwise skip this one. The
+        # health_check outcome clause keeps the old reach: that step always exits 0, so 'success'
+        # means it ran; an earlier failure (login, Bicep, new revision) still skips this step as before.
+        if: always() && steps.health_check.outcome == 'success' && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
         run: |
           echo "::error::Health check failed and no previous revision exists for rollback"
           exit 1
