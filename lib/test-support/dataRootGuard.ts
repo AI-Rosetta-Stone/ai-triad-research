@@ -10,6 +10,10 @@
  * a `DATA-ROOT-TEST-WRITE` WARN (target, op, caller stack) and then proceeds — Phase 1 is warn-only (T1).
  * Phase 2 (`mode: 'block'`) is a T2 change and is refused here until then.
  *
+ * vitest hides console output from passing tests, so a WARN alone is invisible on a green run (t/59, found in
+ * t/57). With `DATA_ROOT_GUARD_HITS_FILE` set, each hit is also appended to that file; the companion
+ * `dataRootGuardGlobalSetup.ts` sets it and prints an end-of-run summary whether the tests pass or fail.
+ *
  * The protected root is the `.aitriad.json`-configured data root, resolved exactly as the loaders do with
  * AI_TRIAD_DATA_ROOT UNSET — it deliberately ignores the env var, so a test that points the env var at a
  * temp dir writes there silently, and one that points it at the real root is still caught (t/4454#3 cond. 3).
@@ -35,18 +39,37 @@ import { getGlobalRecorder } from '../flight-recorder/index.js';
 export const DATA_ROOT_TEST_WRITE_TOKEN = 'DATA-ROOT-TEST-WRITE';
 /** Logged once per process on the first install, so a CI summary can tell "0 hits" from "guard never ran" (t/4464). */
 export const DATA_ROOT_GUARD_INSTALLED_TOKEN = 'DATA-ROOT-GUARD-INSTALLED';
+/**
+ * When set, every hit and the install marker are ALSO appended to this file, one JSON object per line (t/59).
+ * vitest 5 drops console output from passing tests, so the console WARN alone is invisible on a green run;
+ * `dataRootGuardGlobalSetup.ts` sets this, then reads the file back and prints the end-of-run summary.
+ */
+export const DATA_ROOT_GUARD_HITS_FILE_ENV = 'DATA_ROOT_GUARD_HITS_FILE';
+/** The directory the live-fire wiring tests write under: their hits are the positive control, not offenders. */
+export const DATA_ROOT_LIVEFIRE_DIR = '__guard_livefire__';
 export type DataRootGuardMode = 'warn' | 'block';
+
+/** One line of the hits file. `test` is the vitest file running when the write happened (null outside vitest). */
+export type DataRootGuardRecord =
+  | { kind: 'installed'; pid: number; mode: DataRootGuardMode; roots: string[] }
+  | { kind: 'hit'; pid: number; op: string; target: string; protectedRoot: string; test: string | null };
 
 export interface DataRootGuardOptions {
   /** Phase 1 accepts only 'warn'. 'block' is the Phase 2 T2 change (t/4454#3) and throws until then. */
   mode?: DataRootGuardMode;
   /** Override the protected root(s) — tests of this module only. */
   protectedRoot?: string | string[];
+  /**
+   * Append hits to DATA_ROOT_GUARD_HITS_FILE when it is set. Defaults to true, or to false with `protectedRoot`:
+   * a guard test's hits on its mocked root must not show up as offenders in the run summary (t/59).
+   */
+  recordToHitsFile?: boolean;
 }
 
 const DEFAULT_DATA_ROOT = '../ai-triad-data';
 const INSTALLED = Symbol.for('ai-triad.dataRootGuard.installed');
 const MARKER_EMITTED = Symbol.for('ai-triad.dataRootGuard.markerEmitted');
+const FILE_MARKER_EMITTED = Symbol.for('ai-triad.dataRootGuard.fileMarkerEmitted');
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Protected-root resolution ─────────────────────────────────────────────
@@ -194,15 +217,35 @@ const PROMISES: Record<string, number[]> = {
   rm: [0], rmdir: [0], unlink: [0], mkdir: [0], truncate: [0],
 };
 
-interface Installed { roots: string[]; restore: () => void }
+interface Installed { roots: string[]; restore: () => void; recordToHitsFile: boolean }
 /** Nesting depth of wrapped calls on this thread (synchronous re-entry only; async hops run later at depth 0). */
 let depth = 0;
 type Registry = { [INSTALLED]?: Installed };
 
+// Captured before any wrapping, so the hits file is written through the real fs and can't recurse into the guard.
+const rawAppendFileSync = fs.appendFileSync;
+
+/** The vitest test file this worker is running, from vitest's worker state; null outside vitest. */
+function currentTestFile(): string | null {
+  const state = (globalThis as { __vitest_worker__?: { filepath?: unknown } }).__vitest_worker__;
+  return typeof state?.filepath === 'string' ? state.filepath : null;
+}
+
+/** Append one record to the hits file, when one is configured. A failed append WARNs once and never throws. */
+function recordToFile(record: DataRootGuardRecord): void {
+  const file = process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
+  if (!file) return;
+  try {
+    rawAppendFileSync(file, JSON.stringify(record) + '\n');
+  } catch (err) {
+    warnOnce(`could not append to ${DATA_ROOT_GUARD_HITS_FILE_ENV}=${file} (${String(err)}); hits are on the console only`);
+  }
+}
+
 function report(op: string, target: string, root: string): void {
-  // console only — no fs on this path, so the guard can't recurse into itself.
   const caller = (new Error().stack ?? '').split('\n').slice(3, 11).join('\n');
   console.warn(`${DATA_ROOT_TEST_WRITE_TOKEN} op=${op} target=${target} protectedRoot=${root}\n${caller}`);
+  if ((globalThis as Registry)[INSTALLED]?.recordToHitsFile) recordToFile({ kind: 'hit', pid: process.pid, op, target, protectedRoot: root, test: currentTestFile() });
 }
 
 function wrapAll(obj: Record<string, unknown>, table: Record<string, number[]>, prefix: string, roots: string[], saved: Array<() => void>): void {
@@ -268,12 +311,21 @@ export function installDataRootGuard(opts: DataRootGuardOptions = {}): () => voi
     syncBuiltinESMExports();
     delete reg[INSTALLED];
   };
-  reg[INSTALLED] = { roots, restore };
+  const recordToHitsFile = opts.recordToHitsFile ?? !opts.protectedRoot;
+  reg[INSTALLED] = { roots, restore, recordToHitsFile };
   // One marker per process, on the same stream as the hits; a later reinstall (after an uninstall) stays quiet.
   const g = globalThis as { [MARKER_EMITTED]?: boolean };
   if (!g[MARKER_EMITTED]) {
     g[MARKER_EMITTED] = true;
     console.warn(`${DATA_ROOT_GUARD_INSTALLED_TOKEN} mode=${mode} roots=${JSON.stringify(roots)}`);
+  }
+  // The hits file gets its own marker, once per process per file, from the first install that records to it
+  // (a guard test's mocked-root install may have taken the console marker above).
+  const hitsFile = process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
+  const fileMarked = ((globalThis as { [FILE_MARKER_EMITTED]?: Set<string> })[FILE_MARKER_EMITTED] ??= new Set<string>());
+  if (hitsFile && recordToHitsFile && !fileMarked.has(hitsFile)) {
+    fileMarked.add(hitsFile);
+    recordToFile({ kind: 'installed', pid: process.pid, mode, roots });
   }
   return restore;
 }
