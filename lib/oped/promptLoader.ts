@@ -125,14 +125,28 @@ export function assembleReflectionPrompt(
   });
 }
 
+/**
+ * The readability-edit prompt, with the rules taken from the SAME outlet targets that triggered the edit and
+ * built its violations line (t/202). Before, the rules were fixed at grade 10, so a looser outlet (Tech
+ * Policy Press: FK 16) got "no higher than 11" beside "target: no higher than 16".
+ */
 export function assembleReadabilityEditPrompt(
   promptsDir: string,
   body: string,
   violations: string,
+  targets: { fkMax: number; maxSentWords: number; maxParaWords: number },
+  style?: OutletBandStyle,
 ): string {
+  const sd = loadOutletsData().styleDefaults;
   return interpolate(loadPromptTemplate(promptsDir, 'op-ed-readability-edit'), {
     BODY: body,
     VIOLATIONS: violations,
+    FK_MAX: String(targets.fkMax),
+    MAX_SENT_WORDS: String(targets.maxSentWords),
+    MAX_PARA_WORDS: String(targets.maxParaWords),
+    STYLE_SENTENCE: style?.sentenceMechanics ?? sd.sentenceMechanics,
+    STYLE_PARAGRAPH: style?.paragraphMechanics ?? sd.paragraphMechanics,
+    STYLE_JARGON: style?.jargonGuidance ?? sd.jargonGuidance,
   });
 }
 
