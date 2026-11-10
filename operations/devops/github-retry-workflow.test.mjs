@@ -49,12 +49,14 @@ function httpError(status) {
  */
 async function runWorkflow(workflowFile, api, { helperOnBase = true } = {}) {
   const calls = {};
+  const args = {}; // endpoint name -> params of every call, in order
   const log = { info: [], warning: [], error: [], failed: [] };
   const sleeps = [];
 
   function endpoint(name) {
     const fn = async (params) => {
       calls[name] = (calls[name] || 0) + 1;
+      (args[name] ??= []).push(params);
       const spec = api[name];
       if (spec === undefined) throw new Error(`test harness: unmocked endpoint ${name}`);
       if (typeof spec === 'function') return { data: spec(params) };
@@ -102,7 +104,7 @@ async function runWorkflow(workflowFile, api, { helperOnBase = true } = {}) {
   } finally {
     if (prevWs === undefined) delete process.env.GITHUB_WORKSPACE; else process.env.GITHUB_WORKSPACE = prevWs;
   }
-  return { calls, log, sleeps };
+  return { calls, args, log, sleeps };
 }
 
 const PR = {
@@ -244,4 +246,43 @@ test('t1-approval-guard: a 429 is retried', async () => {
   assert.deepEqual(log.failed, []);
   assert.equal(calls['pulls.get'], 2);
   assert.ok(log.warning.some((w) => /pulls\.get attempt 1\/3 got HTTP 429/.test(w)));
+});
+
+// ------------------------------------- CANNOT EVALUATE must fail closed (t/4819, TL p/12#44)
+// GitHub counts a `neutral` check run as satisfying a required check, so a neutral CANNOT
+// EVALUATE would let an outage that exhausts the retries PASS the gate.
+
+test('t1-approval-guard FAIL-CLOSED: exhausted retries post a `failure` check run (GATE-UNREADABLE), never `neutral`', async () => {
+  const { args, log } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.listCommits': [503] }));
+  const runs = args['checks.create'] || [];
+  assert.equal(runs.length, 1, 'exactly one explicit check run, pinned to the head');
+  assert.equal(runs[0].head_sha, 'headsha');
+  assert.equal(runs[0].name, 't1-approval-guard');
+  assert.equal(runs[0].conclusion, 'failure');
+  assert.notEqual(runs[0].conclusion, 'neutral');
+  assert.match(runs[0].output.title, /GATE-UNREADABLE \(CANNOT EVALUATE\)/);
+  assert.match(runs[0].output.summary, /^GATE-UNREADABLE: .*\n.*not a pass/);
+  assert.match(runs[0].output.summary, /pulls\.listCommits failed after 3 attempt/);
+  assert.match(log.failed[0], /CANNOT EVALUATE/);
+});
+
+test('t1-approval-guard FAIL-CLOSED: a non-retryable crash (404) also concludes `failure`', async () => {
+  // pulls.get works for the catch's re-read but run() dies on a 404 from listReviews.
+  const { args } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.listReviews': [404] }));
+  assert.deepEqual((args['checks.create'] || []).map((r) => r.conclusion), ['failure']);
+});
+
+test('no code line in either gate workflow can conclude `neutral`', () => {
+  for (const wf of ['t1-approval-guard.yml', 'tier-check.yml']) {
+    const code = extractScript(wf).split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.ok(!/['"`]neutral['"`]/.test(code), `${wf}: a 'neutral' conclusion would read as a pass on a required check`);
+  }
+});
+
+test('tier-check posts no explicit check run: CANNOT EVALUATE is the job\'s own failure (setFailed)', async () => {
+  const all503 = Object.fromEntries(Object.keys(tierCheckApi()).map((k) => [k, [503]]));
+  const { calls, log } = await runWorkflow('tier-check.yml', all503);
+  assert.equal(calls['checks.create'] ?? 0, 0);
+  assert.equal(log.failed.length, 1);
+  assert.match(log.failed[0], /^CANNOT EVALUATE: /);
 });

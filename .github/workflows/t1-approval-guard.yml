@@ -126,7 +126,10 @@ jobs:
 
             // Explicitly posts the PR-visible check, pinned to the PR's own head SHA, for every
             // trigger type uniformly (the fix this comment block's header explains). conclusion
-            // is 'success', 'failure', or 'neutral' (CANNOT EVALUATE -- an unknown, not a pass).
+            // is 'success' or 'failure'. CANNOT EVALUATE also concludes 'failure', NEVER 'neutral':
+            // GitHub counts a neutral check run as satisfying a required check, so a neutral
+            // CANNOT EVALUATE would let an API outage that exhausts the retries PASS the gate
+            // (fail-open). t/4819, TL condition p/12#44.
             async function postCheckRun(headSha, conclusion, title, summary) {
               if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
               await withRetry('checks.create', () => github.rest.checks.create({
@@ -165,7 +168,16 @@ jobs:
                 // crash anywhere in run() still gets an explicit, PR-visible check posted.
                 try {
                   const { data: pr } = await withRetry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
-                  await postCheckRun(pr.head.sha, 'neutral', 't1-approval-guard: CANNOT EVALUATE', String(err && err.message ? err.message : err));
+                  // BEGIN cannot-evaluate-conclusion (t/4819, TL p/12#44): 'failure', never 'neutral'.
+                  await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: GATE-UNREADABLE (CANNOT EVALUATE)', [
+                    'GATE-UNREADABLE: the guard could not read what it needs to decide this PR, so no verdict was produced.',
+                    'This is not a pass. The check fails closed until a run can evaluate the PR.',
+                    '',
+                    `Error: ${String(err && err.message ? err.message : err)}`,
+                    '',
+                    'Next step: if the error is a GitHub 5xx/429 that outlived its retries, re-run this workflow once the API recovers.',
+                  ].join('\n'));
+                  // END cannot-evaluate-conclusion
                 } catch (postErr) {
                   core.error(`t1-approval-guard: could not post the explicit check run either — ${postErr.message}`);
                 }
