@@ -85,6 +85,10 @@ export function FactsPanel({ nodeId, onSelectFact, onSelectRef }: {
   // new `facts` array identity for the SAME node (e.g. a cache refetch) doesn't reopen a card
   // the user collapsed.
   const defaultAppliedFor = useRef<string | null>(null);
+  // t/83: the node id `facts` actually belongs to, set alongside `facts`. Right after a
+  // nodeId change, `facts` still holds the PREVIOUS node's list for one commit (same race as
+  // SourcesPanel/PhrasesPanel, p/356#162).
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +99,7 @@ export function FactsPanel({ nodeId, onSelectFact, onSelectRef }: {
     void getFactsIndex().then((idx) => {
       if (cancelled) return;
       setFacts(idx[nodeId]?.facts ?? []);
+      setLoadedFor(nodeId);
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -102,13 +107,15 @@ export function FactsPanel({ nodeId, onSelectFact, onSelectRef }: {
 
   // t/4919: default the first fact expanded, once per node, only after facts have loaded —
   // WITHOUT calling onSelectFact (Design t/4919#2: the split pane opens only on an explicit
-  // click, not the default).
+  // click, not the default). t/83: `loadedFor === nodeId` keeps the stale previous-node render
+  // from consuming the guard. Harmless today only because index 0 is right for any node; it
+  // isn't redundant — keying the default by anything node-specific would expose the race.
   useEffect(() => {
-    if (facts && facts.length > 0 && defaultAppliedFor.current !== nodeId) {
+    if (loadedFor === nodeId && facts && facts.length > 0 && defaultAppliedFor.current !== nodeId) {
       setExpanded(0);
       defaultAppliedFor.current = nodeId;
     }
-  }, [facts, nodeId]);
+  }, [loadedFor, facts, nodeId]);
 
   // Mention-render kit (t/1906): reconstruct the sei:<nodeId> container from the fact
   // claims (single-LF join) so stored entity-name mentions can render as .ref-link
