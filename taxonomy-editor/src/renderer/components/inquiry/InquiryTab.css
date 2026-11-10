@@ -227,10 +227,10 @@
 .inquiry-banner { display: flex; gap: 12px; align-items: flex-start; margin: 18px 0 0; padding: 13px 15px; border-radius: var(--radius-md); border: 1px solid; }
 .inquiry-bi { font-weight: 700; font-size: 12px; letter-spacing: 0.06em; flex: none; }
 .inquiry-banner p { margin: 0; font-size: 13.5px; line-height: 1.5; }
-.inquiry-banner-truncated, .inquiry-banner-failed { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.inquiry-banner-truncated .inquiry-bi, .inquiry-banner-failed .inquiry-bi { color: var(--danger); }
-.inquiry-banner-zero { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); }
-.inquiry-banner-zero .inquiry-bi { color: var(--warning); }
+.inquiry-banner-truncated, .inquiry-banner-failed { border-color: var(--error-border); background: var(--error-bg); }
+.inquiry-banner-truncated .inquiry-bi, .inquiry-banner-failed .inquiry-bi { color: var(--error-text); }
+.inquiry-banner-zero { border-color: var(--warning-border); background: var(--warning-bg); }
+.inquiry-banner-zero .inquiry-bi { color: var(--warning-text); }
 
 .inquiry-sect { margin-top: 26px; }
 .inquiry-camps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }

@@ -136,18 +136,18 @@
 }
 
 .phrases-audience-industry_leader {
-  background: rgba(37, 99, 235, 0.1);
-  color: #2563eb;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .phrases-audience-policymaker {
-  background: rgba(147, 51, 234, 0.1);
-  color: #7c3aed;
+  background: var(--violet-bg);
+  color: var(--violet-text);
 }
 
 .phrases-audience-technical_researcher {
-  background: rgba(13, 148, 136, 0.1);
-  color: #0d9488;
+  background: var(--info-bg); /* t/198 S9: teal identity hue */
+  color: var(--info-text);
 }
 
 /* ─── Vocabulary confidence underlines ───────────────────── */
