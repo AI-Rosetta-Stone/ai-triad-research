@@ -12,5 +12,6 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     setupFiles: ['./src/test/setupDataRootGuard.ts'],
+    globalSetup: ['../lib/test-support/dataRootGuardGlobalSetup.ts'],
   },
 });
