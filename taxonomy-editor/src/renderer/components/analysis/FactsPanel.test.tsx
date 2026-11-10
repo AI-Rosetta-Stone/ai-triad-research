@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => null }));
@@ -22,9 +22,12 @@ vi.mock('@bridge', () => ({
   },
 }));
 
-const { FactsPanel } = await import('./FactsPanel');
+const { FactsPanel, __resetFactsCacheForTests } = await import('./FactsPanel');
 
 describe('FactsPanel (t/1025, t/1906)', () => {
+  // t/82: the facts index is a module-level cache; start every test cold so no test sees
+  // another test's (or another file's) fixture data.
+  beforeEach(() => { __resetFactsCacheForTests(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('shows an empty state for a node with no linked evidence', async () => {

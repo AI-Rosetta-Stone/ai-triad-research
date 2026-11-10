@@ -24,6 +24,9 @@ let _factsCache: FactsIndex | null = null;
 let _factsLoading = false;
 let _factsListeners: Array<() => void> = [];
 
+/** Test-only: reset the module cache so each test starts cold (mirrors SourcesPanel's seam). */
+export function __resetFactsCacheForTests(): void { _factsCache = null; _factsLoading = false; _factsListeners = []; }
+
 async function getFactsIndex(): Promise<FactsIndex> {
   if (_factsCache) return _factsCache;
   if (_factsLoading) {
