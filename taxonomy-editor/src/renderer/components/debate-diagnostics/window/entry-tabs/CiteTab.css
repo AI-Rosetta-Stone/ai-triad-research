@@ -24,19 +24,19 @@
 .cit-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 20%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
 }
 
 .cit-parse-error {
   padding: 6px 8px;
   margin: 6px 0;
-  background: rgba(220, 38, 38, 0.1);
+  background: var(--error-bg);
   border-left: 3px solid var(--danger);
   border-radius: 4px;
   font-size: 0.72rem;
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .cit-directive {
@@ -58,8 +58,8 @@
 .cit-badge-2xs {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 20%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -114,8 +114,8 @@
   display: inline-block;
   padding: 0 4px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--warning) 25%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 700;
   font-size: 0.65em;
   line-height: 1.4;
@@ -126,8 +126,8 @@
   display: inline-block;
   padding: 0 3px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: 0.65em;
   line-height: 1.4;
@@ -157,8 +157,8 @@
   display: inline-block;
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 20%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-size: 0.7rem;
   font-weight: 600;
 }

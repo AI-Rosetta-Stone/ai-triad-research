@@ -796,6 +796,14 @@ export interface AppAPI {
    */
   focusDiagnosticsWindow: () => Promise<'focused' | 'not-open' | 'inline'>;
 
+  // --- Zoom (t/163) ---
+  /** Applies the app zoom as a real page zoom; returns false where the platform has none (web),
+   *  so the caller keeps its own fallback. A page can't set the browser's zoom, and CSS `zoom`
+   *  breaks 100vh panes (t/163#3), so web keeps the root font-size fallback in App.tsx. */
+  setZoomFactor: (factor: number) => boolean;
+  /** View-menu zoom commands (desktop only; web returns a no-op unsubscribe). */
+  onZoomCommand: (callback: (command: 'in' | 'out' | 'reset') => void) => () => void;
+
   // --- Data file diff popout ---
   openDiffWindow: (filePath: string) => Promise<void>;
 

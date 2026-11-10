@@ -570,6 +570,12 @@ export const api: AppAPI = {
   },
   openPovProgressionWindow: () => window.electronAPI.openPovProgressionWindow(),
   closeDiagnosticsWindow: () => window.electronAPI.closeDiagnosticsWindow(),
+  // t/163: webFrame page zoom scales px and vh sizes too (root font-size only scaled rem).
+  setZoomFactor: (factor: number) => {
+    window.electronAPI.setZoomFactor(factor);
+    return true;
+  },
+  onZoomCommand: (callback) => window.electronAPI.onZoomCommand(callback),
   sendDiagnosticsState: (s) => {
     for (const cb of localDiagCallbacks) cb(s);
     window.electronAPI.sendDiagnosticsState(s);

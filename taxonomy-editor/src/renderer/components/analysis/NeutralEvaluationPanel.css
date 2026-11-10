@@ -95,8 +95,8 @@
   display: inline-block;
   margin-bottom: 6px;
 }
-.neutral-eval-engagement.engaging { background: rgba(76,175,80,0.15); color: #4caf50; }
-.neutral-eval-engagement.drifting { background: rgba(244,67,54,0.15); color: #f44336; }
+.neutral-eval-engagement.engaging { background: var(--success-bg); color: var(--success-text); }
+.neutral-eval-engagement.drifting { background: var(--error-bg); color: var(--error-text); }
 .neutral-eval-notes { font-size: var(--text-md); margin: 4px 0 0; color: var(--text-secondary); }
 
 /* Sections */

@@ -279,7 +279,7 @@
   color: var(--text-secondary);
 }
 .pov-inquiry-pill.bad {
-  background: var(--danger, #b91c1c);
+  background: var(--danger-fill); /* t/198 S5 */
   color: #fff;
 }
 

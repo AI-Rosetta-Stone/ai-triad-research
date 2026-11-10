@@ -35,6 +35,15 @@ export const OpEdGroundingRefSchema = z.object({
   document_claims: z.array(z.string()).optional(),
 });
 
+export const OpEdStageSchema = z.object({
+  stage: z.string(),
+  attempt: z.number().int().min(1),
+  model: z.string(),
+  prompt: z.string(),
+  output: z.string(),
+  error: z.string().optional(),
+});
+
 export const OpEdMemberSchema = z.object({
   pov: PovKeySchema,
   status: z.enum(['complete', 'failed', 'cancelled']),
@@ -60,6 +69,10 @@ export const OpEdMemberSchema = z.object({
       file: v.file.replace(/^lib\/debate\/soul-docs\//, ''),
       hash: v.hash ?? v.sha,
     })).optional(),
+  // t/171: per-stage raw prompt/output for the How panel. Declared so the strip class can't drop it on save
+  // (finalizeOpedSet parses before writing). `stage` stays a plain string: an older reader must never reject
+  // a whole set over a stage name a newer generator added.
+  stages: z.array(OpEdStageSchema).optional(),
 });
 
 export const OpEdSetSchema = z.object({

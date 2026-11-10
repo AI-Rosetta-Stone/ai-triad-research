@@ -234,8 +234,8 @@
   padding: 1px 5px;
   border-radius: 3px;
   font-size: var(--text-2xs);
-  background-color: rgba(34,197,94,0.15);
-  color: #22c55e;
+  background-color: var(--success-bg);
+  color: var(--success-text);
 }
 
 .sumt-uc-desc {

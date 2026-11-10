@@ -109,7 +109,7 @@
 }
 
 .debate-session-item-delete:hover {
-  color: var(--danger);
+  color: var(--error-text);
   background: var(--bg-hover);
 }
 
@@ -459,12 +459,12 @@
 .harvest-concession-evidence { font-size: var(--text-xs); }
 .harvest-concession-entry { display: flex; align-items: baseline; gap: 6px; margin: 3px 0; font-size: var(--text-2xs); }
 .harvest-concession-type { font-size: var(--text-2xs); font-weight: 600; padding: 1px 4px; border-radius: var(--radius-sm); min-width: 55px; text-align: center; }
-.harvest-concession-type-full { background: rgba(22, 163, 74, 0.15); color: #16a34a; border: 1px solid #16a34a; }
-.harvest-concession-type-conditional { background: rgba(217, 119, 6, 0.15); color: #d97706; border: 1px dashed #d97706; }
+.harvest-concession-type-full { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-text); }
+.harvest-concession-type-conditional { background: var(--warning-bg); color: var(--warning-text); border: 1px dashed var(--warning-border); }
 .harvest-concession-type-tactical { color: var(--text-muted); font-style: italic; opacity: 0.6; border: 1px dashed var(--border-color); }
 .harvest-concession-speaker { color: var(--text-muted); white-space: nowrap; }
 .harvest-concession-text { color: var(--text-secondary); font-style: italic; }
-.harvest-concession-warning { font-size: var(--text-2xs); color: #dc2626; margin-top: 6px; padding: 4px 8px; border-left: 3px solid #dc2626; background: rgba(220, 38, 38, 0.05); }
+.harvest-concession-warning { font-size: var(--text-2xs); color: var(--error-text); margin-top: 6px; padding: 4px 8px; border-left: 3px solid var(--error-border); background: var(--error-bg); }
 /* RAG parameter preview (.pi-node-count-*) moved to shared/DataSourceCard.css
    (t/3025) — owned by DataSourceCard, which renders in the chat Prompt Inspector. */
 /* Moderator diagnostics (t/160) */

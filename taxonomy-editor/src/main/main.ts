@@ -306,17 +306,19 @@ function createWindow(): void {
         {
           label: 'Zoom In',
           accelerator: 'CmdOrCtrl+=',
-          click: () => { if (mainWindow) mainWindow.webContents.zoomLevel += 0.5; },
+          // t/163: route through the renderer's zoomLevel (persisted, one model) instead of a
+          // separate webContents zoom that compounded with the toolbar zoom.
+          click: () => { mainWindow?.webContents.send('zoom-command', 'in'); },
         },
         {
           label: 'Zoom Out',
           accelerator: 'CmdOrCtrl+-',
-          click: () => { if (mainWindow) mainWindow.webContents.zoomLevel -= 0.5; },
+          click: () => { mainWindow?.webContents.send('zoom-command', 'out'); },
         },
         {
           label: 'Reset Zoom',
           accelerator: 'CmdOrCtrl+0',
-          click: () => { if (mainWindow) mainWindow.webContents.zoomLevel = 0; },
+          click: () => { mainWindow?.webContents.send('zoom-command', 'reset'); },
         },
         { type: 'separator' },
         { role: 'toggleDevTools' },

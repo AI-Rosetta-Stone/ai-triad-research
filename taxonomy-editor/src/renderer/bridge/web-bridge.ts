@@ -1327,14 +1327,14 @@ const rawApi: AppAPI = {
     diagWindowRef = window.open(`${location.origin}/#diagnostics-window`, 'aitriad-diagnostics');
     return 'popout';
   },
+  setZoomFactor: () => false, // t/163: no page-zoom API on web (see types.ts)
+  onZoomCommand: () => () => {},
   focusDiagnosticsWindow: async () => {
     if (isDiagnosticsInline()) return 'inline';
     if (!diagWindowRef || diagWindowRef.closed) return 'not-open';
     diagWindowRef.focus(); return 'focused';
   },
-  openPovProgressionWindow: async () => {
-    openAppWindow('pov-progression-window');
-  },
+  openPovProgressionWindow: async () => { openAppWindow('pov-progression-window'); },
   closeDiagnosticsWindow: async () => {
     diagChannel?.postMessage({ type: 'diagnostics-closed' });
   },

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import type { OpEdSet, OpEdSetSummary } from '../../../lib/oped/types.js';
 import type { StopReason, ProviderCallDiagnostics } from '../../../lib/ai-client/index.js';
 import type { ExportJobState, ExportErrorCode, BriefPreset, BriefArtifactName } from '../../../lib/brief/types.js';
@@ -365,6 +365,16 @@ function buildElectronApi() {
   closeDiagnosticsWindow: (): Promise<void> => ipcRenderer.invoke('close-diagnostics-window'),
   // t/4642/t/4663: bring an already-open diagnostics popout to the front on a repeat card click.
   focusDiagnosticsWindow: (): Promise<'focused' | 'not-open'> => ipcRenderer.invoke('focus-diagnostics-window'),
+
+  // t/163: one zoom model. The renderer's zoomLevel drives the page zoom (scales px and vh
+  // sizes too, unlike the old root font-size), and the View menu asks the renderer to zoom
+  // instead of changing webContents.zoomLevel itself, so the two can't compound.
+  setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor),
+  onZoomCommand: (callback: (command: 'in' | 'out' | 'reset') => void) => {
+    const listener = (_event: unknown, command: 'in' | 'out' | 'reset') => callback(command);
+    ipcRenderer.on('zoom-command', listener);
+    return () => { ipcRenderer.removeListener('zoom-command', listener); };
+  },
 
   // Chat popout window
   openChatWindow: (chatId: string, source?: 'my' | 'community'): Promise<{ atCap: true } | void> => ipcRenderer.invoke('open-chat-window', chatId, source),

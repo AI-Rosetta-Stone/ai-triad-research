@@ -1,5 +1,5 @@
 {
-  "_doc": "t/3350 demotion-set manifest (t/3633). The genuine-conflict gate in consolidate_conflicts.py keys against this so a regen never re-emits these 432 standalone facts as conflicts. A candidate matching a claim_id OR an assertion_sig here is emitted demoted, not as a conflict. Built by build_demotion_manifest.py from the live conflicts.json markers.",
+  "_doc": "t/3350 demotion-set manifest (t/3633). The genuine-conflict gate in consolidate_conflicts.py keys against this so a regen never re-emits these 432 standalone facts as conflicts. A single-instance candidate matching a claim_id OR an assertion_sig here is emitted demoted, not as a conflict; a multi-instance candidate is never demoted (README, AC4). Built by build_demotion_manifest.py from the live conflicts.json markers.",
   "provenance": {
     "data_of_record": "0f38b2e7",
     "ticket": "t/3350",

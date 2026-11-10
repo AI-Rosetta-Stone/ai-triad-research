@@ -16,8 +16,8 @@
   padding: 6px 12px;
   margin-bottom: 8px;
   border-radius: 6px;
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--danger, #ef4444);
+  background: var(--error-bg);
+  color: var(--error-text);
   font-size: 0.8rem;
 }
 

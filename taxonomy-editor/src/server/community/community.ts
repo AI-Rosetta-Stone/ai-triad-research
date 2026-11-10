@@ -22,6 +22,7 @@ import type { InquiryResult } from '../../../../lib/inquiry/index.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
 import { AppliedTagSchema, loadPovTagRegistry } from '../../../../lib/schema/povTags.js';
 import type { OpEdCommunityEntry } from '../../../../lib/oped/types.js';
+import { stripOpEdStagesForCommunity } from '../../../../lib/oped/communityStrip.js';
 import { AI_POVERS } from '../../../../lib/debate/types.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 
@@ -782,6 +783,8 @@ function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submissi
   let d = withSanitizeBudget(
     () => stripSensitiveKeys(JSON.parse(JSON.stringify(data))),
   ) as Record<string, unknown>;
+  // t/171: an op-ed's per-stage prompts carry the user's source material; never publish them.
+  if (type === 'oped') d = stripOpEdStagesForCommunity(d);
   if (type === 'inquiry') {
     // t/3651: `id`/`created_at` are community-projection-owned bridging fields stamped by
     // submitToCommunity (t/3621), not part of InquiryResultSchema — the matrix classifies only

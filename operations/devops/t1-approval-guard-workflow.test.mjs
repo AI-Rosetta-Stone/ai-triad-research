@@ -9,6 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -80,7 +82,7 @@ test('t/116 PARITY: both arms map reviews and comments identically (every review
   assert.match(lineDefining(workflow, /^const approvalComments = /), /login: c\.user\?\.login/);
 });
 
-test('t/116: both arms put role-review-verdicts.mjs from the BASE tip next to the predicate (it is imported relatively)', () => {
+test('t/116: both arms put role-review-verdicts.mjs from the BASE tip next to the predicate (unused since t/200, which made the predicate self-contained; kept, harmless)', () => {
   assert.match(scriptCodeLines(), /git show \$\{baseTipSha\}:operations\/devops\/role-review-verdicts\.mjs/);
   const mg = mergeGroupJob();
   const verdictsAt = mg.indexOf("loadFromBase('operations/devops/role-review-verdicts.mjs')");
@@ -92,4 +94,176 @@ test('t/116 (TL rule from #4771): CANNOT EVALUATE posts failure, never neutral, 
   assert.ok(!/['"`]neutral['"`]/.test(scriptCodeLines()), 't1-approval-guard.yml must not post a neutral conclusion');
   assert.match(scriptCodeLines(), /postCheckRun\(pr\.head\.sha, 'failure', 't1-approval-guard: [^']*CANNOT EVALUATE[^']*'/);
   assert.ok(!/['"`]neutral['"`]/.test(mergeGroupJob()), 'the merge_group arm must not post a neutral conclusion');
+});
+
+// ── t/200: a branch cut before #4804 runs the OLD t1-approval-guard.yml on pull_request_review ──
+// GitHub sources a pull_request_review run's workflow from the PR side, so a pre-#4804 branch runs
+// the old YAML, which copies ONLY the predicate from main's tip into an empty temp dir and imports
+// it. These arms run that old YAML's REAL github-script body (fixture below, byte-identical to the
+// pre-#4804 file) against a mocked GitHub API and a mocked `git` whose `git show basetip:<path>`
+// serves THIS checkout's files as main's tip. Anything else the script asks git for throws, so a
+// predicate that still needs role-review-verdicts.mjs next to it crashes exactly as on GitHub.
+const OLD_YAML_FIXTURE = path.join(here, 'fixtures', 't1-approval-guard.pre-4804.yml.fixture');
+const PRE_4804_BLOB = '2f8c52bf8ad3e62133d0cbf58e6ce78556aebd50'; // git rev-parse ae871a8df~1:.github/workflows/t1-approval-guard.yml
+const nodeRequire = createRequire(import.meta.url);
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+const REVIEWER_APP = 'ai-triad-reviewer-jpsnover[bot]';
+const OLD_HEAD_SHA = 'f'.repeat(40);
+const OLD_PUSH = '2026-11-09T10:00:00Z';
+const OLD_AFTER = '2026-11-09T11:00:00Z';
+const OLD_LATER = '2026-11-09T12:00:00Z';
+
+function scriptBlock(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const start = lines.findIndex((l) => /^\s*script:\s*\|\s*$/.test(l));
+  assert.ok(start >= 0, 'no "script: |" block');
+  const body = [];
+  let indent = null;
+  for (const l of lines.slice(start + 1)) {
+    if (l.trim() === '') { body.push(''); continue; }
+    const ind = l.match(/^ */)[0].length;
+    if (indent === null) indent = ind;
+    if (ind < indent) break;
+    body.push(l.slice(indent));
+  }
+  return body.join('\n');
+}
+
+async function runOldYaml({ comments = [], reviews = [], predicateText } = {}) {
+  const log = { info: [], warning: [], error: [], failed: [] };
+  const checks = [];
+  const verdictComments = [];
+  const api = {
+    'pulls.get': () => ({
+      number: 7, body: 'Tier: T1\n\nA change.', created_at: '2026-11-08T00:00:00Z',
+      head: { sha: OLD_HEAD_SHA, ref: 'devops/t200-old-branch' }, base: { ref: 'main' },
+    }),
+    'pulls.listCommits': () => [{ commit: { committer: { date: OLD_PUSH } } }],
+    'issues.listComments': () => comments,
+    'pulls.listReviews': () => reviews,
+    'issues.createComment': (p) => { verdictComments.push(p.body); return {}; },
+    'issues.updateComment': (p) => { verdictComments.push(p.body); return {}; },
+    'checks.create': (p) => { checks.push(p); return {}; },
+  };
+  const rest = {};
+  for (const [name, fn] of Object.entries(api)) {
+    const [ns, m] = name.split('.');
+    rest[ns] ??= {};
+    rest[ns][m] = async (params) => ({ data: fn(params) });
+  }
+  const github = { rest, paginate: async (method, params) => (await method(params)).data };
+  const execSync = (cmd) => {
+    if (/^git fetch origin /.test(cmd)) return '';
+    if (/^git rev-parse FETCH_HEAD$/.test(cmd)) return 'basetip\n';
+    if (cmd === 'git show basetip:operations/devops/t1-approval-guard-predicate.mjs') {
+      return predicateText ?? readFileSync(path.join(here, 't1-approval-guard-predicate.mjs'), 'utf8');
+    }
+    if (cmd === 'git show basetip:operations/devops/github-retry.mjs') return readFileSync(path.join(here, 'github-retry.mjs'), 'utf8');
+    throw new Error(`test harness: the old YAML never runs this: ${cmd}`);
+  };
+  const fakeRequire = (id) => (id === 'child_process' ? { execSync } : nodeRequire(id));
+  const core = {
+    info: (m) => log.info.push(m), warning: (m) => log.warning.push(m),
+    error: (m) => log.error.push(m), setFailed: (m) => log.failed.push(m),
+  };
+  const context = {
+    repo: { owner: 'o', repo: 'r' },
+    payload: { pull_request: { number: 7 }, repository: { default_branch: 'main' } },
+  };
+  const prevWs = process.env.GITHUB_WORKSPACE;
+  process.env.GITHUB_WORKSPACE = root;
+  try {
+    const script = scriptBlock(readFileSync(OLD_YAML_FIXTURE, 'utf8'));
+    await new AsyncFunction('require', 'github', 'context', 'core', 'setTimeout', script)(fakeRequire, github, context, core, (fn) => { fn(); return 0; });
+  } finally {
+    if (prevWs === undefined) delete process.env.GITHUB_WORKSPACE; else process.env.GITHUB_WORKSPACE = prevWs;
+  }
+  return { log, checks, verdictComments };
+}
+
+const ghComment = (body, at, login = 'jpsnover') => ({ body, created_at: at, updated_at: at, user: { login } });
+const ghBotReview = (state, body, at) => ({ state, body, submitted_at: at, commit_id: OLD_HEAD_SHA, user: { login: REVIEWER_APP, type: 'Bot' } });
+
+test('t/200 PROVENANCE: the fixture is byte-identical to the pre-#4804 t1-approval-guard.yml', () => {
+  const text = readFileSync(OLD_YAML_FIXTURE, 'utf8').replace(/\r\n/g, '\n');
+  const bytes = Buffer.from(text, 'utf8');
+  const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+  assert.equal(blob, PRE_4804_BLOB);
+  assert.ok(!/role-review-verdicts/.test(text), 'the old YAML copies only the predicate');
+});
+
+test('t/200 PASS ARM (old YAML): a post-push Approved (<role>): comment -> success check, no crash', async () => {
+  const { log, checks } = await runOldYaml({ comments: [ghComment('Approved (Quality): looks right.', OLD_AFTER)] });
+  assert.deepEqual(log.error, [], `crashed: ${log.error.join(' | ')}`);
+  assert.deepEqual(log.failed, []);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].conclusion, 'success');
+  assert.equal(checks[0].head_sha, OLD_HEAD_SHA);
+});
+
+test('t/200 FAIL ARM (old YAML): a later Changes requested (<role>): comment blocks despite the approval', async () => {
+  const { log, checks } = await runOldYaml({ comments: [
+    ghComment('Approved (Quality): looks right.', OLD_AFTER),
+    ghComment('Changes requested (Design): fix the colour.', OLD_LATER),
+  ] });
+  assert.deepEqual(log.error, [], `crashed: ${log.error.join(' | ')}`);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].conclusion, 'failure');
+  assert.ok(log.info.some((m) => m.includes('reason=changes-requested-outstanding')), log.info.join(' | '));
+  assert.equal(log.failed.length, 1);
+});
+
+test('t/200 FAIL ARM (old YAML): a reviewer-App CHANGES_REQUESTED review fails (closed), never passes', async () => {
+  const { log, checks } = await runOldYaml({
+    comments: [ghComment('Approved (Quality): looks right.', OLD_AFTER)],
+    reviews: [ghBotReview('CHANGES_REQUESTED', 'Changes requested (Design): fix the colour.', OLD_LATER)],
+  });
+  assert.deepEqual(log.error, [], `crashed: ${log.error.join(' | ')}`);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].conclusion, 'failure');
+  // The old YAML passes no headSha, so #4804's explicit fail-closed reason applies, unchanged.
+  assert.ok(log.info.some((m) => m.includes('pass=false') && m.includes('reason=missing-head-sha')), log.info.join(' | '));
+});
+
+test('t/200 (#4804 semantics, unchanged): the old YAML cannot bind a reviewer-App APPROVED review to the head -> failure, never a pass', async () => {
+  const review = ghBotReview('APPROVED', 'Approved (Quality): looks right.', OLD_AFTER);
+  const { log, checks } = await runOldYaml({ reviews: [review] });
+  assert.deepEqual(log.error, [], `crashed: ${log.error.join(' | ')}`);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].conclusion, 'failure');
+  assert.ok(log.info.some((m) => m.includes('reason=missing-head-sha')), log.info.join(' | '));
+
+  // TL p/12#100: the verdict object the old YAML gets keeps reason `missing-head-sha` and carries a
+  // summary naming the self-serve fix. The inputs are built with the old YAML's own mapping
+  // (bot reviews only, no commit_id, comments without login, and no headSha).
+  const { evaluateT1ApprovalGuard } = await import('./t1-approval-guard-predicate.mjs');
+  const result = evaluateT1ApprovalGuard({
+    body: 'Tier: T1\n\nA change.', headRefName: 'devops/t200-old-branch', lastPushAt: OLD_PUSH, approvalComments: [],
+    botReviews: [review].filter((r) => r.user?.type === 'Bot').map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body })),
+    reviewerAppLogin: REVIEWER_APP,
+  });
+  assert.equal(result.pass, false);
+  assert.equal(result.reason, 'missing-head-sha', 'the machine-readable reason is unchanged');
+  assert.match(result.summary, /predates #4804/);
+  assert.match(result.summary, /post any PR comment or rebase onto main/);
+  assert.match(result.summary, /re-run the guard on main's workflow/);
+});
+
+test('t/200 FAILURE PATH (old YAML): a predicate whose logic cannot load -> CANNOT EVALUATE failure, never a pass', async () => {
+  // This predicate WOULD pass every PR if it loaded, but its import has nothing to resolve to in
+  // the old YAML's temp dir: exactly the pre-t/200 crash. The verdict must be failure, not success.
+  const unloadable = [
+    "import { latestRoleVerdicts } from './role-review-verdicts.mjs';",
+    "export function evaluateT1ApprovalGuard() { return { pass: true, tier: 'T1', reason: String(typeof latestRoleVerdicts) }; }",
+  ].join('\n');
+  const { log, checks, verdictComments } = await runOldYaml({
+    comments: [ghComment('Approved (Quality): looks right.', OLD_AFTER)], predicateText: unloadable,
+  });
+  assert.ok(log.error.some((m) => m.includes('ERR_MODULE_NOT_FOUND') || m.includes('role-review-verdicts.mjs')), log.error.join(' | '));
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].conclusion, 'failure');
+  assert.match(checks[0].output.title, /CANNOT EVALUATE/);
+  assert.equal(log.failed.length, 1);
+  assert.match(log.failed[0], /CANNOT EVALUATE/);
+  assert.ok(verdictComments.some((b) => b.includes('CANNOT EVALUATE')));
 });
