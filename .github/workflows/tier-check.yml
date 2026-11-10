@@ -34,8 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
-      cancel-in-progress: true
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'merge_group' }}
     if: github.event.issue.pull_request || !github.event.issue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6

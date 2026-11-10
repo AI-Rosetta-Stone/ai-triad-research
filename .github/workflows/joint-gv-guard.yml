@@ -76,8 +76,8 @@ jobs:
     permissions:
       pull-requests: read
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'merge_group' }}
     steps:
       - name: Check joint-gv label + auto-merge state
         env:
