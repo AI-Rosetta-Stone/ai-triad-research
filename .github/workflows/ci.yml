@@ -167,6 +167,7 @@ jobs:
       lib: ${{ steps.filter.outputs.lib }}
       embeddings: ${{ steps.filter.outputs.embeddings }}
       python: ${{ steps.filter.outputs.python }}
+      embed-models: ${{ steps.filter.outputs.embed-models }}
       container: ${{ steps.filter.outputs.container }}
       lockfile-sync: ${{ steps.filter.outputs.lockfile-sync }}
       bicep-env: ${{ steps.filter.outputs.bicep-env }}
@@ -287,6 +288,21 @@ jobs:
               # skip as a pass, and #2938 left main's .soul.md views stale unobserved (t/4029, the
               # t/3189 shape). Rule: every path a test-python test READS must be in this list.
               - 'lib/debate/soul-docs/**'
+              - '.github/workflows/ci.yml'
+            # 'embed-models' gates python-embed-smoke on PR/push runs (t/55). It used `python`,
+            # whose 'scripts/**' also matched the PowerShell module scripts/AITriad/**, so every
+            # PS-only PR paid for the HF model job. Rule: every path the job READS is listed here
+            # (the t/2025 shape; a skipped job is a ci-gate pass). merge_group, schedule and
+            # workflow_dispatch still run it unconditionally.
+            embed-models:
+              - 'scripts/requirements.txt'
+              # imported by check_composition_drift.py for the real field composition
+              - 'scripts/embed_taxonomy.py'
+              - '.github/ci/fetch_embed_models.py'
+              - '.github/ci/assert_embed_stability.py'
+              - '.github/ci/embed_reference.json'
+              - '.github/actions/checkout-ai-triad-data/**'
+              - 'research/comp-linguist/analyses/embedding-drift-gate/**'
               - '.github/workflows/ci.yml'
             # 'container' gates test-container (t/2094). SOUNDNESS: ci-gate treats
             # a SKIPPED gated job as satisfied, so this list must cover EVERYTHING
@@ -2246,7 +2262,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.embed-models == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     # PYTHONUTF8=1: PEP 540 UTF-8 Mode — forces UTF-8 for stdio AND open() on win32.
@@ -2276,8 +2292,36 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
+      # t/55: live unauthenticated HF downloads (~5.4 GB before the fetch script was narrowed)
+      # timed this job out and stalled the merge queue. The models are pinned in
+      # fetch_embed_models.py, so its hash is the cache key and a pin bump rotates the cache.
+      # Every run restores; only a main-ref run (schedule, push, dispatch) saves on a miss,
+      # so ephemeral merge_group/PR refs don't spend ~640 MB of the repo's cache quota each.
+      - name: Restore HF model cache
+        id: hf-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-embed-${{ runner.os }}-${{ hashFiles('.github/ci/fetch_embed_models.py') }}
+      # Hit: verify the cache offline (no network; fails in ~1s if incomplete). An incomplete
+      # hit falls back to the online fetch with a WARN, rather than redding on a bad cache.
+      # Miss: online fetch, which retries 3x with backoff inside the script.
       - name: Download models (HF availability — a red HERE is infrastructure, not a dep break)
-        run: python .github/ci/fetch_embed_models.py
+        timeout-minutes: 6
+        env:
+          CACHE_HIT: ${{ steps.hf-cache.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = "true" ]; then
+            if HF_HUB_OFFLINE=1 python .github/ci/fetch_embed_models.py; then exit 0; fi
+            echo "::warning::HF model cache hit but incomplete; falling back to an online fetch (t/55)"
+          fi
+          python .github/ci/fetch_embed_models.py
+      - name: Save HF model cache (main ref, miss only)
+        if: steps.hf-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/huggingface/hub
+          key: ${{ steps.hf-cache.outputs.cache-primary-key }}
       - name: Assert embedding + NLI value stability (offline — a red HERE is real drift/incompat)
         env:
           HF_HUB_OFFLINE: '1'

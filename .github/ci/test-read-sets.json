@@ -7,6 +7,15 @@
     "research/comp-linguist/tools/**",
     "lib/debate/soul-docs/**"
   ],
+  "embed-models": [
+    "scripts/requirements.txt",
+    "scripts/embed_taxonomy.py",
+    ".github/ci/fetch_embed_models.py",
+    ".github/ci/assert_embed_stability.py",
+    ".github/ci/embed_reference.json",
+    ".github/actions/checkout-ai-triad-data/**",
+    "research/comp-linguist/analyses/embedding-drift-gate/**"
+  ],
   "container": [
     "taxonomy-editor/**",
     "research/comp-linguist/scripts/**",
