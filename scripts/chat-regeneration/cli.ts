@@ -7,10 +7,11 @@
  * Chat batch regeneration CLI.
  * Replays old chats through current pipeline, archives originals, replaces atomically.
  *
+ * **Phase 5 Status:** Replay logic not yet wired. Dry-run mode works; --apply is gated.
+ *
  * Usage:
  *   npm run regen:batch -- --dry-run                    # Analyze all chats without changes
- *   npm run regen:batch -- --apply --single <chat-id>   # Regenerate one chat, show result
- *   npm run regen:batch -- --apply --batch              # Regenerate all (needs approval after single)
+ *   npm run regen:batch -- --apply --single <chat-id>   # BLOCKED: replay not wired yet
  *   npm run regen:batch -- --restore <chat-id>          # Restore chat from archive
  */
 
@@ -21,6 +22,7 @@ import { fileURLToPath } from 'url';
 import { generateDryRunReport, formatDryRunReport } from './dryRun.js';
 import { replayChatSession, processChatBatch } from './batchRunner.js';
 import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateIndex } from './archive.js';
+import { createFilesystemBackend } from './filesystemBackend.js';
 import type { ChatSession, DryRunReport } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +74,17 @@ async function loadChatsFromPath(basePath: string): Promise<ChatSession[]> {
   return chats;
 }
 
+/** Format an ActionableError for CLI output */
+function formatActionableError(err: Error & { goal?: string; problem?: string; location?: string; nextSteps?: string }): string {
+  const lines = [];
+  if (err.goal) lines.push(`Goal: ${err.goal}`);
+  if (err.problem) lines.push(`Problem: ${err.problem}`);
+  if (err.location) lines.push(`Location: ${err.location}`);
+  if (err.nextSteps) lines.push(`Next Steps: ${err.nextSteps}`);
+  if (lines.length === 0) lines.push(err.message);
+  return lines.join('\n');
+}
+
 async function main() {
   const opts = parseArgs();
 
@@ -89,6 +102,8 @@ async function main() {
   console.log(`📊 Chat Batch Regeneration Tool`);
   console.log(`Base path: ${baseDataPath}`);
   console.log('');
+
+  const backend = createFilesystemBackend();
 
   // DRY RUN MODE
   if (opts.dryRun) {
@@ -115,7 +130,7 @@ async function main() {
     console.log(`♻️  Restoring chat ${opts.restore} from archive...\n`);
 
     try {
-      const archived = await listArchivedVersions(opts.restore, baseDataPath);
+      const archived = await listArchivedVersions(opts.restore, baseDataPath, backend);
       if (archived.length === 0) {
         console.error(`No archived versions found for ${opts.restore}`);
         process.exit(1);
@@ -126,10 +141,10 @@ async function main() {
         console.log(`  ${ver.timestamp}`);
       }
 
-      const restored = await restoreChat(opts.restore, baseDataPath, { dryRun: true });
+      const restored = await restoreChat(opts.restore, baseDataPath, backend, { dryRun: true });
       console.log(`\nWould restore from: ${archived[0].timestamp}`);
       console.log(`Title: ${restored.title}`);
-      console.log(`Turns: ${restored.transcript.length}`);
+      console.log(`Turns: ${(restored.transcript as unknown[])?.length ?? 0}`);
     } catch (err) {
       console.error('Restore failed:', err);
       process.exit(1);
@@ -141,7 +156,7 @@ async function main() {
   // APPLY MODE
   if (opts.apply) {
     if (opts.single) {
-      console.log(`🎬 Regenerating single chat: ${opts.single}\n`);
+      console.log(`🎬 Attempting to regenerate single chat: ${opts.single}\n`);
 
       const chats = await loadChatsFromPath(baseDataPath);
       const chat = chats.find(c => c.id === opts.single);
@@ -152,23 +167,21 @@ async function main() {
       }
 
       try {
-        // Archive original
-        const archivePath = await archiveChat(chat, baseDataPath);
-        console.log(`✅ Archived original to: ${archivePath}`);
-
-        // Replay chat
+        // Try to replay
         const regenerated = await replayChatSession(chat);
         console.log(`✅ Regenerated chat in memory`);
         console.log(`   Updated at: ${regenerated.regenerated_at}`);
         console.log(`   Turns: ${regenerated.transcript.length}`);
-
-        // Show result (not persisted)
-        console.log(`\n📋 Result (dry-run; no files written):`);
-        console.log(`   Title: ${regenerated.title}`);
-        console.log(`   Mode: ${regenerated.mode}`);
-        console.log(`   Transcript turns: ${regenerated.transcript.length}`);
       } catch (err) {
-        console.error('Single-chat regeneration failed:', err);
+        // Catch Phase 5 blocker error and format as ActionableError
+        const error = err as Error & { goal?: string; problem?: string; location?: string; nextSteps?: string };
+        console.error('\n❌ Chat replay not yet available (Phase 5 not wired)\n');
+        console.error(formatActionableError(error));
+        console.error('\n');
+        console.error('**What to do:**');
+        console.error('1. Phase 5 implementation pending: wire replayChatSession() to app\'s streamChatWithProgress()');
+        console.error('2. Use dry-run mode (--dry-run) for now to analyze chats without applying');
+        console.error('3. Once Phase 5 lands, --apply --single will work with real chat pipeline');
         process.exit(1);
       }
 
@@ -176,8 +189,9 @@ async function main() {
     }
 
     if (opts.batch) {
-      console.log('⚠️  Full batch regeneration not yet authorized. Run single-chat first with --single <id>.');
-      console.log('This protects prod data: single result is shown to PI, then batch can proceed.');
+      console.error('\n❌ Batch regeneration not yet authorized.\n');
+      console.error('Safety constraint: single-chat result shown to PI first, then batch.');
+      console.error('Once --apply --single works and is reviewed, batch mode will be available.');
       process.exit(1);
     }
 

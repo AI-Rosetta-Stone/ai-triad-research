@@ -8,6 +8,7 @@
 
 export * from './types.js';
 export * from './archive.js';
+export * from './filesystemBackend.js';
 export * from './dryRun.js';
 export * from './batchRunner.js';
 export * from './fixtures/index.js';

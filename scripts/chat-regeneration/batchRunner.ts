@@ -22,8 +22,9 @@ export interface BatchResult {
 }
 
 /**
- * Placeholder for chat replay logic (Phase 5 - to be implemented).
- * This would call the actual app's chat pipeline.
+ * Replay a chat session through the app's pipeline.
+ * Phase 5: Will wire in actual chat pipeline (streamChatWithProgress from useChatStore).
+ * For now, dry-run mode works, but --apply refuses with ActionableError.
  */
 export async function replayChatSession(
   session: ChatSession,
@@ -39,13 +40,11 @@ export async function replayChatSession(
   }
 
   // Phase 5: Wire in actual chat pipeline here
-  // For now, placeholder that marks as regenerated
-  return {
-    ...session,
-    regenerated_at: new Date().toISOString(),
-    regenerated_from_version: '1.0.0',
-    updated_at: new Date().toISOString(),
-  };
+  // BLOCKED: Replay logic not yet implemented. Caller must refuse --apply until this is wired.
+  throw new Error(
+    'Chat replay not yet implemented (Phase 5). ' +
+    'Dry-run mode works; --apply is gated pending pipeline integration.',
+  );
 }
 
 /**

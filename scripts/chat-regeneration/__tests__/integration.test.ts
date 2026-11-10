@@ -6,17 +6,20 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
-import { archiveChat, listArchivedVersions, restoreChat, replaceChat } from '../archive.js';
+import { archiveChat, listArchivedVersions, restoreChat, replaceChat, updateIndex, type StorageBackendAdapter } from '../archive.js';
+import { createFilesystemBackend } from '../filesystemBackend.js';
 import { analyzeChatSession, generateDryRunReport, formatDryRunReport } from '../dryRun.js';
 import { replayChatSession, processChatBatch } from '../batchRunner.js';
 import { oldChatFixture, newChatFixture } from '../fixtures/index.js';
 import type { ChatSession } from '../types.js';
 
-describe('Archive Module', () => {
+describe('Archive Module with Backend Adapter', () => {
   let tempDir: string;
+  let backend: StorageBackendAdapter;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'chat-regen-test-'));
+    backend = createFilesystemBackend();
   });
 
   afterEach(async () => {
@@ -24,45 +27,57 @@ describe('Archive Module', () => {
   });
 
   it('archives a chat session to _archive directory', async () => {
-    const archived = await archiveChat(oldChatFixture, tempDir);
+    const archived = await archiveChat(oldChatFixture, tempDir, { backend });
     expect(archived).toContain('_archive');
     expect(archived).toContain(oldChatFixture.id);
+    // Verify file exists
+    const content = await backend.readFile(archived);
+    expect(content).toBeTruthy();
   });
 
   it('dry-run does not create archive file', async () => {
-    await archiveChat(oldChatFixture, tempDir, { dryRun: true });
+    await archiveChat(oldChatFixture, tempDir, { dryRun: true, backend });
     const archiveDir = path.join(tempDir, '_archive');
-    try {
-      await fs.readdir(archiveDir);
-      expect.fail('Archive directory should not exist in dry-run mode');
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
+    const files = await backend.listDir(archiveDir);
+    expect(files.length).toBe(0);
   });
 
   it('lists archived versions in reverse chronological order', async () => {
-    await archiveChat(oldChatFixture, tempDir);
+    await archiveChat(oldChatFixture, tempDir, { backend });
     await new Promise(resolve => setTimeout(resolve, 100));
-    await archiveChat(oldChatFixture, tempDir);
+    await archiveChat(oldChatFixture, tempDir, { backend });
 
-    const archived = await listArchivedVersions(oldChatFixture.id, tempDir);
+    const archived = await listArchivedVersions(oldChatFixture.id, tempDir, backend);
     expect(archived.length).toBe(2);
     expect(archived[0].timestamp).toBeGreaterThan(archived[1].timestamp);
   });
 
   it('restores most recent archived version', async () => {
     const modified = { ...oldChatFixture, title: 'Modified Title' };
-    await archiveChat(oldChatFixture, tempDir);
-    await fs.writeFile(path.join(tempDir, `${oldChatFixture.id}.json`), JSON.stringify(modified));
+    await archiveChat(oldChatFixture, tempDir, { backend });
+    await backend.writeFile(path.join(tempDir, `${oldChatFixture.id}.json`), JSON.stringify(modified));
 
-    const restored = await restoreChat(oldChatFixture.id, tempDir, { dryRun: true });
-    expect(restored.title).toBe(oldChatFixture.title);
+    const restored = await restoreChat(oldChatFixture.id, tempDir, backend, { dryRun: true });
+    expect((restored as ChatSession).title).toBe(oldChatFixture.title);
   });
 
   it('replaces chat atomically: archive then write', async () => {
     const regenerated = { ...oldChatFixture, updated_at: '2026-11-15T00:00:00Z' };
-    await replaceChat(oldChatFixture, regenerated, tempDir, { dryRun: true });
+    await replaceChat(oldChatFixture, regenerated, tempDir, backend, { dryRun: true, backend });
     // In dry-run mode, no files are created
+  });
+
+  it('updates index atomically', async () => {
+    const indexPath = path.join(tempDir, '_index.json');
+    const chatsToAdd = [oldChatFixture, newChatFixture];
+
+    await updateIndex(indexPath, [], chatsToAdd, backend, { dryRun: false });
+
+    const content = await backend.readFile(indexPath);
+    expect(content).toBeTruthy();
+    const index = JSON.parse(content!);
+    expect(index[oldChatFixture.id]).toBeDefined();
+    expect(index[newChatFixture.id]).toBeDefined();
   });
 });
 
@@ -70,9 +85,9 @@ describe('Dry Run Module', () => {
   it('analyzes old chat: estimates calls correctly', () => {
     const plan = analyzeChatSession(oldChatFixture);
     expect(plan.id).toBe(oldChatFixture.id);
-    expect(plan.userTurns).toBe(2); // Two user turns in fixture
+    expect(plan.userTurns).toBe(2);
     expect(plan.assistantTurns).toBe(2);
-    expect(plan.estimatedCalls).toBe(2); // One per user turn
+    expect(plan.estimatedCalls).toBe(2);
     expect(plan.alreadyRegenerated).toBe(false);
   });
 
@@ -116,10 +131,16 @@ describe('Dry Run Module', () => {
 });
 
 describe('Batch Runner Module', () => {
-  it('replays chat in dry-run mode without calling pipeline', async () => {
+  it('replay in dry-run mode works without pipeline', async () => {
     const regenerated = await replayChatSession(oldChatFixture, { dryRun: true });
     expect(regenerated.regenerated_at).toBeDefined();
     expect(regenerated.id).toBe(oldChatFixture.id);
+  });
+
+  it('replay in apply mode throws Phase 5 not-wired error', async () => {
+    const error = await replayChatSession(oldChatFixture, { dryRun: false }).catch(e => e);
+    expect(error).toBeTruthy();
+    expect(error.message).toContain('Phase 5');
   });
 
   it('processes batch with rate limiting', async () => {
