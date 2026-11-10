@@ -55,7 +55,7 @@
 .save-bar-fix-btn {
   flex: none;
   background: var(--focus-ring, #3b82f6);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   border: none;
   font-size: var(--text-xs);
   font-weight: 600;
