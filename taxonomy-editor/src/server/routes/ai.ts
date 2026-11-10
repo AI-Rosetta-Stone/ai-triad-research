@@ -476,6 +476,31 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
   });
 
 
+  // ── AI generation helpers (extracted to reduce POST /api/ai/generate complexity) ──
+
+  /**  Apply allowlist fallback key for gemini (t/3498): an allowlisted user with no
+   *   personal key gets the admin's paid key injected server-side. Mutates explicitKey. */
+  async function applyGeminiAllowlistFallback(backend: AIBackend, explicitKey: string | string[] | undefined, effectiveModel: string | undefined): Promise<string | string[] | undefined> {
+    const noExplicitKey = !explicitKey || (Array.isArray(explicitKey) && explicitKey.length === 0);
+    if (backend !== 'gemini' || !noExplicitKey || !allowlistStore.isAllowlisted(getStorageUserId())) return explicitKey;
+    const allowlistKey = await getPaidGeminiFallbackKey();
+    if (allowlistKey) {
+      log.server.info({ userId: getStorageUserId(), timestamp: new Date().toISOString(), model: effectiveModel ?? DEFAULT_MODEL }, 'allowlist-key-used');
+    }
+    return allowlistKey || explicitKey;
+  }
+
+  /** Record the AI generate request to flight recorder (t/839, mirrors lib/debate aiAdapter). */
+  function recordGenerateRequest(backend: AIBackend, effectiveModel: string | undefined, prompt: string, tier: ResolvedTier, debateId: string | undefined): string {
+    const requestModel = effectiveModel ?? DEFAULT_MODEL;
+    getGlobalRecorder()?.record({
+      type: 'ai.request', component: 'ai-generate', level: 'info',
+      message: `generate ${backend}/${requestModel}`,
+      data: { model: requestModel, backend, tier: tier.level, promptLength: prompt?.length ?? 0, debateId },
+    });
+    return requestModel;
+  }
+
   // ── AI generation ──
 
   post('/api/ai/generate', async (req, res, body) => {
@@ -523,43 +548,16 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // t/4485#5: the debate-admission requester scope — the signed-in principal, or the
       const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, debateId);
       if (!keyResult.ok) return;
-      let explicitKey = keyResult.key;
+      let explicitKey = await applyGeminiAllowlistFallback(backend, keyResult.key, effectiveModel);
       freePoolBudget = trackFreePoolReservation(keyResult.reservationId, keyResult.debateReservationId);
-
-      // t/3498 (t/3495 epic): an allowlisted user running Gemini with no personal
-      // key gets the admin's registered paid key injected server-side — never
-      // echoed to the client. Membership is keyed on the derived storage userId
-      // (SO cond 4, t/3495#2) — the same id `/api/user/profile` exposes as
-      // `userId` and t/3497's allowlistStore expects. Falls through to the
-      // existing 422 below if the admin hasn't registered a key yet — no
-      // special-cased error for that edge (t/3498#1).
-      const noExplicitKey = !explicitKey || (Array.isArray(explicitKey) && explicitKey.length === 0);
-      if (backend === 'gemini' && noExplicitKey && allowlistStore.isAllowlisted(getStorageUserId())) {
-        const allowlistKey = await getPaidGeminiFallbackKey();
-        if (allowlistKey) {
-          explicitKey = allowlistKey;
-          // SO-required audit event (financial accountability + forensic trail, e/169#3).
-          log.server.info(
-            { userId: getStorageUserId(), timestamp: new Date().toISOString(), model: effectiveModel ?? DEFAULT_MODEL },
-            'allowlist-key-used',
-          );
-        }
-      }
 
       // t/896: fail fast with a clear 422 when there's no usable key for the target
       // backend — before the request reaches the AI adapter (opaque upstream 401/403).
       // Free tier (server-provided) is exempt; t/945 resolved a BYOK Gemini fallback above.
       if (await enforceKeyPresent(res, backend, tier, explicitKey)) return;
 
-      // t/839: record the AI request/response on the happy path so the web-mode
-      // retry timeline is visible in the flight recorder (mirrors lib/debate
-      // aiAdapter). Prompt content is never recorded — only its length.
-      const requestModel = effectiveModel ?? DEFAULT_MODEL;
-      getGlobalRecorder()?.record({
-        type: 'ai.request', component: 'ai-generate', level: 'info',
-        message: `generate ${backend}/${requestModel}`,
-        data: { model: requestModel, backend, tier: tier.level, promptLength: prompt?.length ?? 0, debateId },
-      });
+      // t/839: record the AI request/response on the happy path.
+      const requestModel = recordGenerateRequest(backend, effectiveModel, prompt, tier, debateId);
 
       const usageOverrides = {
         ...(effectiveModel ? { model: effectiveModel } : {}),
