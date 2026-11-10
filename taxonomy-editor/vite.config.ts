@@ -267,6 +267,9 @@ export default defineConfig({
     // only the weekly future-clock-weekly.yml workflow sets it, so this is a no-op on every
     // other run (PR, push, local dev).
     setupFiles: ['./test-setup.ts', './future-clock-setup.ts'],
+    // t/60 (t/59): prints a dataRootGuard hit summary at the end of every run. vitest 5 hides console
+    // output from passing tests, so per-hit WARNs alone were invisible (t/57). Path is relative to root.
+    globalSetup: ['../../../lib/test-support/dataRootGuardGlobalSetup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
