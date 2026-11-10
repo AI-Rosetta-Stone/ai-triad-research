@@ -1,0 +1,49 @@
+Tier: T1
+
+**WIP: Core infrastructure complete. Design and acceptance testing still in progress.**
+
+## Completed
+
+✅ **No silent reframe** — `wisdomAutoRewrite: false` for inquiry  
+✅ **ArCo extraction** — moved clause decomposition + embedding out of clarification  
+✅ **ArCo activation** — Phase 1.3 independent call when `anchorToResolution: true`  
+✅ **Topic anchor field** — added `session.topic.critique_suggestion` to store AI rewrites  
+✅ **Anchor validation** — inquiryPipeline asserts `topic.final === request.question` after debate  
+✅ **Test structure** — inquiryPipeline.t284.test.ts validates core assertion logic  
+✅ **Host coordination pings** — sent to ElectronMain and TaxonomyServer for question threading  
+
+## In Progress / Remaining
+
+⏳ **Prompt enforcement** — debater opening/turns must state answer to user question  
+  - Location: lib/debate/prompts/opening.ts:200+, turn.ts draft prompt  
+  - Pattern: First sentence = "The answer to '[user question]' is…"  
+
+⏳ **Alignment gate** — turn validation extracts named entities from question  
+  - Location: lib/debate/turn-pipeline.ts:773 (turnValidation)  
+  - Pattern: Extract NEs from request.question, check they appear in turn, feed to explicit_qualifiers  
+
+⏳ **Relevance metric** — per-turn embedding similarity to request.question  
+  - Location: lib/debate/convergenceSignals.ts, inquiryPipeline.ts  
+  - Pattern: Add arco.per_turn_similarity to ConvergenceSignals, threshold-check in projecting stage  
+  - Calibration: distribute on 6 runs, set WARN when mean < 0.35 or 3 consecutive < 0.25  
+
+⏳ **Debate test** — verify ArCo runs for inquiry, topic stays anchored  
+  - Pattern: inquiry config + debate run + assertions on topic.clauses, topic.clause_embeddings  
+
+⏳ **Regression test** — normal debate without `anchorToResolution` unchanged  
+  - Pattern: run standard debate with `anchorToResolution: false`, verify no ArCo cost added  
+
+## Technical Decisions Applied
+
+- **Reframe strategy** (t/284#3 decision 1): Store critique rewrite as `topic.critique_suggestion`, keep `topic.final === request.question`  
+- **ArCo scope** (t/284#3 decision 2): Runs always for inquiry (`anchorToResolution: true`), via explicit flag to avoid changing normal debates  
+- **Host plumbing** (t/284#3 decision 4): Sent pings instead of editing (ElectronMain, TaxonomyServer own those lines)  
+- **Tier** (t/284#3 decision 5): T1 with shared debate code — route to Quality-TechLead  
+
+## Next Steps
+
+1. Implement prompt enforcement (pattern above)  
+2. Add alignment gate and relevance metric  
+3. Run 6-debate acceptance tests; post before/after on t/284  
+4. Add debate regression test  
+5. Route to Quality-TechLead for review
