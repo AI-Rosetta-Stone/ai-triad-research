@@ -36,9 +36,18 @@ function Get-FreezeSha256 {
 
 function Test-FreezeSha256 {
     # True when the hash matches. Refuses an unknown basis instead of guessing (t/247).
+    [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Expected, [Parameter(Mandatory)][string]$Basis)
     if ($Basis -cne $script:FreezeHashBasis) {
-        throw "unsupported hash_basis '$Basis'; Test-FreezeSha256 verifies '$($script:FreezeHashBasis)' only (t/247)"
+        # Standalone dot-source: AITriad's New-ActionableError is module-private, so build the same shape here.
+        $msg = @(
+            "Goal:     Verify a frozen file hash on its recorded basis"
+            "Problem:  unsupported hash_basis '$Basis'; this helper verifies '$($script:FreezeHashBasis)' only (t/247)"
+            'Location: Test-FreezeSha256 (scripts/data-mutations/FreezeHash.ps1)'
+            "Next Steps: re-freeze with Get-FreezeSha256 (hash_basis '$($script:FreezeHashBasis)'), or verify with the tool that wrote this basis"
+        ) -join [Environment]::NewLine
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.ArgumentException]::new($msg), 'FreezeHashUnsupportedBasis', [System.Management.Automation.ErrorCategory]::InvalidArgument, $Basis))
     }
     (Get-FreezeSha256 -Path $Path) -ceq $Expected
 }

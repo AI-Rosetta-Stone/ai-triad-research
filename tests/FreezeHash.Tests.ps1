@@ -41,6 +41,7 @@ Describe 'FreezeHash (t/247)' -Tag 'unit' {
     }
 
     It 'Test-FreezeSha256 refuses an unknown hash_basis' {
-        { Test-FreezeSha256 -Path $PSCommandPath -Expected 'x' -Basis 'sha256-raw' } | Should -Throw -ExpectedMessage '*sha256-lf*'
+        { Test-FreezeSha256 -Path $PSCommandPath -Expected 'x' -Basis 'sha256-raw' } | Should -Throw -ExpectedMessage '*sha256-lf*' -ErrorId 'FreezeHashUnsupportedBasis,*'
+        { Test-FreezeSha256 -Path $PSCommandPath -Expected 'x' -Basis 'sha256-raw' } | Should -Throw -ExpectedMessage '*Next Steps:*'
     }
 }
