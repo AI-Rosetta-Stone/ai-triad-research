@@ -364,18 +364,27 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
+  // t/93: a failed delete rejects (after recording and setting chatError), so ChatTab's bulk
+  // dialog can count it and keep the row selected; it used to resolve and read as a success. The
+  // single-row handleDelete relies on chatError for its message (t/89), so it stays. A refresh
+  // failure after a successful delete only WARNs: the chat is gone, so it must not read as failed.
   deleteChat: async (id) => {
     try {
       await api.deleteChatSession(id);
-      const { activeChatId } = get();
-      if (activeChatId === id) {
-        set({ activeChatId: null, activeChat: null, chatModel: null });
-      }
-      const sessions = await api.listChatSessions();
-      set({ sessions: sessions as ChatSessionSummary[] });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to delete chat session', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ chatError: `Failed to delete chat: ${err}` });
+      throw err;
+    }
+    const { activeChatId } = get();
+    if (activeChatId === id) {
+      set({ activeChatId: null, activeChat: null, chatModel: null });
+    }
+    try {
+      const sessions = await api.listChatSessions();
+      set({ sessions: sessions as ChatSessionSummary[] });
+    } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: `Chat ${id} deleted, but refreshing the session list failed (WARN: the list may be stale until the next refresh)`, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
   },
 
