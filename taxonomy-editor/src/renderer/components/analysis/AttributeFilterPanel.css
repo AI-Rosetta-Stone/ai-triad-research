@@ -53,7 +53,7 @@
 .attr-filter-select {
   font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--focus-ring);
+  color: var(--info-text);
   background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
