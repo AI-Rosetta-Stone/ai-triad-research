@@ -29,7 +29,7 @@ _SPEC.loader.exec_module(emp)
 
 _MINI = "sentence-transformers/all-MiniLM-L6-v2"
 _NLI = "cross-encoder/nli-deberta-v3-small"
-_MARCO = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+_MARCO = "cross-encoder/ms-marco-MiniLM-L6-v2"
 _SHA_A = "a" * 40
 
 
@@ -140,6 +140,56 @@ def test_allow_unpinned_still_uses_the_pin_when_there_is_one():
     pins = _pins()
     _, calls = _with_fake(lambda: emp.load_sentence_transformer("all-MiniLM-L6-v2", allow_unpinned=True))
     assert calls == [(_MINI, pins[_MINI], False)]
+
+
+# ── t/146: upstream rename + legacy sense-embedding cache key ─────────────────
+
+_OLD_MARCO = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+
+def test_pins_use_the_canonical_reranker_id_not_the_redirected_one():
+    pins = _pins()
+    assert _MARCO in pins and _OLD_MARCO not in pins
+
+
+def test_old_reranker_id_maps_to_the_canonical_pin_with_a_warn():
+    err = io.StringIO()
+    with redirect_stderr(err):
+        assert emp.repo_id(_OLD_MARCO) == _MARCO
+        assert emp.pinned_revision(_OLD_MARCO) == _pins()[_MARCO]
+    assert "renamed upstream" in err.getvalue()
+    _, calls = _with_fake(lambda: emp.load_cross_encoder(_OLD_MARCO))
+    assert calls[0][0] == _MARCO, "the redirected id is never fetched as-is"
+
+
+def _sense_module():
+    if str(_SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS))
+    spec = importlib.util.spec_from_file_location("build_sense_embeddings", _SCRIPTS / "build_sense_embeddings.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_legacy_sense_file_maps_to_the_fixed_t62_pin_not_the_current_one():
+    bse = _sense_module()
+    legacy = {"model": "all-MiniLM-L6-v2", "entries": {"x": {"hash": "h"}}}   # pre-t/110: no model_revision
+    with redirect_stderr(io.StringIO()):
+        got = bse.cached_model_revision(legacy, "all-MiniLM-L6-v2")
+    assert got == "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    # Arm 1: under today's pin (still the t/62 commit) the legacy cache stays valid.
+    assert got == emp.pinned_revision("all-MiniLM-L6-v2")
+    # Arm 2: after a future pin bump the same legacy file no longer matches, so it is recomputed.
+    assert got != "b" * 40
+
+
+def test_stamped_sense_file_uses_its_recorded_revision_and_other_models_are_unknown():
+    bse = _sense_module()
+    assert bse.cached_model_revision({"model": "all-MiniLM-L6-v2", "model_revision": "c" * 40, "entries": {}},
+                                     "all-MiniLM-L6-v2") == "c" * 40
+    assert bse.cached_model_revision({"model": "other/model", "entries": {}}, "all-MiniLM-L6-v2") is None
+    with redirect_stderr(io.StringIO()):
+        assert bse.cached_model_revision({"model": "other/model", "entries": {"x": {}}}, "other/model") is None
 
 
 # ── no call site bypasses the helper (acceptance grep) ────────────────────────

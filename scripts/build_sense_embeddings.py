@@ -77,6 +77,33 @@ def load_standardized_terms(dictionary_dir: Path) -> list[dict]:
     return terms
 
 
+# t/146 (Quality, #4840): a sense_embeddings.json written before t/110 has no model_revision. Its vectors
+# came from the model as pinned at t/62 -- a FIXED commit, not whatever the pin is today -- so a later
+# pin bump correctly invalidates them instead of mistaking them for the new revision.
+_LEGACY_REVISIONS = {"sentence-transformers/all-MiniLM-L6-v2": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"}
+
+
+def cached_model_revision(existing: dict, model: str):
+    """The revision an existing file's vectors were built at: its recorded model_revision, else (for a
+    pre-t/110 file of the same model) the fixed t/62 pin, else None (unknown, so the cache is invalid)."""
+    import embed_model_pins
+
+    if existing.get("model") != model:
+        return None
+    recorded = existing.get("model_revision")
+    if recorded is not None:
+        return recorded
+    legacy = _LEGACY_REVISIONS.get(embed_model_pins.repo_id(model))
+    if existing.get("entries"):
+        if legacy:
+            print(f"WARN: sense_embeddings.json predates model_revision (t/110); its vectors are taken as "
+                  f"built at {legacy[:7]}, the t/62 pin for {model} (t/146).", file=sys.stderr)
+        else:
+            print(f"WARN: sense_embeddings.json predates model_revision and {model} has no known legacy "
+                  "revision; recomputing every entry (t/146).", file=sys.stderr)
+    return legacy
+
+
 def load_existing_embeddings(embeddings_path: Path) -> dict:
     """Load the existing sense_embeddings.json if it exists."""
     if not embeddings_path.exists():
@@ -115,11 +142,7 @@ def main():
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
-    cached_revision = existing.get("model_revision")
-    if existing.get("entries") and cached_revision is None and existing.get("model") == args.model:
-        print(f"WARN: {embeddings_path.name} predates model_revision (t/110); treating its cached vectors "
-              f"as {revision[:7]}, the pin that matched `main` when it was introduced (t/62).", file=sys.stderr)
-        cached_revision = revision
+    cached_revision = cached_model_revision(existing, args.model)
 
     # Determine which terms need (re)embedding
     to_embed = []

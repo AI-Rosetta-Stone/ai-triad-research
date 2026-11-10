@@ -30,13 +30,23 @@ from pathlib import Path
 
 PINS_FILE = Path(__file__).resolve().parent / "embed_model_pins.json"
 _SHA = re.compile(r"[0-9a-f]{40}")
+# t/146: upstream renames. The old id only resolves through a Hub redirect we don't control, so
+# pins use the canonical id and an old id is mapped to it here (with a WARN), never fetched as-is.
+_RENAMED = {
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": "cross-encoder/ms-marco-MiniLM-L6-v2",
+}
 
 
 def repo_id(name):
-    """Normalise a model name to its Hub repo id: a bare sentence-transformers short name
-    (``all-MiniLM-L6-v2``) becomes ``sentence-transformers/all-MiniLM-L6-v2``, as
-    sentence-transformers itself resolves it. A name with an owner is returned as-is."""
-    return name if "/" in name else f"sentence-transformers/{name}"
+    """Normalise a model name to its canonical Hub repo id: a bare sentence-transformers short
+    name (``all-MiniLM-L6-v2``) becomes ``sentence-transformers/all-MiniLM-L6-v2``, as
+    sentence-transformers itself resolves it, and a renamed repo's old id becomes its new one."""
+    rid = name if "/" in name else f"sentence-transformers/{name}"
+    if rid in _RENAMED:
+        print(f"WARN: {rid} was renamed upstream; using its canonical id {_RENAMED[rid]} (t/146). "
+              "Update the caller.", file=sys.stderr)
+        rid = _RENAMED[rid]
+    return rid
 
 
 def _read_pins(pins_file):
