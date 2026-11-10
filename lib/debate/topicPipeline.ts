@@ -156,68 +156,85 @@ export class TopicPipeline {
       const threshold = this.ctx.config.wisdomReframeThreshold ?? 10;
       const autoReframe = this.ctx.config.wisdomAutoReframe !== false;
 
-      if (critique.composite_score < threshold && critique.rewritten_topic && autoReframe) {
-        this.ctx.progress('setup', undefined, 'Reframing topic for productive disagreement');
+      if (critique.composite_score < threshold && critique.rewritten_topic) {
+        // For inquiry debates (t/284): store the suggestion separately, don't apply it
+        if (this.ctx.config.anchorToResolution) {
+          this.ctx.session.topic.critique_suggestion = critique.rewritten_topic;
+          this.ctx.addEntry({
+            type: 'system', speaker: 'system',
+            content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Rewrite suggestion stored (not applied — inquiry debates keep user question).`,
+            taxonomy_refs: [], metadata: {},
+          });
+        } else if (autoReframe) {
+          // For normal debates: apply the reframe as before
+          this.ctx.progress('setup', undefined, 'Reframing topic for productive disagreement');
 
-        this.ctx.session.topic.refined = this.ctx.session.topic.final;
-        this.ctx.session.topic.final = critique.rewritten_topic;
-        critique.reframe_applied = true;
+          this.ctx.session.topic.refined = this.ctx.session.topic.final;
+          this.ctx.session.topic.final = critique.rewritten_topic;
+          critique.reframe_applied = true;
 
-        if (topicEmbedding && (adapter as ExtendedAIAdapter).computeQueryEmbedding) {
-          try {
-            const { vector: reframedEmbedding } = await (adapter as ExtendedAIAdapter).computeQueryEmbedding!(critique.rewritten_topic);
-            const reframedStructural = computeStructuralScore({
-              topicEmbedding: reframedEmbedding,
-              povNodes,
-              situationNodes: this.ctx.taxonomy.situations?.nodes ?? [],
-              embeddings: this.ctx.taxonomy.embeddings,
-              evidenceIndex: this.ctx.sourceEvidenceIndex ?? undefined,
-            });
-            if (reframedStructural.total < structuralScore.total) {
-              this.ctx.session.topic.final = this.ctx.session.topic.refined!;
-              this.ctx.session.topic.refined = null;
-              critique.reframe_applied = false;
-              critique.reframe_changes = 'Reverted: structural score regressed after reframing';
-              this.ctx.addEntry({
-                type: 'system', speaker: 'system',
-                content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframing reverted: structural score regressed (${reframedStructural.total} < ${structuralScore.total}).`,
-                taxonomy_refs: [], metadata: {},
+          if (topicEmbedding && (adapter as ExtendedAIAdapter).computeQueryEmbedding) {
+            try {
+              const { vector: reframedEmbedding } = await (adapter as ExtendedAIAdapter).computeQueryEmbedding!(critique.rewritten_topic);
+              const reframedStructural = computeStructuralScore({
+                topicEmbedding: reframedEmbedding,
+                povNodes,
+                situationNodes: this.ctx.taxonomy.situations?.nodes ?? [],
+                embeddings: this.ctx.taxonomy.embeddings,
+                evidenceIndex: this.ctx.sourceEvidenceIndex ?? undefined,
               });
-            } else {
-              critique.reframe_changes = `Reframed topic applied (structural: ${structuralScore.total} → ${reframedStructural.total})`;
+              if (reframedStructural.total < structuralScore.total) {
+                this.ctx.session.topic.final = this.ctx.session.topic.refined!;
+                this.ctx.session.topic.refined = null;
+                critique.reframe_applied = false;
+                critique.reframe_changes = 'Reverted: structural score regressed after reframing';
+                this.ctx.addEntry({
+                  type: 'system', speaker: 'system',
+                  content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframing reverted: structural score regressed (${reframedStructural.total} < ${structuralScore.total}).`,
+                  taxonomy_refs: [], metadata: {},
+                });
+              } else {
+                critique.reframe_changes = `Reframed topic applied (structural: ${structuralScore.total} → ${reframedStructural.total})`;
+                this.ctx.addEntry({
+                  type: 'system', speaker: 'system',
+                  content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed: ${critique.reframe_changes}`,
+                  taxonomy_refs: [], metadata: {},
+                });
+              }
+            } catch (err) {
+              getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.ctx.session?.id, message: 'Topic re-score after reframe failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+              critique.reframe_changes = 'Reframed topic applied (post-reframe re-score unavailable)';
               this.ctx.addEntry({
                 type: 'system', speaker: 'system',
-                content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed: ${critique.reframe_changes}`,
+                content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (re-score skipped).`,
                 taxonomy_refs: [], metadata: {},
               });
             }
-          } catch (err) {
-            getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.ctx.session?.id, message: 'Topic re-score after reframe failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-            critique.reframe_changes = 'Reframed topic applied (post-reframe re-score unavailable)';
+          } else {
+            critique.reframe_changes = 'Reframed topic applied (no embedding available for re-score)';
             this.ctx.addEntry({
               type: 'system', speaker: 'system',
-              content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (re-score skipped).`,
+              content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (no re-score).`,
               taxonomy_refs: [], metadata: {},
             });
           }
-        } else {
-          critique.reframe_changes = 'Reframed topic applied (no embedding available for re-score)';
+
+          this.ctx.progress('setup', undefined, `Topic reframed: ${critique.reframe_changes}`);
+        } else if (critique.composite_score < threshold && !autoReframe) {
           this.ctx.addEntry({
             type: 'system', speaker: 'system',
-            content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (no re-score).`,
+            content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Auto-reframe disabled — topic unchanged.`,
             taxonomy_refs: [], metadata: {},
           });
         }
-
-        this.ctx.progress('setup', undefined, `Topic reframed: ${critique.reframe_changes}`);
-      } else if (critique.composite_score < threshold && !autoReframe) {
-        this.ctx.addEntry({
-          type: 'system', speaker: 'system',
-          content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Auto-reframe disabled — topic unchanged.`,
-          taxonomy_refs: [], metadata: {},
-        });
       } else {
         const exploratoryNote = critique.exploratory ? ' [exploratory — low evidence coverage]' : '';
+        this.ctx.addEntry({
+          type: 'system', speaker: 'system',
+          content: `Topic wisdom score: ${critique.composite_score}/20. No reframing needed.${exploratoryNote}`,
+          taxonomy_refs: [], metadata: {},
+        });
+      }
         this.ctx.addEntry({
           type: 'system', speaker: 'system',
           content: `Topic wisdom score: ${critique.composite_score}/20. No reframing needed.${exploratoryNote}`,
