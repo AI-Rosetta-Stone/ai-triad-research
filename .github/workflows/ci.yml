@@ -176,6 +176,7 @@ jobs:
       schema-drift: ${{ steps.filter.outputs.schema-drift }}
       verify-config: ${{ steps.filter.outputs.verify-config }}
       citation-link-ci: ${{ steps.filter.outputs.citation-link-ci }}
+      dockerfile-scan: ${{ steps.dockerfile-scan.outputs.matrix }}
     steps:
       # push events: paths-filter diffs with local git, so it needs a checkout (PR events use the API).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -445,6 +446,30 @@ jobs:
               - 'tests/fixtures/citation-link-integrity/**'
               - 'operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1'
               - '.github/workflows/ci.yml'
+            # One filter per Dockerfile for dockerfile-trivy (t/256): a PR scans only the
+            # image(s) whose Dockerfile it touches. Report-only, NOT in ci-gate, so a narrow
+            # filter can't false-green anything; test-container's 'container' filter is the
+            # soundness surface for the prod build.
+            dockerfile-taxonomy-editor:
+              - 'taxonomy-editor/Dockerfile'
+            dockerfile-base:
+              - 'deploy/azure/Dockerfile.base'
+            dockerfile-dev:
+              - 'Dockerfile'
+      - name: Dockerfile scan matrix (t/256)
+        id: dockerfile-scan
+        env:
+          TE: ${{ steps.filter.outputs.dockerfile-taxonomy-editor }}
+          BASE: ${{ steps.filter.outputs.dockerfile-base }}
+          DEV: ${{ steps.filter.outputs.dockerfile-dev }}
+        run: |
+          m='[]'
+          add() { m=$(jq -c --arg n "$1" --arg f "$2" '. + [{name: $n, file: $f}]' <<<"$m"); }
+          [ "$TE" = 'true' ] && add taxonomy-editor taxonomy-editor/Dockerfile
+          [ "$BASE" = 'true' ] && add base deploy/azure/Dockerfile.base
+          [ "$DEV" = 'true' ] && add dev Dockerfile
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "Dockerfiles to scan: $m"
 
   test-powershell:
     needs: [changes]
@@ -3313,6 +3338,169 @@ jobs:
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-headgreen.sh
           operations/devops/test-check-merge-queue-liveness-headgreen.sh
+
+  # ── dockerfile-trivy: report-only Trivy scan of each Dockerfile a PR changes (t/256) ──
+  # Orca t/4943 arm 2: container.yml's blocking Trivy gate runs only on the dispatched build,
+  # so a Dockerfile PR (a re-pin from check-base-pin-drift.yml included) merged without a
+  # scan. This builds each changed Dockerfile's image and scans it with container.yml's
+  # structure (pinned trivy, DB warm-up with retry, scan) and its gate's criterion (fixable
+  # HIGH/CRITICAL, unfixed ignored, .trivyignore not applied).
+  # REPORT-ONLY (TL decision, t/256): no `exit-code: '1'`, continue-on-error at job level, and
+  # NOT in ci-gate's needs. The verdict (PASS / FAIL / GATE-UNREADABLE, t/4496) goes to the job
+  # summary and outputs; a failed build or DB download is GATE-UNREADABLE, never a pass.
+  # Promotion to blocking is a separate T2 step (gate-signal-integrity rule 3).
+  dockerfile-trivy:
+    name: dockerfile-trivy (${{ matrix.name }})
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.dockerfile-scan != '' && needs.changes.outputs.dockerfile-scan != '[]'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # the dev image (torch) is the slowest build; no run history yet
+    permissions:
+      contents: read
+      packages: read  # pull ghcr.io/ai-rosetta-stone/ai-triad-base for the taxonomy-editor runtime stage
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.dockerfile-scan) }}
+    env:
+      IMAGE: pr-scan/${{ matrix.name }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry
+        id: ghcr
+        continue-on-error: true
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: WARN on GHCR login failure
+        if: steps.ghcr.outcome == 'failure'
+        run: |
+          echo "::warning::WARN: dockerfile-trivy: GHCR login failed (fork PR token?); continuing with anonymous pulls, which work while ai-triad-base is public."
+
+      # Pre-pull buildkit with retry - see t/2065 (Docker Hub boot flake).
+      - name: Pre-pull buildkit image with retry (t/2065)
+        run: |
+          for i in 1 2 3; do
+            if docker pull moby/buildkit:buildx-stable-1; then break; fi
+            if [ "$i" -lt 3 ]; then
+              echo "buildkit pull attempt $i failed; retry in $((i * 10))s"; sleep $((i * 10))
+            else
+              echo "::warning::WARN: buildkit pre-pull failed after $i attempts; setup-buildx will attempt its own pull"
+            fi
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1
+
+      - name: Build ${{ matrix.file }}
+        id: build
+        continue-on-error: true
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          # base-image.yml's CACHE_BUST re-runs the apt/npm upgrade layers, so the scan sees what
+          # the weekly rebuild would publish. Other Dockerfiles don't declare it.
+          build-args: ${{ matrix.name == 'base' && format('CACHE_BUST={0}', github.sha) || '' }}
+          # Read the shared cache, never write it: a PR must not seed main's build cache.
+          cache-from: type=gha,scope=shared-docker
+
+      - name: Install Trivy
+        if: steps.build.outcome == 'success'
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
+        with:
+          version: v0.74.0  # same pinned binary as container.yml (t/3520 C4)
+
+      - name: Warm Trivy vuln DB (infra step - a failure here is DB/registry, NOT a CVE finding)
+        id: db
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        env:
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          for attempt in 1 2 3; do
+            if trivy image --download-db-only --cache-dir "$TRIVY_CACHE_DIR"; then
+              echo "Trivy DB ready (attempt $attempt)"; exit 0
+            fi
+            echo "::warning::Trivy DB download failed (attempt $attempt/3) - retrying in 15s"
+            sleep 15
+          done
+          echo "::warning::Trivy DB download failed after 3 attempts - INFRA failure, NOT a vulnerability finding."
+          exit 1
+
+      - name: Scan image with Trivy (report-only)
+        id: scan
+        if: steps.db.outcome == 'success'
+        continue-on-error: true
+        env:
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          trivy image --skip-db-update --cache-dir "$TRIVY_CACHE_DIR" \
+            --severity CRITICAL,HIGH --format json --output trivy.json "$IMAGE"
+
+      - name: Verdict (report-only)
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          FILE: ${{ matrix.file }}
+          BUILD: ${{ steps.build.outcome }}
+          DB: ${{ steps.db.outcome }}
+          SCAN: ${{ steps.scan.outcome }}
+        with:
+          script: |
+            const { execSync } = require('node:child_process');
+            const fs = require('node:fs');
+            const os = require('node:os');
+            const path = require('node:path');
+            const { pathToFileURL } = require('node:url');
+            const cwd = process.env.GITHUB_WORKSPACE;
+            const gate = `dockerfile-trivy (${process.env.FILE})`;
+            // gate-verdict.mjs from the base tip, never the PR head (its header's loading rule).
+            let gv;
+            try {
+              execSync(`git fetch --depth=1 origin ${JSON.stringify(process.env.BASE_REF)}`, { cwd });
+              const text = execSync('git show FETCH_HEAD:operations/devops/gate-verdict.mjs', { cwd, encoding: 'utf8' });
+              const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-verdict-')), 'gate-verdict.mjs');
+              fs.writeFileSync(p, text);
+              gv = await import(pathToFileURL(p).href);
+            } catch (e) {
+              core.warning(`${gate}: GATE-UNREADABLE - could not load gate-verdict.mjs from ${process.env.BASE_REF}: ${e.message}`);
+              return;
+            }
+            const { VERDICTS, makeGateVerdict, emitGateVerdict } = gv;
+            const { BUILD, DB, SCAN } = process.env;
+            let v;
+            if (BUILD !== 'success') v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `image build ${BUILD || 'did not run'}; see the Build step` });
+            else if (DB !== 'success') v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `Trivy DB download ${DB || 'did not run'} (infra, not a finding)` });
+            else if (SCAN !== 'success') v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `Trivy scan ${SCAN || 'did not run'}; see the Scan step` });
+            else {
+              let report;
+              try { report = JSON.parse(fs.readFileSync(path.join(cwd, 'trivy.json'), 'utf8')); }
+              catch (e) { report = null; v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `trivy.json unreadable: ${e.message}` }); }
+              if (report) {
+                const found = (report.Results || []).flatMap((r) => (r.Vulnerabilities || []).map((x) => ({ ...x, Target: r.Target })));
+                const fixable = found.filter((x) => x.FixedVersion);
+                const details = fixable.slice(0, 25).map((x) => `${x.Severity} ${x.VulnerabilityID} ${x.PkgName} ${x.InstalledVersion} -> ${x.FixedVersion} (${x.Target})`);
+                if (fixable.length > 25) details.push(`... and ${fixable.length - 25} more`);
+                details.push(`${found.length - fixable.length} unfixed HIGH/CRITICAL (no upstream fix; not counted, as in container.yml's gate)`);
+                v = fixable.length
+                  ? makeGateVerdict({ gate, verdict: VERDICTS.FAIL, reason: `${fixable.length} fixable HIGH/CRITICAL finding(s); report-only, does not block this PR`, details })
+                  : makeGateVerdict({ gate, verdict: VERDICTS.PASS, details: [`0 fixable HIGH/CRITICAL across ${(report.Results || []).length} target(s)`, ...details] });
+              }
+            }
+            await emitGateVerdict(core, v);
 
   ci-gate:
     name: ci-gate
