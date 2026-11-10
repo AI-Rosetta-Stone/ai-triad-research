@@ -361,6 +361,7 @@ jobs:
               const { data: prReviews } = await github.rest.pulls.listReviews({
                 owner, repo, pull_number: pr.number,
               });
+              // lint:review-state-ok: nudge suppression only, not a merge gate; any CHANGES_REQUESTED holds, so an overwritten one costs a nudge, never a merge (t/4957)
               if (prReviews.some(r => r.state === 'CHANGES_REQUESTED')) continue;
 
               const { data: prComments } = await github.rest.issues.listComments({
@@ -502,6 +503,7 @@ jobs:
               }
               let hasApproval = false;
               for (const r of reviews) {
+                // lint:review-state-ok: triage/staleness signal (t/4557); feeds nudges and digests, never a merge or enqueue decision (t/4957)
                 if (r.state === 'APPROVED') hasApproval = true;
                 if (r.user?.type === 'Bot') continue;
                 times.push(r.submitted_at);
