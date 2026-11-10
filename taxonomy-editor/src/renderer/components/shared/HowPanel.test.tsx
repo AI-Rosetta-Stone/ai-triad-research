@@ -34,8 +34,7 @@ describe('HowPanel', () => {
     render(<HowPanel rawPrompt={undefined} rawResponse={undefined} />);
     await userEvent.click(screen.getByText('How'));
 
-    expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
-    expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
+    expect(screen.getByText("The raw prompt and output weren't recorded for this answer.")).toBeInTheDocument();
   });
 });
 
