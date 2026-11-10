@@ -23,7 +23,6 @@
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
 import { isPrivateOrLoopback } from '../httpKit.js';
-import { logIpShapeIfEnabled } from './freePoolIpShapeDiag.js';
 
 /** EEA (27 EU member states + Iceland, Liechtenstein, Norway) + Switzerland + the UK — the
  *  "Paid Services only" region under Gemini's current API terms (t/4410#7, #9). ISO 3166-1
@@ -185,7 +184,6 @@ export function normalizeToIpv4(ip: string): string | null {
  *  no IPv6 table) or a private/loopback/CGNAT address genuinely carrying no public IP. Never logs
  *  the IP — callers log only `country` and `reason` (AC3). */
 export async function checkFreePoolGeo(ip: string): Promise<GeoCheckResult> {
-  logIpShapeIfEnabled(ip); // t/4486#4, TEMPORARY — see freePoolIpShapeDiag.ts
   const classified = classifyClientIp(ip);
   if (classified.kind === 'ipv6') return { allowed: false, country: null, reason: 'ipv6-unsupported' };
   if (classified.kind === 'unresolvable') return { allowed: false, country: null, reason: 'no-public-ip' };
