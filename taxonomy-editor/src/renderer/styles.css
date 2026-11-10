@@ -31,7 +31,7 @@
   /* Text */
   --text-primary: #1e293b;
   --text-secondary: #475569;
-  --text-muted: #64748b;  /* was #94a3b8 — slate-400 = 2.56:1, below WCAG 1.4.11 non-text floor for help icons (t/2358) */
+  --text-muted: #5f6e84;  /* t/123 (Design t/123#3): was #64748b, 4.34 on hover; was #94a3b8 before t/2358 */
   --border-color: #e2e8f0;
 
   /* Category detail backgrounds */
@@ -48,7 +48,9 @@
   --error: var(--danger); /* alias — single source of truth for "the red" (t/2566) */
   --success: #22c55e; --success-text: #15803d; /* AA green TEXT on --bg-primary; --success stays fill (t/2260) */
   --warning: #a16207;
-  --focus-ring: #3b82f6;
+  --focus-ring: #2563eb;  /* t/123: was #3b82f6, white text on it 3.68 */
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #ffffff;
   /* t/2569 Batch 1+3 — genuinely-missing tokens, Design-blessed per-theme */
   --border-subtle: #E9EDF2; /* decorative/non-essential dividers ONLY; essential UI borders stay --border-color (≥3:1) */
   --info: #2563EB;
@@ -104,12 +106,13 @@
   --bg-secondary: #1f2937; --bg-tertiary: #2b3544; /* tertiary surface (t/2261) */
   --bg-panel: #293548;
   --bg-input: #111827;
-  --bg-hover: #374151;
+  --bg-hover: #313b4c;  /* t/123: was #374151, so muted can pass on hover */
 
   /* Text */
   --text-primary: #f3f4f6;
   --text-secondary: #b0b8c4;
-  --text-muted: #8b93a1;
+  /* t/123 (Design t/123#3): AA on primary/secondary/tertiary/hover. */
+  --text-muted: #a0a7b3;
   --border-color: #374151;
 
   /* Category detail backgrounds */
@@ -127,6 +130,8 @@
   --success: #22c55e; --success-text: #22c55e; /* reuses fill; AA on dark bg (t/2260) */
   --warning: #f59e0b;
   --focus-ring: #60a5fa;
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #111827;
   /* t/2569 Batch 1+3 */
   --border-subtle: #303A49;
   --info: #60A5FA;
@@ -187,7 +192,8 @@
   /* Text */
   --text-primary: #e8e0e8;
   --text-secondary: #a89ab0;
-  --text-muted: #7a6a82;
+  /* t/123 (Design t/123#3): AA on primary/secondary/tertiary/hover. */
+  --text-muted: #a196a7;
   --border-color: #4d3a4e;
 
   /* Category detail backgrounds */
@@ -205,6 +211,8 @@
   --success: #00ff4c; --success-text: #00ff4c; /* reuses fill; AA on dark bg (t/2260) */
   --warning: #d9a441;
   --focus-ring: #4d7a8b;
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #ffffff;
   /* t/2569 Batch 1+3 */
   --border-subtle: #403141;
   --info: #6D94C2;
@@ -263,7 +271,8 @@
   /* Text */
   --text-primary: #1C1C1C;
   --text-secondary: #4A4541;
-  --text-muted: #8A8278;
+  /* t/123 (Design t/123#3): AA on primary/secondary/tertiary/hover. */
+  --text-muted: #68625b;
   --border-color: #D6CFC5;
 
   /* Category detail backgrounds */
@@ -281,6 +290,8 @@
   --success: #2D6A4F; --success-text: #2D6A4F; /* reuses forest green; already AA (t/2260) */
   --warning: #8B6508;
   --focus-ring: #A51C30;
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #ffffff;
   /* t/2569 Batch 1+3 */
   --border-subtle: #E3DCD1;
   --info: #275498;
