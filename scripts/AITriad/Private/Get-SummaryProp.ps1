@@ -39,10 +39,6 @@ function Get-SummaryProp {
     #>
     param($Object, [string]$Name)
 
-    if ($null -eq $Object) { return $null }
-    if ($Object -is [System.Collections.IDictionary]) {
-        if ($Object.Contains($Name)) { return $Object[$Name] } else { return $null }
-    }
-    $Prop = $Object.PSObject.Properties[$Name]
-    if ($Prop) { return $Prop.Value } else { return $null }
+    # t/4934: the shape dispatch lives in Get-JsonField.ps1, shared with the smoke phases.
+    return (Get-JsonField -Body $Object -Name $Name)
 }
