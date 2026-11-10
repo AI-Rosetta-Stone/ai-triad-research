@@ -61,6 +61,14 @@ describe('BulkDeleteDialog — partial failure (t/88)', () => {
     expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ type: 'system.error', component: 'debate-tab', level: 'warn' }));
   });
 
+  it('a lone 429 failure gets the operation rate-limit text, never "switch to a different model" (t/127)', async () => {
+    renderDialog(['d1'], () => Promise.reject(new Error('HTTP 429 Too Many Requests')));
+    clickDelete();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Deleted 0 of 1. Too many requests. Wait a minute and try again.');
+    expect(alert).not.toHaveTextContent(/model/i);
+  });
+
   it('a multi-item batch keeps the generic aggregate message and keeps only the failed rows selected', async () => {
     const p = renderDialog(['d1', 'd2', 'd3'], (id) => (id === 'd2' ? Promise.reject(new Error('boom')) : Promise.resolve()));
     clickDelete();
