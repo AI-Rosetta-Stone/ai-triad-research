@@ -292,6 +292,18 @@ jobs:
           _No dispatch wired -- this workflow only logs what it would do (t/4414 log-only phase)._
           "@ >> $env:GITHUB_STEP_SUMMARY
 
+          # Alert #4787: this step has no explicit exit, so pwsh's own process exit code
+          # mirrors whatever $LASTEXITCODE last held -- a HANDLED failure earlier in the
+          # script (e.g. the `gh api commits/.../check-runs` call above, caught and logged as
+          # a Write-Warning, not re-thrown) leaves a native-command exit code of 1 sitting in
+          # $LASTEXITCODE all the way to here. Run 42735389626: the verdict correctly computed
+          # `hold-kill-switch` (fail-closed, as designed), but the STEP still reported failed
+          # because an earlier `gh api` call hit an installation rate limit. The verdict is
+          # already fail-closed by construction (Get-ContinuousDeployVerdict.ps1); this step's
+          # own reported status must reflect THAT computation succeeding, not an unrelated
+          # earlier native command's leftover code (same class as t/4252/t/4932).
+          exit 0
+
       # ── Gate-signal integrity (TL ruling, e/358#2): a dead gate here must never be silent ──
       # e/349#4 (SO, t/4414): the original version of this step opened issue #3771 on the very
       # first failure (2026-10-23), then correctly did nothing on every one of the 49 failing runs
