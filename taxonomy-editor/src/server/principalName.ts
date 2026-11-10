@@ -154,14 +154,23 @@ export function canProducePrincipal(idp: 'github' | 'aad', name: string): boolea
   return false;
 }
 
+// t/47: the shapes real providers send. GitHub's nameidentifier is the numeric user id (never
+// the login; prod's working admin entry is github:6188114); AAD's tid and oid are both GUIDs.
+const GITHUB_REAL_ID_RE = /^\d{1,20}$/;
+const GUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const AAD_REAL_ID_RE = new RegExp(`^${GUID}-${GUID}$`);
+
 /**
  * t/43: whether some sign-in can record `stableId` as its UserContext.stableId. Mirrors the
- * keys canonicalizeGithub/canonicalizeAad set: `github:<id>` or `aad:<tid>-<oid>`, the id in
- * STABLE_ID_RE's charset, lowercased. Other idps never record a stableId (fillMissingName).
+ * keys canonicalizeGithub/canonicalizeAad set: `github:<id>` or `aad:<tid>-<oid>`, lowercased.
+ * t/47: the id must also have the shape the provider actually sends (numeric GitHub user id,
+ * `<tenant-guid>-<object-guid>`), so `github:<login>` or `aad:<oid>` alone read as unreachable.
+ * Other idps never record a stableId (fillMissingName).
  */
 export function canProduceStableId(stableId: string): boolean {
   const m = /^(github|aad):(.+)$/.exec(stableId.toLowerCase());
-  return !!m && STABLE_ID_RE.test(m[2]);
+  if (!m || !STABLE_ID_RE.test(m[2])) return false;
+  return (m[1] === 'github' ? GITHUB_REAL_ID_RE : AAD_REAL_ID_RE).test(m[2]);
 }
 
 const warned = new Set<string>();
