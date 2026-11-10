@@ -43,20 +43,23 @@ function isShareRegistry(v: unknown): v is ShareRegistry {
     && Object.values(v).every(s => typeof s === 'string');
 }
 
-function parseRegistry(raw: string | null): ParsedRegistry {
+/** Parses a registry; a corrupt one is logged at ERROR here, with what the caller will do about it. */
+function parseRegistry(raw: string | null, registryPath: string, action: string): ParsedRegistry {
   if (raw === null) return { ok: true, reg: {} };
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    return { ok: false, reason: `not valid JSON (${(err as Error).message})` };
+    const reason = `not valid JSON (${(err as Error).message})`;
+    log.server.error({ registryPath, reason, err, cause: 'share-registry-corrupt' },
+      `share registry is corrupt (${reason}) — ${action}. Repair or restore ${registryPath} (t/126)`);
+    return { ok: false, reason };
   }
-  return isShareRegistry(parsed) ? { ok: true, reg: parsed } : { ok: false, reason: 'not an object of id → shareId strings' };
-}
-
-function logCorrupt(registryPath: string, reason: string, action: string): void {
+  if (isShareRegistry(parsed)) return { ok: true, reg: parsed };
+  const reason = 'not an object of id → shareId strings';
   log.server.error({ registryPath, reason, cause: 'share-registry-corrupt' },
     `share registry is corrupt (${reason}) — ${action}. Repair or restore ${registryPath} (t/126)`);
+  return { ok: false, reason };
 }
 
 function corruptRegistryError(registryPath: string, kind: string, reason: string): ActionableError {
@@ -75,9 +78,8 @@ function corruptRegistryError(registryPath: string, kind: string, reason: string
 
 async function readWithVersion(backend: StorageBackend, registryPath: string, kind: string): Promise<{ reg: ShareRegistry; version: string }> {
   const { raw, version } = await readRawWithVersion(backend, registryPath);
-  const parsed = parseRegistry(raw);
+  const parsed = parseRegistry(raw, registryPath, 'refusing to write');
   if (!parsed.ok) {
-    logCorrupt(registryPath, parsed.reason, 'refusing to write');
     throw corruptRegistryError(registryPath, kind, parsed.reason);
   }
   return { reg: parsed.reg, version };
@@ -98,10 +100,8 @@ async function readRawWithVersion(backend: StorageBackend, registryPath: string)
 
 /** Read-only view. A corrupt registry reads as no entries (callers then never write) and ERRORs. */
 export async function readShareRegistry(backend: StorageBackend, registryPath: string): Promise<ShareRegistry> {
-  const parsed = parseRegistry(await backend.readFile(registryPath));
-  if (parsed.ok) return parsed.reg;
-  logCorrupt(registryPath, parsed.reason, 'treating it as holding no shares for this read');
-  return {};
+  const parsed = parseRegistry(await backend.readFile(registryPath), registryPath, 'treating it as holding no shares for this read');
+  return parsed.ok ? parsed.reg : {};
 }
 
 /**
