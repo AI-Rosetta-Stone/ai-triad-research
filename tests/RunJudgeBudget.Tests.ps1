@@ -56,14 +56,47 @@ Describe 'run_judge spend guard (t/150)' -Tag 'unit' {
         $r.OutLines.Count | Should -Be 0
     }
 
-    It 'every judge Invoke-AIApi call is made inside AITriad''s scope (the logged instance)' {
+    It 'preflights with Test-AICallLogReady and probes for the call''s own entry (t/151)' {
         $src = Get-Content -Raw $script:Harness
-        $noBlocks = [regex]::Replace($src, '(?s)<#.*?#>', '')   # comment-based help blocks
-        $code = ($noBlocks -split "`n" | Where-Object { $_ -notmatch '^\s*#' } | ForEach-Object { $_ -replace '\s#\s.*$', '' }) -join "`n"
-        $calls = [regex]::Matches($code, '(?m)^.*\bInvoke-AIApi\b.*$') | ForEach-Object { $_.Value.Trim() }
-        $calls.Count | Should -BeGreaterThan 0
-        foreach ($c in $calls) { $c | Should -Match '&\s*\$Module\s*\{' -Because "a bare Invoke-AIApi bypasses the AI call log (t/150): $c" }
-        $code | Should -Not -Match 'AIEnrich\.psm1' -Because 'importing AIEnrich directly is the path that skipped the call log'
+        $noBlocks = [regex]::Replace($src, '(?s)<#.*?#>', '')
+        $code = ($noBlocks -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+        $code | Should -Match 'Test-AICallLogReady\s+-Detailed'
+        $code | Should -Match 'Test-CallLogged\s+-LogPath'
+        $code | Should -Not -Match 'AIEnrich\.psm1' -Because 'importing AIEnrich alone was the path that skipped the call log'
+    }
+
+    Context 'Test-CallLogged: the probe matches this call''s own entry (t/151)' {
+        BeforeAll {
+            . (Join-Path $script:Repo 'analyses' 't4603-camp-bridge' 'BatchBudget.ps1')
+            $script:T0 = [datetime]::Parse('2026-11-10T10:00:00Z', [cultureinfo]::InvariantCulture, 'RoundtripKind').ToUniversalTime()
+            function script:Log([string]$Name, [object[]]$Recs) {
+                $p = Join-Path $TestDrive $Name
+                ($Recs | ForEach-Object { [pscustomobject]$_ | ConvertTo-Json -Compress }) | Set-Content -LiteralPath $p -Encoding utf8
+                $p
+            }
+        }
+        It 'TRUE for this call''s entry, even when logged under a fallback model' {
+            $p = Log 'own.jsonl' @(@{ Datetime = '2026-11-10T10:00:05Z'; PromptStart = 'Judge item C01'; Model = 'gemini-3.1-flash-lite' })
+            Test-CallLogged -LogPath $p -Since $script:T0 -Prompt 'Judge item C01' | Should -BeTrue
+        }
+        It 'FALSE when only a concurrent process''s entry is in the window' {
+            $p = Log 'other.jsonl' @(@{ Datetime = '2026-11-10T10:00:05Z'; PromptStart = 'Summarize document X'; Model = 'gemini-3.5-flash-lite' })
+            Test-CallLogged -LogPath $p -Since $script:T0 -Prompt 'Judge item C01' | Should -BeFalse
+        }
+        It 'FALSE for the same prompt logged before the call started (a previous item or run)' {
+            $p = Log 'old.jsonl' @(@{ Datetime = '2026-11-10T09:59:59Z'; PromptStart = 'Judge item C01'; Model = 'gemini-3.5-flash-lite' })
+            Test-CallLogged -LogPath $p -Since $script:T0 -Prompt 'Judge item C01' | Should -BeFalse
+        }
+        It 'compares only the first 160 characters, as the writer stores them' {
+            $long = 'x' * 200
+            $p = Log 'long.jsonl' @(@{ Datetime = '2026-11-10T10:00:05Z'; PromptStart = ('x' * 160); Model = 'm' })
+            Test-CallLogged -LogPath $p -Since $script:T0 -Prompt $long | Should -BeTrue
+        }
+        It 'FALSE when the log is missing, or the matching entry has no usable Datetime' {
+            Test-CallLogged -LogPath (Join-Path $TestDrive 'absent.jsonl') -Since $script:T0 -Prompt 'p' | Should -BeFalse
+            $p = Log 'nodate.jsonl' @(@{ Datetime = ''; PromptStart = 'p'; Model = 'm' })
+            Test-CallLogged -LogPath $p -Since $script:T0 -Prompt 'p' | Should -BeFalse
+        }
     }
 
     It 'the guard prices from ai-models.json, not hard-coded rates' {
