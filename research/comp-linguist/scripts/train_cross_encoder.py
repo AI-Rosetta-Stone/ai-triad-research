@@ -40,9 +40,12 @@ ARTIFACTS_DIR = REPO_ROOT.parent / "ai-triad-data" / "research-artifacts" / "com
 
 sys.path.insert(0, str(SCRIPT_DIR))
 from _model_release import LOCAL_MODEL_ROOT, report_release_steps  # noqa: E402
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from embed_model_pins import load_cross_encoder  # noqa: E402
 
 BI_ENCODER_MODEL = "all-MiniLM-L6-v2"
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+# t/149: canonical id (renamed upstream from ms-marco-MiniLM-L-6-v2, t/146), loaded at the pin.
+CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 
 def log(msg: str):
@@ -232,7 +235,8 @@ def main():
     bi_model = SentenceTransformer(BI_ENCODER_MODEL)
 
     log(f"Loading cross-encoder ({CROSS_ENCODER_MODEL})...")
-    cross_model = CrossEncoder(CROSS_ENCODER_MODEL)
+    cross_model = load_cross_encoder(CROSS_ENCODER_MODEL)
+    log(f"  resolved_revision={cross_model.resolved_revision}")
 
     log("=" * 60)
     log("BASELINE EVALUATION")

@@ -8,7 +8,9 @@ Method:
      vectors) and CHECK that its top 3 equals the production selection recorded in scores.json. A
      mismatch is reported, not assumed away.
   2. Take the top-K (10) cosine candidates per question x camp.
-  3. Score (question, "label. description") with cross-encoder/ms-marco-MiniLM-L-6-v2, re-sort, take top 3.
+  3. Score (question, "label. description") with cross-encoder/ms-marco-MiniLM-L6-v2, re-sort, take top 3.
+     (The published rerank.json ran under the pre-rename id ms-marco-MiniLM-L-6-v2; same weights at
+     the pinned commit 233902d2, t/146. Now loaded via scripts/embed_model_pins.py, t/149.)
   4. Report the labelled-bad nodes' ranks before/after and the top-3 churn across all 45 camp sets.
 
 Run (offline; models must already be in the HF cache):
@@ -19,10 +21,12 @@ import os
 import sys
 
 import numpy as np
-from sentence_transformers import CrossEncoder, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 
 sys.stdout.reconfigure(encoding='utf-8')
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, '..', '..', '..', '..', 'scripts'))
+from embed_model_pins import load_cross_encoder  # noqa: E402
 DATA_ROOT = os.environ.get('AI_TRIAD_DATA_ROOT', os.path.join(HERE, '..', '..', '..', '..', '..', '..', 'ai-triad-data'))
 TAX = os.path.join(DATA_ROOT, 'taxonomy', 'Origin')
 POV_FILES = {'acc': 'accelerationist.json', 'saf': 'safetyist.json', 'skp': 'skeptic.json'}
@@ -50,7 +54,8 @@ def main() -> None:
     camp_of = np.array([nodes[i][0] for i in ids])
 
     bi = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    ce = load_cross_encoder('cross-encoder/ms-marco-MiniLM-L6-v2')
+    print(f'cross-encoder resolved_revision={ce.resolved_revision}', file=sys.stderr)
 
     out, mismatches, churn, bad_report = [], 0, 0, []
     for q in questions:
