@@ -724,6 +724,14 @@
   margin-top: 6px;
 }
 
+/* t/165: no-grounding line, styled like the How panel's "not recorded" text. */
+.chat-why-empty {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .chat-taxonomy-reasoning {
   margin-top: 6px;
   padding: 6px 8px;
