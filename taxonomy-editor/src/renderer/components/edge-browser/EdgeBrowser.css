@@ -66,8 +66,8 @@
 .eb-detail-actions { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid var(--border-color); }
 .eb-detail-actions-left { display: flex; gap: 6px; align-items: center; }
 .eb-status-label { font-size: var(--text-sm); font-weight: 600; padding: 4px 10px; border-radius: var(--radius-sm); }
-.eb-status-approved { color: #16a34a; background: rgba(22, 163, 74, 0.1); }
-.eb-status-rejected { color: #dc2626; background: rgba(220, 38, 38, 0.1); }
+.eb-status-approved { color: var(--success-text); background: var(--success-bg); }
+.eb-status-rejected { color: var(--error-text); background: var(--error-bg); }
 .eb-swap-btn { color: var(--text-secondary); border-style: dashed !important; }
 .eb-direction-suspect { color: #d97706; font-weight: 600; font-size: var(--text-sm); }
 
