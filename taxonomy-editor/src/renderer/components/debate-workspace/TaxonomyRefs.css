@@ -367,6 +367,22 @@
   padding-left: 14px;
 }
 
+/* t/187: BDI groups in the Why view (Desires → Intentions → Beliefs → Situations). The header
+   matches the vocabulary section labels (small uppercase, --text-secondary for AA). */
+.taxrefs-bdi-group + .taxrefs-bdi-group,
+.taxrefs-bdi-group + .taxrefs-policy-refs {
+  margin-top: 10px;
+}
+
+.taxrefs-bdi-group-label {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
 .taxrefs-refs-mb {
   margin-bottom: 6px;
 }
