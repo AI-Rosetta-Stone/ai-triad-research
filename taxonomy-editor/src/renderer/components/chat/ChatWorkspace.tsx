@@ -193,7 +193,7 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
-        {!isUser && <ChatHowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} />}
+        {!isUser && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} />}
       </div>
     </div>
   );
