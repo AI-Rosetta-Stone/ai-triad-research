@@ -17,6 +17,7 @@ import type { OpEdSet, OpEdMember, OpEdGroundingRef } from '../../../../lib/oped
 import { getStorageUserId, isAnonymousUser, runWithUser, type UserContext } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId, isSafeId, readTaxonomyFile } from './fileIO.js';
 import { loadOpedSet } from './opedStore.js';
+import { confirmShareStillRegistered } from './shareRevokeGuard.js';
 import { log } from '../logger.js';
 import { AppliedTagSchema, type TagMode } from '../../../../lib/schema/povTags.js';
 
@@ -233,6 +234,12 @@ async function readShareRegistry(): Promise<Record<string, string>> {
 async function writeShareRegistry(reg: Record<string, string>): Promise<void> {
   await getUserContentBackend().writeFile(shareRegistryPath(), JSON.stringify(reg, null, 2));
 }
+function confirmOpedShare(setId: string, shareId: string): Promise<boolean> {
+  return confirmShareStillRegistered({
+    kind: 'oped', id: setId, shareId, publicPath: publicOpedPath(shareId), readRegistry: readShareRegistry,
+    backend: getUserContentBackend(),
+  });
+}
 
 /**
  * Publish an owner's op-ed set to a durable public URL. OWNER-ONLY: `loadOpedSet`
@@ -257,6 +264,8 @@ export async function publishOpedShare(setId: string): Promise<{ shareId: string
     reg[setId] = shareId;
     await writeShareRegistry(reg);
   }
+  // t/4937: an unpublish may have raced the write above — never leave a revoked link live.
+  if (!(await confirmOpedShare(setId, shareId))) return null;
   return { shareId };
 }
 
@@ -278,7 +287,7 @@ export async function refreshOpedShareIfShared(setId: string): Promise<boolean> 
     publicOpedPath(shareId),
     JSON.stringify(await projectPublicOpEd(set, shareId), null, 2),
   );
-  return true;
+  return confirmOpedShare(setId, shareId); // t/4937
 }
 
 /**
@@ -292,11 +301,13 @@ export async function unpublishOpedShare(setId: string): Promise<boolean> {
   const reg = await readShareRegistry();
   const shareId = reg[setId];
   if (!shareId) return false;
+  // t/4937: registry entry goes FIRST, so a publish/refresh whose write lands after the delete
+  // below re-reads a registry that no longer names this shareId and removes its own copy.
+  delete reg[setId];
+  await writeShareRegistry(reg);
   await getUserContentBackend().deleteFile(publicOpedPath(shareId)).catch((err) => {
     log.server.warn({ err, shareId }, 'oped share public-copy delete failed (best-effort)');
   });
-  delete reg[setId];
-  await writeShareRegistry(reg);
   return true;
 }
 

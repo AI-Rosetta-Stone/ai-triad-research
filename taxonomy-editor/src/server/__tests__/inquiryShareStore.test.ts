@@ -26,13 +26,15 @@ vi.mock('../logger.js', () => ({
 }));
 vi.mock('../storage/inquiryResultStore.js', () => ({ loadInquiryResult: mockLoadInquiryResult }));
 
-// In-memory fake backend keyed by absolute path (t/3490 fixture pattern).
+// In-memory fake backend keyed by absolute path (t/3490 fixture pattern). `hooks` let a race
+// test run code just before a write/delete lands (t/4937).
 const files = new Map<string, string>();
+const hooks: { beforeWrite?: (p: string) => Promise<void>; beforeDelete?: (p: string) => Promise<void> } = {};
 const fakeBackend = {
   backendName: 'fake',
   async readFile(p: string) { return files.has(p) ? files.get(p)! : null; },
-  async writeFile(p: string, content: string) { files.set(p, content); },
-  async deleteFile(p: string) { files.delete(p); },
+  async writeFile(p: string, content: string) { await hooks.beforeWrite?.(p); files.set(p, content); },
+  async deleteFile(p: string) { await hooks.beforeDelete?.(p); files.delete(p); },
   async listDirectory() { return []; },
   async fileExists(p: string) { return files.has(p); },
   async readBinaryFile() { return null; },
@@ -86,6 +88,8 @@ function makeResult(question: string): InquiryResult {
 describe('inquiryShareStore (t/3627)', () => {
   beforeEach(() => {
     files.clear();
+    delete hooks.beforeWrite;
+    delete hooks.beforeDelete;
     mockLoadInquiryResult.mockReset();
     serverWarn.mockClear();
   });
@@ -253,5 +257,66 @@ describe('inquiryShareStore (t/3627)', () => {
     await runWithUser(OWNER, () => publishInquiryShare('job-1'));
     mockLoadInquiryResult.mockResolvedValue(null);
     expect(await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'))).toBe(false);
+  });
+
+  // ─── unpublish racing a publish/refresh write (t/4937) ─────────────────────
+
+  const registryPath = path.join(resolveDataPath('users/owner-1'), 'inquiry-shares.json');
+  const raceCause = (c: [{ cause?: string }]) => c[0]?.cause === 'share-revoked-during-write';
+
+  /** Run unpublish once, just before the next write to `target` lands. */
+  function unpublishBeforeWriteTo(target: string): void {
+    hooks.beforeWrite = async (p) => {
+      if (p !== target) return;
+      delete hooks.beforeWrite;
+      expect(await runWithUser(OWNER, () => unpublishInquiryShare('job-1'))).toBe(true);
+    };
+  }
+
+  it('refresh racing an unpublish does not resurrect the revoked public copy', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+    const { shareId } = (await runWithUser(OWNER, () => publishInquiryShare('job-1')))!;
+
+    unpublishBeforeWriteTo(publicInquiryPath(shareId));
+    expect(await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'))).toBe(false);
+
+    expect(files.has(publicInquiryPath(shareId))).toBe(false);
+    expect(await loadPublicInquiryShare(shareId)).toBeNull();
+    expect(serverWarn.mock.calls.filter(raceCause)).toHaveLength(1);
+  });
+
+  it('re-publish racing an unpublish does not resurrect the revoked public copy', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+    const { shareId } = (await runWithUser(OWNER, () => publishInquiryShare('job-1')))!;
+
+    unpublishBeforeWriteTo(publicInquiryPath(shareId));
+    expect(await runWithUser(OWNER, () => publishInquiryShare('job-1'))).toBeNull();
+
+    expect(files.has(publicInquiryPath(shareId))).toBe(false);
+    expect(serverWarn.mock.calls.filter(raceCause)).toHaveLength(1);
+  });
+
+  it('no race: publish and refresh keep the public copy and stay quiet', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+    const { shareId } = (await runWithUser(OWNER, () => publishInquiryShare('job-1')))!;
+    expect(await runWithUser(OWNER, () => publishInquiryShare('job-1'))).toEqual({ shareId });
+    expect(await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'))).toBe(true);
+
+    expect(files.has(publicInquiryPath(shareId))).toBe(true);
+    expect(serverWarn.mock.calls.filter(raceCause)).toHaveLength(0);
+  });
+
+  it('unpublish removes the registry entry before deleting the public copy', async () => {
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+    const { shareId } = (await runWithUser(OWNER, () => publishInquiryShare('job-1')))!;
+
+    let registryAtDelete: Record<string, string> | undefined;
+    hooks.beforeDelete = async (p) => {
+      if (p === publicInquiryPath(shareId)) registryAtDelete = JSON.parse(files.get(registryPath)!);
+    };
+    await runWithUser(OWNER, () => unpublishInquiryShare('job-1'));
+
+    expect(registryAtDelete).toBeDefined();
+    expect(registryAtDelete!['job-1']).toBeUndefined();
   });
 });
