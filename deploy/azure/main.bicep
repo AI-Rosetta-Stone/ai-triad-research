@@ -89,16 +89,15 @@ param stagingLoadTestSize bool = false
 // apply (t/4728, p/868#31 — exactly what happened on 2026-10-31), because the deploy re-applies
 // this template's declared value. Declaring it here means an apply KEEPS the override instead of
 // silently reverting it.
-// t/4732: the t/4677 AC3/AC4 low-cap staging proof (ticket Done, 2026-11-02) closed, but
-// restoring the code default (1500) here would NOT be safe -- SO (e/419) found that prod and
-// staging share one Gemini free-tier key pool (same `free-tier-gemini-key` secret, see
-// freeTierSecretName below), so 1500 (staging) + 1500 (prod) risks exhausting the provider's real
-// daily quota, which this repo doesn't document. TL recommendation (p/404#172, PI's decision
-// pending): an interim cap of '200' -- enough for staging's smoke/acceptance runs, well under
-// prod's budget -- until staging gets its own free-tier key in its own GCP project (t/4587's
-// pattern, tracked separately). Revisit once that lands or the PI sets a different number.
-@description('FREE_POOL_DAILY_CALLS_CAP override for staging. INTERIM value (t/4732/e/419) while staging shares the prod Gemini free-tier key pool -- not the code default (1500), which would risk exhausting the shared provider quota. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
-param freePoolDailyCallsCapStaging string = '200'
+// t/4732: until 2026-11-10 prod and staging shared one Gemini free-tier key pool (SO e/419), so
+// staging ran an interim cap of '200'. The PI then chose a dedicated staging key
+// (freeTierGeminiKeyStaging, secret free-tier-gemini-key-staging). Staging's calls now draw on its
+// own pool, not prod's. The cap is '300': room for staging's smoke/acceptance runs, still well under
+// the code default (1500), and a bound on the staging key's own spend (the PI owns this number).
+// If freeTierGeminiKeyStaging is empty, staging falls back to the shared pool (the deploy WARNs), and
+// this cap is again the only thing protecting prod's quota.
+@description('FREE_POOL_DAILY_CALLS_CAP override for staging (t/4732). Staging has its own Gemini free-tier key; this bounds that key\'s daily calls. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
+param freePoolDailyCallsCapStaging string = '300'
 
 // ── Staging blob-container isolation (t/4738 incident) ──
 // PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
@@ -237,6 +236,10 @@ param githubWebhookSecret string = ''
 param freeTierGeminiKey string = ''
 
 @secure()
+@description('Staging-only Gemini free-tier key (t/4732, PI decision 2026-11-10), in its own pool so staging no longer draws on prod\'s. When set, ONLY the staging app gets it, as secret free-tier-gemini-key-staging. Empty falls back to the shared freeTierGeminiKey, and the deploy logs a WARN.')
+param freeTierGeminiKeyStaging string = ''
+
+@secure()
 @description('Paid Gemini API key for fallback when user has no key and free tier is exhausted. Omit to disable paid fallback.')
 param geminiPaidKey string = ''
 
@@ -272,6 +275,8 @@ var githubTokenProvided = !empty(githubToken)
 var githubWebhookSecretProvided = !empty(githubWebhookSecret)
 var freeTierEnabled = !empty(freeTierGeminiKey)
 var freeTierSecretName = 'free-tier-gemini-key'
+var freeTierStagingKeyProvided = !empty(freeTierGeminiKeyStaging)
+var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
 var oauthSecrets = concat(
@@ -283,6 +288,11 @@ var oauthSecrets = concat(
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
+// t/4732: the staging app's secrets are prod's plus its own free-tier key. Prod's `secrets:` stays
+// oauthSecrets, so prod can never reference free-tier-gemini-key-staging
+// (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
+var stagingSecrets = concat(oauthSecrets,
+  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : [])
 
 // ── Log Analytics ──
 
@@ -768,8 +778,8 @@ var stagingEnvOverrides = [
   // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
   { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
   // t/4728: staging's free-pool calls cap, declared so it survives a prod Bicep apply instead
-  // of drifting via CLI. t/4732: the t/4677 low-cap proof closed, but the shared-key-pool risk
-  // (e/419) keeps this at an interim 200, not prod's 1500 default -- see the param above.
+  // of drifting via CLI. t/4732: staging has its own free-tier key now; the cap bounds that key's
+  // daily calls -- see the param above.
   { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
   // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
   // (near freePoolDailyCallsCapStaging) for the incident history and rationale.
@@ -803,8 +813,10 @@ var stagingBaseEnv = concat(
   stagingEnvOverrides
 )
 // Same secret entries as prod, so staging stays a faithful pre-prod proxy (same oauth/ai
-// secrets, different write path).
-var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, extraFreeTier, extraPaidTier)
+// secrets, different write path). The one exception (t/4732) is FREE_TIER_GEMINI_KEY, which points
+// at staging's own key when one is provided. Empty keeps the shared prod pool key.
+var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : extraFreeTier
+var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, stagingExtraFreeTier, extraPaidTier)
 
 // API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
 resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
@@ -996,7 +1008,7 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
           ? [ { latestRevision: true, weight: 100 } ]
           : [ { revisionName: trafficPinRevisionNameStaging, weight: 100 } ]
       }
-      secrets: oauthSecrets
+      secrets: stagingSecrets
     }
     template: {
       containers: [
