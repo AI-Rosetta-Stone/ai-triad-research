@@ -27,9 +27,9 @@ The Op-Ed tool writes a publication-ready guest essay arguing one camp's positio
 | Criterion | Checked by | What happens on a miss |
 |-----------|------------|------------------------|
 | Grounded | **Grounding reflection** (`op-ed-grounding-reflection.prompt`). Reports, for each element, how and where the op-ed reflects it. Shown in the Why section. | Reported, not enforced. An element can go unused, and the Why section shows that. |
-| Internally coherent | **Coherence judge**: three checks, and a flag counts only if both conflicting spans are quoted verbatim (`lib/oped/coherenceCheck.ts:45-47`). | A minimal rewrite, kept only if a re-judge passes; otherwise the original stays. Recorded in `coherence_meta`. |
+| Internally coherent | **Coherence judge**: three checks, and a flag counts only if both conflicting spans are supplied and non-empty (`lib/oped/coherenceCheck.ts:45-47`). | A minimal rewrite, kept only if a re-judge passes; otherwise the original stays. |
 | Readable | **Readability measure.** Flesch-Kincaid grade, longest sentence, longest paragraph (`lib/oped/readabilityMeasure.ts:26-56`), against the outlet's targets. | A guarded copy edit, plus a deterministic paragraph split. Recorded in `editing_meta`, including any checks still failing. |
-| Honest about the news | **Fabricated-lede guard.** A pattern scan of the first 500 characters (`lib/oped/opedGuards.ts:12-13`). | The op-ed is flagged (`fabricated_lede`); the text isn't changed. |
+| Honest about the news | **Fabricated-lede guard.** A pattern scan of the first 500 characters, when no news hook was supplied (`lib/oped/opedGuards.ts:12-13`). | The op-ed is flagged (`fabricated_lede`); the text isn't changed. |
 | Faithful to the camp | Prompt instructions only. The edit pass reverts an edit that introduces a banned "AI tell" (`lib/oped/generate.ts:766`). | Partly checked: only the banned-phrase list. |
 | Faithful to the source | Prompt instructions only. | **Not measured.** |
 | Persuasive | Prompt instructions only. | **Not measured.** |
