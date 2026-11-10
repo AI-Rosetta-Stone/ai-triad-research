@@ -101,7 +101,10 @@ function scriptCodeLines() {
 function structureIssues(code) {
   const issues = [];
   const imports = code.match(/import\([^)]*\)/g) ?? [];
-  if (!(imports.length === 1 && imports[0] === 'import(pathToFileURL(predicatePath)')) {
+  // Exactly two imports, both base-tip temp files (git show, never the PR tree): the predicate,
+  // and the t/4819 GitHub retry helper (github-retry-workflow.test.mjs pins its git-show source).
+  const allowed = ['import(pathToFileURL(helperPath)', 'import(pathToFileURL(predicatePath)'];
+  if (!(imports.length === allowed.length && [...imports].sort().every((imp, i) => imp === allowed[i]))) {
     issues.push(`unexpected imports: ${imports.join(' | ')}`);
   }
   if (code.includes('headModule')) issues.push('no headModule binding may exist');
@@ -119,6 +122,20 @@ test('C1: the whole step imports only the BASE copy (a temp file), never the hea
   assert.match(code, /readFromHead\('operations\/devops\/tier-check-predicate\.mjs'\)/,
     'the head predicate is read as TEXT, through the API (t/4266 P1 -- never a local checkout of the head)');
   assert.match(code, /baseModule\.checkApiVersion\(baseModule\.TIER_CHECK_API, headApi\)/, 'the version check runs base code');
+});
+
+test('RED ARM (t/4819): the two allowed base-tip imports plus any third import still fail the structure check', () => {
+  const fixture = `
+    await import(pathToFileURL(helperPath).href);
+    await import(pathToFileURL(predicatePath).href);
+    await import(pathToFileURL(headPredicatePath).href);
+  `;
+  assert.ok(structureIssues(fixture).some((i) => i.startsWith('unexpected imports')));
+  const swapped = `
+    await import(pathToFileURL(helperPath).href);
+    await import(pathToFileURL(headPredicatePath).href);
+  `;
+  assert.ok(structureIssues(swapped).some((i) => i.startsWith('unexpected imports')), 'helper + a non-predicate import must fail');
 });
 
 // ── t/4266 P1: pull_request_target migration -- the workflow file itself is sourced from

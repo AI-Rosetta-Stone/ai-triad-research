@@ -1766,6 +1766,11 @@ jobs:
       - name: t1-approval-guard predicate + workflow-extraction suites
         run: node --test operations/devops/t1-approval-guard-predicate.test.mjs operations/devops/t1-approval-guard-workflow.test.mjs
 
+      # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
+      # end-to-end arms that run each workflow's real script against a mocked API.
+      - name: github-retry helper + workflow retry suites
+        run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
