@@ -270,9 +270,10 @@ def merge_cluster(cluster):
 # t/3350 surgically demoted (data-of-record 0f38b2e7). The gate keys to the CL-owned, committed
 # manifest -- NOT auto-classification (t/3339#18 measured contradiction detection at 0.000-0.065
 # precision). A candidate matching a manifest claim_id, or (single-instance only) a normalized
-# assertion signature, is emitted DEMOTED, never as a conflict. Multi-instance candidates match
-# on claim_id only: the manifest holds single-instance facts, so a genuine multi-instance conflict
-# that merely shares one assertion is never demoted (revised AC4).
+# assertion signature, is emitted DEMOTED, never as a conflict. A MULTI-instance candidate is
+# never demoted (revised AC4; CL p/70#8, t/229): a shared assertion doesn't make it a standalone
+# fact, and a matching claim_id means the fact has gained instances since the manifest was built
+# -- it's emitted as a conflict with a WARN (a false conflict is reviewable; a dropped one isn't).
 
 DEMOTION_MANIFEST = _PROJECT_ROOT / "research" / "comp-linguist" / "analyses" / "t3633-conflict-gate" / "demotion-manifest.json"
 DEMOTION_REASON = "standalone_fact"
@@ -307,14 +308,21 @@ def load_demotion_manifest(path=None):
 
 
 def _demotion_match(conflict, ids, sigs):
-    """'claim_id' / 'assertion_sig' when the candidate is in the manifest, else None."""
+    """'claim_id' / 'assertion_sig' when a single- or zero-instance candidate is in the manifest;
+    'multi_instance_id' when a MULTI-instance candidate's claim_id is (never demoted, see below);
+    else None."""
+    instances = conflict.get("instances") or []
+    if len(instances) > 1:
+        # CL p/70#8 (t/229): the manifest holds single-instance standalone facts. A content-derived
+        # claim_id that now has several instances means the fact gained support since the manifest
+        # was built, so its premise no longer holds -- emit it as a conflict, loudly, never drop it.
+        return "multi_instance_id" if conflict.get("claim_id") in ids else None
     if conflict.get("claim_id") in ids:
         return "claim_id"
-    instances = conflict.get("instances") or []
     if len(instances) == 1:
         if _norm(instances[0].get("assertion")) in sigs:
             return "assertion_sig"
-    elif not instances and conflict.get("claim_label") and _norm(conflict["claim_label"]) in sigs:
+    elif conflict.get("claim_label") and _norm(conflict["claim_label"]) in sigs:
         return "assertion_sig"   # the builder's own fallback for an instance-less fact
     return None
 
@@ -327,6 +335,11 @@ def apply_demotion_gate(consolidated, ids, sigs, provenance=None):
     for conflict in consolidated:
         how = _demotion_match(conflict, ids, sigs)
         if not how:
+            continue
+        if how == "multi_instance_id":
+            _log(f"  WARN: {conflict.get('claim_id')!r} is in the t/3350 manifest but now has "
+                 f"{len(conflict.get('instances') or [])} instances; emitting it as a CONFLICT, not demoted "
+                 "(the manifest's single-instance premise no longer holds; review it, t/229)")
             continue
         already = (conflict.get("status") == "demoted" and conflict.get("claim_type") == "non_conflict"
                    and (conflict.get("demotion") or {}).get("reason") == DEMOTION_REASON)
@@ -346,6 +359,22 @@ def apply_demotion_gate(consolidated, ids, sigs, provenance=None):
     _log(f"  Genuine-conflict gate: {demoted} candidate(s) demoted per the t/3350 manifest "
          f"({len(ids)} ids / {len(sigs)} sigs)")
     return demoted
+
+
+def merge_and_gate(clusters, manifest_path=None):
+    """Phase 1 output as main() uses it: merge every cluster, then run the genuine-conflict gate
+    BEFORE anything is enriched or written. Returns (consolidated, source_map, demoted_count).
+    One function so the gate can't be silently unwired from the regen (Quality, #4900)."""
+    consolidated = []
+    source_map = {}  # claim_id -> merge count (int)
+    for cluster in clusters:
+        merged, source_paths = merge_cluster(cluster)
+        consolidated.append(merged)
+        source_map[merged["claim_id"]] = len(source_paths)
+    # t/3633 genuine-conflict gate: the t/3350 standalone facts never come back as conflicts.
+    demo_ids, demo_sigs, demo_prov = load_demotion_manifest(manifest_path)
+    demoted = apply_demotion_gate(consolidated, demo_ids, demo_sigs, demo_prov)
+    return consolidated, source_map, demoted
 
 
 # ── Phase 2: Enrichment ─────────────────────────────────────────────────────
@@ -615,17 +644,7 @@ def main():
 
     # ── Merge clusters ──
     _log("\n[5/6] Merging clusters...")
-    consolidated = []
-    source_map = {}  # claim_id -> merge count (int)
-
-    for cluster in clusters:
-        merged, source_paths = merge_cluster(cluster)
-        consolidated.append(merged)
-        source_map[merged["claim_id"]] = len(source_paths)
-
-    # t/3633 genuine-conflict gate: the t/3350 standalone facts never come back as conflicts.
-    demo_ids, demo_sigs, demo_prov = load_demotion_manifest()
-    demoted_count = apply_demotion_gate(consolidated, demo_ids, demo_sigs, demo_prov)
+    consolidated, source_map, demoted_count = merge_and_gate(clusters)
 
     # ── Phase 2: Enrich ──
     _log(f"\n[6/6] Phase 2: Enrichment...")

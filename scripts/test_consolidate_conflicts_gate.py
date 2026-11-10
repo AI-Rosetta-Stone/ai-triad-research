@@ -71,6 +71,35 @@ def test_multi_instance_conflict_sharing_one_assertion_is_NOT_demoted():
     assert n == 0 and items[0]["status"] == "open" and "claim_type" not in items[0]
 
 
+def test_multi_instance_candidate_with_a_manifest_claim_id_stays_a_conflict_with_a_warn():
+    """CL p/70#8 (t/229): a matching claim_id on a MULTI-instance candidate means the fact gained
+    instances since the manifest was built; emit it as a conflict, loudly, never drop it."""
+    items = [_c("conflict-standalone-1", ["the original fact", "a second, newer instance"])]
+    n, log = _gate(items)
+    assert n == 0
+    assert items[0]["status"] == "open" and "claim_type" not in items[0] and "demotion" not in items[0]
+    assert "WARN" in log and "conflict-standalone-1" in log and "emitting it as a CONFLICT" in log
+
+
+def test_merge_and_gate_wires_the_gate_into_the_regen_output():
+    """Quality #4900: the gate must be part of what main() emits. merge_and_gate is main()'s phase-1
+    step; a regen of a demoted standalone fact comes out demoted, and the count is reported."""
+    clusters = [
+        [("a.json", _c("conflict-36-out-of-38-gene-synthesis-providers-fu-adolesce", ["x"]))],
+        [("b.json", _c("conflict-live-one", ["p", "q"]))],
+    ]
+    with contextlib.redirect_stderr(io.StringIO()):
+        consolidated, source_map, demoted = cc.merge_and_gate(clusters)
+    assert demoted == 1
+    by_id = {c["claim_id"]: c for c in consolidated}
+    assert by_id["conflict-36-out-of-38-gene-synthesis-providers-fu-adolesce"]["status"] == "demoted"
+    assert by_id["conflict-live-one"]["status"] == "open"
+    src = (_SCRIPTS / "consolidate_conflicts.py").read_text(encoding="utf-8")
+    main_body = src[src.index("def main():"):]
+    assert "merge_and_gate(clusters)" in main_body, "main() must build its output through merge_and_gate"
+    assert "merge_cluster(cluster)" not in main_body, "main() must not merge around the gate"
+
+
 def test_unmatched_candidates_are_untouched():
     items = [_c("conflict-other", ["unrelated claim"])]
     before = copy.deepcopy(items)
