@@ -1154,7 +1154,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: bash .github/ci/data-root-guard-report.sh shard "$RUNNER_TEMP/vitest-taxonomy-editor.log" "$SHARD"
 
-      - name: Upload DATA-ROOT guard hits file (t/64; absent until lib #4766 records hits)
+      - name: Upload DATA-ROOT guard hits file (t/64; a missing set warns in test-electron-coverage, t/65)
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
