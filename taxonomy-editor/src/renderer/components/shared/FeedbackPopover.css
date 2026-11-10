@@ -142,7 +142,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: var(--focus-ring, #3b82f6);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;

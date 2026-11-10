@@ -880,8 +880,8 @@
   font-size: 0.7em;
   padding: 5px 7px;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  /* subtle split seam using the button's own #fff (the sanctioned Continue color) */
-  border-left: 1px solid color-mix(in srgb, #fff 30%, transparent);
+  /* subtle split seam in the button's own text colour (t/136: follows --text-on-focus-ring) */
+  border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent);
 }
 .debate-continue-primary:hover:not(:disabled),
 .debate-continue-caret:hover:not(:disabled) { filter: brightness(1.07); }
