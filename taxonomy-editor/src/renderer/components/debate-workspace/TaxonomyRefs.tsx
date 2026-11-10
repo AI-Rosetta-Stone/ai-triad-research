@@ -417,19 +417,18 @@ const BDI_GROUPS = [
   { key: 'situations', label: 'Situations' },
 ] as const;
 
-/** Category from a `{pov}-{category}-NNN` node id, or `situations` for `sit-NNN`. An id matching
+/** Category from a `{pov}-{category}-NNN` node id, or `situations` for `sit-NNN` and legacy `cc-NNN`. An id matching
  *  neither is shown under Situations so it stays visible, with a WARN (Design, p/14#20). */
 function bdiGroupKey(nodeId: string): string {
   const [prefix, cat] = nodeId.split('-');
   if (cat === 'desires' || cat === 'intentions' || cat === 'beliefs') return cat;
-  if (prefix !== 'sit') {
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'debate-workspace',
-      level: 'warn',
-      message: `BDI grounding: node id "${nodeId}" has no BDI category and isn't a situation; showing it under Situations`,
-    });
-  }
+  if (prefix === 'sit' || prefix === 'cc') return 'situations';
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'debate-workspace',
+    level: 'warn',
+    message: `BDI grounding: node id "${nodeId}" has no BDI category and isn't a situation; showing it under Situations`,
+  });
   return 'situations';
 }
 

@@ -195,4 +195,22 @@ describe('BdiGroundingView BDI grouping (t/187)', () => {
     expect(screen.getByText('No taxonomy grounding recorded for this answer.')).toBeInTheDocument();
     expect(screen.queryByText('No BDI grounding for this statement.')).not.toBeInTheDocument();
   });
+
+  it('treats legacy cc- IDs like sit- (no WARN) and groups them under Situations', () => {
+    mockRecord.mockClear();
+    render(<BdiGroundingView refs={[{ node_id: 'cc-001', relevance: 'legacy cc', relevance_score: 0.5 }, { node_id: 'sit-001', relevance: 'modern sit', relevance_score: 0.6 }]} />);
+    const situations = screen.getByRole('group', { name: 'Situations, 2 nodes' });
+    expect(within(situations).getByText('legacy cc')).toBeInTheDocument();
+    expect(within(situations).getByText('modern sit')).toBeInTheDocument();
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it('still records a WARN for truly unknown (non-BDI, non-sit, non-cc) node IDs', () => {
+    mockRecord.mockClear();
+    render(<BdiGroundingView refs={[{ node_id: 'unk-999', relevance: 'unknown', relevance_score: 0.1 }]} />);
+    expect(within(screen.getByRole('group', { name: 'Situations, 1 node' })).getByText('unknown')).toBeInTheDocument();
+    expect(mockRecord).toHaveBeenCalledTimes(1);
+    expect(mockRecord.mock.calls[0][0]).toMatchObject({ level: 'warn', component: 'debate-workspace' });
+    expect(String(mockRecord.mock.calls[0][0].message)).toContain('unk-999');
+  });
 });
