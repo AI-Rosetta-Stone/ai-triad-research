@@ -31,6 +31,7 @@
     "deploy/azure/smoke-healthz.sh"
   ],
   "electron": [
+    ".github/ci/data-root-guard-report.sh",
     "taxonomy-editor/**",
     "poviewer/**",
     "summary-viewer/**",
