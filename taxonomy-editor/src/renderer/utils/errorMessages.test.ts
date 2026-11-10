@@ -165,7 +165,7 @@ describe('mapErrorToUserMessage — kind option: operation-neutral timeout/5xx/5
 
   it('no operation string mentions models, debates, AI, or automatic retrying', () => {
     const produced = cases.map(([, err]) => mapErrorToUserMessage(err, { kind: 'operation' }));
-    // AI: a bare /AI/i would match "again" / "unavailable" in the table's own strings.
-    for (const text of produced) expect(text).not.toMatch(/model|debate|AI|retrying|automatically/i);
+    // \bAI\b: a bare /AI/i would match "again" / "unavailable" in the table's own strings.
+    for (const text of produced) expect(text).not.toMatch(/model|debate|\bAI\b|retrying|automatically/i);
   });
 });
