@@ -23,6 +23,9 @@ Active UX specs in `docs/ux/`. Design owns these; coding agents reference them d
 | `debate-view-mode-controls.md` | Two-mode (Text / Analysis) redesign of the debate statement + global view-mode button row (p/351) |
 | `debate-action-bar-redesign.md` | Debate window bottom bar → clean composer + `Tools ▾` menu consolidating secondary actions (t/2279) |
 | `oped-claims-section.md` | Op-ed study view: "Claims" section (above Taxonomy grounding) + per-element claim linkage, mirroring the grounding `<details>` pattern (t/2890) |
+| `oped-tool-theory-of-success.md` | Op-Ed tool success criteria: what the tool measures vs. aspirational, how the pipeline checks for quality, known gaps and failure modes (t/174) |
+| `oped-tool-theory-of-operations.md` | Op-Ed tool architecture: the 7-stage pipeline with prompts and temperatures, coherence and readability checks, BDI grounding selection, and performance considerations (t/174) |
+| `oped-tool-theory-of-outlets.md` | Op-Ed tool outlets: how outlet choice changes target length, guidance, readability targets and house style; current 9 outlets and how to add one (t/174) |
 | `debate-header-redesign.md` | Debate window header → title+source / status+metadata / per-POV DEBATERS strip; POV bars keep acc/saf/skp colors (t/2293) |
 | `debate-list-tables.md` | My/Community debate tabs → full-width tables (Title/Status/Date/Turns/Model/Actions); Title wraps, per-row Open/Export/Share|Copy controls (t/2305) |
 | `base-scale-calibration.md` | Raise base type baseline + tokenize icon sizes so 100% reads comfortably on web (fonts/icons tiny at 100%) |
