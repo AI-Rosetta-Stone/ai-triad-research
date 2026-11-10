@@ -23,6 +23,7 @@ import {
   startExportJob, getExportJob, hasExportJob, sweepExportJobs, countRunningExportJobs,
   findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey } from '../storage/jobCapChecker.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
 import type { DebateSession } from '../../../../lib/debate/types.js';
@@ -148,13 +149,28 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     const models = resolveExportModels(req, res, b);
     if (!models) return; // helper already wrote the 400/403
 
-    // Idempotency + concurrency.
+    // Idempotency + concurrency (durable via job records).
     sweepExportJobs();
     const userId = getStorageUserId();
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined) || undefined;
-    const existing = findIdempotentJob(userId, debateId, idempotencyKey);
-    if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
-    if (countRunningExportJobs(userId) >= MAX_CONCURRENT_EXPORT_JOBS) {
+    
+    // Durable idempotency check: cross-replica, fail-closed returns null.
+    const existingByKey = await findRunningJobByIdempotencyKey(
+      userId, 'briefExport', idempotencyKey,
+      (r: any) => r.status !== 'failed' && r.status !== 'done',
+    );
+    if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return; }
+
+    // Durable per-user concurrency cap: fail-closed rejects with 503 when backend list fails.
+    const capResult = await countUserJobRecords(
+      userId, 'briefExport',
+      (r: any) => r.status !== 'failed' && r.status !== 'done',
+    );
+    if (capResult.error) {
+      error(res, 'Job service temporarily unavailable', 503);
+      return;
+    }
+    if (capResult.count !== null && capResult.count >= MAX_CONCURRENT_EXPORT_JOBS) {
       json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
       return;
     }

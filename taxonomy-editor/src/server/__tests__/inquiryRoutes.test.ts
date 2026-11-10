@@ -23,6 +23,10 @@ const h = vi.hoisted(() => ({
   /** Controls the markJobFailedIfStale mock (t/3728 tier-3).
    *  false = null (no record / past window); 'stale' = failed verdict; 'live' = live verdict. */
   markStaleReturn: false as false | 'stale' | 'live',
+  /** Controls durable cap/idempotency mocks (t/182). */
+  capCountError: null as null | { reason: string },
+  capCount: 0,
+  durableIdempotent: null as { jobId: string } | null,
 }));
 
 vi.mock('../security/userContext.js', () => ({
@@ -63,6 +67,16 @@ vi.mock('../inquiryJobs.js', async () => ({
   isTerminalStatus: (await vi.importActual<typeof import('../../../../lib/inquiry/index.js')>('../../../../lib/inquiry/index.js')).isTerminalStatus,
   dropInquiryJob: (jobId: string) => dropInquiryJob(jobId),
 }));
+vi.mock('../storage/jobCapChecker.js', () => ({
+  countUserJobRecords: async (_userId: string, _kind: string, _isRunning: (r: unknown) => boolean) => {
+    if (h.capCountError) return { count: null, error: h.capCountError };
+    return { count: h.capCount, error: null };
+  },
+  findRunningJobByIdempotencyKey: async (_userId: string, _kind: string, idempotencyKey: string | undefined, _isRunning: (r: unknown) => boolean) => {
+    if (!idempotencyKey) return null;
+    return h.durableIdempotent;
+  },
+}));
 const renameInquiryResult = vi.fn(async (jobId: string, title: string) => { h.persisted.set(jobId, { ...(h.persisted.get(jobId) as object ?? {}), title }); });
 const deleteInquiryResult = vi.fn(async (jobId: string) => { h.persisted.delete(jobId); });
 vi.mock('../storage/inquiryResultStore.js', () => ({
@@ -99,6 +113,7 @@ const VALID = { question: 'What counts as an AI harm?', fidelity: 'standard' };
 beforeEach(() => {
   h.user = AUTHED; h.storageUserId = 'alice'; h.rpmAllowed = true; h.backendBlocked = false;
   h.registered = true; h.running = 0; h.idempotent = null; h.markStaleReturn = false;
+  h.capCountError = null; h.capCount = 0; h.durableIdempotent = null;
   h.jobById.clear(); h.hasById.clear(); h.persisted.clear(); h.summaries = [];
   startInquiryJob.mockClear();
   recordMock.mockClear();
@@ -137,7 +152,7 @@ describe('t/3581 — POST /api/inquiry', () => {
   });
 
   it('429 when the concurrency cap is already reached', async () => {
-    h.running = 1;
+    h.capCount = 1;
     const r = res(); await post()(req('/api/inquiry'), r, VALID);
     expect(r.statusCode).toBe(429);
     expect(startInquiryJob).not.toHaveBeenCalled();
@@ -150,7 +165,7 @@ describe('t/3581 — POST /api/inquiry', () => {
   });
 
   it('idempotency: returns the in-window jobId without starting a new job', async () => {
-    h.idempotent = { jobId: 'job-existing' };
+    h.durableIdempotent = { jobId: 'job-existing' };
     const r = res(); await post()(req('/api/inquiry', { 'idempotency-key': 'k1' }), r, VALID);
     expect(r.statusCode).toBe(202);
     expect(JSON.parse(r.body)).toEqual({ jobId: 'job-existing' });
@@ -175,7 +190,7 @@ describe('t/3581 — POST /api/inquiry', () => {
   });
 
   it('t/3724 — does NOT record inquiry.created when the request is rejected before starting a job', async () => {
-    h.running = 1; // 429 concurrency cap
+    h.capCount = 1; // 429 concurrency cap
     const r = res(); await post()(req('/api/inquiry'), r, VALID);
     expect(r.statusCode).toBe(429);
     expect(recordMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'inquiry.created' }));

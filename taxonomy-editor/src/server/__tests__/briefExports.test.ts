@@ -46,6 +46,12 @@ const { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefE
 }));
 vi.mock('../storage/briefExportStore.js', () => ({ listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus }));
 
+const { countUserJobRecords, findRunningJobByIdempotencyKey } = vi.hoisted(() => ({
+  countUserJobRecords: vi.fn(async () => ({ count: 0, error: null })),
+  findRunningJobByIdempotencyKey: vi.fn(async () => null),
+}));
+vi.mock('../storage/jobCapChecker.js', () => ({ countUserJobRecords, findRunningJobByIdempotencyKey }));
+
 import { registerBriefExportsRoutes } from '../routes/briefExports.js';
 import { BRIEF_ARTIFACTS } from '../../../../lib/brief/types.js';
 
@@ -86,6 +92,8 @@ describe('Brief Export routes (t/2804)', () => {
     sweepExportJobs.mockReset();
     countRunningExportJobs.mockReset().mockReturnValue(0);
     findIdempotentJob.mockReset().mockReturnValue(null);
+    countUserJobRecords.mockReset().mockResolvedValue({ count: 0, error: null });
+    findRunningJobByIdempotencyKey.mockReset().mockResolvedValue(null);
     listBriefExports.mockReset(); loadBriefExportRecord.mockReset(); loadBriefArtifact.mockReset(); deleteBriefExport.mockReset();
     getBriefExportsQuotaStatus.mockReset().mockResolvedValue({ allowed: true, resource: 'brief-exports', current: 0, limit: 25 });
     const r = makeRouter();
@@ -178,7 +186,7 @@ describe('Brief Export routes (t/2804)', () => {
   });
 
   it('idempotency: a matching in-window job returns its jobId (202) without starting a new job', async () => {
-    findIdempotentJob.mockReturnValue({ jobId: 'existing-9' });
+    findRunningJobByIdempotencyKey.mockResolvedValue({ jobId: 'existing-9' });
     await handlers['POST /api/debates/:debateId/exports'](fakeReq('/api/debates/deb-1/exports', { 'idempotency-key': 'k-1' }), fakeRes_(), validBody);
     expect(lastRes._status).toBe(202);
     expect(JSON.parse(lastRes._body!)).toEqual({ jobId: 'existing-9' });
@@ -186,7 +194,7 @@ describe('Brief Export routes (t/2804)', () => {
   });
 
   it('429 when the per-user concurrency cap is reached', async () => {
-    countRunningExportJobs.mockReturnValue(1); // == MAX_CONCURRENT_EXPORT_JOBS
+    countUserJobRecords.mockResolvedValue({ count: 1, error: null }); // == MAX_CONCURRENT_EXPORT_JOBS
     await post(validBody);
     expect(lastRes._status).toBe(429);
     expect(JSON.parse(lastRes._body!).error).toBe('concurrency_limit');

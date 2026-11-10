@@ -30,6 +30,7 @@ import {
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey } from '../storage/jobCapChecker.js';
 import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
@@ -108,12 +109,23 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       const userId = getStorageUserId();
       const idempotencyKey = idempotencyKeyOf(req);
 
-      // Idempotency: an in-window job for the same (user, key) returns its jobId (no second run).
-      const existing = findIdempotentInquiryJob(userId, idempotencyKey);
-      if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
+      // Durable idempotency check: cross-replica, fail-closed returns null to allow writeFileIfAbsent to enforce it.
+      const existingByKey = await findRunningJobByIdempotencyKey(
+        userId, 'inquiry', idempotencyKey,
+        (r: any) => r.status !== 'failed' && r.status !== 'done',
+      );
+      if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return; }
 
-      // Per-user concurrency cap — an inquiry is expensive; one at a time.
-      if (countRunningInquiryJobs(userId) >= MAX_CONCURRENT_INQUIRY_JOBS) {
+      // Durable per-user concurrency cap: fail-closed rejects with 503 when backend list fails.
+      const capResult = await countUserJobRecords(
+        userId, 'inquiry',
+        (r: any) => r.status !== 'failed' && r.status !== 'done',
+      );
+      if (capResult.error) {
+        error(res, 'Job service temporarily unavailable', 503);
+        return;
+      }
+      if (capResult.count !== null && capResult.count >= MAX_CONCURRENT_INQUIRY_JOBS) {
         error(res, 'An inquiry is already running — wait for it to finish before starting another', 429);
         return;
       }
