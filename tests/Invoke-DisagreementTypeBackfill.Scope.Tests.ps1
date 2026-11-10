@@ -48,3 +48,19 @@ Describe 'Select-BackfillTarget (t/214)' -Tag 'unit' {
         { Select-BackfillTarget -Candidates $script:Cands -ExcludeIds 'sit-486' } | Should -Throw -ExpectedMessage '*ExcludeReason*'
     }
 }
+
+Describe 'classification prompt lives in Prompts/ (t/246)' -Tag 'unit' {
+    It 'the script loads it through Get-Prompt, with no inline here-string' {
+        $path = Join-Path $PSScriptRoot '..' 'scripts' 'Invoke-DisagreementTypeBackfill.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $assign = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$ClassifyPrompt' }, $true))
+        $assign.Count | Should -Be 1
+        $assign[0].Right.Extent.Text | Should -Match "Get-Prompt -Name 'disagreement-type-classification'"
+    }
+
+    It 'the prompt file resolves through Get-Prompt and carries the rubric output contract' {
+        Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
+        $text = & (Get-Module AITriad) { Get-Prompt -Name 'disagreement-type-classification' }
+        $text | Should -Match '"disagreement_type": "definitional\|interpretive\|structural\|insufficient"'
+    }
+}
