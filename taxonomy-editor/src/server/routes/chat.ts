@@ -23,7 +23,7 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext } from './generationContext.js';
-import { getApiKeys, hasApiKey, type AIBackend } from '../config.js';
+import { getApiKeys, hasApiKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
 import {
   reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, admitOrDrawDownDebateCall,
@@ -214,6 +214,9 @@ async function resolveExplicitAiKey(
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    // t/204: the user's own stored Settings key comes before the free pool (and its geo gate).
+    const stored = await getStoredUserKeysBeforeFreePool(backend);
+    if (stored.length > 0) return { ok: true, key: stored.length === 1 ? stored[0] : stored, reservationId: null, debateReservationId: null };
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {

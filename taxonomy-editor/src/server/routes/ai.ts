@@ -24,7 +24,7 @@ import * as allowlistStore from '../storage/allowlistStore.js';
 import { EMBEDDING_COMPUTE_CHUNK, EMBEDDINGS_REQUEST_TIMEOUT_MS, type GenerateTextProgress } from '../ai/aiBackends.js';
 import { log, getRequestContext, getRequestId } from '../logger.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
-import { hasApiKey, getPaidGeminiFallbackKey, type AIBackend } from '../config.js';
+import { hasApiKey, getPaidGeminiFallbackKey, getStoredUserKeysBeforeFreePool, type AIBackend } from '../config.js';
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
@@ -168,6 +168,9 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    // t/204: the user's own stored Settings key comes before the free pool (and its geo gate).
+    const stored = await getStoredUserKeysBeforeFreePool(backend);
+    if (stored.length > 0) return { ok: true, key: stored.length === 1 ? stored[0] : stored, reservationId: null, debateReservationId: null };
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {
@@ -900,10 +903,13 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
         // t/4489: BYOK user with their own key — use it, skip free pool entirely (and its geo gate).
         nliKeys = [clientKey];
       } else {
+        // t/204: a signed-in user's stored Settings key comes before the free pool.
+        const stored = await getStoredUserKeysBeforeFreePool('gemini');
+        if (stored.length > 0) nliKeys = stored;
         // t/4486: the ONLY other injection site besides resolveExplicitAiKey — must go through
         // the same geo-gated accessor (TL review, t/4486#2: this route bypassed
         // resolveGenerationContext entirely, so a guard placed only there would miss it).
-        if (proxyTiers.freeTierEnabled()) {
+        else if (proxyTiers.freeTierEnabled()) {
           const poolResult = await getFreePoolKeys(req, res);
           if (!poolResult.ok) return; // 403 free_pool_region already written
           nliKeys = poolResult.keys;
