@@ -299,6 +299,8 @@ jobs:
               # imported by check_composition_drift.py for the real field composition
               - 'scripts/embed_taxonomy.py'
               - '.github/ci/fetch_embed_models.py'
+              # t/62: the shared model pins fetch_embed_models.py and embed_taxonomy.py both read
+              - 'scripts/embed_model_pins.json'
               - '.github/ci/assert_embed_stability.py'
               - '.github/ci/embed_reference.json'
               - '.github/actions/checkout-ai-triad-data/**'
@@ -2294,7 +2296,8 @@ jobs:
           pip install -r requirements.txt
       # t/55: live unauthenticated HF downloads (~5.4 GB before the fetch script was narrowed)
       # timed this job out and stalled the merge queue. The models are pinned in
-      # fetch_embed_models.py, so its hash is the cache key and a pin bump rotates the cache.
+      # scripts/embed_model_pins.json (t/62), read by fetch_embed_models.py; the key hashes
+      # both, so a pin bump (or a fetch-pattern change) rotates the cache.
       # Every run restores; only a main-ref run (schedule, push, dispatch) saves on a miss,
       # so ephemeral merge_group/PR refs don't spend ~640 MB of the repo's cache quota each.
       - name: Restore HF model cache
@@ -2302,7 +2305,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.cache/huggingface/hub
-          key: hf-embed-${{ runner.os }}-${{ hashFiles('.github/ci/fetch_embed_models.py') }}
+          key: hf-embed-${{ runner.os }}-${{ hashFiles('.github/ci/fetch_embed_models.py', 'scripts/embed_model_pins.json') }}
       # Hit: verify the cache offline (no network; fails in ~1s if incomplete). An incomplete
       # hit falls back to the online fetch with a WARN, rather than redding on a bad cache.
       # Miss: online fetch, which retries 3x with backoff inside the script.
