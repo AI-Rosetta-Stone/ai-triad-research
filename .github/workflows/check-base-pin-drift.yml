@@ -7,10 +7,12 @@
 # Why:   On 2026-11-08 base-image.yml's rebuild fixed CVE-2026-76844, but the pin stayed old and
 #        container builds failed Trivy for days with no alert (Orca t/4943, t/255). A same-day
 #        re-push moves the digest under an unchanged tag, so the check compares digests too.
-# Setup: Repo variable AUTHOR_APP_CLIENT_ID and repo secret AUTHOR_APP_PRIVATE_KEY, for the
-#        author App (ai-triad-author-jpsnover, docs/agent-pr-approval.md) with Contents and
-#        Pull requests write. Its pushes trigger CI; GITHUB_TOKEN's don't. Until both exist the
-#        job logs a WARN and falls back to the issue. Adding them is a PI credentials decision.
+# Setup: Variable AUTHOR_APP_CLIENT_ID and secret AUTHOR_APP_PRIVATE_KEY live in the
+#        `author-app` ENVIRONMENT (deployment branches: main only; PI decision 2026-11-10, t/255),
+#        not at repo level, so they resolve only in a job that declares `environment: author-app`.
+#        They belong to the author App (ai-triad-author-jpsnover, docs/agent-pr-approval.md),
+#        with Contents and Pull requests write. Its pushes trigger CI; GITHUB_TOKEN's don't. If
+#        either is missing the job logs a WARN and falls back to the issue.
 # Scope: taxonomy-editor/Dockerfile only (TL decision, t/255). Logic and tests:
 #        operations/devops/docker/base-pin-drift.mjs (+ .test.mjs).
 
@@ -43,6 +45,9 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The only job, and it mints the App token, so it carries the environment (main-only branch
+    # policy). The key is still referenced only by the mint step.
+    environment: author-app
     permissions:
       contents: read
       issues: write
