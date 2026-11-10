@@ -235,12 +235,6 @@ export class TopicPipeline {
           taxonomy_refs: [], metadata: {},
         });
       }
-        this.ctx.addEntry({
-          type: 'system', speaker: 'system',
-          content: `Topic wisdom score: ${critique.composite_score}/20. No reframing needed.${exploratoryNote}`,
-          taxonomy_refs: [], metadata: {},
-        });
-      }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.ctx.session?.id, message: 'Topic critique failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       this.ctx.warn('Topic critique', err, 'Topic quality evaluation skipped — does not affect debate flow');
