@@ -14,7 +14,7 @@
   --lib-accent-hover: var(--danger);
   --lib-border-header: var(--border-color);
   --lib-border-row: var(--border-color);
-  --lib-border-control: var(--border-color);
+  --lib-border-control: var(--input-border);
   --lib-active-bg: var(--accent-bg);
   --lib-inactive-badge-bg: var(--bg-tertiary);
   --lib-row-hover: var(--bg-hover);
@@ -32,7 +32,7 @@
     --lib-accent-hover: var(--danger);
     --lib-border-header: var(--border-color);
     --lib-border-row: var(--border-color);
-    --lib-border-control: var(--border-color);
+    --lib-border-control: var(--input-border);
     --lib-active-bg: var(--accent-bg);
     --lib-inactive-badge-bg: var(--bg-tertiary);
     --lib-row-hover: var(--bg-hover);
@@ -50,7 +50,7 @@
   --lib-accent-hover: var(--danger);
   --lib-border-header: var(--border-color);
   --lib-border-row: var(--border-color);
-  --lib-border-control: var(--border-color);
+  --lib-border-control: var(--input-border);
   --lib-active-bg: var(--accent-bg);
   --lib-inactive-badge-bg: var(--bg-tertiary);
   --lib-row-hover: var(--bg-hover);
@@ -67,7 +67,7 @@
   --lib-accent-hover: var(--danger);
   --lib-border-header: var(--border-color);
   --lib-border-row: var(--border-color);
-  --lib-border-control: var(--border-color);
+  --lib-border-control: var(--input-border);
   --lib-active-bg: var(--accent-bg);
   --lib-inactive-badge-bg: var(--bg-tertiary);
   --lib-row-hover: var(--bg-hover);
@@ -84,7 +84,7 @@
   --lib-accent-hover: #861b2d;
   --lib-border-header: #e0d8cd;
   --lib-border-row: #e6dfd5;
-  --lib-border-control: #ddd5ca;
+  --lib-border-control: var(--input-border);
   --lib-active-bg: #f3dde1;
   --lib-inactive-badge-bg: #e8e1d7;
   --lib-row-hover: #ece6dd;

@@ -67,6 +67,18 @@
   --error-color: var(--danger); /* generic error red — alias, single source like --error */
   --error-text: #B42318; /* foreground; AA on --bg-primary (paired w/ --success-text) AND on --error-bg */
   --error-bg: #FDECEC;
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #a16207;
+  --success-bg: #eff6f1;
+  --info-bg: #edf1fc;
+  --info-text: #1d4ed8;
+  --violet-bg: #f3edfd;
+  --violet-text: #7c3aed;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #faf3ee;
+  --color-saf-bg: #f0f4f9;
+  --color-skp-bg: #f6f3f9;
+  --input-border: #85909f;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #F3C0C0;
   --bar: #3b82f6; /* data-blue share-bar fill; was undefined → hardcoded fallback (t/2565) */
 
@@ -88,7 +100,7 @@
   /* POV colors — orange/blue/violet triad (Phase 2, WCAG AA verified) */
   --color-acc: #e89450;
   --color-saf: #7da3d6;
-  --color-skp: #a888c8;
+  --color-skp: #b69bd1;  /* t/48: was #a888c8 (4.06 on hover); same hue, lifted */
   --color-sit: #2dd4bf;
   --color-conflicts: #95a5a6;
   --tint-acc: rgba(232, 148, 80, 0.12);
@@ -148,6 +160,18 @@
   --error-color: var(--danger);
   --error-text: #FCA5A5; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2A1616;
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #f59e0b;
+  --success-bg: #143430;
+  --info-bg: #1e2f49;
+  --info-text: #60a5fa;
+  --violet-bg: #292a49;
+  --violet-text: #a78bfa;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #332c2e;
+  --color-saf-bg: #222e43;
+  --color-skp-bg: #292a41;
+  --input-border: #6a7381;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #4D2424;
   --bar: #60a5fa; /* data-blue share-bar fill (t/2565) */
 
@@ -229,6 +253,18 @@
   --error-color: var(--danger);
   --error-text: #FF9B9B; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2E1A1C;
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #d9a441;
+  --success-bg: #1a4326;
+  --info-bg: #2b3239;
+  --info-text: #799dc7;
+  --violet-bg: #37333e;
+  --violet-text: #b79be0;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #2d2722;
+  --color-saf-bg: #25282c;
+  --color-skp-bg: #2a272c;
+  --input-border: #78677c;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #4D2428;
   --bar: #6a9fd4; /* data-blue share-bar fill (t/2565) */
 
@@ -308,6 +344,18 @@
   --error-color: var(--danger);
   --error-text: #A5182A; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #F5E2E2;
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #876208;
+  --success-bg: #e8ebe6;
+  --info-bg: #e7e9ed;
+  --info-text: #275498;
+  --violet-bg: #ece7ec;
+  --violet-text: #5e3a8c;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #f1e7de;
+  --color-saf-bg: #e5e8ec;
+  --color-skp-bg: #ece6eb;
+  --input-border: #8d8780;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #D9A5A5;
   --bar: #3f6fae; /* data-blue share-bar fill (t/2565) */
 
