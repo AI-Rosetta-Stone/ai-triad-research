@@ -285,6 +285,52 @@ function writeSse(res: http.ServerResponse, payload: Record<string, unknown>): v
   try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* telemetry — silent by design */ }
 }
 
+/** Validate rate limits for chat-stream (mirrors /api/ai/generate pattern). */
+function validateChatRateLimits(res: http.ServerResponse, isFree: boolean, limitKey: string, tier: ResolvedTier): boolean {
+  const rpmCheck = isFree
+    ? rateLimiter.checkRate(limitKey, tier.limits.requestsPerMinute, 60_000)
+    : rateLimiter.checkRequestRate(limitKey, tier.limits.requestsPerMinute);
+  if (!rpmCheck.allowed) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Rate limit exceeded', limitType: 'requests_per_minute', retryAfterMs: rpmCheck.retryAfterMs }));
+    return false;
+  }
+  const tokenCheck = rateLimiter.checkTokenLimit(limitKey, tier.limits.tokensPerDay);
+  if (!tokenCheck.allowed) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Daily token limit exceeded', limitType: 'tokens_per_day' }));
+    return false;
+  }
+  return true;
+}
+
+/** Check key availability for backend (t/896 pattern: 422 if missing/unusable). */
+async function validateChatKeyAvailable(res: http.ServerResponse, backend: AIBackend, tier: ResolvedTier, explicitKey: string | string[] | undefined): Promise<string | null> {
+  const haveExplicitKey = (typeof explicitKey === 'string' && explicitKey.length > 0) || (Array.isArray(explicitKey) && explicitKey.length > 0);
+  const missingKey = missingApiKeyError({
+    backend,
+    displayName: backend,
+    serverProvidedKey: !!tier.serverProvidedKey,
+    haveExplicitKey,
+    hasResolvedKey: haveExplicitKey || (!tier.serverProvidedKey && await hasApiKey(backend)),
+  });
+  if (missingKey) {
+    res.writeHead(422, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(missingKey));
+    return null;
+  }
+  const rawKeys: string[] = typeof explicitKey === 'string'
+    ? [explicitKey]
+    : Array.isArray(explicitKey) ? explicitKey : await getApiKeys(backend);
+  const apiKey = rawKeys[0];
+  if (!apiKey) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'No API key available for backend' }));
+    return null;
+  }
+  return apiKey;
+}
+
 export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
   const { post } = r;
 
@@ -325,32 +371,9 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       const explicitKey = keyResult.key;
       freePoolBudget = trackFreePoolReservation(keyResult.reservationId, keyResult.debateReservationId);
 
-      // 422 fast-fail when there is no usable key for the backend (t/896 pattern).
-      const haveExplicitKey = (typeof explicitKey === 'string' && explicitKey.length > 0)
-        || (Array.isArray(explicitKey) && explicitKey.length > 0);
-      const missingKey = missingApiKeyError({
-        backend,
-        displayName: backend,
-        serverProvidedKey: !!tier.serverProvidedKey,
-        haveExplicitKey,
-        hasResolvedKey: haveExplicitKey || (!tier.serverProvidedKey && await hasApiKey(backend)),
-      });
-      if (missingKey) {
-        res.writeHead(422, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(missingKey));
-        return;
-      }
-
-      // Resolve concrete API key string(s). Platform tier uses server-configured keys.
-      const rawKeys: string[] = typeof explicitKey === 'string'
-        ? [explicitKey]
-        : Array.isArray(explicitKey) ? explicitKey : await getApiKeys(backend);
-      const apiKey = rawKeys[0];
-      if (!apiKey) {
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'No API key available for backend' }));
-        return;
-      }
+      // Validate key is usable (t/896 pattern).
+      const apiKey = await validateChatKeyAvailable(res, backend, tier, explicitKey);
+      if (!apiKey) return;
 
       const requestModel = effectiveModel || DEFAULT_MODEL;
       const t0 = Date.now();
