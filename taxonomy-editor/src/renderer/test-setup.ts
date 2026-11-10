@@ -8,7 +8,7 @@ import { installDataRootGuard } from '../../../lib/test-support/dataRootGuard';
 
 // t/4462 (t/4454 Phase 1): WARN (DATA-ROOT-TEST-WRITE) on any test write under the real ai-triad-data.
 // This config also runs most lib/** suites. Idempotent across the per-file setup runs.
-installDataRootGuard({ mode: 'warn' });
+installDataRootGuard(); // mode comes from the lib default (warn today; block after t/162, t/160)
 
 afterEach(() => {
   cleanup();
