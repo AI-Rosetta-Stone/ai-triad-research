@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => null }));
@@ -22,9 +22,12 @@ vi.mock('@bridge', () => ({
   },
 }));
 
-const { FactsPanel } = await import('./FactsPanel');
+const { FactsPanel, __resetFactsCacheForTests } = await import('./FactsPanel');
 
 describe('FactsPanel (t/1025, t/1906)', () => {
+  // t/82: the facts index is a module-level cache; start every test cold so no test sees
+  // another test's (or another file's) fixture data.
+  beforeEach(() => { __resetFactsCacheForTests(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('shows an empty state for a node with no linked evidence', async () => {
@@ -73,6 +76,36 @@ describe('FactsPanel (t/1025, t/1906)', () => {
       rerender(<FactsPanel nodeId="node-mention" onSelectFact={onSelectFact} />);
       await waitFor(() => expect(screen.getByText(/Anthropic released a model/)).toBeInTheDocument());
       expect(screen.getByText('Model release').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('applies the node-switch default from the NEW node\'s loaded facts, not the stale previous-node render (t/83)', async () => {
+      // Same race as SourcesPanel/PhrasesPanel (p/356#162): right after a nodeId change, one
+      // commit still holds the PREVIOUS node's `facts`, and an ungated default-expand effect
+      // would consume `defaultAppliedFor` on that stale data. It's invisible in the UI today
+      // only because the default is the bare index 0, which is right for any node's first
+      // fact — key the default by anything node-specific and it breaks. So the
+      // `loadedFor === nodeId` guard is NOT redundant; this test pins it by checking WHEN the
+      // default lands: gated, B's card first commits collapsed and then flips open (the effect
+      // reacted to B's facts); ungated, it's inserted already open (the default was pre-applied
+      // from A's stale facts).
+      const { container, rerender } = render(<FactsPanel nodeId="node-facts" />);
+      await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
+
+      const flips: Array<{ label: string | null; from: string | null; to: string | null }> = [];
+      const observer = new MutationObserver((records) => {
+        for (const r of records) {
+          const el = r.target as HTMLElement;
+          flips.push({ label: el.querySelector('.facts-label')?.textContent ?? null, from: r.oldValue, to: el.getAttribute('aria-expanded') });
+        }
+      });
+      observer.observe(container, { subtree: true, attributes: true, attributeFilter: ['aria-expanded'], attributeOldValue: true });
+
+      rerender(<FactsPanel nodeId="node-mention" />);
+      await waitFor(() => expect(screen.getByText('Model release').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true'));
+      await new Promise((r) => setTimeout(r, 0)); // let the observer deliver its records
+      observer.disconnect();
+
+      expect(flips).toContainEqual({ label: 'Model release', from: 'false', to: 'true' });
     });
 
     it('collapsing the default-expanded fact works, and it does not reopen on an unrelated re-render', async () => {
