@@ -8,13 +8,32 @@ This document describes how the Ask a Question inquiry feature works end-to-end:
 
 Ask a Question orchestrates a single `runInquiryPipeline` across two hosts—Electron desktop and web server. The two hosts share the same stage sequence so logic never drifts between them; each host handles its own job lifecycle, storage, and TTL.
 
-The pipeline is implemented in `lib/debate/inquiryPipeline.ts`.
+The pipeline stages are defined in `lib/debate/inquiryPipeline.ts:37` as: `'deriving' | 'grounding' | 'debating' | 'projecting' | 'synthesizing'`.
 
-### Stage 1: Derive (Grounding)
+### Stage 1: Deriving
+
+**Purpose:** Create a bounded debate configuration from the user's question.
+
+**Input:** User's natural-language question.
+
+**Process:**
+
+1. Derive a `DebateConfig` from the question and fidelity level (see `lib/debate/inquiryConfig.ts`).
+   - Map question intent to relevant agent roles and debate shape.
+   - Set turn order, debate depth, and convergence thresholds.
+   - Set fidelity level (0.5–1.0) to control debate scope and cost. Higher fidelity = more turns, higher cost.
+
+**Output:** A `DebateConfig` ready for the debate stage.
+
+**Implementation:** `lib/debate/inquiryConfig.ts`, `deriveDebateConfig()`.
+
+---
+
+### Stage 2: Grounding
 
 **Purpose:** Convert the user's question into a bounded debate by selecting relevant taxonomy nodes.
 
-**Input:** User's natural-language question; the taxonomy (`taxonomy/Origin/nodes.json`).
+**Input:** User's question; the taxonomy (`taxonomy/Origin/nodes.json`).
 
 **Process:**
 
@@ -27,70 +46,44 @@ The pipeline is implemented in `lib/debate/inquiryPipeline.ts`.
 - `nodesByCamp`: Map of camp → list of `{ nodeId, label }` pairs
 - `campCoverage`: Which camps have low taxonomy coverage for this question (flagged for synthesis pass)
 
-**Implementation:** `lib/debate/inquiryGrounding.ts`, `buildGroundingEnvelope()`
+**Implementation:** `lib/debate/inquiryGrounding.ts`, `buildGroundingEnvelope()`.
 
 **Failure mode:** If the embedding search returns no results or very weak results, the grounding envelope is sparse. The synthesis pass detects this via `campCoverage.lowCoverage` and flags the camp in the output with "The taxonomy has little that speaks directly to this question."
 
 ---
 
-### Stage 2: Debate
+### Stage 3: Debating
 
 **Purpose:** Run the full debate engine on the question, bounded by the grounding envelope.
 
-**Input:** The `GroundingEnvelope` from Stage 1; the user's question.
+**Input:** The `DebateConfig` from Stage 1; the `GroundingEnvelope` from Stage 2; the user's question.
 
 **Process:**
 
-1. Derive a `DebateConfig` from the grounding envelope (see `lib/debate/inquiryConfig.ts`).
-   - Map each grounded node to a debate agent.
-   - Set agent turn order, debate depth, and convergence thresholds.
-   - Set fidelity level (0.5–1.0) to control debate scope and cost. Higher fidelity = more turns, higher cost.
-
-2. Run `debateEngine.runHeadlessDebate()` with the derived config and question.
-
-3. The debate engine runs up to N turns per agent, emitting:
+1. Run `debateEngine.runHeadlessDebate()` with the config and question.
+2. The debate engine runs up to N turns per agent, emitting:
    - Turns in the transcript
-   - Intermediate QBAF updates
+   - Intermediate QBAF relations (Quantified Bipolar Argumentation Framework, see `lib/debate/qbaf.ts`)
    - Termination reason (converged, budget exhausted, rate limit, other)
 
-**Output:** A `DebateSession` containing the full transcript, final belief states, and termination metadata.
+**Output:** A `DebateSession` containing the full transcript, argument network with QBAF edges, neutral evaluation scores (see `lib/debate/neutralEvaluator.ts`), final belief states, and termination metadata.
 
-**Implementation:** `lib/debate/inquiryConfig.ts` (config derivation); `lib/debate/debateEngine.ts` (debate run).
+**Implementation:** `lib/debate/debateEngine.ts`, `runHeadlessDebate()`. QBAF and neutral evaluation are computed in-place during the debate.
 
 **Failure modes:**
-- **Budget exhaustion:** The debate runs out of API budget and terminates early. The system continues to synthesis but marks metrics as low-confidence.
+- **Budget exhaustion:** The debate runs out of API budget and terminates early. Termination is captured as `api_ceiling`.
 - **Rate limiting:** An external API (Gemini, OpenAI, etc.) rate-limits the service. Termination is captured as `api_ceiling`.
-- **Convergence timeout:** The debate does not converge within the configured turn limit. The system continues to synthesis; metrics reflect incomplete convergence.
+- **Convergence timeout:** The debate does not converge within the configured turn limit. Termination is captured as `max_turns`.
 
 All termination reasons are tracked in `TerminationReason` (closed union in `lib/debate/calibrationLogger/extract.ts`).
 
 ---
 
-### Stage 3: Judge (QBAF + Neutral Evaluation)
-
-**Purpose:** Evaluate argument quality across the debate and compute neutral scores.
-
-**Input:** The `DebateSession` from Stage 2.
-
-**Process:**
-
-This stage runs existing infrastructure:
-
-1. Extract argument relations from the transcript using the QBAF (Quantified Bipolar Argumentation Framework) logic in `lib/debate/qbaf.ts`.
-2. Compute neutral evaluation metrics using `lib/debate/neutralEvaluator.ts` (factual quality, logical consistency, diversity of sources).
-3. These scores feed into the synthesis prompt to weight which arguments the LLM emphasizes.
-
-**Output:** Enriched `DebateSession` with QBAF edges and neutral metrics attached to each argument.
-
-**Implementation:** Existing; not modified for inquiry. Reuses `neutralEvaluator.ts` and `qbaf.ts`.
-
----
-
-### Stage 4: Project Trust
+### Stage 4: Projecting
 
 **Purpose:** Map the debate's termination reason to per-metric confidence scores.
 
-**Input:** The enriched `DebateSession` and its `terminationReason` from Stage 3.
+**Input:** The `DebateSession` from Stage 3 and its `terminationReason`.
 
 **Process:**
 
@@ -98,8 +91,8 @@ This stage runs existing infrastructure:
 
 2. Apply the trust projection matrix (per ADR-0002):
    - If termination was `converged`, all metrics get high confidence.
-   - If termination was `api_ceiling` (budget exhausted), metrics depending on complete information (e.g., convergence score) get low confidence.
-   - If termination was `rate_limited`, similar penalty applies.
+   - If termination was `api_ceiling` (budget exhausted or rate-limited), metrics depending on complete information (e.g., convergence score) get low confidence.
+   - If termination was `max_turns`, convergence metric gets low confidence.
 
 3. Return a `TrustProjection` object mapping metric name → confidence score.
 
@@ -111,9 +104,9 @@ This stage runs existing infrastructure:
 
 ---
 
-### Stage 5: Synthesize
+### Stage 5: Synthesizing
 
-**Purpose:** Convert the debate session, metrics, and grounding context into a structured answer.
+**Purpose:** Convert the debate session, trust scores, and grounding context into a structured answer.
 
 **Input:**
 - The debate session with QBAF and neutral evaluation
@@ -127,9 +120,11 @@ This stage runs existing infrastructure:
 
 2. Summarize the argument network: which arguments support which claims, which camps agree, which diverge.
 
-3. Send this context to the synthesis LLM with a structured prompt (see `lib/debate/prompts/inquiry.ts`, `inquirySynthesisPrompt()`).
+3. Determine the synthesis model: `derivation.models['evaluator'] ?? derivation.models['debaters']` (`lib/debate/inquirySynthesis.ts:240`). The model comes from the debate config, not a separate selection.
 
-4. The LLM returns a JSON object with:
+4. Send the context to the synthesis LLM via a single evaluator call with a structured prompt (see `lib/debate/prompts/inquiry.ts`, `inquirySynthesisPrompt()`).
+
+5. The LLM returns a JSON object with:
    ```json
    {
      "campVerdicts": [{"camp": "acc", "verdict": "...", "nodeIds": ["acc-beliefs-001"]}],
@@ -141,20 +136,20 @@ This stage runs existing infrastructure:
    }
    ```
 
-5. Validate the output:
-   - All node IDs must exist in the grounding envelope (no hallucinated citations).
+6. Parse and validate the output:
+   - Resolve node IDs to grounding-snapshot NodeRefs. **IDs not in the snapshot are dropped with a warn** — the LLM may hallucinate IDs that were never in the prompt context (`lib/debate/inquirySynthesis.ts:187`).
    - All figures (numbers, dates, magnitudes) must be drawn from the question or debate highlights (FIGURES RULE in the prompt).
    - If a camp has `lowCoverage: true` from the grounding stage, prepend "The taxonomy has little that speaks directly to this question; " to that camp's verdict.
 
-6. Wrap the result in an `InquiryResult` object, including the termination reason, trust scores, and usage metrics.
+7. Wrap the result in an `InquiryResult` object, including the termination reason, trust scores, and usage metrics.
 
 **Output:** An `InquiryResult` (defined in `lib/inquiry/schema.ts`) ready for storage and rendering.
 
 **Implementation:** `lib/debate/inquirySynthesis.ts`, `synthesizeInquiry()`. Prompts defined in `lib/debate/prompts/inquiry.ts`.
 
 **Failure modes:**
-- **Hallucinated citations:** The LLM cites a node ID that doesn't exist. Synthesis validation catches this and returns an error.
-- **Missing output fields:** The LLM omits a required field. Validation catches this and re-prompts or returns a structured error.
+- **Malformed JSON:** The LLM returns invalid JSON. `synthesizeInquiry()` throws an `ActionableError` with instructions to retry and check flight-recorder logs (`lib/debate/inquirySynthesis.ts:274`).
+- **Hallucinated node citations:** Resolved node IDs are dropped with a warn. The result still emits with those IDs absent from the output (`lib/debate/inquirySynthesis.ts:187`).
 - **Single-run caveat missing:** If the LLM doesn't include the caveat, `synthesizeInquiry()` injects it using the standard text from `inquiry.ts`.
 
 ---
@@ -173,10 +168,11 @@ This stage runs existing infrastructure:
 - **Where:** `lib/debate/debateEngine.ts`
 - **Temperature:** 1.0 (higher creativity to explore disagreement); can be lowered for fidelity < 0.5.
 
-### Synthesis LLM
+### Synthesis Model
 
-- **Model:** Typically Claude (high reasoning quality for structured output). Configurable in `inquiryPipeline.ts`.
+- **Model selection:** The synthesis model is drawn from the derived debate config: `derivation.models['evaluator'] ?? derivation.models['debaters']` (`lib/debate/inquirySynthesis.ts:240`). It is NOT independently selected (TL t/3580#3 note 1).
 - **Prompt:** `lib/debate/prompts/inquiry.ts`, `inquirySynthesisPrompt()`.
+- **Invocation:** Single evaluator call; does not use debate-turn prompts.
 - **Key rules in the prompt:**
   - Return ONLY valid JSON.
   - FIGURES RULE: No new numbers or magnitudes; only cite figures from the question or debate.
@@ -224,10 +220,9 @@ Both hosts return the same `InquiryResult` type (defined in `lib/inquiry/schema.
 | Debate budget exhausted | `terminationReason: 'api_ceiling'` | Continue to synthesis; trust projection marks convergence/completeness metrics as low-confidence. |
 | API rate limit | `terminationReason: 'api_ceiling'` | Same as budget exhaustion. |
 | Debate convergence timeout | `terminationReason: 'max_turns'` | Continue to synthesis; convergence metric gets low trust. |
-| Synthesis LLM returns invalid JSON | Parse error in stage 5 | Return structured error with the raw response; do not fail the job. Log the error; alert SRE. |
-| Synthesis hallucinates citations | Validation fails in stage 5 | Return structured error naming the bad node IDs. Do not emit the result. |
-| Synthesis omits required field | Validation fails in stage 5 | Re-prompt the LLM with the same context and a "retry with missing fields" instruction. If retry fails, return structured error. |
-| Synthesis misses single-run caveat | Validation succeeds but caveat is missing | Inject the standard caveat text from `inquiry.ts`. |
+| Synthesis LLM returns invalid JSON | `ActionableError` at `lib/debate/inquirySynthesis.ts:274` | Throw error with user-actionable steps: check flight-recorder logs, retry the inquiry, inspect prompt template if consistently fails. No automatic re-prompt or SRE alert. |
+| Synthesis hallucinates node IDs | **Dropped with warn** at `lib/debate/inquirySynthesis.ts:187` | IDs not in grounding snapshot are removed from the output. Result emits with those citations absent. |
+| Synthesis misses single-run caveat | (not a failure) | If the LLM doesn't include the caveat, `synthesizeInquiry()` injects it using the standard text from `inquiry.ts`. |
 
 ---
 
@@ -237,10 +232,9 @@ Both hosts return the same `InquiryResult` type (defined in `lib/inquiry/schema.
 
 The inquiry pipeline emits structured events via the Flight Recorder (`lib/flight-recorder/index.ts`):
 
-- `inquiry.stage_begin`: When each stage starts (grounding, debating, projecting, synthesizing).
+- `inquiry.stage_begin`: When each stage starts (deriving, grounding, debating, projecting, synthesizing).
 - `inquiry.stage_end`: When each stage completes (includes duration, stage-specific metrics).
 - `inquiry.validation_error`: When synthesis validation fails (includes error details).
-- `inquiry.synthesis_retry`: When synthesis is re-prompted (includes attempt count).
 
 ### Logs
 
@@ -249,17 +243,17 @@ Each stage logs warnings via `getGlobalRecorder().warn()`:
 - If grounding returns low-coverage nodes, log a WARN.
 - If termination reason is not `converged`, log a WARN.
 - If trust projection receives an unrecognized termination reason, log a WARN.
-- If synthesis validation fails or is retried, log a WARN.
+- If synthesis drops hallucinated node IDs, log a WARN.
 
 ### Metrics
 
 Key metrics exported to observability:
 
-- **Stage duration** (per stage): How long grounding, debate, synthesis take.
+- **Stage duration** (per stage): How long deriving, grounding, debating, projecting, synthesizing take.
 - **Debate session size**: Turn count, transcript token count, QBAF edge count.
 - **Grounding coverage**: Nodes per camp in the envelope.
-- **Termination distribution**: % of runs that converge vs. budget-exhausted vs. rate-limited.
-- **Synthesis validation rate**: % of synthesis outputs that pass validation on first attempt.
+- **Termination distribution**: % of runs that converge vs. api_ceiling vs. max_turns.
+- **Synthesis fidelity**: % of result node IDs that were successfully resolved from grounding.
 
 ---
 
