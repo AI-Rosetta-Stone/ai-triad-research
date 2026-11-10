@@ -124,10 +124,15 @@ RUN npm pack http-cache-semantics@4.3.0 --pack-destination /tmp \
 # Dockerfile's builder stage, not here). No python3-pip / python3-venv (t/155):
 # nothing pip-installs at runtime (numpy comes from apt in the app image), and
 # python3.13-venv carried its own copy of the python3.13 CVEs.
+# ca-certificates is explicit: python3-pip was the only package that Depends on
+# it; curl/git/libcurl merely Recommend it, so without this line the CA bundle
+# vanishes and every HTTPS fetch below (ONNX model) and at runtime (git clone,
+# pwsh) fails with curl (77) (t/155, base-image.yml run 42816569124).
 # hadolint ignore=DL3008,DL3009
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
+    ca-certificates \
     git \
     pandoc \
     python3 \
