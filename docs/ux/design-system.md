@@ -50,7 +50,7 @@ All colors are CSS custom properties on `:root` scoped by `data-theme`.
 | `--bg-tertiary` | Neutral chip/inset surface, one step past `--bg-secondary` toward `--border-color` (midpoint: light #edf1f6, dark #2b3544, bkc #3b2d3c, harvard #e5e0d8; ~40 sites; defined t/2261, e/70 Finding 3) |
 | `--bg-panel` | Panel backgrounds, dividers |
 | `--bg-input` | Input field backgrounds |
-| `--bg-hover` | Hover states |
+| `--bg-hover` | Hover states (dark `#313b4c` since t/123, so `--text-muted` passes AA on it) |
 
 ### Text
 
@@ -58,7 +58,7 @@ All colors are CSS custom properties on `:root` scoped by `data-theme`.
 |---|---|
 | `--text-primary` | Body text, headings |
 | `--text-secondary` | Supporting text, labels |
-| `--text-muted` | Deemphasized text, placeholders |
+| `--text-muted` | Deemphasized text, placeholders. AA (≥ 4.5:1) on `--bg-primary`, `--bg-secondary`, `--bg-tertiary` and `--bg-hover` in every theme (light #5f6e84, dark #a0a7b3, bkc #a196a7, harvard #68625b; t/123). In bkc it's nearly `--text-secondary` (1.06:1 apart), so carry hierarchy with size and weight, never with a fainter colour. Don't dim it further with opacity. |
 | `--border-color` | Borders, dividers |
 
 ### Semantic
@@ -69,7 +69,8 @@ All colors are CSS custom properties on `:root` scoped by `data-theme`.
 | `--success` | **Fill** color — button/badge/checkmark backgrounds (#22c55e / #2D6A4F). Do NOT use as text on `--bg-primary`: ~1.8:1 in light, fails AA. Use `--success-text` for foreground green. |
 | `--success-text` | **Foreground** success green — AA-safe as text on `--bg-primary` per theme (light #15803d ~5:1; dark #22c55e; bkc #00ff4c; harvard #2D6A4F). Only light needed a new value; dark/bkc reuse their bright fill (dark bg), harvard its forest green. Mirrors the `--warning` per-theme precedent. Added t/2260 (e/70 Finding 2). |
 | `--warning` | Flag verdicts, mid-range score bands (light #a16207, dark #f59e0b, bkc #d9a441, harvard #8B6508 — all ≥4.5:1 vs `--bg-secondary`; added t/1386) |
-| `--focus-ring` | Focus indicators (#3b82f6 / #A51C30) |
+| `--focus-ring` | Focus indicators, and the fill for selected/active states (light #2563eb, dark #60a5fa, bkc #4d7a8b, harvard #A51C30; light darkened from #3b82f6 in t/123) |
+| `--text-on-focus-ring` | **Text on a `--focus-ring` fill.** Never hard-code `#fff` there (white is 2.54:1 on dark's ring). Light/bkc/harvard `#ffffff`, dark `#111827`; ≥ 4.70:1 everywhere. Use `var(--text-on-focus-ring, #fff)`. Sub-text inside a selected row uses it at full strength, with no opacity or `rgba` dimming (t/123, t/139). |
 
 ### Detail Backgrounds
 
