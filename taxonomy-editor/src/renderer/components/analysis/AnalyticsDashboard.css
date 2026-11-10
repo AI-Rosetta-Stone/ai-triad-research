@@ -353,19 +353,36 @@
   gap: 4px;
 }
 
-.adash-preset-btn {
+/* ── Chip buttons: preset, compare, exclusion (t/4964) ───────────────────── */
+/* One shared style so the three families can't drift. The selected state keys off
+   aria-pressed. Inactive label is --text-secondary (--text-muted fails AA: 3.33 harvard,
+   3.19 bkc). Selected is the neutral accent, not the camp color --color-acc (white on
+   it is 2.39 dark, 3.16 bkc). Label --bg-primary on fill --accent-text measures
+   6.18 light / 9.84 dark / 7.74 bkc / 7.05 harvard, and the fill measures ≥5.91
+   against --bg-primary and --bg-secondary in every theme. */
+.adash-chip {
   padding: 4px 12px;
   border-radius: 4px;
   font-size: 0.75rem;
   cursor: pointer;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.adash-chip[aria-pressed="true"] {
+  background: var(--accent-text);
+  color: var(--bg-primary);
+  border-color: transparent;
+}
+
+.adash-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .adash-compare-btn {
   margin-left: 8px;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  cursor: pointer;
 }
 
 /* ── Exclusion toggles (t/4961) ──────────────────────────────────────────── */
@@ -376,12 +393,6 @@
   gap: 8px;
   margin: 0 0 12px;
   flex-wrap: wrap;
-}
-
-.adash-exclusion-btn {
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 0.75rem;
 }
 
 .adash-exclusion-caption {

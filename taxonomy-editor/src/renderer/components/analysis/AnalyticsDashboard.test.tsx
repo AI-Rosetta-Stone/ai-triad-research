@@ -138,6 +138,39 @@ describe('AnalyticsDashboard exclusion toggles (t/4961)', () => {
   });
 });
 
+describe('AnalyticsDashboard chip buttons share one style (t/4964)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('preset, compare and exclusion buttons use .adash-chip with no inline colors (no camp color)', async () => {
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('110')).toBeInTheDocument());
+
+    const chips = ['Today', '7 days', '30 days', '90 days', 'vs. previous', 'Show internal/test traffic']
+      .map(t => screen.getByText(t));
+    for (const chip of chips) {
+      expect(chip).toHaveClass('adash-chip');
+      expect(chip.getAttribute('style') ?? '').not.toMatch(/background|color-acc/);
+    }
+  });
+
+  it('selected state follows aria-pressed: active preset and compare toggle', async () => {
+    render(<AnalyticsDashboard />);
+    await waitFor(() => expect(screen.getByText('110')).toBeInTheDocument());
+
+    // Default preset is 7d.
+    expect(screen.getByText('7 days')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('30 days')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByText('30 days'));
+    expect(screen.getByText('30 days')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('7 days')).toHaveAttribute('aria-pressed', 'false');
+
+    const compare = screen.getByText('vs. previous');
+    expect(compare).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(compare);
+    expect(compare).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
 describe('AnalyticsDashboard Active Users — unparseable lastActive (t/4961)', () => {
   afterEach(() => {
     vi.restoreAllMocks();

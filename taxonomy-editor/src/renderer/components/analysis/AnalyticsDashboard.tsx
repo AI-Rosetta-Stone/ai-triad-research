@@ -456,15 +456,7 @@ function ExclusionToggle({ label, title, active, onClick }: {
       disabled={!EXCLUSION_TOGGLES_ENABLED}
       title={title}
       aria-pressed={active}
-      className="adash-exclusion-btn"
-      /* eslint-disable-next-line local/no-inline-style -- dynamic: active/disabled colors, same pattern as preset/compare buttons above */
-      style={{
-        background: active ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
-        color: active ? '#fff' : 'var(--text-muted)',
-        border: `1px solid ${active ? 'transparent' : 'var(--border-color)'}`,
-        opacity: EXCLUSION_TOGGLES_ENABLED ? 1 : 0.5,
-        cursor: EXCLUSION_TOGGLES_ENABLED ? 'pointer' : 'not-allowed',
-      }}>
+      className="adash-chip adash-exclusion-btn">
       {label}
     </button>
   );
@@ -630,25 +622,15 @@ export function AnalyticsDashboard() {
         <div className="adash-preset-group">
           {(['1d', '7d', '30d', '90d'] as DatePreset[]).map(p => (
             <button key={p} onClick={() => { setPreset(p); setSelectedUser(null); setCategoryFilter(null); }}
-              className="adash-preset-btn"
-              /* eslint-disable-next-line local/no-inline-style -- dynamic: active-preset colors/border */
-              style={{
-                background: preset === p ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
-                color: preset === p ? '#fff' : 'var(--text-muted)',
-                border: `1px solid ${preset === p ? 'transparent' : 'var(--border-color)'}`,
-              }}>
+              aria-pressed={preset === p}
+              className="adash-chip adash-preset-btn">
               {p === '1d' ? 'Today' : `${p.replace('d', '')} days`}
             </button>
           ))}
           <button onClick={() => setCompare(c => !c)}
             title="Compare each metric with the previous period of equal length"
-            className="adash-compare-btn"
-            /* eslint-disable-next-line local/no-inline-style -- dynamic: active-compare colors/border */
-            style={{
-              background: compare ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
-              color: compare ? '#fff' : 'var(--text-muted)',
-              border: `1px solid ${compare ? 'transparent' : 'var(--border-color)'}`,
-            }}>
+            aria-pressed={compare}
+            className="adash-chip adash-compare-btn">
             vs. previous
           </button>
         </div>
