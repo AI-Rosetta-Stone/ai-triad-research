@@ -34,6 +34,7 @@ import {
 // shell's running signal). Pre-approved call site — see t/4687#1/#3.
 import { registerRun } from '../navigation/runningSignal';
 import type { RunOutcome } from '../navigation/runningSignal';
+import { normalizeSession, type NormalizerContext } from '../utils/chatNormalizer';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -54,6 +55,27 @@ function getConfiguredModel(): string {
  *  fallback doesn't add to generateOpening's/sendMessage's own complexity count. */
 function resolveChatTemperature(chat: Pick<ChatSession, 'temperature' | 'mode'>): number {
   return chat.temperature ?? CHAT_MODE_TEMPERATURE[chat.mode];
+}
+
+/** t/282: Build normalizer context from taxonomy store — maps node IDs to their labels. */
+function buildNormalizerContext(): NormalizerContext {
+  const taxState = useTaxonomyStore.getState();
+  const taxonomyNodes = new Map<string, { label: string }>();
+  
+  // Collect all nodes from all POV files
+  const files = [taxState.accelerationist, taxState.safetyist, taxState.skeptic, taxState.situations];
+  for (const file of files) {
+    if (!file?.nodes) continue;
+    for (const node of file.nodes) {
+      const n = node as PovNode | SituationNode | unknown;
+      const typed = n as Record<string, unknown>;
+      if (typeof typed.id === 'string' && typeof typed.name === 'string') {
+        taxonomyNodes.set(typed.id, { label: typed.name });
+      }
+    }
+  }
+  
+  return { taxonomyNodes };
 }
 
 function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
@@ -355,6 +377,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const raw = await api.loadChatSession(id);
       const session = raw as ChatSession;
+      
+      // t/282: Normalize old chats — backfill missing ref labels from taxonomy
+      const context = buildNormalizerContext();
+      normalizeSession(session, context);
+      
       set({
         activeChatId: session.id,
         activeChat: session,
