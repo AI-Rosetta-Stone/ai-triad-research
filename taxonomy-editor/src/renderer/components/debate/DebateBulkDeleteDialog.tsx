@@ -4,8 +4,8 @@
 // ── Bulk delete confirmation dialog ──
 // Moved verbatim out of DebateTab.tsx (t/87) to take that file off its max-lines cap.
 // t/88: partial failure mirrors BulkDeleteInquiryDialog — stay open, show "Deleted X of Y", keep the
-// failed ones selected, and give a lone failure its own reason. deleteDebate resolves on failure
-// until t/94 makes it rethrow, so until then the catch below never fires.
+// failed ones selected, and give a lone failure its own reason. deleteDebate rejects when the delete
+// itself fails (t/94), which is what the per-item catch below reports.
 
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
@@ -13,6 +13,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { useDebateStore } from '../../hooks/useDebateStore';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import { useDialog } from '../shared/useDialog'; // t/4901
+import '../shared/BulkDeleteDialog.css'; // t/114: shared with BulkDeleteInquiryDialog
 
 type SessionSummary = ReturnType<typeof useDebateStore.getState>['sessions'][number];
 
