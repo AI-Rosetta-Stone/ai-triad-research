@@ -166,18 +166,40 @@ def lint_file(path, content, required_contexts=()):
 STATUS_FN_RE = re.compile(r'(?<![\w.-])(?:always|success|failure|cancelled)\s*\(\s*\)')
 
 
+# t/4963 audit (agent-devops/notes/t70-audit.md): contexts Check 5 treats as required ON TOP of the
+# SSOT (.github/ci/required-contexts.json). `t1-approval-guard` is not in branch protection yet,
+# but t/4939 plans to promote it, and ci.yml's merge_group job already posts that name. Linting it
+# now means the promotion can't land on top of a job that silently skips. This only widens what
+# Check 5 checks; it does not touch R1-R5 or the SSOT's drift guard.
+CHECK5_PENDING_CONTEXTS = ('t1-approval-guard',)
+
+
+# A YAML block-scalar header: `|` (literal) or `>` (folded), with an optional chomping indicator
+# (`-`/`+`) and an optional indentation indicator (1-9), in either order (`>-`, `|+`, `>2-`, `|-2`).
+_BLOCK_SCALAR_HDR_RE = re.compile(r'^[|>](?:[+-]?[1-9]?|[1-9][+-])$')
+
+
 def _job_if_text(lines, if_idx, end):
-    """Return a job's `if:` expression as one string, comments stripped. Handles the inline form
-    (`if: expr`) and a block scalar (`if: >-` / `if: |` followed by deeper-indented lines)."""
-    first = _strip_comment(lines[if_idx].split(':', 1)[1]).strip()
-    if first not in ('|', '|-', '|+', '>', '>-', '>+'):
-        return first
-    parts = []
+    """Return a job's `if:` expression as one string, comments stripped (Interweave t/70 SO
+    requirement: a multi-line `if:` must not evade Check 5). Handles:
+      - the inline form (`if: expr`);
+      - a block scalar, folded (`if: >`, `>-`, `>+`) or literal (`if: |`, `|-`, `|+`), with an
+        optional indentation indicator: the header line carries no expression, the body is every
+        following line indented deeper than the `if:` key;
+      - a plain or quoted scalar continued onto deeper-indented lines (`if: a &&` / `  b`).
+    Every continuation line is indented deeper than the `if:` key itself (relative, not a fixed
+    column), so nested `if:`s work too. A `#` line inside a literal block is YAML text, not a
+    comment, but GitHub's expression syntax has no `#` comment either; stripping it errs toward
+    flagging, never toward hiding a missing status function."""
+    if_line = lines[if_idx]
+    if_indent = len(if_line) - len(if_line.lstrip())
+    first = _strip_comment(if_line.split(':', 1)[1]).strip()
+    parts = [] if _BLOCK_SCALAR_HDR_RE.match(first) else [first]
     for k in range(if_idx + 1, end):
         line = lines[k]
         if line.strip() == '':
             continue
-        if len(line) - len(line.lstrip()) <= 4:
+        if len(line) - len(line.lstrip()) <= if_indent:
             break
         parts.append(_strip_comment(line).strip())
     return ' '.join(p for p in parts if p)
@@ -1666,11 +1688,38 @@ jobs:
          "  joint-gv-guard:\n    name: something-else\n    needs: [ci-gate]\n    if: github.ref != ''\n", False),
         ('(b) quoted name: with a space, bare if -> flag',
          "  analyze:\n    name: 'CodeQL Analysis'\n    needs: [setup]\n    if: github.event_name != 'schedule'\n", True),
-        # Shape (b) block-scalar `if:`: the status fn may sit on a continuation line.
-        ('(b) block-scalar if without status fn -> flag',
+        # Shape (b) multi-line `if:` (Interweave t/70 SO requirement): folded (`>-`, `>`) and
+        # literal (`|`, `|-`) block scalars, plus a plain-scalar continuation. The header line
+        # carries no expression; the status fn may sit on any continuation line. Both arms each.
+        ('(b) folded >- if without status fn -> flag',
          "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.event_name == 'push' ||\n      github.event_name == 'pull_request'\n", True),
-        ('(b) block-scalar if with !cancelled() on a continuation line -> silent',
+        ('(b) folded >- if with !cancelled() on a continuation line -> silent',
          "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.event_name == 'push' &&\n      !cancelled()\n", False),
+        ('(b) folded > if without status fn -> flag',
+         "  consult-hold-guard:\n    needs: [ci-gate]\n    if: >\n      github.event_name == 'pull_request'\n", True),
+        ('(b) folded > if with always() -> silent',
+         "  consult-hold-guard:\n    needs: [ci-gate]\n    if: >\n      always() &&\n      github.event_name == 'pull_request'\n", False),
+        ('(b) literal | if without status fn -> flag',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: |\n      github.event_name == 'pull_request' &&\n      needs.ci-gate.result == 'success'\n", True),
+        ('(b) literal | if with !cancelled() -> silent',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: |\n      !cancelled() &&\n      needs.ci-gate.result == 'success'\n", False),
+        ('(b) literal |- with indentation indicator, no status fn -> flag',
+         "  joint-gv-guard:\n    needs: [ci-gate]\n    if: |2-\n      github.ref != ''\n", True),
+        ('(b) block-scalar body comment mentioning always() does not count -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-  # always() later\n      github.ref != ''\n", True),
+        ('(b) plain scalar continued onto a deeper line, no status fn -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      github.event_name == 'push'\n", True),
+        ('(b) plain scalar continued, status fn on the continuation -> silent',
+         "  ci-gate:\n    needs: [changes]\n    if: github.ref != '' &&\n      success()\n", False),
+        ('(b) block-scalar if stops at the next job key (status fn in a later step if) -> flag',
+         "  ci-gate:\n    needs: [changes]\n    if: >-\n      github.ref != ''\n    steps:\n      - if: always()\n        run: echo hi\n", True),
+        # Arm (a), the t/4939 merge_group arm, written as a block scalar: before t/70 the
+        # merge_group test read only the `if: >-` header line and missed this entirely. ci.yml's
+        # three guards would have evaded Check 5 had they been written this way.
+        ('(a) block-scalar merge_group if without !cancelled() (not required) -> flag',
+         "  some-guard:\n    needs: [ci-gate]\n    if: >-\n      github.event_name == 'merge_group' &&\n      needs.ci-gate.result == 'success'\n", True),
+        ('(a) block-scalar merge_group if with !cancelled() -> silent',
+         "  some-guard:\n    needs: [ci-gate]\n    if: >-\n      !cancelled() &&\n      github.event_name == 'merge_group'\n", False),
         # Shape (b) comment trap: a status fn mentioned only in a trailing comment doesn't count.
         ('(b) status fn only in a trailing comment -> flag',
          "  ci-gate:\n    needs: [changes]\n    if: github.ref != ''  # TODO add always()\n", True),
@@ -1734,7 +1783,8 @@ if not workflows:
 # t/4963: Check 5's required-context arms need the posted names of main's required contexts.
 # A missing/malformed SSOT yields an empty set here, but it is never silent: the required-context
 # block below turns that same SSOT error into a hard error.
-_check5_contexts = tuple(e.get('context') for e in load_required_contexts()[0] if e.get('context'))
+_check5_contexts = tuple(e.get('context') for e in load_required_contexts()[0] if e.get('context')) \
+    + CHECK5_PENDING_CONTEXTS
 
 for path in workflows:
     with open(path, encoding='utf-8') as f:
