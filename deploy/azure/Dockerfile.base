@@ -84,15 +84,17 @@ RUN npm pack brace-expansion@5.0.12 --pack-destination /tmp \
     && tar -xzf /tmp/brace-expansion-5.0.12.tgz --strip-components=1 \
          -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
     && rm /tmp/brace-expansion-5.0.12.tgz
-# undici 6.28.1 fixes CVE-2026-85024 (MEDIUM, code-scanning #5918). npm bundles 6.28.0; same npm
-# pack + direct extraction pattern as ip-address above. Drop once npm@latest bundles >= 6.28.1.
-RUN npm pack undici@6.28.1 --pack-destination /tmp \
+# undici 6.29.1 fixes CVE-2026-109383, CVE-2026-109869 and CVE-2026-87018 (HIGH, t/155), on top of
+# 6.28.1's CVE-2026-85024 (MEDIUM, #5918). npm@latest (12.2.2) still bundles 6.28.1; same npm pack
+# + direct extraction pattern as ip-address above. Drop once npm@latest bundles >= 6.29.1. The prod
+# app image strips npm entirely (taxonomy-editor/Dockerfile step 8), so this only clears the base scan.
+RUN npm pack undici@6.29.1 --pack-destination /tmp \
     && rm -rf /usr/local/lib/node_modules/npm/node_modules/undici \
     && mkdir -p /usr/local/lib/node_modules/npm/node_modules/undici \
-    && tar -xzf /tmp/undici-6.28.1.tgz --strip-components=1 \
+    && tar -xzf /tmp/undici-6.29.1.tgz --strip-components=1 \
          -C /usr/local/lib/node_modules/npm/node_modules/undici \
-    && rm /tmp/undici-6.28.1.tgz \
-    && echo "[tripwire] npm bundled undici=$(node -p 'require("/usr/local/lib/node_modules/npm/node_modules/undici/package.json").version') ip-address=$(node -p 'require("/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json").version') (expect 6.28.1 / 10.7.1)"
+    && rm /tmp/undici-6.29.1.tgz \
+    && echo "[tripwire] npm bundled undici=$(node -p 'require("/usr/local/lib/node_modules/npm/node_modules/undici/package.json").version') ip-address=$(node -p 'require("/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json").version') (expect 6.29.1 / 10.7.1)"
 # tar 7.5.21 fixes CVE-2026-73566 (HIGH). npm@latest (12.0.2) still bundles tar 7.5.19,
 # so — confirmed by the tripwire above — a cache-busted npm re-install alone does NOT
 # clear this CVE; override explicitly within npm's own bundle, same npm pack + direct
@@ -119,7 +121,9 @@ RUN npm pack http-cache-semantics@4.3.0 --pack-destination /tmp \
     && echo "[t/3903 tripwire] npm bundled http-cache-semantics=$(node -p 'require("/usr/local/lib/node_modules/npm/node_modules/http-cache-semantics/package.json").version') (expect 4.3.0)"
 
 # System dependencies (runtime only — build tools like make/g++ live in the app
-# Dockerfile's builder stage, not here).
+# Dockerfile's builder stage, not here). No python3-pip / python3-venv (t/155):
+# nothing pip-installs at runtime (numpy comes from apt in the app image), and
+# python3.13-venv carried its own copy of the python3.13 CVEs.
 # hadolint ignore=DL3008,DL3009
 RUN apt-get update \
     && apt-get upgrade -y \
@@ -127,8 +131,6 @@ RUN apt-get update \
     git \
     pandoc \
     python3 \
-    python3-pip \
-    python3-venv \
     curl \
     libicu76 \
     tini \
