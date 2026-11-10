@@ -1,0 +1,65 @@
+{
+  "ticket": "t/293 (t/218 option 1; PI t/218#6; CL no objection p/70#30)",
+  "data_commit": "8d15d499",
+  "hash_basis": "sha256-lf",
+  "last_modified": "2026-11-10",
+  "edges": {
+    "keys": [
+      [
+        "org-017",
+        "ensuring-national-policy-framework-artificial-intelligence-2026",
+        "PUBLISHED"
+      ],
+      [
+        "org-017",
+        "acc-intentions-074",
+        "ADVOCATES_FOR"
+      ],
+      [
+        "org-017",
+        "acc-beliefs-043",
+        "ADVOCATES_FOR"
+      ]
+    ],
+    "set": {
+      "status": "rejected",
+      "reviewed_by": "human",
+      "reviewed_at": "2026-11-10",
+      "review_note": "Presidential executive order (whitehouse.gov/presidential-actions), not an OSTP publication; PI t/218#6, t/293"
+    }
+  },
+  "claims": {
+    "keys": [
+      [
+        "org-017",
+        "ensuring-national-policy-framework-artificial-intelligence-2026",
+        "National standards are necessary to maintain American leadership in AI."
+      ],
+      [
+        "org-017",
+        "ensuring-national-policy-framework-artificial-intelligence-2026",
+        "A fragmented regulatory landscape creates uncertainty and hinders innovation."
+      ],
+      [
+        "org-017",
+        "ensuring-national-policy-framework-artificial-intelligence-2026",
+        "The administration is eliminating state-level obstruction of national artificial intelligence policy."
+      ],
+      [
+        "org-017",
+        "ensuring-national-policy-framework-artificial-intelligence-2026",
+        "State-level AI regulations are an obstruction to national policy."
+      ]
+    ]
+  },
+  "files": {
+    "taxonomy/Origin/organization_edges.json": {
+      "pre_sha256": "e1c994c30b8a427fcdaf340d9809096651934013b8c788b2deca7c05d03f01b9",
+      "post_sha256": "2ca276020a26797321d307c269eff3403ccf3a048d7fcd94d7455700176c5662"
+    },
+    "taxonomy/Origin/organization_stance_claims.json": {
+      "pre_sha256": "1c175e6ac0ce044a013b6b0c6af3474ff7731906810c7122a4c09221ba883e8d",
+      "post_sha256": "faee6c679747c20fa7f812e16470436bf52033bff932c7502cc28e230ae725bb"
+    }
+  }
+}
