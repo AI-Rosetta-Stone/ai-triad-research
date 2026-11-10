@@ -15,7 +15,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   installDataRootGuard, resolveProtectedDataRoot, resolveProtectedDataRoots, protectedDataRoot, isUnderRoot,
-  DATA_ROOT_TEST_WRITE_TOKEN, DATA_ROOT_GUARD_INSTALLED_TOKEN,
+  DATA_ROOT_TEST_WRITE_TOKEN, DATA_ROOT_GUARD_INSTALLED_TOKEN, DATA_ROOT_GUARD_HITS_FILE_ENV,
+  type DataRootGuardRecord,
 } from './dataRootGuard.js';
 
 let base: string;
@@ -178,6 +179,63 @@ describe('dataRootGuard: install contract', () => {
 
   it('protectedDataRoot() reports the installed root', () => {
     expect(isUnderRoot(protectedDataRoot(), root) && isUnderRoot(root, protectedDataRoot())).toBe(true);
+  });
+});
+
+describe('dataRootGuard: hits file, visible on a green run (t/59)', () => {
+  const FILE_MARKER = Symbol.for('ai-triad.dataRootGuard.fileMarkerEmitted');
+  let hitsFile: string;
+  let savedEnv: string | undefined;
+  const records = () => fs.readFileSync(hitsFile, 'utf-8').split('\n').filter(Boolean).map(l => JSON.parse(l) as DataRootGuardRecord);
+
+  beforeEach(() => {
+    savedEnv = process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
+    hitsFile = path.join(base, `hits-${Math.random().toString(36).slice(2)}.jsonl`);
+    fs.writeFileSync(hitsFile, '');
+    process.env[DATA_ROOT_GUARD_HITS_FILE_ENV] = hitsFile;
+    uninstall(); // the outer beforeEach's install doesn't record; each case installs its own
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
+    else process.env[DATA_ROOT_GUARD_HITS_FILE_ENV] = savedEnv;
+  });
+
+  it('records each hit as one JSON line with op, target, root and the running test file', () => {
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root, recordToHitsFile: true });
+    const target = path.join(root, 'recorded.json');
+    fs.writeFileSync(target, '{}');
+    fs.appendFileSync(target, 'x');
+    const recorded = records().filter(r => r.kind === 'hit');
+    expect(recorded.map(r => r.kind === 'hit' && r.op)).toEqual(['fs.writeFileSync', 'fs.appendFileSync']);
+    expect(recorded[0]).toMatchObject({ target, protectedRoot: fs.realpathSync.native(root) });
+    expect(recorded[0].kind === 'hit' && recorded[0].test).toMatch(/dataRootGuard\.test\.ts$/);
+  });
+
+  it('writes the installed marker once per process per hits file', () => {
+    delete (globalThis as Record<symbol, unknown>)[FILE_MARKER];
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root, recordToHitsFile: true });
+    uninstall();
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root, recordToHitsFile: true });
+    expect(records().filter(r => r.kind === 'installed')).toEqual([
+      { kind: 'installed', pid: process.pid, mode: 'warn', roots: [fs.realpathSync.native(root)] },
+    ]);
+  });
+
+  it('a protectedRoot override does not record by default, so guard tests are not reported as offenders', () => {
+    delete (globalThis as Record<symbol, unknown>)[FILE_MARKER];
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root });
+    fs.writeFileSync(path.join(root, 'mocked.json'), '{}');
+    expect(hits()).toHaveLength(1); // the console WARN still fires
+    expect(records()).toEqual([]);
+  });
+
+  it('an unwritable hits file WARNs and the write still proceeds', () => {
+    process.env[DATA_ROOT_GUARD_HITS_FILE_ENV] = path.join(base, 'no-such-dir', 'hits.jsonl');
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root, recordToHitsFile: true });
+    const target = path.join(root, 'still-written.json');
+    expect(() => fs.writeFileSync(target, '{}')).not.toThrow();
+    expect(fs.existsSync(target)).toBe(true);
+    expect(warn.mock.calls.some(c => String(c[0]).includes('could not append to DATA_ROOT_GUARD_HITS_FILE'))).toBe(true);
   });
 });
 
