@@ -80,7 +80,7 @@ type ResolvedTier = ReturnType<typeof proxyTiers.resolveTier>;
 
 /** Guard branch: enforce access controls and resolve the execution tier.
  *  Returns false if the handler should proceed; true if access was denied (response written). */
-function enforceGenerateAccess(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, backend: string, debateId: string | undefined, isFree: boolean, limitKey: string): boolean {
+function enforceGenerateAccess(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, backend: AIBackend, debateId: string | undefined, isFree: boolean, limitKey: string): boolean {
   if (enforceAnonDebateGate(res, isFree, debateId)) return true;
   if (enforceBackendAllowed(res, tier, backend)) return true;
   if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return true;
