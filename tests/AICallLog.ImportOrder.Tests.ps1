@@ -37,14 +37,20 @@ switch ($Order) {
 $cmd = Get-Command Invoke-AIApi -ErrorAction SilentlyContinue
 $out = @{ Resolved = [bool]$cmd; Ready = $null; Entries = -1; Tokens = $null }
 if ($cmd) {
-    $owner = $cmd.ScriptBlock.Module   # the AIEnrich instance that defines it (also for AITriad's re-export)
-    & $owner {
-        function script:Resolve-AIApiKey { 'fake-key' }
-        function script:Start-Sleep { }
-        function script:Invoke-RestMethod {
-            [pscustomobject]@{
-                candidates    = @([pscustomobject]@{ content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = 'ok' }) }; finishReason = 'STOP' })
-                usageMetadata = [pscustomobject]@{ promptTokenCount = 7; candidatesTokenCount = 3; totalTokenCount = 10 }
+    # Fake HTTP + key in EVERY AIEnrich instance: the one defining the resolved command AND AITriad's
+    # nested one (they differ when AIEnrich is re-imported after AITriad) -- no network, no spend.
+    $owners = @($cmd.ScriptBlock.Module)
+    if (Get-Module AITriad) { $owners += (& (Get-Module AITriad) { Get-Command Invoke-AIApi }).ScriptBlock.Module }
+    # No Select-Object -Unique: it compares PSModuleInfo by ToString(), and both instances are 'AIEnrich'.
+    foreach ($owner in $owners) {
+        & $owner {
+            function script:Resolve-AIApiKey { 'fake-key' }
+            function script:Start-Sleep { }
+            function script:Invoke-RestMethod {
+                [pscustomobject]@{
+                    candidates    = @([pscustomobject]@{ content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = 'ok' }) }; finishReason = 'STOP' })
+                    usageMetadata = [pscustomobject]@{ promptTokenCount = 7; candidatesTokenCount = 3; totalTokenCount = 10 }
+                }
             }
         }
     }
@@ -54,6 +60,10 @@ if ($cmd) {
             function script:Get-UsageConfig { @{ message = 'Say hi'; model = 'gemini-3.5-flash-lite' } }
             Invoke-AIByUsage -UsageId 'enrichment.demo-scenario' -Values @{} -WarningAction SilentlyContinue | Out-Null
         }
+    } elseif ($Call -eq 'aitriadscope') {
+        # The exact #4846 call site (Ai Triad Research's harness): Invoke-AIApi from INSIDE AITriad's scope.
+        $P = @{ Prompt = 'hi'; Model = 'gemini-3.5-flash-lite'; FallbackModels = @(); SkipTokenCheck = $true; WarningAction = 'SilentlyContinue' }
+        & (Get-Module AITriad) { param($P) Invoke-AIApi @P } $P | Out-Null
     } else {
         Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -FallbackModels @() -SkipTokenCheck -WarningAction SilentlyContinue | Out-Null
     }
@@ -97,9 +107,49 @@ Describe 'Invoke-AIApi logs exactly once per call in every import order (t/150)'
         if ($Order -ne 'AIEnrich-only') { $r.Ready | Should -BeTrue }
     }
 
+    It 'Invoke-AIApi called from inside AITriad''s module scope (#4846''s call site) writes exactly one entry, 7/3 — <Order>' -TestCases @(
+        @{ Order = 'AITriad-only' }
+        @{ Order = 'AIEnrich-then-AITriad' }
+        @{ Order = 'AITriad-then-AIEnrich' }
+    ) {
+        param($Order)
+        $r = Invoke-OrderProbe -Order $Order -Call 'aitriadscope'
+        $r.Entries | Should -Be 1 -Because 'a double entry would make the t/106 spend guard double-count'
+        $r.Tokens  | Should -Be '7/3'
+    }
+
     It 'Invoke-AIByUsage with both modules loaded still writes exactly one entry (its logger replaces the default)' {
         $r = Invoke-OrderProbe -Order 'AIEnrich-then-AITriad' -Call 'byusage'
         $r.Entries | Should -Be 1
+    }
+}
+
+Describe 'AIEnrich and AITriad resolve the SAME ai-call-log.jsonl (t/150 root-detection parity)' -Tag 'unit' {
+    # AIEnrich mirrors AITriad.psm1's root detection to run the shared data-root resolver; this is the guard
+    # against those drifting (Quality, #4848). With AI_TRIAD_DATA_ROOT unset, both take the .aitriad.json path.
+    It 'Get-AICallLogPath is identical in both modules, with and without AI_TRIAD_DATA_ROOT' {
+        $child = @'
+param($Repo)
+Import-Module (Join-Path $Repo 'scripts/AITriad/AITriad.psm1') -Force -WarningAction SilentlyContinue
+$nested = (& (Get-Module AITriad) { Get-Command Invoke-AIApi }).ScriptBlock.Module
+$a = & (Get-Module AITriad) { Get-AICallLogPath }
+$e = & $nested { Get-AICallLogPath }
+'T150JSON:' + (@{ AITriad = $a; AIEnrich = $e } | ConvertTo-Json -Compress)
+'@
+        $f = Join-Path $TestDrive 'parity.ps1'
+        Set-Content -LiteralPath $f -Value $child -Encoding utf8
+        $prior = $env:AI_TRIAD_DATA_ROOT
+        try {
+            foreach ($root in @($null, (Join-Path $TestDrive 'explicit-root'))) {
+                if ($root) { $env:AI_TRIAD_DATA_ROOT = $root } else { Remove-Item Env:AI_TRIAD_DATA_ROOT -ErrorAction SilentlyContinue }
+                $line = & $script:Pwsh -NoProfile -NonInteractive -File $f -Repo $script:Repo 2>$null | Where-Object { "$_" -like 'T150JSON:*' } | Select-Object -Last 1
+                $p = ($line -replace '^T150JSON:', '') | ConvertFrom-Json
+                $p.AIEnrich | Should -Not -BeNullOrEmpty
+                $p.AIEnrich | Should -Be $p.AITriad -Because "both modules must write one log (AI_TRIAD_DATA_ROOT=$root)"
+            }
+        } finally {
+            if ($null -ne $prior) { $env:AI_TRIAD_DATA_ROOT = $prior } else { Remove-Item Env:AI_TRIAD_DATA_ROOT -ErrorAction SilentlyContinue }
+        }
     }
 }
 
