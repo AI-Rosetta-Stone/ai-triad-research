@@ -565,5 +565,8 @@ if (args.includes('--json')) {
   if (!findings.length) console.log('No AA failures found.\n');
 }
 
-process.exit(findings.length ? 1 : 0);
+// t/111: exitCode, never process.exit(). On Linux, stdout into a pipe is asynchronous, so exiting
+// right after console.log drops whatever hasn't flushed: the ~330 KB --json payload reached
+// check-contrast.sh cut off mid-object, the parse failed, and the gate read an empty count as OK.
+process.exitCode = findings.length ? 1 : 0;
 }
