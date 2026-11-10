@@ -78,11 +78,13 @@ describe('AnalyticsDashboard chip contrast (t/4964)', () => {
   });
 
   // The other arm: the same calculator flags the pre-t/4964 pairings in the themes that failed,
-  // so a passing run above isn't a calculator that passes everything.
+  // so a passing run above isn't a calculator that passes everything. Pinned to the token values
+  // as of t/4964 (not live tokens): t/123 (#4826) later fixed --text-muted itself, and this arm
+  // documents the old failure, not the current theme.
   it('flags the old pairings (--text-muted label; white on --color-acc)', () => {
-    expect(ratio(token('harvard', '--text-muted'), token('harvard', '--bg-secondary'))).toBeLessThan(4.5);
-    expect(ratio(token('bkc', '--text-muted'), token('bkc', '--bg-secondary'))).toBeLessThan(4.5);
-    expect(ratio('#ffffff', token('dark', '--color-acc'))).toBeLessThan(3);
-    expect(ratio('#ffffff', token('bkc', '--color-acc'))).toBeLessThan(4.5);
+    expect(ratio('#8A8278', '#F3F0EB')).toBeLessThan(4.5); // harvard --text-muted on --bg-secondary
+    expect(ratio('#7a6a82', '#281f29')).toBeLessThan(4.5); // bkc --text-muted on --bg-secondary
+    expect(ratio('#ffffff', '#e89450')).toBeLessThan(3); // white on dark --color-acc
+    expect(ratio('#ffffff', '#cc7e45')).toBeLessThan(4.5); // white on bkc --color-acc
   });
 });

@@ -91,7 +91,7 @@
 .helpdialog-empty-note { color: var(--text-muted); padding: 8px; }
 
 .helpdialog-changelog-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.helpdialog-version-badge { font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; background: var(--focus-ring); color: #fff; }
+.helpdialog-version-badge { font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; background: var(--focus-ring); color: var(--text-on-focus-ring, #fff); }
 
 .helpdialog-dialog {
   max-width: none !important; max-height: none !important; min-width: 0 !important;
