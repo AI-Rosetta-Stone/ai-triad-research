@@ -65,12 +65,20 @@ export function OpEdHowPanel({ stages }: { stages: readonly OpEdStage[] | undefi
   const ordered = stages && stages.length > 0 ? orderStages(stages) : null;
   return (
     <HowPanel>
-      <HowSection title="Raw Prompt" defaultExpanded>
-        {ordered ? <StageList stages={ordered} kind="prompt" /> : <HowNote>Raw prompt not recorded for this op-ed.</HowNote>}
-      </HowSection>
-      <HowSection title="Raw Output" defaultExpanded={false}>
-        {ordered ? <StageList stages={ordered} kind="output" /> : <HowNote>Raw output not recorded for this op-ed.</HowNote>}
-      </HowSection>
+      {ordered ? (
+        <>
+          <HowSection title="Raw Prompt" defaultExpanded>
+            <StageList stages={ordered} kind="prompt" />
+          </HowSection>
+          <HowSection title="Raw Output" defaultExpanded={false}>
+            <StageList stages={ordered} kind="output" />
+          </HowSection>
+        </>
+      ) : (
+        <HowSection title="Raw Prompts and Outputs" defaultExpanded>
+          <HowNote>Raw prompts and outputs are visible only to the op-ed's author.</HowNote>
+        </HowSection>
+      )}
       <HowSection title="Methods" defaultExpanded={false}>
         <HowMethodsLinks links={OPED_HOW_METHODS_LINKS} component="oped-how-panel" />
       </HowSection>
