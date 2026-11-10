@@ -42,13 +42,13 @@
 }
 
 .rc-count-badge {
-  background: color-mix(in srgb, var(--info, #3b82f6) 20%, transparent);
-  color: var(--info, #3b82f6);
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .rc-dirty-badge {
-  background: color-mix(in srgb, #f59e0b 20%, transparent);
-  color: #f59e0b;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 /* ── File info ── */
@@ -71,13 +71,13 @@
 }
 
 .rc-validation-errors {
-  background: color-mix(in srgb, #f59e0b 10%, var(--bg-primary));
-  color: #b45309;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .rc-save-errors {
-  background: color-mix(in srgb, #ef4444 10%, var(--bg-primary));
-  color: #dc2626;
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .rc-validation-errors ul,
@@ -123,8 +123,8 @@
   font-size: var(--text-2xs);
   padding: 1px 5px;
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--info, #3b82f6) 20%, transparent);
-  color: var(--info, #3b82f6);
+  background: var(--info-bg);
+  color: var(--info-text);
   font-weight: 600;
 }
 
