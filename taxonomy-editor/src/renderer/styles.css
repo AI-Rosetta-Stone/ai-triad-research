@@ -193,7 +193,7 @@
   /* POV colors — orange/blue/violet triad (Phase 2, WCAG AA verified) */
   --color-acc: #cc7e45;
   --color-saf: #6d94c2;
-  --color-skp: #a882be;
+  --color-skp: #b18fc5;  /* t/48: was #a882be (4.13 on hover); same hue, lifted (Design p/25#47) */
   --color-sit: #2bb8a4;
   --color-conflicts: #7a6a82;
   --tint-acc: rgba(204, 126, 69, 0.12);
