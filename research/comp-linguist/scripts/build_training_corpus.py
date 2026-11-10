@@ -95,7 +95,9 @@ def load_taxonomy_nodes(taxonomy_dir: Path) -> dict:
 
 
 def load_source_evidence(data_root: Path) -> dict:
-    path = data_root / "taxonomy" / "source_evidence_index.json"
+    # t/296: the maintained index lives under taxonomy/Origin (regenerated t/290; copy-folded
+    # facts carry `via`). taxonomy/source_evidence_index.json is a stale June copy.
+    path = data_root / "taxonomy" / "Origin" / "source_evidence_index.json"
     if not path.exists():
         log(f"WARNING: {path} not found")
         return {}
