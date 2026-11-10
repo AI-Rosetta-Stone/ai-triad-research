@@ -103,6 +103,31 @@ async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>
   }
 }
 
+/** Check durable idempotency and concurrency caps for brief exports (t/182).
+ *  Returns true if validation passed; writes error to res and returns false otherwise.
+ *  Extracted from POST handler to keep it within complexity budget. */
+async function validateDurableCapAndIdempotency(res: Parameters<Parameters<Router['post']>[1]>[1], userId: string, idempotencyKey: string | undefined): Promise<boolean> {
+  const existingByKey = await findRunningJobByIdempotencyKey(
+    userId, 'brief-export', idempotencyKey,
+    (r: any) => r.status !== 'failed' && r.status !== 'done',
+  );
+  if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return false; }
+
+  const capResult = await countUserJobRecords(
+    userId, 'brief-export',
+    (r: any) => r.status !== 'failed' && r.status !== 'done',
+  );
+  if (capResult.error) {
+    error(res, 'Job service temporarily unavailable', 503);
+    return false;
+  }
+  if (capResult.count !== null && capResult.count >= MAX_CONCURRENT_EXPORT_JOBS) {
+    json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
+    return false;
+  }
+  return true;
+}
+
 export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
   const { get, post, del } = r;
 
@@ -153,27 +178,7 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     sweepExportJobs();
     const userId = getStorageUserId();
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined) || undefined;
-    
-    // Durable idempotency check: cross-replica, fail-closed returns null.
-    const existingByKey = await findRunningJobByIdempotencyKey(
-      userId, 'briefExport', idempotencyKey,
-      (r: any) => r.status !== 'failed' && r.status !== 'done',
-    );
-    if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return; }
-
-    // Durable per-user concurrency cap: fail-closed rejects with 503 when backend list fails.
-    const capResult = await countUserJobRecords(
-      userId, 'briefExport',
-      (r: any) => r.status !== 'failed' && r.status !== 'done',
-    );
-    if (capResult.error) {
-      error(res, 'Job service temporarily unavailable', 503);
-      return;
-    }
-    if (capResult.count !== null && capResult.count >= MAX_CONCURRENT_EXPORT_JOBS) {
-      json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
-      return;
-    }
+    if (!(await validateDurableCapAndIdempotency(res, userId, idempotencyKey))) return;
 
     const framingMeta = b.framingMeta === false ? false : undefined;
     const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;
