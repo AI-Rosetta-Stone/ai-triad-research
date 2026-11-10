@@ -2,6 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi } from 'vitest';
+
+// t/57: keep engine.run() off the real ai-triad-data calibration log.
+vi.mock('./calibrationLogger.js', async (importOriginal) =>
+  (await import('./__tests__/hermeticCalibration.js')).hermeticCalibrationLogger(importOriginal));
 // File passes 52/52 in isolation (1.4–1.6s); raise timeout for parallel-load runs (t/4112).
 vi.setConfig({ testTimeout: 15_000 });
 import { DebateEngine } from './debateEngine.js';

@@ -8,7 +8,11 @@
 // method. A registry that floors the debate model to 300_000 must yield briefTimeoutMs = 300_000,
 // not 120_000. If the Math.max wiring or the registry threading were deleted, this fails.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// t/57: keep engine.run() off the real ai-triad-data calibration log.
+vi.mock('./calibrationLogger.js', async (importOriginal) =>
+  (await import('./__tests__/hermeticCalibration.js')).hermeticCalibrationLogger(importOriginal));
 import { DebateEngine } from './debateEngine.js';
 import type { ExtendedAIAdapter, GenerateOptions } from './aiAdapter.js';
 import type { ModelRegistry } from '../ai-client/index.js';

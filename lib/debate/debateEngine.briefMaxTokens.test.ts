@@ -5,7 +5,11 @@
 // to generateText for opus/fable models.
 // If the cap is lowered below 32_000 or the fallback removed, this fails.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// t/57: keep engine.run() off the real ai-triad-data calibration log.
+vi.mock('./calibrationLogger.js', async (importOriginal) =>
+  (await import('./__tests__/hermeticCalibration.js')).hermeticCalibrationLogger(importOriginal));
 import { DebateEngine } from './debateEngine.js';
 import type { ExtendedAIAdapter, GenerateOptions } from './aiAdapter.js';
 import { createMinimalTaxonomy, createDefaultConfig } from './debateEngine.testHelpers.js';

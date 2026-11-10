@@ -28,6 +28,7 @@ vi.mock('./calibrationLogger.js', async (importActual) => {
   return {
     ...actual,
     appendCalibrationLog: vi.fn(),
+    readCalibrationLog: vi.fn(() => []), // t/57: never parse the real core log
     // Stub extract: capture the source-authority substrate present at the exact
     // moment the completion path invokes it, computed exactly as the real extract
     // does (computeSourceAuthority over the AN nodes + docMeta).

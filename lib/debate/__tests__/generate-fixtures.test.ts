@@ -8,7 +8,11 @@
 // Excluded from default runs — set RUN_SLOW=1 to execute:
 //   RUN_SLOW=1 npx vitest run generate-fixtures
 
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
+
+// t/57: keep engine.run() off the real ai-triad-data calibration log.
+vi.mock('../calibrationLogger.js', async (importOriginal) =>
+  (await import('./hermeticCalibration.js')).hermeticCalibrationLogger(importOriginal));
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
