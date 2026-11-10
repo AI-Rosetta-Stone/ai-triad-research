@@ -179,7 +179,10 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # picked up the fix (1:...-1+deb13u1) via its normal apt-get upgrade; this base tag was
 # just never re-pinned here. Verified live via `docker run ... dpkg-query zlib1g` before
 # bumping — no new base rebuild needed, only this re-pin.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-08@sha256:7856156d55ceb611b05ad56c381d4819c79f42816c6244be6c1bf6094ce7d4b3 AS runtime
+# Bumped to :2026-11-10 (t/156, under t/155) — clears zlib1g CVE-2026-76844 (#6350), which the
+# deployed-image scan still reports for prod. DeployAzure verified the digest carries zlib1g
+# 1:...-1+deb13u1 (t/155#2). npm's bundled-undici alerts don't apply here: step 8 strips npm.
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-10@sha256:d40df96cf3c3befe9e8016cbb94b0400ef24a250f1c0e9d7b4517de76464f5d1 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
