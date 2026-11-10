@@ -282,7 +282,10 @@ export function InquiryTab() {
     },
     searchPlaceholderMy: 'Search my questions…',
     searchPlaceholderCommunity: 'Search questions from the community…',
-    filter: (rows, q) => rows.filter(r => !q || (r.question?.toLowerCase().includes(q.toLowerCase()) ?? false)),
+    // t/84: also match the displayed (possibly renamed) title, not just the original question.
+    filter: (rows, q) => rows.filter(r => !q
+      || inquiryRowDisplayTitle(r).toLowerCase().includes(q.toLowerCase())
+      || (r.question?.toLowerCase().includes(q.toLowerCase()) ?? false)),
     exportFormats: [{ key: 'markdown', label: 'Markdown' }, { key: 'json', label: 'JSON' }, { key: 'pdf', label: 'PDF' }],
     onExportMy: handleExportMy,
     onExportCommunity: handleExportCommunity,
