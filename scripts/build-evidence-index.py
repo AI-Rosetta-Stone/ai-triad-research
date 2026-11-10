@@ -18,8 +18,8 @@ Shape: { node_id: { "facts": [...], "keyPoints": [...] } }. A fact is
 {claim, label, doc_id, specificity, temporal_bound[, via]}; a key point is
 {stance, pov, point (first 250 chars), verbatim (first 200), doc_id[, via]}.
 
-Read-only against the data and sources roots. It writes only to --out, which must not be inside
-the data root: replacing the committed index is a data change and goes through /data-mutation.
+Read-only against the data and sources roots. It writes only to --out, which must be inside
+neither root: replacing the committed index is a data change and goes through /data-mutation.
 Output is deterministic: sorted keys, nodes in sorted order, links in spec 7.4 order, and groups
 on a node in ordinal order of their canonical id.
 
@@ -308,11 +308,12 @@ def main(argv=None):
     a = ap.parse_args(argv)
     data_root, sources_root = resolve_roots(a.data_root, a.sources_root)
     out = Path(a.out).resolve()
-    if out == data_root or data_root in out.parents:
-        _fail("Write the rebuilt index without touching research data",
-              f"--out {out} is inside the data root {data_root}",
-              "build-evidence-index.py main",
-              "Write to a temp path; replacing the committed index goes through /data-mutation.")
+    for name, root in (("data", data_root), ("sources", sources_root)):
+        if out == root or root in out.parents:
+            _fail("Write the rebuilt index without touching research data",
+                  f"--out {out} is inside the {name} root {root}",
+                  "build-evidence-index.py main",
+                  "Write to a temp path; replacing the committed index goes through /data-mutation.")
     summaries_dir = Path(a.summaries_dir).resolve() if a.summaries_dir else data_root / "summaries"
     if not summaries_dir.is_dir():
         _fail("Read the summaries to build the index", f"{summaries_dir} does not exist",

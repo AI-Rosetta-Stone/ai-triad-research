@@ -148,17 +148,17 @@ def test_cli_is_deterministic_and_writes_only_to_out():
         assert list(idx) == ["n1", "n2"] and [k["doc_id"] for k in idx["n2"]["keyPoints"]] == ["a-2026", "z-2026"]
 
 
-def test_cli_refuses_an_out_path_inside_the_data_root():
+def test_cli_refuses_an_out_path_inside_the_data_or_sources_root():
     with tempfile.TemporaryDirectory() as tmp:
-        data, src = _corpus(tmp, {}, {})
-        target = data / "taxonomy" / "Origin" / "source_evidence_index.json"
-        try:
-            _run("--data-root", str(data), "--sources-root", str(src), "--out", str(target))
-        except SystemExit as exc:
-            assert "data-mutation" in str(exc) and "Next Steps:" in str(exc)
-            assert not target.exists()
-            return
-        raise AssertionError("expected SystemExit for --out inside the data root")
+        data, src = _corpus(tmp, {}, {"d": {}})
+        for target in (data / "taxonomy" / "Origin" / "source_evidence_index.json", src / "d" / "sei.json"):
+            try:
+                _run("--data-root", str(data), "--sources-root", str(src), "--out", str(target))
+            except SystemExit as exc:
+                assert "data-mutation" in str(exc) and "Next Steps:" in str(exc)
+                assert not target.exists()
+                continue
+            raise AssertionError(f"expected SystemExit for --out {target}")
 
 
 if __name__ == "__main__":
