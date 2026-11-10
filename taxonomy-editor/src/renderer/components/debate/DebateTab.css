@@ -84,8 +84,8 @@
 }
 
 .debate-phase-badge.phase-closed {
-  background: var(--text-muted);
-  color: #fff;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .debate-session-item-delete {
@@ -450,7 +450,7 @@
 /* AN node identifier on debate turns */
 .debate-an-id { font-size: var(--text-2xs); color: var(--text-muted); font-weight: 400; }
 /* Concession harvest styles (CH-2) */
-.harvest-badge-qualify { background: #d97706; color: #fff; }
+.harvest-badge-qualify { background: #b45309; color: #fff; }
 .harvest-badge-weaken { background: #dc2626; color: #fff; }
 .harvest-badge-retire { background: #7f1d1d; color: #fff; }
 .harvest-concession-node { font-size: var(--text-xs); color: var(--text-secondary); margin-bottom: 4px; }
