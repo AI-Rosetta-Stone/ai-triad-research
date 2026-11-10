@@ -12,17 +12,40 @@ canonical original. Dispositions and rationale: `dispositions.json`.
 
 **Counts:** keep = 29, re-point = 28, remove = 1.
 
-Two items outside the keep/re-point/remove scope, noted for separate follow-up rather than acted
+**Selection false positive (corrected t/4708):** 57 of the 58 entries genuinely match an
+aggregator host. `shape-thing-2026` (`https://bigmedium.com/...`) was selected because the host
+match was a bare suffix match, so `bigmedium.com` matched `medium.com`. Its row's `host` now says
+`bigmedium.com` and carries `selection_false_positive: true`. Its disposition stays `keep` (the
+author's own site), so the counts and the 29 corpus-write candidates are unchanged. This earlier
+README called it a corpus host/url mismatch; it isn't one. The corpus has the correct URL and no
+`host` field, and the `medium.com` label existed only in this artifact. **A re-run must match
+hosts on a dot boundary** (`h == d or h.endswith("." + d)`). Checked that way, the other 57 rows
+all match.
+
+One item outside the keep/re-point/remove scope, noted for separate follow-up rather than acted
 on here:
 - `anthropic-just-showed-what-doing-right-thing-looks-like-2026` (instagram.com) — kept on best
   judgment; could not confirm the post's content or match it to a specific source. Low confidence.
-- `shape-thing-2026` — its `host` field says `medium.com` but the actual URL is `bigmedium.com`
-  (a different, unrelated domain — appears to be the author's own site, so the *disposition* is
-  still `keep`, but the host/url field mismatch itself is a distinct data-quality issue).
 
 The 29 non-keep entries (re-point/remove) are the corpus-write candidates; per `/data-mutation`
 this review does not itself write anything — the actual write is tracked as a separate ticket
 with its own frozen list and authorization (duplicates sharing a URL are batched to one write).
+The 28 re-points batch to **19** distinct replacement URLs.
+
+**Replacement URLs corrected (t/217, re-verified 2026-11-10).** The write ticket's re-verification
+found four bad replacements, affecting 8 rows. I checked each fix against the live page:
+- `extreme-power-concentration-2026` ×4: `forethought.org` (a homepage, and the wrong publisher) →
+  `https://80000hours.org/problem-profiles/extreme-power-concentration/`. The source is Rose
+  Hadshar's 80,000 Hours problem profile; the corpus snapshot prints this URL.
+- `tech-media-telecom-tmt-predictions-2026-2026`: a Deloitte 404 → the live "TMT Predictions 2026"
+  page.
+- `why-ai-will-save-world-2026`: an a16z podcast slug returning 404 → the essay at
+  `https://a16z.com/ai-will-save-the-world/`.
+- `white-house-releases-national-policy-framework-artificial-2026` ×2: the whitehouse.gov homepage
+  → the March 2026 framework PDF.
+
+16 of the 19 replacements return HTTP 200. The other 3 (PsyPost and two weforum.org pages) return
+403 to scripted requests (bot blocking), but search confirms each is the live document.
 
 **Provenance class:** derived (search-verified per entry, not stipulated) — see
 `research/comp-linguist/docs/review-deliverable-schema.md`.
