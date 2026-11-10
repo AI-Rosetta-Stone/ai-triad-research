@@ -226,11 +226,27 @@ test('t/200 FAIL ARM (old YAML): a reviewer-App CHANGES_REQUESTED review fails (
 });
 
 test('t/200 (#4804 semantics, unchanged): the old YAML cannot bind a reviewer-App APPROVED review to the head -> failure, never a pass', async () => {
-  const { log, checks } = await runOldYaml({ reviews: [ghBotReview('APPROVED', 'Approved (Quality): looks right.', OLD_AFTER)] });
+  const review = ghBotReview('APPROVED', 'Approved (Quality): looks right.', OLD_AFTER);
+  const { log, checks } = await runOldYaml({ reviews: [review] });
   assert.deepEqual(log.error, [], `crashed: ${log.error.join(' | ')}`);
   assert.equal(checks.length, 1);
   assert.equal(checks[0].conclusion, 'failure');
   assert.ok(log.info.some((m) => m.includes('reason=missing-head-sha')), log.info.join(' | '));
+
+  // TL p/12#100: the verdict object the old YAML gets keeps reason `missing-head-sha` and carries a
+  // summary naming the self-serve fix. The inputs are built with the old YAML's own mapping
+  // (bot reviews only, no commit_id, comments without login, and no headSha).
+  const { evaluateT1ApprovalGuard } = await import('./t1-approval-guard-predicate.mjs');
+  const result = evaluateT1ApprovalGuard({
+    body: 'Tier: T1\n\nA change.', headRefName: 'devops/t200-old-branch', lastPushAt: OLD_PUSH, approvalComments: [],
+    botReviews: [review].filter((r) => r.user?.type === 'Bot').map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body })),
+    reviewerAppLogin: REVIEWER_APP,
+  });
+  assert.equal(result.pass, false);
+  assert.equal(result.reason, 'missing-head-sha', 'the machine-readable reason is unchanged');
+  assert.match(result.summary, /predates #4804/);
+  assert.match(result.summary, /post any PR comment or rebase onto main/);
+  assert.match(result.summary, /re-run the guard on main's workflow/);
 });
 
 test('t/200 FAILURE PATH (old YAML): a predicate whose logic cannot load -> CANNOT EVALUATE failure, never a pass', async () => {

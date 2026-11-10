@@ -314,6 +314,8 @@ function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
+export const MISSING_HEAD_SHA_SUMMARY = 'Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post any PR comment or rebase onto main to re-run the guard on main\'s workflow.';
+
 export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
   const tier = parseTier(body);
   if (tier !== 'T1') {
@@ -325,7 +327,9 @@ export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt
   // now pass EVERY review on the PR, human ones included, each with `commitId`.
   const reviews = botReviews || [];
   if (reviews.length > 0 && !headSha) {
-    return { pass: false, tier, reason: 'missing-head-sha' };
+    // t/200 (TL p/12#100): stays fail-closed; `reason` is unchanged. `summary` names the self-serve
+    // fix: the usual caller with no headSha is a pre-#4804 branch's own t1-approval-guard.yml.
+    return { pass: false, tier, reason: 'missing-head-sha', summary: MISSING_HEAD_SHA_SUMMARY };
   }
 
   const slots = latestRoleVerdicts({
