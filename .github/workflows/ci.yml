@@ -215,6 +215,8 @@ jobs:
               - 'lib/**'
               - 'ai-models.json'
               - '.github/workflows/ci.yml'
+              # test-electron-vitest / -coverage run it for the DATA-ROOT report (t/64)
+              - '.github/ci/data-root-guard-report.sh'
               - 'scripts/AITriad/Prompts/**'  # promptCatalog.lint validates this dir; must re-run when prompts change here (t/2915)
               # tests/fixtures/** (t/4367) — lib/sourceIndex/sourceIdentityFixture.test.ts (run by
               # test-electron's vitest) reads tests/fixtures/source-identity-cases.json, a shared
@@ -1095,6 +1097,11 @@ jobs:
         # (without it the step would report tee's always-zero status and hide a real failure).
         # The default reporter keeps the console output (and the DATA-ROOT tokens) in the log;
         # the blob reporter writes the file test-electron-coverage merges.
+        # DATA_ROOT_GUARD_HITS_FILE (t/64): dataRootGuard.ts appends one JSONL record per hit and per
+        # install here, and the lib globalSetup teardown summarizes it. Uploaded below for the
+        # cross-shard live-fire check and the t/61 offender inventory. Unset, nothing changes.
+        env:
+          DATA_ROOT_GUARD_HITS_FILE: ${{ runner.temp }}/data-root-guard/hits-${{ matrix.shard }}.jsonl
         run: |
           set -o pipefail
           pnpm exec vitest run --shard=${{ matrix.shard }}/3 \
@@ -1111,40 +1118,29 @@ jobs:
         # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
         # vite.config.ts's `root: 'src/renderer'`). Reported per shard.
         #
-        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
-        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
-        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
-        #     own runtime signal, not a static grep of config/setup files).
-        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
-        #   - hits -> list them.
-        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
-        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
-        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
+        # Three-state read (TL ruling p/331#2364): hits / "0 hits" (DATA-ROOT-GUARD-INSTALLED seen) /
+        # "guard not installed", which also raises a ::warning:: (t/64, Quality-TechLead on t/59).
+        # With the lib globalSetup's DATA-ROOT-GUARD-SUMMARY in the log, hits come from its aggregated
+        # `count=` lines: the per-hit console lines also reach this log under --reporter=default, so
+        # counting both listed each target twice (t/60). Logic and its both-arms self-test live in
+        # .github/ci/data-root-guard-report.sh. live-fire is checked across shards in
+        # test-electron-coverage, because the positive control lands in only one shard.
         if: always()
         continue-on-error: true
         shell: bash
         env:
           SHARD: ${{ matrix.shard }}
-        run: |
-          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
-          if [ -f "$LOG" ]; then
-            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
-            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
-          else
-            HITS=()
-            GUARD_INSTALLED=false
-          fi
-          if [ "${#HITS[@]}" -gt 0 ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
-            for line in "${HITS[@]}"; do
-              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
-              echo "::warning::$line"
-            done
-          elif [ "$GUARD_INSTALLED" = true ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): 0 hits" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
-          fi
+        run: bash .github/ci/data-root-guard-report.sh shard "$RUNNER_TEMP/vitest-taxonomy-editor.log" "$SHARD"
+
+      - name: Upload DATA-ROOT guard hits file (t/64; absent until lib #4766 records hits)
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: data-root-guard-hits-${{ matrix.shard }}
+          path: ${{ runner.temp }}/data-root-guard/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload shard blob report
         if: always()
@@ -1207,6 +1203,23 @@ jobs:
         run: |
           sh ../operations/devops/check-vitest-shard-blobs.sh "$RUNNER_TEMP/vitest-blobs" 3
           pnpm exec vitest run --merge-reports="$RUNNER_TEMP/vitest-blobs" --coverage
+
+      # t/64: the live-fire positive control is one test file, so it lands in ONE vitest shard; only
+      # the cross-shard total says whether the guard's 0-hit results can be trusted. Warn-only sink
+      # (#2070 pattern): never affects this job's coverage verdict.
+      - name: Download DATA-ROOT guard hits files
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: data-root-guard-hits-*
+          path: ${{ runner.temp }}/data-root-guard
+          merge-multiple: true
+      - name: Report DATA-ROOT guard live-fire across shards (warn-only)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: bash .github/ci/data-root-guard-report.sh livefire "$RUNNER_TEMP/data-root-guard"
 
   # ── render-smoke: "surface renders styled" gate (t/3026 / t/3059) ──
   # Catches the failure class "a component's CSS lives in a lazy tab-chunk that is NOT
@@ -2535,6 +2548,14 @@ jobs:
         run: python3 .github/ci/workflow-lint.py --self-test
       - name: Fault tests for test-electron-matrix-membership.mjs (t/4236)
         run: node --test .github/scripts/test-electron-matrix-membership.test.mjs
+      # t/64: lives here (workflow-lint has no path filter) so an edit to the script alone still runs it.
+      - name: DATA-ROOT guard report arms (WARN-FIRST, t/64)
+        # Both arms of .github/ci/data-root-guard-report.sh: summary-vs-legacy hit lines, the three
+        # per-shard states, and the cross-shard live-fire tally (loud on 0 or no install, quiet before
+        # hits files exist). The report itself is warn-only, and so is this step for now.
+        continue-on-error: true
+        shell: bash
+        run: bash .github/ci/data-root-guard-report.sh --self-test
 
   # ── ci-filter-coverage: each paths-filtered job's test read-set covered by its own filter
   # (t/4140, third occurrence of the class: t/2025, t/3189, t/4029). NO path filter of its own —
