@@ -75,8 +75,8 @@
   font-weight: 700;
   padding: 0 4px;
   border-radius: 3px;
-  background: rgba(245,158,11,0.15);
-  color: #f59e0b;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   text-transform: uppercase;
 }
 
@@ -85,8 +85,8 @@
   font-weight: 700;
   padding: 0 4px;
   border-radius: 3px;
-  background: rgba(239,68,68,0.15);
-  color: #ef4444;
+  background: var(--error-bg);
+  color: var(--error-text);
   text-transform: uppercase;
 }
 
@@ -111,8 +111,8 @@
   border-radius: 2px;
   font-weight: 600;
   font-size: var(--text-2xs);
-  background: rgba(14,165,233,0.12);
-  color: #0ea5e9;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .pdt-empty-badge {
@@ -120,8 +120,8 @@
   border-radius: 2px;
   font-weight: 700;
   font-size: var(--text-2xs);
-  background: rgba(245,158,11,0.15);
-  color: #f59e0b;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .pdt-scrub-icon {
@@ -129,8 +129,8 @@
   border-radius: 2px;
   font-weight: 600;
   font-size: var(--text-2xs);
-  background: rgba(168,85,247,0.12);
-  color: #a855f7;
+  background: var(--violet-bg);
+  color: var(--violet-text);
 }
 
 /* Verdict row — static part; background/border-left stay inline (depend on vSelected) */
