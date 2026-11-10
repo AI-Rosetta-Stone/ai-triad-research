@@ -109,6 +109,7 @@ export function HowMethodsLinks({ links, component = 'how-panel' }: HowMethodsLi
  */
 export function HowPanel({ rawPrompt, rawResponse }: HowPanelProps) {
   const [expanded, setExpanded] = useState(false);
+  const hasRawFields = rawPrompt || rawResponse;
   return (
     <div className="how-panel">
       <button type="button" className="how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
@@ -117,12 +118,18 @@ export function HowPanel({ rawPrompt, rawResponse }: HowPanelProps) {
       </button>
       {expanded && (
         <div className="how-body">
-          <HowSection title="Raw Prompt" defaultExpanded>
-            <HowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
-          </HowSection>
-          <HowSection title="Raw Response" defaultExpanded={false}>
-            <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
-          </HowSection>
+          {hasRawFields ? (
+            <>
+              <HowSection title="Raw Prompt" defaultExpanded>
+                <HowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
+              </HowSection>
+              <HowSection title="Raw Response" defaultExpanded={false}>
+                <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
+              </HowSection>
+            </>
+          ) : (
+            <p className="how-unavailable">The raw prompt and output weren't recorded for this answer.</p>
+          )}
         </div>
       )}
     </div>
