@@ -48,7 +48,8 @@ export function parseEntries(text) {
   });
 }
 
-const cell = (s) => s.replace(/\|/g, '\|');
+// Escape table pipes as \| (GFM honours it even inside code spans). '\|' would be just '|' (t/226).
+const cell = (s) => s.replace(/\|/g, '\\|');
 
 export function renderIndex(entries) {
   const out = [
