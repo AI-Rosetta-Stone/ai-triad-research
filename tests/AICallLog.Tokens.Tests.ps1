@@ -50,6 +50,8 @@ Describe 'AI call log tokens + default logger (t/107)' -Tag 'unit' {
         Remove-Item -LiteralPath $script:LogFile -Force -ErrorAction SilentlyContinue
         $env:AI_CALL_LOG_ENABLED = '1'
         Mock Get-AICallLogPath -ModuleName AITriad -MockWith { $script:LogFile }
+        # t/150: direct Invoke-AIApi calls log through AIEnrich's own writer (same source file, its own scope).
+        Mock Get-AICallLogPath -ModuleName AIEnrich -MockWith { $script:LogFile }
         Mock Start-Sleep -ModuleName AIEnrich -MockWith { }
         Mock Resolve-AIApiKey -ModuleName AIEnrich -MockWith { 'fake-key' }
     }
