@@ -62,7 +62,9 @@ describe('FactsPanel (t/1025, t/1906)', () => {
       const onSelectFact = vi.fn();
       render(<FactsPanel nodeId="node-facts" onSelectFact={onSelectFact} />);
       await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
-      expect(screen.getByText('Economic growth').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true');
+      // t/4969: the default-expand effect can land a tick after the facts text commits, so
+      // this must be awaited too, not asserted synchronously (was flaky under shard contention).
+      await waitFor(() => expect(screen.getByText('Economic growth').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true'));
       // The reset effect calls onSelectFact(null) on mount/node-change (unchanged, pre-existing
       // behavior) — but the default-expand path itself must never call it with a fact.
       expect(onSelectFact).not.toHaveBeenCalledWith(expect.objectContaining({ label: expect.any(String) }));
