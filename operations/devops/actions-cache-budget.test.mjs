@@ -17,6 +17,7 @@ import {
   evaluateCacheBudget,
   formatAlertBody,
   fetchCacheData,
+  cell,
 } from './actions-cache-budget.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -150,6 +151,94 @@ test('fetchCacheData reads usage and flattens every page of the cache list', asy
   assert.equal(usage.active_caches_size_in_bytes, 5);
   assert.deepEqual(caches.map((c) => c.key), ['a', 'b']);
   assert.deepEqual(calls[1], ['paginate', 'LIST', { owner: 'o', repo: 'r', per_page: 100 }]);
+});
+
+test('cell escapes backslash first, then EVERY pipe, plus backticks and newlines (CodeQL js/incomplete-sanitization)', () => {
+  // Input: a\|b|c`d<CR><LF>e\\|f  (multiple pipes, backslashes before pipes, a backtick, a newline)
+  const input = 'a\\|b|c`d\r\ne\\\\|f';
+  // Expected: a\\\|b\|c'd e\\\\\|f  (each \ doubled, each | escaped, ` -> ', newline -> space)
+  assert.equal(cell(input), "a\\\\\\|b\\|c'd e\\\\\\\\\\|f");
+  // After escaping, every pipe is preceded by an ODD number of backslashes: none is a live separator.
+  for (const m of cell(input).matchAll(/(\\*)\|/g)) assert.equal(m[1].length % 2, 1, `live pipe in ${cell(input)}`);
+  assert.equal(cell('x|y|z'), 'x\\|y\\|z', 'all occurrences, not just the first');
+});
+
+test('a key with pipes and backslashes stays inside its own table row and cell', () => {
+  const caches = [cache('evil\\|key|with|pipes`x', 9)];
+  const body = formatAlertBody(evaluateCacheBudget({ usage: usageOf(caches), caches }));
+  const row = body.split('\n').find((l) => l.includes('evil'));
+  // Count live (unescaped) pipes: a row of 3 cells has exactly 4.
+  const live = [...row.matchAll(/(\\*)\|/g)].filter((m) => m[1].length % 2 === 0).length;
+  assert.equal(live, 4, row);
+});
+
+// Pull the github-script `script: |` body of a named step out of the workflow, so the real issue
+// logic runs against a fake Octokit (t/133: a labelled PR must never be touched).
+function stepScript(wf, stepName) {
+  const lines = wf.split('\n');
+  const start = lines.findIndex((l) => l.trim() === `- name: ${stepName}`);
+  assert.ok(start >= 0, `step ${stepName} exists`);
+  const s = lines.findIndex((l, i) => i > start && /^\s+script: \|$/.test(l));
+  const indent = lines[s].match(/^\s*/)[0].length;
+  const body = [];
+  for (let i = s + 1; i < lines.length; i++) {
+    if (lines[i].trim() && lines[i].match(/^\s*/)[0].length <= indent) break;
+    body.push(lines[i]);
+  }
+  return body.join('\n');
+}
+
+function fakeGithub(openItems) {
+  const calls = [];
+  return {
+    calls,
+    rest: { issues: {
+      listForRepo: async (p) => { calls.push(['list', p]); return { data: openItems }; },
+      createComment: async (p) => { calls.push(['comment', p.issue_number]); return { data: {} }; },
+      update: async (p) => { calls.push(['update', p.issue_number, p.state]); return { data: {} }; },
+      create: async (p) => { calls.push(['create', p.labels]); return { data: { number: 999 } }; },
+    } },
+  };
+}
+
+async function runStep(wf, stepName, github, env = {}) {
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const context = { repo: { owner: 'o', repo: 'r' }, serverUrl: 'https://github.com', runId: 1 };
+  const core = { info() {}, warning() {} };
+  const fn = new AsyncFunction('github', 'context', 'core', 'process', stepScript(wf, stepName));
+  await fn(github, context, core, { env });
+}
+
+const LABELLED_PR = { number: 4823, pull_request: { url: 'x' }, labels: [{ name: ALERT_LABEL }] };
+const ALERT_ISSUE = { number: 77, labels: [{ name: ALERT_LABEL }] };
+
+test('t/133: the alert step never comments on a labelled PR; with only a PR open it files a new issue', async () => {
+  const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'actions-cache-budget.yml'), 'utf8');
+  const onlyPr = fakeGithub([LABELLED_PR]);
+  await runStep(wf, 'Open or update the cache-budget alert issue', onlyPr, { BODY: 'b' });
+  assert.ok(!onlyPr.calls.some((c) => c[1] === 4823), JSON.stringify(onlyPr.calls));
+  assert.deepEqual(onlyPr.calls.at(-1), ['create', [ALERT_LABEL, 'alert-escalated']]);
+
+  const prFirst = fakeGithub([LABELLED_PR, ALERT_ISSUE]);
+  await runStep(wf, 'Open or update the cache-budget alert issue', prFirst, { BODY: 'b' });
+  assert.deepEqual(prFirst.calls.slice(1), [['comment', 77]], 'comments on the issue behind the PR, not the PR');
+});
+
+test('t/133: auto-close never comments on or closes a labelled PR, only the alert issue', async () => {
+  const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'actions-cache-budget.yml'), 'utf8');
+  const gh = fakeGithub([LABELLED_PR, ALERT_ISSUE]);
+  await runStep(wf, 'Auto-close the alert once back under budget', gh);
+  assert.deepEqual(gh.calls.slice(1), [['comment', 77], ['update', 77, 'closed']]);
+});
+
+test('both issue steps are guarded to the main ref (as #4774)', () => {
+  const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'actions-cache-budget.yml'), 'utf8');
+  for (const name of ['Open or update the cache-budget alert issue', 'Auto-close the alert once back under budget']) {
+    const lines = wf.split('\n');
+    const i = lines.findIndex((l) => l.trim() === `- name: ${name}`);
+    const ifLine = lines.slice(i + 1, i + 6).find((l) => /^\s+if:/.test(l));
+    assert.ok(ifLine && ifLine.includes("github.ref == 'refs/heads/main'"), `${name}: ${ifLine}`);
+  }
 });
 
 test('workflow wiring: alert-only permissions, off-round-minute cron, registered, labelled, no deletes', () => {

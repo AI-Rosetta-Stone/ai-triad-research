@@ -137,7 +137,11 @@ export function evaluateCacheBudget({ usage, caches, readError, thresholdBytes =
   };
 }
 
-const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/`/g, "'");
+// Escape a value for a markdown table cell inside a code span. Backslash FIRST, so an input `\|`
+// can't become an escaped backslash followed by a live cell separator; then every pipe. Backticks
+// would close the code span and newlines would end the table row, so both are neutralised too.
+export const cell = (s) =>
+  String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/`/g, "'").replace(/[\r\n]+/g, ' ');
 
 /** PURE. The markdown body for the alert issue / comment. */
 export function formatAlertBody(result, { runUrl = '', now = new Date().toISOString() } = {}) {
