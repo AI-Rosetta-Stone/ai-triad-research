@@ -60,7 +60,7 @@ Success is measured by user research and system diagnostics:
 
 This feature has real boundaries:
 
-- **Time.** Each run takes 2–60 minutes depending on fidelity level (see `lib/inquiry/durationEstimate.ts`). Current estimates (quick: 2–8 min; standard: 8–25 min; deep: 30–60 min) are placeholders pending measured values from t/4751. Users cannot treat this as a synchronous search. The feature uses an async job model; users poll for results.
+- **Time.** Each run takes 2–60 minutes depending on fidelity level (see `lib/inquiry/durationEstimate.ts`). Quick fidelity: 2–8 min; standard: 8–25 min; deep: 30–60 min. Users cannot treat this as a synchronous search. The feature uses an async job model; users poll for results.
 
 - **Scope.** The question is answered only with respect to the taxonomy's current content. If the taxonomy lacks a POV on a topic, the answer reflects that gap ("The taxonomy has little that speaks directly to this question").
 
