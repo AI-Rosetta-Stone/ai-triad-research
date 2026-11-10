@@ -86,3 +86,29 @@ describe('mapErrorToUserMessage — HTTP status → friendly text (t/2906)', () 
     expect(shown.length).toBeGreaterThan(0);
   });
 });
+
+describe('mapErrorToUserMessage — kind option: operation-neutral 429 text (t/108)', () => {
+  const rateLimited = new Error('HTTP 429 Too Many Requests');
+
+  it('429 with no options keeps the existing AI text', () => {
+    expect(mapErrorToUserMessage(rateLimited)).toBe(
+      'API rate limited. Wait a minute and try again, or switch to a different model in Settings.',
+    );
+    expect(mapErrorToUserMessage(rateLimited, { kind: 'ai' })).toBe(mapErrorToUserMessage(rateLimited));
+  });
+
+  it("429 with kind 'operation' gets neutral text that doesn't mention models", () => {
+    expect(mapErrorToUserMessage(rateLimited, { kind: 'operation' })).toBe('Too many requests. Wait a minute and try again.');
+  });
+
+  it.each([
+    ['503 overload', new Error('HTTP 503 Service Unavailable')],
+    ['500 server error', new Error('HTTP 500 Internal Server Error')],
+    ['permission', new Error('EACCES: permission denied')],
+    ['generic 4xx', new Error('HTTP 403 Forbidden')],
+    ['unclassified', new Error('some totally novel failure mode')],
+  ])('%s maps identically for both kinds', (_label, err) => {
+    expect(mapErrorToUserMessage(err, { kind: 'operation' })).toBe(mapErrorToUserMessage(err, { kind: 'ai' }));
+    expect(mapErrorToUserMessage(err, { kind: 'operation' })).toBe(mapErrorToUserMessage(err));
+  });
+});
