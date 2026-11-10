@@ -70,6 +70,45 @@ describe('validateCreateOpEdPayload (t/2908/t/2910)', () => {
     expect(err?.problem).toContain('name');
   });
 
+  // t/275 + t/273#4: enforce 500k char limit (re-validate at handler)
+  it('rejects document source exceeding 500k character limit', () => {
+    const hugeText = 'x'.repeat(500_001);
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: hugeText, name: 'huge.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('500k');
+  });
+
+  // t/275: bare file name only (no paths)
+  it('rejects document name containing forward slash', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: 'folder/document.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('path');
+  });
+
+  it('rejects document name containing backslash', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: 'folder\\document.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('path');
+  });
+
+  it('rejects document name containing parent directory reference', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: '../document.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('path');
+  });
+
   it('treats document source as a valid third mode alongside topic and url', () => {
     // All three sources independently valid; first non-empty one is used
     expect(validateCreateOpEdPayload({

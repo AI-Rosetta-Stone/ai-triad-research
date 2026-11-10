@@ -712,7 +712,7 @@ function buildElectronApi() {
     ipcRenderer.invoke('submit-ask-to-community', baseUrl, result, note),
 
   // File picker
-  pickDocumentFile: (): Promise<{ cancelled: boolean; fileName?: string; content?: string; format?: string }> =>
+  pickDocumentFile: (): Promise<{ cancelled: boolean; filePath?: string; fileName?: string; content?: string; format?: string }> =>
     ipcRenderer.invoke('pick-document-file'),
 
   // Taxonomy proposals (for batch approve UI)

@@ -105,13 +105,15 @@ export function registerSystemHandlers(): void {
       const filePath = result.filePaths[0];
       const fileName = path.basename(filePath);
       
-      // t/275: read as bytes, not UTF-8 — PDF/DOCX need binary extraction (fixes t/284 debate bug too).
+      // t/275: read as bytes, not UTF-8 — PDF/DOCX need binary extraction.
       // Pass to lib's extractDocumentText (t/273) for format-aware text extraction.
+      // TODO: confirm path once t/273 PR is available.
       const bytes = fs.readFileSync(filePath);
       const { extractDocumentText } = await import('../../../../lib/debate/documentExtractor.js');
       const extracted = await extractDocumentText(new Uint8Array(bytes), fileName);
       
-      return { cancelled: false, fileName, content: extracted.text, format: extracted.format };
+      // Return filePath for debate mode (used by NewDebateDialog.tsx:1076), plus extracted content.
+      return { cancelled: false, filePath, fileName, content: extracted.text, format: extracted.format };
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'systemHandlers', level: 'error',

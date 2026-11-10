@@ -35,12 +35,30 @@ export function validateCreateOpEdPayload(input: CreateOpEdValidationInput): Act
         nextSteps: ['Upload a document with content'],
       });
     }
+    // t/273#4 item 3: enforce 500k char limit (renderer already applies, but re-validate at handler)
+    if (documentSource.text.length > 500_000) {
+      return new ActionableError({
+        goal: 'Create op-ed set',
+        problem: `extracted text exceeds 500k character limit (${documentSource.text.length} chars)`,
+        location: 'opedHandlers create-oped-set',
+        nextSteps: ['Use a smaller document or section'],
+      });
+    }
     if (!documentSource.name?.trim()) {
       return new ActionableError({
         goal: 'Create op-ed set',
         problem: 'uploaded document is missing a name',
         location: 'opedHandlers create-oped-set',
         nextSteps: ['Ensure the document has a valid file name'],
+      });
+    }
+    // Validate bare file name (no path separators or parent refs per t/275 spec)
+    if (documentSource.name.includes('/') || documentSource.name.includes('\\') || documentSource.name.includes('..')) {
+      return new ActionableError({
+        goal: 'Create op-ed set',
+        problem: 'document name must be a file name, not a path',
+        location: 'opedHandlers create-oped-set',
+        nextSteps: ['Use only the file name (e.g., "document.pdf"), not the full path'],
       });
     }
   }

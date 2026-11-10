@@ -391,8 +391,8 @@ export function registerOpEdHandlers(): void {
           case 'voice_complete': {
             completedMembers.push(evt.member);
             try {
-              // t/275: type assertion for document mode pending t/273 OpEdSet.source_mode extension
-              saveOpEdSetTemp({ schema_version: 1, set_id: setId, topic, params, created_at: createdAt, opeds: [...completedMembers], ...provenanceFields() } as OpEdSet);
+              // TODO t/273: remove cast once OpEdSet.source_mode is extended to include 'document'
+              saveOpEdSetTemp({ schema_version: 1, set_id: setId, topic, params, created_at: createdAt, opeds: [...completedMembers], ...provenanceFields() } as unknown as OpEdSet);
             } catch { /* telemetry — silent by design; temp save is best-effort */ }
             send({ set_id: setId, voice: evt.pov, stage: 'complete' });
             getGlobalRecorder()?.record({
@@ -428,8 +428,8 @@ export function registerOpEdHandlers(): void {
       // Abort before complete: persist partial set so completed voices aren't lost.
       if (!finalized && completedMembers.length > 0) {
         try {
-          // t/275: type assertion for document mode pending t/273 OpEdSet.source_mode extension
-          finalizeOpEdSet({ schema_version: 1, set_id: setId, topic, params, created_at: createdAt, opeds: completedMembers, ...provenanceFields() } as OpEdSet);
+          // TODO t/273: remove cast once OpEdSet.source_mode is extended to include 'document'
+          finalizeOpEdSet({ schema_version: 1, set_id: setId, topic, params, created_at: createdAt, opeds: completedMembers, ...provenanceFields() } as unknown as OpEdSet);
         } catch { /* telemetry — silent by design */ }
       }
     }
