@@ -158,6 +158,13 @@ describe('t/3581 — POST /api/inquiry', () => {
     expect(startInquiryJob).not.toHaveBeenCalled();
   });
 
+  it('503 when the cap checker backend fails (fail-closed: reject new request)', async () => {
+    h.capCountError = { reason: 'list_failed' };
+    const r = res(); await post()(req('/api/inquiry'), r, VALID);
+    expect(r.statusCode).toBe(503);
+    expect(startInquiryJob).not.toHaveBeenCalled();
+  });
+
   it('429 when rate-limited', async () => {
     h.rpmAllowed = false;
     const r = res(); await post()(req('/api/inquiry'), r, VALID);

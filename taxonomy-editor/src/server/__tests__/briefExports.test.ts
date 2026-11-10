@@ -201,6 +201,13 @@ describe('Brief Export routes (t/2804)', () => {
     expect(startExportJob).not.toHaveBeenCalled();
   });
 
+  it('503 when the cap checker backend fails (fail-closed: reject new request)', async () => {
+    countUserJobRecords.mockResolvedValue({ count: null, error: { reason: 'list_failed' } });
+    await post(validBody);
+    expect(lastRes._status).toBe(503);
+    expect(startExportJob).not.toHaveBeenCalled();
+  });
+
   // ── GET job / list ──
 
   it('GET /api/export-jobs/:jobId returns the job view; 404 when unknown', async () => {
