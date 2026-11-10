@@ -19,5 +19,9 @@
     "candidate": { "nodes": 998, "facts": 5290, "keyPoints": 11174, "summaries": 888, "marked_copies_folded": 182, "via_entries": 2557, "invalid_marks": 0 }
   },
   "determinism": "two builds from the same exports are byte-identical",
+  "rollback": {
+    "preferred": "git -C ai-triad-data revert <write commit>",
+    "independent_of_write_commit": "git -C ai-triad-data show 08c4ffb855eb1883ad8fdb9e4bac693cf8b482d7 > ai-triad-data/taxonomy/Origin/source_evidence_index.json, then a single-pathspec commit; verify sha256-lf equals pre_sha256"
+  },
   "delta_explanation": "t/231#3, less the 5 uncommitted summaries that build included (16 facts, 19 key points); see t/290"
 }
