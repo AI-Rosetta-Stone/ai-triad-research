@@ -190,3 +190,38 @@ function Test-BudgetStop {
     )
     return (($SpentUsd + $Factor * $PerDocEstimateUsd) -gt $BudgetUsd)
 }
+
+function Test-CallLogged {
+    <#
+    .SYNOPSIS
+        True when the AI call log holds an entry for THIS call: Datetime at or after -Since and PromptStart
+        equal to the call's prompt (first 160 chars, as Write-AICallLogEntry stores it) (t/151).
+    .DESCRIPTION
+        Matching on the prompt, not just "a new entry exists", stops a concurrent process writing the same
+        log (e.g. a guarded batch) from satisfying the probe while this call went unlogged. Model isn't used:
+        the fallback cascade can log the call under another model. Undatable or unparseable lines never
+        match (Get-RunSpendUsd already fails closed on them).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$LogPath,
+        [Parameter(Mandatory)][datetime]$Since,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Prompt
+    )
+    if (-not (Test-Path -LiteralPath $LogPath)) { return $false }
+    $want = if ($Prompt.Length -gt 160) { $Prompt.Substring(0, 160) } else { $Prompt }
+    $sinceUtc = $Since.ToUniversalTime()
+    foreach ($line in Get-Content -LiteralPath $LogPath -Encoding utf8) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        $when = $null
+        try {
+            if ($rec.Datetime -is [datetime]) { $when = $rec.Datetime.ToUniversalTime() }
+            elseif ($rec.Datetime) { $when = ([datetime]::Parse([string]$rec.Datetime, [cultureinfo]::InvariantCulture, 'RoundtripKind')).ToUniversalTime() }
+        } catch { $when = $null }
+        if ($null -eq $when -or $when -lt $sinceUtc) { continue }
+        if ([string]$rec.PromptStart -ceq $want) { return $true }
+    }
+    return $false
+}

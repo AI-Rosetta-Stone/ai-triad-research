@@ -3,16 +3,17 @@
 .SYNOPSIS
     t/4880: run the camp-bridge judge over items.json with a fail-closed spend cap.
 .DESCRIPTION
-    Spend goes through the same guard as run_batch.ps1 (t/150, TL p/7#30): every judge call is made
-    inside the AITriad module's scope, where Invoke-AIApi carries the AI call log's default logger in
-    every import order (t/150#1), and spend is read back from the call log for this run, priced from
-    ai-models.json (BatchBudget.ps1). Before t/150 the judge imported only AIEnrich, so its paid calls
-    never reached the call log and a concurrent guarded batch couldn't see them.
+    Spend goes through the same guard as run_batch.ps1 (t/150, TL p/7#30): since #4848 every
+    Invoke-AIApi call logs exactly once in any import order, and spend is read back from the call log
+    for this run, priced from ai-models.json (BatchBudget.ps1). Before t/150 the judge imported only
+    AIEnrich, so its paid calls never reached the call log and a concurrent guarded batch couldn't see them.
 
     FAILS CLOSED:
-      - refuses to start unless the call-log writer records token counts and the judge model is priced;
-      - after every call, a new token-bearing call-log entry must exist for this run (the probe), else it
-        stops: at most one call can ever go unaccounted;
+      - refuses to start unless Test-AICallLogReady says the Invoke-AIApi it resolves logs every call, the
+        writer records token counts, and the judge model is priced;
+      - after every call, the call log must hold THIS call's entry (PromptStart = the item's prompt, at or
+        after the call started; t/151), else it stops: at most one call can ever go unaccounted, and a
+        concurrent process's entry can't stand in for it;
       - a response with no usage metadata stops the run (t/4882).
     Entries another process writes to the same log inside the run window are counted too, so a judge and
     a batch running together each see the combined spend (an over-count, which only stops earlier).
@@ -41,6 +42,13 @@ Import-Module (Join-Path $Repo 'scripts/AITriad/AITriad.psd1') -Force
 $ModelsJson = Join-Path $Repo 'ai-models.json'
 $Module = Get-Module AITriad
 $CallLog = & $Module { Get-AICallLogPath }
+$Ready = Test-AICallLogReady -Detailed
+if (-not $Ready.Ready) {
+    New-ActionableError -Goal 'Run the t/4880 judge within the PI-approved cap' `
+        -Problem "The AI call log won't record every judge call: $($Ready.Reason)" `
+        -Location 'analyses/t4603-camp-bridge/judge/run_judge.ps1' `
+        -NextSteps @('Use a main that includes t/150 (#4848)', 'Do not bypass this check (t/150)') -Throw
+}
 $WriterParams = @(& $Module { (Get-Command Write-AICallLogEntry).Parameters.Keys })
 if (-not (Test-SpendSourceReady -WriterParameterNames $WriterParams)) {
     New-ActionableError -Goal 'Run the t/4880 judge within the PI-approved cap' `
@@ -67,14 +75,14 @@ foreach ($It in $Items) {
             -Location 'run_judge.ps1' -NextSteps @('Score the partial output', 'Ask the PI before raising the cap')
         break
     }
-    # Inside AITriad's scope, so the call is written to the AI call log (t/150#1).
     $Call = @{ Prompt = $It.prompt; Model = $Model; Temperature = 0; MaxTokens = 400; JsonMode = $true }
-    $R = & $Module { param($P) Invoke-AIApi @P } $Call
+    $CallStart = [datetime]::UtcNow
+    $R = Invoke-AIApi @Call   # AITriad re-exports it; it logs every call (t/150, #4848)
     $After = Get-JudgeSpend -RequireLog
-    if ($After.Entries -le $Before.Entries) {
+    if (-not (Test-CallLogged -LogPath $CallLog -Since $CallStart -Prompt ([string]$It.prompt))) {
         New-ActionableError -Goal 'Measure spend for every judge call' `
-            -Problem "Item $($It.id): the call left no AI call-log entry, so its spend is invisible to the cap and to any concurrent guarded batch" `
-            -Location 'run_judge.ps1' -NextSteps @('Check AI_CALL_LOG_ENABLED reached the call', 'Use Test-AICallLogReady once t/150 ships', "Re-run from this item with -SpentSoFarUsd") -Throw
+            -Problem "Item $($It.id): the call left no AI call-log entry of its own, so its spend is invisible to the cap and to any concurrent guarded batch" `
+            -Location 'run_judge.ps1' -NextSteps @('Check Test-AICallLogReady -Detailed', "Re-run from this item with -SpentSoFarUsd") -Throw
     }
     if ($null -eq $R -or $null -eq $R.Usage) {
         New-ActionableError -Goal 'Measure spend for every judge call' `
