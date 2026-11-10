@@ -307,6 +307,8 @@ jobs:
               - '.github/ci/fetch_embed_models.py'
               # t/62: the shared model pins fetch_embed_models.py and embed_taxonomy.py both read
               - 'scripts/embed_model_pins.json'
+              # t/110: assert_embed_stability.py loads through the shared pinned loader
+              - 'scripts/embed_model_pins.py'
               - '.github/ci/assert_embed_stability.py'
               - '.github/ci/embed_reference.json'
               - '.github/actions/checkout-ai-triad-data/**'
