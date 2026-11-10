@@ -149,12 +149,26 @@ RUN echo "[t/3137 tripwire] installed openssl-family versions (expect openssl >=
 # The dir holds exactly three files: model.onnx (fp32), tokenizer.json,
 # tokenizer_config.json. curl -f is load-bearing — without it a 404 writes an
 # HTML error page as model.onnx and silently corrupts the offline load.
-ARG ONNX_MODEL_BASE=https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main
+# Pinned to a Xenova commit, never resolve/main (t/79): an upstream re-upload
+# would otherwise change prod embeddings at the next base build, unseen by CI.
+# CI's embedding-onnx-equivalence job reads ONNX_MODEL_REVISION from this line
+# for its download URL and cache key, so keep it a bare 40-hex ARG. The sha256s
+# are today's bytes (identical at main and at this commit, 2026-11-09); a
+# mismatch fails the build rather than shipping different vectors.
+ARG ONNX_MODEL_REVISION=751bff37182d3f1213fa05d7196b954e230abad9
+ARG ONNX_MODEL_BASE=https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/${ONNX_MODEL_REVISION}
 ENV AI_TRIAD_ONNX_MODEL_DIR=/opt/onnx/all-MiniLM-L6-v2
 RUN mkdir -p "$AI_TRIAD_ONNX_MODEL_DIR" \
     && curl -fSL "${ONNX_MODEL_BASE}/onnx/model.onnx" -o "$AI_TRIAD_ONNX_MODEL_DIR/model.onnx" \
     && curl -fSL "${ONNX_MODEL_BASE}/tokenizer.json" -o "$AI_TRIAD_ONNX_MODEL_DIR/tokenizer.json" \
-    && curl -fSL "${ONNX_MODEL_BASE}/tokenizer_config.json" -o "$AI_TRIAD_ONNX_MODEL_DIR/tokenizer_config.json"
+    && curl -fSL "${ONNX_MODEL_BASE}/tokenizer_config.json" -o "$AI_TRIAD_ONNX_MODEL_DIR/tokenizer_config.json" \
+    && printf '%s  %s\n' \
+        759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e "$AI_TRIAD_ONNX_MODEL_DIR/model.onnx" \
+        da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0 "$AI_TRIAD_ONNX_MODEL_DIR/tokenizer.json" \
+        9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3 "$AI_TRIAD_ONNX_MODEL_DIR/tokenizer_config.json" \
+        > /tmp/onnx-model.sha256 \
+    && sha256sum -c /tmp/onnx-model.sha256 \
+    && rm /tmp/onnx-model.sha256
 
 # Non-root user
 RUN groupadd -r aitriad && useradd -r -g aitriad -d /home/aitriad -m aitriad \

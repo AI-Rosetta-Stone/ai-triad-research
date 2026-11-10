@@ -67,6 +67,8 @@
   "embeddings": [
     "lib/embeddings/**",
     "taxonomy-editor/package.json",
-    "taxonomy-editor/pnpm-lock.yaml"
+    "taxonomy-editor/pnpm-lock.yaml",
+    "deploy/azure/Dockerfile.base",
+    "taxonomy-editor/Dockerfile"
   ]
 }
