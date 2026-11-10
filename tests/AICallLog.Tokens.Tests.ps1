@@ -127,7 +127,7 @@ Describe 'AI call log tokens + default logger (t/107)' -Tag 'unit' {
         $ctx = InModuleScope AIEnrich {
             $script:Got = $null
             $logger = { param($rc, $st, $c) $script:Got = $c }
-            Invoke-AICallLogHook -CallLogger $logger -Response 'r' -LastError $null -Attempt 0 -Model 'm' -Backend 'claude' `
+            Invoke-AICallLogHook -CallLogger $logger -Response 'r' -LastError $null -Attempt 0 -Model 'claude-opus-5' -Backend 'claude' `
                 -Prompt 'p' -Usage ([pscustomobject]@{ InputTokens = 7; OutputTokens = 3; TotalTokens = 10 }) -WarningAction SilentlyContinue
             $script:Got
         }
@@ -200,8 +200,8 @@ Describe 'Write-AICallLogEntry token fields (t/107)' -Tag 'unit' {
         InModuleScope AITriad -Parameters @{ P = (Join-Path $TestDrive 'w.jsonl') } {
             param($P)
             Remove-Item -LiteralPath $P -ErrorAction SilentlyContinue
-            Write-AICallLogEntry -Status '200' -Model 'm' -Backend 'gemini' -InputTokens 10 -OutputTokens 2 -CachedInputTokens 4 -Path $P
-            Write-AICallLogEntry -Status '200' -Model 'm' -Backend 'gemini' -InputTokens 10 -Path $P -WarningAction SilentlyContinue
+            Write-AICallLogEntry -Status '200' -Model 'gemini-3.5-flash-lite' -Backend 'gemini' -InputTokens 10 -OutputTokens 2 -CachedInputTokens 4 -Path $P
+            Write-AICallLogEntry -Status '200' -Model 'gemini-3.5-flash-lite' -Backend 'gemini' -InputTokens 10 -Path $P -WarningAction SilentlyContinue
             $l = @(Get-Content -LiteralPath $P | ForEach-Object { $_ | ConvertFrom-Json })
             @($l[0].PSObject.Properties.Name)[-3..-1] -join ',' | Should -Be 'InputTokens,OutputTokens,CachedInputTokens'
             $l[1].PSObject.Properties['InputTokens'] | Should -BeNullOrEmpty -Because 'Input without Output is not a usable spend record'
