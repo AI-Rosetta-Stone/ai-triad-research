@@ -10,7 +10,7 @@ export interface MapErrorOptions { kind?: 'ai' | 'operation' }
 export function mapErrorToUserMessage(err: unknown, opts?: MapErrorOptions): string {
   // ActionableError already carries a one-line human-readable `problem`; its `.message` is the full
   // Goal/Error/Location/Resolve block, which must never be surfaced raw to users (t/2491).
-  if (err instanceof ActionableError) return err.problem;
+  if (err instanceof ActionableError) return actionableErrorText(err, opts);
 
   const msg = err instanceof Error ? err.message : String(err);
   const errorCode = (err as Record<string, unknown> | null)?.errorCode;
@@ -35,6 +35,25 @@ export function mapErrorToUserMessage(err: unknown, opts?: MapErrorOptions): str
 // 'operation' calls get neutral text with no model/debate/auto-retry claims (t/108, t/122).
 function isOperation(opts: MapErrorOptions | undefined): boolean {
   return opts?.kind === 'operation';
+}
+
+const GENERIC_HTTP_TEXT = 'An unexpected error occurred. If this persists, try reloading.';
+
+// A bridge non-2xx carries `httpStatus` and a raw problem ("DELETE /api/chats/x failed with HTTP 429:
+// {...}") — map those by status (t/108). Problems the bridge words itself (WRITE_CONFLICT, daily token
+// limit, missing API key…) also carry a status but no "HTTP <status>" text, and stay verbatim.
+function actionableErrorText(err: ActionableError, opts: MapErrorOptions | undefined): string {
+  const status = err.httpStatus;
+  if (typeof status !== 'number' || !err.problem.includes(`HTTP ${status}`)) return err.problem;
+  return classifyHttpStatus(status, opts);
+}
+
+// Reuses the classifiers' own 429/503/529/500/502/504 text so the two paths can't drift (t/108).
+function classifyHttpStatus(status: number, opts: MapErrorOptions | undefined): string {
+  if (status === 404) return 'That item no longer exists.';
+  if (status === 401 || status === 403) return "You don't have permission to do that. Try signing in again.";
+  const code = String(status);
+  return classifyRateLimitError(code, opts) ?? classifyServiceOverloadError(code, opts) ?? classifyServerError(code, opts) ?? GENERIC_HTTP_TEXT;
 }
 
 // Context window exceeded — check BEFORE rate-limit since both can mention "RESOURCE_EXHAUSTED"
@@ -98,7 +117,7 @@ function classifyApiKeyError(msg: string): string | null {
 // JSON parse errors
 function classifyJsonError(msg: string, opts: MapErrorOptions | undefined): string | null {
   if (!msg.includes('JSON') && !msg.includes('Unexpected token') && !msg.includes('parse')) return null;
-  if (isOperation(opts)) return "The server's response couldn't be read. Try again, and reload if it keeps happening.";
+  if (isOperation(opts)) return "The data couldn't be read. Try again, and reload if it keeps happening.";
   if (msg.includes('AI') || msg.includes('response') || msg.includes('generate')) {
     return 'The AI returned an invalid response. Try again — this sometimes happens with complex prompts.';
   }
@@ -157,8 +176,6 @@ function classifyConnectionError(msg: string, err: unknown, opts: MapErrorOption
   }
   // Generic HTTP 4xx/5xx not caught above (400, 401, 422, etc.) — last, so specific
   // guards (429, 500, 502/504, 503) always win over this catch-all (t/2906).
-  if (/HTTP [4-5]\d{2}/.test(msg)) {
-    return 'An unexpected error occurred. If this persists, try reloading.';
-  }
+  if (/HTTP [4-5]\d{2}/.test(msg)) return GENERIC_HTTP_TEXT;
   return null;
 }
