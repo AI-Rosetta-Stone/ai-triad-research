@@ -1133,10 +1133,15 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $a[0] | Should -Be $Attempt
             $a[1] | Should -BeOfType [string]
             $a[1] | Should -BeExactly $Status
-            ($a[2].PSObject.Properties.Name -join ',') | Should -BeExactly 'Model,Backend,KeySource'
+            # t/107: the context gained PromptStart, and the parsed usage on a success (the groq ok
+            # envelope reports 11/22; no cached count, so no CachedInputTokens). Failures carry no tokens.
+            $Expected = if ($Status -eq '200') { 'Model,Backend,KeySource,PromptStart,InputTokens,OutputTokens' } else { 'Model,Backend,KeySource,PromptStart' }
+            ($a[2].PSObject.Properties.Name -join ',') | Should -BeExactly $Expected
             $a[2].Model | Should -BeExactly 'groq-openai-gpt-oss-120b'
             $a[2].Backend | Should -BeExactly 'groq'
             $a[2].KeySource | Should -BeExactly 'explicit'
+            $a[2].PromptStart | Should -BeExactly 'p'
+            if ($Status -eq '200') { $a[2].InputTokens | Should -Be 11; $a[2].OutputTokens | Should -Be 22 }
         }
 
         It 'context KeySource: env:GROQ_API_KEY for an env key; none for keyless Ollama' {

@@ -103,7 +103,7 @@ function Write-AICallLogEntry {
         AI call). Writes are FAIL-SAFE: an IO error is WARNed and swallowed (fallback-path logging)
         so enabling the audit log can never break the AI call it audits.
 
-        Record fields (schema of record, in order):
+        Record fields (schema of record, in order; the three token fields are optional, t/107):
           ID          monotonic within the file (Get-AICallLogNextId)
           Datetime    UTC, ISO-8601 round-trip ('o')
           Scenario    caller-supplied tag (e.g. Debate, Chat, Fact Check, Logical Form)
@@ -114,6 +114,8 @@ function Write-AICallLogEntry {
           Model       registry id actually called (a cascade link logs its own)          (t/4088)
           Backend     ai-models.json backend of that model, never a prefix guess         (t/4088)
           KeySource   WHERE the key came from, closed vocabulary; never the key itself   (t/4088)
+          InputTokens / OutputTokens / CachedInputTokens   provider-reported usage, written only
+                      when reported (Cached only by backends that report it)            (t/107)
     .PARAMETER KeySource
         Must be in the closed vocabulary (Test-AICallLogKeySource). Any other value is written as ''
         with a WARN, never as free-form text (TL t/4088#3).
@@ -154,6 +156,17 @@ function Write-AICallLogEntry {
         [AllowEmptyString()]
         [string]$KeySource = '',
 
+        # t/107: optional token usage. Omitted (or $null) → the field is not written at all; a
+        # missing count must never read as 0 spend.
+        [Parameter()]
+        [Nullable[int]]$InputTokens,
+
+        [Parameter()]
+        [Nullable[int]]$OutputTokens,
+
+        [Parameter()]
+        [Nullable[int]]$CachedInputTokens,
+
         [Parameter()]
         [string]$Path
     )
@@ -191,6 +204,13 @@ function Write-AICallLogEntry {
             Backend     = $Backend
             KeySource   = $KeySource
         }
+        # t/107: token fields are appended only when both counts are known (Write-AICallLogFromContext
+        # WARNs on a successful call that reported none: t/106 treats it as "no spend source").
+        if ($null -ne $InputTokens -and $null -ne $OutputTokens) {
+            $record.InputTokens  = [int]$InputTokens
+            $record.OutputTokens = [int]$OutputTokens
+            if ($null -ne $CachedInputTokens) { $record.CachedInputTokens = [int]$CachedInputTokens }
+        }
         $line = $record | ConvertTo-Json -Compress -Depth 4
         Add-Content -LiteralPath $logPath -Value $line -Encoding utf8NoBOM
     }
@@ -198,4 +218,53 @@ function Write-AICallLogEntry {
         # Fail-safe (t/3235#1): audit logging must never break the call it audits.
         Write-Warning "Write-AICallLogEntry: failed to append to '$logPath' ($($_.Exception.Message)); continuing (audit log is non-fatal)."
     }
+}
+
+function Write-AICallLogFromContext {
+    <#
+    .SYNOPSIS
+        Writes one record from an Invoke-AIApi call-logger invocation ($RetryCount, $Status, $Context).
+    .DESCRIPTION
+        The one mapping from Invoke-AIApi's hook context (Model, Backend, KeySource, PromptStart and,
+        when usage was reported, InputTokens/OutputTokens/CachedInputTokens; t/4088, t/107) to
+        Write-AICallLogEntry. Used by both loggers: the default one AITriad registers for every
+        Invoke-AIApi caller, and Invoke-AIByUsage's, which adds its Scenario/PromptID and its own
+        PromptStart. A missing context member reads as ''/absent; no context at all is WARNed.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [int]$RetryCount = 0,
+        [AllowEmptyString()][string]$Status = '',
+        [AllowNull()]$Context,
+        [AllowEmptyString()][string]$Scenario = '',
+        [AllowEmptyString()][string]$PromptID = '',
+        # [object], not [string]: $null (use the context's) must stay distinct from ''.
+        [AllowNull()][object]$PromptStart = $null
+    )
+    if (-not (Test-AICallLogEnabled)) { return }
+    if ($null -eq $Context) {
+        Write-Warning "Write-AICallLogFromContext: Invoke-AIApi passed no call context; logging Model/Backend/KeySource as '' (t/4088)."
+    }
+    $read = { param($n) if ($null -ne $Context -and $Context.PSObject.Properties[$n]) { $Context.$n } else { $null } }
+    $entry = @{
+        Scenario    = $Scenario
+        PromptID    = $PromptID
+        PromptStart = if ($null -ne $PromptStart) { [string]$PromptStart } else { [string](& $read 'PromptStart') }
+        RetryCount  = $RetryCount
+        Status      = $Status
+        Model       = [string](& $read 'Model')
+        Backend     = [string](& $read 'Backend')
+        KeySource   = [string](& $read 'KeySource')
+    }
+    foreach ($n in 'InputTokens', 'OutputTokens', 'CachedInputTokens') {
+        $v = & $read $n
+        if ($null -ne $v) { $entry[$n] = [int]$v }
+    }
+    # t/107: a successful call without usage is written WITHOUT token fields (never 0s) — and said so,
+    # because t/106's budget stop treats that entry as "no spend source" and fails closed.
+    if ($Status -eq '200' -and -not ($entry.ContainsKey('InputTokens') -and $entry.ContainsKey('OutputTokens'))) {
+        Write-Warning "AI call log: $($entry.Backend) call to '$($entry.Model)' reported no token usage; writing the entry without InputTokens/OutputTokens, so its spend is unknown (t/107)."
+    }
+    Write-AICallLogEntry @entry
 }

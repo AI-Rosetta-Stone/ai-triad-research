@@ -25,6 +25,21 @@ Every writer appends one compact JSON object per line to the same file, with the
 
 Readers read fields **by presence**. A line written before t/4088 has only fields 1–7, and readers treat 8–10 as `''`.
 
+### Optional token fields (t/107)
+
+A writer **may** append these after field 10, in this order, and only when the provider reported usage for the call:
+
+| # | Field | Type | Value |
+|---|---|---|---|
+| 11 | `InputTokens` | int | provider-reported input (prompt) tokens |
+| 12 | `OutputTokens` | int | provider-reported output (completion) tokens |
+| 13 | `CachedInputTokens` | int | provider-reported cached input tokens; only from backends that report them (Gemini's `cachedContentTokenCount` today, which Gemini omits on a cache miss, so a Gemini line carries `0` then) |
+
+- `InputTokens` and `OutputTokens` are written together or not at all. `CachedInputTokens` only appears alongside them.
+- **A missing token field means "unknown", never 0.** A call that reported no usage is written without the fields (the PowerShell writer WARNs on a `200` without usage), so a spend reader can tell "no spend source" from "free" (t/106 fails closed on it).
+- The counts are as each provider reports them; providers differ on whether `InputTokens` includes cached tokens (Gemini's `promptTokenCount` includes them). A pricing reader should apply the per-backend rule.
+- The PowerShell writer emits them (`Write-AICallLogEntry`, fed from `Invoke-AIApi`'s parsed usage). The TS writers don't, and are unaffected; every reader must accept a line with or without them. `token-fields.jsonl` holds reader cases for both.
+
 ## `KeySource`: closed vocabulary
 
 `KeySource` records where the key came from. **It never records the key, or any part of it.**
@@ -61,3 +76,16 @@ Each line is a record every writer must be able to **produce**, and every reader
 | 10 | a **legacy** 7-field line written before t/4088; readers must accept it, and `Model`, `Backend` and `KeySource` read as `''` |
 
 Line 10 is a reader case only. New writers always emit all 10 fields.
+
+`conformance.jsonl` stays at these 10 lines: the TS writer tests count its writer lines.
+
+## `token-fields.jsonl` (t/107)
+
+Reader cases for the optional token fields, kept out of `conformance.jsonl` so the TS writer tests (which don't emit tokens) are untouched.
+
+| Line | Case |
+|---|---|
+| 1 | success with `InputTokens` + `OutputTokens` (claude: no cached count) |
+| 2 | success with all three, including `CachedInputTokens` (gemini) |
+| 3 | success **without** token fields (the provider reported no usage): tokens read as absent, not 0 |
+| 4 | a failed call (`429`), no token fields |
