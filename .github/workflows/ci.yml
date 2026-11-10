@@ -307,6 +307,8 @@ jobs:
               - '.github/ci/fetch_embed_models.py'
               # t/62: the shared model pins fetch_embed_models.py and embed_taxonomy.py both read
               - 'scripts/embed_model_pins.json'
+              # t/110: assert_embed_stability.py loads through the shared pinned loader
+              - 'scripts/embed_model_pins.py'
               - '.github/ci/assert_embed_stability.py'
               - '.github/ci/embed_reference.json'
               - '.github/actions/checkout-ai-triad-data/**'
@@ -1154,7 +1156,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: bash .github/ci/data-root-guard-report.sh shard "$RUNNER_TEMP/vitest-taxonomy-editor.log" "$SHARD"
 
-      - name: Upload DATA-ROOT guard hits file (t/64; absent until lib #4766 records hits)
+      - name: Upload DATA-ROOT guard hits file (t/64; a missing set warns in test-electron-coverage, t/65)
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -1765,6 +1767,11 @@ jobs:
 
       - name: t1-approval-guard predicate + workflow-extraction suites
         run: node --test operations/devops/t1-approval-guard-predicate.test.mjs operations/devops/t1-approval-guard-workflow.test.mjs
+
+      # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
+      # end-to-end arms that run each workflow's real script against a mocked API.
+      - name: github-retry helper + workflow retry suites
+        run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -2563,9 +2570,12 @@ jobs:
       # the model contract (Xenova/all-MiniLM-L6-v2 fp32, t/1651) AND the pinned commit (t/79), so a
       # pin bump rotates the cache instead of testing a stale copy. A cache hit skips the HF
       # download → near-zero marginal cost (the t/3198 intent).
-      - name: Cache fp32 ONNX model
+      # Restore everywhere, save only from a main-ref run on a miss (same split as python-embed-smoke,
+      # t/55). A combined actions/cache saved on every ref, so after the #4780 pin rotation each merge
+      # group and PR ref stored its own ~82 MB copy until main had one: 11 copies, 0.9 GB (t/102 finding).
+      - name: Restore fp32 ONNX model cache
         id: onnx-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .cache/onnx-models/all-MiniLM-L6-v2
           key: onnx-model-all-MiniLM-L6-v2-fp32-${{ steps.onnx-pin.outputs.rev }}
@@ -2587,6 +2597,13 @@ jobs:
           fetch "$BASE/tokenizer.json"        "$DIR/tokenizer.json"
           fetch "$BASE/tokenizer_config.json" "$DIR/tokenizer_config.json"
           ls -l "$DIR"
+
+      - name: Save fp32 ONNX model cache (main ref, miss only)
+        if: steps.onnx-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .cache/onnx-models/all-MiniLM-L6-v2
+          key: ${{ steps.onnx-cache.outputs.cache-primary-key }}
 
       - name: Real-ONNX bit-exact equivalence (off-thread intra-op=1 vs in-thread default, CPU EP)
         env:
@@ -2626,6 +2643,25 @@ jobs:
         continue-on-error: true
         shell: bash
         run: bash .github/ci/data-root-guard-report.sh --self-test
+      # t/105 (t/4957): one shared reviewer App account means GitHub's reviewDecision and a review's
+      # `state` can't carry a role's verdict; read role verdicts via latestRoleVerdicts. WARN-ONLY:
+      # this job is in ci-gate's needs, so without continue-on-error these would block. Making it
+      # blocking is a separate, higher-tier change.
+      - name: Review-state gating lint (WARN-ONLY, t/105)
+        continue-on-error: true
+        run: node .github/scripts/check-review-state-gating.mjs
+      - name: Review-state gating lint arms (WARN-ONLY, t/105)
+        continue-on-error: true
+        run: node --test .github/scripts/check-review-state-gating.test.mjs
+      # t/128: raw ASCII control bytes (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F) in tracked text files are
+      # invisible in PR diffs (#4809: literal 0x08 for \b made a guard pass vacuously). WARN-ONLY first:
+      # this job is in ci-gate's needs, so continue-on-error keeps it advisory until a blocking follow-up.
+      - name: Control-character lint (WARN-ONLY, t/128)
+        continue-on-error: true
+        run: node .github/scripts/check-control-chars.mjs
+      - name: Control-character lint arms (WARN-ONLY, t/128)
+        continue-on-error: true
+        run: node --test .github/scripts/check-control-chars.test.mjs
 
   # ── ci-filter-coverage: each paths-filtered job's test read-set covered by its own filter
   # (t/4140, third occurrence of the class: t/2025, t/3189, t/4029). NO path filter of its own —
@@ -3422,7 +3458,14 @@ jobs:
   # queue's own merge decision.
   consult-hold-guard:
     name: consult-hold-guard
-    if: github.event_name == 'merge_group'
+    # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
+    # WHOLE upstream chain -- including ci-gate's own path-filtered, often-skipped needs -- to
+    # have succeeded. ci-gate itself runs via always() and reports success on a skip-heavy
+    # chain, but this job's own implicit success() doesn't get that treatment, so it skipped in
+    # 25/25 sampled merge_group batches since 11-04 (t/4939#22) -- the queue-time re-check this
+    # job exists for has never actually executed. Fixed by checking ci-gate's OWN result
+    # explicitly instead of relying on the implicit function.
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
@@ -3449,7 +3492,14 @@ jobs:
 
   joint-gv-guard:
     name: joint-gv-guard
-    if: github.event_name == 'merge_group'
+    # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
+    # WHOLE upstream chain -- including ci-gate's own path-filtered, often-skipped needs -- to
+    # have succeeded. ci-gate itself runs via always() and reports success on a skip-heavy
+    # chain, but this job's own implicit success() doesn't get that treatment, so it skipped in
+    # 25/25 sampled merge_group batches since 11-04 (t/4939#22) -- the queue-time re-check this
+    # job exists for has never actually executed. Fixed by checking ci-gate's OWN result
+    # explicitly instead of relying on the implicit function.
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
@@ -3491,7 +3541,14 @@ jobs:
   # test.mjs, t/4939) so "does the group pass" is testable independent of the GitHub API fetch.
   t1-approval-guard:
     name: t1-approval-guard
-    if: github.event_name == 'merge_group'
+    # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
+    # WHOLE upstream chain -- including ci-gate's own path-filtered, often-skipped needs -- to
+    # have succeeded. ci-gate itself runs via always() and reports success on a skip-heavy
+    # chain, but this job's own implicit success() doesn't get that treatment, so it skipped in
+    # 25/25 sampled merge_group batches since 11-04 (t/4939#22) -- the queue-time re-check this
+    # job exists for has never actually executed. Fixed by checking ci-gate's OWN result
+    # explicitly instead of relying on the implicit function.
+    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.ci-gate.result == 'success' }}
     needs: [ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10  # same budget as consult-hold-guard/joint-gv-guard above

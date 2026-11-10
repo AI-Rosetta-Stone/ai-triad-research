@@ -72,6 +72,62 @@ Describe 'Get-TaxEditorImage' -Tag 'health' {
         }
     }
 
+    # t/4966 (#4712): GHCR lists versions newest-built first, ~5 per build. known-good on an image
+    # 20+ builds old sits on page 2, so -Last 100 (one page) cannot see it; -Tag must page to it.
+    Context '-Tag pages past the newest 100 versions (t/4966)' {
+        BeforeAll {
+            function New-V([string]$Digest, [string[]]$Tags) {
+                [pscustomobject]@{ name = $Digest; created_at = '2026-11-09T12:15:00Z'
+                    metadata = [pscustomobject]@{ container = [pscustomobject]@{ tags = @($Tags) } } }
+            }
+            $script:Page1 = @(1..100 | ForEach-Object { New-V "sha256:new$_" @() })
+            $script:Page2 = @((New-V 'sha256:old1' @()), (New-V 'sha256:7bd5' @('sha-4b8d883', 'known-good')), (New-V 'sha256:old2' @()))
+        }
+
+        It 'finds known-good on page 2, where -Last 100 does not' {
+            Mock Invoke-RestMethod -ModuleName AITriad -MockWith {
+                if ($Uri -match '[?&]page=2(&|$)') { ,$script:Page2 } else { ,$script:Page1 }
+            }
+            $OrigToken = $env:GITHUB_TOKEN
+            try {
+                $env:GITHUB_TOKEN = 'test-token-placeholder'
+                @(Get-TaxEditorImage -Last 100 | Where-Object IsKnownGood).Count | Should -Be 0 -Because 'the #4712 false "missing"'
+                $kg = @(Get-TaxEditorImage -Tag 'known-good')
+                $kg.Count | Should -Be 1
+                $kg[0].Digest | Should -Be 'sha256:7bd5'
+                $kg[0].IsKnownGood | Should -BeTrue
+            }
+            finally { $env:GITHUB_TOKEN = $OrigToken }
+        }
+
+        It 'stops at the last (short) page and returns nothing when no version carries the tag' {
+            $script:Calls = 0
+            Mock Invoke-RestMethod -ModuleName AITriad -MockWith {
+                $script:Calls++
+                if ($Uri -match '[?&]page=2(&|$)') { ,@(New-V 'sha256:x' @()) } else { ,$script:Page1 }
+            }
+            $OrigToken = $env:GITHUB_TOKEN
+            try {
+                $env:GITHUB_TOKEN = 'test-token-placeholder'
+                @(Get-TaxEditorImage -Tag 'known-good' -WarningVariable warn -WarningAction SilentlyContinue).Count | Should -Be 0
+                $script:Calls | Should -Be 2
+                @($warn).Count | Should -Be 0
+            }
+            finally { $env:GITHUB_TOKEN = $OrigToken }
+        }
+
+        It 'WARNs when it hits -MaxPages without reaching the end' {
+            Mock Invoke-RestMethod -ModuleName AITriad -MockWith { ,$script:Page1 }
+            $OrigToken = $env:GITHUB_TOKEN
+            try {
+                $env:GITHUB_TOKEN = 'test-token-placeholder'
+                @(Get-TaxEditorImage -Tag 'known-good' -MaxPages 2 -WarningVariable warn -WarningAction SilentlyContinue).Count | Should -Be 0
+                "$warn" | Should -Match 'stopped at -MaxPages 2'
+            }
+            finally { $env:GITHUB_TOKEN = $OrigToken }
+        }
+    }
+
     It 'Validates -Last range' {
         { Get-TaxEditorImage -Last 0 } | Should -Throw
         { Get-TaxEditorImage -Last 101 } | Should -Throw

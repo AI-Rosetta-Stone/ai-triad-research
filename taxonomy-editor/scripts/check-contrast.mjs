@@ -19,7 +19,7 @@
 //     --json  machine-readable output
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, dirname } from 'node:path';
+import { join, relative, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -155,6 +155,43 @@ function buildThemeTokens(stylesFile = STYLES) {
   return tokens;
 }
 
+// Exactly `:root`, `[data-theme=x]` or `:root[data-theme=x]`: a token sheet, not a component rule
+// that happens to set a custom property under a theme scope.
+const TOKEN_SHEET_SEL = /^(?::root)?(?:\[data-theme=["']?([a-z]+)["']?\])?$/;
+
+/**
+ * Add theme tokens declared in other renderer sheets (LibraryTheme.css's `--lib-*`, t/143).
+ * Without this, `var(--lib-accent, var(--focus-ring))` resolved through its fallback and scored
+ * the wrong fill. styles.css stays authoritative: a token it defines is never overridden here.
+ */
+function addSheetTokens(tokens, files, stylesFile) {
+  const own = Object.fromEntries(THEMES.map((t) => [t, new Set(Object.keys(tokens[t]))]));
+  for (const file of files) {
+    if (samePath(file, stylesFile)) continue;
+    for (const { selector, decls } of parseRules(readFileSync(file, 'utf8'))) {
+      const targets = new Set();
+      for (const sel of selector.split(',').map((s) => s.trim())) {
+        const m = sel.match(TOKEN_SHEET_SEL);
+        if (!m || !sel) continue;
+        if (!m[1]) THEMES.forEach((t) => targets.add(t));
+        else if (THEMES.includes(m[1])) targets.add(m[1]);
+      }
+      for (const [prop, value] of Object.entries(decls)) {
+        if (!prop.startsWith('--')) continue;
+        for (const t of targets) if (!own[t].has(prop)) tokens[t][prop] = value;
+      }
+    }
+  }
+  return tokens;
+}
+
+// t/143: `stylesFile` passed with forward slashes never equalled the joined Windows path, so
+// styles.css was scanned as a component sheet and double-counted (904 vs 861).
+function samePath(a, b) {
+  const norm = (p) => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
+  return norm(a) === norm(b);
+}
+
 // ── Color resolution ─────────────────────────────────────────
 
 const NAMED = {
@@ -162,6 +199,10 @@ const NAMED = {
   black: [0, 0, 0],
   transparent: null,
 };
+
+// color-mix() values the checker could not measure during the current check() run (t/143). They
+// are reported with a WARN instead of dropping out of the count silently.
+let UNMEASURED = null;
 
 class Unresolved extends Error {
   constructor(token) {
@@ -245,7 +286,10 @@ function resolveColor(value, tokens, seen = new Set()) {
   const mixM = v.match(/^color-mix\(\s*in\s+[\w-]+\s*,\s*([\s\S]+)\)$/);
   if (mixM) {
     const args = splitArgs(mixM[1]);
-    if (args.length !== 2) return null;
+    if (args.length !== 2) {
+      UNMEASURED?.add(v);
+      return null;
+    }
     const parse = (arg) => {
       const pm = arg.match(/^([\s\S]+?)\s+([\d.]+)%$/);
       return pm ? { color: pm[1], pct: parseFloat(pm[2]) / 100 } : { color: arg, pct: null };
@@ -255,7 +299,16 @@ function resolveColor(value, tokens, seen = new Set()) {
     const aPct = a.pct ?? (b.pct !== null ? 1 - b.pct : 0.5);
     const ca = resolveColor(a.color, tokens, new Set(seen));
     const cb = resolveColor(b.color, tokens, new Set(seen));
-    if (!ca || !cb) return null; // mixing with transparent → treat as unknown
+    // t/143: mixing with `transparent` is a tint, not an unknown. In srgb the premultiplied mix
+    // keeps the other color's RGB at alpha = its share, so it composites like rgba(). Returning
+    // null here dropped every `color-mix(…, transparent)` pair from the count unmeasured.
+    const isTransparent = (arg) => arg.color.trim().toLowerCase() === 'transparent';
+    if (ca && !cb && isTransparent(b)) return [ca[0], ca[1], ca[2], (ca[3] ?? 1) * aPct];
+    if (cb && !ca && isTransparent(a)) return [cb[0], cb[1], cb[2], (cb[3] ?? 1) * (1 - aPct)];
+    if (!ca || !cb) {
+      UNMEASURED?.add(v);
+      return null;
+    }
     return [0, 1, 2].map((i) => Math.round(ca[i] * aPct + cb[i] * (1 - aPct)));
   }
 
@@ -273,6 +326,34 @@ function flatten(color, base) {
   if (a >= 1) return color.slice(0, 3);
   if (!base) return null;
   return [0, 1, 2].map((i) => Math.round(color[i] * a + base[i] * (1 - a)));
+}
+
+const fillOf = (decls) => decls?.background || decls?.['background-color'];
+const isClear = (bg) => ['transparent', 'none'].includes(bg.trim().toLowerCase());
+const depthOf = (sel) => sel.split(/\s+/).filter(Boolean).length;
+
+/**
+ * The opaque color behind a fill: the page surface with the ancestor underlays (nearest first)
+ * composited on top, stopping at the first opaque one (t/143).
+ */
+function compositeUnderlays(underlays, tokens, undefinedTokens) {
+  const layers = [];
+  for (const value of underlays) {
+    let c;
+    try {
+      c = resolveColor(value, tokens);
+    } catch (e) {
+      if (!(e instanceof Unresolved)) throw e;
+      undefinedTokens.set(e.token, (undefinedTokens.get(e.token) || 0) + 1);
+      break;
+    }
+    if (!c) continue;
+    layers.push(c);
+    if ((c[3] ?? 1) >= 1) break;
+  }
+  let under = resolveColor('var(--bg-primary)', tokens);
+  for (const c of layers.reverse()) under = flatten(c, under);
+  return under;
 }
 
 // ── Selector indexing ────────────────────────────────────────
@@ -341,9 +422,10 @@ export function check({
   rendererDir = RENDERER,
   stylesFile = STYLES,
 } = {}) {
-  const themeTokens = buildThemeTokens(stylesFile);
   const findings = [];
   const undefinedTokens = new Map();
+  const unmeasured = new Set();
+  UNMEASURED = unmeasured;
 
   // Always scan every file. styles.css is normally excluded by default (scanning
   // all of it surfaces ~hundreds of noisy pre-existing findings → opt-in via --all),
@@ -351,6 +433,7 @@ export function check({
   // is a deliberate "check this control" statement, so THOSE are evaluated even in
   // the stylesFile without --all. Unannotated stylesFile rules stay opt-in (t/2372).
   const files = cssFiles(rendererDir);
+  const themeTokens = addSheetTokens(buildThemeTokens(stylesFile), files, stylesFile);
 
   for (const file of files) {
     const css = readFileSync(file, 'utf8');
@@ -359,7 +442,7 @@ export function check({
     const rules = parseRules(css);
 
     // In default mode the stylesFile contributes ONLY its annotated selectors.
-    const annotatedOnly = !all && file === stylesFile;
+    const annotatedOnly = !all && samePath(file, stylesFile);
     const isAnnotated = (b) => {
       const control = b.replace(/::?[\w-]+(\([^)]*\))?/g, '').trim();
       if (nonTextSel.has(b) || (control && nonTextSel.has(control))) return true;
@@ -388,6 +471,24 @@ export function check({
       const slot = index.get(base);
       if (!slot) return null;
       return { ...(slot['*'] || {}), ...(slot[theme] || {}) };
+    };
+
+    // t/143: fills of the strict ancestors above the chosen fill, nearest first (one per
+    // descendant depth; same-depth compound splits are alternatives, not layers). A translucent
+    // chip inside a filled row composites over the row, not over the page: flattening
+    // `.selected .chip { rgba(255,255,255,.2) }` onto --bg-primary scored the wrong themes.
+    const underlaysBelow = (cands, i, theme) => {
+      const out = [];
+      let lastDepth = depthOf(cands[i]);
+      for (let j = i + 1; j < cands.length; j++) {
+        const d = depthOf(cands[j]);
+        if (d >= lastDepth) continue;
+        const bg = fillOf(declsFor(cands[j], theme));
+        if (!bg || isClear(bg)) continue;
+        out.push(bg);
+        lastDepth = d;
+      }
+      return out;
     };
 
     for (const [base, slot] of index) {
@@ -421,6 +522,7 @@ export function check({
 
         // Background: own rule, else nearest ancestor, else the page surface.
         const backgrounds = [];
+        let underlays = [];
         const ann = annotations.find((a) =>
           a.selectors.some((s) => s === base || splitThemeScope(s).base === base),
         );
@@ -428,17 +530,18 @@ export function check({
           for (const f of ann.fills) backgrounds.push({ value: f, from: 'annotation' });
         } else {
           let sawTransparent = false;
-          for (const cand of ancestorCandidates(base)) {
-            const d = declsFor(cand, theme);
-            const bg = d?.background || d?.['background-color'];
+          const cands = ancestorCandidates(base);
+          for (let i = 0; i < cands.length; i++) {
+            const cand = cands[i];
+            const bg = fillOf(declsFor(cand, theme));
             if (!bg) continue;
             // `transparent`/`none` carry no color — see-through, so keep walking
             // UP the chain instead of stopping here. Stopping at the first
             // transparent fill is exactly what hid transparent-fill controls
             // (the help icons) from the gate (t/2359).
-            const norm = bg.trim().toLowerCase();
-            if (norm === 'transparent' || norm === 'none') { sawTransparent = true; continue; }
+            if (isClear(bg)) { sawTransparent = true; continue; }
             backgrounds.push({ value: bg, from: cand });
+            underlays = underlaysBelow(cands, i, theme);
             break;
           }
           if (!backgrounds.length) {
@@ -486,10 +589,10 @@ export function check({
           }
           if (!bg) continue;
 
-          // Flatten both onto the page surface before comparing: a translucent
-          // chip fill sits over the page, and the text sits over the result.
-          const surface = resolveColor('var(--bg-primary)', tokens);
-          const bgFlat = flatten(bg, surface);
+          // Flatten both before comparing: a translucent chip fill sits over its
+          // filled ancestors (t/143), else the page, and the text over the result.
+          const under = compositeUnderlays(underlays, tokens, undefinedTokens);
+          const bgFlat = flatten(bg, under);
           const fgFlat = flatten(fg, bgFlat);
           if (!bgFlat || !fgFlat) continue;
 
@@ -514,7 +617,8 @@ export function check({
     }
   }
 
-  return { findings, undefinedTokens };
+  UNMEASURED = null;
+  return { findings, undefinedTokens, unmeasured };
 }
 
 // ── CLI ──────────────────────────────────────────────────────
@@ -524,10 +628,15 @@ if (!invokedDirectly) {
   // Imported (self-test) — expose check() without running or exiting.
 } else {
 const args = process.argv.slice(2);
-const { findings, undefinedTokens } = check({
+const { findings, undefinedTokens, unmeasured } = check({
   all: args.includes('--all'),
   includePageBg: args.includes('--include-page-bg'),
 });
+
+// stderr, so the --json payload on stdout stays parseable for contrast-gate.mjs.
+for (const v of unmeasured) {
+  console.error(`WARN: check-contrast: color-mix value not measured, so its pairs are not counted: ${v}`);
+}
 
 if (args.includes('--json')) {
   console.log(JSON.stringify({ findings, undefinedTokens: [...undefinedTokens] }, null, 2));
@@ -565,5 +674,8 @@ if (args.includes('--json')) {
   if (!findings.length) console.log('No AA failures found.\n');
 }
 
-process.exit(findings.length ? 1 : 0);
+// t/111: exitCode, never process.exit(). On Linux, stdout into a pipe is asynchronous, so exiting
+// right after console.log drops whatever hasn't flushed: the ~330 KB --json payload reached
+// check-contrast.sh cut off mid-object, the parse failed, and the gate read an empty count as OK.
+process.exitCode = findings.length ? 1 : 0;
 }

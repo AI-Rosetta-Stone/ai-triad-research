@@ -10,7 +10,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR,
-  fetchGuardRun, classifyGhApiError, pickAuthoritativeGuardRun,
+  fetchGuardRun, classifyGhApiError, pickAuthoritativeGuardRun, tierCheckDisagreesAt,
 } from './enqueue-pr.mjs';
 
 test('classifyEnqueueOutcome: is queued when both isInMergeQueue and mergeQueueEntry are present', () => {
@@ -462,6 +462,114 @@ test('fetchGuardRun: the real argv passed to ghFn includes -X GET (t/4939 regres
   assert.notEqual(xIndex, -1, `expected -X in argv, got: ${JSON.stringify(calls[0])}`);
   assert.equal(calls[0][xIndex + 1], 'GET', `expected -X GET, got: ${JSON.stringify(calls[0])}`);
   assert.equal(result.run?.conclusion, 'success');
+});
+
+// t/4950: tierCheckDisagreesAt used to `catch { return false; }`, so a failed lookup read exactly
+// like "tier-check agrees". It now WARNs and marks the result as a lookup error (still
+// non-blocking), mirroring fetchGuardRun's { run, lookupError, error } shape.
+
+function tierCheckRun(conclusion, startedAt = '2026-11-09T00:00:00Z') {
+  return { status: 'completed', conclusion, app: { slug: 'github-actions' }, started_at: startedAt };
+}
+
+test('tierCheckDisagreesAt: the real argv passed to ghFn includes -X GET (t/4939 regression guard)', () => {
+  const calls = [];
+  const fakeGh = (args) => { calls.push(args); return JSON.stringify({ check_runs: [tierCheckRun('success')] }); };
+  tierCheckDisagreesAt('o/r', 'abc123', fakeGh);
+  assert.equal(calls.length, 1);
+  const xIndex = calls[0].indexOf('-X');
+  assert.notEqual(xIndex, -1, `expected -X in argv, got: ${JSON.stringify(calls[0])}`);
+  assert.equal(calls[0][xIndex + 1], 'GET', `expected -X GET, got: ${JSON.stringify(calls[0])}`);
+  assert.ok(calls[0].includes('check_name=tier-check'));
+});
+
+test('tierCheckDisagreesAt: a thrown lookup WARNs (naming repo, SHA and error) and is marked lookupError, not agreement', () => {
+  const boom = new Error('HTTP 502: simulated outage');
+  const warnMock = mock.method(console, 'warn', () => {});
+  let result;
+  try {
+    result = tierCheckDisagreesAt('o/r', 'deadbeef', () => { throw boom; });
+    assert.equal(warnMock.mock.calls.length, 1);
+    const msg = String(warnMock.mock.calls[0].arguments[0]);
+    assert.match(msg, /^WARN: /);
+    assert.match(msg, /o\/r/);
+    assert.match(msg, /deadbeef/);
+    assert.match(msg, /simulated outage/);
+  } finally {
+    warnMock.mock.restore();
+  }
+  assert.equal(result.lookupError, true);
+  assert.equal(result.disagrees, false);
+  assert.equal(result.error, boom);
+});
+
+test('tierCheckDisagreesAt: unparseable JSON is also a WARNed lookupError', () => {
+  const warnMock = mock.method(console, 'warn', () => {});
+  let result;
+  try {
+    result = tierCheckDisagreesAt('o/r', 'deadbeef', () => 'not json');
+    assert.equal(warnMock.mock.calls.length, 1);
+  } finally {
+    warnMock.mock.restore();
+  }
+  assert.equal(result.lookupError, true);
+  assert.equal(result.disagrees, false);
+});
+
+test('tierCheckDisagreesAt: a failure conclusion -> disagrees, no lookupError, no WARN', () => {
+  const warnMock = mock.method(console, 'warn', () => {});
+  let result;
+  try {
+    result = tierCheckDisagreesAt('o/r', 'abc', () => JSON.stringify({ check_runs: [tierCheckRun('failure')] }));
+    assert.equal(warnMock.mock.calls.length, 0);
+  } finally {
+    warnMock.mock.restore();
+  }
+  assert.deepEqual(result, { disagrees: true, lookupError: false });
+});
+
+test('tierCheckDisagreesAt: a success conclusion -> agrees, no lookupError, no WARN', () => {
+  const warnMock = mock.method(console, 'warn', () => {});
+  let result;
+  try {
+    result = tierCheckDisagreesAt('o/r', 'abc', () => JSON.stringify({ check_runs: [tierCheckRun('success')] }));
+    assert.equal(warnMock.mock.calls.length, 0);
+  } finally {
+    warnMock.mock.restore();
+  }
+  assert.deepEqual(result, { disagrees: false, lookupError: false });
+});
+
+test('tierCheckDisagreesAt: the latest completed github-actions run wins (older failure, newer success -> agrees)', () => {
+  const result = tierCheckDisagreesAt('o/r', 'abc', () => JSON.stringify({ check_runs: [
+    tierCheckRun('failure', '2026-11-09T00:00:00Z'),
+    tierCheckRun('success', '2026-11-09T01:00:00Z'),
+    { ...tierCheckRun('failure', '2026-11-09T02:00:00Z'), app: { slug: 'some-other-app' } },
+  ] }));
+  assert.deepEqual(result, { disagrees: false, lookupError: false });
+});
+
+test('enqueuePR shim: a T0 PR whose tier-check lookup fails still proceeds (non-blocking) but WARNs about tier-check', async () => {
+  const fakeGh = fakeGhTracking();
+  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false }));
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) return JSON.stringify({ check_runs: [] });
+    if (joined.includes('check-runs') && joined.includes('tier-check')) throw new Error('simulated tier-check API failure');
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+  const warnMock = mock.method(console, 'warn', () => {});
+  let result;
+  try {
+    result = await enqueuePR('o/r', 11, { sleepMs: 0, gh: fakeGh });
+    assert.ok(warnMock.mock.calls.some((c) => /WARN: .*tier-check.*simulated tier-check API failure/.test(String(c.arguments[0]))));
+  } finally {
+    warnMock.mock.restore();
+  }
+  assert.equal(result.state, 'queued');
+  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
 });
 
 test('classifyGhApiError: a 404 is not_found (fail, not skip -- TL, p/648#363)', () => {

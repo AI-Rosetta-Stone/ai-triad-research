@@ -51,6 +51,14 @@ Describe 'Get-JsonField / Test-JsonField (t/4934)' -Tag 'health' {
             }
         }
 
+        It 'an array body has no fields: Count/Length are .NET members, not keys (Quality t/103#4)' {
+            InModuleScope AITriad {
+                Test-JsonField @(1, 2) 'Count'  | Should -BeFalse
+                Test-JsonField @(1, 2) 'Length' | Should -BeFalse
+                Get-JsonField  @(1, 2) 'Count' -Default 'd' | Should -Be 'd'
+            }
+        }
+
         It 'Hashtable .NET members (Count, Keys) are NOT fields — the old PSObject.Properties trap' {
             InModuleScope AITriad {
                 $b = @{ a = 1 }

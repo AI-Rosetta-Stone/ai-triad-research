@@ -76,10 +76,11 @@ describe('FactsPanel (t/1025, t/1906)', () => {
       await waitFor(() => expect(screen.getByText(/doc-42/)).toBeInTheDocument());
 
       rerender(<FactsPanel nodeId="node-mention" onSelectFact={onSelectFact} />);
-      await waitFor(() => expect(screen.getByText(/Anthropic released a model/)).toBeInTheDocument());
-      // t/4969: same race — the default-expand effect can land a tick after the facts text
-      // commits, so this must be awaited too (DevOps alert, p/752#7: flaked on main at c4601b74).
+      // Await the expanded state itself: the claim text also renders in the collapsed preview,
+      // and since t/83 the default lands one commit AFTER the facts commit (by design, it reacts
+      // to the new node's loaded facts). A synchronous assert here races that commit under load.
       await waitFor(() => expect(screen.getByText('Model release').closest('.facts-card')).toHaveAttribute('aria-expanded', 'true'));
+      expect(screen.getByText(/Anthropic released a model/)).toBeInTheDocument();
     });
 
     it('applies the node-switch default from the NEW node\'s loaded facts, not the stale previous-node render (t/83)', async () => {

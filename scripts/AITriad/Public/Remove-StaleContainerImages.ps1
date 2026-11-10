@@ -11,6 +11,14 @@ function Remove-StaleContainerImages {
         Packages API for a container package, filters to untagged versions
         older than the cutoff, and deletes all but the N most recent.
 
+        It never deletes a version tagged known-good, nor the child manifests
+        (platform and attestation manifests, listed by GHCR as separate
+        untagged versions) of any tagged image index. Deleting those would
+        leave known-good, or the sha-* digest prod is pinned to, unpullable
+        (t/4966). The decision is Get-StaleImageDeletionVerdict (pure). If any
+        tagged index's manifest can't be read, nothing is deleted and the
+        reason is returned in Failures.
+
         Supports -WhatIf and -Confirm — the delete step is guarded by
         ShouldProcess, so `-WhatIf` lists exactly what would be deleted
         without touching the registry.
@@ -109,47 +117,53 @@ function Remove-StaleContainerImages {
         if ($BatchArray.Count -lt 100) { break }  # last page
     }
 
-    # ── Filter to untagged, sort newest first ────────────────────────────
+    # ── Decide the delete set (pure: Get-StaleImageDeletionVerdict) ──────
     # DEPLOY-BY-DIGEST COUPLING (t/3679 condition 1) — SYNC WITH the per-SHA tag block in
-    # .github/workflows/container.yml. This filter deletes ONLY untagged versions (tags.Count -eq 0);
-    # a TAGGED version is never a candidate. That is the load-bearing invariant behind deploy-by-digest:
-    # container.yml pushes a PERMANENT `sha-<commit>` tag for every built image, so a digest a deploy has
-    # pinned stays TAGGED -> PRESERVED here -> pullable on a pod recycle indefinitely (the t/3679#8 SO
-    # finding-1 outage-preventer; also why t/3756 rollback anchors survive going forward). The predicate
-    # fails SAFE: a version whose `tags` property is ABSENT is excluded (all three PSObject.Properties
-    # guards must hold), not swept in — verified t/3679#9 §1. TRAP (t/3679#9 §4): GHCR also lists
-    # `sha256-<digest>` COSIGN/attestation versions; those carry that tag so they are `tags.Count -ne 0`
-    # and are likewise preserved — do NOT special-case them here, and do not mistake them for per-SHA
-    # image tags. Consequence ACCEPTED: permanent sha- tags accumulate (never pruned by this cmdlet) —
-    # bounded-retention of old sha- tags is a future decision, not this change.
-    $Untagged = @(
-        $AllVersions | Where-Object {
-            $_.PSObject.Properties['metadata'] -and
-            $_.metadata.PSObject.Properties['container'] -and
-            $_.metadata.container.PSObject.Properties['tags'] -and
-            @($_.metadata.container.tags).Count -eq 0
-        } | Sort-Object -Property updated_at -Descending
-    )
+    # .github/workflows/container.yml. Only UNTAGGED versions are candidates; a TAGGED version never
+    # is. A version whose `tags` property is ABSENT is kept, not swept in (fail safe, t/3679#9 §1).
+    #
+    # t/4966: "tagged = preserved" is not enough on its own. container.yml pushes an image INDEX
+    # (tagged sha-<commit>) whose platform manifest and buildx attestation manifest GHCR lists as
+    # separate UNTAGGED versions; the sigstore referrer index (tagged sha256-<digest>) has an untagged
+    # bundle child too. Deleting those children leaves the tagged index pointing at a missing manifest,
+    # so known-good, rollback-* and the sha-* digest prod is pinned to would stop pulling. So the
+    # children of every tagged version are protected, read from the registry below. If any can't be
+    # read, nothing is deleted. Consequence ACCEPTED: permanent sha- tags accumulate (never pruned by
+    # this cmdlet); bounded retention of old sha- tags is a future decision.
+    $VerdictArgs = @{ Versions = @($AllVersions); Cutoff = [datetimeoffset]$Cutoff; KeepLatest = $KeepLatest }
+    $Verdict = Get-StaleImageDeletionVerdict @VerdictArgs
+    $Failures = [System.Collections.Generic.List[string]]::new()
 
-    $TotalUntagged = $Untagged.Count
-    Write-Verbose "Untagged versions found: $TotalUntagged"
-
-    # ── Compute delete set ───────────────────────────────────────────────
-    $ToDelete = @()
-    if ($TotalUntagged -gt $KeepLatest) {
-        $Candidates = $Untagged | Select-Object -Skip $KeepLatest
-        $ToDelete = @(
-            $Candidates | Where-Object {
-                ([datetime]$_.updated_at).ToUniversalTime() -lt $Cutoff
+    $Tagged = @($AllVersions | Where-Object { @(Get-GhcrVersionTag -Version $_).Count -gt 0 })
+    if (@($Verdict.ToDelete).Count -gt 0 -and $Tagged.Count -gt 0) {
+        $Children = [System.Collections.Generic.List[string]]::new()
+        try {
+            $PullToken = Get-GhcrAuthToken -Package "$Owner/$Package" -Scope 'pull' -CallerName 'Remove-StaleContainerImages'
+            foreach ($T in $Tagged) {
+                foreach ($C in @(Get-GhcrManifestChildDigest -Package "$Owner/$Package" -Reference ([string]$T.name) -Token $PullToken)) {
+                    $Children.Add($C)
+                }
             }
-        )
+            $Verdict = Get-StaleImageDeletionVerdict @VerdictArgs -ProtectedDigests @($Children)
+        }
+        catch {
+            $Why = "could not read the child manifests of the $($Tagged.Count) tagged version(s), so no version was deleted: $($_.Exception.Message)"
+            Write-Warning "Remove-StaleContainerImages: $Why"
+            $Failures.Add("protection-unresolved: $Why")
+            $Verdict = [PSCustomObject]@{
+                TotalUntagged = $Verdict.TotalUntagged
+                KeptCount     = $Verdict.KeptCount
+                ToDelete      = @()
+                Protected     = @($Verdict.ToDelete)
+            }
+        }
     }
 
-    Write-Verbose "Versions to delete: $($ToDelete.Count)"
+    $ToDelete = @($Verdict.ToDelete)
+    Write-Verbose "Untagged versions found: $($Verdict.TotalUntagged); to delete: $($ToDelete.Count); protected: $(@($Verdict.Protected).Count)"
 
     # ── Delete (guarded by ShouldProcess) ────────────────────────────────
     $DeletedIds = [System.Collections.Generic.List[long]]::new()
-    $Failures   = [System.Collections.Generic.List[string]]::new()
     foreach ($v in $ToDelete) {
         $Target = "version $($v.id) (updated $($v.updated_at))"
         if ($PSCmdlet.ShouldProcess($Target, "Delete untagged $Package")) {
@@ -169,8 +183,9 @@ function Remove-StaleContainerImages {
     $Result = [StaleImageCleanupResult]::new()
     $Result.Package         = $Package
     $Result.Owner           = $Owner
-    $Result.TotalUntagged   = $TotalUntagged
-    $Result.KeptCount       = [Math]::Min($TotalUntagged, $KeepLatest)
+    $Result.TotalUntagged   = $Verdict.TotalUntagged
+    $Result.KeptCount       = $Verdict.KeptCount
+    $Result.ProtectedCount  = @($Verdict.Protected).Count
     $Result.DeletedCount    = $DeletedIds.Count
     $Result.DeletedIds      = @($DeletedIds)
     $Result.Failures        = @($Failures)

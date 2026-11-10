@@ -97,3 +97,33 @@
   background: #ffffff;
   color: #3b82f6;
 }
+
+/* t/143 — FAIL: a color-mix(…, transparent) tint is measured like rgba(), not dropped.
+   #22c55e text over a 15% #22c55e tint is about 2:1 on either surface. */
+.fx-mix-tint {
+  background: color-mix(in srgb, var(--fill-light) 15%, transparent);
+  color: var(--fill-light);
+}
+
+/* t/143 — color-mix with a side the checker cannot resolve is reported as unmeasured. */
+.fx-mix-unmeasured {
+  background: color-mix(in srgb, var(--fill-light) 50%, currentColor);
+  color: #ffffff;
+}
+
+/* t/143 — PASS: a translucent chip composites over its filled row, not over the page.
+   20% white over #1e3a8a is about 6:1 under white text; over a white page it would read 1:1. */
+.fx-row {
+  background: #1e3a8a;
+}
+.fx-row .fx-chip {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+/* t/143 — FAIL: a token from another sheet (lib-tokens.css) beats the var() fallback.
+   --fx-lib-fill is the light fill, so white fails; the dark fallback alone would pass. */
+.fx-lib {
+  background: var(--fx-lib-fill, var(--fill-dark));
+  color: #ffffff;
+}

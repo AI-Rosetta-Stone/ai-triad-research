@@ -27,6 +27,7 @@ import type {
 } from '../shared/LibraryListPage.types';
 import { InquiryGettingStarted } from './InquiryGettingStarted';
 import './inquiryShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
+import '../shared/BulkDeleteDialog.css';
 import './InquiryTab.css';
 
 // LibraryListPage requires `{ id: string }`; InquiryResultSummary's own key is `jobId`.
@@ -154,14 +155,14 @@ export function InquiryTab() {
       return api.exportInquiryToFile(view.result, row.question, format as 'json' | 'markdown' | 'pdf');
     }).catch(err => {
       recordError('inquiry-tab', 'Failed to export inquiry', err);
-      flash(`Export failed: ${mapErrorToUserMessage(err)}`);
+      flash(`Export failed: ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
     });
   }, [flash]);
 
   const handleExportCommunity = useCallback((row: InquiryCommunityLibRow, format: string) => {
     api.loadCommunityInquiry(row.id).then(result => api.exportInquiryToFile(result, row.question, format as 'json' | 'markdown' | 'pdf')).catch(err => {
       recordError('inquiry-tab', 'Failed to export community inquiry', err);
-      flash(`Export failed: ${mapErrorToUserMessage(err)}`);
+      flash(`Export failed: ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
     });
   }, [flash]);
 
@@ -170,14 +171,14 @@ export function InquiryTab() {
       .then(() => flash('Shared to community.'))
       .catch(err => {
         recordError('inquiry-tab', 'Failed to share inquiry to community', err);
-        flash(`Share failed: ${mapErrorToUserMessage(err)}`);
+        flash(`Share failed: ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
       });
   }, [flash]);
 
   const handleCopy = useCallback((row: InquiryCommunityLibRow) => {
     copyItem('inquiries', row.id).then(() => { void fetchHistory(); flash('Copied to My questions.'); }).catch(err => {
       recordError('inquiry-tab', 'Failed to copy community inquiry', err);
-      flash(`Copy failed: ${mapErrorToUserMessage(err)}`);
+      flash(`Copy failed: ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
     });
   }, [copyItem, fetchHistory, flash]);
 
@@ -185,7 +186,7 @@ export function InquiryTab() {
   const handleAdminRename = useCallback((row: InquiryCommunityLibRow, title: string) => {
     renameItem('inquiries', row.id, title).catch(err => {
       recordError('inquiry-tab', 'Failed to admin-rename community inquiry', err);
-      flash(`Rename failed: ${mapErrorToUserMessage(err)}`);
+      flash(`Rename failed: ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
     });
   }, [renameItem, flash]);
 
@@ -201,7 +202,7 @@ export function InquiryTab() {
   const handleRename = useCallback((jobId: string, title: string) => {
     renameHistoryItem(jobId, title).catch(err => {
       recordError('inquiry-tab', 'Failed to rename inquiry', err);
-      flash(`Rename failed: ${mapErrorToUserMessage(err)}`);
+      flash(`Rename failed: ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
     });
   }, [renameHistoryItem, flash]);
 
@@ -211,7 +212,7 @@ export function InquiryTab() {
   const deleteFailureMessage = useCallback((err: unknown): string =>
     (err as { httpStatus?: number }).httpStatus === 409
       ? 'This question is still running — try deleting it again once it finishes.'
-      : mapErrorToUserMessage(err), []);
+      : mapErrorToUserMessage(err, { kind: 'operation' }), []);
 
   const myLibRows = useMemo<InquiryMyLibRow[]>(() => history.map(h => ({ ...h, id: h.jobId })), [history]);
 

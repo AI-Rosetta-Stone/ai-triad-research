@@ -498,8 +498,8 @@ def main():
     _log(f"  Loaded {len(tax_node_ids)} node embeddings ({tax_vectors.shape[1]}-dim)")
 
     _log("\n[3/6] Loading embedding model...")
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer(MODEL_NAME)
+    import embed_model_pins  # t/110: pinned revision, shared with embed_taxonomy and CI
+    model = embed_model_pins.load_sentence_transformer(MODEL_NAME)
 
     # ── Phase 1: Cluster ──
     _log(f"\n[4/6] Phase 1: Clustering conflicts (threshold={args.threshold})...")

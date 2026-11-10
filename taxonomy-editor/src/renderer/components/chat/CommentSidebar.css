@@ -207,7 +207,7 @@
   top: 4px;
   right: 4px;
   background: var(--focus-ring);
-  color: white;
+  color: var(--text-on-focus-ring, #fff);
   border: none;
   border-radius: 50%;
   width: 20px;
@@ -315,7 +315,7 @@
 }
 .comment-filter-toggle.active {
   background: var(--focus-ring, #0969da);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   border-color: var(--focus-ring, #0969da);
 }
 .comment-filter-clear {

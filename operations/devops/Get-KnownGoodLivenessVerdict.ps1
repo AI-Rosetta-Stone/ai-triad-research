@@ -132,6 +132,13 @@ function Test-TaxEditorKnownGoodLiveness {
 
     $Images = @(Get-TaxEditorImage -Last $Last -Package $Package)
 
+    # t/4966: GHCR lists versions newest-created first and each build adds ~5 versions, so after ~20
+    # builds the known-good image is past the newest $Last even though the tag is still there. That
+    # false "missing" was #4712. Look it up by tag and add it, so the verdict sees it wherever it is.
+    if (@($Images | Where-Object { @($_.Tags) -contains 'known-good' }).Count -eq 0) {
+        $Images += @(Get-TaxEditorImage -Tag 'known-good' -Package $Package)
+    }
+
     # t/4924: judge by successful prod deploys, not image pushes. If the run list can't be read,
     # fall back to the image-push count (stricter: it over-counts, so it can only false-fire,
     # never hide a stale tag) and say so.

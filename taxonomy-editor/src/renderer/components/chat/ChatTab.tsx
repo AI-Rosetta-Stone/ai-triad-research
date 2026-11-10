@@ -935,7 +935,8 @@ function ChatBulkDeleteDialog({
     const failedTitles = failedIds.map(id => sessions.find(s => s.id === id)?.title ?? id).join(', ');
     // t/89 (mirrors InquiryTab's BulkDeleteInquiryDialog): a single-item selection that fails gets
     // its own reason; a multi-item batch keeps the aggregate "Couldn't delete: X" message.
-    const message = ids.length === 1 ? mapErrorToUserMessage(lastErr) : undefined;
+    // t/109: 'operation', so a 429 on a delete doesn't advise switching AI models (t/108).
+    const message = ids.length === 1 ? mapErrorToUserMessage(lastErr, { kind: 'operation' }) : undefined;
     setPartialError({ deletedCount, total: ids.length, failedTitles, message });
   };
 

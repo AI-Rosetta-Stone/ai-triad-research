@@ -358,7 +358,7 @@ a.lineage-link,
 
 .debate-tier-pill-active {
   background: var(--focus-ring);   /* was: var(--focus-ring, #3b82f6) — undefined token, always blue */
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .debate-detail-dropdown {

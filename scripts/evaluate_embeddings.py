@@ -133,7 +133,7 @@ def _compute_metrics(claims, node_ids, sim_matrix):
 
 def cmd_compare_models(args):
     """Compare embedding models on golden test set MRR."""
-    from sentence_transformers import SentenceTransformer
+    import embed_model_pins
 
     golden = _load_golden_set(args.golden_set)
     claims = golden["claims"]
@@ -159,7 +159,9 @@ def cmd_compare_models(args):
         print(f"{'=' * 60}", file=sys.stderr)
 
         t0 = time.time()
-        model = SentenceTransformer(model_name, trust_remote_code=False)
+        # t/110 (TL p/37#17): evaluation compares arbitrary candidates, so an unpinned name loads with
+        # a WARN; the commit actually loaded is recorded in the report for reproducibility.
+        model = embed_model_pins.load_sentence_transformer(model_name, allow_unpinned=True)  # model-load:allow-unpinned evaluation report only (stdout), candidate models
 
         print(f"Encoding {len(node_texts)} nodes...", file=sys.stderr)
         node_vecs = model.encode(node_texts, normalize_embeddings=True, show_progress_bar=True)
@@ -172,6 +174,7 @@ def cmd_compare_models(args):
         elapsed = time.time() - t0
 
         metrics["model"] = model_name
+        metrics["model_revision"] = getattr(model, "resolved_revision", None)
         metrics["dimension"] = int(node_vecs.shape[1])
         metrics["elapsed_seconds"] = round(elapsed, 1)
         results["models"][model_name] = metrics
@@ -196,7 +199,7 @@ def cmd_compare_models(args):
 
 def cmd_rerank_baseline(args):
     """Evaluate cross-encoder reranking on top-K bi-encoder candidates."""
-    from sentence_transformers import SentenceTransformer, CrossEncoder
+    import embed_model_pins
 
     golden = _load_golden_set(args.golden_set)
     claims = golden["claims"]
@@ -226,7 +229,8 @@ def cmd_rerank_baseline(args):
 
     bi_model_name = emb_data.get("model", "all-MiniLM-L6-v2")
     print(f"Loading bi-encoder ({bi_model_name}) for initial retrieval...", file=sys.stderr)
-    bi_model = SentenceTransformer(bi_model_name, trust_remote_code=False)
+    # t/110: the bi-encoder must match embeddings.json, so it's the PINNED production model.
+    bi_model = embed_model_pins.load_sentence_transformer(bi_model_name)
 
     claim_texts = [c["claim_text"] for c in claims]
     print(f"Encoding {len(claim_texts)} claims...", file=sys.stderr)
@@ -239,7 +243,7 @@ def cmd_rerank_baseline(args):
     top_k = args.top_k
     reranker_name = args.reranker_model
     print(f"\nLoading cross-encoder: {reranker_name}...", file=sys.stderr)
-    reranker = CrossEncoder(reranker_name, trust_remote_code=False)
+    reranker = embed_model_pins.load_cross_encoder(reranker_name, allow_unpinned=True)  # model-load:allow-unpinned evaluation report only (stdout), candidate reranker
 
     print(f"Reranking top-{top_k} for {len(claims)} claims...", file=sys.stderr)
 
@@ -328,7 +332,9 @@ def cmd_rerank_baseline(args):
 
     output = {
         "reranker_model": reranker_name,
+        "reranker_revision": getattr(reranker, "resolved_revision", None),   # t/110
         "bi_encoder_model": bi_model_name,
+        "bi_encoder_revision": getattr(bi_model, "resolved_revision", None),
         "top_k": top_k,
         "elapsed_seconds": round(elapsed, 1),
         "baseline_biencoder": baseline_metrics,
@@ -374,11 +380,14 @@ def cmd_rerank(args):
         json.dump([], sys.stdout)
         return
 
-    from sentence_transformers import CrossEncoder
+    import embed_model_pins
 
     model_name = payload.get("reranker_model") or args.reranker_model
     print(f"Loading cross-encoder: {model_name}...", file=sys.stderr)
-    reranker = CrossEncoder(model_name, trust_remote_code=False)
+    # t/110 (TL p/37#19): a LIVE production path (Get-RelevantTaxonomyNodes -CrossEncoderRerank), so the
+    # reranker must be PINNED; an unpinned model raises the ActionableError, and the opt-in caller
+    # degrades to bi-encoder order on any rerank error.
+    reranker = embed_model_pins.load_cross_encoder(model_name)
 
     pairs = [(query, c.get("text", "")) for c in candidates]
     print(f"Scoring {len(pairs)} (query, candidate) pairs...", file=sys.stderr)

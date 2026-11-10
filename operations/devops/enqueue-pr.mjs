@@ -202,17 +202,27 @@ export function fetchGuardRun(repo, headSha, ghFn = gh) {
   }
 }
 
-/** Best-effort, never throws: true when `tier-check`'s latest completed run at `headSha` concluded `failure`. */
-function tierCheckDisagreesAt(repo, headSha, ghFn = gh) {
+/**
+ * Best-effort, never throws. `disagrees` is true when `tier-check`'s latest completed run at
+ * `headSha` concluded `failure`. Mirrors `fetchGuardRun`'s `{ run, lookupError, error }` shape:
+ * a failed lookup (network, 5xx, 404, bad JSON) returns `{ disagrees: false, lookupError: true,
+ * error }` and logs a WARN, so a dead check is distinguishable from "tier-check agrees" (t/4950).
+ * Non-blocking either way: this only feeds the T0 WARN-only arm of classifyT1GuardForEnqueue.
+ */
+export function tierCheckDisagreesAt(repo, headSha, ghFn = gh) {
   try {
     // t/4939: same -F-forces-POST trap as fetchGuardRun above -- needs -X GET.
     const out = JSON.parse(ghFn(['api', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '-F', 'check_name=tier-check']));
     const runs = (out.check_runs ?? []).filter((r) => r.app?.slug === 'github-actions' && r.status === 'completed');
-    if (!runs.length) return false;
+    if (!runs.length) return { disagrees: false, lookupError: false };
     runs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
-    return runs[0].conclusion === 'failure';
-  } catch {
-    return false;
+    return { disagrees: runs[0].conclusion === 'failure', lookupError: false };
+  } catch (err) {
+    console.warn(
+      `WARN: enqueue-pr could not look up tier-check's check run on ${repo} at ${headSha} ` +
+      `(${err?.message ?? 'API error'}). Treating tier-check as unknown, not as agreeing; continuing (WARN-only arm).`,
+    );
+    return { disagrees: false, lookupError: true, error: err };
   }
 }
 
@@ -239,7 +249,8 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh 
   const tier = extractTier(prMeta.body);
 
   const { run: guardRun, lookupError, error: guardLookupErr } = fetchGuardRun(repo, headSha, ghFn);
-  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn) : false;
+  // A tier-check lookup error is non-blocking: tierCheckDisagreesAt already WARNed (t/4950).
+  const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn).disagrees : false;
 
   if (lookupError) {
     console.warn(

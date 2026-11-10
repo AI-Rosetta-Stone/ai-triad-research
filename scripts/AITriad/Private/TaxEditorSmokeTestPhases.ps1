@@ -492,8 +492,16 @@ function Invoke-SmokeIdentityAllowlistPhase {
         $Check = Invoke-RemoteCheck -BaseUrl $BaseUrl -Path '/health' -Method 'GET' `
             -TimeoutSec $TimeoutSec -ExpectedField 'identityAllowlistUnreachable'
         if ($Check.Success -and (Test-JsonField $Check.Body 'identityAllowlistUnreachable')) {
-            $Count = [int](Get-JsonField $Check.Body 'identityAllowlistUnreachable')
-            $Status = if ($Count -le $script:SmokeIdentityAllowlistKnownPendingCount) { 'ok' } else { 'breach' }
+            # t/120: only a real non-negative integer is a count. null means the server couldn't compute
+            # it; [int]$null is 0, which read as 'ok' (fail-open). Anything else stays unknown → DEGRADED.
+            $Raw = Get-JsonField $Check.Body 'identityAllowlistUnreachable'
+            if (($Raw -is [int] -or $Raw -is [long]) -and $Raw -ge 0) {
+                $Count = [int]$Raw
+                $Status = if ($Count -le $script:SmokeIdentityAllowlistKnownPendingCount) { 'ok' } else { 'breach' }
+            } else {
+                $RawText = if ($null -eq $Raw) { 'null' } else { "'$Raw' ($($Raw.GetType().Name))" }
+                Write-Warning "WARN: /health identityAllowlistUnreachable is $RawText, not a count; treating the identity allowlist as unknown (DEGRADED), not ok (t/120)."
+            }
         }
     } catch {
         Write-Host "  [DEGRADED] GET /health — unreachable: $($_.Exception.Message)" -ForegroundColor Yellow

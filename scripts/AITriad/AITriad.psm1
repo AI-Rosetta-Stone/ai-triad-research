@@ -321,6 +321,7 @@ class StaleImageCleanupResult {
     [string]  $Owner
     [int]     $TotalUntagged
     [int]     $KeptCount
+    [int]     $ProtectedCount   # t/4966: candidates spared as known-good or a tagged index's child
     [int]     $DeletedCount
     [long[]]  $DeletedIds
     [string[]] $Failures
@@ -618,6 +619,11 @@ class AICallLogEntry {
     [string]   $Model        # registry id actually called; '' on lines written before t/4088
     [string]   $Backend      # ai-models.json backend of that model; '' on pre-t/4088 lines
     [string]   $KeySource    # where the key came from (closed vocabulary), never the key; '' if unknown
+    # t/107: provider-reported usage; $null when the line has none (unknown spend, never 0).
+    [Nullable[int]] $InputTokens
+    [Nullable[int]] $OutputTokens
+    [Nullable[int]] $CachedInputTokens          # cache-read subset of InputTokens (Gemini, Claude)
+    [Nullable[int]] $CacheCreationInputTokens   # cache-write subset of InputTokens (Claude)
 }
 
 # One batch entry for Set-PovNodeTags (t/3969, TL t/3969#2 cond B.1). A [string[]] property —
@@ -741,6 +747,20 @@ foreach ($_name in @('DocConverters', 'AIEnrich')) {
     if (-not $_loaded) {
         Write-Verbose "${_name}.psm1 not found — related features will be unavailable."
     }
+}
+
+# t/107: every Invoke-AIApi call that passes no -CallLogger (the summary pipeline and the other direct
+# callers) logs through this one hook. Created here, in module scope and WITHOUT GetNewClosure, so it
+# keeps AITriad's session state and reaches the private writer when AIEnrich invokes it. Invoke-AIByUsage
+# passes its own logger, which replaces this one for that call (no double entry). Flag off → the writer's
+# single early return.
+if (Get-Command Set-AIDefaultCallLogger -ErrorAction SilentlyContinue) {
+    Set-AIDefaultCallLogger -Logger {
+        param($RetryCount, $Status, $Context)
+        Write-AICallLogFromContext -RetryCount $RetryCount -Status $Status -Context $Context
+    }
+} else {
+    Write-Warning 'AITriad: AIEnrich.psm1 has no Set-AIDefaultCallLogger; direct Invoke-AIApi calls will not be AI-call-logged (t/107).'
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

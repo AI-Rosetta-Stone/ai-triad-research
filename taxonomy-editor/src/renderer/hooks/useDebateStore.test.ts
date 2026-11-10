@@ -749,12 +749,15 @@ describe('deleteDebate', () => {
     expect(useDebateStore.getState().activeDebateId).toBe('session-1');
   });
 
-  it('sets debateError on delete failure', async () => {
+  // t/94: a failed delete now rejects so the bulk-delete dialog (its only caller) can report it, and
+  // no longer sets debateError, which would show the same failure twice (t/94#2).
+  it('rejects on delete failure, without setting debateError', async () => {
+    useDebateStore.setState({ debateError: null });
     mockApi.deleteDebateSession.mockRejectedValueOnce(new Error('Permission denied'));
 
-    await useDebateStore.getState().deleteDebate('session-1');
+    await expect(useDebateStore.getState().deleteDebate('session-1')).rejects.toThrow('Permission denied');
 
-    expect(useDebateStore.getState().debateError).toBeTruthy();
+    expect(useDebateStore.getState().debateError).toBeNull();
   });
 });
 

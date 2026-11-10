@@ -1003,9 +1003,25 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
 
   ensureVocabulary: () => ensureVocabularyLoaded(get, set, 'ensureVocabulary', get().activeDebateId ?? undefined),
 
+  // t/94: a failed delete rejects so DebateBulkDeleteDialog (the only caller, t/88) can count it and
+  // keep the row selected; it used to resolve and read as a success. No debateError on that path:
+  // the dialog shows the failure itself, so setting it too would show it twice (t/94#2). Once the
+  // delete has succeeded, later bookkeeping failures only WARN, since the debate is gone.
   deleteDebate: async (id) => {
     try {
       await api.deleteDebateSession(id);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        debate_id: id,
+        component: 'debate-store',
+        level: 'error',
+        message: 'Failed to delete debate',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err;
+    }
+    try {
       const { activeDebateId } = get();
       if (activeDebateId === id) {
         set({ activeDebateId: null, activeDebate: null, ...PERSONAL_SESSION_RESET, debateModel: null });
@@ -1021,11 +1037,10 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
         type: 'system.error',
         debate_id: id,
         component: 'debate-store',
-        level: 'error',
-        message: 'Failed to delete debate',
+        level: 'warn',
+        message: `Debate ${id} deleted, but the follow-up refresh failed (WARN: the session list may be stale until the next refresh)`,
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      set({ debateError: mapErrorToUserMessage(err) });
     }
   },
 

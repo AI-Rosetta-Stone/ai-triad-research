@@ -19,7 +19,7 @@
   border-radius: 50%;
   border: none;
   background: var(--focus-ring, #e8a838);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   font-size: var(--text-xl);
   cursor: pointer;
   display: flex;
@@ -410,7 +410,7 @@
 
 .debate-probing-question-btn:hover:not(:disabled) {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   border-color: var(--focus-ring);
 }
 

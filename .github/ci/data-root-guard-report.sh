@@ -15,7 +15,8 @@
 #     All shards' DATA_ROOT_GUARD_HITS_FILE records. The live-fire positive control is ONE test file, so
 #     it lands in one shard; a per-shard livefire=0 is normal and only the cross-shard total means
 #     anything (t/59, Quality-TechLead). Zero live-fire hits means 0 hits can't be trusted, so it's loud.
-#     No hits files at all means recording isn't wired yet (before lib #4766), which is noted, not loud.
+#     No hits files at all is loud too (t/65): since t/63 wired the lib globalSetup, every shard writes one, so a
+#     missing set means the env var dropped, the artifact upload failed, or globalSetup was removed.
 #
 #   data-root-guard-report.sh --self-test
 #     Both arms of every decision above against fixtures; exits non-zero on a mismatch.
@@ -68,7 +69,8 @@ report_livefire() {
   local title="### DATA-ROOT guard positive control (vitest, all shards)"
   [ -d "$dir" ] && mapfile -t files < <(find "$dir" -name '*.jsonl' -type f | sort)
   if [ "${#files[@]}" -eq 0 ]; then
-    say "$title: no hits files -- DATA_ROOT_GUARD_HITS_FILE recording isn't active, live-fire not checked"
+    say "$title: no hits files -- the positive control can't be checked, so 0 hits is NOT a clean result"
+    warn "DATA-ROOT guard: no hits files reached test-electron-coverage (env var dropped, upload failed, or globalSetup removed); the live-fire positive control is unchecked (t/65)"
     return 0
   fi
   # Unparseable lines are skipped; a file with no install record then reads as "not installed" (fails closed).
@@ -142,8 +144,8 @@ self_test() {
   printf '{"kind":"hit","pid":1,"op":"x","target":"/d/__guard_livefire__/x","protectedRoot":"/d","test":"t"}\n' > "$t/lf-noinst/hits-1.jsonl"
   check "livefire: no install record -> loud" 1 "$me" livefire "$t/lf-noinst"
 
-  check "livefire: no hits files (pre-#4766) -> quiet note" 0 "$me" livefire "$t/lf-empty"
-  check "livefire: dir missing -> quiet note" 0 "$me" livefire "$t/absent-dir"
+  check "livefire: no hits files -> loud (recording broke, t/65)" 1 "$me" livefire "$t/lf-empty"
+  check "livefire: dir missing -> loud (download got nothing, t/65)" 1 "$me" livefire "$t/absent-dir"
 
   printf 'not json\n' > "$t/lf-empty/hits-1.jsonl"
   check "livefire: unparseable file -> loud (fails closed as not installed)" 1 "$me" livefire "$t/lf-empty"
