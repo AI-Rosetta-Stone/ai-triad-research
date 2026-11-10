@@ -15,7 +15,7 @@ const NON_NEGATIVE_INT = /^\d+$/;
 
 /**
  * @param {{ stdout: string, exitCode: number, ceiling: unknown }} input
- * @returns {{ ok: boolean, verdict: 'OK' | 'FAIL' | 'UNREADABLE', count: number | null, message: string }}
+ * @returns {{ ok: boolean, verdict: 'OK' | 'FAIL' | 'UNREADABLE', count: number | null, message: string, warnings?: string[] }}
  */
 export function evaluateContrastGate({ stdout, exitCode, ceiling }) {
   const unreadable = (why) => ({
@@ -50,15 +50,21 @@ export function evaluateContrastGate({ stdout, exitCode, ceiling }) {
   if ((exitCode === 0) !== (count === 0)) {
     return unreadable(`check-contrast.mjs exit code ${exitCode} disagrees with ${count} findings`);
   }
+  // t/147: color-mix values the checker could not measure are not in the count. Warn on every run,
+  // pass or fail, so they can't hide behind a green gate.
+  const warnings = (Array.isArray(parsed.unmeasured) ? parsed.unmeasured : []).map(
+    (v) => `WARN: color-mix value not measured, so its pairs are not in the count: ${v}`,
+  );
   if (count > ceilingNum) {
     return {
       ok: false,
       verdict: 'FAIL',
       count,
+      warnings,
       message: `FAIL: contrast findings (${count}) exceeded ceiling (${ceilingNum}). The ceiling only goes DOWN. Fix the new violations before merging.`,
     };
   }
-  return { ok: true, verdict: 'OK', count, message: `contrast check: ${count} / ${ceilingNum} findings (OK)` };
+  return { ok: true, verdict: 'OK', count, warnings, message: `contrast check: ${count} / ${ceilingNum} findings (OK)` };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -72,6 +78,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   }
   if (process.exitCode !== 1) {
     const result = evaluateContrastGate({ stdout, exitCode: Number(exitCodeArg), ceiling });
+    // `::warning::` makes GitHub Actions annotate the run, so a green check still shows them.
+    for (const w of result.warnings ?? []) console.log(`::warning::${w}`);
     console.log(result.message);
     process.exitCode = result.ok ? 0 : 1;
   }
