@@ -226,8 +226,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--text-muted);
-  color: white;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   border-radius: 50%;
   width: 16px;
   height: 16px;
@@ -300,7 +300,7 @@
   font-size: var(--text-sm);
   border: 1px solid var(--border-color, #d0d7de);
   border-radius: var(--radius-sm);
-  background: var(--bg, #fff);
+  background: var(--bg-input);
   color: var(--text-primary, #1f2328);
 }
 .comment-filter-toggle {
@@ -308,7 +308,7 @@
   padding: 3px 8px;
   border: 1px solid var(--border-color, #d0d7de);
   border-radius: var(--radius-sm);
-  background: var(--bg, #fff);
+  background: var(--bg-primary);
   color: var(--text-muted, #636c76);
   cursor: pointer;
   white-space: nowrap;
@@ -355,7 +355,7 @@
   padding: 2px 6px;
   border: 1px solid var(--border-color, #d0d7de);
   border-radius: var(--radius-md);
-  background: var(--bg, #fff);
+  background: var(--bg-primary);
   color: var(--text-muted, #636c76);
   cursor: pointer;
   white-space: nowrap;

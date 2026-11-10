@@ -111,18 +111,18 @@
 }
 
 .chat-mode-badge.mode-brainstorm {
-  background: rgba(255, 159, 67, 0.15);
-  color: #e67e22;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .chat-mode-badge.mode-inform {
-  background: rgba(52, 152, 219, 0.15);
-  color: #3498db;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .chat-mode-badge.mode-decide {
-  background: rgba(46, 204, 113, 0.15);
-  color: #27ae60;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 /* ─── Chat Workspace ─────────────────────────────────── */
@@ -514,18 +514,18 @@
 }
 
 .chat-mode-pill.active[data-mode="brainstorm"] {
-  background: rgba(255, 159, 67, 0.2);
-  color: #e67e22;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .chat-mode-pill.active[data-mode="inform"] {
-  background: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .chat-mode-pill.active[data-mode="decide"] {
-  background: rgba(46, 204, 113, 0.2);
-  color: #27ae60;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 /* t/4538's phone-width header overflow fix no longer applies — ModeSelector moved out of the
