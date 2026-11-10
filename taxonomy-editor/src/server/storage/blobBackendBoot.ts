@@ -5,9 +5,14 @@
  * t/4756 (t/4738 prevention, step 5): fail-closed boot validation for Azure blob container config.
  *
  * In a hosted profile (NODE_ENV=production), if AZURE_STORAGE_ACCOUNT_URL is set but any
- * of the three required container vars (AZURE_USER_CONTENT_CONTAINER, AZURE_COMMUNITY_CONTAINER,
- * AZURE_BRIEF_EXPORTS_CONTAINER) is unset, refuse to wire the blob backends and return 503
- * from /readyz so the deploy warm-gate blocks promotion.
+ * of the required container vars (AZURE_USER_CONTENT_CONTAINER, AZURE_COMMUNITY_CONTAINER,
+ * AZURE_BRIEF_EXPORTS_CONTAINER, AZURE_ANALYTICS_CONTAINER) is unset, refuse to wire the blob
+ * backends and return 503 from /readyz so the deploy warm-gate blocks promotion.
+ *
+ * t/4954 (t/96): AZURE_ANALYTICS_CONTAINER joined the set. server.ts used to fall back to
+ * `analytics` (prod's container), so a staging deploy missing the var wrote its events into
+ * prod; hosted mode now refuses to start analytics (analyticsBootConfig.ts, t/97) and readyz
+ * 503s here.
  *
  * **This validation must run synchronously at boot, BEFORE server.listen().**
  */
@@ -28,7 +33,7 @@ export function areBlobBackendsWired(): boolean {
 /**
  * Validate Azure blob container config at boot time. Must be called synchronously
  * before server.listen(). In hosted mode (NODE_ENV=production), if
- * AZURE_STORAGE_ACCOUNT_URL is set, all three container vars must also be set.
+ * AZURE_STORAGE_ACCOUNT_URL is set, all four container vars must also be set.
  *
  * On validation failure:
  * - Sets blobBackendsWired = false
@@ -49,11 +54,12 @@ export function validateBlobBackendConfig(env: NodeJS.ProcessEnv = process.env):
     return [];
   }
 
-  // Hosted + account URL + check all three container vars.
+  // Hosted + account URL + check every container var.
   const missing: string[] = [];
   if (!env.AZURE_USER_CONTENT_CONTAINER) missing.push('AZURE_USER_CONTENT_CONTAINER');
   if (!env.AZURE_COMMUNITY_CONTAINER) missing.push('AZURE_COMMUNITY_CONTAINER');
   if (!env.AZURE_BRIEF_EXPORTS_CONTAINER) missing.push('AZURE_BRIEF_EXPORTS_CONTAINER');
+  if (!env.AZURE_ANALYTICS_CONTAINER) missing.push('AZURE_ANALYTICS_CONTAINER'); // t/4954
 
   if (missing.length > 0) {
     blobBackendsWired = false;
@@ -64,6 +70,6 @@ export function validateBlobBackendConfig(env: NodeJS.ProcessEnv = process.env):
     return missing;
   }
 
-  // All three set, backends are wired.
+  // All set, backends are wired.
   return [];
 }
