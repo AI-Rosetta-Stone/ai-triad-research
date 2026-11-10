@@ -527,6 +527,8 @@ jobs:
         env:
           # t/4326: passed through env (not inlined) so bash never interprets the value.
           IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
+          # t/4732: 'true'/'false' only — the key itself never enters this step's env.
+          STAGING_FREE_TIER_KEY_SET: ${{ secrets.FREE_TIER_GEMINI_KEY_STAGING != '' }}
         run: |
           # t/4326: legacy names may contain spaces (quoted below) but never quote/shell
           # characters — arm-deploy re-tokenises its parameter string on double quotes, and the
@@ -534,6 +536,23 @@ jobs:
           if printf '%s' "$IDENTITY_MAP_VALUE" | grep -q "[\"'\`\$]"; then
             echo "::error::vars.IDENTITY_MAP contains a quote, backtick or \$ — not supported (t/4326)."
             exit 1
+          fi
+          # t/4732: staging's dedicated free-tier key. Empty falls back to the shared prod pool key
+          # (main.bicep stagingExtraFreeTier, cap back to 200), so say so instead of falling back silently.
+          # SO condition 3 (t/261): once the staging app HOLDS free-tier-gemini-key-staging, an empty
+          # secret would make this apply drop a secret its active revision references. ACA rejects that,
+          # and the rejection would fail the PROD deploy too (one apply). Fail here, before any change.
+          # Reads secret NAMES only (az containerapp secret list never returns values without --show-values).
+          if [ "$STAGING_FREE_TIER_KEY_SET" != "true" ]; then
+            if ! STAGING_SECRET_NAMES=$(az containerapp secret list -n "${{ env.CONTAINER_APP_NAME }}-staging" -g "${{ env.RESOURCE_GROUP }}" --query "[].name" -o tsv); then
+              echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty and the staging app's secret names could not be read, so this run can't rule out dropping a secret the staging revision still references. Refusing to deploy (fail-closed). Restore the GitHub secret, or check the Azure login."
+              exit 1
+            fi
+            if printf '%s\n' "$STAGING_SECRET_NAMES" | grep -qx 'free-tier-gemini-key-staging'; then
+              echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty, but the staging app already holds secret free-tier-gemini-key-staging. Applying would drop a secret its active revision references, and ACA would reject the whole apply, prod included. Restore the GitHub secret before deploying."
+              exit 1
+            fi
+            echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging falls back to the SHARED prod free-tier key pool (free-tier-gemini-key), at the interim cap of 200."
           fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \
@@ -564,6 +583,7 @@ jobs:
               githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }} \
               githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }} \
               freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }} \
+              freeTierGeminiKeyStaging=${{ secrets.FREE_TIER_GEMINI_KEY_STAGING }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
               stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }} \
@@ -633,6 +653,7 @@ jobs:
             githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
             githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }}
             freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }}
+            freeTierGeminiKeyStaging=${{ secrets.FREE_TIER_GEMINI_KEY_STAGING }}
             geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }}
             budgetAlertEmail=${{ vars.ALERT_EMAIL }}
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
