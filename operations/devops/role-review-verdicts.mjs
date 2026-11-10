@@ -2,6 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
+ * INLINED COPY (t/200): t1-approval-guard-predicate.mjs carries this file's code verbatim, so it
+ * loads without this file next to it. After any edit below the doc header, run
+ * `node operations/devops/sync-inlined-role-review-verdicts.mjs`; the predicate tests fail on drift.
+ *
  * Pure predicate: the LATEST role-tagged verdict per role, read from comment/review BODIES
  * through the reviewer App only -- never from GitHub's review `state` or `reviewDecision`
  * (t/4952 gap 2).
