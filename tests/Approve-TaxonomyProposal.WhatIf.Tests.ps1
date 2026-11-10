@@ -2,48 +2,97 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 # Pester test suite for Approve-TaxonomyProposal -WhatIf/-Confirm behavior (t/288, t/116 blocker).
-# Validates that ShouldProcess gate prevents taxonomy writes during -WhatIf.
+# Tests that ShouldProcess gate prevents proposal application during -WhatIf.
 
 BeforeAll {
-    # Import AITriad module
-    $ModulePath = Resolve-Path '../../scripts/AITriad/AITriad.psd1' | Select-Object -ExpandProperty Path
-    Import-Module $ModulePath -Force -ErrorAction Stop
+    # Import AITriad module - use full path to worktree scripts directory
+    $RepoRoot = Split-Path $PSScriptRoot -Parent | Split-Path -Parent  # Go up: tests -> batch-3 -> .worktrees
+    $RepoRoot = Split-Path $RepoRoot -Parent  # Now at repo root
+    $ModulePath = Join-Path $RepoRoot 'scripts/AITriad/AITriad.psd1'
     
-    # Create a temporary directory and minimal proposal file
-    $Script:TempDir = New-TemporaryDirectory
-    $Script:ProposalFile = Join-Path $TempDir 'proposals.json'
+    if (-not (Test-Path $ModulePath)) {
+        throw "Cannot find AITriad module at $ModulePath"
+    }
+    Import-Module $ModulePath -Force -ErrorAction Stop
 }
 
-AfterAll {
-    if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
-}
+Describe 'Approve-TaxonomyProposal -WhatIf ShouldProcess gate (t/288, t/116)' {
+    Context 'ApproveAll path' {
+        It '-ApproveAll -WhatIf does not apply proposals' {
+            # Create fixture proposal under TestDrive: (isolated temp location)
+            $ProposalFile = Join-Path $TestDrive 'proposals.json'
+            @{
+                proposals = @(
+                    @{ id = 'p1'; action = 'CREATE'; suggested_id = 'test-1'; pov = 'acc'; category = 'challenge'; label = 'Test 1' },
+                    @{ id = 'p2'; action = 'CREATE'; suggested_id = 'test-2'; pov = 'saf'; category = 'opportunity'; label = 'Test 2' }
+                )
+            } | ConvertTo-Json -Depth 20 | Set-Content $ProposalFile
 
-Describe 'Approve-TaxonomyProposal ShouldProcess gate (t/288)' {
-    Context 'Code inspection (t/116 blocker: -WhatIf must not write taxonomy)' {
-        It 'ApproveAll path has ShouldProcess guard before _ApplyProposalAndUpdateStatus' {
-            # Read the source file
-            $Source = Get-Content '../../scripts/AITriad/Public/Approve-TaxonomyProposal.ps1' -Raw
-            
-            # Check that the ApproveAll section has ShouldProcess gate (pattern: if.*ShouldProcess...ApproveAll)
-            # The gate must come BEFORE the call to _ApplyProposalAndUpdateStatus
-            $Pattern = 'if\s*\(\s*\$PSCmdlet\.ShouldProcess.*?\)\s*\{[^}]*_ApplyProposalAndUpdateStatus'
-            $Source -match $Pattern | Should -Be $true -Because 'ApproveAll path must gate _ApplyProposalAndUpdateStatus with ShouldProcess'
+            # Mock Invoke-ProposalApply (the function that applies proposals to taxonomy)
+            Mock Invoke-ProposalApply -ModuleName AITriad { @{ Success = $true; Error = $null } }
+
+            # Run with -WhatIf; ShouldProcess must prevent Invoke-ProposalApply from being called
+            $ErrorActionPreference = 'SilentlyContinue'
+            Approve-TaxonomyProposal -Path $ProposalFile -ApproveAll -WhatIf | Out-Null
+
+            # Verify Invoke-ProposalApply was never called (ShouldProcess gate prevented it)
+            Should -Invoke Invoke-ProposalApply -Times 0 -ModuleName AITriad -Scope It
         }
-        
-        It 'Index/Approve path has ShouldProcess guard before _ApplyProposalAndUpdateStatus' {
-            # Read the source file
-            $Source = Get-Content '../../scripts/AITriad/Public/Approve-TaxonomyProposal.ps1' -Raw
-            
-            # Check that the Index (-Approve) section has ShouldProcess gate
-            # This is in the single-proposal path near "if ($Approve)"
-            $IndexSection = $Source -match 'if\s*\(\s*\$Approve\s*\).*?(?=else)' | Out-String
-            # The section should contain ShouldProcess before the helper call
-            $Source | Select-String -Pattern 'if\s*\(\s*\$Approve\s*\)\s*\{' | Should -Not -BeNullOrEmpty
-            
-            # More direct: just verify the gate is present at all (appears multiple times for both paths)
-            ($Source -split "`n" | Where-Object { $_ -match '\$PSCmdlet\.ShouldProcess' } | Measure-Object).Count | Should -BeGreaterThan 1 -Because 'Both ApproveAll and Index paths must have ShouldProcess guards'
+
+        It '-ApproveAll without -WhatIf applies proposals' {
+            $ProposalFile = Join-Path $TestDrive 'proposals2.json'
+            @{
+                proposals = @(
+                    @{ id = 'p1'; action = 'CREATE'; suggested_id = 'test-1'; pov = 'acc'; category = 'challenge'; label = 'Test 1' }
+                )
+            } | ConvertTo-Json -Depth 20 | Set-Content $ProposalFile
+
+            Mock Invoke-ProposalApply -ModuleName AITriad { @{ Success = $true; Error = $null } }
+
+            # Run without -WhatIf (with -Confirm:$false to skip interactive prompt)
+            $ErrorActionPreference = 'SilentlyContinue'
+            Approve-TaxonomyProposal -Path $ProposalFile -ApproveAll -Confirm:$false | Out-Null
+
+            # Verify Invoke-ProposalApply WAS called (proposals were applied)
+            Should -Invoke Invoke-ProposalApply -Times 1 -ModuleName AITriad -Scope It
+        }
+    }
+
+    Context 'Index path' {
+        It '-Index -Approve -WhatIf does not apply proposal' {
+            $ProposalFile = Join-Path $TestDrive 'proposals3.json'
+            @{
+                proposals = @(
+                    @{ id = 'p1'; action = 'CREATE'; suggested_id = 'test-1'; pov = 'acc'; category = 'challenge'; label = 'Test' }
+                )
+            } | ConvertTo-Json -Depth 20 | Set-Content $ProposalFile
+
+            Mock Invoke-ProposalApply -ModuleName AITriad { @{ Success = $true; Error = $null } }
+
+            # Run with -Index 0 -Approve -WhatIf
+            $ErrorActionPreference = 'SilentlyContinue'
+            Approve-TaxonomyProposal -Path $ProposalFile -Index 0 -Approve -WhatIf | Out-Null
+
+            # ShouldProcess must prevent Invoke-ProposalApply from being called
+            Should -Invoke Invoke-ProposalApply -Times 0 -ModuleName AITriad -Scope It
+        }
+
+        It '-Index -Approve without -WhatIf applies proposal' {
+            $ProposalFile = Join-Path $TestDrive 'proposals4.json'
+            @{
+                proposals = @(
+                    @{ id = 'p1'; action = 'CREATE'; suggested_id = 'test-1'; pov = 'acc'; category = 'challenge'; label = 'Test' }
+                )
+            } | ConvertTo-Json -Depth 20 | Set-Content $ProposalFile
+
+            Mock Invoke-ProposalApply -ModuleName AITriad { @{ Success = $true; Error = $null } }
+
+            # Run without -WhatIf (with -Confirm:$false to skip prompt)
+            $ErrorActionPreference = 'SilentlyContinue'
+            Approve-TaxonomyProposal -Path $ProposalFile -Index 0 -Approve -Confirm:$false | Out-Null
+
+            # Verify Invoke-ProposalApply was called
+            Should -Invoke Invoke-ProposalApply -Times 1 -ModuleName AITriad -Scope It
         }
     }
 }
-
-
