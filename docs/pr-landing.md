@@ -27,3 +27,5 @@ The full procedure behind root `AGENTS.md` → "Landing Code". This text moved o
 - Child PRs target `epic/<name>`, never `main`.
 - There is one shared epic → `main` PR.
 - Review each child when it merges into the epic. Ref §5.
+
+<!-- t/4939 fail-arm probe: consult-hold-guard must refuse this PR in merge_group. This PR is never merged. -->
