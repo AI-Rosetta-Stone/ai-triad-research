@@ -182,7 +182,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # Bumped to :2026-11-10 (t/156, under t/155) — clears zlib1g CVE-2026-76844 (#6350), which the
 # deployed-image scan still reports for prod. DeployAzure verified the digest carries zlib1g
 # 1:...-1+deb13u1 (t/155#2). npm's bundled-undici alerts don't apply here: step 8 strips npm.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-10@sha256:d40df96cf3c3befe9e8016cbb94b0400ef24a250f1c0e9d7b4517de76464f5d1 AS runtime
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-10@sha256:91f8e6b7e5b44d37ef0e15d6a9137cb75afb645662c28e6ff65eecb37a88befe AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
@@ -229,7 +229,7 @@ COPY --chown=aitriad:aitriad ai-models.json ./
 COPY --chown=aitriad:aitriad ai-usages.json ./
 COPY --chown=aitriad:aitriad .aitriad.json ./
 COPY --chown=aitriad:aitriad taxonomy/schemas/ ./taxonomy/schemas/
-COPY --chown=aitriad:aitriad scripts/ ./scripts/
+COPY --chown=aitriad:aitriad --exclude=archive scripts/ ./scripts/
 # Op-ed prompt templates (t/2609 relocated them out of scripts/AITriad/Prompts).
 # The op-ed create route resolves promptsDir = getProjectRoot()/lib/oped/prompts
 # (= /app/lib/oped/prompts here); tsc emits no .prompt assets, so copy the source.
