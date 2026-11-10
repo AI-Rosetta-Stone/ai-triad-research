@@ -7,11 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { serverWarn } = vi.hoisted(() => ({ serverWarn: vi.fn() }));
+const { serverWarn, serverError } = vi.hoisted(() => ({ serverWarn: vi.fn(), serverError: vi.fn() }));
 vi.mock('../logger.js', () => ({
   log: {
     api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-    server: { info: vi.fn(), warn: serverWarn, error: vi.fn(), debug: vi.fn() },
+    server: { info: vi.fn(), warn: serverWarn, error: serverError, debug: vi.fn() },
   },
   getRequestId: () => 'req-test',
   LOG_MAX_LINE_BYTES: 65536,
@@ -19,7 +19,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import { gitBlobSha } from '../storage/gitBlobSha.js';
-import { updateShareRegistry, REGISTRY_CAS_MAX_ATTEMPTS } from '../storage/shareRegistry.js';
+import { updateShareRegistry, readShareRegistry, REGISTRY_CAS_MAX_ATTEMPTS } from '../storage/shareRegistry.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 
 const REG = '/data/users/owner-1/inquiry-shares.json';
@@ -59,6 +59,7 @@ describe('updateShareRegistry (t/117)', () => {
     writes.length = 0;
     delete hooks.beforeWrite;
     serverWarn.mockClear();
+    serverError.mockClear();
   });
 
   it('no conflict: one conditional write carrying the read version, no WARN', async () => {
@@ -111,5 +112,38 @@ describe('updateShareRegistry (t/117)', () => {
     await expect(updateShareRegistry(backend, REG, 'inquiry', addB)).rejects.toMatchObject({ code: 'ENOSPC' });
     expect(writes).toHaveLength(1);
     expect(conflictWarns()).toHaveLength(0);
+  });
+
+  // ─── corrupt registry fails closed (t/126) ─────────────────────────────────
+
+  const corruptErrors = () => serverError.mock.calls.filter(c => c[0]?.cause === 'share-registry-corrupt');
+
+  for (const [label, raw] of [
+    ['unparseable JSON', '{"A":"s1","C":"s3"'],
+    ['a JSON array', '["s1","s3"]'],
+    ['non-string shareIds', '{"A":"s1","C":3}'],
+  ] as const) {
+    it(`update refuses a corrupt registry (${label}): SHARE_REGISTRY_CORRUPT, no write, file byte-identical`, async () => {
+      files.set(REG, raw);
+      const err = await updateShareRegistry(backend, REG, 'inquiry', addB).catch(e => e);
+      expect(err).toMatchObject({ code: 'SHARE_REGISTRY_CORRUPT', httpStatus: 500 });
+      expect(writes).toHaveLength(0);
+      expect(files.get(REG)).toBe(raw);
+      expect(corruptErrors()).toHaveLength(1);
+    });
+  }
+
+  it('read-only view of a corrupt registry: no entries, and an ERROR (never silent)', async () => {
+    files.set(REG, '{not json');
+    expect(await readShareRegistry(backend, REG)).toEqual({});
+    expect(corruptErrors()).toHaveLength(1);
+  });
+
+  it('valid registry: read and update unaffected, no corrupt ERROR', async () => {
+    files.set(REG, JSON.stringify({ A: 's1' }));
+    expect(await readShareRegistry(backend, REG)).toEqual({ A: 's1' });
+    await updateShareRegistry(backend, REG, 'inquiry', addB);
+    expect(JSON.parse(files.get(REG)!)).toEqual({ A: 's1', B: 's2' });
+    expect(corruptErrors()).toHaveLength(0);
   });
 });

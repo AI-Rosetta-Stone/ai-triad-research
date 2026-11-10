@@ -351,4 +351,16 @@ describe('inquiryShareStore (t/3627)', () => {
     expect(await runWithUser(OWNER, () => refreshInquiryShareIfShared('job-1'))).toBe(false);
     expect(files.has(publicInquiryPath(sA))).toBe(false);
   });
+
+  // ─── corrupt registry fails closed (t/126) ─────────────────────────────────
+
+  it('publish against a corrupt registry is refused: registry preserved, no orphan public copy', async () => {
+    const corrupt = '{"job-1":"11111111-1111-4111-8111-111111111111","job-3":"2222'; // truncated write
+    files.set(registryPath, corrupt);
+    mockLoadInquiryResult.mockResolvedValue(makeResult('Q1'));
+
+    await expect(runWithUser(OWNER, () => publishInquiryShare('job-2'))).rejects.toMatchObject({ code: 'SHARE_REGISTRY_CORRUPT' });
+    expect(files.get(registryPath)).toBe(corrupt);
+    expect([...files.keys()].filter(k => k.startsWith(publicInquiryPath('x').slice(0, -'x.json'.length)))).toEqual([]);
+  });
 });
