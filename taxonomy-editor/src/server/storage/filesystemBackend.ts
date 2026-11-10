@@ -3,7 +3,8 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import type { StorageBackend } from './storageBackend.js';
+import { randomUUID } from 'crypto';
+import type { StorageBackend, WriteIfAbsentResult } from './storageBackend.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { gitBlobSha } from './gitBlobSha.js';
@@ -117,6 +118,79 @@ export class FilesystemBackend implements StorageBackend {
       });
     }
     return this.writeUnchecked(filePath, content);
+  }
+
+  /**
+   * t/4216 (t/181): atomic create-only write. The content goes to a unique temp file, which is then
+   * hard-linked into place: `link()` fails with EEXIST if the path exists, so creation is atomic
+   * across processes (the same O_EXCL guarantee as an `open(..., 'wx')`), and a reader never sees a
+   * half-written file. Also joins the t/117 per-path chain, so it serializes with this process's
+   * `baseSha` writes. On a filesystem without hard links it falls back to a `'wx'` write (WARN).
+   */
+  async writeFileIfAbsent(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+    return serializeConditionalWrite(filePath, () => this.createExclusive(filePath, content));
+  }
+
+  private async createExclusive(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const tmpPath = `${filePath}.${randomUUID()}.create-tmp`;
+    await fs.writeFile(tmpPath, content, 'utf-8');
+    try {
+      await fs.link(tmpPath, filePath);
+      return 'created';
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') return 'exists';
+      if (code === 'EPERM' || code === 'ENOTSUP' || code === 'ENOSYS') {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'filesystem-backend', level: 'warn',
+          message: `writeFileIfAbsent: hard links unsupported (${code}), falling back to an exclusive 'wx' write: ${filePath}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return this.createWithExclusiveFlag(filePath, content);
+      }
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'filesystem-backend', level: 'error',
+        message: `writeFileIfAbsent failed: ${filePath}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw new ActionableError({
+        goal: `Create ${filePath} only if absent`,
+        problem: `link() failed with ${code ?? 'an unknown error'}: ${String(err)}`,
+        location: `FilesystemBackend.writeFileIfAbsent(${filePath})`,
+        nextSteps: ['Check the data directory is writable', 'Retry the operation'],
+        innerError: err,
+      });
+    } finally {
+      await fs.unlink(tmpPath).catch((err) => {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'filesystem-backend', level: 'warn',
+          message: `writeFileIfAbsent: temp file cleanup failed (harmless leftover): ${tmpPath}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+      });
+    }
+  }
+
+  private async createWithExclusiveFlag(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+    try {
+      await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
+      return 'created';
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return 'exists';
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'filesystem-backend', level: 'error',
+        message: `writeFileIfAbsent ('wx' fallback) failed: ${filePath}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw new ActionableError({
+        goal: `Create ${filePath} only if absent`,
+        problem: `Exclusive write failed: ${String(err)}`,
+        location: `FilesystemBackend.writeFileIfAbsent(${filePath})`,
+        nextSteps: ['Check the data directory is writable', 'Retry the operation'],
+        innerError: err,
+      });
+    }
   }
 
   private async writeUnchecked(filePath: string, content: string): Promise<{ version: string }> {

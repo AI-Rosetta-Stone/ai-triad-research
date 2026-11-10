@@ -18,6 +18,9 @@
  *   - fileExists → returns false if file doesn't exist
  */
 
+/** Outcome of `StorageBackend.writeFileIfAbsent` (t/4216). */
+export type WriteIfAbsentResult = 'created' | 'exists';
+
 export interface StorageBackend {
   /** Short identity string for structured logs (e.g. 'filesystem', 'azure-blob', 'github-api'). */
   readonly backendName: string;
@@ -61,6 +64,18 @@ export interface StorageBackend {
    *  but sufficient for their single-node write path; Blob's own native
    *  ETag/If-Match preconditions are tracked separately (t/4191). */
   writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }>;
+
+  /** t/4216 (t/181): atomic create-only write. `'created'` — this call created the file with
+   *  `content`; `'exists'` — the path already existed and was NOT modified. Never overwrites, and
+   *  never maps a failure to `'exists'`: any other error throws. Atomicity per backend:
+   *  FilesystemBackend — temp file + `link()` (create-or-EEXIST across processes);
+   *  AzureBlobBackend — `If-None-Match: *` (across replicas); GitHubAPIBackend — a Contents PUT
+   *  without `sha` on the direct-commit path (across replicas), but only per-process on the
+   *  session-overlay path (the overlay is in-memory until commit).
+   *  Optional so lightweight typed test doubles keep compiling; every production backend
+   *  implements it (asserted by writeFileIfAbsent.test.ts). Domain code calls it through
+   *  `writeFileIfAbsentStrict` (fileIO.ts), which fails closed when it's absent. */
+  writeFileIfAbsent?(filePath: string, content: string, opts?: { ref?: string }): Promise<WriteIfAbsentResult>;
 
   /** List entries (files and directories) in a directory. Returns [] if the
    *  directory does not exist.

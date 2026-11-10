@@ -23,7 +23,7 @@ import path from 'path';
 import { BlobServiceClient, type ContainerClient, RestError } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 import { getDataRoot } from '../config.js';
-import type { StorageBackend } from './storageBackend.js';
+import type { StorageBackend, WriteIfAbsentResult } from './storageBackend.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { gitBlobSha } from './gitBlobSha.js';
@@ -106,6 +106,26 @@ function writeConflictError(filePath: string, blob: string): ActionableError {
 /** Blob service returns 412 for both a failed If-Match and a failed If-None-Match. */
 function isPreconditionFailed(err: unknown): boolean {
   return err instanceof RestError && err.statusCode === 412;
+}
+
+/** t/4216: a create-only upload (`If-None-Match: *`) against an existing blob is rejected with
+ *  412, or with 409 `BlobAlreadyExists` — both mean "it exists". */
+function isAlreadyExists(err: unknown): boolean {
+  return isPreconditionFailed(err)
+    || (err instanceof RestError && err.statusCode === 409 && err.code === 'BlobAlreadyExists');
+}
+
+/** The 503 thrown when an upload exceeds `uploadTimeoutMs` (shared by writeFile/writeFileIfAbsent). */
+function uploadTimeoutError(op: string, blob: string, timeoutMs: number, bytes: number): ActionableError {
+  return Object.assign(new ActionableError({
+    goal: `Azure Blob ${op}`,
+    problem: `Blob upload timed out after ${timeoutMs}ms for "${blob}" (${bytes} bytes)`,
+    location: `AzureBlobBackend.${op}`,
+    nextSteps: [
+      'Retry the save — the timeout may indicate a transient stall (cold replica)',
+      'If the problem persists, check Azure Blob service health',
+    ],
+  }), { statusCode: 503 });
 }
 
 const DEFAULT_BLOB_UPLOAD_TIMEOUT_MS = 60_000;
@@ -267,15 +287,7 @@ export class AzureBlobBackend implements StorageBackend {
           message: `writeFile timed out after ${this.uploadTimeoutMs}ms: ${blob}`,
           data: { blob, timeoutMs: this.uploadTimeoutMs, payloadBytes: data.byteLength },
         });
-        throw Object.assign(new ActionableError({
-          goal: 'Azure Blob writeFile',
-          problem: `Blob upload timed out after ${this.uploadTimeoutMs}ms for "${blob}" (${data.byteLength} bytes)`,
-          location: 'AzureBlobBackend.writeFile',
-          nextSteps: [
-            'Retry the save — the timeout may indicate a transient stall (cold replica)',
-            'If the problem persists, check Azure Blob service health',
-          ],
-        }), { statusCode: 503 });
+        throw uploadTimeoutError('writeFile', blob, this.uploadTimeoutMs, data.byteLength);
       }
       if (isPreconditionFailed(err)) {
         getGlobalRecorder()?.record({
@@ -291,6 +303,38 @@ export class AzureBlobBackend implements StorageBackend {
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
       throw wrapBlobError(err, 'writeFile', blob);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * t/4216 (t/181): atomic create-only write — one upload conditioned on `If-None-Match: *`, so
+   * the service itself refuses it if the blob exists, across every replica. No pre-read.
+   */
+  async writeFileIfAbsent(filePath: string, content: string, _opts?: { ref?: string }): Promise<WriteIfAbsentResult> {
+    const blob = this.toBlobPath(filePath);
+    const data = Buffer.from(content, 'utf-8');
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), this.uploadTimeoutMs);
+    try {
+      await this.containerFor(blob).getBlockBlobClient(blob).upload(data, data.byteLength, {
+        blobHTTPHeaders: { blobContentType: 'application/json; charset=utf-8' },
+        abortSignal: ac.signal,
+        conditions: { ifNoneMatch: '*' },
+      });
+      return 'created';
+    } catch (err) {
+      if (isAlreadyExists(err)) return 'exists';
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'azure-blob-backend', level: 'error',
+        message: `writeFileIfAbsent failed: ${blob}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      if ((err as Error).name === 'AbortError') {
+        throw uploadTimeoutError('writeFileIfAbsent', blob, this.uploadTimeoutMs, data.byteLength);
+      }
+      throw wrapBlobError(err, 'writeFileIfAbsent', blob);
     } finally {
       clearTimeout(timer);
     }

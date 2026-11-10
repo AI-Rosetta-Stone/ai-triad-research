@@ -20,7 +20,8 @@ import { resolveDataPath } from '../config.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
-import { getBriefExportBackend, assertSafeId } from './fileIO.js';
+import { getBriefExportBackend, assertSafeId, writeFileIfAbsentStrict } from './fileIO.js';
+import type { WriteIfAbsentResult } from './storageBackend.js';
 import type { ExportJobState, ExportErrorCode } from '../../../../lib/brief/types.js';
 
 // Same invariant as inquiryJobStore: STALE_MS ≥ WORST_SYNC_BLOCK_MS + 2 × INTERVAL_MS. The export
@@ -50,10 +51,13 @@ export interface BriefExportJobRecord {
 
 export const isTerminalExportStatus = (s: ExportJobState): boolean => s === 'done' || s === 'failed';
 
+/** The per-user job-record directory ('_local' → the legacy unscoped dir). Exported for jobRecords.ts. */
+export function getBriefExportJobsDir(userId?: string): string {
+  const uid = userId ?? getStorageUserId();
+  return uid === '_local' ? resolveDataPath('brief-export-jobs') : resolveDataPath(`users/${uid}/brief-export-jobs`);
+}
 function getJobFile(jobId: string): string {
-  const uid = getStorageUserId();
-  const dir = uid === '_local' ? resolveDataPath('brief-export-jobs') : resolveDataPath(`users/${uid}/brief-export-jobs`);
-  return path.join(dir, `job-${jobId}.json`);
+  return path.join(getBriefExportJobsDir(), `job-${jobId}.json`);
 }
 
 /** Persist a job record (create or full overwrite). The creation write MUST be awaited; later
@@ -62,6 +66,15 @@ export async function saveBriefExportJobRecord(record: BriefExportJobRecord): Pr
   if (isAnonymousUser()) return;
   assertSafeId(record.jobId, 'brief export job id');
   await getBriefExportBackend().writeFile(getJobFile(record.jobId), JSON.stringify(record, null, 2));
+}
+
+/** t/4216 (t/181): create-only save of a job's INITIAL record. `'exists'` means another replica or
+ *  an earlier request already created this jobId: load that job, don't start a second one.
+ *  Anonymous: no-op returning `'created'`, the same as saveBriefExportJobRecord. */
+export async function createBriefExportJobRecordIfAbsent(record: BriefExportJobRecord): Promise<WriteIfAbsentResult> {
+  if (isAnonymousUser()) return 'created';
+  assertSafeId(record.jobId, 'brief export job id');
+  return writeFileIfAbsentStrict(getBriefExportBackend(), getJobFile(record.jobId), JSON.stringify(record, null, 2));
 }
 
 /** Load a job record for the current user; null if absent, anonymous, or unparseable. */
