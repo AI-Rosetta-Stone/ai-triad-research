@@ -446,14 +446,7 @@
 
 /* ── Bulk Delete (BD-1/BD-3) ─────────────────────────── */
 .debate-session-item.bulk-selected { background: rgba(220, 38, 38, 0.08); border-left: 3px solid #dc2626; }
-.bulk-delete-dialog { max-width: 500px; }
-.bulk-delete-list { max-height: 300px; overflow-y: auto; margin: 8px 0; }
-.bulk-delete-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-color); }
-.bulk-delete-item-title { font-size: var(--text-sm); font-weight: 500; }
-.bulk-delete-item-meta { font-size: var(--text-2xs); color: var(--text-muted); }
-.bulk-delete-note { font-size: var(--text-xs); color: var(--text-muted); margin: 8px 0; font-style: italic; }
-/* t/88: partial-failure message (also used by BulkDeleteInquiryDialog) — same token as .chat-bulk-delete-error (t/4896, Design). */
-.bulk-delete-error { font-size: var(--text-xs); color: var(--error-text); margin: 8px 0; }
+/* The bulk-delete dialog's .bulk-delete-* rules live in ../shared/BulkDeleteDialog.css (t/114, t/129). */
 /* AN node identifier on debate turns */
 .debate-an-id { font-size: var(--text-2xs); color: var(--text-muted); font-weight: 400; }
 /* Concession harvest styles (CH-2) */
