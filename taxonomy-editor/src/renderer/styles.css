@@ -68,6 +68,7 @@
   --error-text: #B42318; /* foreground; AA on --bg-primary (paired w/ --success-text) AND on --error-bg */
   --error-bg: #FDECEC;
   --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #b91c1c;  /* t/198: .btn-danger hover, white 6.47 */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #a16207;
   --success-bg: #eff6f1;
@@ -162,6 +163,7 @@
   --error-text: #FCA5A5; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2A1616;
   --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #b91c1c;  /* t/198: .btn-danger hover, white 6.47 */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #f59e0b;
   --success-bg: #143430;
@@ -256,6 +258,7 @@
   --error-text: #FF9B9B; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2E1A1C;
   --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #b91c1c;  /* t/198: .btn-danger hover, white 6.47 */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #d9a441;
   --success-bg: #1a4326;
@@ -348,6 +351,7 @@
   --error-text: #A5182A; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #F5E2E2;
   --danger-fill: #A5182A;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #7f1d1d;  /* t/198: .btn-danger hover, white 10.0 */
   /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
   --warning-text: #876208;
   --success-bg: #e8ebe6;
@@ -1461,7 +1465,8 @@ body {
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--danger-fill-hover);
+  border-color: var(--danger-fill-hover);
 }
 
 .btn-sm {
