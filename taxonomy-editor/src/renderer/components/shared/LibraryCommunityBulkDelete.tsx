@@ -87,7 +87,7 @@ export async function runRowAdminDelete<T extends { id: string }>(
       message: `Failed to admin-delete community item ${row.id}`,
       error: errorFields(err),
     });
-    showError(`Couldn't remove "${title}": ${mapErrorToUserMessage(err)}`);
+    showError(`Couldn't remove "${title}": ${mapErrorToUserMessage(err, { kind: 'operation' })}`);
   }
 }
 

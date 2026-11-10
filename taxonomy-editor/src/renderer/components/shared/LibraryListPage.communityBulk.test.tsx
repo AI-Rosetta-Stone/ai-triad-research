@@ -244,4 +244,15 @@ describe('LibraryListPage — per-row admin-delete failure (t/49, TL p/10#15)', 
     expect(unhandled).toEqual([]);
     expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ component: 'library-list-page', level: 'warn' }));
   });
+
+  it('a 429 rejection shows operation-neutral text, not the AI model advice (t/108)', async () => {
+    const adminDelete = vi.fn(() => Promise.reject(new Error('HTTP 429 Too Many Requests')));
+    renderPage(config({ adminDelete }, false));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove "First community item" from Community (admin)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Couldn\'t remove "First community item": Too many requests. Wait a minute and try again.');
+    expect(status).not.toHaveTextContent(/model/i);
+  });
 });

@@ -1,9 +1,13 @@
 import { ActionableError } from '@lib/debate/errors';
 
+/** Which kind of call failed: 'ai' (default) gets model-oriented advice; 'operation' (library
+ *  delete/rename/export etc.) gets neutral text that doesn't mention models (t/108). */
+export interface MapErrorOptions { kind?: 'ai' | 'operation' }
+
 /**
  * Translate raw error messages into user-friendly, actionable guidance.
  */
-export function mapErrorToUserMessage(err: unknown): string {
+export function mapErrorToUserMessage(err: unknown, opts?: MapErrorOptions): string {
   // ActionableError already carries a one-line human-readable `problem`; its `.message` is the full
   // Goal/Error/Location/Resolve block, which must never be surfaced raw to users (t/2491).
   if (err instanceof ActionableError) return err.problem;
@@ -13,7 +17,7 @@ export function mapErrorToUserMessage(err: unknown): string {
 
   return (
     classifyContextLengthError(msg, errorCode) ??
-    classifyRateLimitError(msg) ??
+    classifyRateLimitError(msg, opts) ??
     classifyServiceOverloadError(msg) ??
     classifyPythonError(msg) ??
     classifyFileNotFoundError(msg) ??
@@ -37,8 +41,9 @@ function classifyContextLengthError(msg: string, errorCode: unknown): string | n
 }
 
 // API rate limiting — check BEFORE Python errors since chained errors can contain both
-function classifyRateLimitError(msg: string): string | null {
+function classifyRateLimitError(msg: string, opts: MapErrorOptions | undefined): string | null {
   if (msg.includes('429') || msg.includes('rate limit') || msg.includes('Rate limit')) {
+    if (opts?.kind === 'operation') return 'Too many requests. Wait a minute and try again.';
     return 'API rate limited. Wait a minute and try again, or switch to a different model in Settings.';
   }
   return null;
