@@ -269,9 +269,9 @@
 }
 
 .rc-tier-tab.active {
-  background: var(--info, #3b82f6);
-  color: white;
-  border-color: var(--info, #3b82f6);
+  background: var(--focus-ring);
+  color: var(--text-on-focus-ring, #fff);
+  border-color: var(--focus-ring);
 }
 
 /* ── Empty / loading / error states ── */
