@@ -428,6 +428,31 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().activeChatId).toBe('chat-keep');
     });
+
+    // t/93: it used to swallow this, so ChatTab's bulk dialog counted a failed delete as a success.
+    it('a failed delete rejects, records the error and sets chatError', async () => {
+      useChatStore.setState({ chatError: null, activeChatId: 'chat-x', activeChat: makeChatSession({ id: 'chat-x' }) as never });
+      mockRecord.mockClear();
+      mockApi.deleteChatSession.mockRejectedValueOnce(new Error('HTTP 500'));
+
+      await expect(useChatStore.getState().deleteChat('chat-x')).rejects.toThrow('HTTP 500');
+
+      expect(useChatStore.getState().chatError).toContain('Failed to delete chat');
+      expect(useChatStore.getState().activeChatId).toBe('chat-x');
+      expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'error', message: 'Failed to delete chat session' }));
+    });
+
+    it('a refresh failure after a successful delete WARNs and resolves (the chat is gone)', async () => {
+      useChatStore.setState({ chatError: null, activeChatId: 'chat-y', activeChat: makeChatSession({ id: 'chat-y' }) as never });
+      mockRecord.mockClear();
+      mockApi.listChatSessions.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(useChatStore.getState().deleteChat('chat-y')).resolves.toBeUndefined();
+
+      expect(useChatStore.getState().activeChatId).toBeNull();
+      expect(useChatStore.getState().chatError).toBeNull();
+      expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: expect.stringContaining('refreshing the session list failed') }));
+    });
   });
 
   describe('duplicate request guard (t/1453)', () => {
