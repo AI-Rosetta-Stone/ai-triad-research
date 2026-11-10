@@ -87,27 +87,40 @@ jobs:
             // PR #3487 blocking 2: restrict the bot-review arm to this exact login, not any App).
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
 
-            async function withRetry(label, fn) {
-              let lastErr;
-              for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                  return await fn();
-                } catch (err) {
-                  lastErr = err;
-                  core.warning(`t1-approval-guard: ${label} attempt ${attempt}/3 failed — ${err.message} — retrying`);
-                  await new Promise((r) => setTimeout(r, attempt * 3000));
-                }
-              }
-              throw lastErr;
+            // BEGIN github-retry-loader (t/4819): withRetry is the shared helper
+            // operations/devops/github-retry.mjs (also used by tier-check.yml). It retries ONLY a
+            // 5xx/429 (max 3 attempts, exponential backoff, a WARN per retry) and rethrows
+            // otherwise, so exhausted retries still land in the CANNOT EVALUATE catch. It replaces
+            // the old inline loop, which also retried 4xx. Loaded from the DEFAULT BRANCH'S LIVE TIP
+            // via git show, never the PR tree, so a PR cannot weaken it. If it is missing
+            // (bootstrap) or cannot be loaded, calls run once, unretried, with a WARN.
+            let withRetry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              withRetry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 't1-approval-guard',
+              });
+            } catch (err) {
+              core.warning(`WARN t1-approval-guard: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
             }
+            // END github-retry-loader
 
             async function postVerdictComment(prNumber, body) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const comments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                await withRetry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body }));
               } else {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                await withRetry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }));
               }
             }
 
@@ -116,10 +129,10 @@ jobs:
             // is 'success', 'failure', or 'neutral' (CANNOT EVALUATE -- an unknown, not a pass).
             async function postCheckRun(headSha, conclusion, title, summary) {
               if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
-              await github.rest.checks.create({
+              await withRetry('checks.create', () => github.rest.checks.create({
                 owner, repo, name: 't1-approval-guard', head_sha: headSha,
                 status: 'completed', conclusion, output: { title, summary },
-              });
+              }));
             }
 
             function resolvePrNumber() {
@@ -135,17 +148,23 @@ jobs:
               const prNumber = resolvePrNumber();
               core.error(`t1-approval-guard CRASHED: ${err && err.stack ? err.stack : String(err)}`);
               if (prNumber) {
-                await postVerdictComment(prNumber, [
-                  MARKER,
-                  '**t1-approval-guard: CANNOT EVALUATE**',
-                  '',
-                  'The check crashed while evaluating this PR — not a pass, not a failure, an unknown.',
-                  `Error: \`${String(err && err.message ? err.message : err)}\``,
-                ].join('\n'));
+                // t/4819: best-effort. If GitHub is still down (the usual reason we are here),
+                // posting throws too -- that must not skip the check run and setFailed below.
+                try {
+                  await postVerdictComment(prNumber, [
+                    MARKER,
+                    '**t1-approval-guard: CANNOT EVALUATE**',
+                    '',
+                    'The check crashed while evaluating this PR — not a pass, not a failure, an unknown.',
+                    `Error: \`${String(err && err.message ? err.message : err)}\``,
+                  ].join('\n'));
+                } catch (postErr) {
+                  core.error(`t1-approval-guard: could not post the CANNOT EVALUATE comment either — ${postErr.message}`);
+                }
                 // Best-effort: re-resolve the head SHA independently of run()'s own progress, so a
                 // crash anywhere in run() still gets an explicit, PR-visible check posted.
                 try {
-                  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                  const { data: pr } = await withRetry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
                   await postCheckRun(pr.head.sha, 'neutral', 't1-approval-guard: CANNOT EVALUATE', String(err && err.message ? err.message : err));
                 } catch (postErr) {
                   core.error(`t1-approval-guard: could not post the explicit check run either — ${postErr.message}`);
