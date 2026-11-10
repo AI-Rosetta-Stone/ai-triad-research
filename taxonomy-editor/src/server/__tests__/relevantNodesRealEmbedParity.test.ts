@@ -22,6 +22,10 @@
 // on real data + real embeddings; it does NOT exercise the literal REST hop (that rests on #18) or a
 // live deployment.
 //
+// B must mirror every candidate filter the client applies; t/4926 found it missing the t/4433
+// supersession filter, which surfaced as a nodeSourceMap count mismatch once real data carried
+// superseded nodes.
+//
 // CI-safe: skipIf the data root / debate fixture is absent (CI has neither → skips). Run locally with
 // the real data root to capture the GV evidence: `npx vitest run src/server/__tests__/relevantNodesRealEmbedParity.test.ts`.
 
@@ -38,6 +42,7 @@ import {
   type SelectRelevantTaxonomyInput,
 } from '../../../../lib/debate/relevanceSelection.js';
 import { POVER_INFO, getPovDoctrinalBoundaries } from '../../../../lib/debate/poverInfo.js';
+import { buildSupersessionIndex } from '../../../../lib/debate/supersession.js';
 import * as fileIO from '../storage/fileIO.js';
 import * as ai from '../ai/aiBackends.js';
 import type { ServerCtx } from '../routes/context.js';
@@ -145,7 +150,12 @@ describe.skipIf(!HARNESS_READY)('POST /api/taxonomy/relevant-nodes — REAL-embe
 
     // ── B: the pre-#1922 client-local selection, reproduced with the SAME real ai.* ONNX ──
     const povFile = await fileIO.readTaxonomyFile(POV) as { nodes?: SelectRelevantTaxonomyInput['povNodes'] };
-    const povNodes = povFile?.nodes ?? [];
+    // t/4926 (t/180): superseded nodes are never candidates — the client's loadTaxonomy and the endpoint
+    // (corpusAssemblyCache, t/4433) both drop them. Without this, B scored the 4 superseded acc-beliefs nodes
+    // and nodeSourceMap came out 687 vs the endpoint's 683.
+    const allPovNodes = povFile?.nodes ?? [];
+    const { isSuperseded } = buildSupersessionIndex(allPovNodes);
+    const povNodes = allPovNodes.filter(n => !isSuperseded(n.id));
     const sitFile = await fileIO.readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
     const situationNodes = sitFile?.nodes ?? [];
     const policyRaw = await fileIO.readPolicyRegistry() as { policies?: { id: string; action: string; source_povs?: string[] }[] } | null;
