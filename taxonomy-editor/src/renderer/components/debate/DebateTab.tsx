@@ -43,11 +43,11 @@ import type { LibraryEditModeAction, LibraryRowEditAction } from '../shared/Libr
 import { useDialog } from '../shared/useDialog'; // t/4901
 import { buildDebateLibraryConfig, debateSafeTitle } from './debateLibraryConfig';
 import { DebateInPlaceHint } from './DebateInPlaceHint';
+import { BulkDeleteDialog } from './DebateBulkDeleteDialog';
 import './DebateTab.css';
 
 // Prop-type aliases derived from the hooks/stores so the extracted presentational
 // sub-components stay in lockstep with the source types (no cross-boundary imports).
-type SessionSummary = ReturnType<typeof useDebateStore.getState>['sessions'][number];
 type NavApi = ReturnType<typeof useMobileNav>;
 type AuthStatus = ReturnType<typeof useAuthStatus>;
 type ResizablePanel = ReturnType<typeof useResizablePanel>;
@@ -125,11 +125,6 @@ const POVER_LABELS: Record<string, { label: string; color: string }> = {
   skeptic: { label: POVER_INFO.skeptic.label, color: POVER_INFO.skeptic.color },
   user: { label: 'You', color: 'var(--text-muted)' },
 };
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
 
 function formatDateLong(iso: string): string {
   const d = new Date(iso);
@@ -870,55 +865,6 @@ function DebateDetailPane(props: DebateRightPaneProps) {
         )}
       </div>
     </>
-  );
-}
-
-// ── Bulk delete confirmation dialog ──
-
-function BulkDeleteDialog({
-  sessions, selectedIds, setShowBulkDeleteConfirm, setEditMode, setSelectedIds, deleteDebate,
-}: {
-  sessions: SessionSummary[];
-  selectedIds: Set<string>;
-  setShowBulkDeleteConfirm: Dispatch<SetStateAction<boolean>>;
-  setEditMode: Dispatch<SetStateAction<boolean>>;
-  setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
-  deleteDebate: (id: string) => Promise<void>;
-}) {
-  const { dialogRef, titleId } = useDialog({ onCancel: () => setShowBulkDeleteConfirm(false) }); // t/4901
-  return (
-    <div className="dialog-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
-      <div ref={dialogRef} className="dialog bulk-delete-dialog" role="dialog" aria-modal aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
-        <h3 id={titleId}>Delete {selectedIds.size} debate{selectedIds.size !== 1 ? 's' : ''}?</h3>
-        <div className="bulk-delete-list">
-          {sessions.filter(s => selectedIds.has(s.id)).map(s => (
-            <div key={s.id} className="bulk-delete-item">
-              <span className="bulk-delete-item-title">{typeof s.title === 'string' ? s.title : (s.title as any)?.final ?? (s.title as any)?.original ?? '(Untitled)'}</span>
-              <span className="bulk-delete-item-meta">{s.phase} &middot; {formatDate(s.updated_at)}</span>
-            </div>
-          ))}
-        </div>
-        <div className="bulk-delete-note">
-          Session files will be permanently deleted. Harvested items (conflicts, steelman refinements, debate refs) are preserved.
-        </div>
-        <div className="dialog-actions">
-          <button className="btn" onClick={() => setShowBulkDeleteConfirm(false)}>Cancel</button>
-          <button
-            className="btn btn-danger"
-            onClick={async () => {
-              for (const id of selectedIds) {
-                await deleteDebate(id);
-              }
-              setShowBulkDeleteConfirm(false);
-              setEditMode(false);
-              setSelectedIds(new Set());
-            }}
-          >
-            Delete {selectedIds.size} Debate{selectedIds.size !== 1 ? 's' : ''}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
