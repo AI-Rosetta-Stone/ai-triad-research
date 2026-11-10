@@ -168,6 +168,8 @@ tmp/
 # Orca overlay repo (private config tracked separately)
 .orca-git/
 .orca-gitignore
+# Interweave team config: private, tracked in the overlay like .orca/ (TL p/7#45, t/245)
+.interweave/
 
 # Real-debate fixtures (generated locally via RUN_SLOW=1, not committed)
 lib/debate/__tests__/fixtures/real/

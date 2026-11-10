@@ -94,8 +94,11 @@ mode_path() {
     ./*)       rel=${rel#./} ;;
   esac
 
-  in_main=0;    main_tracked    | grep -qxF -- "$rel" && in_main=1
-  in_overlay=0; overlay_tracked | grep -qxF -- "$rel" && in_overlay=1
+  # Ask each repo about THIS path, not the AGENTS.md-only lists the audit uses: the overlay also
+  # tracks non-AGENTS files (.orca/, .interweave/), which those lists made read as NEITHER (t/245).
+  in_main=0;    git -C "$root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 && in_main=1
+  in_overlay=0
+  [ "$have_overlay" -eq 1 ] && ogit ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 && in_overlay=1
 
   if [ "$in_main" -eq 1 ] && [ "$in_overlay" -eq 1 ]; then
     echo "BOTH  ← violation: double-tracked, run --audit"; return 1
