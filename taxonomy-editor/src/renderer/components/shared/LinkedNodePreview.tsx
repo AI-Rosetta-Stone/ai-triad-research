@@ -4,7 +4,7 @@
 import { POV_META, type PovMetaKey } from '@lib/electron-shared/povMeta';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { GraphAttributes } from '../../types/taxonomy';
-import { useDescriptionMode, resolveDescription } from './DescriptionToggle';
+import { useDescriptionMode, resolveDescription, DescriptionToggle } from './DescriptionToggle';
 import './LinkedNodePreview.css';
 
 const POV_LABELS: Record<string, string> = Object.fromEntries(
@@ -36,7 +36,7 @@ interface EnrichedAttrs {
  */
 export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
-  const [descMode] = useDescriptionMode();
+  const [descMode, setDescMode] = useDescriptionMode('plain');
   const data = lookupPinnedData(nodeId);
   if (!data) return null;
 
@@ -85,6 +85,7 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const enriched = node.graph_attributes as (GraphAttributes & EnrichedAttrs) | undefined;
   const interpretation = enriched?.interpretation;
   const keyPoints = enriched?.key_points ?? [];
+  const hasPlain = Boolean(node.plain_description);
 
   return (
     <div className="linked-node-preview">
@@ -92,6 +93,7 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
         <span className="linked-node-preview-pov">{povLabel}</span>
         {category && <span className="linked-node-preview-category">{category}</span>}
         <span className="linked-node-preview-id">{nodeId}</span>
+        <DescriptionToggle mode={descMode} onToggle={setDescMode} hasPlainDescription={hasPlain} />
       </div>
       <div className="linked-node-preview-label">{node.label}</div>
       <div className="linked-node-preview-description">{resolveDescription(node, descMode).text}</div>
