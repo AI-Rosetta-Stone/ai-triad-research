@@ -60,7 +60,7 @@ The pipeline stages are defined in `lib/debate/inquiryPipeline.ts:37` as: `'deri
 
 **Process:**
 
-1. Run `debateEngine.runHeadlessDebate()` with the config and question.
+1. Run `debateEngine.runHeadlessDebate()` (in `lib/debate/headlessRunner.ts:38`) with the config and question.
 2. The debate engine runs up to N turns per agent, emitting:
    - Turns in the transcript
    - Intermediate QBAF relations (Quantified Bipolar Argumentation Framework, see `lib/debate/qbaf.ts`)
@@ -68,7 +68,7 @@ The pipeline stages are defined in `lib/debate/inquiryPipeline.ts:37` as: `'deri
 
 **Output:** A `DebateSession` containing the full transcript, argument network with QBAF edges, neutral evaluation scores (see `lib/debate/neutralEvaluator.ts`), final belief states, and termination metadata.
 
-**Implementation:** `lib/debate/debateEngine.ts`, `runHeadlessDebate()`. QBAF and neutral evaluation are computed in-place during the debate.
+**Implementation:** `lib/debate/headlessRunner.ts:38`, `runHeadlessDebate()`. QBAF and neutral evaluation are computed in-place during the debate.
 
 **Failure modes:**
 - **Budget exhaustion:** The debate runs out of API budget and terminates early. Termination is captured as `api_ceiling`.
@@ -159,7 +159,7 @@ All termination reasons are tracked in `TerminationReason` (closed union in `lib
 ### Query Embedding
 
 - **Model:** all-MiniLM-L6-v2 (384-dim, already embedded in the taxonomy).
-- **Where:** `lib/embeddings/computeEmbedding.ts`
+- **Where:** `lib/debate/aiAdapter.ts:75`, the adapter's `computeQueryEmbedding()` method.
 - **Use:** Similarity search over `embeddings.json` to find relevant taxonomy nodes.
 
 ### Debate Engine
@@ -185,14 +185,14 @@ All termination reasons are tracked in `TerminationReason` (closed union in `lib
 
 ### Electron Desktop (t/3579)
 
-- Job store: In-memory `Map` in `taxonomy-editor/src/main/inquiryJobStore.ts`.
+- Job store: In-memory `Map` in `taxonomy-editor/src/main/ipc/inquiryHandlers.ts:68`.
 - Persistence: Results are written to `userData/inquiries/<jobId>.json` on the local filesystem.
 - Linking: The inquiry is accessible via `electron://inquiry/<jobId>` within the taxonomy-editor.
 - TTL: 7 days (configurable); jobs older than TTL are cleaned up on app start.
 
 ### Web Server (t/3578)
 
-- Job store: PostgreSQL via `server/inquiryJobs.ts` (mirrors Electron's `briefs` table pattern).
+- Job store: PostgreSQL via `taxonomy-editor/src/server/storage/inquiryJobStore.ts` (mirrors Electron's pattern).
 - Persistence: Results are stored in the `inquiry_results` table with per-user foreign key.
 - Linking: Results are accessible via `GET /api/inquiries/<jobId>` and rendered in the web UI.
 - TTL: 30 days (enforced by database retention policy); jobs older than TTL are archived.
