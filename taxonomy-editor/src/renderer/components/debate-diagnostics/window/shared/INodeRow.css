@@ -5,7 +5,7 @@
    inline `style={{}}` (values incl. var(--*)/color-mix preserved exactly).
    Unique `inr-` prefix (CSS is global). */
 
-.inr-hl-mark { background: var(--warning); color: var(--text-primary); border-radius: 2px; padding: 0 1px; }
+.inr-hl-mark { background: var(--warning-bg); color: var(--text-primary); border-radius: 2px; padding: 0 1px; }
 
 .inr-subscore-row { padding-left: 18px; margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .inr-subscore-item { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }

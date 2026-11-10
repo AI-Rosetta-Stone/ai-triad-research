@@ -154,7 +154,7 @@
 /* Intervention diagnostics */
 .diag-verification-supported { background: var(--success-bg); color: var(--success-text); font-size: var(--text-2xs); cursor: default; }
 .diag-verification-disputed { background: var(--error-bg); color: var(--error-text); font-size: var(--text-2xs); cursor: default; }
-.diag-verification-unverifiable { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-muted); font-size: var(--text-2xs); cursor: default; }
+.diag-verification-unverifiable { background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--text-2xs); cursor: default; }
 .diag-ledger-entry { margin: 4px 0; padding: 4px 0; border-bottom: 1px solid var(--border-color); }
 .diag-ledger-addressed { opacity: 0.6; }
 .diag-missing-arg { margin: 6px 0; padding: 4px 0; border-bottom: 1px solid var(--border-color); }
@@ -171,7 +171,7 @@
 .diag-suggestion-clarify { background: var(--warning-bg); color: var(--warning-text); }
 .diag-suggestion-split { background: var(--error-bg); color: var(--error-text); }
 .diag-suggestion-qualify { background: var(--error-bg); color: var(--error-text); }
-.diag-suggestion-retire { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-muted); }
+.diag-suggestion-retire { background: var(--bg-tertiary); color: var(--text-secondary); }
 .diag-suggestion-new_node { background: var(--success-bg); color: var(--success-text); }
 
 
