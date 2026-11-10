@@ -1,6 +1,6 @@
 # Semantic Tint Tokens
 
-**Author:** Design · **Status:** Spec, ready to implement · **Ticket:** t/124 (parent t/123; folds in t/48 and t/66)
+**Author:** Design · **Status:** Tokens landed (#4853 `94da26140`; bkc Skeptic in #4864); per-owner migration in progress under t/123 · **Ticket:** t/124 (parent t/123; folds in t/48 and t/66)
 **Last updated:** 2026-11-10
 
 ## Problem
@@ -78,7 +78,9 @@ Each camp colour on its own tint is ≥ 4.62:1 in every theme.
 
 The dark `--color-skp` value changes from `#a888c8` to **`#b69bd1`**. Before, it was 4.37:1 on the ambiguous block and 4.06:1 on hover. After, it's 4.62 on `--bg-hover`, 5.35 on the ambiguous block, 7.26 on primary and 5.73 on `--color-skp-bg`.
 
-It's a light lift of the same hue, so it still reads as Skeptic purple next to Safetyist blue, which differs in hue. The other themes are unchanged.
+It's a light lift of the same hue, so it still reads as Skeptic purple next to Safetyist blue, which differs in hue.
+
+**bkc addendum** (Quality, t/48#4): bkc `--color-skp` had the same gap (4.13 on hover, 4.06 on tertiary). It changes from `#a882be` to **`#b18fc5`**: 5.97 on primary, 5.77 on secondary, 4.68 on tertiary, 4.76 on hover, 5.34 on `--color-skp-bg`. Light and harvard are unchanged. The login page's own copy of the dark value was synced in #4859.
 
 ### t/66: input boundaries
 
@@ -119,4 +121,4 @@ Anything that doesn't fit a row (BDI category colours, one-off hues) goes back t
 
    Design reviews it with harvard and dark screenshots of one badge per tone and a focused input. It ratchets the ceiling.
 2. **Per-owner children** under t/123: each migrates its files via the map, lowers the ceiling, and gets Design approval from the diff when it only applies map rows.
-3. Once step 1 merges, Design records the tokens in `design-system.md`.
+3. Once step 1 merges, Design records the tokens in `design-system.md`. (Done in the same PR that set this spec's status to landed.)

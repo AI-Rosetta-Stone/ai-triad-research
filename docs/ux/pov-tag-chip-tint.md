@@ -98,7 +98,7 @@ Themes: light, dark, bkc, harvard, system. For each:
 4. Tag meaning is conveyed by text, not color alone (inherent — confirm no label was dropped).
 5. Orphan chip still reads as warning (dashed `--warning`), visually distinct from the tinted valid chips.
 
-All 5 Skeptic-purple values for reference: light `#7b4fa6`, dark `#a888c8`, bkc `#a882be`, harvard `#6d4595` (`--color-skp`; see `design-system.md` §POV Colors).
+Skeptic-purple values for reference: light `#7b4fa6`, dark `#b69bd1`, bkc `#b18fc5`, harvard `#6d4595` (`--color-skp`; dark and bkc lifted in t/48; see `design-system.md` §POV Colors). For a new tinted camp chip, prefer `--color-{camp}-bg` from `semantic-tint-tokens.md` (t/124) over a `color-mix` tint.
 
 ## 7. Out of scope / future
 
