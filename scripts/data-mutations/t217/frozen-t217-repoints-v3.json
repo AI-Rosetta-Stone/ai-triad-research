@@ -1,14 +1,14 @@
 {
   "dispositions": "research/comp-linguist/analyses/t4704-provenance-review/dispositions.json @ 61c7d4c0 (sha256 dc2a4c377d2954bd...)",
   "operation": {
-    "re-point": "url := to; resolved_url := to; append provenance {scheme: url, id: to, confidence: verified} (existing vocabulary; the old search entry is kept)",
-    "remove": "url := \"\"; resolved_url := \"\"; provenance unchanged"
+    "re-point": "url := to; resolved_url := to; provenance := [{scheme: url, id: to, confidence: verified}] + (entries whose id != from); the bad search entry is dropped",
+    "remove": "url := \"\"; resolved_url and the from-provenance entry removed; provenance key removed when it becomes empty (440 docs have no provenance key; none has [])"
   },
   "serializer": "json.dumps(indent=2, ensure_ascii=False) + LF, per-file CRLF preserved; round-trips all 29 inputs byte-for-byte",
   "sources_commit": "ec7deb133e1d6ceeb4996c2d8e4c5246cd01feb9",
-  "supersedes": "frozen-t217-repoints.json v1 (sha256 a69ca82055867739...): url only, which left the bad URL in resolved_url and provenance (t/217#6)",
+  "supersedes": "v1 a69ca82055867739 (url only, t/217#6) and v2 2110f7930f069cc4 (kept the bad search entry at provenance[0], which debates show as the citation label: Quality p/43#32)",
   "ticket": "t/217 (Orca t/4707)",
-  "version": 2,
+  "version": 3,
   "writes": [
     {
       "disposition": "re-point",
@@ -20,7 +20,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/kaiaizen_aatmf-v3-ai-threat-modeling-framework-activity-7428377489741340672-eWYH",
-      "post_sha256": "9701cdea80a1a6d1b3b945a9193de74ae108a41b8ab21aa5efbf5a575e854471",
+      "post_sha256": "66c50f125154c0160547658e5bc139780fcd59c42a353bb7c4139a6c509a5d3b",
       "pre_sha256": "22bc0ebcdf0bd7d835db01084e8e36fcc5e8ae0bda110e214384288ae08b8e48",
       "to": "https://aatmf.pages.dev/"
     },
@@ -34,7 +34,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/joseantoniobowen_the-2026-ai-index-report-activity-7449888986455597057-KIV-",
-      "post_sha256": "d79eaec994e385d2a00a8364bc41869659a950dc0d000f25166307b362e78f65",
+      "post_sha256": "a3dad457551b7deaba1627ec4d850303c206d890672e818a28293daa723ccc91",
       "pre_sha256": "1ce2db377b31111504893fccd19fa2c3838743e9f1f4fbab6d5dc797851dc468",
       "to": "https://hai.stanford.edu/ai-index/2026-ai-index-report/responsible-ai"
     },
@@ -43,11 +43,12 @@
       "doc_id": "ai-policy-bulletin-2026",
       "field": "url",
       "fields": [
+        "provenance",
         "resolved_url",
         "url"
       ],
       "from": "https://www.linkedin.com/company/ai-policy-bulletin",
-      "post_sha256": "434c44d45be31267e4ff0d3710be5a0d349de76728397dccc8c507eea207b312",
+      "post_sha256": "63657dab197e1a2f47aa2270c978e6cb3f2bfcd53d5a25cf7939ab1dfe9fa3f9",
       "pre_sha256": "6dc18908d7c8cc8e9feaa8e1bd2274142179d5ed9b4d0242d02ab9b794919259",
       "to": null
     },
@@ -61,7 +62,7 @@
         "url"
       ],
       "from": "https://x.com/safe_paper/status/1909208950601621617",
-      "post_sha256": "89720a04909dde0214d5f42cc5014fd6f0e8e1e7b935a3f7b9e6b11acffd69ec",
+      "post_sha256": "c77497087cae49fdd78f151654258e5f9448b82f75b7cdc28b8f5db35a65efb9",
       "pre_sha256": "3f68876f6ca261b7667242235294a972d4bdfee17fb183af40c357b2b57f0e9f",
       "to": "https://arxiv.org/abs/2504.01849"
     },
@@ -75,7 +76,7 @@
         "url"
       ],
       "from": "https://x.com/MargotKaminski/status/1790333201816183204",
-      "post_sha256": "0f047ad6dee18b44187b28d2436e64f347a984b990041f56391edbcbc9967a52",
+      "post_sha256": "157df786a7c5c45ae3862bef0137e38ceb8944cadd71a78142b2f2f161eb2b1b",
       "pre_sha256": "94faea6ecefac1577d335e42b1aca8732d0a96067055122cb08376539c6264fe",
       "to": "https://www.yalelawjournal.org/forum/constructing-ai-speech"
     },
@@ -89,7 +90,7 @@
         "url"
       ],
       "from": "https://www.tiktok.com/@newyorker/photo/7621360117535001869?lang=en",
-      "post_sha256": "0f1152dd75dbe38df2bbbe1200d42a9a8a6c61b83dbd14e4f42a92298d16793a",
+      "post_sha256": "85e1a2e953d55236d5934c88a276b448504049bdc86ee0a23efdf8df078fb63c",
       "pre_sha256": "98484aad8eebf867b03410a61be515a15fe6acfde0b526d9a0f9a6f1207c97d7",
       "to": "https://www.newyorker.com/magazine/2026/03/30/does-ai-need-a-constitution"
     },
@@ -103,7 +104,7 @@
         "url"
       ],
       "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
-      "post_sha256": "49e94ff6d70609060c4c93b5e84bb76780177ee86fbf2ac19b4ad4e98c15c598",
+      "post_sha256": "b79ba3abc482c9b45b061cde34256f67d838ff4292627f502f23554815bed857",
       "pre_sha256": "14b2da229bd2db6a5c29da48368d92e55700f81e8f68efd5d0919b3c1f747840",
       "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
     },
@@ -117,7 +118,7 @@
         "url"
       ],
       "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
-      "post_sha256": "284dea229c3a8c3da524f64125b6e19f1a43caa75f03f3b8ff309a58c1786b50",
+      "post_sha256": "243cfb81133d736c1b14563711b0db29dc67ccf68d5bf7c996c7ef6aade8442c",
       "pre_sha256": "16f1f4a488304d7994f3b76c86d42b6727bf210877087b29b6bdf33176d2e22d",
       "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
     },
@@ -131,7 +132,7 @@
         "url"
       ],
       "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
-      "post_sha256": "b3e0efdcb3989055287cc2cdb87d33141052eaf2864d61ec9d222c87dcc5b1f0",
+      "post_sha256": "e781f735afeee7fc87021102546d8c2be67defe9cc26a720d619f844fe503fd6",
       "pre_sha256": "03139a933e482486760bb8c0ce126cc9aa8fa9b0e953517c4d2cc1a8a87e1086",
       "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
     },
@@ -145,7 +146,7 @@
         "url"
       ],
       "from": "https://x.com/TomDavidsonX/status/1999450796564390251",
-      "post_sha256": "58ebe24171687a3ebaaf49d343318d5f1ad5931406f244590858be353e8cf146",
+      "post_sha256": "1a0c237050eee18b8ecc42979b0f624931ba32db3ad58c6a98315d8608ba7805",
       "pre_sha256": "96c1c6653f99f716ef91590804ac06fe28eed7d2d6d0b61b9309265790d8130b",
       "to": "https://80000hours.org/problem-profiles/extreme-power-concentration/"
     },
@@ -159,7 +160,7 @@
         "url"
       ],
       "from": "https://www.facebook.com/Benzinga/posts/sen-bernie-sanders-i-vt-escalated-his-criticism-of-the-artificial-intelligence-b/1524955546296777/",
-      "post_sha256": "19ea6f90fd181ac0fefde2ac2fa6e68115760ad5447a3c5041e9bf47980a70eb",
+      "post_sha256": "db5855d027563411628df7d31474d342eefc56ddca15e2063234d5ec6c2edade",
       "pre_sha256": "c0eba82d824689c837b89f318725d32c77686b7c5fa13c7206c89fa04583ba27",
       "to": "https://www.govinfo.gov/link/crec/172/s/673"
     },
@@ -173,7 +174,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/saadiazahidi_jobs-workforces-skills-activity-7282674955731795968-OJfd",
-      "post_sha256": "33a8bf1dd588685013abfa33031fcc32c5503c460ace7d12cd6a86385c93668c",
+      "post_sha256": "0222fbc07d049a3849bf8d56ef66f2ad1228e32f3b0e261f7fe5a50bb8db7730",
       "pre_sha256": "10e80b83c9755984766a46bbe1a099737058eaf597d76fd8c67a0f7d96343e3c",
       "to": "https://www.weforum.org/reports/the-future-of-jobs-report-2025/in-full/"
     },
@@ -187,7 +188,7 @@
         "url"
       ],
       "from": "https://substack.com/@lawfare/note/c-226430085",
-      "post_sha256": "fe4fcaa67de199a6735c9f1222906f4a73c120ef463f287b27b16cb185adca84",
+      "post_sha256": "419f90bde19bb20074682c8ab429feca3169a9ed54e2881136056cc0ea411651",
       "pre_sha256": "8cb38b0dd52c84e63aefd929564dc129f1925de9acdfc990779b1e2213d41688",
       "to": "https://www.lawfaremedia.org/article/military-ai-policy-by-contract--the-limits-of-procurement-as-governance"
     },
@@ -201,7 +202,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/saadiazahidi_work-skills-singapore-activity-7404829843411976193-JJqv",
-      "post_sha256": "6664bec48a0cd3f2d268ab621eda175b6d7ac755aef81cf52867a0891fe1daab",
+      "post_sha256": "2b2c8723eb253d6b01e9fbdc4ca73bfe080057d260a0291ba55db22341c82690",
       "pre_sha256": "1d472dfe946160b48c98215de06279139ad9f5d3efc5676e8a1a2271799767ae",
       "to": "https://www.weforum.org/publications/new-economy-skills-unlocking-the-human-advantage/"
     },
@@ -215,7 +216,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/darien-schettler-bb0a5086_situational-awareness-the-decade-ahead-activity-7208846925079408641-7v4R",
-      "post_sha256": "f9634e3cab1f077d623f9a06b1c85a2fbc8f5c584c8dcbc45986be6d086a6e7e",
+      "post_sha256": "883d949df9e7a6ba6fcfec5c54ea93193e295e00bc91baf3c056fc5283b224d8",
       "pre_sha256": "18ed80ca83c93d5be861d31a9072cb1aa60e2941704b8b848775ae730fa4171b",
       "to": "https://situational-awareness.ai/"
     },
@@ -229,7 +230,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/erwinloh_study-finds-nearly-two-thirds-of-ai-generated-activity-7397604150466781186-XZNv",
-      "post_sha256": "1776897136b7b5d77e7cf9ca0fcfa19ec014f8cd09dac6d77893b420a755cc83",
+      "post_sha256": "87b352f306300318306731c5d1cc907fef49a6072d682495ed11c33208b0a99e",
       "pre_sha256": "b8bcc44e3d56e62b2198dab242bb93cb92478910248081ad8869343f00faabf3",
       "to": "https://www.psypost.org/study-finds-nearly-two-thirds-of-ai-generated-citations-are-fabricated-or-contain-errors/"
     },
@@ -243,7 +244,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/audreyduet_synthetic-data-the-new-data-frontier-wef-activity-7376254039895805952-N4ZA",
-      "post_sha256": "228e8aa046a66851d73fe4077b94a2e9a7e9f98e065c224a52debf3f97775740",
+      "post_sha256": "d6aa03acf245cf1b8025e6543e5d7412ff384d072c125722cc67cad81c765d7f",
       "pre_sha256": "ed0cfcf0a85a3faac9e6d0cb6d09b11746e5b55e98ae057b937aa124c594c053",
       "to": "https://reports.weforum.org/docs/WEF_Synthetic_Data_2025.pdf"
     },
@@ -257,7 +258,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/abelsun_tmt-predictions-2026-the-gap-narrows-but-activity-7396691814679810048-KqHq",
-      "post_sha256": "46633e76a539b9408a767d9c8b2e0c7f6790e75cef87b65219d477c2ed562c1a",
+      "post_sha256": "b99c21d96bfec4046072b9f5aa554d6c6f476cd8b3b2ecf827b6ddb5fa59d0ea",
       "pre_sha256": "60de260f0137ed8d1de2ca34bd7ef78e74a2f57ef7765ce5ea0c0a95b4ccd646",
       "to": "https://www.deloitte.com/us/en/insights/industry/technology/technology-media-and-telecom-predictions.html"
     },
@@ -271,7 +272,7 @@
         "url"
       ],
       "from": "https://medium.com/@gford1000/jack-clarks-technology-optimism-and-appropriate-fear-essay-is-a-wake-up-call-994e3718ac72",
-      "post_sha256": "18d6846ea2cec5de3c152b9a89c47e112d7f91c2b8a77a54aa3e60c25ff2ca1f",
+      "post_sha256": "7b1d2c49c33aee0d43fef4a0b4339c2732eb535d00805f2d271bf0dd7a9f5a12",
       "pre_sha256": "c78fbac2bcb7b4b12575545faad5c657851efa67b44707b780dea6054a589d8d",
       "to": "https://jack-clark.net/2025/10/13/"
     },
@@ -285,7 +286,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
-      "post_sha256": "00721c8bcf85ca7162721b84a37a2196f58779aebb4d80373719846e3cfb8233",
+      "post_sha256": "5c741888c5a68f9fe43481265540a3ecb7da6f8c636243142c8fba9f69969873",
       "pre_sha256": "b1cdb6bab4a9544fb70922a710e78df73f421a59adcc39f54a5585ae2e60c7f7",
       "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
     },
@@ -299,7 +300,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
-      "post_sha256": "005339c0073977d65d83504dbd2bc2a00176f57465379b239f693fdad94df248",
+      "post_sha256": "43baad0b36d05c52b31c6cf19403b136c15c0d384d4d2772d1d88bcca4050bda",
       "pre_sha256": "7439b730911afa1d53aa8cd961744cdecb69b1e180e197eec7f64cbcda1da5ac",
       "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
     },
@@ -313,7 +314,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
-      "post_sha256": "ab559825835d8a75c572076510440eafd6fdd420e2f432e32f3712c6eec356a3",
+      "post_sha256": "181920ca1f0b7f92868075e077e32af7f4a8ebc835c9b3fa13fc07a3969427f5",
       "pre_sha256": "cd5f98c11b80498000de9e2c5f87a56b74b10dff3de77c02a6694c167e795a5a",
       "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
     },
@@ -327,7 +328,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/stanfordhai_transparency-in-ai-is-on-the-decline-stanford-activity-7410424677183102976-am81",
-      "post_sha256": "4230f6b16b597792551169137aa7a6e86bdfc9b3b4ef7abd83614231d3a36f2b",
+      "post_sha256": "bf75a9f903ddd8dd8b6dd7994f9d74c34a20b7b70323e5b97cbc07f67782c884",
       "pre_sha256": "d9b4d57dfb594a4b68f6ddb93810ab95d7ebd96da4bdc918a4a53be082120239",
       "to": "https://hai.stanford.edu/news/transparency-in-ai-is-on-the-decline"
     },
@@ -341,7 +342,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/josephfkrause_using-self-correcting-search-to-accelerate-activity-7445243603758592001-bJV8",
-      "post_sha256": "4d5d10f8e558207019cd21071476769359594dadbf2baf00fbf6150e93e19e48",
+      "post_sha256": "52160f28e52f858e561bbcef17ddebc5203da727bd20a4aa5b0d46d2f5d1e059",
       "pre_sha256": "447054e8c37d14a844d44d5f87c0bf81d6deeb89da27e509c8039770439f7f52",
       "to": "https://www.goodfire.ai/research/self-correcting-search"
     },
@@ -355,7 +356,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/josephfkrause_using-self-correcting-search-to-accelerate-activity-7445243603758592001-bJV8",
-      "post_sha256": "8a7f921473b93fba22dd6840f7056a7585fd09f53e9d72b5eb6e700b4eaf895f",
+      "post_sha256": "5cd7440ec1924e35ae83c5d231773bd66b4bcfd99c28ee7e480629d7eb634065",
       "pre_sha256": "f32bc44fad95788f622dc271c706dce403cd3e06222e5d008929853ee9782bdf",
       "to": "https://www.goodfire.ai/research/self-correcting-search"
     },
@@ -369,7 +370,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/josephfkrause_using-self-correcting-search-to-accelerate-activity-7445243603758592001-bJV8",
-      "post_sha256": "cae6fb5192c95213a6c184fb6ead769a14ceec9d5827a689e13b25b88a8c6107",
+      "post_sha256": "1e0a8f27c34f487414e2109d697ce38106ed0dfbb7f299bd3b10aea0bd6cbed4",
       "pre_sha256": "2c8e1cc3a12a6ae347462f994b843498ed65bb52c69ee8f5062a1736142ac459",
       "to": "https://www.goodfire.ai/research/self-correcting-search"
     },
@@ -383,7 +384,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/holland-knight-llp_artificialintelligence-ai-intellectualproperty-activity-7443413714344566784-aPL8",
-      "post_sha256": "dd4cadf2e3e8ec40c31291a2cd924926eac8006ae27ae5706218274fa62f8195",
+      "post_sha256": "4ed0a761bfa2754b78f45ad4372e3fbda9dd041590e003452bd594e277a8dd2a",
       "pre_sha256": "219f69a289da1d364d571a106b094fc95dafaed0aee796cc26f59992f6e4c81f",
       "to": "https://www.whitehouse.gov/wp-content/uploads/2026/03/03.20.26-National-Policy-Framework-for-Artificial-Intelligence-Legislative-Recommendations.pdf"
     },
@@ -397,7 +398,7 @@
         "url"
       ],
       "from": "https://www.linkedin.com/posts/holland-knight-llp_artificialintelligence-ai-intellectualproperty-activity-7443413714344566784-aPL8",
-      "post_sha256": "3d31528ba895fb0deff87bba5c77ed15a36185bd154cecf289eeeb3fe6902faf",
+      "post_sha256": "c1654b4e247a8fbed73ff0e0a2b0c6b6d4fc8ad6c5991987c9410a35397dea00",
       "pre_sha256": "839b86968ceebfe36ae17f727f3e4a10cff0cd782de2dceb6be14b4a46db6017",
       "to": "https://www.whitehouse.gov/wp-content/uploads/2026/03/03.20.26-National-Policy-Framework-for-Artificial-Intelligence-Legislative-Recommendations.pdf"
     },
@@ -411,7 +412,7 @@
         "url"
       ],
       "from": "https://www.reddit.com/r/singularity/comments/142mhkn/worthy_read_why_ai_will_save_the_world_by_marc/",
-      "post_sha256": "3edc3a07c8bafbf1d39e2148055544a0b05793341ab3a94c7e662ce35d52fee2",
+      "post_sha256": "59a7053706772f73b02cfab5cb2f8f1a88e495a92ba6272300639d3800ae82de",
       "pre_sha256": "613ab4f0cff72d2a50a7e52c7ba937f83f13f5ce379326c187635fd5d4480076",
       "to": "https://a16z.com/ai-will-save-the-world/"
     }

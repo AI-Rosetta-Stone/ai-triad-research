@@ -5,7 +5,7 @@
 
 """t/217 (Orca t/4707): apply the frozen provenance-URL re-points to ai-triad-sources.
 
-Reads ONLY frozen-t217-repoints-v2.json; never re-derives the target set (/data-mutation element 1).
+Reads ONLY frozen-t217-repoints-v3.json; never re-derives the target set (/data-mutation element 1).
 
   --mode dry-run (default)  For every frozen entry: the file's bytes match pre_sha256, its current
                             url and resolved_url equal `from`, the serializer round-trips it, and
@@ -24,7 +24,7 @@ import json
 import sys
 from pathlib import Path
 
-FROZEN = Path(__file__).resolve().parent / "frozen-t217-repoints-v2.json"
+FROZEN = Path(__file__).resolve().parent / "frozen-t217-repoints-v3.json"
 ALLOWED_FIELDS = {"url", "resolved_url", "provenance"}
 
 
@@ -38,14 +38,21 @@ def serialize(doc, crlf):
 
 
 def transform(doc, write):
+    """The bad URL leaves every field: url, resolved_url, and the provenance entry whose id is
+    `from`. The debate engine shows provenance[0].id as the citation label (Quality p/43#32)."""
     out = dict(doc)
+    kept = [e for e in (doc.get("provenance") or []) if e.get("id") != write["from"]]
     if write["to"]:
         out["url"] = write["to"]
         out["resolved_url"] = write["to"]
-        out["provenance"] = list(doc.get("provenance") or []) + [{"scheme": "url", "id": write["to"], "confidence": "verified"}]
+        out["provenance"] = [{"scheme": "url", "id": write["to"], "confidence": "verified"}] + kept
     else:
         out["url"] = ""
-        out["resolved_url"] = ""
+        out.pop("resolved_url", None)
+        if kept:
+            out["provenance"] = kept
+        else:
+            out.pop("provenance", None)
     return out
 
 
