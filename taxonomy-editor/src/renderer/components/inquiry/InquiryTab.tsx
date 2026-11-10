@@ -27,6 +27,7 @@ import type {
 } from '../shared/LibraryListPage.types';
 import { InquiryGettingStarted } from './InquiryGettingStarted';
 import './inquiryShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
+import '../shared/BulkDeleteDialog.css';
 import './InquiryTab.css';
 
 // LibraryListPage requires `{ id: string }`; InquiryResultSummary's own key is `jobId`.
