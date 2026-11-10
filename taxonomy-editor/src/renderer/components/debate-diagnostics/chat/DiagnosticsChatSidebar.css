@@ -117,8 +117,8 @@
   border-radius: 12px;
   font-size: var(--text-2xs);
   cursor: pointer;
-  background: color-mix(in srgb, var(--warning) 8%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
   transition: background 0.15s;
 }

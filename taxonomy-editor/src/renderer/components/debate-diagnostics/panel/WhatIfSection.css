@@ -11,9 +11,9 @@
   font-size: var(--text-2xs);
 }
 .whatif-toggle-active {
-  background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
-  border-color: #3b82f6;
+  background: var(--info-bg);
+  color: var(--info-text);
+  border-color: var(--info-text);
 }
 .whatif-reset {
   font-size: var(--text-2xs);

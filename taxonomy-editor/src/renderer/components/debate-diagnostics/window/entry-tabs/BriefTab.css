@@ -23,7 +23,7 @@
 .brief-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-saf) 20%, transparent);
+  background: var(--color-saf-bg);
   color: var(--color-saf);
   font-weight: 600;
 }
@@ -31,11 +31,11 @@
 .brief-parse-error {
   padding: 6px 8px;
   margin: 6px 0;
-  background: rgba(220, 38, 38, 0.1);
+  background: var(--error-bg);
   border-left: 3px solid var(--danger);
   border-radius: 4px;
   font-size: 0.72rem;
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .brief-directive {
@@ -57,8 +57,8 @@
 .brief-directive-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 20%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
