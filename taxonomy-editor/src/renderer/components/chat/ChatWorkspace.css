@@ -899,9 +899,9 @@
   flex-shrink: 0;
 }
 
-.chat-message-avatar.camp-acc { background: var(--tint-acc); color: var(--color-acc); }
-.chat-message-avatar.camp-saf { background: var(--tint-saf); color: var(--color-saf); }
-.chat-message-avatar.camp-skp { background: var(--tint-skp); color: var(--color-skp); }
+.chat-message-avatar.camp-acc { background: var(--color-acc-bg); color: var(--color-acc); }
+.chat-message-avatar.camp-saf { background: var(--color-saf-bg); color: var(--color-saf); }
+.chat-message-avatar.camp-skp { background: var(--color-skp-bg); color: var(--color-skp); }
 
 .chat-message-body {
   min-width: 0;
