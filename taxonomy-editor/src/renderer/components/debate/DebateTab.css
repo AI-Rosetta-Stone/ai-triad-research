@@ -80,7 +80,7 @@
 
 .debate-phase-badge.phase-debate {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .debate-phase-badge.phase-closed {
