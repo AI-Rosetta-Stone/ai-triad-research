@@ -57,8 +57,13 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
         $plan | Should -Be @("taxonomy-editor|eslint|`tsrc/renderer/legacy.js")
     }
 
-    It 'docs, PowerShell and workflow changes plan no TypeScript checks' {
-        Get-Plan @('docs/x.md', 'scripts/AITriad/Public/Get-Foo.ps1', '.github/workflows/ci.yml') | Should -BeNullOrEmpty
+    It 'docs and workflow changes plan no checks' {
+        Get-Plan @('docs/x.md', '.github/workflows/ci.yml') | Should -BeNullOrEmpty
+    }
+
+    It 'PowerShell and Python changes plan only their syntax checks, never TypeScript (t/289)' {
+        $plan = Get-Plan @('scripts/AITriad/Public/Get-Foo.ps1', 'x/M.psm1', 'x/M.psd1', 'scripts/a.py')
+        $plan | Should -Be @("powershell|parse|`tscripts/AITriad/Public/Get-Foo.ps1`tx/M.psm1`tx/M.psd1", "python|py_compile|`tscripts/a.py")
     }
 
     It 'groups several changed files into one invocation per check' {

@@ -1,6 +1,7 @@
 #!/bin/sh
-# pre-push — run CI's fast TypeScript checks on the files this push changes, so real
-# failures are caught in ~1-2 minutes locally instead of a 12-minute CI run.
+# pre-push — run CI's fast TypeScript checks, plus PowerShell-parse and Python-compile checks
+# (t/289), on the files this push changes, so real failures are caught in ~1-2 minutes locally
+# instead of a 12-minute CI run.
 # All logic, the rationale and the fail-open rules live in
 # operations/devops/pre-push-checks.sh. This wrapper only maps git's push info to a
 # base..head range per pushed ref.
@@ -16,10 +17,10 @@ QUEUE_GUARD="$ROOT/operations/devops/check-queued-push-guard.sh"
 # whether the pusher wants the TS checks run, so the guard is not an optional check.
 SKIP_TS="${AITRIAD_PREPUSH:-}"
 if [ "$SKIP_TS" = "skip" ]; then
-  echo "pre-push: WARN TypeScript checks skipped by AITRIAD_PREPUSH=skip; CI will still run them. The queued-push guard still runs." >&2
+  echo "pre-push: WARN TypeScript, PowerShell-parse and Python-compile checks skipped by AITRIAD_PREPUSH=skip; CI will still run them. The queued-push guard and control-character check still run." >&2
 fi
 if [ ! -f "$CHECKS" ] && [ "$SKIP_TS" != "skip" ]; then
-  echo "pre-push: WARN $CHECKS not found (branch predates it?); skipping TypeScript checks." >&2
+  echo "pre-push: WARN $CHECKS not found (branch predates it?); skipping the TypeScript, PowerShell and Python checks." >&2
 fi
 CTRL_LINT="$ROOT/.github/scripts/check-control-chars.mjs"
 ZERO=0000000000000000000000000000000000000000
