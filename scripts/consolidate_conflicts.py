@@ -264,6 +264,90 @@ def merge_cluster(cluster):
     return merged, source_paths
 
 
+# ── Genuine-conflict gate (Orca t/3739 / t/3633; Interweave t/209) ──────────
+#
+# A full regen re-derives conflicts from source and would re-introduce the 432 standalone facts
+# t/3350 surgically demoted (data-of-record 0f38b2e7). The gate keys to the CL-owned, committed
+# manifest -- NOT auto-classification (t/3339#18 measured contradiction detection at 0.000-0.065
+# precision). A candidate matching a manifest claim_id, or (single-instance only) a normalized
+# assertion signature, is emitted DEMOTED, never as a conflict. Multi-instance candidates match
+# on claim_id only: the manifest holds single-instance facts, so a genuine multi-instance conflict
+# that merely shares one assertion is never demoted (revised AC4).
+
+DEMOTION_MANIFEST = _PROJECT_ROOT / "research" / "comp-linguist" / "analyses" / "t3633-conflict-gate" / "demotion-manifest.json"
+DEMOTION_REASON = "standalone_fact"
+
+
+def _norm(text):
+    """The manifest's own signature rule (build_demotion_manifest._norm): lowercase, collapse
+    whitespace, strip trailing punctuation. A stable key, not a semantic match."""
+    t = (text or "").strip().lower()
+    t = " ".join(t.split())
+    return t.rstrip(" .,:;!?")
+
+
+def load_demotion_manifest(path=None):
+    """(claim_ids, assertion_sigs, provenance) from the committed manifest. A missing or unreadable
+    manifest is an error: running the regen without the gate is exactly the regression it prevents."""
+    path = Path(path) if path else DEMOTION_MANIFEST
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        entries = manifest["entries"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise SystemExit(
+            "Goal: Run the conflict regen behind the genuine-conflict gate (t/3633)\n"
+            f"Problem: the demotion manifest is missing or unreadable at {path} ({type(exc).__name__}: {exc}).\n"
+            "Location: consolidate_conflicts.py load_demotion_manifest\n"
+            "Next Steps: Restore research/comp-linguist/analyses/t3633-conflict-gate/demotion-manifest.json from "
+            "main (python build_demotion_manifest.py --verify checks it). Without it a regen would re-emit the "
+            "432 t/3350 standalone facts as conflicts.")
+    ids = {e["claim_id"] for e in entries if e.get("claim_id")}
+    sigs = {s for e in entries for s in (e.get("assertion_sigs") or []) if s}
+    return ids, sigs, manifest.get("provenance", {})
+
+
+def _demotion_match(conflict, ids, sigs):
+    """'claim_id' / 'assertion_sig' when the candidate is in the manifest, else None."""
+    if conflict.get("claim_id") in ids:
+        return "claim_id"
+    instances = conflict.get("instances") or []
+    if len(instances) == 1:
+        if _norm(instances[0].get("assertion")) in sigs:
+            return "assertion_sig"
+    elif not instances and conflict.get("claim_label") and _norm(conflict["claim_label"]) in sigs:
+        return "assertion_sig"   # the builder's own fallback for an instance-less fact
+    return None
+
+
+def apply_demotion_gate(consolidated, ids, sigs, provenance=None):
+    """Mark every manifest-matched candidate demoted in place, before anything is written.
+    Returns the number demoted. Each demotion is logged (fallback-path logging rule)."""
+    provenance = provenance or {}
+    demoted = 0
+    for conflict in consolidated:
+        how = _demotion_match(conflict, ids, sigs)
+        if not how:
+            continue
+        already = (conflict.get("status") == "demoted" and conflict.get("claim_type") == "non_conflict"
+                   and (conflict.get("demotion") or {}).get("reason") == DEMOTION_REASON)
+        conflict["status"] = "demoted"
+        conflict["claim_type"] = "non_conflict"
+        if not already:
+            conflict["demotion"] = {
+                "reason": DEMOTION_REASON,
+                "source": f"t/3633 genuine-conflict gate: in t/3350 manifest (matched by {how})",
+                "ticket": provenance.get("ticket", "t/3350"),
+                "data_of_record": provenance.get("data_of_record", ""),
+                "reversible": True,
+            }
+        demoted += 1
+        _log(f"  WARN: demoted {conflict.get('claim_id', '?')!r}: standalone fact in t/3350 manifest "
+             f"(matched by {how}); emitted as non_conflict, not as a conflict (t/3633)")
+    _log(f"  Genuine-conflict gate: {demoted} candidate(s) demoted per the t/3350 manifest "
+         f"({len(ids)} ids / {len(sigs)} sigs)")
+    return demoted
+
+
 # ── Phase 2: Enrichment ─────────────────────────────────────────────────────
 
 def relink_conflicts(consolidated, embeddings, model,
@@ -539,6 +623,10 @@ def main():
         consolidated.append(merged)
         source_map[merged["claim_id"]] = len(source_paths)
 
+    # t/3633 genuine-conflict gate: the t/3350 standalone facts never come back as conflicts.
+    demo_ids, demo_sigs, demo_prov = load_demotion_manifest()
+    demoted_count = apply_demotion_gate(consolidated, demo_ids, demo_sigs, demo_prov)
+
     # ── Phase 2: Enrich ──
     _log(f"\n[6/6] Phase 2: Enrichment...")
 
@@ -590,6 +678,7 @@ def main():
             "total_instances": total_instances,
             "total_links": total_links,
             "attack_types_classified": disputes_with_type,
+            "demoted_by_gate": demoted_count,
             "output_dir": output_dir,
         }, sys.stdout, indent=2)
         print()
@@ -601,6 +690,7 @@ def main():
             "would_consolidate_to": len(consolidated),
             "total_instances": total_instances,
             "total_links": total_links,
+            "demoted_by_gate": demoted_count,
         }, sys.stdout, indent=2)
         print()
 
