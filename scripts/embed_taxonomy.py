@@ -25,6 +25,7 @@ JSON output goes to stdout.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -37,6 +38,21 @@ from typing import Optional
 import numpy as np
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name):
+    # By path, not `import name`: research/ tools load this file via spec_from_file_location
+    # with scripts/ NOT on sys.path, and the shared pin loader must still resolve (t/110).
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_DIR / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+embed_model_pins = _load_sibling("embed_model_pins")
 _FALLBACK_TAXONOMY_DIR = _SCRIPT_DIR.parent / "taxonomy" / "Origin"
 MODEL_NAME = "all-MiniLM-L6-v2"
 MODEL_REPO = "sentence-transformers/all-MiniLM-L6-v2"
@@ -45,7 +61,7 @@ NLI_MODEL_NAME = "cross-encoder/nli-deberta-v3-small"
 # fetch_embed_models.py reads (t/55), so an upstream re-upload can't move prod
 # embeddings without CI seeing it. MODEL_NAME stays the short name for the
 # embeddings.json envelope.
-MODEL_PINS_FILE = _SCRIPT_DIR / "embed_model_pins.json"
+MODEL_PINS_FILE = embed_model_pins.PINS_FILE
 # t/4572 (SO C1, t/4572#1): a hardcoded column order here is exactly the class of bug that
 # shipped -- NLI_LABELS used to assume [entailment, neutral, contradiction], but the real
 # checkpoint's config.id2label is {0: contradiction, 1: entailment, 2: neutral}. Different
@@ -191,41 +207,15 @@ def _resolve_taxonomy_dir(override=None, conflicts_override=None):
     return TAXONOMY_DIR
 
 
-def _model_revision(repo_id, pins_file=None):
-    """The pinned commit for repo_id from embed_model_pins.json (t/62).
-
-    No fallback to the unpinned `main`: a missing or unreadable pin is an error,
-    because loading `main` is exactly the silent CI/prod skew the pin prevents.
-    """
-    pins_file = Path(pins_file) if pins_file else MODEL_PINS_FILE
-    try:
-        pins = json.loads(pins_file.read_text(encoding="utf-8"))["models"]
-        revision = pins[repo_id]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise ValueError(
-            f"Goal: Load {repo_id} at its pinned revision\n"
-            f"Problem: no usable pin in {pins_file} ({type(exc).__name__}: {exc}).\n"
-            "Location: embed_taxonomy.py _model_revision\n"
-            f"Next Steps: Restore {pins_file.name} from main, or add {repo_id!r} under \"models\" "
-            "with a full commit sha. Unpinned `main` is never used (t/62)."
-        ) from exc
-    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise ValueError(
-            f"Goal: Load {repo_id} at its pinned revision\n"
-            f"Problem: the pin in {pins_file} is {revision!r}, not a 40-hex commit sha.\n"
-            "Location: embed_taxonomy.py _model_revision\n"
-            "Next Steps: Pin a commit, not a branch or tag (t/62)."
-        )
-    return revision
+# t/110: the pin reader is shared (embed_model_pins.py), not a copy per script.
+_model_revision = embed_model_pins.pinned_revision
 
 
 def _load_model():
     """Load the sentence-transformer model at its pinned revision (downloads on first run)."""
-    from sentence_transformers import SentenceTransformer
-
     revision = _model_revision(MODEL_REPO)
     print(f"Loading model '{MODEL_NAME}'@{revision[:7]}...", file=sys.stderr)
-    return SentenceTransformer(MODEL_REPO, revision=revision, trust_remote_code=False)
+    return embed_model_pins.load_sentence_transformer(MODEL_REPO)
 
 
 def _nli_label_order_error(problem):
@@ -250,11 +240,9 @@ def _load_nli_model():
     expected labels -- fails loudly here instead of silently mislabeling every
     verdict downstream.
     """
-    from sentence_transformers import CrossEncoder
-
     revision = _model_revision(NLI_MODEL_NAME)
     print(f"Loading NLI model '{NLI_MODEL_NAME}'@{revision[:7]}...", file=sys.stderr)
-    model = CrossEncoder(NLI_MODEL_NAME, revision=revision, trust_remote_code=False)
+    model = embed_model_pins.load_cross_encoder(NLI_MODEL_NAME)
 
     id2label = getattr(getattr(model, "config", None), "id2label", None)
     if not id2label:

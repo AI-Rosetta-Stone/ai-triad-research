@@ -36,7 +36,8 @@ def _pins():
 
 def test_pins_cover_both_models_with_commit_shas():
     pins = _pins()
-    assert set(pins) == {embed_taxonomy.MODEL_REPO, embed_taxonomy.NLI_MODEL_NAME}
+    # t/110: + the live -CrossEncoderRerank reranker (TL p/37#19)
+    assert set(pins) == {embed_taxonomy.MODEL_REPO, embed_taxonomy.NLI_MODEL_NAME, "cross-encoder/ms-marco-MiniLM-L-6-v2"}
     for repo_id, revision in pins.items():
         assert _SHA.fullmatch(revision), f"{repo_id} is pinned to {revision!r}, not a commit sha"
 

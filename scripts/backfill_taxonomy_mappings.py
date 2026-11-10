@@ -95,10 +95,10 @@ def pov_prefix(pov: str) -> str:
 
 
 def encode_texts(texts: list[str], model=None) -> np.ndarray:
-    from sentence_transformers import SentenceTransformer
+    import embed_model_pins  # t/110: pinned revision, shared with embed_taxonomy and CI
 
     if model is None:
-        model = SentenceTransformer(MODEL_NAME)
+        model = embed_model_pins.load_sentence_transformer(MODEL_NAME)
     print(f"  Encoding {len(texts)} texts with {MODEL_NAME}...", file=sys.stderr)
     vecs = model.encode(texts, normalize_embeddings=True, show_progress_bar=True,
                         batch_size=64)
