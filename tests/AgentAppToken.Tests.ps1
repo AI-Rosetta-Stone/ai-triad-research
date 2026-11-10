@@ -225,3 +225,25 @@ Describe 'Invoke-AsAgentApp (t/4096)' {
         Should -Invoke -ModuleName AgentAppToken Write-Warning -Times 1 -ParameterFilter { $Message -like '*could not revoke*' }
     }
 }
+
+Describe 'New-AgentAppTokenError (t/243)' {
+    AfterEach { Remove-Item Function:\global:New-ActionableError -ErrorAction SilentlyContinue }
+
+    It 'returns the actionable text when AITriad''s New-ActionableError is in scope' {
+        . (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'Private' 'New-ActionableError.ps1')
+        Set-Item Function:\global:New-ActionableError (Get-Item Function:\New-ActionableError).ScriptBlock
+        $msg = InModuleScope AgentAppToken { New-AgentAppTokenError -Problem 'p-text' -NextSteps 'n-text' }
+        $msg | Should -Not -BeNullOrEmpty
+        $msg | Should -BeLike '*p-text*'
+        $msg | Should -BeLike '*n-text*'
+    }
+
+    It 'still works with a local helper that has no -PassThru' {
+        function global:New-ActionableError {
+            param([string]$Goal, [string]$Problem, [string]$Location, [string]$NextSteps)
+            "Goal: $Goal`nProblem: $Problem`nLocation: $Location`nResolve: $NextSteps"
+        }
+        $msg = InModuleScope AgentAppToken { New-AgentAppTokenError -Problem 'p-text' -NextSteps 'n-text' }
+        $msg | Should -BeLike '*Problem: p-text*'
+    }
+}
