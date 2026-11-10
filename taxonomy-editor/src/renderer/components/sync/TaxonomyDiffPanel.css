@@ -230,14 +230,14 @@
 }
 
 .txdiff-field-old {
-  color: var(--danger, #ef4444);
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-text);
+  background: var(--error-bg);
   text-decoration: line-through;
 }
 
 .txdiff-field-new {
-  color: var(--success, #22c55e);
-  background: rgba(34, 197, 94, 0.1);
+  color: var(--success-text);
+  background: var(--success-bg);
 }
 
 .txdiff-field-arrow {
@@ -286,8 +286,8 @@
 
 .txdiff-submit-error {
   font-size: var(--text-xs);
-  color: var(--danger, #ef4444);
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-text);
+  background: var(--error-bg);
   padding: 6px 10px;
   border-radius: var(--radius-md);
 }
