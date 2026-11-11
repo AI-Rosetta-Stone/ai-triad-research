@@ -23,7 +23,7 @@ import {
   startExportJob, getExportJob, hasExportJob, sweepExportJobs, countRunningExportJobs,
   findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
-import { countUserJobRecords, findRunningJobByIdempotencyKey } from '../storage/jobCapChecker.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey, checkInProcessSubmission, recordInProcessSubmission } from '../storage/jobCapChecker.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
 import type { DebateSession } from '../../../../lib/debate/types.js';
@@ -95,6 +95,7 @@ function resolveExportModels(
 async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0]): Promise<void> {
   try {
     const job = await startExportJob(args);
+    recordInProcessSubmission(args.userId, 'brief-export', args.debateId, job.jobId);
     json(res, { jobId: job.jobId }, 202);
   } catch (err) {
     // The durable job record could not be created, so no job was started (nothing billed).
@@ -106,9 +107,13 @@ async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>
 /** Check durable idempotency and concurrency caps for brief exports (t/182).
  *  Returns true if validation passed; writes error to res and returns false otherwise.
  *  Extracted from POST handler to keep it within complexity budget. */
-async function validateDurableCapAndIdempotency(res: Parameters<Parameters<Router['post']>[1]>[1], userId: string, idempotencyKey: string | undefined): Promise<boolean> {
+async function validateDurableCapAndIdempotency(res: Parameters<Parameters<Router['post']>[1]>[1], userId: string, debateId: string, idempotencyKey: string | undefined): Promise<boolean> {
+  // In-process guard: prevent same-replica double-submit
+  const inProcessJobId = checkInProcessSubmission(userId, 'brief-export', debateId);
+  if (inProcessJobId) { json(res, { jobId: inProcessJobId }, 202); return false; }
+
   const existingByKey = await findRunningJobByIdempotencyKey(
-    userId, 'brief-export', idempotencyKey,
+    userId, 'brief-export', idempotencyKey, debateId,
     (r: any) => r.status !== 'failed' && r.status !== 'done',
   );
   if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return false; }
@@ -178,7 +183,7 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     sweepExportJobs();
     const userId = getStorageUserId();
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined) || undefined;
-    if (!(await validateDurableCapAndIdempotency(res, userId, idempotencyKey))) return;
+    if (!(await validateDurableCapAndIdempotency(res, userId, debateId, idempotencyKey))) return;
 
     const framingMeta = b.framingMeta === false ? false : undefined;
     const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;

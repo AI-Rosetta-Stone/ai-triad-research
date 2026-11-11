@@ -24,33 +24,35 @@ describe('jobCapChecker (t/182)', () => {
 
   describe('countUserJobRecords', () => {
     it('counts running records using the provided isRunning checker', async () => {
+      const now = new Date().toISOString();
       const records: TestRecord[] = [
-        { jobId: '1', userId: 'u1', status: 'running' },
-        { jobId: '2', userId: 'u1', status: 'done' },
-        { jobId: '3', userId: 'u1', status: 'running' },
+        { jobId: '1', userId: 'u1', status: 'running', lastHeartbeatAt: now },
+        { jobId: '2', userId: 'u1', status: 'done', lastHeartbeatAt: now },
+        { jobId: '3', userId: 'u1', status: 'running', lastHeartbeatAt: now },
       ];
       vi.mocked(listUserJobRecords).mockResolvedValue(records as any);
 
       const result = await countUserJobRecords(
         'u1',
         'inquiry',
-        (r) => (r as TestRecord).status === 'running',
+        (r) => (r as any).status === 'running',
       );
 
       expect(result).toEqual({ count: 2, error: null });
     });
 
     it('returns 0 when no records are running', async () => {
+      const now = new Date().toISOString();
       const records: TestRecord[] = [
-        { jobId: '1', userId: 'u1', status: 'done' },
-        { jobId: '2', userId: 'u1', status: 'failed' },
+        { jobId: '1', userId: 'u1', status: 'done', lastHeartbeatAt: now },
+        { jobId: '2', userId: 'u1', status: 'failed', lastHeartbeatAt: now },
       ];
       vi.mocked(listUserJobRecords).mockResolvedValue(records as any);
 
       const result = await countUserJobRecords(
         'u1',
         'inquiry',
-        (r) => (r as TestRecord).status === 'running',
+        (r) => (r as any).status === 'running',
       );
 
       expect(result).toEqual({ count: 0, error: null });
@@ -62,7 +64,7 @@ describe('jobCapChecker (t/182)', () => {
       const result = await countUserJobRecords(
         'u1',
         'inquiry',
-        (r) => (r as TestRecord).status === 'running',
+        (r) => (r as any).status === 'running',
       );
 
       expect(result).toEqual({ count: 0, error: null });
@@ -75,7 +77,7 @@ describe('jobCapChecker (t/182)', () => {
       const result = await countUserJobRecords(
         'u1',
         'inquiry',
-        (r) => (r as TestRecord).status === 'running',
+        (r) => (r as any).status === 'running',
       );
 
       expect(result.count).toBeNull();
@@ -90,9 +92,10 @@ describe('jobCapChecker (t/182)', () => {
 
   describe('findRunningJobByIdempotencyKey', () => {
     it('finds a running job by idempotency key', async () => {
+      const now = new Date().toISOString();
       const records: TestRecord[] = [
-        { jobId: '1', userId: 'u1', status: 'running', idempotencyKey: 'key-a' },
-        { jobId: '2', userId: 'u1', status: 'done', idempotencyKey: 'key-b' },
+        { jobId: '1', userId: 'u1', status: 'running', idempotencyKey: 'key-a', lastHeartbeatAt: now },
+        { jobId: '2', userId: 'u1', status: 'done', idempotencyKey: 'key-b', lastHeartbeatAt: now },
       ];
       vi.mocked(listUserJobRecords).mockResolvedValue(records as any);
 
@@ -100,15 +103,17 @@ describe('jobCapChecker (t/182)', () => {
         'u1',
         'inquiry',
         'key-a',
-        (r) => (r as TestRecord).status === 'running',
+        undefined,
+        (r) => (r as any).status === 'running',
       );
 
       expect(result).toEqual(records[0]);
     });
 
     it('ignores terminal jobs when checking idempotency', async () => {
+      const now = new Date().toISOString();
       const records: TestRecord[] = [
-        { jobId: '1', userId: 'u1', status: 'done', idempotencyKey: 'key-a' },
+        { jobId: '1', userId: 'u1', status: 'done', idempotencyKey: 'key-a', lastHeartbeatAt: now },
       ];
       vi.mocked(listUserJobRecords).mockResolvedValue(records as any);
 
@@ -116,7 +121,8 @@ describe('jobCapChecker (t/182)', () => {
         'u1',
         'inquiry',
         'key-a',
-        (r) => (r as TestRecord).status === 'running',
+        undefined,
+        (r) => (r as any).status === 'running',
       );
 
       expect(result).toBeNull();
@@ -126,6 +132,7 @@ describe('jobCapChecker (t/182)', () => {
       const result = await findRunningJobByIdempotencyKey(
         'u1',
         'inquiry',
+        undefined,
         undefined,
         () => true,
       );
@@ -142,7 +149,8 @@ describe('jobCapChecker (t/182)', () => {
         'u1',
         'inquiry',
         'key-a',
-        (r) => (r as TestRecord).status === 'running',
+        undefined,
+        (r) => (r as any).status === 'running',
       );
 
       expect(result).toBeNull();

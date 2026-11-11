@@ -30,7 +30,7 @@ import {
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
-import { countUserJobRecords, findRunningJobByIdempotencyKey } from '../storage/jobCapChecker.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey, checkInProcessSubmission, recordInProcessSubmission } from '../storage/jobCapChecker.js';
 import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
@@ -109,17 +109,21 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       const userId = getStorageUserId();
       const idempotencyKey = idempotencyKeyOf(req);
 
+      // In-process guard: prevent same-replica double-submit
+      const inProcessJobId = checkInProcessSubmission(userId, 'inquiry', undefined);
+      if (inProcessJobId) { json(res, { jobId: inProcessJobId }, 202); return; }
+
       // Durable idempotency check: cross-replica, fail-closed returns null to allow writeFileIfAbsent to enforce it.
       const existingByKey = await findRunningJobByIdempotencyKey(
-        userId, 'inquiry', idempotencyKey,
-        (r: any) => r.status !== 'failed' && r.status !== 'done',
+        userId, 'inquiry', idempotencyKey, undefined,
+        (r: any) => r.status !== 'failed' && r.status !== 'done' && r.status !== 'done_truncated',
       );
       if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return; }
 
       // Durable per-user concurrency cap: fail-closed rejects with 503 when backend list fails.
       const capResult = await countUserJobRecords(
         userId, 'inquiry',
-        (r: any) => r.status !== 'failed' && r.status !== 'done',
+        (r: any) => r.status !== 'failed' && r.status !== 'done' && r.status !== 'done_truncated',
       );
       if (capResult.error) {
         error(res, 'Job service temporarily unavailable', 503);
@@ -131,6 +135,7 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       }
 
       const job = await startInquiryJob({ userId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
+      recordInProcessSubmission(userId, 'inquiry', undefined, job.jobId);
       getGlobalRecorder()?.record({
         type: 'inquiry.created', component: 'inquiry', level: 'info',
         message: `Inquiry job created: ${job.jobId}`,
