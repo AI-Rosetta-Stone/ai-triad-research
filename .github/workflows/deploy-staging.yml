@@ -370,6 +370,53 @@ jobs:
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           ./operations/devops/Sync-StagingEnv.ps1
 
+      - name: "Pre-revision gate (t/77 condition 4): staging template must not target prod repo or App"
+        # BLOCKING -- no continue-on-error. t/77 condition 4 (SO t/77#3, t/77#9). Runs after the env
+        # sync and before the new revision is created, so no staging revision is built with prod's
+        # GITHUB_REPO, GITHUB_APP_ID or branch. Fail closed: an unset value, or an unset prod
+        # reference (vars.SYNC_GITHUB_REPO / SYNC_GITHUB_APP_ID), refuses the deploy.
+        shell: pwsh
+        env:
+          PROD_REPO: ${{ vars.SYNC_GITHUB_REPO }}
+          PROD_APP_ID: ${{ vars.SYNC_GITHUB_APP_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PROD_REPO) -or [string]::IsNullOrWhiteSpace($env:PROD_APP_ID)) {
+            Write-Host "::error::t/77 pre-revision gate: vars.SYNC_GITHUB_REPO or SYNC_GITHUB_APP_ID is unset, so the prod identity cannot be compared. NOT deploying (fail-closed)."
+            exit 1
+          }
+          $Json = az containerapp show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --query "properties.template.containers[0].env" -o json
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::t/77 pre-revision gate: could not read the staging template env. NOT deploying (fail-closed)."
+            exit 1
+          }
+          $Vars = @{}
+          foreach ($Item in ($Json | ConvertFrom-Json)) { $Vars[$Item.name] = $Item.value }
+          $Repo   = $Vars['GITHUB_REPO']
+          $AppId  = $Vars['GITHUB_APP_ID']
+          $Branch = $Vars['GITHUB_BRANCH']
+          $Missing = @()
+          if ([string]::IsNullOrWhiteSpace($Repo))   { $Missing += 'GITHUB_REPO' }
+          if ([string]::IsNullOrWhiteSpace($AppId))  { $Missing += 'GITHUB_APP_ID' }
+          if ([string]::IsNullOrWhiteSpace($Branch)) { $Missing += 'GITHUB_BRANCH' }
+          if ($Missing.Count -gt 0) {
+            Write-Host "::error::t/77 pre-revision gate: staging template has no value for $($Missing -join ', '). NOT deploying (fail-closed)."
+            exit 1
+          }
+          if ($Repo -eq $env:PROD_REPO) {
+            Write-Host "::error::t/77 pre-revision gate: staging template GITHUB_REPO is the prod repo '$Repo'. NOT deploying: a staging revision would write to prod data."
+            exit 1
+          }
+          if ($AppId -eq $env:PROD_APP_ID) {
+            Write-Host "::error::t/77 pre-revision gate: staging template GITHUB_APP_ID is the prod App. NOT deploying: a staging revision would use prod's credential."
+            exit 1
+          }
+          if ($Branch -eq 'main') {
+            Write-Host "::error::t/77 pre-revision gate: staging template GITHUB_BRANCH is 'main'. NOT deploying: a staging revision would write to prod main."
+            exit 1
+          }
+          Write-Host "t/77 pre-revision gate PASSED: staging repo '$Repo', branch '$Branch', App id differs from prod."
+
       - name: Deploy new revision to staging (0% traffic)
         id: new_revision
         shell: pwsh
