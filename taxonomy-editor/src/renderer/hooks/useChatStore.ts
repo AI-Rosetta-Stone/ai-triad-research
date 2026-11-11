@@ -69,8 +69,8 @@ function buildNormalizerContext(): NormalizerContext {
     for (const node of file.nodes) {
       const n = node as PovNode | SituationNode | unknown;
       const typed = n as Record<string, unknown>;
-      if (typeof typed.id === 'string' && typeof typed.name === 'string') {
-        taxonomyNodes.set(typed.id, { label: typed.name });
+      if (typeof typed.id === 'string' && typeof typed.label === 'string') {
+        taxonomyNodes.set(typed.id, { label: typed.label });
       }
     }
   }

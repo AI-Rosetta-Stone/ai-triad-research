@@ -3,7 +3,7 @@
 
 /**
  * Chat entry normalizer: backfills missing data fields for old chats.
- * Runs at load time; does not modify stored data.
+ * Runs at load time; backfills real labels only, does not persist fallback labels.
  */
 
 import type { ChatEntry, ChatSession } from '../types/chat';
@@ -15,8 +15,8 @@ export interface NormalizerContext {
 }
 
 /**
- * Backfill a single taxonomy ref: add node label if missing, set to "(no longer in taxonomy)"
- * if node not found.
+ * Backfill a single taxonomy ref: add node label if it exists in taxonomy.
+ * For missing nodes, leave ref unchanged (render time will show fallback).
  */
 function normalizeRef(ref: TaxonomyRef, context: NormalizerContext): TaxonomyRef {
   if (ref.label) {
@@ -31,19 +31,27 @@ function normalizeRef(ref: TaxonomyRef, context: NormalizerContext): TaxonomyRef
     };
   }
   
-  return {
-    ...ref,
-    label: `${ref.node_id} (no longer in taxonomy)`,
-  };
+  // Node not found: log WARN but don't add a fallback label (won't persist).
+  // Render time will show "(no longer in taxonomy)" as fallback.
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'chat-store',
+    level: 'warn',
+    message: `WARN: ref node not in taxonomy; will show fallback label only at render time`,
+    data: { node_id: ref.node_id },
+  });
+  return ref;
 }
 
 /**
- * Normalize a single chat entry: backfill missing fields (raw_prompt/raw_response, ref labels).
- * Mutates the entry in place.
+ * Normalize a single chat entry: backfill missing fields (labels for nodes that exist).
+ * Mutates the entry in place with real labels only; missing node labels won't be persisted.
  */
 export function normalizeEntry(entry: ChatEntry, context: NormalizerContext): void {
-  // Backfill ref labels
-  entry.taxonomy_refs = entry.taxonomy_refs.map(ref => normalizeRef(ref, context));
+  // Backfill ref labels for nodes that exist; skip fallback labels
+  if (entry.taxonomy_refs && Array.isArray(entry.taxonomy_refs)) {
+    entry.taxonomy_refs = entry.taxonomy_refs.map(ref => normalizeRef(ref, context));
+  }
   
   // raw_prompt and raw_response are optional; if missing, they render as "not recorded"
   // No need to backfill them — the render path checks if they exist.
