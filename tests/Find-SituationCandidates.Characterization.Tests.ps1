@@ -435,7 +435,10 @@ BeforeAll {
 AfterAll {
     InModuleScope AITriad -Parameters @{ Saved = $script:SavedTaxonomy } { param($Saved) $script:TaxonomyData = $Saved }
     if ($null -ne $script:SavedAiModel) { $env:AI_MODEL = $script:SavedAiModel } else { Remove-Item Env:AI_MODEL -ErrorAction SilentlyContinue }
-    Remove-Item function:global:python3 -ErrorAction SilentlyContinue
+    # `function:global:python3` is NOT a scope-qualified path for Remove-Item: it reports success and
+    # leaves the shim in place, which leaked into later suites in the same Pester process (t/289,
+    # PrePushBlocking crash in merge-group shard 3). Function:\python3 resolves the global shim here.
+    Remove-Item -Path Function:\python3 -ErrorAction SilentlyContinue
     Remove-Variable -Scope Global -Name FscCalls, FscScenario, FscNliLabels, FscAiResponses -ErrorAction SilentlyContinue
 }
 
