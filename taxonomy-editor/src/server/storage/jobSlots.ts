@@ -47,9 +47,13 @@ export async function claimJobSlot(args: {
 }): Promise<JobSlot | null> {
   const dir = `${args.jobsDir}/slots`;
   for (let index = 0; index < args.cap; index++) {
-    for (let attempt = 0; attempt < MAX_RACE_ATTEMPTS; attempt++) {
+    let settled = false;
+    for (let attempt = 0; attempt < MAX_RACE_ATTEMPTS && !settled; attempt++) {
       const { generation, holder } = await currentHolder(args.backend, dir, index);
-      if (holder && await args.isLive(holder)) break; // this slot is held; try the next index
+      // An unreadable holder is held, not free: its claim time is unknown, so it cannot be aged past the
+      // grace window. Fail closed and let an operator clear the file; never skip the grace on a guess.
+      if (holder === 'unreadable') { settled = true; break; }
+      if (holder && await args.isLive(holder)) { settled = true; break; } // held; try the next index
       const holderJobId = holder?.jobId ?? null;
       const claim: SlotHolder = { jobId: args.jobId, claimedAt: new Date().toISOString() };
       const created = await writeFileIfAbsentStrict(
@@ -63,14 +67,21 @@ export async function claimJobSlot(args: {
       }
       // 'exists': another replica claimed this generation first. Re-list and look again.
     }
+    if (!settled) {
+      // Every attempt lost the create race. The slot is not taken, so the next index is tried; WARN so the
+      // contention is visible rather than silently skipped.
+      log.server.warn({ slot: index, attempts: MAX_RACE_ATTEMPTS, cause: 'job-slot-race-exhausted' },
+        'job slot claim lost every race attempt — trying the next slot');
+    }
   }
   return null;
 }
 
-/** Highest generation for a slot index, with its holder. Unreadable holders count as dead (and are logged). */
+/** Highest generation for a slot index, with its holder. An unreadable or incomplete holder is 'unreadable'
+ *  (held, see claimJobSlot); a holder file that vanished between list and read is free. */
 async function currentHolder(
   backend: StorageBackend, dir: string, index: number,
-): Promise<{ generation: number; holder: SlotHolder | null }> {
+): Promise<{ generation: number; holder: SlotHolder | 'unreadable' | null }> {
   const names = await backend.listDirectory(dir);
   let generation = -1;
   for (const name of names) {
@@ -86,13 +97,13 @@ async function currentHolder(
     parsed = JSON.parse(raw) as Partial<SlotHolder>;
   } catch (err) {
     log.server.warn({ slot: index, generation, err: String(err), cause: 'job-slot-unreadable' },
-      'job slot holder unreadable — treated as free');
-    return { generation, holder: null };
+      'job slot holder unreadable — slot held (fail closed); clear the file to free it');
+    return { generation, holder: 'unreadable' };
   }
   if (typeof parsed.jobId !== 'string' || typeof parsed.claimedAt !== 'string') {
     log.server.warn({ slot: index, generation, cause: 'job-slot-unreadable' },
-      'job slot holder lacks jobId or claimedAt — treated as free');
-    return { generation, holder: null };
+      'job slot holder lacks jobId or claimedAt — slot held (fail closed); clear the file to free it');
+    return { generation, holder: 'unreadable' };
   }
   return { generation, holder: { jobId: parsed.jobId, claimedAt: parsed.claimedAt } };
 }

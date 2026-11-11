@@ -174,6 +174,44 @@ describe('jobCapChecker staleness cutoff matches the store constants', () => {
   });
 });
 
+describe('slot grace window and unreadable holders (t/400)', () => {
+  const asUser = <T>(u: string, fn: () => Promise<T>) =>
+    runWithUser({ principalName: `${u}@example.com`, idp: 'github', storageUserId: u, isAnonymous: false }, fn);
+  const claimFor = (u: string, jobId: string) => asUser(u, () => claimJobSlot({
+    backend, jobsDir: getInquiryJobsDir(u), cap: 1, jobId, isLive: slotHolderLiveness('inquiry'),
+  }));
+  // A holder with no job record: the claim has been written but the record is not yet.
+  const holderWithoutRecord = async (u: string, claimedAt: number) => {
+    await backend.writeFile(`${getInquiryJobsDir(u)}/slots/slot-0-0.json`,
+      JSON.stringify({ jobId: 'pending-job', claimedAt: new Date(claimedAt).toISOString() }));
+  };
+
+  it('inside the 30s grace (29s old, no record yet) the slot is held: the claim gets null', async () => {
+    const u = newUser();
+    await holderWithoutRecord(u, Date.now() - 29_000);
+    expect(await claimFor(u, 'next-job')).toBeNull();
+  });
+
+  it('past the 30s grace (31s old, no record) the slot is reclaimed at generation 1', async () => {
+    const u = newUser();
+    await holderWithoutRecord(u, Date.now() - 31_000);
+    expect(await claimFor(u, 'next-job')).toMatchObject({ index: 0, generation: 1 });
+  });
+
+  it('an unreadable holder (partial JSON) is held, not reclaimed at once', async () => {
+    const u = newUser();
+    await backend.writeFile(`${getInquiryJobsDir(u)}/slots/slot-0-0.json`, '{"jobId": "par');
+    expect(await claimFor(u, 'next-job')).toBeNull();
+    expect(await backend.readFile(`${getInquiryJobsDir(u)}/slots/slot-0-1.json`)).toBeNull();
+  });
+
+  it('an incomplete holder (jobId but no claimedAt) is held, not reclaimed at once', async () => {
+    const u = newUser();
+    await backend.writeFile(`${getInquiryJobsDir(u)}/slots/slot-0-0.json`, JSON.stringify({ jobId: 'half' }));
+    expect(await claimFor(u, 'next-job')).toBeNull();
+  });
+});
+
 describe('POST /api/inquiry — durable idempotency and caps (real records)', () => {
   it('same Idempotency-Key returns the same jobId, starts one pipeline, and persists the key', async () => {
     const u = newUser();
