@@ -89,6 +89,9 @@ function renderNodePreview(
       </div>
       <div className="linked-node-preview-label">{node.label}</div>
       <div className="linked-node-preview-description">{descResult.text}</div>
+      {descMode === 'plain' && !hasPlain && (
+        <div className="linked-node-preview-note">No plain version yet. Showing formal text.</div>
+      )}
       {interpretation && (
         <div className="linked-node-preview-attrs">
           <span className="linked-node-preview-attr-label">Interpretation:</span>

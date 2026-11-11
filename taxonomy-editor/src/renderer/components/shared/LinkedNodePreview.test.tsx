@@ -51,14 +51,36 @@ describe('LinkedNodePreview', () => {
     });
   });
 
-  it('shows formal description when node has no plain_description', () => {
+  it('shows formal text with a note and no pending indicator when node has no plain_description', () => {
     const nodeWithoutPlain = { ...mockNode, plain_description: null };
     mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
     render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
-    
+
     expect(screen.getByText('Formal description of the belief')).toBeInTheDocument();
+    expect(screen.getByText('No plain version yet. Showing formal text.')).toBeInTheDocument();
     const plainButton = screen.getByRole('radio', { name: /plain/i });
-    expect(plainButton.textContent).toContain('…');
+    expect(plainButton.textContent).toBe('Plain');
+    expect(plainButton.getAttribute('title')).toBe('No plain version for this node; showing the formal text.');
+    expect(document.querySelector('.description-toggle-generating')).toBeNull();
+  });
+
+  it('drops the no-plain note once formal mode is selected', async () => {
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+
+    fireEvent.click(screen.getByRole('radio', { name: /formal/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('No plain version yet. Showing formal text.')).toBeNull();
+    });
+  });
+
+  it('shows no note when plain_description exists', () => {
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+
+    expect(screen.queryByText('No plain version yet. Showing formal text.')).toBeNull();
   });
 
   it('toggles mode with button click (no global Alt+P shortcut)', async () => {
