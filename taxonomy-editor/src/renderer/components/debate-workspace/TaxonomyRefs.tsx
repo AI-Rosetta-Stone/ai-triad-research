@@ -645,10 +645,12 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
 }) {
-  // getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already shows
-  // that id, so a missing label is rendered as text rather than repeating the id (t/282, Design).
-  const label = getNodeLabel(taxRef.node_id);
-  const isMissing = label === taxRef.node_id;
+  // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
+  const resolved = getNodeLabel(taxRef.node_id);
+  const isMissing = !taxRef.label && resolved === taxRef.node_id;
+  const label = taxRef.label || resolved;
   // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
   const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);

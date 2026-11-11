@@ -14,13 +14,64 @@ vi.mock('@lib/flight-recorder/index', () => ({
 describe('chatNormalizer', () => {
   let context: NormalizerContext;
 
+  const LABELS: Record<string, string> = {
+    'acc-desires-033': 'Paradise Engineering',
+    'saf-grounding-015': 'Value Alignment',
+    'skp-beliefs-001': 'Superseded Node',
+  };
+  let record: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
+    record = vi.fn();
+    vi.mocked(getGlobalRecorder).mockReturnValue({ record } as never);
     context = {
-      taxonomyNodes: new Map([
-        ['acc-desires-033', { label: 'Paradise Engineering' }],
-        ['saf-grounding-015', { label: 'Value Alignment' }],
-      ]),
+      taxonomyLoaded: true,
+      lookupLabel: (id: string) => LABELS[id] ?? null,
     };
+  });
+
+  const warnings = () => record.mock.calls.filter(([e]) => e.level === 'warn');
+
+  describe('normalizeEntry: load gating and warnings (t/282)', () => {
+    const entryWith = (node_id: string, label?: string): ChatEntry => ({
+      id: 'e1', timestamp: '2026-06-08T10:00:00Z', speaker: 'accelerationist', content: 'x',
+      taxonomy_refs: [{ node_id, relevance: 'r', ...(label ? { label } : {}) }],
+    });
+
+    it('does nothing while the taxonomy is loading: no backfill and no WARN', () => {
+      context = { ...context, taxonomyLoaded: false };
+      const entry = entryWith('acc-desires-033');
+      normalizeEntry(entry, context);
+      expect(entry.taxonomy_refs[0].label).toBeUndefined();
+      expect(warnings()).toHaveLength(0);
+    });
+
+    it('keeps a ref label it already has', () => {
+      const entry = entryWith('acc-desires-033', 'Kept');
+      normalizeEntry(entry, context);
+      expect(entry.taxonomy_refs[0].label).toBe('Kept');
+    });
+
+    it('resolves a superseded node through the lookup, so no WARN fires', () => {
+      const entry = entryWith('skp-beliefs-001');
+      normalizeEntry(entry, context);
+      expect(entry.taxonomy_refs[0].label).toBe('Superseded Node');
+      expect(warnings()).toHaveLength(0);
+    });
+
+    it('WARNs once for a taxonomy node that is missing from a loaded taxonomy', () => {
+      const entry = entryWith('skp-beliefs-999');
+      normalizeEntry(entry, context);
+      expect(entry.taxonomy_refs[0].label).toBeUndefined();
+      expect(warnings()).toHaveLength(1);
+      expect(warnings()[0][0].data).toEqual({ node_id: 'skp-beliefs-999' });
+    });
+
+    it('does not WARN for policy (pol-*) or conflict ids, which live outside the taxonomy', () => {
+      normalizeEntry(entryWith('pol-ai-safety-001'), context);
+      normalizeEntry(entryWith('conflict-42'), context);
+      expect(warnings()).toHaveLength(0);
+    });
   });
 
   describe('normalizeEntry', () => {
@@ -63,7 +114,7 @@ describe('chatNormalizer', () => {
         speaker: 'accelerationist',
         content: 'Test content',
         taxonomy_refs: [
-          { node_id: 'deleted-node-999', relevance: 'Old node' },
+          { node_id: 'skp-beliefs-999', relevance: 'Old node' },
         ],
       };
 

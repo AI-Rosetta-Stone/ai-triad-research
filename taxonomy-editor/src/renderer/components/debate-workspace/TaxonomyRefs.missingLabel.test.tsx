@@ -58,9 +58,9 @@ describe('BdiRefItem label for unresolved nodes (t/282, Design)', () => {
     const { container } = render(<BdiGroundingView refs={[MISSING]} />);
     const missing = screen.getByText('No longer in the taxonomy');
     expect(missing).toHaveClass('debate-reasoning-label--missing');
-    // The id appears once, on the pill; no label span holds it.
+    // The id appears once, as the row button; the label span holds only the missing text.
     expect(container.querySelectorAll('.debate-reasoning-label')[0].textContent).toBe('No longer in the taxonomy');
-    expect(screen.getAllByText('skp-beliefs-999')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'skp-beliefs-999' })).toHaveLength(1);
   });
 
   it('shows no label while the taxonomy is still loading', () => {
@@ -68,7 +68,7 @@ describe('BdiRefItem label for unresolved nodes (t/282, Design)', () => {
     const { container } = render(<BdiGroundingView refs={[MISSING]} />);
     expect(screen.queryByText('No longer in the taxonomy')).toBeNull();
     expect(container.querySelector('.debate-reasoning-label')).toBeNull();
-    expect(screen.getAllByText('skp-beliefs-999')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'skp-beliefs-999' })).toHaveLength(1);
   });
 
   it('shows the resolved label for a node that exists, with no missing class', () => {

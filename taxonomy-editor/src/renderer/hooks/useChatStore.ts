@@ -35,6 +35,7 @@ import {
 import { registerRun } from '../navigation/runningSignal';
 import type { RunOutcome } from '../navigation/runningSignal';
 import { normalizeSession, type NormalizerContext } from '../utils/chatNormalizer';
+import { getNodeLabel } from '../components/debate-workspace/utils';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -57,25 +58,19 @@ function resolveChatTemperature(chat: Pick<ChatSession, 'temperature' | 'mode'>)
   return chat.temperature ?? CHAT_MODE_TEMPERATURE[chat.mode];
 }
 
-/** t/282: Build normalizer context from taxonomy store — maps node IDs to their labels. */
+/** t/282: normalizer context. Labels resolve through the same lookup the debate Why view uses, so
+ *  superseded nodes resolve too; a taxonomy still loading yields no backfill (see chatNormalizer). */
 function buildNormalizerContext(): NormalizerContext {
   const taxState = useTaxonomyStore.getState();
-  const taxonomyNodes = new Map<string, { label: string }>();
-  
-  // Collect all nodes from all POV files
-  const files = [taxState.accelerationist, taxState.safetyist, taxState.skeptic, taxState.situations];
-  for (const file of files) {
-    if (!file?.nodes) continue;
-    for (const node of file.nodes) {
-      const n = node as PovNode | SituationNode | unknown;
-      const typed = n as Record<string, unknown>;
-      if (typeof typed.id === 'string' && typeof typed.label === 'string') {
-        taxonomyNodes.set(typed.id, { label: typed.label });
-      }
-    }
-  }
-  
-  return { taxonomyNodes };
+  const taxonomyLoaded = taxState.accelerationist !== null && taxState.safetyist !== null
+    && taxState.skeptic !== null && taxState.situations !== null;
+  return {
+    taxonomyLoaded,
+    lookupLabel: (nodeId: string) => {
+      const label = getNodeLabel(nodeId);
+      return label === nodeId ? null : label;
+    },
+  };
 }
 
 function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
