@@ -864,6 +864,9 @@ function buildElectronApi() {
     /** t/4710/t/4713: fine-grained Debate-stage detail line. Present only while debating. */
     stageDetail?: string;
     terminationReason: string | null; resultId: string | null; error: string | null;
+    /** t/327: Timing information for the inquiry pipeline stages (grounding/debating/judging/synthesizing).
+     *  Each stage records when it started and ended. Present only when the inquiry has begun. */
+    stageTimings?: Record<'grounding' | 'debating' | 'judging' | 'synthesizing', { start?: number; end?: number }>;
     result?: InquiryResult;
   } | null> =>
     ipcRenderer.invoke('get-inquiry', jobId),
