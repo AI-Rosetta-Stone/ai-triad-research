@@ -16,6 +16,7 @@ export interface HowMethodsLink {
 export interface HowPanelProps {
   rawPrompt?: string;
   rawResponse?: string;
+  methodsLinks?: HowMethodsLink[];
 }
 
 export interface HowSectionProps {
@@ -107,9 +108,9 @@ export function HowMethodsLinks({ links, component = 'how-panel' }: HowMethodsLi
  * Collapsible How panel for displaying raw prompt/response and methods links.
  * Rendered below each POV response in Chat, and in Op-Ed reader.
  */
-export function HowPanel({ rawPrompt, rawResponse }: HowPanelProps) {
+export function HowPanel({ rawPrompt, rawResponse, methodsLinks }: HowPanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const methods: HowMethodsLink[] = [
+  const linksToDisplay = methodsLinks ?? [
     { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
     { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
   ];
@@ -127,9 +128,11 @@ export function HowPanel({ rawPrompt, rawResponse }: HowPanelProps) {
           <HowSection title="Raw Response" defaultExpanded={false}>
             <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
           </HowSection>
-          <HowSection title="Methods" defaultExpanded={false}>
-            <HowMethodsLinks links={methods} />
-          </HowSection>
+          {linksToDisplay && linksToDisplay.length > 0 && (
+            <HowSection title="Methods" defaultExpanded={false}>
+              <HowMethodsLinks links={linksToDisplay} />
+            </HowSection>
+          )}
         </div>
       )}
     </div>

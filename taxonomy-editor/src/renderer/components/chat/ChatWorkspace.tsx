@@ -49,6 +49,12 @@ function nodeIdToTab(nodeId: string): string {
   return nodePovFromId(nodeId) ?? 'unknown';
 }
 
+// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
+const CHAT_HOW_METHODS_LINKS = [
+  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
+  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
+];
+
 // ── Taxonomy ref pills ───────────────────────────────────
 
 /**
@@ -193,19 +199,11 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
-        {!isUser && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} />}
+        {!isUser && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} methodsLinks={CHAT_HOW_METHODS_LINKS} />}
       </div>
     </div>
   );
 }
-
-// ── "How" panel (t/4824) ─────────────────────────────────
-
-// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
-const CHAT_HOW_METHODS_LINKS = [
-  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
-  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
-];
 
 // ── Progress indicator ───────────────────────────────────
 

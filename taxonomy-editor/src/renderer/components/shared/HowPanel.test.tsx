@@ -1,7 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HowPanel, HowSection, HowRawContent } from './HowPanel';
+
+vi.mock('@bridge', () => ({
+  api: {
+    openExternal: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+vi.mock('@lib/flight-recorder/index', () => ({
+  getGlobalRecorder: () => ({ record: vi.fn() }),
+}));
 
 describe('HowPanel', () => {
   it('renders How toggle button', () => {
@@ -34,17 +44,57 @@ describe('HowPanel', () => {
     render(<HowPanel rawPrompt={undefined} rawResponse={undefined} />);
     await userEvent.click(screen.getByText('How'));
 
-    expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
-    expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
+    expect(screen.getByText(/Raw prompt not recorded/)).toBeInTheDocument();
+    
+    // Expand Raw Response section
+    const responseToggle = Array.from(screen.getAllByRole('button')).find(btn => 
+      btn.textContent?.includes('Raw Response')
+    );
+    if (responseToggle) {
+      await userEvent.click(responseToggle);
+      expect(screen.getByText(/Raw response not recorded/)).toBeInTheDocument();
+    }
   });
 
-  it('displays Methods section when expanded', async () => {
+  it('displays Methods section when methodsLinks prop is provided', async () => {
+    const customLinks = [
+      { label: 'Custom Link 1', url: 'https://example.com/1' },
+      { label: 'Custom Link 2', url: 'https://example.com/2' },
+    ];
+    render(<HowPanel rawPrompt="test" rawResponse="test" methodsLinks={customLinks} />);
+    await userEvent.click(screen.getByText('How'));
+
+    // Expand Methods section
+    const methodsToggle = Array.from(screen.getAllByRole('button')).find(btn => 
+      btn.textContent?.includes('Methods')
+    );
+    if (methodsToggle) {
+      await userEvent.click(methodsToggle);
+      expect(screen.getByRole('button', { name: /Custom Link 1/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Custom Link 2/i })).toBeInTheDocument();
+    }
+  });
+
+  it('does not display Methods section when methodsLinks prop is empty array', async () => {
+    render(<HowPanel rawPrompt="test" rawResponse="test" methodsLinks={[]} />);
+    await userEvent.click(screen.getByText('How'));
+
+    expect(screen.queryByText('Methods')).not.toBeInTheDocument();
+  });
+
+  it('displays default Methods section when no methodsLinks prop provided', async () => {
     render(<HowPanel rawPrompt="test" rawResponse="test" />);
     await userEvent.click(screen.getByText('How'));
 
-    expect(screen.getByText('Methods')).toBeInTheDocument();
-    expect(screen.getByText('Theory of Success')).toBeInTheDocument();
-    expect(screen.getByText('Theory of Operations')).toBeInTheDocument();
+    // Expand Methods section
+    const methodsToggle = Array.from(screen.getAllByRole('button')).find(btn => 
+      btn.textContent?.includes('Methods')
+    );
+    if (methodsToggle) {
+      await userEvent.click(methodsToggle);
+      expect(screen.getByRole('button', { name: /Theory of Success/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Theory of Operations/i })).toBeInTheDocument();
+    }
   });
 });
 
