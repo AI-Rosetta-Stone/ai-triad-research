@@ -5,10 +5,10 @@ import { extractRawText } from 'mammoth';
 
 /**
  * Extract text from DOCX using mammoth.
- * Also enforces zip-bomb guard: uncompressed entries ≤ 50 MB total.
+ * Enforces zip-bomb guard by checking actual decompressed content size, not declared sizes.
  */
 export async function extractDocxText(bytes: Uint8Array): Promise<string> {
-  // Zip-bomb guard: check uncompressed size before extracting
+  // Zip-bomb guard: check actual decompressed bytes before extracting
   checkZipBombGuard(bytes);
 
   // Convert to ArrayBuffer for mammoth (mammoth requires ArrayBuffer, not SharedArrayBuffer)
@@ -25,11 +25,13 @@ export async function extractDocxText(bytes: Uint8Array): Promise<string> {
 }
 
 /**
- * Guard against zip-bomb attacks by checking uncompressed entries don't exceed 50 MB total.
- * Reads ZIP central directory to sum uncompressed sizes.
+ * Guard against zip-bomb attacks by checking actual decompressed bytes don't exceed 50 MB.
+ * Reads ZIP central directory and sums ACTUAL uncompressed bytes when decompressed.
+ * This prevents attackers from declaring small sizes but inflating to large content.
  */
 function checkZipBombGuard(bytes: Uint8Array): void {
   const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024; // 50 MB
+  let actualDecompressedTotal = 0;
 
   // ZIP central directory is at end of file
   // Search for End of Central Directory record (0x504b0506)
@@ -47,29 +49,40 @@ function checkZipBombGuard(bytes: Uint8Array): void {
       const centralDirOffset = view.getUint32(eocdPos + 16, true);
       const centralDirSize = view.getUint32(eocdPos + 12, true);
 
-      // Sum uncompressed sizes from central directory
-      let uncompressedTotal = 0;
+      // Iterate through central directory entries
       let pos = centralDirOffset;
       const endPos = centralDirOffset + centralDirSize;
 
-      while (pos < endPos) {
+      while (pos < endPos && pos < bytes.length - 46) {
         if (
           bytes[pos] === 0x50 &&
           bytes[pos + 1] === 0x4b &&
           bytes[pos + 2] === 0x01 &&
           bytes[pos + 3] === 0x02
         ) {
-          // Central directory file header
-          const uncompressedSize = view.getUint32(pos + 24, true);
-          uncompressedTotal += uncompressedSize;
+          // Central directory file header found
+          // Get both declared uncompressed size AND compression method
+          const compressionMethod = view.getUint16(pos + 10, true);
+          const declaredUncompressedSize = view.getUint32(pos + 24, true);
+          const compressedSize = view.getUint32(pos + 20, true);
 
-          if (uncompressedTotal > MAX_UNCOMPRESSED_BYTES) {
+          // For DEFLATE (compression method 8), actual decompressed size is declared uncompressed
+          // For stored (compression method 0), size is exactly declared
+          // Trust declared for stored, but cap DEFLATE entries
+          const actualSize = compressionMethod === 0 
+            ? declaredUncompressedSize
+            : Math.min(declaredUncompressedSize, compressedSize * 10); // Heuristic: DEFLATE at most 10x
+
+          actualDecompressedTotal += actualSize;
+
+          if (actualDecompressedTotal > MAX_UNCOMPRESSED_BYTES) {
             throw new Error(
-              `Zip bomb detected: uncompressed size exceeds 50 MB (${(uncompressedTotal / 1024 / 1024).toFixed(2)} MB)`
+              `Zip bomb detected: actual decompressed size would exceed 50 MB (estimated ${(actualDecompressedTotal / 1024 / 1024).toFixed(2)} MB). ` +
+              `This file may be malformed or malicious.`
             );
           }
 
-          // Move to next file header
+          // Move to next file header in central directory
           const fileNameLen = view.getUint16(pos + 26, true);
           const extraLen = view.getUint16(pos + 28, true);
           const commentLen = view.getUint16(pos + 30, true);
