@@ -115,6 +115,40 @@ jobs:
           MODE: ${{ inputs.dry_run && '--dry-run' || '--wait-max-minutes=16' }}
         run: node operations/devops/t0-enqueue-sweep.mjs "${{ github.repository }}" $MODE
 
+      # t/318 (TL p/9#46): App-token variant of the canonical snapshot step, for the enqueue sweep, whose
+      # work runs on the GitHub App installation token it mints (steps.app). Same script as
+      # operations/devops/rate-limit-snapshot-step.yml except the labels (pool=app, the summary heading)
+      # and the token; rate-limit-snapshot-step.test.mjs checks that parity. Canonical copy:
+      # operations/devops/rate-limit-snapshot-step-app.yml. It reads the App's own pool, which the
+      # GITHUB_TOKEN step cannot see. Never fails the job.
+      - name: Rate-limit snapshot, App token (t/318)
+        if: ${{ !cancelled() && steps.app.outputs.token != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: pool=app workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GitHub App installation token rate limit at end of job (t/318)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/318: could not read GET /rate_limit with the App token, so no App-pool snapshot for this job (${out:-no output})."
+          fi
+
       # t/314 (t/313 observability): CANONICAL COPY of this step lives in
       # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
       # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
