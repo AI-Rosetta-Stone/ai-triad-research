@@ -1655,11 +1655,10 @@ jobs:
             echo "- Previous revision: \`$PREV_REV\`"
             echo "- New revision: \`${NEW_REV:-(not created)}\`"
             echo ""
-            echo "Roll back (about a minute; see deploy/azure/runbooks/production-release.md#rollback):"
+            echo "Roll back with the gated script: it activates, waits until Provisioned + healthy + /readyz warm on the revision's own FQDN, and only then shifts traffic (refuses otherwise). See deploy/azure/runbooks/production-release.md#rollback."
             echo ""
             echo '```bash'
-            echo "az containerapp revision activate --name $APP -g $RG --revision $PREV_REV"
-            echo "az containerapp ingress traffic set --name $APP -g $RG --revision-weight $PREV_REV=100"
+            echo "./operations/devops/Invoke-GatedRollback.ps1 -AppName $APP -ResourceGroup $RG -RevisionName $PREV_REV"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1684,6 +1683,9 @@ jobs:
     environment: ${{ inputs.environment }}  # t/4273: same OIDC subject as deploy (see tag-known-good)
     if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.ac2_failed == 'false' && needs.deploy.outputs.earlier_rollback == 'false' && needs.deploy.outputs.previous_revision != '' && needs.deploy.outputs.new_revision != '' }}
     timeout-minutes: 30
+    outputs:
+      # DevOps Lead condition 1: tag-known-good waits for this and tags only on a passed soak.
+      soak_passed: ${{ steps.soak.outputs.passed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -1708,11 +1710,18 @@ jobs:
           # verdict is the output; "Fail if the soak failed" below turns it red visibly.
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           $Rounds = 5; $IntervalSec = 180; $Failure = $null
+          # DevOps Lead condition 3: one retry (after 20s) for the az read and the smoke within a round,
+          # so a single blip doesn't fail the soak. /health already retries (MaxAttempts 3).
+          function Get-ServingInfo {
+            az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $env:NEW_REV --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
+          }
+          function Test-Serving($Info) { $Info -and [bool]$Info.active -and [int]$Info.weight -eq 100 }
           for ($i = 1; $i -le $Rounds -and -not $Failure; $i++) {
             if ($i -gt 1) { Start-Sleep -Seconds $IntervalSec }
-            $Info = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $env:NEW_REV --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
-            if (-not $Info -or -not [bool]$Info.active -or [int]$Info.weight -ne 100) {
+            $Info = Get-ServingInfo
+            if (-not (Test-Serving $Info)) { Start-Sleep -Seconds 20; $Info = Get-ServingInfo }
+            if (-not (Test-Serving $Info)) {
               $Failure = "round ${i}: '$env:NEW_REV' is not active at weight 100 ($($Info | ConvertTo-Json -Compress))"; break
             }
             $Health = Test-TaxEditorHealth -BaseUrl $env:APP_URL -TimeoutSec 15 -MaxAttempts 3 -RetryIntervalSec 10
@@ -1723,13 +1732,19 @@ jobs:
             $Results = @(Test-TaxEditorEndpoints -BaseUrl $env:APP_URL -UserType Anonymous)
             $Fails = @($Results | Where-Object { -not $_.Pass })
             if ($Results.Count -eq 0 -or $Fails.Count -gt 0) {
-              $Failure = "round ${i}: smoke $($Results.Count - $Fails.Count)/$($Results.Count) passed; failed: $(($Fails | ForEach-Object Endpoint) -join ', ')"; break
+              Start-Sleep -Seconds 20
+              $Results = @(Test-TaxEditorEndpoints -BaseUrl $env:APP_URL -UserType Anonymous)
+              $Fails = @($Results | Where-Object { -not $_.Pass })
+            }
+            if ($Results.Count -eq 0 -or $Fails.Count -gt 0) {
+              $Failure = "round ${i}: smoke $($Results.Count - $Fails.Count)/$($Results.Count) passed after one retry; failed: $(($Fails | ForEach-Object Endpoint) -join ', ')"; break
             }
             Write-Host "Soak round $i/${Rounds}: active@100, /health ok, smoke $($Results.Count)/$($Results.Count)"
           }
           if ($Failure) {
             Add-Content -Path $env:GITHUB_OUTPUT -Value 'passed=false'
-            Write-Host "::error::t/266 soak FAILED, $Failure. The previous revision stays active as the rollback target (see the job summary)."
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "failure=$($Failure -replace '[\r\n]', ' ')"
+            Write-Host "::warning::t/266 soak FAILED, $Failure. The previous revision stays active as the rollback target (see the job summary); an ops-alert issue is opened below."
           } else {
             Add-Content -Path $env:GITHUB_OUTPUT -Value 'passed=true'
             Write-Host "t/266 soak passed: $Rounds rounds green."
@@ -1815,16 +1830,35 @@ jobs:
             echo "- Soak passed: \`${SOAK:-not run}\`; verdict: \`${ACTION:-not run}\`; deactivate step: \`${RETIRE:-skipped}\`"
             echo ""
             echo '```bash'
-            echo "az containerapp revision activate --name $APP -g $RG --revision $PREV_REV"
-            echo "az containerapp ingress traffic set --name $APP -g $RG --revision-weight $PREV_REV=100"
+            echo "./operations/devops/Invoke-GatedRollback.ps1 -AppName $APP -ResourceGroup $RG -RevisionName $PREV_REV"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail if the soak failed (t/266 b)
+      - name: Ops-alert — soak did not pass, rollback target kept (t/266 b)
+        # DevOps Lead condition 2: a warning + alert, NOT exit 1. A red run would stall
+        # continuous-deploy.yml (hold-batch-timestamp-unknown, :183) and make
+        # Get-KnownGoodLivenessVerdict.ps1 (:148) under-count deploys, since both read only
+        # `--status success` runs. The failed soak still withholds known-good (tag-known-good
+        # gates on soak_passed) and keeps the rollback target active.
         if: always() && steps.soak.outputs.passed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+          FAILURE: ${{ steps.soak.outputs.failure }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "::error::t/266: the soak did not pass, so the previous revision was NOT retired. The new revision is serving; decide whether to roll back with the commands in the job summary."
-          exit 1
+          echo "::warning::t/266: the soak did not pass (${FAILURE:-soak did not complete}), so '$PREV_REV' was NOT retired. '$NEW_REV' is serving; decide whether to roll back (job summary)."
+          gh label create "prod-soak-alert" --color D93F0B --description 'Post-deploy soak failed; rollback target kept (t/266)' --force >/dev/null 2>&1 || true
+          TITLE="Prod post-deploy soak failed: $NEW_REV (rollback target $PREV_REV kept)"
+          BODY=$(printf 'The 15-minute post-deploy soak did not pass: %s\n\nServing: `%s`. Rollback target `%s` is still **active** (not retired). Decide whether to roll back:\n\n```\n./operations/devops/Invoke-GatedRollback.ps1 -RevisionName %s\n```\n\nRun: %s (t/266)' "${FAILURE:-soak did not complete}" "$NEW_REV" "$PREV_REV" "$PREV_REV" "$RUN_URL")
+          EXISTING=$(gh issue list --label "prod-soak-alert" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY" || echo "::warning::t/266: could not comment on soak alert #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --label "prod-soak-alert,alert-escalated" --body "$BODY" || echo "::warning::t/266: could not open the soak ops-alert issue"
+          fi
 
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────
@@ -1843,7 +1877,10 @@ jobs:
   # steps use (exposed via `deploy`'s `outputs:` block, SO C3), so this never runs on a deploy
   # that didn't actually promote traffic.
   tag-known-good:
-    needs: [preflight, deploy]
+    # t/266 (DevOps Lead condition 1): also waits for retire-previous-revision, so known-good never
+    # lands on an image whose soak then fails. 'skipped' (first deploy, AC2/earlier-rollback paths)
+    # keeps today's behaviour; a run that soaked tags only on soak_passed == 'true'.
+    needs: [preflight, deploy, retire-previous-revision]
     runs-on: ubuntu-latest
     # t/4273: same environment as `deploy`, so azure/login presents the environment OIDC subject
     # the federated credential matches. Without it the subject is ref-form and login fails AADSTS700213.
@@ -1856,7 +1893,7 @@ jobs:
     # fact, acted on directly (Pre-Authorized-Trigger Discipline).
     # t/121: explicit !cancelled() (workflow-lint Check 5 convention). The deploy-success term
     # below already implies it, so the gate is unchanged.
-    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true' }}
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true' && (needs.retire-previous-revision.result == 'skipped' || needs.retire-previous-revision.outputs.soak_passed == 'true') }}
     timeout-minutes: 10
     continue-on-error: true  # SO C3: a checkout/login/module-import failure must not fail the
                               # job and turn an otherwise-successful deploy run red.

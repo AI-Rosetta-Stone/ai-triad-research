@@ -35,8 +35,9 @@ Describe 'deploy job exposes what the retire job needs (t/266 b)' {
         $s | Should -Not -BeNullOrEmpty
         Get-If $s | Should -Be "always() && steps.current_revision.outputs.revision != ''"
         $s | Should -Match 'GITHUB_STEP_SUMMARY'
-        $s | Should -Match 'az containerapp revision activate'
-        $s | Should -Match 'az containerapp ingress traffic set'
+        $s | Should -Match 'Invoke-GatedRollback\.ps1 -AppName \$APP -ResourceGroup \$RG -RevisionName \$PREV_REV'
+        # SO condition 1: no ungated activate+shift advice in the summary.
+        $s | Should -Not -Match 'ingress traffic set'
     }
 
     It 'the deploy job itself never deactivates the previous (rollback-target) revision' {
@@ -72,6 +73,18 @@ Describe 'retire-previous-revision job (t/266 b)' {
         $s | Should -Match "passed=false"
         $s | Should -Match "passed=true"
         ($s -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim() | Should -Be 'exit 0'
+        # DevOps Lead condition 3: one retry within a round for the az read and the smoke.
+        $s | Should -Match 'if \(-not \(Test-Serving \$Info\)\) \{ Start-Sleep -Seconds 20; \$Info = Get-ServingInfo \}'
+        ([regex]::Matches($s, 'Test-TaxEditorEndpoints -BaseUrl \$env:APP_URL -UserType Anonymous')).Count | Should -Be 2
+    }
+
+    It 'exposes soak_passed, and tag-known-good tags only when the soak passed or the retire job was skipped (DevOps Lead condition 1)' {
+        $script:Retire | Should -Match 'soak_passed: \$\{\{ steps\.soak\.outputs\.passed \}\}'
+        $tkg = Get-Job 'tag-known-good'
+        $tkg | Should -Match 'needs: \[preflight, deploy, retire-previous-revision\]'
+        $if = Get-If ($tkg -split "\n    steps:")[0]
+        $if | Should -Match "needs\.retire-previous-revision\.result == 'skipped' \|\| needs\.retire-previous-revision\.outputs\.soak_passed == 'true'"
+        $if | Should -Match '!cancelled\(\)'   # status function, so a skipped retire job doesn't skip tag-known-good
     }
 
     It 'FAILURE ARM (step level): the deactivate step runs ONLY on a retire verdict, and the verdict is fed the soak result' {
@@ -87,12 +100,16 @@ Describe 'retire-previous-revision job (t/266 b)' {
         $d | Should -Match 'Disable-ContainerAppRevision -RevisionName \$env:PREV_REV'
     }
 
-    It 'a failed soak goes red visibly and keeps the rollback target (no deactivate)' {
-        $f = Get-StepText $script:Retire 'Fail if the soak failed (t/266 b)'
+    It 'a failed soak warns + opens an ops-alert issue, keeps the rollback target, and does NOT turn the run red (DevOps Lead condition 2)' {
+        $f = Get-StepText $script:Retire 'Ops-alert — soak did not pass, rollback target kept (t/266 b)'
+        $f | Should -Not -BeNullOrEmpty
         Get-If $f | Should -Be "always() && steps.soak.outputs.passed != 'true'"
-        $f | Should -Match 'exit 1'
+        $f | Should -Match '::warning::'
+        $f | Should -Match 'gh issue create --title "\$TITLE" --label "prod-soak-alert,alert-escalated"'
+        $f | Should -Not -Match '(?m)^\s+exit 1\s*$'
+        $script:Retire | Should -Not -Match '(?m)^\s+exit 1\s*$'
         $sum = Get-StepText $script:Retire 'Summary — rollback target status (t/266 b)'
         Get-If $sum | Should -Be 'always()'
-        $sum | Should -Match 'az containerapp revision activate'
+        $sum | Should -Match 'Invoke-GatedRollback\.ps1'
     }
 }
