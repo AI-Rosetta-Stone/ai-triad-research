@@ -1672,12 +1672,13 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # t/265 (DevOps Lead p/107#2): warm_gate is the fifth exit-0, output-driven rollback gate. It must
-      # be the LAST step of this job, not in the "Gate failed" block after diagnostics. With
-      # warm=='false' but acceptance/persona=='true', the AC2 chain (which then verifies the RESTORED
-      # revision, t/4309) and "Post-deploy verification (traffic shifted)" still run, and both use the
-      # implicit success() a red step would cancel. Here it skips nothing; the job was already red
-      # through "Rollback on failure", and this step only names the gate.
+      # t/265 (DevOps Lead p/107#2): warm_gate is the fifth exit-0, output-driven rollback gate; this step
+      # only names it on the run page. Placement is not load-bearing. With warm=='false', "Rollback on
+      # failure" (or "Fail if unhealthy", with no previous revision) already ends in an unconditional
+      # exit 1, so every later implicit-success() step (AC2, "Post-deploy verification (traffic
+      # shifted)") is skipped wherever this goes (SO p/106#18, DevOps Lead p/107#14). It sits last
+      # simply as the last word on the run page. That AC2 never verifies the RESTORED revision after a
+      # gate rollback is a pre-existing gap, tracked in t/353.
       - name: Gate failed — warm-gate
         if: always() && steps.warm_gate.outputs.warm == 'false'
         run: |

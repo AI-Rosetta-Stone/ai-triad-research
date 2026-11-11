@@ -75,16 +75,19 @@ Describe 'deploy-azure.yml visible gate failures (t/4844 WP6)' {
         Get-StepIf 'Fail if unhealthy (no previous revision to rollback to)' | Should -Match "steps\.health_check\.outcome == 'success'"
     }
 
-    It 't/265: the warm-gate failure step is the LAST step of the deploy job, after the AC2 chain it must not skip' {
-        # With warm=='false' but acceptance/persona=='true', AC2 (implicit success(), verifies the restored
-        # revision) and the post-shift verification still run; a red step before them would cancel both.
+    It 't/265: the warm-gate failure step is the deploy job''s last step (the last word on the run page)' {
+        # Placement is NOT load-bearing: with warm=='false', "Rollback on failure" / "Fail if unhealthy" already
+        # end in exit 1, so AC2 and the post-shift verification are skipped wherever this step sits (SO p/106#18,
+        # DevOps Lead p/107#14). This only pins the chosen layout. The restored-revision gap is t/353.
         $warm = $script:DeployJob.IndexOf('- name: Gate failed — warm-gate')
         $warm | Should -BeGreaterThan 0
         $names = [regex]::Matches($script:DeployJob, '(?m)^      - name: (.+)$') | ForEach-Object { $_.Groups[1].Value.Trim() }
         $names[-1] | Should -Be 'Gate failed — warm-gate'
-        foreach ($mustPrecede in 'Post-deploy verification — serving revision active + /health 200 (t/4242 AC2)', 'Post-deploy verification (traffic shifted)') {
-            $script:DeployJob.IndexOf("- name: $mustPrecede") | Should -BeLessThan $warm -Because "'$mustPrecede' uses implicit success() and runs when only the warm-gate failed"
-        }
+    }
+
+    It 'the rollback steps the warm-gate path goes through still end in exit 1 (why placement is not load-bearing)' {
+        (Get-StepText 'Rollback on failure') | Should -Match '(?m)^\s+exit 1\s*$'
+        (Get-StepText 'Fail if unhealthy (no previous revision to rollback to)') | Should -Match '(?m)^\s+exit 1\s*$'
     }
 }
 
