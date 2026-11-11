@@ -23,6 +23,9 @@ import { findSituationBdiViolations } from '../../../../lib/debate/taxonomyTypes
 import type { SituationNode } from '../../../../lib/debate/taxonomyTypes.js';
 import { isAdmin } from '../community/community.js';
 import { isLocalDeployment } from '../config.js';
+import * as ai from '../ai/aiBackends.js';
+import { getAssembledCorpus } from './corpusAssemblyCache.js';
+import { bestMatchingSyntheticStatement } from '../../../../lib/debate/syntheticStatementLookup.js';
 
 // ── t/3165: serialize-once cache for /api/taxonomy/synthetic-embeddings ───────────────────────────
 // The synthetic corpus (~4144 vectors, ~400MB) is STATIC, but loadSyntheticEmbeddings() rebuilds it on
@@ -293,8 +296,44 @@ async function prepareTaxonomyNodeWrite(
   return { gate: null, changedNodeIds };
 }
 
+// ── t/348: POST /api/taxonomy/chat-synthetic-statements — read-only, per-node synthetic statement for chat ──
+// For each selected BDI node, returns the corpus statement with the highest cosine to the chat's last user
+// message (the same argmax as claim attribution, bestMatchingSyntheticStatement). Null means the renderer keeps
+// the node's description for that turn. The query embed is ai.computeQueryEmbedding, the same embed
+// relevant-nodes gives selectRelevantTaxonomy. Output carries only text or null: no vectors, no corpus.
+const CHAT_SYNTH_POV_KEYS: Record<string, string> = { accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp' };
+const CHAT_SYNTH_MAX_NODES = 12;
+const CHAT_SYNTH_QUERY_MAX_CHARS = 1000;
+
+/** Usable (non-pruned) statement texts per node, in file order: the rows the sidecar vectors are aligned to.
+ *  Memoized per POV, like the corpus, since the main-branch corpus is immutable at runtime. */
+const chatStatementsMemo = new Map<string, Promise<Record<string, string[]>>>();
+function chatStatementsByNode(synthKey: string): Promise<Record<string, string[]>> {
+  const cached = chatStatementsMemo.get(synthKey);
+  if (cached) return cached;
+  const built = (async () => {
+    const corpus = await fileIO.loadSyntheticCorpus(synthKey) as { entries?: { node_id: string; statement: string; pruned?: boolean }[] } | null;
+    const byNode: Record<string, string[]> = {};
+    for (const e of corpus?.entries ?? []) {
+      if (e.pruned) continue;
+      (byNode[e.node_id] ??= []).push(e.statement);
+    }
+    return byNode;
+  })().catch((err) => {
+    chatStatementsMemo.delete(synthKey); // a transient read error must not poison the memo for the process's life
+    throw err;
+  });
+  chatStatementsMemo.set(synthKey, built);
+  return built;
+}
+
+const chatWarnedNodes = new Set<string>();
+function chatWarn(message: string, data: Record<string, unknown>): void {
+  getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy', level: 'warn', message, data });
+}
+
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
-  const { get, put } = r;
+  const { get, put, post } = r;
   const { ensureSessionBranch } = ctx;
 
   // ── Synthetic corpus (must precede the :pov wildcard) ──
@@ -413,5 +452,66 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       if (!node) { error(res, `Node ${nodeId} not found in ${pov}`, 404); return; }
       json(res, { nodeId, history: node._edit_history ?? [], edit_meta: node._edit_meta ?? null });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to load node edit history', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+  });
+
+  // ── t/348: chat synthetic statements (read-only) ──
+  post('/api/taxonomy/chat-synthetic-statements', async (_req, res, body) => {
+    const b = (body ?? {}) as { pov?: unknown; queryText?: unknown; nodeIds?: unknown };
+    const synthKey = typeof b.pov === 'string' ? CHAT_SYNTH_POV_KEYS[b.pov] : undefined;
+    if (!synthKey) { error(res, 'Invalid or missing pov (expected accelerationist|safetyist|skeptic)', 400); return; }
+    if (typeof b.queryText !== 'string') { error(res, 'Missing queryText', 400); return; }
+    if (!Array.isArray(b.nodeIds) || !b.nodeIds.every(id => typeof id === 'string')) { error(res, 'nodeIds must be an array of strings', 400); return; }
+    if (b.nodeIds.length > CHAT_SYNTH_MAX_NODES) { error(res, `nodeIds may hold at most ${CHAT_SYNTH_MAX_NODES} nodes`, 400); return; }
+    const nodeIds = b.nodeIds as string[];
+    const pov = b.pov as string;
+    const allNull = (reason: string): Record<string, string | null> => {
+      chatWarn(`Chat synthetic statements unavailable (${reason}) — description fallback for ${nodeIds.length} nodes`, { pov, reason });
+      return Object.fromEntries(nodeIds.map(id => [id, null]));
+    };
+
+    // The query embed never throws to the caller: an unembeddable query yields all nulls, one WARN.
+    const queryText = b.queryText.trim().slice(0, CHAT_SYNTH_QUERY_MAX_CHARS);
+    let queryVector: number[] | null = null;
+    if (queryText.length > 0) {
+      try {
+        const v = await ai.computeQueryEmbedding(queryText);
+        queryVector = Array.isArray(v) && v.length > 0 ? v : null;
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'taxonomy', level: 'warn', message: 'Chat query embedding failed — description fallback',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+      }
+    }
+    if (!queryVector) { json(res, allNull('embedding-unavailable')); return; }
+
+    let nodeEmbeddings: Awaited<ReturnType<typeof getAssembledCorpus>>['nodeEmbeddings'];
+    let statements: Record<string, string[]>;
+    try {
+      [{ nodeEmbeddings }, statements] = await Promise.all([getAssembledCorpus(pov), chatStatementsByNode(synthKey)]);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'taxonomy', level: 'error', message: 'Chat synthetic corpus failed to load — description fallback',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      json(res, allNull('corpus-unavailable'));
+      return;
+    }
+
+    const out: Record<string, string | null> = {};
+    for (const nodeId of nodeIds) {
+      const vectors = nodeEmbeddings[nodeId]?.vectors;
+      const texts = statements[nodeId];
+      if (!vectors || !texts || vectors.length === 0 || texts.length === 0 || vectors.length !== texts.length) {
+        if (!chatWarnedNodes.has(nodeId)) {
+          chatWarnedNodes.add(nodeId);
+          chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
+        }
+        out[nodeId] = null;
+        continue;
+      }
+      out[nodeId] = bestMatchingSyntheticStatement(nodeId, queryVector, nodeEmbeddings, statements) ?? null;
+    }
+    json(res, out);
   });
 }
