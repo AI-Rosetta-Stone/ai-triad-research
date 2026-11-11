@@ -37,15 +37,6 @@ async function buildDocx(docXml: string): Promise<Uint8Array> {
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }
 
-async function innerErrorOf(bytes: Uint8Array): Promise<Error | undefined> {
-  try {
-    await extractDocumentText(bytes, 'doc.docx');
-  } catch (e: any) {
-    return e.innerError ?? e;
-  }
-  return undefined;
-}
-
 describe('DOCX zip-bomb guard', () => {
   it('passes a normal DOCX with no archive comment (off-by-one regression)', async () => {
     const bytes = await buildDocx(documentXml('Hello docx'));
@@ -57,8 +48,10 @@ describe('DOCX zip-bomb guard', () => {
   it('refuses a DOCX whose entry inflates past the 20 MB per-entry cap', async () => {
     // Honest sizes, but 25 MB of inflated content in one entry.
     const bytes = await buildDocx(documentXml('A'.repeat(25 * 1024 * 1024)));
-    const inner = await innerErrorOf(bytes);
-    expect(inner?.message).toContain('Zip bomb detected');
+    const err = await extractDocumentText(bytes, 'big.docx').catch((e) => e);
+    expect(err.message).toContain('Zip bomb detected');
+    expect(err.code).toBe('SIZE_LIMIT_EXCEEDED');
+    expect(err.httpStatus).toBe(413);
   });
 });
 

@@ -148,20 +148,26 @@ function readCounted(entry: JSZip.JSZipObject, name: string, cap: number): Promi
       }
       resolve(data);
     });
-    stream.on('error', (e: Error) => reject(zipError('DEFLATE data is corrupt', `ZIP entry "${name}" cannot be inflated: ${e.message}`)));
+    stream.on('error', (e: Error) => reject(zipError('DEFLATE data is corrupt', `ZIP entry "${safeEntryName(name)}" cannot be inflated: ${e.message}`)));
   });
 }
 
+// Size-cap refusals are SIZE_LIMIT_EXCEEDED (413), like the 10 MB input cap. Everything else is CORRUPT_DOCUMENT (422).
 function overBudgetError(cap: number, name: string): ActionableError {
+  const entry = safeEntryName(name);
   if (cap === MAX_SINGLE_ENTRY) {
     return zipError(
       'single entry inflates past the limit',
-      `Zip bomb detected: entry "${name}" inflates past ${MAX_SINGLE_ENTRY / 1024 / 1024} MB. Limit is ${MAX_SINGLE_ENTRY / 1024 / 1024} MB per entry.`
+      `Zip bomb detected: entry "${entry}" inflates past ${MAX_SINGLE_ENTRY / 1024 / 1024} MB. Limit is ${MAX_SINGLE_ENTRY / 1024 / 1024} MB per entry.`,
+      'SIZE_LIMIT_EXCEEDED',
+      413
     );
   }
   return zipError(
     'total inflated size exceeds the limit',
-    `Zip bomb detected: total inflated size exceeds ${MAX_TOTAL_UNCOMPRESSED / 1024 / 1024} MB at entry "${name}".`
+    `Zip bomb detected: total inflated size exceeds ${MAX_TOTAL_UNCOMPRESSED / 1024 / 1024} MB at entry "${entry}".`,
+    'SIZE_LIMIT_EXCEEDED',
+    413
   );
 }
 
@@ -169,13 +175,23 @@ function ambiguousZip(detail: string): ActionableError {
   return zipError('ambiguous zip structure', `ZIP structure is ambiguous (${detail}). Refusing to read it`);
 }
 
-function zipError(reason: string, message: string): ActionableError {
+// Entry names come from the untrusted archive: keep them short and printable before they reach error text.
+function safeEntryName(name: string): string {
+  return name.replace(/[^\x20-\x7e]/g, '?').slice(0, 80);
+}
+
+function zipError(
+  reason: string,
+  message: string,
+  code: 'CORRUPT_DOCUMENT' | 'SIZE_LIMIT_EXCEEDED' = 'CORRUPT_DOCUMENT',
+  httpStatus = 422
+): ActionableError {
   return new ActionableError({
     goal: 'Extract text from DOCX document',
     problem: `${message} (${reason})`,
     location: 'lib/extraction:extractDocxText',
     nextSteps: ['Verify the file is a valid, unmodified DOCX', 'Re-save the document in Word and try again'],
-    code: 'CORRUPT_DOCUMENT',
-    httpStatus: 422,
+    code,
+    httpStatus,
   });
 }
