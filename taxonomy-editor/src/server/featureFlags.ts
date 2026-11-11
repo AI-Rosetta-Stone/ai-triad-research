@@ -110,7 +110,7 @@ const SEED_FLAGS: Record<string, FlagDef> = {
   // (Debate Engine step 1) decides what it does. Turn on per environment by an admin flip, not in the seed.
   'useSyntheticStatementGrounding': {
     name: 'useSyntheticStatementGrounding', enabled: false, scope: 'global',
-    description: 'Chat prompt: inject the best-matching synthetic statement for each selected BDI node, falling back per node to its description. OFF by default.',
+    description: 'Debate prompt: inject the best-matching synthetic statement for each selected BDI node, falling back per node to its description. OFF by default.',
     created_at: '2026-11-11T00:00:00.000Z', updated_at: '2026-11-11T00:00:00.000Z',
     created_by: 'seed',
   },
