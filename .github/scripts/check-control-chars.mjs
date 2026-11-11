@@ -12,8 +12,9 @@
 //
 // Usage:
 //   node .github/scripts/check-control-chars.mjs              # every tracked file with a scanned extension
-//   node .github/scripts/check-control-chars.mjs <path>...    # just these (the pre-push hook passes changed files)
-// Exits 1 on findings or allowlist problems, 0 when clean. ci.yml runs it continue-on-error (warn-only first).
+//   node .github/scripts/check-control-chars.mjs <path>...    # just these
+//   git diff -z --name-only ... | node .github/scripts/check-control-chars.mjs --stdin0   # the pre-push hook (t/130)
+// Exits 1 on findings or allowlist problems, 0 when clean. ci.yml workflow-lint runs it as a blocking step (t/130).
 
 import { readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -21,11 +22,30 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const ALLOWLIST_PATH = '.github/ci/control-chars-allowlist.json'
-export const SCANNED_EXT = /\.(ts|tsx|js|mjs|cjs|ps1|psm1|psd1|py|json|ya?ml|md|css|sh)$/i
+export const SCANNED_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|ps1|psm1|psd1|py|json|ya?ml|md|css|sh)$/i
+// t/130: extensionless text files that carry code: Dockerfiles (Dockerfile, Dockerfile.base, ...) and the
+// .githooks/* shell scripts.
+export const SCANNED_NAME = /(^|\/)Dockerfile(\.[^/]+)?$|^\.githooks\/[^/.]+$/
+
+/** Pure. Does this lint scan the repo path p? */
+export function isScanned(p) {
+  return SCANNED_EXT.test(p) || SCANNED_NAME.test(p)
+}
 
 /** Pure. True for a byte this lint rejects. */
 export function isBadByte(b) {
   return (b <= 0x08) || b === 0x0b || b === 0x0c || (b >= 0x0e && b <= 0x1f) || b === 0x7f
+}
+
+/**
+ * Pure. How to fix one finding. t/335 (Second Opinion on #5048): 0x1B is almost always an ANSI colour code
+ * from pasted terminal output (gh run view --log, test runners), so say that and how to strip it.
+ */
+export function fixHint(hex) {
+  if (hex === '0x1B') {
+    return `ANSI escape (0x1B), most likely pasted terminal output with colour codes. Strip them, e.g. sed -i 's/\\x1b\\[[0-9;]*[A-Za-z]//g' <file>, or re-copy the output with colour off (NO_COLOR=1, --color=never). Or allowlist the file with a reason in ${ALLOWLIST_PATH}.`
+  }
+  return `control byte ${hex}; invisible in PR diffs. Use an escape (e.g. \\b, \\x08) instead of the raw byte, or allowlist the file with a reason in ${ALLOWLIST_PATH}.`
 }
 
 /** Pure. Every rejected byte in a buffer: [{ line, col, hex }], 1-based, col counted in bytes. */
@@ -70,7 +90,7 @@ export function scan(root, paths = null) {
   let scanned = 0
   for (const rel of list) {
     const p = rel.replace(/\\/g, '/')
-    if (!SCANNED_EXT.test(p) || isAllowlisted(p, entries)) continue
+    if (!isScanned(p) || isAllowlisted(p, entries)) continue
     const abs = join(root, p)
     if (!existsSync(abs)) continue   // deleted in the pushed range
     scanned++
@@ -82,11 +102,17 @@ export function scan(root, paths = null) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const root = process.cwd()
   const args = process.argv.slice(2)
-  const { findings, problems, scanned } = scan(root, args.length ? args : null)
-  for (const p of problems) console.log(`::warning::check-control-chars: ${p}`)
+  // --stdin0: NUL-separated paths on stdin (git diff -z), so paths with spaces survive. An empty list
+  // scans nothing; it never falls back to the whole repo.
+  const paths = args[0] === '--stdin0'
+    ? readFileSync(0, 'utf8').split('\0').filter(Boolean)
+    : (args.length ? args : null)
+  const { findings, problems, scanned } = scan(root, paths)
+  // t/335: ::error, now that the step blocks (t/130).
+  for (const p of problems) console.log(`::error::check-control-chars: ${p}`)
   for (const f of findings) {
-    console.log(`::warning file=${f.path},line=${f.line},col=${f.col}::check-control-chars (t/128): control byte ${f.hex}; invisible in PR diffs. Use an escape (e.g. \\b, \\x08) instead of the raw byte, or allowlist the file with a reason in ${ALLOWLIST_PATH}.`)
-    console.log(`${f.path}:${f.line}:${f.col}: ${f.hex}`)
+    console.log(`::error file=${f.path},line=${f.line},col=${f.col}::check-control-chars (t/128): ${fixHint(f.hex)}`)
+    console.log(`${f.path}:${f.line}:${f.col}: ${f.hex}${f.hex === '0x1B' ? ' (ANSI escape)' : ''}`)
   }
   if (findings.length || problems.length) {
     console.log(`check-control-chars: ${findings.length} control byte(s) in ${new Set(findings.map((f) => f.path)).size} file(s), ${problems.length} allowlist problem(s); ${scanned} file(s) scanned (t/128)`)

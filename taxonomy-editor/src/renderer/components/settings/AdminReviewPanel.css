@@ -440,7 +440,7 @@
   font-weight: 700;
   line-height: 16px;
   text-align: center;
-  background: var(--danger, #ef4444);
+  background: var(--danger-fill, #dc2626);
   color: #fff;
 }
 

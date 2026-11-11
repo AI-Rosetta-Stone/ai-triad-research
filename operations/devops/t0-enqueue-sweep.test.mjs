@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
+import { pageCapWarning, isTransientGatewayError, withGatewayRetry, SEARCH_PAGE_SIZE, SEARCH_MAX_PAGES, declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -335,4 +335,43 @@ test('isRepinBranch: matches only the drift workflow prefix', () => {
   assert.equal(isRepinBranch('docker/base-repin-2026-11-10-abc'), true);
   assert.equal(isRepinBranch('docker/t305-repin-t0'), false);
   assert.equal(isRepinBranch(undefined), false);
+});
+
+// ── t/316: the open-PR search timed out at GitHub's gateway (HTTP 502/504) as open PRs grew ──
+test('isTransientGatewayError: 502/503/504 are transient; 4xx, rate limits and other errors are not', () => {
+  for (const m of ['gh: HTTP 502', 'Command failed: gh api graphql ...\ngh: HTTP 504', 'HTTP 503 Service Unavailable']) assert.equal(isTransientGatewayError(m), true, m);
+  for (const m of ['gh: HTTP 401', 'HTTP 403: API rate limit exceeded for installation', 'HTTP 5020', 'GraphQL: Could not resolve to a PullRequest', '', undefined]) assert.equal(isTransientGatewayError(m), false, String(m));
+});
+
+test('withGatewayRetry: a gateway error then success returns the result, with a WARN and the backoff', () => {
+  const logs = []; const slept = []; let calls = 0;
+  const out = withGatewayRetry(() => { calls++; if (calls < 3) throw Object.assign(new Error('Command failed'), { stderr: 'gh: HTTP 504' }); return 'ok'; },
+    { delaysMs: [5, 15], sleep: (ms) => slept.push(ms), log: (m) => logs.push(m), label: 'search' });
+  assert.equal(out, 'ok');
+  assert.equal(calls, 3);
+  assert.deepEqual(slept, [5, 15]);
+  assert.match(logs[0], /^WARN: search hit a GitHub gateway error \(HTTP 504\); retrying/);
+});
+
+test('withGatewayRetry: a gateway error that outlasts the retries is rethrown (sweep still fails closed)', () => {
+  let calls = 0;
+  assert.throws(() => withGatewayRetry(() => { calls++; throw new Error('gh: HTTP 502'); }, { delaysMs: [1, 1], sleep: () => {}, log: () => {} }), /HTTP 502/);
+  assert.equal(calls, 3);
+});
+
+test('withGatewayRetry: a non-gateway error is rethrown at once, never retried', () => {
+  let calls = 0;
+  assert.throws(() => withGatewayRetry(() => { calls++; throw new Error('HTTP 403: API rate limit exceeded'); }, { delaysMs: [1, 1], sleep: () => {}, log: () => {} }), /HTTP 403/);
+  assert.equal(calls, 1);
+});
+
+test('search paging: smaller pages, same or larger reach than the old 50 x 10', () => {
+  assert.ok(SEARCH_PAGE_SIZE <= 20, 'a page heavy enough to time out at the gateway again');
+  assert.ok(SEARCH_PAGE_SIZE * SEARCH_MAX_PAGES >= 300);
+});
+
+test('pageCapWarning: WARN only when the cap is reached with results still unread', () => {
+  assert.equal(pageCapWarning(3, true), null, 'more pages but under the cap: keep reading, no WARN');
+  assert.equal(pageCapWarning(SEARCH_MAX_PAGES, false), null, 'cap reached exactly at the last page: nothing unread');
+  assert.match(pageCapWarning(SEARCH_MAX_PAGES, true), /^WARN: open-PR search stopped at its \d+-page cap \(\d+ PRs\) with more results unread/);
 });

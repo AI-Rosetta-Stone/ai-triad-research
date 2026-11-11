@@ -546,9 +546,11 @@ def main():
 
     # Phase 1: Real passages from snapshots
     if not args.skip_passages:
-        from sentence_transformers import SentenceTransformer
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from embed_model_pins import load_sentence_transformer  # t/152: pinned revision
         log(f"Loading model {config['model_name']}...")
-        model = SentenceTransformer(config["model_name"])
+        model = load_sentence_transformer(config["model_name"])
+        log(f"  resolved_revision={model.resolved_revision}")
 
         passage_pairs = extract_passages(
             model, sources_root, evidence_index,

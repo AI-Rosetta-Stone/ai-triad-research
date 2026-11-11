@@ -436,6 +436,7 @@ export function classifyBlocker(pr, nowMs) {
 // a merge, it just means a Dependabot PR's lockfile/license drift wasn't healed, which is purely
 // DevOps's own automation to fix, never the PR author's (Dependabot's) problem.
 export const HEAL_WORKFLOW_PATH = '.github/workflows/dependabot-lockfile-heal.yml';
+export const HEAL_NOT_FAILED = new Set(['success', 'skipped', 'neutral']);
 
 /**
  * PURE. Flags an open Dependabot PR whose latest `dependabot-lockfile-heal` run AT ITS CURRENT
@@ -447,7 +448,10 @@ export const HEAL_WORKFLOW_PATH = '.github/workflows/dependabot-lockfile-heal.ym
 export function classifyHealLiveness(pr) {
   if (!pr.isDependabotAuthor) return null;
   const run = (pr.runs ?? []).find((r) => r.path === HEAL_WORKFLOW_PATH);
-  if (!run || run.status !== 'completed' || run.conclusion === 'success') return null;
+  // t/321: `skipped` and `neutral` are not failures. dependabot-lockfile-heal.yml deliberately
+  // skips on non-npm Dependabot branches (docker/actions/pip), and treating that as failed sent a
+  // false TL-level `heal-failed` on every such PR (#5021, run 42965010012).
+  if (!run || run.status !== 'completed' || HEAL_NOT_FAILED.has(run.conclusion)) return null;
   return {
     class: 'heal-failed',
     detail: {

@@ -11,10 +11,14 @@
 // Flags, in .github/workflows/** and operations/devops/** (tests and fixtures excluded):
 //   1. any read of `reviewDecision` outside a comment;
 //   2. a comparison of a review `state` to 'APPROVED' or 'CHANGES_REQUESTED' (a line that mentions
-//      `state` and compares one of those literals with ===, !==, == or !=).
-// Allowed with a reason: a same-line or preceding-line comment `lint:review-state-ok: <reason>`, or an
-// entry in .github/ci/review-state-gating-allowlist.json ({ path, contains, reason }) for files that
-// can't carry a comment (T2 paths).
+//      `state` and compares one of those literals with ===, !==, == or !=, or in PowerShell with
+//      -eq/-ne and their -c/-i forms, case-insensitively).
+// Comments are skipped per language (t/119): `//` and `/* */` in JS and YAML, `#` in YAML, shell,
+// PowerShell and Python, and `<# #>` in PowerShell.
+// Allowed with a reason: `lint:review-state-ok: <reason>` inside a comment, on the same line or on a
+// comment-only line directly above (a tag in a string literal doesn't count), or an entry in
+// .github/ci/review-state-gating-allowlist.json ({ path, contains, reason }) for files that can't carry
+// a comment (T2 paths).
 //
 // NOT detected (the visible blanks): a state read through an alias or destructuring followed by a
 // comparison on another line, `['APPROVED', ...].includes(state)`, and GraphQL `reviews { state }`
@@ -33,40 +37,84 @@ const SCANNED_EXT = /\.(ya?ml|m?js|cjs|ts|ps1|psm1|sh|py)$/i
 const EXCLUDED = /(\.test\.m?js|\.Tests\.ps1|[\\/]__tests__[\\/]|[\\/]fixtures?[\\/]|[\\/]tests?[\\/])/i
 const OK_TAG = /lint:review-state-ok:\s*(\S.*)$/
 const STATE_LITERAL = String.raw`['"\x60](?:APPROVED|CHANGES_REQUESTED)['"\x60]`
-const COMPARE = new RegExp(String.raw`(?:===|!==|==|!=)\s*${STATE_LITERAL}|${STATE_LITERAL}\s*(?:===|!==|==|!=)`)
+// t/119: PowerShell's -eq/-ne and their case-sensitive (-c) and explicit case-insensitive (-i) forms.
+const OPS = String.raw`(?:===|!==|==|!=|(?:^|\s)-[ci]?(?:eq|ne)\b)`
+const COMPARE = new RegExp(String.raw`${OPS}\s*${STATE_LITERAL}|${STATE_LITERAL}\s*${OPS}`)
+// PowerShell compares strings case-insensitively, so `$r.State -eq 'Approved'` is the same read there.
+const COMPARE_PS = new RegExp(COMPARE.source, 'i')
 const STATE_WORD = /\bstate\b/
+const STATE_WORD_PS = /\bstate\b/i
+const PS_EXT = /\.(ps1|psm1)$/i
+const HASH_EXT = /\.(ya?ml|sh|ps1|psm1|py)$/i   // `#` starts a comment (YAML, shell, PowerShell, Python)
+const SLASH_EXT = /\.(ya?ml|m?js|cjs|ts)$/i      // `//` and `/* */` (JS, including github-script blocks in YAML)
 
-/** Pure. The code part of a line: '' for a whole-line comment, else the line minus a trailing // comment. */
-export function codeOf(line) {
-  const t = line.trim()
-  if (t === '' || t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('<#')) return ''
-  // Trailing `// ...` that isn't part of a URL (`://`). Quote-naive by design; good enough for a warn-only lint.
-  const m = line.match(/(^|[^:])\/\/.*$/)
-  return m ? line.slice(0, m.index + m[1].length) : line
+/**
+ * Pure. Splits each line into its code and comment parts: [{ code, comment }]. Tracks block comments
+ * across lines (`/* … *\/` in JS and YAML, `<# … #>` in PowerShell) and trailing comments (`//` that
+ * isn't a URL's `://`, and `#` after whitespace in YAML, shell, PowerShell and Python). Quote-naive by
+ * design: a marker inside a string ends the code early, which can only hide a read, never invent one.
+ */
+export function splitLines(lines, path = '') {
+  // No path (a bare line, as codeOf's callers pass): every comment style applies.
+  const any = !path, hash = any || HASH_EXT.test(path), slash = any || SLASH_EXT.test(path), ps = any || PS_EXT.test(path)
+  let close = null   // the end marker of the block comment we're inside, if any
+  return lines.map((line) => {
+    let code = '', comment = '', rest = line
+    while (rest) {
+      if (close) {
+        const k = rest.indexOf(close)
+        if (k < 0) { comment += rest; rest = ''; break }
+        comment += rest.slice(0, k + close.length); rest = rest.slice(k + close.length); close = null
+        continue
+      }
+      const cands = []
+      if (slash) {
+        const b = rest.indexOf('/*'); if (b >= 0) cands.push([b, 'block', '*/'])
+        const m = rest.match(/(^|[^:])\/\//); if (m) cands.push([m.index + m[1].length, 'line'])
+      }
+      if (ps) { const b = rest.indexOf('<#'); if (b >= 0) cands.push([b, 'block', '#>']) }
+      if (hash) { const m = rest.match(/(^|\s)#/); if (m) cands.push([m.index + m[1].length, 'line']) }
+      // A JSDoc/block continuation line (` * …`) is comment text.
+      if (!code && /^\s*\*(\s|\/|$)/.test(rest)) cands.push([rest.search(/\*/), 'line'])
+      if (!cands.length) { code += rest; break }
+      const [at, kind, end] = cands.sort((a, b) => a[0] - b[0])[0]
+      code += rest.slice(0, at)
+      if (kind === 'line') { comment += rest.slice(at); break }
+      comment += rest.slice(at, at + 2); rest = rest.slice(at + 2); close = end
+    }
+    return { code: code.trim() ? code : '', comment }
+  })
 }
 
-/** Pure. The lint:review-state-ok reason on this line or the one above, or null. */
-export function okReason(lines, i) {
-  for (const j of [i, i - 1]) {
-    if (j < 0) continue
-    const m = lines[j].match(OK_TAG)
-    if (m && m[1].trim().length >= 3) return m[1].trim()
-  }
-  return null
+/** Pure. The code part of one line on its own (no block-comment state). '' for a whole-line comment. */
+export function codeOf(line, path = '') {
+  return splitLines([line], path)[0].code
+}
+
+/**
+ * Pure. The lint:review-state-ok reason for line i, or null. t/119: the tag counts only inside a
+ * comment, on the same line or on the line immediately above when that line is comment-only. A tag in
+ * a string literal, or above a line of code, doesn't count.
+ */
+export function okReason(parts, i) {
+  const tagIn = (s) => { const m = s.match(OK_TAG); return m && m[1].trim().length >= 3 ? m[1].trim() : null }
+  return tagIn(parts[i].comment) ?? (i > 0 && !parts[i - 1].code ? tagIn(parts[i - 1].comment) : null)
 }
 
 /** Pure. Findings for one file's text: [{ line, rule, text }]. Honors comments and allowlist entries. */
 export function scanText(text, path, allowlist = []) {
   const lines = text.split(/\r?\n/)
+  const parts = splitLines(lines, path)
+  const ps = PS_EXT.test(path)
   const out = []
   lines.forEach((raw, i) => {
-    const code = codeOf(raw)
+    const { code } = parts[i]
     if (!code) return
     let rule = null
     if (/\breviewDecision\b/.test(code)) rule = 'reviewDecision'
-    else if (STATE_WORD.test(code) && COMPARE.test(code)) rule = 'review-state'
+    else if ((ps ? STATE_WORD_PS : STATE_WORD).test(code) && (ps ? COMPARE_PS : COMPARE).test(code)) rule = 'review-state'
     if (!rule) return
-    if (okReason(lines, i)) return
+    if (okReason(parts, i)) return
     if (allowlist.some((a) => a.path === path && typeof a.contains === 'string' && a.contains && raw.includes(a.contains))) return
     out.push({ line: i + 1, rule, text: raw.trim() })
   })

@@ -16,7 +16,10 @@ was PI-approved: about 40 calls × 3 replicates on gemini-3.5-flash-lite.
 ## Sets
 - **Seeds (rubric §3), 9 non-abstain:** sit-447 definitional; sit-001, 100, 250, 350, 430, 470
   interpretive; sit-300, 400 structural. **sit-050 is dropped:** its abstain anchor is stale
-  (interpretations filled 2026-08-25, t/3018), and 0 of 459 situations are null or single-POV.
+  (interpretations filled 2026-08-25, t/3018). *Corrected (Quality p/167#2): this used to say "0 of 459
+  situations are null or single-POV". That was wrong, because the check counted an interpretations
+  entry as filled whenever its key existed. One live situation, **sit-154**, has all-empty
+  interpretations, and none is single-POV. sit-154 is now the rubric's abstain anchor (#5056).*
 - **Held-out (`heldout_labels.json`), 30:** CL labels, blind to existing labels: 26 interpretive and
   4 structural. Of these, 24 are high confidence and 6 medium or low.
 
@@ -63,3 +66,55 @@ gemini-3.5-flash-lite, T=0.1, 3 replicates, `candidate.prompt` sha256 02bf5b20d2
 
 Per the pre-registration, this held-out set is now **spent for tuning**. A revised prompt must be
 scored on a fresh held-out set.
+
+## Iteration 2 — pre-registration (PI-approved p/97#6; committed before any v9 run)
+
+**Prompt:** `candidate_v9.prompt` is `candidate.prompt` with the STRUCTURAL guard tightened. Frame
+conflict now means one POV argues the framing is mistaken while another adopts or defends it, and
+the prompt adds: "different characterizations are not, by themselves, a frame conflict". The change
+is aimed at the run-1 failure (single-POV reframes read as structural).
+
+**Held-out set:** `heldout2_labels.json`, a fresh draw (seed 5246) disjoint from run 1's set. It was
+labelled blind **before** v9 was written: 28 interpretive, 1 structural (sit-221) and 1 insufficient
+(sit-154, a deprecated node with empty summaries). Only 1 of the 10 drawn from the existing-structural
+stratum is CL-structural, so structural recall can't be measured here (n=1). The concern is
+over-firing, which these criteria target.
+
+**Seed gate, changed to majority-of-3 (decided before the run):** a single draw at T=0.1 that must
+be 9/9 fails by chance even for a good prompt (run 1: 9/9, 8/9, 9/9). The production gate should run
+the 9 seeds 3 times and take each seed's modal label.
+
+**Pass criteria (all must hold):**
+1. **Seeds, modal label over 3 replicates:** 9/9. Per-replicate scores are reported.
+2. **Held-out, modal accuracy on the 29 non-abstain items:** ≥ 25/29 (86%).
+3. **Over-firing:** at most 2 of the 28 CL-interpretive items come back modal-structural.
+4. **Non-degenerate:** guaranteed by criterion 1. sit-300 and sit-400 must stay structural and
+   sit-447 definitional, so "always interpretive" fails.
+
+**Reported, not gated:** sit-221 (the only held-out structural); sit-154's label; per-item flips.
+Run 1's held-out set re-scored under v9, as **secondary only**: that set was seen while writing v9,
+so it's biased.
+
+If any criterion fails, v9 is not proposed, and neither set is used to tune again.
+
+## Iteration 2 — result (after pre-registration 6eb1ab495): **FAIL; v9 not proposed**
+
+gemini-3.5-flash-lite, T=0.1, 3 replicates, `candidate_v9.prompt` sha256 687c1c93d7b6…; `results_v9.json`, `score_v9.py`.
+
+| Criterion | Result | |
+|---|---|---|
+| C1 seeds, modal over 3 | 9/9 (per replicate: 9/9, 9/9, 9/9) | pass |
+| C2 held-out modal accuracy | 25/29 (bar 25) | pass |
+| C3 false structural ≤ 2 of 28 | **4/28** (sit-482, sit-075, sit-132, sit-118) | **FAIL** |
+
+- **Reported:** sit-221 → structural (correct); sit-154 → insufficient (correct). Flips: 4/30.
+- **v9 fixed the seed flakiness:** every replicate is 9/9, against 9/9, 8/9, 9/9 in run 1.
+- **Remaining failure mode:** 3 of the 4 false structurals (sit-075, sit-132, sit-118) are situations
+  that are *themselves a frame*, rejected by only one POV. The rubric is ambiguous here: §2.1 step 2
+  says "at least one POV rejects the framing", while §2.2 says one voice can't promote the label.
+  The PI decision (keep the one-dissenting-camp guard) settles it as interpretive. The model follows
+  §2.1. Prompt wording alone hasn't overridden that in two iterations on flash-lite.
+
+*Correction:* the pre-registered secondary re-score of run 1's held-out set under v9 was **not run**.
+`results_v9.json` covers only the seeds and `heldout2_labels.json`, so that secondary number doesn't
+exist. No further calls were made to produce it.

@@ -26,7 +26,9 @@ BeforeAll {
         @{ Step = 'Gate failed — health check';     Output = "steps.health_check.outputs.healthy == 'false'" }
         @{ Step = 'Gate failed — mount readiness';  Output = "steps.mount_probe.outputs.ready == 'false'" }
         @{ Step = 'Gate failed — full smoke';       Output = "steps.acceptance.outputs.accepted == 'false'" }
+        @{ Step = 'Gate failed — persona matrix';   Output = "steps.persona.outputs.accepted == 'false'" }
     )
+    $script:DeployJob = [regex]::Match($script:WorkflowText, '(?s)\n  deploy:\r?\n.*?(?=\r?\n  [a-z][a-z0-9_-]*:\r?\n)').Value
 }
 
 Describe 'deploy-azure.yml visible gate failures (t/4844 WP6)' {
@@ -34,6 +36,8 @@ Describe 'deploy-azure.yml visible gate failures (t/4844 WP6)' {
         @{ Step = 'Gate failed — health check';     Output = "steps.health_check.outputs.healthy == 'false'" }
         @{ Step = 'Gate failed — mount readiness';  Output = "steps.mount_probe.outputs.ready == 'false'" }
         @{ Step = 'Gate failed — full smoke';       Output = "steps.acceptance.outputs.accepted == 'false'" }
+        @{ Step = 'Gate failed — persona matrix';   Output = "steps.persona.outputs.accepted == 'false'" }
+        @{ Step = 'Gate failed — warm-gate';        Output = "steps.warm_gate.outputs.warm == 'false'" }
     ) {
         $text = Get-StepText $Step
         $text | Should -Not -BeNullOrEmpty -Because "the '$Step' step must exist under this exact name"
@@ -69,6 +73,51 @@ Describe 'deploy-azure.yml visible gate failures (t/4844 WP6)' {
 
     It '"Fail if unhealthy" keeps its old reach: it runs only when the health check ran' {
         Get-StepIf 'Fail if unhealthy (no previous revision to rollback to)' | Should -Match "steps\.health_check\.outcome == 'success'"
+    }
+
+    It 't/265: the warm-gate failure step is the deploy job''s last step (the last word on the run page)' {
+        # Placement is NOT load-bearing: with warm=='false', "Rollback on failure" / "Fail if unhealthy" already
+        # end in exit 1, so AC2 and the post-shift verification are skipped wherever this step sits (SO p/106#18,
+        # DevOps Lead p/107#14). This only pins the chosen layout. The restored-revision gap is t/353.
+        $warm = $script:DeployJob.IndexOf('- name: Gate failed — warm-gate')
+        $warm | Should -BeGreaterThan 0
+        $names = [regex]::Matches($script:DeployJob, '(?m)^      - name: (.+)$') | ForEach-Object { $_.Groups[1].Value.Trim() }
+        $names[-1] | Should -Be 'Gate failed — warm-gate'
+    }
+
+    It 'the rollback steps the warm-gate path goes through still end in exit 1 (why placement is not load-bearing)' {
+        (Get-StepText 'Rollback on failure') | Should -Match '(?m)^\s+exit 1\s*$'
+        (Get-StepText 'Fail if unhealthy (no previous revision to rollback to)') | Should -Match '(?m)^\s+exit 1\s*$'
+    }
+}
+
+Describe 'deploy-azure.yml deploy job reads no git history beyond rev-parse / merge-base (t/265, SO p/106#2)' {
+    # The deploy checkout is `filter: blob:none`. A step that read an old commit's FILE CONTENTS (git
+    # show/diff/log -p/cat-file ...) would lazily fetch blobs mid-deploy, depending on the network and
+    # the token at the worst moment. Only the t/4194 guard's rev-parse + merge-base (no blobs) are allowed.
+    BeforeAll {
+        # Executable lines only: drop comment lines (YAML and in-script #), keep run: bodies and with: values.
+        $script:GitSubcommands = @(
+            $script:DeployJob -split '\r?\n' |
+                Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
+                ForEach-Object { [regex]::Matches($_, '(?<![\w./-])git\s+([a-z][a-z-]*)') } |
+                ForEach-Object { $_.Groups[1].Value } |
+                Sort-Object -Unique
+        )
+    }
+
+    It 'invokes only rev-parse and merge-base' {
+        $script:GitSubcommands | Should -Not -BeNullOrEmpty -Because 'the t/4194 guard does call git; an empty set means the scan broke'
+        foreach ($sub in $script:GitSubcommands) {
+            $sub | Should -BeIn @('rev-parse', 'merge-base') -Because "git $sub in the deploy job could read blobs under filter: blob:none"
+        }
+    }
+
+    It 'FIRE ARM: the scan catches a blob-reading git call' {
+        $bad = "          git show HEAD~3:deploy/azure/main.bicep"
+        $hits = [regex]::Matches($bad, '(?<![\w./-])git\s+([a-z][a-z-]*)') | ForEach-Object { $_.Groups[1].Value }
+        $hits | Should -Contain 'show'
+        'show' | Should -Not -BeIn @('rev-parse', 'merge-base')
     }
 }
 

@@ -32,12 +32,11 @@ import {
 } from '../gate-verdict.mjs';
 // The pin patterns and the T0/T1 predicate live in an import-free module so the T0 enqueue
 // sweep can import the same code (t/309). Re-exported here for existing callers.
-import { IMAGE, DATE_TAG, DIGEST, RUNTIME_FROM, classifyRepinTier } from './repin-tier.mjs';
+import { IMAGE, BRANCH_PREFIX, DATE_TAG, DIGEST, RUNTIME_FROM, classifyRepinTier } from './repin-tier.mjs';
 
-export { IMAGE, classifyRepinTier };
+export { IMAGE, BRANCH_PREFIX, classifyRepinTier };
 export const GATE = 'base-pin-drift';
 export const REPO_PATH = 'ai-rosetta-stone/ai-triad-base';
-export const BRANCH_PREFIX = 'docker/base-repin-';
 
 /** PURE. The runtime stage's base pin, or null when no single well-formed pin line exists. */
 export function parseRuntimePin(dockerfileText) {

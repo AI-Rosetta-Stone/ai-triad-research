@@ -1485,6 +1485,100 @@ resource imagePullFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-1
   }
 }
 
+// ── Stuck-replica cost alerts (t/266 option a, TL ruling t/264#3 / t/266#5) ──
+// After a deploy, revisions were found holding a replica for hours with ZERO requests and no KEDA
+// events (t/264#2, t/266#4: c21fd5d, 60570a8, bd493e9 ...), putting billed vCPU-h over the 48/day
+// budget on 4 consecutive days (t/260#6). #4995 now retires the previous revision after a green soak;
+// these alerts catch the stall itself, whatever its cause, for any revision (serving or not).
+//
+// Not metric alerts: traffic weight is not a metric dimension, and unsplit `Replicas` AVERAGES across
+// revisions instead of summing (it read 24 replica-h on 11-07 against a true 48). Both rules use the
+// server's own `event-loop` heartbeat, which every running replica logs every ~5-25s and an idle,
+// scaled-to-zero replica does not.
+//
+// Replay against real logs (t/266, 2026-11-11), before #4995 went live:
+//   - stuckRevisionQuery fired on 11 episodes in 8 days, each one a real stuck revision (0 requests);
+//     0 firings since #4995 (~04Z 11-11); quiet in a normal deploy hour.
+//   - replicaHoursQuery: 48.1 / 40.2 / 38.4 on 11-07 / 11-09 / 11-10 (fire), 19.9 on 11-04, 4.3 in 8h
+//     after #4995 (quiet). One revision awake all day is 24, so > 30 means more than one.
+var stuckRevisionQuery = replace('''
+  ContainerAppConsoleLogs_CL
+  | where ContainerAppName_s == "__APP_NAME__"
+  | summarize AwakeMinutes = dcountif(bin(TimeGenerated, 1m), Log_s has "event-loop"), Requests = countif(Log_s has "requestId") by RevisionName_s
+  | where AwakeMinutes >= 50 and Requests == 0
+''', '__APP_NAME__', containerApp.name)
+
+var replicaHoursQuery = replace('''
+  ContainerAppConsoleLogs_CL
+  | where ContainerAppName_s == "__APP_NAME__" and Log_s has "event-loop"
+  | extend Replica = extract('"hostname":"([^"]+)"', 1, Log_s)
+  | where isnotempty(Replica)
+  | summarize Replicas = dcount(Replica) by bin(TimeGenerated, 5m)
+  | summarize ReplicaHours = sum(Replicas) * 5.0 / 60.0
+  | where ReplicaHours > 30
+''', '__APP_NAME__', containerApp.name)
+
+resource stuckRevisionAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-stuck-revision-replica'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'taxonomy-editor PROD — revision awake 1h with zero requests (stuck replica)'
+    description: 'A prod revision logged its heartbeat in >= 50 of the last 60 minutes but served ZERO requests: an idle replica that never scaled to zero (t/264, t/266). Usually the 0%-traffic previous revision after a deploy. Check `az containerapp revision list -n taxonomy-editor -g ai-triad`; deactivate a stuck 0%-traffic revision, or roll back with operations/devops/Invoke-GatedRollback.ps1 if it is the serving one.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    // One page per episode, not one every 15 min while it lasts.
+    autoMitigate: false
+    muteActionsDuration: 'PT6H'
+    criteria: {
+      allOf: [
+        {
+          query: stuckRevisionQuery
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+resource replicaHoursAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-replica-hours-24h'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'taxonomy-editor PROD — over 30 replica-hours in 24h'
+    description: 'Prod ran more than 30 replica-hours (about 45 billed vCPU-h at 1.5 vCPU) in the last 24h, summed across revisions from the heartbeat. One revision awake all day is 24, so this means more than one replica was up for a long time. Budget is 48 vCPU-h/day (t/260). Catches a stalled serving revision the stuck-revision alert can miss (t/264#3).'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'P1D'
+    autoMitigate: false
+    muteActionsDuration: 'PT12H'
+    criteria: {
+      allOf: [
+        {
+          query: replicaHoursQuery
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
 // ── GitHub API Alerts ──
 // Alert rules for the GitHub API-first data layer.
 // All use the same action group and Log Analytics workspace as the restart alert.

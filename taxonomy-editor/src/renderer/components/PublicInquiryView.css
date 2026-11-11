@@ -103,8 +103,8 @@
   letter-spacing: 0.05em;
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
-  background: var(--warning, #b58900);
-  color: #fff;
+  background: var(--warning-bg); /* t/198 S6: no legible solid warning fill */
+  color: var(--warning-text);
   margin-bottom: 0.4rem;
 }
 .pov-inquiry-banner p { margin: 0; }

@@ -1,0 +1,69 @@
+{
+  "ticket": "t/214 (Orca t/4861)",
+  "field": "disagreement_type",
+  "source": {
+    "file": "research/comp-linguist/analyses/t246-dtype-revalidation/t214_hand_labels.json",
+    "commit": "0d6ccd5a1cf45721fe7da08c8295c2ecf14491a6",
+    "sha256_lf": "c74318026eed8bd649c954d1d3eef5ecac476802adf8c0c10adc286368b94ddc",
+    "provenance": "human-validated (CL hand label, rubric-anchored); not classifier output",
+    "note": "CL hand labels (p/70#37); the classifier fails re-validation (t/246), so no classifier output is written"
+  },
+  "writer": "scripts/data-mutations/t214/Invoke-T214HandLabelApply.ps1: Read-PovTaxonomyFile -> set field -> Write-PovTaxonomyFile (canonical, element 6a); not Save-JsonNodeFieldEdits, whose absent-key insert is non-canonical (t/4836)",
+  "labels": [
+    {
+      "id": "sit-484",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-485",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-487",
+      "disagreement_type": "structural",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-488",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-489",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-490",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-491",
+      "disagreement_type": "structural",
+      "confidence": "medium"
+    },
+    {
+      "id": "sit-492",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    },
+    {
+      "id": "sit-493",
+      "disagreement_type": "interpretive",
+      "confidence": "high"
+    }
+  ],
+  "excluded": [
+    {
+      "id": "sit-486",
+      "reason": "PI-approved retirement (retire mechanism not built)"
+    }
+  ],
+  "data_commit": "d098f445f0fea2a27de8826d42ee85f134f83afc",
+  "hash_basis": "sha256-lf",
+  "situations_pre_sha256": "4b68214a31dce55b44bdfbd8f7d9cb4f98716d424acc699127f1fd58d0b57e3b",
+  "situations_post_sha256": "8749bdaf6736c29ad159efbc4f29b153ebb8fa43f2d1be7bb83536e558bacf05"
+}

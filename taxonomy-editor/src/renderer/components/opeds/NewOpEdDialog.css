@@ -223,8 +223,8 @@
   height: 1.1rem;
   padding: 0 0.3rem;
   border-radius: 999px;
-  background: var(--focus-ring, var(--text-secondary));
-  color: var(--bg-primary, #fff);
+  background: var(--focus-ring); /* t/198 S4 */
+  color: var(--text-on-focus-ring, #fff);
   font-size: 0.7rem;
   font-weight: 700;
 }

@@ -44,6 +44,8 @@ import {
   InquiryRequestSchema, type InquiryRequest, type InquiryResult,
   type InquiryJobStatus, isTerminalStatus, deriveTruncation,
 } from '../../../../lib/inquiry/index.js';
+import type { InquiryPipelineStage, InquiryStageTimings } from '../../../../lib/inquiry/jobStatus.js';
+import { advanceStageTimings } from '../../../../lib/inquiry/jobStatus.js';
 import { inquiryToJson, inquiryToMarkdown, inquiryToPrintHtml, inquiryExportFilename } from '../../../../lib/inquiry/inquiryExport.js';
 import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
@@ -63,6 +65,9 @@ interface InquiryJob {
   error: string | null;
   result: InquiryResult | null;
   startedAt: number;
+  /** t/327: per-stage timings (start/end time per stage). Includes transitions from queued
+   *  through terminal. */
+  stageTimings: InquiryStageTimings;
 }
 
 const jobs = new Map<string, InquiryJob>();
@@ -258,13 +263,53 @@ function deleteInquiryResult(jobId: string): void {
 // t/4710/t/4711/t/4713: local PROGRESS table replaced by the shared stageProgress() mapping
 // (lib/debate/debateProgressMapping.ts) — same mapping the server leg reads, so the bar no
 // longer sits at a fixed percentage for the whole (longest) Debate stage.
+
+/** t/327: Apply the stageTimings rule on a status change: end the previous stage, start the
+ *  next. On terminal status, end the current stage and don't start a new one (no next stage). */
+/** Map InquiryJobStatus (the full status including queued/terminal) to InquiryPipelineStage
+ *  (the 4 pipeline stages). Used by setStatus to track stage timings. Queued and terminal
+ *  statuses have no mapping (they're not pipeline stages). */
+function jobStatusToPipelineStage(status: InquiryJobStatus): InquiryPipelineStage | undefined {
+  switch (status) {
+    case 'grounding': return 'grounding';
+    case 'debating': return 'debating';
+    case 'judging': return 'judging';
+    case 'synthesizing': return 'synthesizing';
+    case 'queued': // not a pipeline stage
+    case 'done':
+    case 'done_truncated':
+    case 'failed':
+      return undefined;
+    default: {
+      const _x: never = status;
+      return _x;
+    }
+  }
+}
+
 function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
+  const prevStatus = job.status;
+  const prevStage = jobStatusToPipelineStage(prevStatus);
+  const nextStage = jobStatusToPipelineStage(status);
+
   job.status = status;
   job.progressPct = stageProgress(status);
   // stageDetail only applies while debating (set by onDebateProgress below, as fine-grained
   // events arrive); clear it on every other transition so a stale round/speaker line doesn't
   // linger once the stage has moved on.
   if (status !== 'debating') job.stageDetail = null;
+
+  // t/327: record stage transition timings. A same-status repeat (e.g. deriving→grounding, both
+  // mapping to 'grounding') is not a transition, so it must not restart the stage's clock.
+  if (prevStatus !== status) {
+    const now = Date.now();
+    if (nextStage !== undefined) {
+      advanceStageTimings(job.stageTimings, prevStage, nextStage, now);
+    } else if (isTerminalStatus(status) && prevStage !== undefined) {
+      // Terminal: end the stage the job was in (the last stage, or the one a failed job died in).
+      job.stageTimings[prevStage].endedAt = now;
+    }
+  }
 }
 
 function sweepJobs(): void {
@@ -340,6 +385,7 @@ function getLoadedTaxonomy(): LoadedTaxonomy {
 
 function startJob(request: InquiryRequest): InquiryJob {
   sweepJobs();
+  const now = Date.now();
   const job: InquiryJob = {
     jobId: randomUUID(),
     status: 'queued',
@@ -349,7 +395,14 @@ function startJob(request: InquiryRequest): InquiryJob {
     resultId: null,
     error: null,
     result: null,
-    startedAt: Date.now(),
+    startedAt: now,
+    // t/327: initialize stageTimings with all 4 pipeline stages (undefined start/end until they're entered)
+    stageTimings: {
+      grounding: {},
+      debating: {},
+      judging: {},
+      synthesizing: {},
+    },
   };
   jobs.set(job.jobId, job);
   void runJob(job, request);
@@ -461,6 +514,8 @@ function jobView(job: InquiryJob): Record<string, unknown> {
     terminationReason: job.terminationReason,
     resultId: job.resultId,
     error: job.error,
+    // t/327: stageTimings is always sent (all four stages, empty until entered)
+    stageTimings: job.stageTimings,
   };
   return job.result ? { ...base, result: job.result } : base;
 }

@@ -108,7 +108,7 @@
 }
 .helpdialog-tab-badge {
   margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: var(--text-2xs);
-  font-weight: 700; background: var(--danger, #ef4444); color: #fff;
+  font-weight: 700; background: var(--danger-fill, #dc2626); color: #fff;
   line-height: 16px; display: inline-block; min-width: 16px; text-align: center;
 }
 .helpdialog-content { flex: 1; overflow-y: auto; min-height: 0; }

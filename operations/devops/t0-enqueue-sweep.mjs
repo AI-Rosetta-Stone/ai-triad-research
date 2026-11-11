@@ -41,7 +41,7 @@ import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
-import { BRANCH_PREFIX as REPIN_BRANCH_PREFIX, classifyRepinTier } from './docker/base-pin-drift.mjs';
+import { BRANCH_PREFIX as REPIN_BRANCH_PREFIX, classifyRepinTier } from './docker/repin-tier.mjs';
 
 // t/309: the one file a re-pin PR may touch (check-base-pin-drift.yml's DOCKERFILE).
 export const REPIN_DOCKERFILE = 'taxonomy-editor/Dockerfile';
@@ -211,6 +211,40 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 }
 
+// t/316: the open-PR search is a heavy nested query (contexts, files, reviews, comments per PR).
+// At 50 PRs a page, GitHub's GraphQL gateway timed out on it as the open-PR count grew: HTTP
+// 502/504 on 11 of 13 sweep runs in one hour (t/313#14). Smaller pages cut the per-request cost;
+// SEARCH_MAX_PAGES keeps the same reach (300 PRs vs the old 10 x 50 = 500, far above real counts).
+export const SEARCH_PAGE_SIZE = 15;
+export const SEARCH_MAX_PAGES = 20;
+
+/** PURE (t/316). True for a GitHub gateway error worth retrying: HTTP 502, 503 or 504. */
+export function isTransientGatewayError(message) {
+  return /\bHTTP 50[234]\b/.test(String(message ?? ''));
+}
+
+/**
+ * t/316. Runs `fn`; on a transient gateway error, waits and retries, up to `delaysMs.length`
+ * extra tries. Anything else, or a gateway error that outlasts the retries, is rethrown, so the
+ * sweep still fails closed. `sleep` and `log` are injectable for tests.
+ */
+export function withGatewayRetry(fn, { delaysMs = [5000, 15000], sleep = sleepSync, log = console.log, label = 'request' } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return fn();
+    } catch (err) {
+      const msg = `${err?.message ?? err}\n${err?.stderr ?? ''}`;
+      if (!isTransientGatewayError(msg) || attempt >= delaysMs.length) throw err;
+      log(`WARN: ${label} hit a GitHub gateway error (${msg.match(/HTTP 50[234]/)[0]}); retrying in ${delaysMs[attempt] / 1000}s (attempt ${attempt + 2} of ${delaysMs.length + 1}). Transient, not a sweep failure.`);
+      sleep(delaysMs[attempt]);
+    }
+  }
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
  * PURE (should-fix, t/4952#5). True when the raw GraphQL `files`/`reviews`/`comments`
  * sub-objects for one PR node are missing or truncated. `files` pages forward (first:100):
@@ -233,7 +267,7 @@ export function hasReviewDataError({ files, reviews, comments }) {
 const CONTEXT_FIELDS = '... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}';
 
 function listOpenPRs(repo) {
-  const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:50,after:$cursor){
+  const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:${SEARCH_PAGE_SIZE},after:$cursor){
     pageInfo{hasNextPage endCursor}
     nodes{... on PullRequest{
       number body headRefOid headRefName baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
@@ -248,10 +282,10 @@ function listOpenPRs(repo) {
       comments(last:50){pageInfo{hasPreviousPage} nodes{body author{login} createdAt lastEditedAt}}}}}}`;
   const prs = [];
   let cursor = null;
-  for (let page = 0; page < 10; page++) {
+  for (let page = 0; page < SEARCH_MAX_PAGES; page++) {
     const args = ['api', 'graphql', '-f', `query=${query}`, '-f', `q=repo:${repo} is:pr is:open base:main`];
     if (cursor) args.push('-f', `cursor=${cursor}`);
-    const r = JSON.parse(gh(args)).data.search;
+    const r = JSON.parse(withGatewayRetry(() => gh(args), { label: `open-PR search page ${page + 1}` })).data.search;
     for (const n of r.nodes) {
       const reviewDataError = hasReviewDataError(n);
       prs.push({
@@ -276,8 +310,20 @@ function listOpenPRs(repo) {
     }
     if (!r.pageInfo.hasNextPage) break;
     cursor = r.pageInfo.endCursor;
+    const warn = pageCapWarning(page + 1, r.pageInfo.hasNextPage);
+    if (warn) console.log(warn);
   }
   return prs;
+}
+
+/**
+ * PURE (t/316, Quality's #5030 note). A WARN when the search stopped at SEARCH_MAX_PAGES with
+ * results still unread, else null. Stopping is the safe direction (the unread PRs just aren't
+ * enqueued this pass), but it must be visible rather than silent.
+ */
+export function pageCapWarning(pagesRead, hasNextPage, maxPages = SEARCH_MAX_PAGES, pageSize = SEARCH_PAGE_SIZE) {
+  if (!hasNextPage || pagesRead < maxPages) return null;
+  return `WARN: open-PR search stopped at its ${maxPages}-page cap (${maxPages * pageSize} PRs) with more results unread; PRs past the cap are not considered this pass (raise SEARCH_MAX_PAGES if open PRs really exceed it).`;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

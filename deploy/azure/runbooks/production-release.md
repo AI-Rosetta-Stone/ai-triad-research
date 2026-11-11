@@ -181,6 +181,8 @@ All alerts route to the `ag-aitriad-restart-alert` action group, which emails `A
 | `alert-fallback-active` | 1 (Error) | App serving from fallback data | 5min / 5min |
 | `alert-paid-fallback-overflow` | 2 (Warning) | Paid Gemini fallback key served a request (free pool exhausted → billable overflow; expect ~0) | 15min / 60min |
 | `alert-branch-divergence` | 3 (Info) | Session branch 10+ commits behind | 15min / 15min |
+| `alert-stuck-revision-replica` | 2 (Warning) | A prod revision logged its heartbeat in 50+ of 60 minutes with **zero** requests: a replica that never scaled to zero (t/264, t/266). Usually the 0%-traffic previous revision; deactivate it, or roll back with `Invoke-GatedRollback.ps1` if it's the serving one. Mutes 6h | 15min / 60min |
+| `alert-replica-hours-24h` | 2 (Warning) | Over 30 replica-hours (about 45 billed vCPU-h) in 24h, summed across revisions from the heartbeat. The budget is 48 vCPU-h/day (t/260). Mutes 12h | 60min / 24h |
 
 ### External Availability Probe (GitHub Actions)
 

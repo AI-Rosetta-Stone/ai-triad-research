@@ -21,12 +21,11 @@ import os
 import sys
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 sys.stdout.reconfigure(encoding='utf-8')
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', '..', '..', '..', 'scripts'))
-from embed_model_pins import load_cross_encoder  # noqa: E402
+from embed_model_pins import load_cross_encoder, load_sentence_transformer  # noqa: E402
 DATA_ROOT = os.environ.get('AI_TRIAD_DATA_ROOT', os.path.join(HERE, '..', '..', '..', '..', '..', '..', 'ai-triad-data'))
 TAX = os.path.join(DATA_ROOT, 'taxonomy', 'Origin')
 POV_FILES = {'acc': 'accelerationist.json', 'saf': 'safetyist.json', 'skp': 'skeptic.json'}
@@ -53,7 +52,7 @@ def main() -> None:
     mat /= np.linalg.norm(mat, axis=1, keepdims=True)
     camp_of = np.array([nodes[i][0] for i in ids])
 
-    bi = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    bi = load_sentence_transformer('sentence-transformers/all-MiniLM-L6-v2')  # t/152: pinned revision
     ce = load_cross_encoder('cross-encoder/ms-marco-MiniLM-L6-v2')
     print(f'cross-encoder resolved_revision={ce.resolved_revision}', file=sys.stderr)
 
