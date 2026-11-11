@@ -1,12 +1,12 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// Brief Export REST API (t/2804, T6 â spec Â§5/Â§6). Async export jobs over the shared
+// Brief Export REST API (t/2804, T6 — spec §5/§6). Async export jobs over the shared
 // lib/brief pipeline: POST enqueues (202 + jobId), GET polls, list/download/DELETE.
 //
 // BILLABLE surface (TL MUST t/2804#2 #5): narrate + optional checker call a model, so
 // POST requires an authenticated identity (never anon) AND inherits the shared
-// entitlement gate â resolveExportModel pins the free tier + validates the model id,
+// entitlement gate — resolveExportModel pins the free tier + validates the model id,
 // enforceBackendAllowed 403s a premium backend on a restricted tier. skipNarration
 // (zero model calls) still requires auth (identity-scoped storage).
 
@@ -23,7 +23,7 @@ import {
   startExportJob, getExportJob, hasExportJob, sweepExportJobs, countRunningExportJobs,
   findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
-import { countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation } from '../storage/jobCapChecker.js';
+import { reserveSubmissionSlot, releaseSubmissionReservation } from '../storage/jobCapChecker.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
 import type { DebateSession } from '../../../../lib/debate/types.js';
@@ -38,7 +38,7 @@ interface ExportPostBody {
   options?: { skipNarration?: unknown };
 }
 
-/** The static, request-shape gates that need no I/O â auth, preset, PDF-is-desktop-only,
+/** The static, request-shape gates that need no I/O — auth, preset, PDF-is-desktop-only,
  *  and the live-snapshot (allowOpen) block. Split out so the POST handler stays under the
  *  complexity ceiling; the I/O gates (debate load, model resolution) remain inline. */
 type ExportPrecheck =
@@ -46,13 +46,13 @@ type ExportPrecheck =
   | { ok: true; preset: BriefPreset; skipNarration: boolean; allowOpen: boolean };
 
 function precheckExportRequest(req: Parameters<Parameters<Router['post']>[1]>[0], b: ExportPostBody): ExportPrecheck {
-  // Auth MUST (#5): export is billable â never anon.
+  // Auth MUST (#5): export is billable — never anon.
   if (isAnonymousUser()) return { ok: false, status: 403, message: 'Sign in to export a debate brief' };
 
   const preset = b.preset as BriefPreset;
   if (!PRESETS.includes(preset)) return { ok: false, status: 400, message: `preset must be one of: ${PRESETS.join(', ')}` };
 
-  // Format â PDF is Electron-only; never silently omit (TL MUST #3).
+  // Format — PDF is Electron-only; never silently omit (TL MUST #3).
   const formats = Array.isArray(b.format) ? (b.format as string[]) : ['pptx'];
   if (formats.includes('pdf')) {
     return { ok: false, status: 400, message: 'PDF requires the desktop app: the server renders .pptx (and spec). Open the AITriad desktop app to export a PDF (printToPDF is Electron-only).' };
@@ -98,41 +98,16 @@ async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>
     json(res, { jobId: job.jobId }, 202);
   } catch (err) {
     // The durable job record could not be created, so no job was started (nothing billed).
-    getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export job record could not be created â export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export job record could not be created — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     error(res, 'Could not start the export because job storage is unavailable. Nothing was started or charged; try again in a minute.', 503, err);
   }
-}
-
-/** Check durable idempotency and concurrency caps for brief exports (t/182).
- *  Returns true if validation passed; writes error to res and returns false otherwise.
- *  Extracted from POST handler to keep it within complexity budget. */
-async function validateDurableCapAndIdempotency(res: Parameters<Parameters<Router['post']>[1]>[1], userId: string, debateId: string, idempotencyKey: string | undefined): Promise<boolean> {
-  const existingByKey = await findRunningJobByIdempotencyKey(
-    userId, 'brief-export', idempotencyKey, debateId,
-    (r: any) => r.status !== 'failed' && r.status !== 'done',
-  );
-  if (existingByKey) { json(res, { jobId: existingByKey.jobId }, 202); return false; }
-
-  const capResult = await countUserJobRecords(
-    userId, 'brief-export',
-    (r: any) => r.status !== 'failed' && r.status !== 'done',
-  );
-  if (capResult.error) {
-    error(res, 'Job service temporarily unavailable', 503);
-    return false;
-  }
-  if (capResult.count !== null && capResult.count >= MAX_CONCURRENT_EXPORT_JOBS) {
-    json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
-    return false;
-  }
-  return true;
 }
 
 export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
   const { get, post, del } = r;
 
-  // ââ GET /api/brief-exports/quota-status (t/2831) ââ
-  // Registered first â no wildcard conflict risk in this namespace, but keep
+  // ── GET /api/brief-exports/quota-status (t/2831) ──
+  // Registered first — no wildcard conflict risk in this namespace, but keep
   // the pattern consistent with oped-sets/quota-status (t/2573).
   get('/api/brief-exports/quota-status', async (_req, res) => {
     try { json(res, await getBriefExportsQuotaStatus()); }
@@ -142,7 +117,7 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     }
   });
 
-  // ââ POST /api/debates/:debateId/exports â 202 { jobId } ââ
+  // ── POST /api/debates/:debateId/exports → 202 { jobId } ──
   post('/api/debates/:debateId/exports', async (req, res, body) => {
     const b = (body ?? {}) as ExportPostBody;
     const pre = precheckExportRequest(req, b);
@@ -174,19 +149,19 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     const models = resolveExportModels(req, res, b);
     if (!models) return; // helper already wrote the 400/403
 
-    // Idempotency + concurrency (durable via job records).
+    // Idempotency + concurrency.
     sweepExportJobs();
     const userId = getStorageUserId();
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined) || undefined;
+    const existing = findIdempotentJob(userId, debateId, idempotencyKey);
+    if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
     
     // t/182: Reserve submission slot before async checks
     if (!reserveSubmissionSlot(userId, 'brief-export', undefined)) {
-      error(res, 'An export is already being started — wait for it to finish.', 429);
+      json(res, { error: 'concurrency_limit', message: 'An export is already being started — wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
       return;
     }
     try {
-      if (!(await validateDurableCapAndIdempotency(res, userId, debateId, idempotencyKey))) return;
-
       const framingMeta = b.framingMeta === false ? false : undefined;
       const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;
       await startJobAndRespond(res, {
@@ -200,7 +175,7 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     }
   });
 
-  // ââ GET /api/export-jobs/:jobId ââ
+  // ── GET /api/export-jobs/:jobId ──
   get('/api/export-jobs/:jobId', async (req, res) => {
     const jobId = param(req, 'jobId', '/api/export-jobs/:jobId');
     const job = getExportJob(jobId, getStorageUserId());
@@ -209,14 +184,14 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
       // record is user-scoped, so another user's jobId simply reads as absent.
       let rec: Awaited<ReturnType<typeof resolveBriefExportJobPoll>> = null;
       try { rec = await resolveBriefExportJobPoll(jobId); } catch (err) {
-        getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'warn', message: 'export-job tier-3 lookup failed â answering 404', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'warn', message: 'export-job tier-3 lookup failed — answering 404', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       }
       if (rec) { json(res, { status: rec.status, progressPct: rec.progressPct, warnings: rec.warnings, error: rec.error, errorCode: rec.errorCode, exportId: rec.exportId }); return; }
     }
     if (!job) {
       // t/2887: record the miss so a poll 404 is diagnosable in server FR (was invisible, t/2884).
-      // `inMap` distinguishes "not in THIS process's registry at all" â the cross-replica-404
-      // signal (job created on another replica; see t/2885 cap) â from "present but wrong user".
+      // `inMap` distinguishes "not in THIS process's registry at all" — the cross-replica-404
+      // signal (job created on another replica; see t/2885 cap) — from "present but wrong user".
       // We log the 404 (the failure) but NOT the frequent 200 polls, which would flood the FR
       // ring and evict this very event (deliberate deviation from the ticket's "every GET").
       getGlobalRecorder()?.record({
@@ -224,12 +199,12 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
         message: 'export-job poll 404',
         data: { jobId, status: 404, found: false, inMap: hasExportJob(jobId) },
       });
-      error(res, 'Export job not found (it may have expired â check the debate exports list).', 404); return;
+      error(res, 'Export job not found (it may have expired — check the debate exports list).', 404); return;
     }
     json(res, { status: job.status, progressPct: job.progressPct, warnings: job.warnings, error: job.error, errorCode: job.errorCode ?? null, exportId: job.exportId });
   });
 
-  // ââ GET /api/debates/:debateId/exports (list + records) ââ
+  // ── GET /api/debates/:debateId/exports (list + records) ──
   get('/api/debates/:debateId/exports', async (req, res) => {
     const debateId = param(req, 'debateId', '/api/debates/:debateId/exports');
     try { json(res, await listBriefExports(debateId)); }
@@ -239,7 +214,7 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     }
   });
 
-  // ââ GET /api/exports/:exportId/artifacts/:name (download) ââ
+  // ── GET /api/exports/:exportId/artifacts/:name (download) ──
   get('/api/exports/:exportId/artifacts/:name', async (req, res) => {
     const exportId = param(req, 'exportId', '/api/exports/:exportId/artifacts/:name');
     const name = param(req, 'name', '/api/exports/:exportId/artifacts/:name');
@@ -261,7 +236,7 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     }
   });
 
-  // ââ DELETE /api/exports/:exportId ââ
+  // ── DELETE /api/exports/:exportId ──
   del('/api/exports/:exportId', async (req, res) => {
     if (isAnonymousUser()) { error(res, 'Sign in to manage exports', 403); return; }
     const exportId = param(req, 'exportId', '/api/exports/:exportId');
