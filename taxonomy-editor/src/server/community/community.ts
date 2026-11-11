@@ -873,7 +873,7 @@ function projectAdaptiveStaging(value: unknown): Record<string, unknown> | undef
  *  Each submission type's allowlist is explicitly defined below. Owner-only fields
  *  (source_content, config, etc.) are intentionally excluded. New fields added to a type
  *  must be explicitly allowed here; unknown fields default to dropped (default-deny).
- *  NOTE: source_content/source_ref are debate fields but excluded here pending TL decision (t/196#11).
+ *  Debate: source_content/source_ref are owner-only (TL ruling t/196#23, fail closed).
  *  - Inquiry: handled separately via fieldClassification matrix (t/3648) */
 const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
   chat: new Set([
