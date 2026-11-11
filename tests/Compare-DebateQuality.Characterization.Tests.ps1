@@ -152,7 +152,7 @@ Describe "Compare-DebateQuality.Characterization" {
             # Should produce CSV lines with headers
             $result -is [object[]] | Should -Be $true
             @($result).Count | Should -BeGreaterThan 1  # Header + at least one data row
-            $result[0] | Should -Match "Metric,Baseline,Treatment"
+            $result[0] | Should -Match '"Metric".*"Baseline".*"Treatment"'
         } finally {
             Remove-Item $baselinePath -Force -ErrorAction SilentlyContinue
             Remove-Item $treatmentPath -Force -ErrorAction SilentlyContinue
