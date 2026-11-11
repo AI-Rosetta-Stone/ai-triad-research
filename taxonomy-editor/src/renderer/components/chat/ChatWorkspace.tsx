@@ -34,6 +34,7 @@ import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
 import { HowPanel } from '../shared/HowPanel';
+import { BdiGroundingView } from '../debate-workspace/TaxonomyRefs';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -85,62 +86,15 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
   };
 }
 
-function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; selected?: boolean; onClick?: () => void }) {
-  const tab = nodeIdToTab(taxRef.node_id);
-  // t/4651 (Design's a11y pass, t/4651#3): was a <span onClick> — no role, no tabIndex, no key
-  // handler, so keyboard/screen-reader users couldn't open a ref's detail at all (WCAG 2.1.1),
-  // and closing the detail had no focusable trigger to return to (fell back to <body>). A real
-  // button fixes both for free — focus return is TaxNodeDetail's existing restore-to-opener
-  // logic (t/4651), which needs document.activeElement to be an actual element, not a span.
-  return (
-    <button
-      type="button"
-      className={`taxonomy-pill tab-${tab}${selected ? ' selected' : ''}`}
-      title={taxRef.relevance || taxRef.node_id}
-      onClick={onClick}
-      aria-expanded={onClick ? selected === true : undefined}
-      data-clickable={onClick ? '' : undefined}
-    >
-      {taxRef.node_id}
-    </button>
-  );
-}
 
 /**
- * t/4627: always-visible per-reply BDI grounding list. Each item is clickable; clicking opens
- * that node's detail inline below the list (one open per reply, click again to hide, clicking a
- * different item switches). This state is local to the reply — separate from the chat-wide
- * `selectedRef`/`onSelectRef` that still drives `ChatDetailPane` for in-text ref links
- * (`makeRefLinkSpan`), which this component does not touch. pol-* and sit-* ids flow through the
- * same `TaxNodeDetail` unchanged — it already resolves policy/situation PinnedData variants.
+ * t/167: Chat's Why grounding now uses the shared BdiGroundingView from debate.
+ * It groups refs by BDI category (Desires, Intentions, Beliefs), renders each with
+ * labels, and allows inline node detail viewing via click. Empty refs show Chat's
+ * approved wording from t/4862.
  */
 export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; emptyText?: string }) {
-  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
-  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
-
-  // t/165: an answer with no refs says so rather than leaving the "Why" eyebrow over nothing.
-  if (!refs || refs.length === 0) return emptyText ? <p className="chat-why-empty">{emptyText}</p> : null;
-
-  return (
-    <div className="chat-taxonomy-refs">
-      <div className="chat-taxonomy-reasoning">
-        {refs.map((r) => (
-          <div key={r.node_id} className="chat-taxonomy-reasoning-item">
-            <TaxonomyPill
-              taxRef={r}
-              selected={selectedBdiNodeId === r.node_id}
-              onClick={() => toggleBdiNode(r.node_id)}
-            />
-            {r.label && <span className="chat-reasoning-label">{r.label}</span>}
-            {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
-          </div>
-        ))}
-      </div>
-      {selectedBdiNodeId && (
-        <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />
-      )}
-    </div>
-  );
+  return <BdiGroundingView refs={refs} emptyText={emptyText} />;
 }
 
 // ── Chat message ─────────────────────────────────────────
