@@ -196,7 +196,8 @@ export interface OpEdProgressEvent { set_id: string; voice: string; stage: strin
 
 // Inquiry (t/3582, T-inquiry) — client shapes of the T-inquiry REST API (server: routes/inquiry.ts,
 // t/3581). Field-for-field identical to the route contract (t/3582#1) so the two stay in lockstep.
-import type { InquiryResult as _InquiryResult, InquiryJobStatus as _InquiryJobStatus } from '../../../../lib/inquiry';
+import type { InquiryResult as _InquiryResult, InquiryJobStatus as _InquiryJobStatus, InquiryPipelineStage } from '../../../../lib/inquiry';
+import type { InquiryStageTiming } from '../../../../lib/inquiry/jobStatus';
 export type InquiryResult = _InquiryResult;
 // t/3609: hoisted to lib/inquiry (single source of truth across server/main/renderer) — re-exported
 // here so existing `from '../bridge/types'` imports keep working unchanged. isInquiryTerminal
@@ -228,6 +229,9 @@ export interface InquiryStatusResponse {
    *  responding"), derived from the debate engine's per-turn progress events. Present only
    *  while status === 'debating'; absent for every other status. */
   stageDetail?: string;
+  /** t/324 phase 2: authoritative per-stage timings from the host; preferred over the renderer's
+   *  client-observed ones when present. */
+  stageTimings?: Partial<Record<InquiryPipelineStage, InquiryStageTiming>>;
   terminationReason: string | null;
   resultId: string | null;
   error: string | null;
