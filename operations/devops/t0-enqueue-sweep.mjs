@@ -41,7 +41,7 @@ import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
-import { BRANCH_PREFIX as REPIN_BRANCH_PREFIX, classifyRepinTier } from './docker/base-pin-drift.mjs';
+import { BRANCH_PREFIX as REPIN_BRANCH_PREFIX, classifyRepinTier } from './docker/repin-tier.mjs';
 
 // t/309: the one file a re-pin PR may touch (check-base-pin-drift.yml's DOCKERFILE).
 export const REPIN_DOCKERFILE = 'taxonomy-editor/Dockerfile';
