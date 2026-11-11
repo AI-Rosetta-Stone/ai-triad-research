@@ -246,6 +246,7 @@ export default defineConfig({
       '../../../lib/search/**/*.test.ts',
       '../../../lib/entities/**/*.test.ts',
       '../../../lib/sanitize/**/*.test.ts',
+      '../../../lib/extraction/**/*.test.ts', // t/273 — document extraction (TL-authorized one-line include)
       // t/720 consolidation: the shared SSRF-guarded fetcher backs POST /api/fetch-url,
       // so its suite must gate CI. It was absent from this list since t/2482 landed.
       '../../../lib/url-fetch/**/*.test.ts',
