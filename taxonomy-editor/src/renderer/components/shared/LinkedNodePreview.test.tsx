@@ -101,7 +101,7 @@ describe('LinkedNodePreview', () => {
     setItemSpy.mockRestore();
   });
 
-  it('logs WARN when node has no plain_description and falls back to formal', () => {
+  it('logs WARN when node has no plain_description and falls back to formal', async () => {
     const recordSpy = vi.fn();
     vi.spyOn(flightRecorderModule, 'getGlobalRecorder').mockReturnValue({ record: recordSpy } as any);
     
@@ -109,14 +109,36 @@ describe('LinkedNodePreview', () => {
     mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
     render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
     
-    expect(recordSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'system.error',
-        component: 'LinkedNodePreview',
-        level: 'warn',
-        message: expect.stringContaining('acc-beliefs-001'),
-      })
-    );
+    await waitFor(() => {
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'system.error',
+          component: 'LinkedNodePreview',
+          level: 'warn',
+          message: expect.stringContaining('acc-beliefs-001'),
+        })
+      );
+    });
+  });
+
+  it('logs WARN only once per nodeId, not on every render', async () => {
+    const recordSpy = vi.fn();
+    vi.spyOn(flightRecorderModule, 'getGlobalRecorder').mockReturnValue({ record: recordSpy } as any);
+    
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    const { rerender } = render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    await waitFor(() => {
+      expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+    
+    recordSpy.mockClear();
+    rerender(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    await waitFor(() => {
+      expect(recordSpy).not.toHaveBeenCalled();
+    });
   });
 
   it('renders conflict data correctly', () => {

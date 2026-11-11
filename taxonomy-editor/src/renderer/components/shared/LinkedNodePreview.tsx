@@ -19,6 +19,8 @@ const CONFLICT_STATUS_LABELS: Record<string, string> = {
   'wont-fix': "Won't Fix",
 };
 
+const reportedMissingPlain = new Set<string>();
+
 interface EnrichedAttrs {
   interpretation?: string | { summary?: string };
   key_points?: string[];
@@ -75,14 +77,6 @@ function renderNodePreview(
   const hasPlain = Boolean(node.plain_description);
 
   const descResult = resolveDescription(node, descMode);
-  if (descResult.isGenerating && !node.plain_description) {
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'LinkedNodePreview',
-      level: 'warn',
-      message: `Node ${nodeId} has no plain_description, falling back to formal`,
-    });
-  }
 
   return (
     <div className="linked-node-preview">
@@ -129,6 +123,19 @@ function renderNodePreview(
 export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
   const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
+
+  useEffect(() => {
+    const data = lookupPinnedData(nodeId);
+    if (data && (data.type === 'pov' || data.type === 'situations') && data.node && !data.node.plain_description && !reportedMissingPlain.has(nodeId)) {
+      reportedMissingPlain.add(nodeId);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'LinkedNodePreview',
+        level: 'warn',
+        message: `Node ${nodeId} has no plain_description, falling back to formal`,
+      });
+    }
+  }, [nodeId, lookupPinnedData]);
 
   const data = lookupPinnedData(nodeId);
   if (!data) return null;
