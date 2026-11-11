@@ -265,8 +265,7 @@ function deleteInquiryResult(jobId: string): void {
 // longer sits at a fixed percentage for the whole (longest) Debate stage.
 
 /** t/327: Apply the stageTimings rule on a status change: end the previous stage, start the
- *  next. On terminal status, end the current stage and don't start a new one (no next stage).
- *  Stub implementation; replaced by t/325 (Shared Lib) once merged. */
+ *  next. On terminal status, end the current stage and don't start a new one (no next stage). */
 /** Map InquiryJobStatus (the full status including queued/terminal) to InquiryPipelineStage
  *  (the 4 pipeline stages). Used by setStatus to track stage timings. Queued and terminal
  *  statuses have no mapping (they're not pipeline stages). */

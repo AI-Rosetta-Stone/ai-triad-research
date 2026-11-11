@@ -865,7 +865,7 @@ function buildElectronApi() {
     stageDetail?: string;
     terminationReason: string | null; resultId: string | null; error: string | null;
     /** t/327: Timing information for the inquiry pipeline stages (grounding/debating/judging/synthesizing).
-     *  Each stage records Unix timestamps (ms) for when it started and ended. Present only when the inquiry has begun. */
+     *  Each stage records Unix timestamps (ms) for when it started and ended. Always sent; a stage not yet entered has no startedAt/endedAt. */
     stageTimings?: Record<'grounding' | 'debating' | 'judging' | 'synthesizing', { startedAt?: number; endedAt?: number }>;
     result?: InquiryResult;
   } | null> =>

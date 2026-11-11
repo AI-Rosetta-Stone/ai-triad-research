@@ -234,7 +234,7 @@ export interface InquiryStatusResponse {
   resultId: string | null;
   error: string | null;
   /** t/327: Timing information for the inquiry pipeline stages (grounding/debating/judging/synthesizing).
-   *  Each stage records when it started and ended. Present only when the inquiry has begun. */
+   *  Each stage records when it started and ended. Always sent; a stage not yet entered has no startedAt/endedAt. */
   stageTimings?: InquiryStageTimings;
   /** Present on `done` / `done_truncated` (including the cross-replica persisted-result fallback). */
   result?: InquiryResult;
