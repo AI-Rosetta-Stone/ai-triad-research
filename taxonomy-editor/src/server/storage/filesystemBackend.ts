@@ -36,7 +36,7 @@ async function serializeConditionalWrite<T>(filePath: string, fn: () => Promise<
  * gracefully (no throws for ENOENT).
  *
  * t/223: Constructor accepts optional root; all file operations are confined
- * to it. Resolving a path outside root or relative to `..` throws INVALID_PATH.
+ * to it. A path that resolves outside root (incl. via symlink) throws PATH_OUTSIDE_ROOT.
  */
 export class FilesystemBackend implements StorageBackend {
   readonly backendName = 'filesystem';
@@ -46,31 +46,50 @@ export class FilesystemBackend implements StorageBackend {
     this.root = opts?.root ? path.resolve(opts.root) : undefined;
   }
 
-  /** t/223: Validate that a path resolves within the backend root (if set).
-   *  Rejects paths that resolve outside root. Absolute paths inside root are allowed.
-   *  Uses path.resolve to normalize, then checks that abs === root or abs is under root. */
-  private validatePathConfinement(filePath: string): void {
-    if (!this.root) return; // No root set, no confinement check
+  private static isWithin(abs: string, rootAbs: string): boolean {
+    const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const r = process.platform === 'win32' ? rootAbs.toLowerCase() : rootAbs;
+    return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  }
 
-    const abs = path.resolve(this.root, filePath);
-    const rootAbs = path.resolve(this.root);
-    
-    // Normalize for case-insensitive comparison on win32
-    const absNorm = process.platform === 'win32' ? abs.toLowerCase() : abs;
-    const rootNorm = process.platform === 'win32' ? rootAbs.toLowerCase() : rootAbs;
-    
-    // Path must be exactly root or start with root + separator
-    const isInRoot = absNorm === rootNorm || absNorm.startsWith(rootNorm + path.sep);
-    if (!isInRoot) {
+  private realRoot?: Promise<string>;
+
+  /** t/223: resolve `filePath` against the root and refuse (PATH_OUTSIDE_ROOT) anything that
+   *  lands outside it, lexically or through a symlink. Runs before any fs call and returns the
+   *  absolute path every fs call must use (so relative paths never resolve against the cwd).
+   *  Absolute paths inside the root are allowed. With no root configured, returns the path as-is. */
+  private async confine(filePath: string): Promise<string> {
+    if (!this.root) return filePath;
+    const root = this.root;
+    const abs = path.resolve(root, filePath);
+    let ok = FilesystemBackend.isWithin(abs, root);
+    if (ok) {
+      this.realRoot ??= fs.realpath(root).catch(() => root);
+      const realRoot = await this.realRoot;
+      // Realpath the deepest existing ancestor so a symlink inside the root can't lead out.
+      let probe = abs;
+      for (;;) {
+        try {
+          ok = FilesystemBackend.isWithin(await fs.realpath(probe), realRoot);
+          break;
+        } catch (err) {
+          const parent = path.dirname(probe);
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) break;
+          probe = parent;
+        }
+      }
+    }
+    if (!ok) {
       throw new ActionableError({
         goal: 'Confine file access to backend root',
         problem: `Path escapes root: ${filePath}`,
-        location: 'FilesystemBackend.validatePathConfinement',
+        location: 'FilesystemBackend.confine',
         nextSteps: ['Use only paths within the backend root'],
         code: 'PATH_OUTSIDE_ROOT',
         httpStatus: 400,
       });
     }
+    return abs;
   }
 
   private async renameWithRetry(oldPath: string, newPath: string): Promise<void> {
@@ -97,7 +116,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readFile(filePath: string, _opts?: { ref?: string; optional?: boolean; consultOverlayOnPin?: boolean }): Promise<string | null> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     try {
       return await fs.readFile(filePath, 'utf-8');
     } catch (err: unknown) {
@@ -133,7 +152,7 @@ export class FilesystemBackend implements StorageBackend {
    * same directory is still unguarded.
    */
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     if (opts?.baseSha !== undefined) {
       const baseSha = opts.baseSha;
       return serializeConditionalWrite(filePath, () => this.checkedWrite(filePath, content, baseSha));
@@ -165,7 +184,7 @@ export class FilesystemBackend implements StorageBackend {
    * `baseSha` writes. On a filesystem without hard links it falls back to a `'wx'` write (WARN).
    */
   async writeFileIfAbsent(filePath: string, content: string): Promise<WriteIfAbsentResult> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     return serializeConditionalWrite(filePath, () => this.createExclusive(filePath, content));
   }
 
@@ -240,7 +259,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string): Promise<string[]> {
-    this.validatePathConfinement(dirPath);
+    dirPath = await this.confine(dirPath);
     try {
       return await fs.readdir(dirPath);
     } catch (err: unknown) {
@@ -259,7 +278,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async deleteFile(filePath: string): Promise<void> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     try {
       await fs.unlink(filePath);
     } catch (err: unknown) {
@@ -276,7 +295,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async fileExists(filePath: string, _opts?: { ref?: string }): Promise<boolean> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     try {
       await fs.access(filePath);
       return true;
@@ -293,7 +312,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async writeBinaryFile(filePath: string, content: Buffer): Promise<void> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = filePath + '.tmp';
     await fs.writeFile(tmpPath, content);
@@ -308,7 +327,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readBinaryFile(filePath: string, _opts?: { ref?: string }): Promise<Buffer | null> {
-    this.validatePathConfinement(filePath);
+    filePath = await this.confine(filePath);
     try {
       return await fs.readFile(filePath);
     } catch (err: unknown) {

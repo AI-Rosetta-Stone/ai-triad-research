@@ -4,9 +4,9 @@
 // @vitest-environment node
 
 /**
- * Path traversal security tests (t/223). Validates that FilesystemBackend
- * rejects paths that escape the backend root. Tests anchor to mkdtemp roots
- * and verify that no files are created outside the root on escape attempts.
+ * Path confinement tests for FilesystemBackend (t/223). Every target is inside an
+ * fs.mkdtemp directory: the backend root is `<tmp>/a/b/root`, so even `../../..` escapes land
+ * in `<tmp>` and a regressed guard writes only there, never to the machine or the repo.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -15,204 +15,122 @@ import os from 'os';
 import path from 'path';
 import { FilesystemBackend } from '../storage/filesystemBackend.js';
 
-let dir: string;
-let fsBackend: FilesystemBackend;
-let parent: string;
+let tmp: string;
+let root: string;
+let backend: FilesystemBackend;
+
+const exists = (p: string) => fs.lstat(p).then(() => true, () => false);
+
+async function codeOf(p: Promise<unknown>): Promise<string | undefined> {
+  return p.then(() => undefined, (e: unknown) => (e as { code?: string }).code);
+}
+
+/** Every file under `dir`, relative, so a test can assert nothing new appeared. */
+async function listAll(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    out.push(path.relative(tmp, full));
+    if (e.isDirectory()) out.push(...(await listAll(full)));
+  }
+  return out.sort();
+}
 
 beforeEach(async () => {
-  // Create temp root and parent directory for escape-attempt detection
-  parent = await fs.mkdtemp(path.join(os.tmpdir(), 'path-security-parent-'));
-  dir = path.join(parent, 'backend-root');
-  await fs.mkdir(dir);
-  fsBackend = new FilesystemBackend({ root: dir });
+  tmp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'path-confine-')));
+  root = path.join(tmp, 'a', 'b', 'root');
+  await fs.mkdir(root, { recursive: true });
+  backend = new FilesystemBackend({ root });
 });
 
 afterEach(async () => {
-  // Clean up both root and parent
-  if (parent) await fs.rm(parent, { recursive: true, force: true });
+  await fs.rm(tmp, { recursive: true, force: true });
 });
 
-describe('Path traversal security (t/223)', () => {
-  describe('FilesystemBackend with root confinement', () => {
-    it('allows safe absolute paths within root', async () => {
-      const safeFile = path.join(dir, 'safe.txt');
-      const result = await fsBackend.writeFile(safeFile, 'safe content');
-      expect(result.version).toBeTruthy();
+describe('FilesystemBackend root confinement (t/223)', () => {
+  it('allows absolute and relative paths inside the root', async () => {
+    const abs = path.join(root, 'sub', 'safe.txt');
+    await backend.writeFile(abs, 'one');
+    expect(await backend.readFile(abs)).toBe('one');
 
-      const content = await fsBackend.readFile(safeFile);
-      expect(content).toBe('safe content');
-
-      // Verify file is actually under root
-      const fsContent = await fs.readFile(safeFile, 'utf-8');
-      expect(fsContent).toBe('safe content');
-    });
-
-    it('allows absolute paths inside root', async () => {
-      const absPath = path.join(dir, 'safe.txt');
-      const result = await fsBackend.writeFile(absPath, 'safe content');
-      expect(result.version).toBeTruthy();
-
-      const content = await fsBackend.readFile(absPath);
-      expect(content).toBe('safe content');
-
-      // Verify file exists at expected location
-      const fsContent = await fs.readFile(absPath, 'utf-8');
-      expect(fsContent).toBe('safe content');
-    });
-
-    it('rejects paths with .. that escape root', async () => {
-      const escapePath = '../escape.txt';
-      
-      const err = await fsBackend.writeFile(escapePath, 'attack')
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-      
-      // Verify no file was created outside root
-      const outsidePath = path.join(parent, 'escape.txt');
-      const exists = await fs.stat(outsidePath).then(() => true, () => false);
-      expect(exists).toBe(false);
-    });
-
-    it('rejects multiple .. segments that escape root', async () => {
-      const escapePath = '../../escape.txt';
-      
-      const err = await fsBackend.writeFile(escapePath, 'attack')
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-
-      // Verify nothing escaped
-      const outside = path.join(parent, 'escape.txt');
-      const exists = await fs.stat(outside).then(() => true, () => false);
-      expect(exists).toBe(false);
-    });
-
-    it('rejects normalized paths with .. that would escape', async () => {
-      // Test: path.join(root, 'data', '..', '..', 'escape.txt') should be rejected
-      // even though the intermediate join normalizes it
-      const escapePath = path.join('data', '..', '..', 'escape.txt');
-      
-      const err = await fsBackend.writeFile(escapePath, 'attack')
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-
-      // Verify nothing escaped
-      const outside = path.join(parent, 'escape.txt');
-      const exists = await fs.stat(outside).then(() => true, () => false);
-      expect(exists).toBe(false);
-    });
-
-    it('rejects absolute paths outside root', async () => {
-      // On all platforms, reject absolute paths that don't start with root
-      const winPath = 'C:\\Windows\\System32\\win.ini';
-      const unixPath = '/etc/passwd';
-      const testPath = process.platform === 'win32' ? winPath : unixPath;
-      
-      const err = await fsBackend.writeFile(testPath, 'attack')
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
-
-    it('rejects readFile with .. escape', async () => {
-      const escapePath = '../../../etc/passwd';
-
-      const err = await fsBackend.readFile(escapePath)
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
-
-    it('rejects deleteFile with .. escape', async () => {
-      const escapePath = '../../../etc/passwd';
-
-      const err = await fsBackend.deleteFile(escapePath)
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
-
-    it('rejects listDirectory with .. escape', async () => {
-      const escapePath = '../../..';
-
-      const err = await fsBackend.listDirectory(escapePath)
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
-
-    it('rejects writeBinaryFile with .. escape', async () => {
-      const escapePath = '../../../bin/sh';
-      const content = Buffer.from('attack');
-
-      const err = await fsBackend.writeBinaryFile(escapePath, content)
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-
-      // Verify no file was created at machine root /bin/sh or similar
-      const binPath = '/bin/sh';
-      const exists = await fs.stat(binPath).then(() => true, () => false);
-      if (exists) {
-        // Check that it wasn't modified by our test (stat and compare mtime)
-        const stat = await fs.stat(binPath);
-        const mtime = stat.mtimeMs;
-        const now = Date.now();
-        expect(now - mtime).toBeGreaterThan(1000); // Not modified in last second
-      }
-    });
-
-    it('rejects readBinaryFile with .. escape', async () => {
-      const escapePath = '../../../etc/passwd';
-
-      const err = await fsBackend.readBinaryFile(escapePath)
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
-
-    it('rejects fileExists with .. escape', async () => {
-      const escapePath = '../../..';
-
-      const err = await fsBackend.fileExists(escapePath)
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
-
-    it('rejects writeFileIfAbsent with .. escape', async () => {
-      const escapePath = '../../../etc/passwd';
-
-      const err = await fsBackend.writeFileIfAbsent(escapePath, 'attack')
-        .then(() => null, (e: unknown) => e) as any;
-
-      expect(err).not.toBeNull();
-      expect(err.code).toBe('PATH_OUTSIDE_ROOT');
-    });
+    // Relative paths resolve against the root, never the cwd.
+    await backend.writeFile('rel.txt', 'two');
+    expect(await fs.readFile(path.join(root, 'rel.txt'), 'utf-8')).toBe('two');
+    expect(await backend.fileExists('rel.txt')).toBe(true);
+    expect(await backend.listDirectory('.')).toContain('rel.txt');
   });
 
-  describe('FilesystemBackend without root (backward compatibility)', () => {
-    it('allows any path when no root is configured', async () => {
-      const noRootBackend = new FilesystemBackend(); // No root
-      const tempFile = path.join(dir, 'test.txt');
+  it('allows a name containing ".." that is not a traversal segment', async () => {
+    await backend.writeFile(path.join(root, 'foo..json'), 'ok');
+    expect(await backend.readFile(path.join(root, 'foo..json'))).toBe('ok');
+  });
 
-      // This should work even with unsafe-looking path
-      await noRootBackend.writeFile(tempFile, 'content');
-      const content = await noRootBackend.readFile(tempFile);
-      expect(content).toBe('content');
+  it('allows the root itself', async () => {
+    expect(await backend.listDirectory(root)).toEqual([]);
+  });
+
+  const escapes: Array<[string, () => string]> = [
+    ['relative ..', () => '../escape.txt'],
+    ['join(root, .., ..) form', () => path.join(root, '..', '..', 'escape.txt')],
+    ['nested .. that normalises out', () => path.join('data', '..', '..', '..', 'escape.txt')],
+    ['absolute outside root', () => path.join(tmp, 'escape.txt')],
+    ['sibling sharing the root name prefix', () => path.join(`${root}-evil`, 'escape.txt')],
+  ];
+
+  for (const [label, target] of escapes) {
+    describe(label, () => {
+      it('is refused by every method and creates nothing', async () => {
+        const before = await listAll(tmp);
+        const t = target();
+        const results = await Promise.all([
+          codeOf(backend.writeFile(t, 'attack')),
+          codeOf(backend.writeFile(t, 'attack', { baseSha: '' })),
+          codeOf(backend.writeFileIfAbsent(t, 'attack')),
+          codeOf(backend.writeBinaryFile(t, Buffer.from('attack'))),
+          codeOf(backend.readFile(t)),
+          codeOf(backend.readBinaryFile(t)),
+          codeOf(backend.readFileWithVersion(t)),
+          codeOf(backend.deleteFile(t)),
+          codeOf(backend.listDirectory(t)),
+          codeOf(backend.fileExists(t)),
+        ]);
+        expect(results).toEqual(Array(10).fill('PATH_OUTSIDE_ROOT'));
+        expect(await listAll(tmp)).toEqual(before);
+        expect(await exists(path.join(tmp, 'escape.txt'))).toBe(false);
+        expect(await exists(path.join(tmp, 'a', 'escape.txt'))).toBe(false);
+      });
     });
+  }
+
+  it('does not delete an existing file outside the root', async () => {
+    const victim = path.join(tmp, 'victim.txt');
+    await fs.writeFile(victim, 'keep');
+    expect(await codeOf(backend.deleteFile(victim))).toBe('PATH_OUTSIDE_ROOT');
+    expect(await fs.readFile(victim, 'utf-8')).toBe('keep');
+  });
+
+  it('refuses a symlink/junction inside the root that points outside', async () => {
+    const outside = path.join(tmp, 'outside');
+    await fs.mkdir(outside);
+    await fs.symlink(outside, path.join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+    expect(await codeOf(backend.writeFile(path.join(root, 'link', 'escape.txt'), 'attack'))).toBe('PATH_OUTSIDE_ROOT');
+    expect(await codeOf(backend.writeBinaryFile('link/escape.bin', Buffer.from('attack')))).toBe('PATH_OUTSIDE_ROOT');
+    expect(await fs.readdir(outside)).toEqual([]);
+  });
+
+  it('matches the root case-insensitively on win32 only', async () => {
+    const swapped = root.replace(/root$/, 'ROOT');
+    const code = await codeOf(backend.writeFile(path.join(swapped, 'case.txt'), 'x'));
+    if (process.platform === 'win32') expect(code).toBeUndefined();
+    else expect(code).toBe('PATH_OUTSIDE_ROOT');
   });
 });
 
+describe('FilesystemBackend without a root (existing callers)', () => {
+  it('does not confine paths', async () => {
+    const unrooted = new FilesystemBackend();
+    const file = path.join(tmp, 'unrooted.txt');
+    await unrooted.writeFile(file, 'content');
+    expect(await unrooted.readFile(file)).toBe('content');
+  });
+});
