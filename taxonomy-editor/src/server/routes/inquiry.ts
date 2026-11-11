@@ -30,7 +30,11 @@ import {
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
-import { countUserJobRecords, findRunningJobByIdempotencyKey, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { findRunningJobByIdempotencyKey, slotHolderLiveness, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { claimJobSlot, releaseJobSlot } from '../storage/jobSlots.js';
+import { getInquiryJobsDir } from '../storage/inquiryJobStore.js';
+import { getUserContentBackend } from '../storage/fileIO.js';
+import { randomUUID } from 'crypto';
 import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
@@ -119,11 +123,21 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
         );
         if (byKey) return { status: 202 as const, jobId: byKey.jobId };
 
-        const cap = await countUserJobRecords(userId, 'inquiry', rec => !isTerminalStatus(rec.status));
-        if (cap.error) return { status: 503 as const };
-        if (cap.count >= MAX_CONCURRENT_INQUIRY_JOBS) return { status: 429 as const };
+        // The slot claim is the cross-replica gate (t/400): a free slot is taken with an atomic create-only write.
+        const jobId = randomUUID();
+        const slot = await claimJobSlot({
+          backend: getUserContentBackend(), jobsDir: getInquiryJobsDir(userId), cap: MAX_CONCURRENT_INQUIRY_JOBS,
+          jobId, isLive: slotHolderLiveness('inquiry'),
+        });
+        if (slot === null) return { status: 429 as const };
 
-        const job = await startInquiryJob({ userId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
+        let job: InquiryJob;
+        try {
+          job = await startInquiryJob({ userId, jobId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
+        } catch (err) {
+          await releaseJobSlot(getUserContentBackend(), slot);
+          throw err;
+        }
         getGlobalRecorder()?.record({
           type: 'inquiry.created', component: 'inquiry', level: 'info',
           message: `Inquiry job created: ${job.jobId}`,
@@ -131,7 +145,6 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
         });
         return { status: 202 as const, jobId: job.jobId };
       });
-      if (admitted.status === 503) { error(res, 'Job storage is temporarily unavailable; try again shortly', 503); return; }
       if (admitted.status === 429) {
         error(res, 'An inquiry is already running — wait for it to finish before starting another', 429);
         return;

@@ -16,7 +16,8 @@ const { isAnonymousUser, getStorageUserId } = vi.hoisted(() => ({
 vi.mock('../security/userContext.js', () => ({ isAnonymousUser, getStorageUserId }));
 
 const { loadDebateSession } = vi.hoisted(() => ({ loadDebateSession: vi.fn() }));
-vi.mock('../storage/fileIO.js', () => ({ loadDebateSession }));
+vi.mock('../storage/fileIO.js', () => ({ loadDebateSession, getBriefExportBackend: () => ({}) }));
+vi.mock('../storage/briefExportJobStore.js', () => ({ getBriefExportJobsDir: () => 'jobs', isTerminalExportStatus: () => false }));
 
 const { resolveExportModel } = vi.hoisted(() => ({ resolveExportModel: vi.fn() }));
 vi.mock('../routes/exportModel.js', () => ({ resolveExportModel }));
@@ -46,13 +47,15 @@ const { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefE
 }));
 vi.mock('../storage/briefExportStore.js', () => ({ listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus }));
 
-const { countUserJobRecords, findRunningJobByIdempotencyKey } = vi.hoisted(() => ({
-  countUserJobRecords: vi.fn(async () => ({ count: 0, error: null })),
+const { findRunningJobByIdempotencyKey, claimJobSlot, releaseJobSlot } = vi.hoisted(() => ({
   findRunningJobByIdempotencyKey: vi.fn(async () => null),
+  claimJobSlot: vi.fn(async () => ({ index: 0, generation: 1, dir: 'slots' }) as unknown),
+  releaseJobSlot: vi.fn(async () => {}),
 }));
+vi.mock('../storage/jobSlots.js', () => ({ claimJobSlot, releaseJobSlot }));
 // Serialization is covered with real records in jobCapRoutes.test.ts; here the lock is a passthrough.
 vi.mock('../storage/jobCapChecker.js', () => ({
-  countUserJobRecords, findRunningJobByIdempotencyKey,
+  findRunningJobByIdempotencyKey, slotHolderLiveness: () => async () => true,
   withSubmissionLock: async (_userId: string, _kind: string, fn: () => Promise<unknown>) => fn(),
 }));
 
@@ -96,7 +99,7 @@ describe('Brief Export routes (t/2804)', () => {
     sweepExportJobs.mockReset();
     countRunningExportJobs.mockReset().mockReturnValue(0);
     findIdempotentJob.mockReset().mockReturnValue(null);
-    countUserJobRecords.mockReset().mockResolvedValue({ count: 0, error: null });
+    claimJobSlot.mockReset().mockResolvedValue({ index: 0, generation: 1, dir: 'slots' });
     findRunningJobByIdempotencyKey.mockReset().mockResolvedValue(null);
     listBriefExports.mockReset(); loadBriefExportRecord.mockReset(); loadBriefArtifact.mockReset(); deleteBriefExport.mockReset();
     getBriefExportsQuotaStatus.mockReset().mockResolvedValue({ allowed: true, resource: 'brief-exports', current: 0, limit: 25 });
@@ -198,15 +201,15 @@ describe('Brief Export routes (t/2804)', () => {
   });
 
   it('429 when the per-user concurrency cap is reached', async () => {
-    countUserJobRecords.mockResolvedValue({ count: 1, error: null }); // == MAX_CONCURRENT_EXPORT_JOBS
+    claimJobSlot.mockResolvedValue(null); // every slot held by a live job
     await post(validBody);
     expect(lastRes._status).toBe(429);
     expect(JSON.parse(lastRes._body!).error).toBe('concurrency_limit');
     expect(startExportJob).not.toHaveBeenCalled();
   });
 
-  it('503 (and starts nothing) when the durable cap listing fails — fail closed (t/182)', async () => {
-    countUserJobRecords.mockResolvedValue({ count: null, error: { reason: 'list_failed' } } as never);
+  it('fails closed (and starts nothing) when the slot claim cannot be written (t/182, t/400)', async () => {
+    claimJobSlot.mockRejectedValue(new Error('storage down'));
     await post(validBody);
     expect(lastRes._status).toBe(503);
     expect(startExportJob).not.toHaveBeenCalled();
