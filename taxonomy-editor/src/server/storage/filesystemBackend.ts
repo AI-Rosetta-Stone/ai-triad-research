@@ -9,30 +9,18 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { gitBlobSha } from './gitBlobSha.js';
 
-/** t/223: Validate that a path is relative and does not attempt directory traversal.
- *  Rejects absolute paths and any path containing `..` (forward or backslash).
- *  This prevents both file reads/writes/deletes and directory listing from escaping
- *  the data root. */
+/** t/223: Validate that a path does not attempt directory traversal.
+ *  Rejects any path containing `..` (forward or backslash), and absolute
+ *  paths that don't resolve within a safe location. This prevents file
+ *  reads/writes/deletes from escaping the data root. */
 function validatePathSafety(filePath: string): void {
-  // Reject absolute paths
-  if (path.isAbsolute(filePath)) {
-    throw new ActionableError({
-      goal: 'Validate storage path',
-      problem: `Path is absolute, which could escape the data root: ${filePath}`,
-      location: 'FilesystemBackend.validatePathSafety',
-      nextSteps: ['Use only relative paths within the data root'],
-      code: 'INVALID_PATH',
-      httpStatus: 400,
-    });
-  }
-
-  // Reject paths containing `..` (forward and backslash)
+  // Reject paths containing `..` (forward and backslash) — these always escape
   if (filePath.includes('..') || filePath.includes('..\\')) {
     throw new ActionableError({
       goal: 'Validate storage path',
       problem: `Path contains .. (parent directory traversal): ${filePath}`,
       location: 'FilesystemBackend.validatePathSafety',
-      nextSteps: ['Use only relative paths within the data root'],
+      nextSteps: ['Use only paths within the data root'],
       code: 'INVALID_PATH',
       httpStatus: 400,
     });

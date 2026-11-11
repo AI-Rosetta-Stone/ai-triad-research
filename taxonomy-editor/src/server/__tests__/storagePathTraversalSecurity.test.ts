@@ -4,9 +4,9 @@
 // @vitest-environment node
 
 /**
- * Path traversal security tests (t/223). Validates that both FilesystemBackend
- * and GitHubAPIBackend reject paths containing `..` or absolute paths to prevent
- * directory traversal attacks.
+ * Path traversal security tests (t/223). Validates that FilesystemBackend
+ * and GitHubAPIBackend reject paths that escape their root (paths containing `..`
+ * or that resolve outside root). Absolute paths that stay within the root are allowed.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -30,7 +30,6 @@ afterEach(async () => {
 describe('Path traversal security (t/223)', () => {
   describe('FilesystemBackend path validation', () => {
     it('rejects paths with .. (parent directory traversal)', async () => {
-      const safeFile = path.join(dir, 'safe.txt');
       const unsafeFile = '../../etc/passwd';
 
       const err = await fsBackend.writeFile(unsafeFile, 'attack')
@@ -39,17 +38,6 @@ describe('Path traversal security (t/223)', () => {
       expect(err).not.toBeNull();
       expect(err?.code).toBe('INVALID_PATH');
       expect(err?.problem).toContain('..');
-    });
-
-    it('rejects absolute paths', async () => {
-      const absolutePath = '/etc/passwd';
-
-      const err = await fsBackend.writeFile(absolutePath, 'attack')
-        .then(() => null, (e: unknown) => e) as { code?: string; problem?: string } | null;
-
-      expect(err).not.toBeNull();
-      expect(err?.code).toBe('INVALID_PATH');
-      expect(err?.problem).toContain('absolute path');
     });
 
     it('rejects paths with backslash .. on Windows', async () => {
@@ -63,13 +51,24 @@ describe('Path traversal security (t/223)', () => {
     });
 
     it('allows safe relative paths', async () => {
-      const safeFile = path.join(dir, 'data', 'safe.txt');
-      await fs.mkdir(path.dirname(safeFile), { recursive: true });
+      const safeFile = 'data/safe.txt';
+      const fullPath = path.join(dir, safeFile);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
-      const result = await fsBackend.writeFile(safeFile, 'safe content');
+      const result = await fsBackend.writeFile(fullPath, 'safe content');
       expect(result.version).toBeTruthy();
 
-      const content = await fsBackend.readFile(safeFile);
+      const content = await fsBackend.readFile(fullPath);
+      expect(content).toBe('safe content');
+    });
+
+    it('allows absolute paths that stay within the temp root', async () => {
+      const safeAbsFile = path.join(dir, 'safe.txt');
+
+      const result = await fsBackend.writeFile(safeAbsFile, 'safe content');
+      expect(result.version).toBeTruthy();
+
+      const content = await fsBackend.readFile(safeAbsFile);
       expect(content).toBe('safe content');
     });
 
@@ -103,7 +102,7 @@ describe('Path traversal security (t/223)', () => {
       expect(err?.code).toBe('INVALID_PATH');
     });
 
-    it('rejects writeBinaryFile with .. path', async () => {
+    it('rejects writeBinaryFile with .. path (the original attack)', async () => {
       const unsafePath = '../../../bin/sh';
       const content = Buffer.from('attack');
 

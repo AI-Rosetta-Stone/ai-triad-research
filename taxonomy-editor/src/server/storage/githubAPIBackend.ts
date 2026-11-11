@@ -415,43 +415,21 @@ export class GitHubAPIBackend implements StorageBackend {
     return { store: config.sharedOverlayState.store, active, warnInert };
   }
 
-  /** t/223: Validate that a repo path is relative and does not attempt directory
-   *  traversal. When joined with cacheDir, the result must stay within cacheDir.
-   *  Rejects absolute paths and any path containing `..` (forward or backslash). */
+  /** t/223: Validate that a repo path does not attempt directory traversal.
+   *  Rejects paths that escape the cache directory when resolved. A path is safe
+   *  if path.relative(cacheDir, resolved) does not start with `..` and is not
+   *  absolute (which would indicate a different drive/mount on Windows). */
   private validateRepoPathSafety(repoPath: string): void {
-    // Reject absolute paths
-    if (path.isAbsolute(repoPath)) {
-      throw new ActionableError({
-        goal: 'Validate repository path',
-        problem: `Path is absolute, which could escape the cache root: ${repoPath}`,
-        location: 'GitHubAPIBackend.validateRepoPathSafety',
-        nextSteps: ['Use only relative paths within the repository'],
-        code: 'INVALID_PATH',
-        httpStatus: 400,
-      });
-    }
-
-    // Reject paths containing `..` (forward and backslash)
-    if (repoPath.includes('..') || repoPath.includes('..\\')) {
-      throw new ActionableError({
-        goal: 'Validate repository path',
-        problem: `Path contains .. (parent directory traversal): ${repoPath}`,
-        location: 'GitHubAPIBackend.validateRepoPathSafety',
-        nextSteps: ['Use only relative paths within the repository'],
-        code: 'INVALID_PATH',
-        httpStatus: 400,
-      });
-    }
-
-    // Verify the resolved path stays within cacheDir
     const resolved = path.resolve(path.join(this.cacheDir, repoPath));
-    const cacheResolved = path.resolve(this.cacheDir);
-    if (!resolved.startsWith(cacheResolved + path.sep) && resolved !== cacheResolved) {
+    const relative = path.relative(this.cacheDir, resolved);
+
+    // Reject if relative path starts with .. (escapes root) or is absolute (different drive)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
       throw new ActionableError({
         goal: 'Validate repository path',
-        problem: `Path traversal would escape cache root: ${repoPath}`,
+        problem: `Path would escape cache root: ${repoPath}`,
         location: 'GitHubAPIBackend.validateRepoPathSafety',
-        nextSteps: ['Use only relative paths within the repository'],
+        nextSteps: ['Use only paths within the repository'],
         code: 'INVALID_PATH',
         httpStatus: 400,
       });
