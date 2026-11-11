@@ -35,15 +35,40 @@ async function serializeConditionalWrite<T>(filePath: string, fn: () => Promise<
  * the data volume is mounted.  All methods handle missing files/dirs
  * gracefully (no throws for ENOENT).
  *
- * t/223: Constructor accepts optional root; all file operations are confined
+ * t/223: Constructor requires root; all file operations are confined
  * to it. A path that resolves outside root (incl. via symlink) throws PATH_OUTSIDE_ROOT.
  */
 export class FilesystemBackend implements StorageBackend {
   readonly backendName = 'filesystem';
-  private readonly root?: string;
+  private readonly rootSpec: string | (() => string);
+  private readonly extraSpec: string[] | (() => Array<string | null | undefined>);
 
-  constructor(opts?: { root?: string }) {
-    this.root = opts?.root ? path.resolve(opts.root) : undefined;
+  /** `root` is the data root. `extraRoots` are other configured roots (sources, state) this backend
+   *  may read and write. Either may be a getter, so the roots are read per call: a config that is
+   *  set or changed after import (env, tests) is still the one enforced. */
+  constructor(opts: {
+    root: string | (() => string);
+    extraRoots?: string[] | (() => Array<string | null | undefined>);
+  }) {
+    if (!opts?.root) {
+      throw new ActionableError({
+        goal: 'Confine file access to backend root',
+        problem: 'FilesystemBackend was constructed without a root',
+        location: 'FilesystemBackend.constructor',
+        nextSteps: ['Pass the configured data root: new FilesystemBackend({ root: () => getDataRoot() })'],
+        code: 'BACKEND_ROOT_MISSING',
+        httpStatus: 500,
+      });
+    }
+    this.rootSpec = opts.root;
+    this.extraSpec = opts.extraRoots ?? [];
+  }
+
+  /** The allowed roots, absolute. `[0]` is the data root; the rest are extra roots. */
+  private roots(): string[] {
+    const data = typeof this.rootSpec === 'function' ? this.rootSpec() : this.rootSpec;
+    const extra = typeof this.extraSpec === 'function' ? this.extraSpec() : this.extraSpec;
+    return [data, ...extra.filter((r): r is string => !!r)].map((r) => path.resolve(r));
   }
 
   private static isWithin(abs: string, rootAbs: string): boolean {
@@ -74,31 +99,34 @@ export class FilesystemBackend implements StorageBackend {
     }
   }
 
+  private async containedIn(abs: string, root: string, filePath: string): Promise<boolean> {
+    // A root that doesn't exist yet can't contain a symlink, so only the lexical check applies.
+    const realRoot = await fs.realpath(root).catch((err: unknown) => {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'filesystem-backend', level: 'error',
+          message: `confine: realpath(root) failed: ${root}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return null;
+      }
+      return undefined;
+    });
+    if (realRoot === null) return false;
+    if (realRoot === undefined) return true;
+    return this.realContained(abs, realRoot, filePath);
+  }
+
   /** t/223: resolve `filePath` against the root and refuse (PATH_OUTSIDE_ROOT) anything that
    *  lands outside it, lexically or through a symlink. Runs before any fs call and returns the
    *  absolute path every fs call must use (so relative paths never resolve against the cwd).
-   *  Absolute paths inside the root are allowed. With no root configured, returns the path as-is. */
+   *  Absolute paths inside the root are allowed. */
   private async confine(filePath: string): Promise<string> {
-    if (!this.root) return filePath;
-    const root = this.root;
-    const abs = path.resolve(root, filePath);
-    let ok = FilesystemBackend.isWithin(abs, root);
-    if (ok) {
-      // A root that doesn't exist yet can't contain a symlink, so only the lexical check applies.
-      const realRoot = await fs.realpath(root).catch((err: unknown) => {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-          getGlobalRecorder()?.record({
-            type: 'system.error', component: 'filesystem-backend', level: 'error',
-            message: `confine: realpath(root) failed: ${root}`,
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-          return null;
-        }
-        return undefined;
-      });
-      if (realRoot === null) ok = false;
-      else if (realRoot !== undefined) ok = await this.realContained(abs, realRoot, filePath);
-    }
+    const roots = this.roots();
+    const abs = path.resolve(roots[0], filePath);
+    // Judged against the first root that lexically contains the path; a symlink that escapes it fails closed.
+    const root = roots.find((r) => FilesystemBackend.isWithin(abs, r));
+    const ok = root !== undefined && await this.containedIn(abs, root, filePath);
     if (!ok) {
       throw new ActionableError({
         goal: 'Confine file access to backend root',

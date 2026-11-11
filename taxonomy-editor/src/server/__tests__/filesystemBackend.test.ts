@@ -22,7 +22,7 @@ let backend: FilesystemBackend;
 
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fs-backend-test-'));
-  backend = new FilesystemBackend();
+  backend = new FilesystemBackend({ root: dir });
 });
 
 afterEach(async () => {
@@ -87,7 +87,7 @@ describe('FilesystemBackend — concurrent conditional writes are serialized (t/
 
     const results = await Promise.allSettled([
       backend.writeFile(file, '{}', { baseSha: v1.version }),
-      new FilesystemBackend().writeFile(file, '{"A":"s1","B":"s2"}', { baseSha: v1.version }),
+      new FilesystemBackend({ root: dir }).writeFile(file, '{"A":"s1","B":"s2"}', { baseSha: v1.version }),
     ]);
 
     const fulfilled = results.filter(r => r.status === 'fulfilled');
@@ -95,9 +95,10 @@ describe('FilesystemBackend — concurrent conditional writes are serialized (t/
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect((rejected[0].reason as { code?: string }).code).toBe('WRITE_CONFLICT');
-    // The winner is the first caller; the stale second write did not overwrite it.
-    expect(results[0].status).toBe('fulfilled');
-    expect(await backend.readFile(file)).toBe('{}');
+    // The winner is whichever write acquired the lock first (order is not guaranteed now that
+    // both writers confine their path first); the loser must not have overwritten it.
+    const winner = results.findIndex(r => r.status === 'fulfilled');
+    expect(await backend.readFile(file)).toBe(winner === 0 ? '{}' : '{"A":"s1","B":"s2"}');
   });
 
   it('two same-process "create only if absent" writers (baseSha \'\'): exactly one creates the file', async () => {
@@ -106,8 +107,11 @@ describe('FilesystemBackend — concurrent conditional writes are serialized (t/
       backend.writeFile(file, '{"A":"s1"}', { baseSha: '' }),
       backend.writeFile(file, '{"B":"s2"}', { baseSha: '' }),
     ]);
-    expect(results.map(r => r.status)).toEqual(['fulfilled', 'rejected']);
-    expect(await backend.readFile(file)).toBe('{"A":"s1"}');
+    // Exactly one creates the file; which one is not guaranteed now that each confines its path first.
+    const statuses = results.map(r => r.status).sort();
+    expect(statuses).toEqual(['fulfilled', 'rejected']);
+    const winner = results.findIndex(r => r.status === 'fulfilled');
+    expect(await backend.readFile(file)).toBe(winner === 0 ? '{"A":"s1"}' : '{"B":"s2"}');
   });
 
   it('chained writers that each carry the previous version all land (no false conflict)', async () => {

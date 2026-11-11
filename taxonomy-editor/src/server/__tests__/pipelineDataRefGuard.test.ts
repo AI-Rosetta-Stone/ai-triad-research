@@ -37,6 +37,7 @@ import type { StorageBackend } from '../storage/storageBackend.js';
 import { FilesystemBackend } from '../storage/filesystemBackend.js';
 import * as fileIO from '../storage/fileIO.js';
 import { resetNodeSourceIndexCacheForTests } from '../storage/nodeSourceIndex.js';
+import * as os from 'node:os';
 
 function makeSpyBackend(): StorageBackend & { readFile: ReturnType<typeof vi.fn>; listDirectory: ReturnType<typeof vi.fn> } {
   return {
@@ -64,7 +65,7 @@ describe('pipeline-generated-data reads always pin ref: main (t/4391)', () => {
     // Restore the real backend — this is a module-level singleton (fileIO.ts's
     // `let backend`), so leaving the spy installed would leak into whichever
     // test file runs next in this worker.
-    fileIO.setBackend(new FilesystemBackend());
+    fileIO.setBackend(new FilesystemBackend({ root: os.tmpdir() }));
   });
 
   it('readConflictClusters (_conflict-clusters.json)', async () => {
@@ -92,7 +93,7 @@ describe('NOT pinned — a session-backend writer exists for these (TL p/538#161
   });
 
   afterEach(() => {
-    fileIO.setBackend(new FilesystemBackend());
+    fileIO.setBackend(new FilesystemBackend({ root: os.tmpdir() }));
   });
 
   it('readPolicyRegistry (policy_actions.json) — routes/policyRegistry.ts recounts write this through the session backend', async () => {

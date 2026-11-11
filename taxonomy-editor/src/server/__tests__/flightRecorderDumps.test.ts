@@ -53,8 +53,8 @@ describe('selectExpiredDumps (t/908 AC#7)', () => {
 
 describe('writeDump (t/908)', () => {
   let root: string;
-  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'frdump-')); });
-  afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'frdump-')); process.env.AI_TRIAD_STATE_ROOT = root; });
+  afterEach(() => { delete process.env.AI_TRIAD_STATE_ROOT; fs.rmSync(root, { recursive: true, force: true }); });
 
   it('writes a paired client + server dump joinable by dumpId', async () => {
     await writeDump(root, 'client', 'abc', '{"seq":1}\n');
@@ -287,8 +287,8 @@ describe('mergeDumps (t/939)', () => {
 
 describe('readMergedDump (t/939)', () => {
   let root: string;
-  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'frdump-merge-')); });
-  afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'frdump-merge-')); process.env.AI_TRIAD_STATE_ROOT = root; });
+  afterEach(() => { delete process.env.AI_TRIAD_STATE_ROOT; fs.rmSync(root, { recursive: true, force: true }); });
 
   it('merges paired files from disk', async () => {
     const clientNdjson = ndjson(

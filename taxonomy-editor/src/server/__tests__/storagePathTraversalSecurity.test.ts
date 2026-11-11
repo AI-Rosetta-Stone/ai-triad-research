@@ -125,11 +125,20 @@ describe('FilesystemBackend root confinement (t/223)', () => {
   });
 });
 
-describe('FilesystemBackend without a root (existing callers)', () => {
-  it('does not confine paths', async () => {
-    const unrooted = new FilesystemBackend();
-    const file = path.join(tmp, 'unrooted.txt');
-    await unrooted.writeFile(file, 'content');
-    expect(await unrooted.readFile(file)).toBe('content');
+describe('FilesystemBackend extra roots (t/223: sources and state roots)', () => {
+  it('allows an extra root and still refuses a path outside every root', async () => {
+    const sources = path.join(tmp, 'sources');
+    await fs.mkdir(sources, { recursive: true });
+    const multi = new FilesystemBackend({ root, extraRoots: [sources] });
+    await multi.writeFile(path.join(sources, 'meta.json'), 'ok');
+    expect(await multi.readFile(path.join(sources, 'meta.json'))).toBe('ok');
+    expect(await codeOf(multi.writeFile(path.join(tmp, 'outside.txt'), 'attack'))).toBe('PATH_OUTSIDE_ROOT');
+    expect(await exists(path.join(tmp, 'outside.txt'))).toBe(false);
+  });
+});
+
+describe('FilesystemBackend without a root', () => {
+  it('refuses to construct (t/223: root is required)', () => {
+    expect(() => new FilesystemBackend({} as { root: string })).toThrow(/without a root/);
   });
 });
