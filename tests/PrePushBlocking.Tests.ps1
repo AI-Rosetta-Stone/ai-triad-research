@@ -22,11 +22,24 @@
 Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
 
     BeforeAll {
-        $script:Sh = (Get-Command sh -ErrorAction SilentlyContinue).Source
+        # Tools resolve as real executables only (-CommandType Application). Other suites in the
+        # same Pester run leave global function shims behind (e.g. `function global:python3` in
+        # Find-SituationCandidates.Characterization.Tests.ps1); a plain Get-Command returned that
+        # function, whose empty .Source crashed this BeforeAll in merge-group shard 3 (t/289).
+        function Get-AppPath([string]$Name) {
+            Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path
+        }
+        $script:Sh = Get-AppPath 'sh'
         if (-not $script:Sh -and (Test-Path 'C:\Program Files\Git\bin\sh.exe')) { $script:Sh = 'C:\Program Files\Git\bin\sh.exe' }
-        $script:Src = (& git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
-        $script:Python = @('python3', 'python' | ForEach-Object { Get-Command $_ -ErrorAction SilentlyContinue } |
-            Where-Object { & $_.Source -c 'import sys' 2>$null; $LASTEXITCODE -eq 0 } | Select-Object -First 1)
+        if (-not $script:Sh) { Write-Warning 'PrePushBlocking: no POSIX sh found; every test in this suite will be skipped.' }
+        $script:Src = (Resolve-Path (Join-Path $PSScriptRoot '..')).ProviderPath
+        $script:Python = $null
+        foreach ($name in 'python3', 'python') {
+            $p = Get-AppPath $name
+            # The Windows Store "python" stub is an Application that cannot run code, so probe it.
+            if ($p) { try { & $p -c 'import sys' 2>$null; if ($LASTEXITCODE -eq 0) { $script:Python = $p; break } } catch { } }
+        }
+        if (-not $script:Python) { Write-Warning 'PrePushBlocking: no runnable python found; the Python compile tests will be skipped.' }
         $script:Repos = [System.Collections.Generic.List[string]]::new()
         $script:Sep = [IO.Path]::PathSeparator
 
@@ -96,8 +109,9 @@ Describe 'pre-push-checks.sh blocking (t/289)' -Tag 'devops' {
     }
 
     AfterAll {
-        foreach ($r in $script:Repos) { Remove-Item -LiteralPath $r -Recurse -Force -ErrorAction SilentlyContinue }
-        Remove-Item -LiteralPath $script:StubDir -Recurse -Force -ErrorAction SilentlyContinue
+        # Null-safe: if BeforeAll failed part-way, cleanup must not add a second, misleading error.
+        foreach ($r in @($script:Repos)) { if ($r) { Remove-Item -LiteralPath $r -Recurse -Force -ErrorAction SilentlyContinue } }
+        if ($script:StubDir) { Remove-Item -LiteralPath $script:StubDir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
     BeforeEach {
