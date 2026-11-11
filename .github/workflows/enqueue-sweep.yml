@@ -88,7 +88,7 @@ jobs:
 
       - name: Sweep unit tests
         if: steps.cfg.outputs.configured == 'true'
-        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs operations/devops/infra-rearm-sweep.test.mjs
 
       - name: Mint App token
         id: app
@@ -114,6 +114,18 @@ jobs:
           # Dry runs report once; real runs wait up to 16 min for PRs blocked only by the idle window.
           MODE: ${{ inputs.dry_run && '--dry-run' || '--wait-max-minutes=16' }}
         run: node operations/devops/t0-enqueue-sweep.mjs "${{ github.repository }}" $MODE
+
+      # t/387 (t/385 cause 3): re-arm PRs that an INFRA failure ejected from the merge queue (rate
+      # limit, DNS/apt, runner loss, setup-step failure), at most twice per head, through
+      # enqueue-pr.mjs (which still enforces approvals and the tier guard). A real failure gets a PR
+      # comment instead. On the App token: a GITHUB_TOKEN enqueue would not trigger merge_group CI.
+      # Runs even if the earlier sweeps failed.
+      - name: Re-arm PRs ejected by an infra failure (t/387)
+        if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node operations/devops/infra-rearm-sweep.mjs "${{ github.repository }}" $DRY_RUN
 
       # t/318 (TL p/9#46): App-token variant of the canonical snapshot step, for the enqueue sweep, whose
       # work runs on the GitHub App installation token it mints (steps.app). Same script as
