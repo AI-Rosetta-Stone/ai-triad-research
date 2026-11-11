@@ -88,7 +88,7 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
 export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[] | undefined; emptyText?: string }) {
   const list = refs ?? [];
   if (list.length === 0 && !emptyText) return null;
-  return <BdiGroundingView refs={list} emptyText={emptyText} />;
+  return <div className="chat-why"><BdiGroundingView refs={list} emptyText={emptyText} /></div>;
 }
 
 // ── Chat message ─────────────────────────────────────────
