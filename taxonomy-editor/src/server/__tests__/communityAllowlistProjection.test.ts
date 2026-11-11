@@ -7,7 +7,6 @@
 // in list, detail, and copy paths without losing critical fields.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ChatSession } from '../../renderer/types/chat.js';
 import type { DebateSession } from '../../../lib/debate/types/session.js';
 import type { OpEdSet } from '../../../lib/oped/types.js';
 

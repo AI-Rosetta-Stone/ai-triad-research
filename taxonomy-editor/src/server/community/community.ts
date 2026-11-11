@@ -784,6 +784,7 @@ function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
     speaker: e.speaker,
     content: e.content,
     taxonomy_refs: e.taxonomy_refs,
+    ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
     ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
     ...(e.url_context_metadata !== undefined ? { url_context_metadata: e.url_context_metadata } : {}),
     // Intentionally omit raw_prompt and raw_response (owner-only per t/196#6)
@@ -803,6 +804,11 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
     taxonomy_refs: e.taxonomy_refs,
     ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
     ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
+    ...(e.summaries !== undefined ? { summaries: e.summaries } : {}),
+    ...(e.display_tier !== undefined ? { display_tier: e.display_tier } : {}),
+    ...(e.caveats !== undefined ? { caveats: e.caveats } : {}),
+    ...(e.model !== undefined ? { model: e.model } : {}),
+    ...(e.addressing !== undefined ? { addressing: e.addressing } : {}),
   };
 }
 
@@ -816,9 +822,9 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
  *  - Op-ed copy reads: opeds array, topic, params, created_at, updated_at
  *  - Inquiry: fieldClassification matrix (t/3648) */
 const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
-  chat: new Set(['id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 'chat_model', 'community_metadata']),
-  debate: new Set(['id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript', 'debate_model', 'community_metadata', 'active_povers', 'stages']),
-  oped: new Set(['topic', 'params', 'opeds', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
+  chat: new Set(['id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 'chat_model', 'temperature', 'community_metadata']),
+  debate: new Set(['id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript', 'debate_model', 'community_metadata', 'active_povers', 'opening_order', 'argument_network', 'debate_temperature', 'audience', 'prompt_config', 'gap_injections', 'source_type', 'user_is_pover', 'context_summaries']),
+  oped: new Set(['id', 'topic', 'params', 'opeds', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
   inquiry: new Set(), // inquiry handled separately via fieldClassification
 };
 
