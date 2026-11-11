@@ -107,8 +107,15 @@ function loadSingleDocMeta(metaPath: string, docName: string): { title: string; 
     if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
     if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
     return docMeta;
-    // Per-document fallback: one metadata file corruption doesn't block others (looped per-dir)
-  } catch {
+  } catch (err) {
+    // One corrupt metadata file must not block the others, so skip this doc and say so.
+    getGlobalRecorder()?.record({
+      type: 'state.error',
+      component: 'debate-engine',
+      level: 'warn',
+      message: `Skipping unreadable doc metadata for ${docName}: ${metaPath}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
     return null;
   }
 }
