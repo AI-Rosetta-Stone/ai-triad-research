@@ -268,3 +268,33 @@ test('gate: loose "changes requested" text from a non-App comment is ignored; th
   assert.deepEqual(blocks(g([], [{ body: 'Addressed the changes requested (Design).', login: 'jpsnover', createdAt: '2026-11-09T13:00:00Z' }])), []);
   assert.deepEqual(blocks(g([], [{ body: 'Changes requested (Design): no', login: 'jpsnover', createdAt: '2026-11-09T11:00:00Z' }])), ['Design']);
 });
+
+// ── t/311: alias table ──
+test('t/311 canonicalRole: known aliases map to Quality; unknown roles pass through unchanged', async () => {
+  const { canonicalRole } = await import('./role-review-verdicts.mjs');
+  for (const a of ['Quality-TechLead', 'QualityTechLead', 'Quality (Tech Lead', 'Quality TL', 'quality-techlead']) assert.equal(canonicalRole(a), 'Quality', a);
+  for (const r of ['Design', 'Quality', 'Quality-Sage', 'Tech Lead', '(unparseable)']) assert.equal(canonicalRole(r), r, r);
+});
+
+test('t/311 default mode: a Quality-TechLead approval and a Quality hold resolve to ONE role, latest wins', () => {
+  const v = latestRoleVerdicts({
+    reviewerAppLogin: APP, headSha: 'h', lastPushAt: null, comments: [],
+    reviews: [
+      { body: 'Changes requested (Quality): x', login: APP, commitId: 'h', submittedAt: '2026-11-11T02:00:00Z' },
+      { body: 'Approved (Quality-TechLead): y', login: APP, commitId: 'h', submittedAt: '2026-11-11T02:03:00Z' },
+    ],
+  });
+  assert.deepEqual([...v.keys()], ['Quality']);
+  assert.equal(v.get('Quality').kind, 'approved');
+});
+
+test('t/311: an unparseable hold still latches -- an aliased approval does not clear it', () => {
+  const v = latestRoleVerdicts({
+    reviewerAppLogin: APP, headSha: 'h', lastPushAt: null, comments: [], mode: 'gate',
+    reviews: [
+      { body: 'changes requested, see below', login: APP, commitId: 'h', submittedAt: '2026-11-11T02:00:00Z', state: 'COMMENTED' },
+      { body: 'Approved (Quality-TechLead): y', login: APP, commitId: 'h', submittedAt: '2026-11-11T02:03:00Z', state: 'APPROVED' },
+    ],
+  });
+  assert.ok([...v.values()].some((s) => s.kind === 'changes_requested' && s.role === '(unparseable)'));
+});

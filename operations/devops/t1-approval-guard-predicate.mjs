@@ -98,6 +98,26 @@ const LOOSE_CHANGES_REQUESTED_RE = /changes requested/i;
 const LOOSE_ROLE_RE = /\(([^)]+)\)/;
 const UNPARSEABLE_ROLE = '(unparseable)';
 
+// t/311 (TL p/9#22): THE one alias table. One reviewer posting under two spellings
+// (`Changes requested (Quality)` then `Approved (Quality-TechLead)`, #5005) landed in two gate
+// slots, so its own approval could never clear its own hold. Keys are the role lower-cased with
+// non-letters stripped (the gate's slot-key form); values are the canonical role as written.
+// Only add a spelling here when it is provably the SAME reviewer: merging two real roles into one
+// slot would let one role's approval clear another's block.
+const ROLE_ALIASES = new Map([
+  ['qualitytechlead', 'Quality'],   // Quality-TechLead, QualityTechLead, Quality TechLead, Quality (Tech Lead)
+  ['qualitytl', 'Quality'],         // Quality-TL, Quality TL
+]);
+
+function roleKey(role) {
+  return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
+}
+
+/** PURE (t/311). The canonical role for a known alias; any other role unchanged. */
+export function canonicalRole(role) {
+  return ROLE_ALIASES.get(roleKey(role)) ?? role;
+}
+
 function stripLeadingMarkdown(body) {
   return String(body ?? '').trim().replace(LEADING_MARKDOWN_RE, '');
 }
@@ -109,7 +129,7 @@ function parseVerdict(rawBody) {
     const [, word, role, rest] = m;
     if (word === 'Design-exempt' && rest.trim() === '') return null; // empty-reason exemption: invalid, not a verdict
     const kind = word === 'Approved' ? 'approved' : word === 'Changes requested' ? 'changes_requested' : 'exempt';
-    return { role: role.trim(), kind };
+    return { role: canonicalRole(role.trim()), kind };
   }
   // Fail-closed backstop: the strict grammar didn't match, but the text still says "changes
   // requested" -- never silently treat this as "no verdict." Best-effort role extraction from
@@ -120,7 +140,7 @@ function parseVerdict(rawBody) {
   const firstLine = stripped.split('\n', 1)[0];
   if (LOOSE_CHANGES_REQUESTED_RE.test(firstLine)) {
     const roleMatch = LOOSE_ROLE_RE.exec(firstLine);
-    return { role: roleMatch ? roleMatch[1].trim() : UNPARSEABLE_ROLE, kind: 'changes_requested', unparsed: true };
+    return { role: roleMatch ? canonicalRole(roleMatch[1].trim()) : UNPARSEABLE_ROLE, kind: 'changes_requested', unparsed: true };
   }
   return null;
 }
@@ -344,7 +364,12 @@ export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt
     };
   }
 
-  const ownerSlug = ownerSlugFromBranch(headRefName);
+  // t/311: the slot roles are already canonical (canonicalRole), so the owner slug goes through
+  // the SAME alias table. Otherwise a `quality-techlead/...` branch (slug `qualitytechlead`)
+  // approved as `Quality-TechLead` would compare `quality` against `qualitytechlead` and slip
+  // past the self-approval check.
+  const rawOwnerSlug = ownerSlugFromBranch(headRefName);
+  const ownerSlug = rawOwnerSlug ? normalizeRole(canonicalRole(rawOwnerSlug)) : rawOwnerSlug;
   const approvals = [...slots.values()]
     .filter((s) => s.kind === 'approved' && s.atHead && s.source !== 'human-review')
     .filter((s) => !(ownerSlug && normalizeRole(s.role).startsWith(ownerSlug))) // self-approval by the owning role
