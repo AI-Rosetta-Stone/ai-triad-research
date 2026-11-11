@@ -1384,6 +1384,16 @@ jobs:
           echo "::error::Deploy gate FAILED: full smoke (step 'Acceptance tests — full smoke (pre-traffic shift)' reported accepted=false). Its log lists the failed endpoints; 'Collect failure diagnostics' has the revision state and logs."
           exit 1
 
+      # t/265 (DevOps Lead p/107#2): persona is the fourth exit-0, output-driven rollback gate. Safe in
+      # this block: with persona=='false', every later step either has always() or needs
+      # persona=='true', so this red step skips nothing that would otherwise run. (warm_gate is
+      # different, see "Gate failed — warm-gate" at the END of this job.)
+      - name: Gate failed — persona matrix
+        if: always() && steps.persona.outputs.accepted == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: persona matrix (step 'Persona matrix (pre-traffic shift)' reported accepted=false). Its log lists the auth-gate regressions; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
       - name: Re-authenticate before rollback
         if: always() && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
@@ -1661,6 +1671,18 @@ jobs:
             echo "./operations/devops/Invoke-GatedRollback.ps1 -AppName $APP -ResourceGroup $RG -RevisionName $PREV_REV"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # t/265 (DevOps Lead p/107#2): warm_gate is the fifth exit-0, output-driven rollback gate. It must
+      # be the LAST step of this job, not in the "Gate failed" block after diagnostics. With
+      # warm=='false' but acceptance/persona=='true', the AC2 chain (which then verifies the RESTORED
+      # revision, t/4309) and "Post-deploy verification (traffic shifted)" still run, and both use the
+      # implicit success() a red step would cancel. Here it skips nothing; the job was already red
+      # through "Rollback on failure", and this step only names the gate.
+      - name: Gate failed — warm-gate
+        if: always() && steps.warm_gate.outputs.warm == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: warm-gate (step 'Warm-gate (/readyz)' reported warm=false: the embeddings cache never became ready, or /readyz reported a definitive failure). Its log has the last /readyz status; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
 
 
   # ── retire-previous-revision: t/266 option (b) ────────────────────────────
