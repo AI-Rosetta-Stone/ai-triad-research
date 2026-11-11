@@ -234,6 +234,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Wait for API quota recovery if rate-limited (t/236, t/238)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            RESP=$(gh api rate_limit --jq '.rate_limit | "\(.limit),\(.used),\(.reset)"' 2>&1 || echo "")
+            if [ -z "$RESP" ]; then
+              echo "API call failed (attempt $attempt/3); will retry metadata-action"
+              sleep 5
+              continue
+            fi
+            IFS=',' read -r LIMIT USED RESET <<< "$RESP"
+            REMAINING=$((LIMIT - USED))
+            NOW=$(date +%s)
+            if [ "$REMAINING" -gt 100 ]; then
+              echo "API quota OK: $REMAINING/$LIMIT remaining"
+              exit 0
+            fi
+            SECS_UNTIL_RESET=$((RESET - NOW))
+            if [ "$SECS_UNTIL_RESET" -gt 0 ]; then
+              echo "Rate-limited; quota resets in ${SECS_UNTIL_RESET}s. Waiting..."
+              sleep $((SECS_UNTIL_RESET + 2))
+              echo "Quota should be reset; metadata-action will retry"
+              exit 0
+            fi
+          done
+          echo "Could not check quota; metadata-action will retry if needed"
+
       - name: Extract version from tag
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6
