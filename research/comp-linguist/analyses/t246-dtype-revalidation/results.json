@@ -1,0 +1,600 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "temperature": 0.1,
+  "replicates": 3,
+  "prompt_sha256": "02bf5b20d2f5fd0b1968acf3e88dcbb694911997b320954e99a3c9401cb8d482",
+  "situations_sha256": "4b68214a31dce55b44bdfbd8f7d9cb4f98716d424acc699127f1fd58d0b57e3b",
+  "runs": [
+    {
+      "sit-447": {
+        "label": "definitional",
+        "confidence": 0.95,
+        "rationale": "The dispute centers directly on the ontological nature of AI (autopoietic vs. allopoietic), where agreeing on a shared definition would dissolve the conflict."
+      },
+      "sit-001": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of AGI timelines but split on urgency, value, and appropriate action."
+      },
+      "sit-100": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framework of labor market impacts and split on urgency, implications, and policy action."
+      },
+      "sit-250": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept participatory governance as the framing, but split on its value, speed, and real-world implementation."
+      },
+      "sit-350": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "POVs share the premise of code attribution and split on its implications for speed, safety, and accountability rather than disputing the foundational frame."
+      },
+      "sit-430": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the constructed-self framework and split entirely on implications, optimization, vulnerability, and where to direct policy attention."
+      },
+      "sit-470": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept distributed accountability as the frame but dispute whether market incentives, legal mandates, or corporate power dynamics should govern it."
+      },
+      "sit-300": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "The POVs clash over which foundational lens applies: singular catastrophic risk vs. diverse, plural futures and immediate harms."
+      },
+      "sit-400": {
+        "label": "structural",
+        "confidence": 0.95,
+        "rationale": "Safetyists reject the frame as a dangerous distraction, while others accept it, creating a foundational conflict over the governing lens."
+      },
+      "sit-228": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the premise of autonomous AI cyber-espionage and dispute its implications, urgency, and the appropriate defensive response."
+      },
+      "sit-328": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the framework's terminology but split entirely on what practical actions, implications, and values follow from it."
+      },
+      "sit-032": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "The POVs clash fundamentally on foundational frames: geopolitical race vs. global safety cooperation vs. economic protectionism."
+      },
+      "sit-128": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the framing of security as a fair use factor and split on its implications, burdens, and effectiveness."
+      },
+      "sit-254": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share the fallibilist-meliorist framework and split on how to apply it, debating whether it demands rapid deployment or caution."
+      },
+      "sit-352": {
+        "label": "interpretive",
+        "confidence": 0.95,
+        "rationale": "All POVs accept the dynamic benchmarking framework and debate its implications for deployment, safety, and vendor accountability."
+      },
+      "sit-105": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs agree on the domain of liability and legal responsibility but dispute the implications, urgency, and appropriate policy actions."
+      },
+      "sit-483": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the replay gate mechanism but interpret its implications differently—as an accelerator, a safety control, or an admission of unreliability."
+      },
+      "sit-168": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "POVs agree on the existence of the perception gap but dispute its meaning, urgency, and the appropriate response, making it interpretive."
+      },
+      "sit-436": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "POVs fundamentally disagree on how to frame risk vagueness: as a technical metrics problem, a power struggle, or institutional evasion."
+      },
+      "sit-065": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "The debate centers on whether AI requires entirely new legal frameworks or can be managed through existing ones, representing a fundamental clash of framing lenses."
+      },
+      "sit-089": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of AI deception but split on its urgency, nature, and whether it indicates existential risk or standard bugs."
+      },
+      "sit-258": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "POVs accept the technical limitation as a given and split on its implications and necessary remedies rather than the underlying frame."
+      },
+      "sit-349": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framing of context separation and debate its implications, scalability, and sufficiency rather than its foundational validity."
+      },
+      "sit-471": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share the premise of credential/degree monopolies but split on whether to disrupt, reform, or hold them accountable."
+      },
+      "sit-003": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framing of AI governance but split on the appropriate level of regulation, urgency, and mechanisms (innovation vs. safety vs. accountability)."
+      },
+      "sit-478": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framing of educational trust breakdown and split on its implications, urgency, and ultimate value."
+      },
+      "sit-480": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of automated algorithmic discovery but split entirely on its implications for safety, maintainability, and scaling."
+      },
+      "sit-475": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framing of metric obfuscation but split on its meaning, urgency, and policy implications."
+      },
+      "sit-481": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "POVs accept the proxy network premise and debate its normative implications for access, safety, and governance."
+      },
+      "sit-094": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "The POVs fundamentally conflict on whether to frame AI through speculative existential risk, current harms, or accelerationist benefits."
+      },
+      "sit-008": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "The POVs reject each other's foundational frames: pursuing capabilities, demanding prior containment, and dismissing the core mechanism as a power narrative."
+      },
+      "sit-468": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the field deployment data framework but split on whether its purpose is scaling, safety gating, or exposing failure."
+      },
+      "sit-302": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framework of semantic randomization but disagree on its implications, scaling velocity, and readiness for deployment."
+      },
+      "sit-305": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs directly conflict over whether the underlying risk framing and analogy apply at all versus representing alarmist misdirection."
+      },
+      "sit-164": {
+        "label": "interpretive",
+        "confidence": 0.95,
+        "rationale": "All POVs accept the framing of performance-gated safety and split on its implications, efficacy, and value."
+      },
+      "sit-442": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of automated honeypot loops and split on their implications regarding speed, systemic risk, and bias."
+      },
+      "sit-024": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "POVs agree adversarial vulnerabilities exist and debate whether they are solvable engineering hurdles or critical deployment blockers."
+      },
+      "sit-407": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the same investment modeling artifact and debate its implications for growth, volatility, and reality."
+      },
+      "sit-376": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs fundamentally disagree on the framing: a tractable technical bug, a structural safety failure, or an inherent encoding of institutional bias."
+      }
+    },
+    {
+      "sit-447": {
+        "label": "definitional",
+        "confidence": 0.95,
+        "rationale": "The dispute centers directly on the ontological status and nature of AI (self-producing vs. artifact), meeting the definitional test."
+      },
+      "sit-001": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of AGI timelines but split on implications, urgency, and policy priorities."
+      },
+      "sit-100": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framework of labor market impacts and split on implications and policy actions, making this interpretive."
+      },
+      "sit-250": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept participatory governance as the framing, but split on its value, speed, and real-world implementation."
+      },
+      "sit-350": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framing of AI code attribution and split on its implications for speed, safety, and governance."
+      },
+      "sit-430": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "The POVs fundamentally clash on whether the constructed self is an optimization target, a vulnerability requiring guardrails, or a tool to debunk personhood."
+      },
+      "sit-470": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the distributed accountability frame and split on its implications, favoring market incentives, legal mandates, or critiquing power dynamics."
+      },
+      "sit-300": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs clash over foundational frames: accelerationists and safetyists reject plural futures as a primary lens, while skeptics embrace it."
+      },
+      "sit-400": {
+        "label": "structural",
+        "confidence": 0.95,
+        "rationale": "Safetyists reject the framing as a dangerous distraction, while accelerationists and skeptics accept it as the correct lens."
+      },
+      "sit-228": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the premise of AI cyber-espionage but split on its severity, urgency, and the appropriate policy response."
+      },
+      "sit-328": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the ethical framework as a starting point and split entirely on its policy implications, urgency, and compatibility with tech development."
+      },
+      "sit-032": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of AI sovereignty but split on its desirability, competing on geopolitical, safety, and economic implications."
+      },
+      "sit-128": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the framing of security adequacy in fair use and split on its policy implications, burdens, and accountability effects."
+      },
+      "sit-254": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the core fallibilist/meliorist framework but split entirely on its policy implications, urgency, and how to apply it."
+      },
+      "sit-352": {
+        "label": "interpretive",
+        "confidence": 0.95,
+        "rationale": "All POVs accept the benchmarking framework and debate its implications for deployment, safety, and accountability."
+      },
+      "sit-105": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share the framing of assigning liability within legal systems but split on implications, urgency, and appropriate policy action."
+      },
+      "sit-483": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the replay gate mechanism but interpret its implications differently—as an accelerator, a safety control, or a symptom of unreliable evaluation."
+      },
+      "sit-168": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "POVs fundamentally disagree on the core frame: literacy problem, catastrophic risk, or democratic legitimacy crisis."
+      },
+      "sit-436": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "POVs fundamentally disagree on the framing of risk vagueness: as a technical metrics problem, a power struggle, or manufactured institutional evasion."
+      },
+      "sit-065": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "The POVs clash fundamentally on whether AI requires entirely new regulatory frameworks or normal adaptation, constituting a foundational framing conflict."
+      },
+      "sit-089": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs agree on the phenomenon of AI deception but split entirely on its urgency, severity, and required policy response."
+      },
+      "sit-258": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the detection gap as real and debate whether it requires technical fixes, safety validation, or reflects fundamental limits."
+      },
+      "sit-349": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framing of context separation; they debate its sufficiency, implications, and role in safety and capability."
+      },
+      "sit-471": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share the premise of institutional credentialing monopolies but split on whether to disrupt, reform, or regulate them."
+      },
+      "sit-003": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the governance frame but split on policy implications, urgency, and the appropriate form and focus of regulation."
+      },
+      "sit-478": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framing of educational trust breakdown and dispute its implications, valence, and necessary response."
+      },
+      "sit-480": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the automated solver technology as given, but split on its implications for scaling, verification, and maintainability."
+      },
+      "sit-475": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framework of metric masking but split on its meaning, urgency, and the appropriate policy response."
+      },
+      "sit-481": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the existence of proxy networks and debate their implications for policy, geopolitics, and security rather than disputing the core definition or foundational frame."
+      },
+      "sit-094": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "The POVs fundamentally conflict over which foundational frame (acceleration, existential safety, or current harms) applies to AI's impact."
+      },
+      "sit-008": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs fundamentally reject each other's foundational frames regarding the intelligence explosion, treating it variously as a goal, a catastrophic risk, or a mere narrative."
+      },
+      "sit-468": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the field methodology frame and split on its implications, seeing it as an engine for scaling, a harm gate, or a corrective lens."
+      },
+      "sit-302": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framework of generative training environments and debate its implications, urgency, and reliability rather than the core framing."
+      },
+      "sit-305": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs directly conflict over whether the underlying risk framing and analogy itself is valid or alarmist misdirection."
+      },
+      "sit-164": {
+        "label": "interpretive",
+        "confidence": 0.95,
+        "rationale": "All POVs accept the framing of performance-gated safety and split on its practical implications, value, and adequacy."
+      },
+      "sit-442": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the autonomous honeypot framework as valid, but split on its implications regarding defense speed, systemic risk, and bias."
+      },
+      "sit-024": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs agree on the existence of adversarial vulnerabilities but dispute their implications, severity, and the appropriate policy response."
+      },
+      "sit-407": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "POVs accept the modeling discrepancy as the subject and split on its implications, urgency, and policy conclusions rather than disputing the frame."
+      },
+      "sit-376": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs fundamentally disagree on the framework: technical bug (accel), inherent structural unsafety requiring verification (safetyist), or encoded institutional bias (skeptic)."
+      }
+    },
+    {
+      "sit-447": {
+        "label": "definitional",
+        "confidence": 0.95,
+        "rationale": "The dispute centers on the ontological status of AI as self-producing versus externally organized, where resolving the definition dissolves the disagreement."
+      },
+      "sit-001": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of AGI timelines but split on implications, urgency, and policy actions, making it an interpretive disagreement."
+      },
+      "sit-100": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framework of labor market impacts and split on urgency, implications, and policy action."
+      },
+      "sit-250": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept participatory governance as the frame but dispute its desirability, efficacy, and role as a safeguard or bottleneck."
+      },
+      "sit-350": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the technical premise of AI code attribution and debate its distinct implications for productivity, safety, and governance."
+      },
+      "sit-430": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the constructed-self framework and split entirely on its implications for AI policy, optimization, and vulnerability."
+      },
+      "sit-470": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept shared responsibility as the framework but split on how it should be enforced and whether the rhetoric masks corporate exploitation."
+      },
+      "sit-300": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs fundamentally clash over whether the foundational frame should be singular catastrophism or pluralistic, differentiated futures."
+      },
+      "sit-400": {
+        "label": "structural",
+        "confidence": 0.95,
+        "rationale": "Safetyists reject the framing as a dangerous distraction, while others accept it as the correct lens, demonstrating a foundational frame conflict."
+      },
+      "sit-228": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the AI-espionage premise but dispute its implications, urgency, and the appropriate defensive or restrictive policy responses."
+      },
+      "sit-328": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the framework's moral vocabulary but dispute its implications for AI governance, prioritizing competition, safety, or reform."
+      },
+      "sit-032": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the concept of AI sovereignty but disagree on its implications, pitting national competition against global cooperation and economic criticism."
+      },
+      "sit-128": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the framework linking security to fair use liability and split on its implications, burdens, and effectiveness."
+      },
+      "sit-254": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the fallibilist/meliorist framework but split entirely on its implications for deployment, caution, and regulatory action."
+      },
+      "sit-352": {
+        "label": "interpretive",
+        "confidence": 0.95,
+        "rationale": "The POVs accept the benchmarking framework and split entirely on its implications for deployment, safety, and model limitations."
+      },
+      "sit-105": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share a legal liability frame and split on its implications, urgency, and optimal policy action."
+      },
+      "sit-483": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the mechanism itself and debate its implications and meaning for self-evolution."
+      },
+      "sit-168": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "POVs fundamentally disagree on the core frame: literacy problem, catastrophic risk, vs democratic legitimacy crisis."
+      },
+      "sit-436": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "POVs fundamentally disagree on how to frame risk vagueness: as a technical metrics problem, a power struggle, or manufactured evasion."
+      },
+      "sit-065": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "The POVs debate whether AI demands entirely new legal frameworks versus adapting existing ones, constituting a foundational framing conflict."
+      },
+      "sit-089": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share the concept of AI deception but split on its urgency, nature, and the appropriate safety strategies."
+      },
+      "sit-258": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs agree on the detection gap as a phenomenon but split on whether it is a technical bug, a pre-deployment harm, or a fundamental incapacity."
+      },
+      "sit-349": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the context separation technique as a given and dispute its implications, sufficiency, and role in accountability."
+      },
+      "sit-471": {
+        "label": "interpretive",
+        "confidence": 0.85,
+        "rationale": "The POVs share the premise of credential/degree monopoly and debate whether to disrupt, reform, or hold them accountable."
+      },
+      "sit-003": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the governance framework and debate competing policy approaches, urgency, and enforcement priorities rather than disputing the foundational lens."
+      },
+      "sit-478": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framing of educational trust breakdown and split on its implications, urgency, and normative value."
+      },
+      "sit-480": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the automated discovery of algorithms as real, but split entirely on its implications for scaling, verification, and maintainability."
+      },
+      "sit-475": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framing of outlier-average masking but split on its value, implications, and required regulatory response."
+      },
+      "sit-481": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the existence of proxy networks and split on their implications: democratization versus security threat versus regulatory arbitrage symptom."
+      },
+      "sit-094": {
+        "label": "structural",
+        "confidence": 0.85,
+        "rationale": "The POVs fundamentally reject each other's foundational frames regarding risk scale, timelines, and whether to focus on present harms or speculative futures."
+      },
+      "sit-008": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "The POVs fundamentally clash on whether the intelligence explosion is a real technological risk or a power-consolidation narrative."
+      },
+      "sit-468": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the field methodology frame but dispute its implications, prioritizing capability scaling, harm detection, or critique respectively."
+      },
+      "sit-302": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "All POVs accept the framework of generative training environments and debate implications, scaling speed, and verification needs."
+      },
+      "sit-305": {
+        "label": "structural",
+        "confidence": 0.95,
+        "rationale": "Accelerationists and skeptics explicitly reject the foundational risk analogy, engaging in a fundamental framing conflict with safetyists."
+      },
+      "sit-164": {
+        "label": "interpretive",
+        "confidence": 0.95,
+        "rationale": "All POVs accept the framing of performance-gated safety and split on its implications, efficacy, and value."
+      },
+      "sit-442": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs accept the self-improving honeypot framework and split on its implications—speeding deployment, managing systemic risks, or preventing bias."
+      },
+      "sit-024": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "The POVs share the framing of adversarial vulnerabilities and debate their severity, solvability, and appropriate policy responses."
+      },
+      "sit-407": {
+        "label": "interpretive",
+        "confidence": 0.9,
+        "rationale": "POVs accept the modeling discrepancy as the premise and split on its implications for growth, volatility, and institutional reality."
+      },
+      "sit-376": {
+        "label": "structural",
+        "confidence": 0.9,
+        "rationale": "POVs fundamentally disagree on the framework: technical bug (accelerationist), systemic danger requiring humans (safetyist), or encoded institutional bias (skeptic)."
+      }
+    }
+  ]
+}
