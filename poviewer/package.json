@@ -16,7 +16,7 @@
     "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src --include-tests"
   },
   "dependencies": {
-    "@google/genai": "^2.32.0",
+    "@google/genai": "^3.0.0",
     "pdfjs-dist": "^6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
