@@ -1,0 +1,1450 @@
+{
+  "bdi": {
+    "n_refs": 122,
+    "n_rankable": 120,
+    "query_recall@6": 0.092,
+    "query_recall@12": 0.15,
+    "query_recall@20": 0.2,
+    "query_recall@30": 0.275,
+    "query_recall@50": 0.342,
+    "query_median_rank": 85,
+    "answer_recall@6": 0.233,
+    "answer_recall@12": 0.383,
+    "answer_recall@20": 0.458,
+    "answer_recall@30": 0.575,
+    "answer_recall@50": 0.7,
+    "answer_median_rank": 24
+  },
+  "situations": {
+    "n_refs": 45,
+    "n_rankable": 42,
+    "query_recall@6": 0.095,
+    "query_recall@12": 0.19,
+    "query_recall@20": 0.262,
+    "query_recall@30": 0.381,
+    "query_recall@50": 0.571,
+    "query_median_rank": 44,
+    "answer_recall@6": 0.357,
+    "answer_recall@12": 0.5,
+    "answer_recall@20": 0.595,
+    "answer_recall@30": 0.69,
+    "answer_recall@50": 0.738,
+    "answer_median_rank": 12
+  },
+  "bdi_not_in_own_camp": 2,
+  "rows": [
+    {
+      "chat": "chat-3fa95069-35c1-41a5-9cba-1fe4fe4d152a.json",
+      "kind": "sit",
+      "id": "sit-153",
+      "rank": 45,
+      "answer_rank": 86
+    },
+    {
+      "chat": "chat-3fa95069-35c1-41a5-9cba-1fe4fe4d152a.json",
+      "kind": "sit",
+      "id": "sit-290",
+      "rank": 111,
+      "answer_rank": 136
+    },
+    {
+      "chat": "chat-3fa95069-35c1-41a5-9cba-1fe4fe4d152a.json",
+      "kind": "sit",
+      "id": "sit-116",
+      "rank": 144,
+      "answer_rank": 27
+    },
+    {
+      "chat": "chat-3fa95069-35c1-41a5-9cba-1fe4fe4d152a.json",
+      "kind": "sit",
+      "id": "sit-153",
+      "rank": 68,
+      "answer_rank": 80
+    },
+    {
+      "chat": "chat-3fa95069-35c1-41a5-9cba-1fe4fe4d152a.json",
+      "kind": "sit",
+      "id": "sit-290",
+      "rank": 96,
+      "answer_rank": 147
+    },
+    {
+      "chat": "chat-3fa95069-35c1-41a5-9cba-1fe4fe4d152a.json",
+      "kind": "sit",
+      "id": "sit-116",
+      "rank": 107,
+      "answer_rank": 79
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-009",
+      "rank": 5,
+      "answer_rank": 14,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-222",
+      "rank": 2,
+      "answer_rank": 3,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-313",
+      "rank": 1,
+      "answer_rank": 2,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-034",
+      "rank": 6,
+      "answer_rank": 5,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "sit",
+      "id": "sit-212",
+      "rank": 9,
+      "answer_rank": 5
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "sit",
+      "id": "sit-382",
+      "rank": 4,
+      "answer_rank": 11
+    },
+    {
+      "chat": "chat-44da75b8-603d-4147-a6c4-7fb0b9adf8e4.json",
+      "kind": "sit",
+      "id": "sit-489",
+      "rank": 78,
+      "answer_rank": 2
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-129",
+      "rank": 161,
+      "answer_rank": 45,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-001",
+      "rank": 99,
+      "answer_rank": 10,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-029",
+      "rank": 19,
+      "answer_rank": 39,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-006",
+      "rank": 201,
+      "answer_rank": 94,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-141",
+      "rank": 93,
+      "answer_rank": 8,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-146",
+      "rank": 77,
+      "answer_rank": 32,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-108",
+      "rank": 118,
+      "answer_rank": 60,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-desires-077",
+      "rank": 259,
+      "answer_rank": 110,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-189",
+      "rank": 283,
+      "answer_rank": 292,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-069",
+      "rank": 300,
+      "answer_rank": 202,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-011",
+      "rank": 188,
+      "answer_rank": 210,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-desires-074",
+      "rank": 50,
+      "answer_rank": 26,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "sit",
+      "id": "sit-019",
+      "rank": 10,
+      "answer_rank": 2
+    },
+    {
+      "chat": "chat-45add1e7-2cb8-4ab3-95e9-137d594e8323.json",
+      "kind": "sit",
+      "id": "sit-091",
+      "rank": 42,
+      "answer_rank": 36
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-003",
+      "rank": 85,
+      "answer_rank": 197,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-093",
+      "rank": 109,
+      "answer_rank": 20,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-034",
+      "rank": 21,
+      "answer_rank": 12,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-072",
+      "rank": 9,
+      "answer_rank": 2,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "sit",
+      "id": "sit-176",
+      "rank": 55,
+      "answer_rank": 9
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "sit",
+      "id": "sit-019",
+      "rank": 25,
+      "answer_rank": 10
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-113",
+      "rank": 119,
+      "answer_rank": 160,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-48161fe0-36f4-40f2-a4e3-7e0cb516f75d.json",
+      "kind": "sit",
+      "id": "sit-177",
+      "rank": 107,
+      "answer_rank": 2
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-009",
+      "rank": 45,
+      "answer_rank": 6
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-001",
+      "rank": 46,
+      "answer_rank": 58,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 118,
+      "answer_rank": 102
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-007",
+      "rank": 143,
+      "answer_rank": 5
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 36,
+      "answer_rank": 2,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-010",
+      "rank": 44,
+      "answer_rank": 10
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-002",
+      "rank": 107,
+      "answer_rank": 109,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-039",
+      "rank": 137,
+      "answer_rank": 13,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-009",
+      "rank": 15,
+      "answer_rank": 3
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-001",
+      "rank": 42,
+      "answer_rank": 43,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 7,
+      "answer_rank": 9,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 119,
+      "answer_rank": 104
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-039",
+      "rank": 84,
+      "answer_rank": 10,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-039",
+      "rank": 54,
+      "answer_rank": 87,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-001",
+      "rank": 111,
+      "answer_rank": 35,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-009",
+      "rank": 12,
+      "answer_rank": 7
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-114",
+      "rank": 7,
+      "answer_rank": 37,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-6513f0d4-62ee-4063-bb26-794247f95fee.json",
+      "kind": "sit",
+      "id": "sit-001",
+      "rank": 74,
+      "answer_rank": 76
+    },
+    {
+      "chat": "chat-7a965d0a-a9c7-4439-a620-889a2c402cbe.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-003",
+      "rank": 242,
+      "answer_rank": 59,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-7a965d0a-a9c7-4439-a620-889a2c402cbe.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-desires-004",
+      "rank": 32,
+      "answer_rank": 33,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-7a965d0a-a9c7-4439-a620-889a2c402cbe.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-004",
+      "rank": 103,
+      "answer_rank": 9,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-027",
+      "rank": 21,
+      "answer_rank": 13,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "sit",
+      "id": "sit-087",
+      "rank": 77,
+      "answer_rank": 63
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-018",
+      "rank": 27,
+      "answer_rank": 79,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "sit",
+      "id": "sit-111",
+      "rank": 10,
+      "answer_rank": 4
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "sit",
+      "id": "sit-087",
+      "rank": 41,
+      "answer_rank": 5
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-028",
+      "rank": null,
+      "answer_rank": null,
+      "own_camp": false
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-039",
+      "rank": 104,
+      "answer_rank": 78,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-923f8fd2-dd13-43b3-afd2-35ccbc1cc0bc.json",
+      "kind": "sit",
+      "id": "sit-074",
+      "rank": 38,
+      "answer_rank": 26
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-173",
+      "rank": 252,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-061",
+      "rank": 321,
+      "answer_rank": 4,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-145",
+      "rank": 111,
+      "answer_rank": 7,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-083",
+      "rank": 283,
+      "answer_rank": 2,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-144",
+      "rank": 200,
+      "answer_rank": 3,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "sit",
+      "id": "sit-006",
+      "rank": 343,
+      "answer_rank": 148
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-001",
+      "rank": 316,
+      "answer_rank": 33,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-9f4a2ca8-d3b5-4814-91a9-4d8ac6e34279.json",
+      "kind": "sit",
+      "id": "sit-258",
+      "rank": 80,
+      "answer_rank": 17
+    },
+    {
+      "chat": "chat-aecfe5c8-bec4-4540-896b-5820dbc236f6.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-beliefs-292",
+      "rank": 51,
+      "answer_rank": 5,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-aecfe5c8-bec4-4540-896b-5820dbc236f6.json",
+      "kind": "bdi",
+      "pov": "skeptic",
+      "id": "skp-intentions-157",
+      "rank": 127,
+      "answer_rank": 35,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 1,
+      "answer_rank": 24,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-027",
+      "rank": 85,
+      "answer_rank": 11,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-003",
+      "rank": 181,
+      "answer_rank": 76,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-073",
+      "rank": 66,
+      "answer_rank": 3,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-071",
+      "rank": 29,
+      "answer_rank": 22,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-001",
+      "rank": 152,
+      "answer_rank": 110,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-088",
+      "rank": 32,
+      "answer_rank": 9,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-096",
+      "rank": 138,
+      "answer_rank": 143,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-116",
+      "rank": 201,
+      "answer_rank": 122,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b0a49648-23e6-4165-8a0c-5eec83982a86.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-046",
+      "rank": 94,
+      "answer_rank": 27,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b10c5690-8770-4849-9955-739add5e0960.json",
+      "kind": "sit",
+      "id": "sit-051",
+      "rank": 15,
+      "answer_rank": 4
+    },
+    {
+      "chat": "chat-b10c5690-8770-4849-9955-739add5e0960.json",
+      "kind": "sit",
+      "id": "sit-066",
+      "rank": 44,
+      "answer_rank": 21
+    },
+    {
+      "chat": "chat-b10c5690-8770-4849-9955-739add5e0960.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-desires-002",
+      "rank": 86,
+      "answer_rank": 21,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b10c5690-8770-4849-9955-739add5e0960.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-005",
+      "rank": 42,
+      "answer_rank": 137,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-b1c0c87a-9cf6-4df0-a27e-95191919adb9.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-135",
+      "rank": 208,
+      "answer_rank": 17,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-001",
+      "rank": 224,
+      "answer_rank": 198,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-203",
+      "rank": 78,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-040",
+      "rank": 64,
+      "answer_rank": 11,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-025",
+      "rank": 75,
+      "answer_rank": 3,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-202",
+      "rank": 189,
+      "answer_rank": 25,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-068",
+      "rank": 101,
+      "answer_rank": 44,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-058",
+      "rank": 158,
+      "answer_rank": 168,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-127",
+      "rank": 41,
+      "answer_rank": 67,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "sit",
+      "id": "sit-010",
+      "rank": 21,
+      "answer_rank": 11
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "sit",
+      "id": "sit-019",
+      "rank": 2,
+      "answer_rank": 5
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-desires-002",
+      "rank": 19,
+      "answer_rank": 28,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-200",
+      "rank": 124,
+      "answer_rank": 49,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-040",
+      "rank": 64,
+      "answer_rank": 8,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-014",
+      "rank": 220,
+      "answer_rank": 115,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-017",
+      "rank": 66,
+      "answer_rank": 101,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-003",
+      "rank": 269,
+      "answer_rank": 213,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-025",
+      "rank": 75,
+      "answer_rank": 6,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-desires-002",
+      "rank": 19,
+      "answer_rank": 38,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "sit",
+      "id": "sit-010",
+      "rank": 21,
+      "answer_rank": 6
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "sit",
+      "id": "sit-019",
+      "rank": 2,
+      "answer_rank": 2
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-040",
+      "rank": 64,
+      "answer_rank": 18,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-014",
+      "rank": 220,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-003",
+      "rank": 269,
+      "answer_rank": 62,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-intentions-025",
+      "rank": 75,
+      "answer_rank": 8,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-desires-002",
+      "rank": 19,
+      "answer_rank": 74,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "sit",
+      "id": "sit-010",
+      "rank": 21,
+      "answer_rank": 4
+    },
+    {
+      "chat": "chat-bc3ae195-184d-4f8a-bcbb-2e309c710c0d.json",
+      "kind": "bdi",
+      "pov": "safetyist",
+      "id": "saf-beliefs-005",
+      "rank": 169,
+      "answer_rank": 270,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-c389c61d-597c-4e9a-8bf7-dde22d451907.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-001",
+      "rank": null,
+      "answer_rank": null,
+      "own_camp": false
+    },
+    {
+      "chat": "chat-c389c61d-597c-4e9a-8bf7-dde22d451907.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-005",
+      "rank": 154,
+      "answer_rank": 115,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-c389c61d-597c-4e9a-8bf7-dde22d451907.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-008",
+      "rank": 66,
+      "answer_rank": 91,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-c389c61d-597c-4e9a-8bf7-dde22d451907.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-003",
+      "rank": 183,
+      "answer_rank": 177,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-c389c61d-597c-4e9a-8bf7-dde22d451907.json",
+      "kind": "sit",
+      "id": "sit-003",
+      "rank": 88,
+      "answer_rank": 140
+    },
+    {
+      "chat": "chat-cfe4efac-d914-402d-87e6-a61810b14095.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-081",
+      "rank": 214,
+      "answer_rank": 200,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-cfe4efac-d914-402d-87e6-a61810b14095.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-118",
+      "rank": 124,
+      "answer_rank": 53,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-cfe4efac-d914-402d-87e6-a61810b14095.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-083",
+      "rank": 88,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-cfe4efac-d914-402d-87e6-a61810b14095.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-073",
+      "rank": 123,
+      "answer_rank": 21,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-cfe4efac-d914-402d-87e6-a61810b14095.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-083",
+      "rank": 88,
+      "answer_rank": 27,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-cfe4efac-d914-402d-87e6-a61810b14095.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-078",
+      "rank": 126,
+      "answer_rank": 39,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d13adccf-2010-4301-9097-7e1cbd6f1aa7.json",
+      "kind": "sit",
+      "id": "sit-153-ensuring-ai-alignment-and-control",
+      "rank": null,
+      "answer_rank": null
+    },
+    {
+      "chat": "chat-d13adccf-2010-4301-9097-7e1cbd6f1aa7.json",
+      "kind": "sit",
+      "id": "sit-341-supervisability-evasion",
+      "rank": null,
+      "answer_rank": null
+    },
+    {
+      "chat": "chat-d13adccf-2010-4301-9097-7e1cbd6f1aa7.json",
+      "kind": "sit",
+      "id": "sit-473-linguistic-underspecification-of-human-intent",
+      "rank": null,
+      "answer_rank": null
+    },
+    {
+      "chat": "chat-d338a4d1-4c63-4549-9b64-691f1181c174.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-135",
+      "rank": 100,
+      "answer_rank": 22,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d338a4d1-4c63-4549-9b64-691f1181c174.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-003",
+      "rank": 26,
+      "answer_rank": 8,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-067",
+      "rank": 18,
+      "answer_rank": 4,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-115",
+      "rank": 59,
+      "answer_rank": 29,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-039",
+      "rank": 22,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 2,
+      "answer_rank": 8,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-003",
+      "rank": 203,
+      "answer_rank": 5,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-096",
+      "rank": 175,
+      "answer_rank": 6,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-d7088717-2f9f-4722-8336-61a0e0256a56.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-115",
+      "rank": 60,
+      "answer_rank": 12,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-033",
+      "rank": 3,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-040",
+      "rank": 122,
+      "answer_rank": 2,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-041",
+      "rank": 26,
+      "answer_rank": 6,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 176,
+      "answer_rank": 15
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-086",
+      "rank": 146,
+      "answer_rank": 13,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-038",
+      "rank": 13,
+      "answer_rank": 3,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-050",
+      "rank": 7,
+      "answer_rank": 118,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-033",
+      "rank": 2,
+      "answer_rank": 4,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-003",
+      "rank": 186,
+      "answer_rank": 210,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 3,
+      "answer_rank": 13
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 7,
+      "answer_rank": 14,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-050",
+      "rank": 11,
+      "answer_rank": 25,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-033",
+      "rank": 4,
+      "answer_rank": 4,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 20,
+      "answer_rank": 47
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "sit",
+      "id": "sit-005",
+      "rank": 21,
+      "answer_rank": 17
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-039",
+      "rank": 117,
+      "answer_rank": 171,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 24,
+      "answer_rank": 18,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-033",
+      "rank": 2,
+      "answer_rank": 7,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 31,
+      "answer_rank": 25
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-048",
+      "rank": 10,
+      "answer_rank": 6,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-f97e1054-6a8f-43bd-93ae-6d4a7b2dd45d.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 54,
+      "answer_rank": 25,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-033",
+      "rank": 3,
+      "answer_rank": 1,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "sit",
+      "id": "sit-004",
+      "rank": 176,
+      "answer_rank": 6
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-078",
+      "rank": 188,
+      "answer_rank": 29,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-041",
+      "rank": 26,
+      "answer_rank": 8,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-desires-001",
+      "rank": 87,
+      "answer_rank": 11,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-beliefs-039",
+      "rank": 216,
+      "answer_rank": 33,
+      "own_camp": true
+    },
+    {
+      "chat": "chat-fb233b90-b559-4705-afe4-d0a6eeeab3ca.json",
+      "kind": "bdi",
+      "pov": "accelerationist",
+      "id": "acc-intentions-013",
+      "rank": 114,
+      "answer_rank": 36,
+      "own_camp": true
+    }
+  ]
+}
