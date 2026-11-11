@@ -28,7 +28,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from sentence_transformers import SentenceTransformer
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CERerankingEvaluator
 
@@ -41,7 +40,7 @@ ARTIFACTS_DIR = REPO_ROOT.parent / "ai-triad-data" / "research-artifacts" / "com
 sys.path.insert(0, str(SCRIPT_DIR))
 from _model_release import LOCAL_MODEL_ROOT, report_release_steps  # noqa: E402
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from embed_model_pins import load_cross_encoder  # noqa: E402
+from embed_model_pins import load_cross_encoder, load_sentence_transformer  # noqa: E402
 
 BI_ENCODER_MODEL = "all-MiniLM-L6-v2"
 # t/149: canonical id (renamed upstream from ms-marco-MiniLM-L-6-v2, t/146), loaded at the pin.
@@ -232,7 +231,8 @@ def main():
     log(f"  {len(golden)} claims")
 
     log(f"Loading bi-encoder ({BI_ENCODER_MODEL})...")
-    bi_model = SentenceTransformer(BI_ENCODER_MODEL)
+    bi_model = load_sentence_transformer(BI_ENCODER_MODEL)
+    log(f"  resolved_revision={bi_model.resolved_revision}")
 
     log(f"Loading cross-encoder ({CROSS_ENCODER_MODEL})...")
     cross_model = load_cross_encoder(CROSS_ENCODER_MODEL)
