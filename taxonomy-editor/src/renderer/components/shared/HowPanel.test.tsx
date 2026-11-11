@@ -34,7 +34,17 @@ describe('HowPanel', () => {
     render(<HowPanel rawPrompt={undefined} rawResponse={undefined} />);
     await userEvent.click(screen.getByText('How'));
 
-    expect(screen.getByText("The raw prompt and output weren't recorded for this answer.")).toBeInTheDocument();
+    expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
+    expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
+  });
+
+  it('displays Methods section when expanded', async () => {
+    render(<HowPanel rawPrompt="test" rawResponse="test" />);
+    await userEvent.click(screen.getByText('How'));
+
+    expect(screen.getByText('Methods')).toBeInTheDocument();
+    expect(screen.getByText('Theory of Success')).toBeInTheDocument();
+    expect(screen.getByText('Theory of Operations')).toBeInTheDocument();
   });
 });
 

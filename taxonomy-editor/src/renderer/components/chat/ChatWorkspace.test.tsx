@@ -209,7 +209,9 @@ describe('ChatWorkspace', () => {
     };
     render(<ChatWorkspace />);
     await user.click(screen.getByRole('button', { name: 'How' }));
-    expect(screen.getByText("The raw prompt and output weren't recorded for this answer.")).toBeInTheDocument();
+    expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Raw Response/ }));
+    expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
   });
 
   it('an answer with no taxonomy refs says so under Why; a user message shows no such line (t/165)', () => {

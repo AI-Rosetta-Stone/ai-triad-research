@@ -109,7 +109,10 @@ export function HowMethodsLinks({ links, component = 'how-panel' }: HowMethodsLi
  */
 export function HowPanel({ rawPrompt, rawResponse }: HowPanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const hasRawFields = rawPrompt || rawResponse;
+  const methods: HowMethodsLink[] = [
+    { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
+    { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
+  ];
   return (
     <div className="how-panel">
       <button type="button" className="how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
@@ -118,18 +121,15 @@ export function HowPanel({ rawPrompt, rawResponse }: HowPanelProps) {
       </button>
       {expanded && (
         <div className="how-body">
-          {hasRawFields ? (
-            <>
-              <HowSection title="Raw Prompt" defaultExpanded>
-                <HowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
-              </HowSection>
-              <HowSection title="Raw Response" defaultExpanded={false}>
-                <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
-              </HowSection>
-            </>
-          ) : (
-            <p className="how-unavailable">The raw prompt and output weren't recorded for this answer.</p>
-          )}
+          <HowSection title="Raw Prompt" defaultExpanded>
+            <HowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
+          </HowSection>
+          <HowSection title="Raw Response" defaultExpanded={false}>
+            <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
+          </HowSection>
+          <HowSection title="Methods" defaultExpanded={false}>
+            <HowMethodsLinks links={methods} />
+          </HowSection>
         </div>
       )}
     </div>
