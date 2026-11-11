@@ -902,7 +902,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.68.0",
+      "version": "1.70.0",
       "license": "ISC"
     },
     {
@@ -1487,7 +1487,7 @@
     },
     {
       "name": "undici",
-      "version": "8.12.3",
+      "version": "8.12.4",
       "license": "MIT"
     },
     {
@@ -1597,7 +1597,7 @@
     },
     {
       "name": "zustand",
-      "version": "5.0.16",
+      "version": "5.1.0",
       "license": "MIT"
     },
     {
@@ -3053,7 +3053,7 @@
       "packages": [
         {
           "name": "lucide-react",
-          "version": "1.68.0"
+          "version": "1.70.0"
         }
       ],
       "licenseType": "ISC",
@@ -3535,7 +3535,7 @@
         },
         {
           "name": "undici",
-          "version": "8.12.3"
+          "version": "8.12.4"
         }
       ],
       "licenseType": "MIT",
@@ -3629,7 +3629,7 @@
       "packages": [
         {
           "name": "zustand",
-          "version": "5.0.16"
+          "version": "5.1.0"
         }
       ],
       "licenseType": "MIT",
