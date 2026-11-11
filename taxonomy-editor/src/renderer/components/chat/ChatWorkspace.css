@@ -664,11 +664,6 @@
   font-weight: 600;
 }
 
-.chat-reasoning-label--missing {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
 .chat-reasoning-text {
   color: var(--text-muted);
   line-height: 1.4;
