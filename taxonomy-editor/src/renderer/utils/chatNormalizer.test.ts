@@ -56,7 +56,7 @@ describe('chatNormalizer', () => {
       expect(entry.taxonomy_refs[0].label).toBe('Custom Label');
     });
 
-    it('marks refs from nodes no longer in taxonomy', () => {
+    it('does not add fallback label for nodes no longer in taxonomy', () => {
       const entry: ChatEntry = {
         id: 'e1',
         timestamp: '2026-06-08T10:00:00Z',
@@ -69,7 +69,7 @@ describe('chatNormalizer', () => {
 
       normalizeEntry(entry, context);
 
-      expect(entry.taxonomy_refs[0].label).toBe('deleted-node-999 (no longer in taxonomy)');
+      expect(entry.taxonomy_refs[0].label).toBeUndefined();
     });
 
     it('handles entries with no refs', () => {

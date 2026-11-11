@@ -131,7 +131,9 @@ export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; 
               selected={selectedBdiNodeId === r.node_id}
               onClick={() => toggleBdiNode(r.node_id)}
             />
-            {r.label && <span className="chat-reasoning-label">{r.label}</span>}
+            <span className="chat-reasoning-label">
+              {r.label || `${r.node_id} (no longer in taxonomy)`}
+            </span>
             {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
           </div>
         ))}
