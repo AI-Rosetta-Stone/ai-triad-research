@@ -2,28 +2,24 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
+import { fmtEventDurationSeconds } from './AnalyticsDashboard';
 
-// Re-export from AnalyticsDashboard for testing
-import { AnalyticsDashboard } from './AnalyticsDashboard';
-
-// We'll need to test fmtEventDurationSeconds, but it's not exported.
-// Instead, we'll test the behavior through the rendered component.
-// For now, let's create a standalone test module that validates the logic.
-
-describe('fmtEventDurationSeconds', () => {
-  // Test cases: 0/499/500/4949/31647
+describe('fmtEventDurationSeconds (t/320, Design t/337)', () => {
+  // Test cases: sub-second handling, boundary, and larger values
   const testCases = [
-    { ms: 0, expected: '0s' },
-    { ms: 499, expected: '0s' },
-    { ms: 500, expected: '1s' },
-    { ms: 4949, expected: '5s' },
-    { ms: 31647, expected: '32s' },
+    { ms: 0, expected: '0s', label: 'exactly 0' },
+    { ms: 1, expected: '<1s', label: 'sub-second (1ms)' },
+    { ms: 499, expected: '<1s', label: 'sub-second boundary (499ms)' },
+    { ms: 500, expected: '1s', label: 'rounding boundary (500ms)' },
+    { ms: 4949, expected: '5s', label: 'round down (4949ms)' },
+    { ms: 31647, expected: '32s', label: 'large value (31647ms)' },
   ];
 
-  testCases.forEach(({ ms, expected }) => {
-    it(`should convert ${ms}ms to "${expected}"`, () => {
-      const result = Math.round(ms / 1000) + 's';
+  testCases.forEach(({ ms, expected, label }) => {
+    it(`should convert ${ms}ms to "${expected}" (${label})`, () => {
+      const result = fmtEventDurationSeconds(ms);
       expect(result).toBe(expected);
     });
   });
 });
+
