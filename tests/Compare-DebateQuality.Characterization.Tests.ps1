@@ -14,7 +14,7 @@
 BeforeAll {
     # Import the module
     $ModuleRoot = "$PSScriptRoot/../../../scripts"
-    Import-Module "$ModuleRoot/AITriad.psd1" -Force -ErrorAction Stop
+    Import-Module "$ModuleRoot/AITriad/AITriad.psd1" -Force -ErrorAction Stop
 }
 
 Describe "Compare-DebateQuality.Characterization" {
