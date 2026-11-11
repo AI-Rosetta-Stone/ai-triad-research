@@ -3834,7 +3834,7 @@ jobs:
             core.info(`t1-approval-guard (merge_group): batch is ${group.map((p) => '#' + p.number).join(', ')}`);
 
             // t/238: use github-retry.mjs for consistent rate-limit 403 handling (wait until reset)
-            const withRetry = (label, fn) => withGitHubRetry(label, fn, { warn: (m) => core.warning(m.replace('WARN github-retry: ', 't1-approval-guard (merge_group): ')) });
+            const withRetry = async (label, fn) => withGitHubRetry(label, fn, { warn: (m) => core.warning(m.replace('WARN github-retry: ', 't1-approval-guard (merge_group): ')) });
 
             const perPrResults = [];
             for (const entry of group) {
