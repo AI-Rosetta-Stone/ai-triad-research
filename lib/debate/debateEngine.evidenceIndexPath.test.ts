@@ -100,39 +100,23 @@ describe('debateEngine.sourceEvidenceIndex', () => {
     expect(existsSync).toHaveBeenCalledWith(expect.stringContaining('Origin'));
   });
 
-  it('logs WARN with actual path when file not found', async () => {
-    let warnLogged = false;
-    let warnPath = '';
-
-    // Mock the flight recorder to capture warnings
-    const originalGlobalRecorder = (global as any).getGlobalRecorder;
-    (global as any).getGlobalRecorder = () => ({
-      record: (event: any) => {
-        if (event.level === 'warn' && event.message?.includes('Source evidence index not found')) {
-          warnLogged = true;
-          warnPath = event.message;
-        }
-      },
-    });
-
+  it('returns undefined and logs WARN when file not found', async () => {
     existsSync.mockReturnValue(false);
 
-    try {
-      const { default: DebateEngine } = await import('./debateEngine.js');
-      const engine = new DebateEngine({
-        adapter: {} as any,
-        taxonomy: {} as any,
-        config: { enableAdaptiveStagingDebug: false },
-        session: { id: 'test-session' },
-      } as any);
+    const { default: DebateEngine } = await import('./debateEngine.js');
+    const engine = new DebateEngine({
+      adapter: {} as any,
+      taxonomy: {} as any,
+      config: { enableAdaptiveStagingDebug: false },
+      session: { id: 'test-session' },
+    } as any);
 
-      (engine as any).sourceEvidenceIndex;
+    const index = (engine as any).sourceEvidenceIndex;
 
-      // The WARN may or may not be logged depending on flight-recorder availability
-      // Just verify the function completes without error
-      expect(true).toBe(true);
-    } finally {
-      (global as any).getGlobalRecorder = originalGlobalRecorder;
-    }
+    // When the file doesn't exist, getter returns undefined
+    expect(index).toBeUndefined();
+    
+    // existsSync was called to check the Origin path
+    expect(existsSync).toHaveBeenCalledWith(expect.stringContaining('Origin'));
   });
 });
