@@ -5,7 +5,8 @@ import { POV_META, type PovMetaKey } from '@lib/electron-shared/povMeta';
 import { useState, useEffect } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import type { GraphAttributes } from '../../types/taxonomy';
+import type { GraphAttributes, ConflictFile, PovNode, SituationNode } from '../../types/taxonomy';
+import type { PolicyRegistryEntry, PolicyReferencingNode } from '../../hooks/useTaxonomyStore/slices/taxonomyDataSlice';
 import { resolveDescription, DescriptionToggle } from './DescriptionToggle';
 import './LinkedNodePreview.css';
 
@@ -26,7 +27,7 @@ interface EnrichedAttrs {
   key_points?: string[];
 }
 
-function renderConflictPreview(conflict: any, nodeId: string) {
+function renderConflictPreview(conflict: ConflictFile, nodeId: string) {
   return (
     <div className="linked-node-preview">
       <div className="linked-node-preview-header">
@@ -46,7 +47,7 @@ function renderConflictPreview(conflict: any, nodeId: string) {
   );
 }
 
-function renderPolicyPreview(policy: any, referencingNodes: any[], nodeId: string) {
+function renderPolicyPreview(policy: PolicyRegistryEntry, referencingNodes: PolicyReferencingNode[], nodeId: string) {
   return (
     <div className="linked-node-preview">
       <div className="linked-node-preview-header">
@@ -64,7 +65,7 @@ function renderPolicyPreview(policy: any, referencingNodes: any[], nodeId: strin
 }
 
 function renderNodePreview(
-  node: any,
+  node: PovNode | SituationNode,
   nodeId: string,
   povLabel: string,
   category: string | null,
@@ -106,12 +107,6 @@ function renderNodePreview(
     </div>
   );
 }
-
-/**
- * Enriched fields that may live under `graph_attributes` at runtime but are not
- * part of the declared {@link GraphAttributes} shape (per the project data
- * convention — enriched fields vary per node). Accessed defensively.
- */
 
 /**
  * Read-only inline preview of a linked taxonomy node, situation, or conflict,

@@ -176,4 +176,22 @@ describe('LinkedNodePreview', () => {
     expect(screen.getByText('Implement AI regulations')).toBeInTheDocument();
     expect(screen.getByText('3 nodes')).toBeInTheDocument();
   });
+
+  it('does not toggle on document Alt+P since globalShortcut={false}', async () => {
+    const mockLookupPinnedData = vi.fn();
+    vi.spyOn(useTaxonomyStoreModule, 'useTaxonomyStore').mockImplementation(() => mockLookupPinnedData);
+    
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    
+    // Fire Alt+P on document - should NOT toggle because globalShortcut={false}
+    fireEvent.keyDown(document, { key: 'p', altKey: true });
+    
+    // Text should still be plain (not switched to formal)
+    await waitFor(() => {
+      expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    });
+  });
 });
