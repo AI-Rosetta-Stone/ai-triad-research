@@ -55,3 +55,40 @@ export function deriveTruncation(result: InquiryResult): { truncated: boolean; t
   }
   return { truncated: false };
 }
+
+/** Millisecond timestamps marking when each inquiry stage started and ended (t/325). */
+export interface InquiryStageTiming {
+  /** Unix timestamp (ms) when the stage started; undefined if never entered. */
+  startedAt?: number;
+  /** Unix timestamp (ms) when the stage ended; undefined if still running or never entered. */
+  endedAt?: number;
+}
+
+/** Collection of stage timings for all inquiry pipeline stages (t/325). */
+export interface InquiryStageTimings {
+  grounding: InquiryStageTiming;
+  debating: InquiryStageTiming;
+  judging: InquiryStageTiming;
+  synthesizing: InquiryStageTiming;
+}
+
+/** Advance stage timings when transitioning from one stage to the next. Records the end time of the
+ *  previous stage and the start time of the next stage.
+ *  @param timings - mutable stage timings to update
+ *  @param prev - the previous stage name (or undefined if starting from queued)
+ *  @param next - the new stage name
+ *  @param now - Unix timestamp (ms) for both the end of prev and start of next
+ *  @returns the updated timings object
+ */
+export function advanceStageTimings(
+  timings: InquiryStageTimings,
+  prev: InquiryPipelineStage | undefined,
+  next: InquiryPipelineStage,
+  now: number,
+): InquiryStageTimings {
+  if (prev !== undefined) {
+    timings[prev].endedAt = now;
+  }
+  timings[next].startedAt = now;
+  return timings;
+}

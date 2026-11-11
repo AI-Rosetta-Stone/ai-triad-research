@@ -17,6 +17,9 @@ export interface HowPanelProps {
   rawPrompt?: string;
   rawResponse?: string;
   methodsLinks?: HowMethodsLink[];
+  /** Replaces the default Raw Prompt / Raw Response sections (e.g. the Op-Ed reader's per-stage
+   *  list, t/173). Methods still comes from `methodsLinks`. */
+  children?: React.ReactNode;
 }
 
 export interface HowSectionProps {
@@ -108,7 +111,7 @@ export function HowMethodsLinks({ links, component = 'how-panel' }: HowMethodsLi
  * Collapsible How panel for displaying raw prompt/response and methods links.
  * Rendered below each POV response in Chat, and in Op-Ed reader.
  */
-export function HowPanel({ rawPrompt, rawResponse, methodsLinks = [] }: HowPanelProps) {
+export function HowPanel({ rawPrompt, rawResponse, methodsLinks = [], children }: HowPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const linksToDisplay = methodsLinks;
   return (
@@ -119,12 +122,16 @@ export function HowPanel({ rawPrompt, rawResponse, methodsLinks = [] }: HowPanel
       </button>
       {expanded && (
         <div className="how-body">
-          <HowSection title="Raw Prompt" defaultExpanded>
-            <HowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
-          </HowSection>
-          <HowSection title="Raw Response" defaultExpanded={false}>
-            <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
-          </HowSection>
+          {children ?? (
+            <>
+              <HowSection title="Raw Prompt" defaultExpanded>
+                <HowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
+              </HowSection>
+              <HowSection title="Raw Response" defaultExpanded={false}>
+                <HowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
+              </HowSection>
+            </>
+          )}
           {linksToDisplay && linksToDisplay.length > 0 && (
             <HowSection title="Methods" defaultExpanded={false}>
               <HowMethodsLinks links={linksToDisplay} />

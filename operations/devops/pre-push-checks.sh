@@ -193,6 +193,64 @@ find_python() {
   return 1
 }
 
+# t/379: one `vitest related` at a time per MACHINE. Many agents push from one box; concurrent
+# runs each start a full fork pool and starve one another ('Failed to start forks worker', 20
+# unrelated files failing, 25-minute runs), so agents reached for AITRIAD_PREPUSH=skip. The lock
+# is a directory (mkdir is atomic on Windows and Linux) holding "<pid> <epoch> <worktree>".
+#   - Busy: wait, printing who holds it every 30s. Never fail for a busy lock: after
+#     AITRIAD_PREPUSH_LOCK_WAIT seconds (default 1200) WARN and skip vitest; CI still runs it.
+#   - Stale: the holder's pid is gone (kill -0; hooks all run under Git's one sh, so pids are
+#     comparable), or the lock is older than AITRIAD_PREPUSH_LOCK_STALE seconds (default 2700):
+#     WARN and take it over. Two waiters can both judge one lock stale in the same instant; the
+#     cost of that race is one overlapping run, never a wrong verdict.
+#   - Released on exit, interrupt or termination, only by its owner.
+# Workers are capped at half the cores, so even an unlocked run (timeout) cannot take the box.
+LOCK_DIR=${AITRIAD_PREPUSH_LOCK_DIR:-${LOCALAPPDATA:-${XDG_CACHE_HOME:-$HOME/.cache}}/aitriad/prepush.lock}
+LOCK_WAIT=${AITRIAD_PREPUSH_LOCK_WAIT:-1200}
+LOCK_STALE=${AITRIAD_PREPUSH_LOCK_STALE:-2700}
+LOCK_OWNED=""
+CORES=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+VITEST_WORKERS=$(( CORES / 2 )); [ "$VITEST_WORKERS" -ge 1 ] || VITEST_WORKERS=1
+
+release_vitest_lock() {
+  [ -n "$LOCK_OWNED" ] || return 0
+  case "$(cat "$LOCK_DIR/owner" 2>/dev/null)" in "$$ "*) rm -rf "$LOCK_DIR" ;; esac
+  LOCK_OWNED=""
+}
+trap release_vitest_lock EXIT
+trap 'release_vitest_lock; exit 130' INT
+trap 'release_vitest_lock; exit 143' TERM HUP
+
+# Returns 0 holding the lock, 1 after the wait timed out (caller skips vitest with a WARN).
+acquire_vitest_lock() {
+  mkdir -p "$(dirname "$LOCK_DIR")" 2>/dev/null
+  t0=$(date +%s); next_note=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    now=$(date +%s); waited=$(( now - t0 ))
+    holder=$(cat "$LOCK_DIR/owner" 2>/dev/null); hpid=${holder%% *}
+    born=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo "$now")
+    if { [ -n "$hpid" ] && ! kill -0 "$hpid" 2>/dev/null; } || [ $(( now - born )) -gt "$LOCK_STALE" ]; then
+      echo "pre-push: WARN removing a stale vitest lock (holder: ${holder:-unknown}, age $(( now - born ))s): its process is gone or it outlived ${LOCK_STALE}s." >&2
+      rm -rf "$LOCK_DIR"
+      continue
+    fi
+    if [ "$waited" -ge "$LOCK_WAIT" ]; then
+      echo "pre-push: WARN waited ${waited}s for the machine-wide vitest lock (holder: ${holder:-unknown}); skipping vitest for this push so a busy lock never blocks it. CI runs the tests. Lock: $LOCK_DIR" >&2
+      return 1
+    fi
+    if [ "$waited" -ge "$next_note" ]; then
+      echo "pre-push: waiting for the machine-wide vitest lock (held by: ${holder:-starting}; waited ${waited}s, gives up at ${LOCK_WAIT}s)..." >&2
+      next_note=$(( waited + 30 ))
+    fi
+    sleep 2
+  done
+  echo "$$ $(date +%s) $ROOT" >"$LOCK_DIR/owner"
+  LOCK_OWNED=1
+  waited=$(( $(date +%s) - t0 ))
+  [ "$waited" -gt 0 ] && echo "pre-push: got the vitest lock after waiting ${waited}s." >&2
+  return 0
+}
+
 echo "pre-push: running CI's fast checks on changed files (AITRIAD_PREPUSH=skip to bypass)..."
 FAILED=""
 EXACT_FAILED=""
@@ -210,7 +268,17 @@ for step in $PLAN; do
     eslint)         label="$pkg: eslint (changed files)"; ( cd "$ROOT/$pkg" && pnpm exec eslint --no-warn-ignored "$@" ) ;;
     tsc)            label="$pkg: tsc -p $arg";            ( cd "$ROOT/$pkg" && pnpm exec tsc --noEmit -p "$arg" ) ;;
     script)         label="$pkg: pnpm run $arg";          ( cd "$ROOT/$pkg" && pnpm run --silent "$arg" ) ;;
-    vitest-related) label="$pkg: vitest related";         ( cd "$ROOT/$pkg" && pnpm exec vitest related --run --passWithNoTests "$@" ) ;;
+    vitest-related)
+      label="$pkg: vitest related (max ${VITEST_WORKERS} workers)"
+      if ! acquire_vitest_lock; then
+        IFS='
+'
+        continue
+      fi
+      ( cd "$ROOT/$pkg" && pnpm exec vitest related --run --passWithNoTests --pool=forks --maxWorkers="$VITEST_WORKERS" "$@" )
+      rc=$?
+      release_vitest_lock
+      ( exit $rc ) ;;
     parse)
       label="PowerShell parse ($# file(s))"; exact=1
       if ! command -v "$PWSH" >/dev/null 2>&1; then

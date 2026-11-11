@@ -143,8 +143,8 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = if (enabled) {
         { name: 'GITHUB_OWNER', value: githubOwner }
         { name: 'GITHUB_REPO', value: githubRepo }
         // Secrets via Key Vault references (C2) — no plain-text credentials in app settings
-        { name: 'GITHUB_RUNNER_PAT', value: '@Microsoft.KeyVault(SecretUri=${patSecret.properties.secretUri})' }
-        { name: 'GITHUB_RUNNER_WEBHOOK_SECRET', value: '@Microsoft.KeyVault(SecretUri=${webhookSecretKv.properties.secretUri})' }
+        { name: 'GITHUB_RUNNER_PAT', value: '@Microsoft.KeyVault(SecretUri=${patSecret!.properties.secretUri})' }
+        { name: 'GITHUB_RUNNER_WEBHOOK_SECRET', value: '@Microsoft.KeyVault(SecretUri=${webhookSecretKv!.properties.secretUri})' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: !empty(logAnalyticsWorkspaceId) ? '' : '' }
       ]
     }
@@ -184,7 +184,7 @@ resource aciRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   name: guid(resourceGroup().id, functionApp.id, 'aci-operator')
   properties: {
     roleDefinitionId: aciOperatorRole.id
-    principalId: functionApp.identity.principalId
+    principalId: functionApp!.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -196,7 +196,7 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   scope: keyVault
   name: guid(keyVault.id, functionApp.id, kvSecretsUserRoleId)
   properties: {
-    principalId: functionApp.identity.principalId
+    principalId: functionApp!.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
   }
@@ -210,7 +210,7 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   scope: storageAccount
   name: guid(storageAccount.id, functionApp.id, storageBlobDataContributorRoleId)
   properties: {
-    principalId: functionApp.identity.principalId
+    principalId: functionApp!.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
   }
@@ -220,7 +220,7 @@ resource storageQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   scope: storageAccount
   name: guid(storageAccount.id, functionApp.id, storageQueueDataContributorRoleId)
   properties: {
-    principalId: functionApp.identity.principalId
+    principalId: functionApp!.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageQueueDataContributorRoleId)
   }
@@ -228,5 +228,5 @@ resource storageQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
 
 // ── Outputs ──
 output functionAppName string = enabled ? functionApp.name : ''
-output functionAppUrl string = enabled ? 'https://${functionApp.properties.defaultHostName}' : ''
-output webhookUrl string = enabled ? 'https://${functionApp.properties.defaultHostName}/api/github-webhook' : ''
+output functionAppUrl string = enabled ? 'https://${functionApp!.properties.defaultHostName}' : ''
+output webhookUrl string = enabled ? 'https://${functionApp!.properties.defaultHostName}/api/github-webhook' : ''

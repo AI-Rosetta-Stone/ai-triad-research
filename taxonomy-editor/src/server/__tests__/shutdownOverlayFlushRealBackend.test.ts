@@ -30,6 +30,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
 
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
@@ -109,7 +112,9 @@ function handleDefaultGithubApi(url: string, method: string): Response {
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
   apiHandlers = [];
-  vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
+  // Unique per test: a fixed path is shared with every concurrent vitest run on this machine.
+  cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 't367-overlay-flush-'));
+  vi.stubEnv('AI_TRIAD_DATA_ROOT', cacheDir);
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? 'GET';
@@ -120,12 +125,18 @@ beforeEach(() => {
     return handleDefaultGithubApi(url, method);
   }) as unknown as typeof fetch;
 });
-afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); vi.resetModules(); });
+let cacheDir: string;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+  vi.resetModules();
+  fs.rmSync(cacheDir, { recursive: true, force: true });
+});
 
 async function createBackend() {
   const { GitHubAPIBackend } = await import('../storage/githubAPIBackend.js');
   const backend = new GitHubAPIBackend({
-    cacheDir: '/var/cache/taxonomy-test',
+    cacheDir,
     recorder: { record: vi.fn(), flush: vi.fn(), toJSON: vi.fn().mockReturnValue([]), intern: vi.fn() } as never,
     pollIntervalMs: 999_999_999,
     coherencyProbeRate: 0,
@@ -166,6 +177,10 @@ async function wireSchedulerTo(backend: Awaited<ReturnType<typeof createBackend>
   return { ...scheduler, flushOverlaysWithDeadline: flush.flushOverlaysWithDeadline };
 }
 
+// Dynamic imports + module resets make these slow under full-suite load; both tests await the
+// flush's own completion promise (no sleeps), so the timeout only bounds a hang.
+const REAL_BACKEND_TIMEOUT_MS = 20_000;
+
 describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + real scheduler (t/4258/t/4276 C5)', () => {
   it('[SAFE] a write scheduled via the real scheduler, flushed before its debounce fires, lands in the committed tree with the PATCH targeting the session branch', async () => {
     const backend = await createBackend();
@@ -187,7 +202,7 @@ describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + r
     expect(treeBody.tree.some(t => t.path === 'taxonomy/nodes.json')).toBe(true);
     expect(patchCalls.calls.length).toBeGreaterThan(0);
     expect(patchCalls.calls[0].url).toContain('api-session/alice');
-  });
+  }, REAL_BACKEND_TIMEOUT_MS);
 
   it('[FAULT ARM vs SAFE] a write whose overlay entry exists but was never scheduled stays dirty through flushPendingOverlayCommits(), but this flush still commits it', async () => {
     const backend = await createBackend();
@@ -210,5 +225,5 @@ describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + r
     // whether the scheduler was ever invoked, so it still finds and commits alice.
     await flushOverlaysWithDeadline(backend, Promise.resolve());
     expect(backend.getUncommittedOverlaySummary()).toEqual([]);
-  });
+  }, REAL_BACKEND_TIMEOUT_MS);
 });

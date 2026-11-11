@@ -1413,9 +1413,29 @@ jobs:
           restore-keys: |
             ms-playwright-${{ runner.os }}-
 
+      # `--with-deps` apt-installs Chromium's system libraries and fonts. When the runners can't reach
+      # the Ubuntu mirrors (2026-11-11: `Temporary failure resolving 'security.ubuntu.com'` on every
+      # merge group, which blocked the queue repo-wide), retry once after a back-off, then fall back to
+      # the Chromium binary alone, with a WARN (ubuntu-latest already ships Chrome's runtime libraries).
+      # No masking: the fallback ends with a real headless launch, which fails this step loudly if a
+      # library is missing, and the smoke step below is unchanged and still has to pass.
+      # RENDER_SMOKE_SIMULATE_APT_FAILURE=1 forces the fallback arm, for proving it; it can only make
+      # the install harder, never the gate easier.
       - name: Install Chromium (Playwright, pinned @playwright/test 1.60.0)
         working-directory: taxonomy-editor
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          with_deps() {
+            if [ "${RENDER_SMOKE_SIMULATE_APT_FAILURE:-}" = "1" ]; then echo "simulated apt failure"; return 1; fi
+            pnpm exec playwright install --with-deps chromium
+          }
+          if with_deps; then exit 0; fi
+          echo "render-smoke: playwright install --with-deps failed; retrying once in 20 s"
+          sleep 20
+          if with_deps; then exit 0; fi
+          echo "::warning::render-smoke: apt deps unavailable (playwright install --with-deps chromium failed twice); using bundled Chromium only"
+          pnpm exec playwright install chromium
+          # Prove the fallback browser actually launches. Missing libraries fail here, loudly.
+          node -e "require('@playwright/test').chromium.launch().then(b => b.close()).then(() => console.log('render-smoke: fallback Chromium launches')).catch(e => { console.error('::error::render-smoke: fallback Chromium cannot launch: ' + e.message); process.exit(1) })"
 
       - name: Build prod web artifact + server (build:container)
         working-directory: taxonomy-editor
@@ -1900,6 +1920,10 @@ jobs:
       - name: shared-input coverage workflow crash-path suite
         run: node --test operations/devops/ci-shared-input-coverage-workflow.test.mjs
 
+      # t/357: pr-triage's last-activity clock counts the latest push (the head commit date).
+      - name: pr-triage activity-facts suite
+        run: node --test operations/devops/pr-triage-activity.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
@@ -1919,6 +1943,11 @@ jobs:
       # t/391: what the superseded-run canceller may cancel (never merge_group/push/_target runs).
       - name: superseded-run canceller suite
         run: node --test operations/devops/cancel-superseded-runs.test.mjs
+
+      # t/369: consult-hold-guard and joint-gv-guard read the PR over REST through one inline helper;
+      # it stays identical to its canonical copy and classifies rate-limit, 5xx and other 4xx apart.
+      - name: guard PR-read (REST + rate-limit classification) suite
+        run: node --test operations/devops/guard-pr-read.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.

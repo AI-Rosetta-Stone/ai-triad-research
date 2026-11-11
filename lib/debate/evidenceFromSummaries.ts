@@ -5,8 +5,8 @@
  * Source evidence retrieval from the pre-built index.
  * No filesystem access — operates on an in-memory index object.
  *
- * The index is built by scripts/build-evidence-index.py (or the Python equivalent)
- * and stored at ai-triad-data/taxonomy/source_evidence_index.json.
+ * The index is built by scripts/build-evidence-index.py
+ * and stored at taxonomy/Origin/source_evidence_index.json in the data repo.
  * Structure: { [nodeId]: { facts: SourceFact[], keyPoints: SourceKeyPoint[] } }
  */
 

@@ -199,6 +199,7 @@ A single pass that checks `conflict` before the canonical is chosen gives order-
 `resolve(id)` is the mark's target when `id` has a valid mark, and `id` otherwise. It never takes more than one hop, because a valid target carries no mark.
 
 - **The resolver uses the mark only, not grouping.** An unmarked member of a group resolves to itself, even when the group's canonical is another document. Only a signed-off mark redirects evidence; grouping never does.
+- **Summary-only chunks (t/355).** A summary `<X>-N` (decimal `N` after the `-YYYY` of `X`; the t/3598 chunk→base rule) with **no source dir**, while `X` has one, is a *chunk* of `X`, and **`resolve(<X>-N) = resolve(X)`**. So a chunk of a marked copy `C` of `D` resolves to `D`. A chunk carries no `duplicate_of` mark and isn't a copy. A summary matching neither rule resolves to itself.
 - **Every by-id lookup still finds a marked document,** so historical records (debates, analyses) that cite it keep working.
 
 ### 6.3 Selection and evidence
@@ -219,10 +220,10 @@ Every citation has two ids, and each has its own use. This mirrors the taxonomy'
 
 ## 7. Evidence union across a duplicate group
 
-*Fixture `tests/fixtures/evidence-union-cases.json`, version 2 (v2 adds 7.7). From the t/4337 post-apply gap (t/4337#60) and the Second Opinion's conditions on it (e/347#2), accepted by the TL (e/347#3).* A marked copy's summary is a separate model run over byte-identical text, so it often cites passages and nodes the canonical's run didn't. Section 6.3 attributes evidence to `resolve(id)`. This section says what that evidence **is**: the de-duplicated union of every group member's links, not the canonical's links alone.
+*Fixture `tests/fixtures/evidence-union-cases.json`, version 3 (v2 adds 7.7; v3 adds summary-only chunks and `chunk_of`, t/355, cases (a)–(e)). From the t/4337 post-apply gap (t/4337#60) and the Second Opinion's conditions on it (e/347#2), accepted by the TL (e/347#3).* A marked copy's summary is a separate model run over byte-identical text, so it often cites passages and nodes the canonical's run didn't. Section 6.3 attributes evidence to `resolve(id)`. This section says what that evidence **is**: the de-duplicated union of every group member's links, not the canonical's links alone.
 
 ### 7.1 Group and links
-- **The group of a canonical `C`** is `C` followed by every document whose **valid** mark (6.1) targets `C`, ordered by id (ordinal). A document with an invalid mark isn't in the group, because it resolves to itself (6.2).
+- The group of a canonical `D` is `D`, then every document whose **valid** mark targets `D` (ordinal), then every chunk that resolves to `D`: first `D`'s own chunks, then each marked copy's chunks, in that copy's order, each by `N` ascending. A document with an invalid mark isn't in the group, because it resolves to itself (6.2).
 - **A link** is one `(node, quote)` taken from a member's summary, in file order, from these fields (the C9 link fields, `scripts/data-mutations/t4337/c9-link-fields.json`):
 
 | Field | `node` | `quote` |
@@ -259,8 +260,8 @@ Both thresholds are integer comparisons, so floating-point rounding can't make t
 ### 7.4 Union
 For each canonical `C` and each node `n`:
 1. **Keep all of `C`'s own links on `n`,** in order and unchanged, including repeats. They are what 6.3 already shows.
-2. **Then, for each marked member in group order and each of its links on `n` in order,** keep the link only if it isn't `near` to any link already kept on `n`. **The canonical wins ties,** because its links are kept first.
-3. **Every kept link is attributed to `C`.** A link kept from a marked member also carries **`via`: that member's exact id** (6.4).
+2. **Then, for each non-canonical member (marked copies, then chunks) in group order** and each of its links on `n` in order, keep the link only if it isn't `near` to any link already kept on `n`. **The canonical wins ties,** because its links are kept first.
+3. **Every kept link is attributed to `C`.** A kept link from a **marked copy** carries `via: <copy id>`. A kept link from a **chunk of `D` itself** carries `chunk_of: <chunk id>`. A kept link from a **chunk of a marked copy** carries **`via: <copy id>`**, not `chunk_of`: it's still copy-derived text, so §7.6 still keeps it out of paid extraction. A link never carries both.
 
 The result is keyed by node; node order isn't significant. Within a node, the order is the order of steps 1 and 2.
 
@@ -270,17 +271,24 @@ The result is keyed by node; node order isn't significant. Within a node, the or
 - **A per-node count of documents counts distinct resolved ids** (citations, health metrics, evidence doc counts, topic frequency, `source_diversity`, conflict counts). The union can't change it except to add a group that only a copy linked.
 - **A display count of claims** (the Sources panel's `'count'` sort) counts kept links after 7.4.
 - **Conflict analysis excludes pairs within a group:** a document can't conflict with its own copy.
+- A chunk resolves to `C`, so its links count toward `C`'s one document; a group made of `C` and its chunks is one document, never `1 + chunks`.
 
 ### 7.6 `via`
 `via` is provenance. It's shown nowhere and never stored over an exact id.
 - **It has exactly one branching reader:** entity extraction skips facts with `via` set, as well as facts whose `doc_id` isn't selectable (TL, e/347#7). Copies' facts stay out of paid extraction.
 - **Any new branching reader of `via` is a contract change to this section.**
 
+### 7.6a `chunk_of`
+`chunk_of` is provenance, like `via`, but a chunk's text is **distinct** content, not a re-run over identical text. So **entity extraction does NOT skip `chunk_of` facts** (it still skips `via`). A fact carries at most one of `via` and `chunk_of`. Any branching reader of `chunk_of` is a contract change to this section.
+
+A kept chunk item may also carry **`chunk_generated_at`** and **`chunk_model`**: the chunk summary's own generation time and model, each absent when unknown. They're additive optional provenance. Readers ignore them, and no logic branches on them.
+
 ### 7.7 Entity-mention containers
 *Key form approved by the TL, p/360#661. Registry: `lib/entities/mentionTypes.ts`.* Summary mention containers are per item: `summary:<doc>#<pov>-kp-<n>` and `summary:<doc>#fc-<n>`, where `<n>` indexes that doc's own array. A copy's items can't take a canonical index, because that would re-key the canonical's containers.
 - **Union key:** a copy item whose container text isn't `near` (7.3) to an item already in the group (the canonical's items first, then copies in 7.1 order) gets `summary:<canonical>#via-<copy>-<pov>-kp-<n>` or `summary:<canonical>#via-<copy>-fc-<n>`, where `<n>` is the index in **the copy's** array.
   - The key sits in the canonical's namespace and names its source, so its text rebuilds from `summaries/<copy>.json`.
   - No `summary:<copy>` key is made, and no existing key changes (6.4).
+- A kept chunk item gets `summary:<C>#chunk-<chunk>-<pov>-kp-<n>` or `summary:<C>#chunk-<chunk>-fc-<n>`, with `<n>` indexing **the chunk's** own array, parallel to the `#via-<copy>-` form. Its text rebuilds from `summaries/<chunk>.json`.
 - **These keys are derived.** They appear or disappear when marks or this section change, so **nothing may persist a reference to one.**
   - A derived key matches `^summary:[^#]+#via-`.
   - The index builder drops human mentions on such a key **with a WARN**, never silently.

@@ -122,6 +122,8 @@ export interface InquiryJobRecord {
   debateId: string | null;
   /** Unix ms — job creation time. */
   startedAt: number;
+  /** t/182: Idempotency key for de-duplication. null if the request didn't provide one (no idempotency). */
+  idempotencyKey: string | null;
 }
 
 /** The per-user job-record directory ('_local' → the legacy unscoped dir). Exported for jobRecords.ts. */
