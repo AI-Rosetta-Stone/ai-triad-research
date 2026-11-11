@@ -3476,7 +3476,18 @@ jobs:
               fs.writeFileSync(p, text);
               gv = await import(pathToFileURL(p).href);
             } catch (e) {
-              core.warning(`${gate}: GATE-UNREADABLE - could not load gate-verdict.mjs from ${process.env.BASE_REF}: ${e.message}`);
+              // No helper, so emit the same three outputs and summary block by hand (t/306): a load
+              // failure is GATE-UNREADABLE, never a missing verdict.
+              const reason = `could not load gate-verdict.mjs from ${process.env.BASE_REF}: ${String(e.message).replace(/\s+/g, ' ').trim()}`;
+              core.setOutput('gate', gate);
+              core.setOutput('verdict', 'GATE-UNREADABLE');
+              core.setOutput('reason', reason);
+              core.warning(`${gate}: GATE-UNREADABLE - ${reason}`, { title: 'GATE-UNREADABLE' });
+              try {
+                await core.summary.addRaw(`### Gate verdict: ${gate}\n\n**GATE-UNREADABLE** (could NOT read the target; this is no verdict, not a pass)\n\nReason: ${reason}\n`, true).write();
+              } catch (se) {
+                core.warning(`WARN: could not write the step summary (${se && se.message}); the outputs and this log line still carry the verdict.`);
+              }
               return;
             }
             const { VERDICTS, makeGateVerdict, emitGateVerdict } = gv;

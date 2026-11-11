@@ -67,6 +67,7 @@ jobs:
           node-version: '22'
 
       - name: Drift check unit tests
+        id: tests
         run: node --test operations/devops/docker/base-pin-drift.test.mjs
 
       - name: Compare pin with GHCR
@@ -198,4 +199,50 @@ jobs:
             --jq '.[] | select(.title | startswith("Base image pin drift")) | .number' |
             while read -r n; do
               gh issue close "$n" --comment "base-pin-drift PASS: the runtime pin matches the newest ai-triad-base tag and digest. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            done
+
+      # t/306 (Quality, t/255#5): a GATE-UNREADABLE verdict (or any failed step) fails the run, but
+      # on the cron a failed-run email was its only signal. Track it in its own issue, titled
+      # "Base pin drift check failing" so the "Base image pin drift" steps above never match it;
+      # comment only when the reason is new, and close it on the next run that completes.
+      - name: Open or update check-failing issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERDICT: ${{ steps.drift.outputs.verdict }}
+          REASON: ${{ steps.drift.outputs.reason }}
+          TESTS: ${{ steps.tests.outcome }}
+          DRIFT: ${{ steps.drift.outcome }}
+        run: |
+          set -euo pipefail
+          why="${REASON:-no verdict reason (unit tests: ${TESTS:-?}, drift step: ${DRIFT:-?}; see the run log)}"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "base-pin-drift run failed: verdict \`${VERDICT:-none}\`. ${why}"
+            echo
+            echo "No verdict is not a pass: until a run completes, a stale \`${DOCKERFILE}\` pin goes unnoticed. Owner: Docker. Run: ${run_url}"
+          } > "$RUNNER_TEMP/failing.md"
+          n=$(gh issue list --state open --search 'in:title "Base pin drift check failing"' --json number,title \
+                --jq '[.[] | select(.title | startswith("Base pin drift check failing"))][0].number // empty')
+          if [ -z "$n" ]; then
+            url=$(gh issue create --title "Base pin drift check failing: ${VERDICT:-no verdict}" --body-file "$RUNNER_TEMP/failing.md")
+            echo "Opened $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif gh issue view "$n" --json body,comments --jq '[.body] + [.comments[].body] | join("\n")' | grep -qF -- "$why"; then
+            echo "Issue #$n already reports this reason; nothing to add." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh issue comment "$n" --body-file "$RUNNER_TEMP/failing.md"
+            echo "Updated issue #$n" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Close check-failing issue once a run completes
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERDICT: ${{ steps.drift.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          gh issue list --state open --search 'in:title "Base pin drift check failing"' --json number,title \
+            --jq '.[] | select(.title | startswith("Base pin drift check failing")) | .number' |
+            while read -r n; do
+              gh issue close "$n" --comment "base-pin-drift completed with verdict ${VERDICT}. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             done
