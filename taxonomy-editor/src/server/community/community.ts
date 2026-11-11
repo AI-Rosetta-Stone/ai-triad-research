@@ -881,6 +881,22 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
   inquiry: new Set(), // inquiry handled separately via fieldClassification
 };
 
+/** Per-key value projection for an allowlisted key. Returns undefined to omit the key. Structural
+ *  projections (transcript entries, neutral_evaluations, adaptive_staging) run here; all other values
+ *  pass through unchanged. */
+function projectAllowedValue(type: Submission['type'], key: string, value: unknown): unknown {
+  if (key === 'transcript' && Array.isArray(value)) {
+    if (type === 'chat') return value.map(e => projectChatEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+    if (type === 'debate') return value.map(e => projectTranscriptEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+    return undefined;
+  }
+  if (type === 'debate' && key === 'neutral_evaluations' && Array.isArray(value)) {
+    return value.map(e => projectNeutralEvaluation(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+  }
+  if (type === 'debate' && key === 'adaptive_staging') return projectAdaptiveStaging(value);
+  return value;
+}
+
 /** t/196: allowlist-project a value onto a subset of community-safe fields, dropping unknowns.
  *  Each submission type carries different fields; the allowlist keeps the surface stable when
  *  new fields are added. Structural projection for nested transcript entries excludes owner-only
@@ -900,26 +916,8 @@ function projectToCommunityAllowlist(
 
   for (const [key, value] of Object.entries(data)) {
     if (allowlist.has(key)) {
-      // Structurally project transcript arrays to exclude owner-only fields
-      if ((key === 'transcript' || key === 'active_povers') && Array.isArray(value)) {
-        if (key === 'transcript') {
-          if (type === 'chat') {
-            out[key] = (value as unknown[]).map(e => projectChatEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
-          } else if (type === 'debate') {
-            out[key] = (value as unknown[]).map(e => projectTranscriptEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
-          }
-        } else {
-          // active_povers: pass through as-is (array of strings)
-          out[key] = value;
-        }
-      } else if (type === 'debate' && key === 'neutral_evaluations' && Array.isArray(value)) {
-        out[key] = value.map(e => projectNeutralEvaluation(e)).filter((e): e is Record<string, unknown> => e !== undefined);
-      } else if (type === 'debate' && key === 'adaptive_staging') {
-        const staging = projectAdaptiveStaging(value);
-        if (staging !== undefined) out[key] = staging;
-      } else {
-        out[key] = value;
-      }
+      const projected = projectAllowedValue(type, key, value);
+      if (projected !== undefined) out[key] = projected;
     } else {
       droppedFields.push(key);
     }
