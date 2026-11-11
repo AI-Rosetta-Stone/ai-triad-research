@@ -1975,6 +1975,10 @@ jobs:
       - name: guard rate-limit snapshot step suite
         run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
 
+      # t/391: what the superseded-run canceller may cancel (never merge_group/push/_target runs).
+      - name: superseded-run canceller suite
+        run: node --test operations/devops/cancel-superseded-runs.test.mjs
+
       # t/369: consult-hold-guard and joint-gv-guard read the PR over REST through one inline helper;
       # it stays identical to its canonical copy and classifies rate-limit, 5xx and other 4xx apart.
       - name: guard PR-read (REST + rate-limit classification) suite

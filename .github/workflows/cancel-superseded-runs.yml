@@ -1,0 +1,51 @@
+# t/391 (t/385, t/386): cancel pull_request runs for a PR's old heads and for closed PRs.
+# Each push to a PR queues ~50 jobs, and the previous head's runs kept queuing and running to
+# completion although no gate reads a non-head SHA. A live dry run at 17:35Z on 2026-11-11 found 28
+# of 64 active PR runs superseded (9 of them full CI runs). The logic and its safety rules live in
+# operations/devops/cancel-superseded-runs.mjs: only event == pull_request runs, never
+# merge_group/push/schedule, never pull_request_target, never an unattributable run.
+# Not a required context, so its own per-workflow concurrency group is allowed (workflow-lint R4
+# applies to required contexts only).
+name: cancel-superseded-runs
+
+on:
+  pull_request:
+    types: [synchronize, closed]
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: cancel-superseded-runs
+  cancel-in-progress: true
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # A fork PR's token is read-only and can't cancel anything; the schedule covers those runs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      # The SCRIPT comes from the default branch, so a PR can't change the cancel rules by editing
+      # it. On a pull_request event GitHub still runs the PR's own copy of THIS workflow file,
+      # with actions: write; that is no escalation, since only same-repo PRs (whose authors already
+      # have write access) get a writable token, and fork PRs skip via the job `if:` below.
+      - name: Check out the canceller from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            operations/devops/cancel-superseded-runs.mjs
+            operations/devops/github-retry.mjs
+
+      - name: Cancel superseded and closed-PR runs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node operations/devops/cancel-superseded-runs.mjs
