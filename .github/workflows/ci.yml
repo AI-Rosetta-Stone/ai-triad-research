@@ -1949,6 +1949,10 @@ jobs:
       - name: gh-budget suite
         run: node --test operations/devops/gh-budget.test.mjs
 
+      # t/385: PR-volume metric pure parts (median size, peak parallel jobs per hour).
+      - name: pr-volume metric suite
+        run: node --test operations/devops/pr-volume-metric.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:

@@ -10,9 +10,9 @@
 //     queue in the last 24h for a reason other than `merged` / `manual`;
 //   - classification (classifyEjection): INFRA only if EVERY failed job of the PR's latest
 //     merge_group CI run before the removal is infra by its step (setup/install/checkout/cache
-//     failed), its conclusion (cancelled / timed out: runner loss, or a batch cancelled because
-//     another entry failed) or its annotations (rate limit incl. the agreed `INFRA rate-limit:`
-//     line, DNS, runner shutdown). Anything else, or anything unreadable, is NOT infra: never
+//     failed WITH an infra signature in its log or annotations), its conclusion (cancelled / timed
+//     out: runner loss, or a batch cancelled because another entry failed) or its annotations
+//     (rate limit incl. the agreed `INFRA rate-limit:` line, DNS, network, runner shutdown). Anything else, or anything unreadable, is NOT infra: never
 //     re-arm on doubt;
 //   - re-arm through enqueue-pr.mjs, which enforces the tier guard, approvals at the head and
 //     drafts, so this can never arm what a human couldn't; at most MAX_PER_HEAD times per head,
@@ -38,10 +38,14 @@ const FAILED = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure'])
 // Aggregate gates fail BECAUSE another job failed; they carry no cause of their own, so they are
 // left out of the classification (their constituents decide).
 export const AGGREGATE_JOBS = new Set(['ci-gate']);
-export const SETUP_STEP_RE = /^(set up job|complete job|post .*|.*\bcheckout\b.*|.*\bcache\b.*|install\b.*|setup\b.*|set up\b.*|.*\b(npm|pnpm|pip) (ci|install)\b.*|.*\bapt(-get)?\b.*|.*\bplaywright install\b.*)$/i;
-export const INFRA_ANNOTATION_RE = /INFRA rate-limit:|API rate limit (already )?exceeded|secondary rate limit|abuse detection|Temporary failure resolving|Could not resolve host|getaddrinfo (ENOTFOUND|EAI_AGAIN)|lost communication with the server|runner has received a shutdown signal|No space left on device|The hosted runner encountered an error/i;
+// A setup/install step, by an ANCHORED name. Its failure is NOT infra on its own (a real
+// ERR_PNPM_OUTDATED_LOCKFILE or a missing Python version fails here too, Quality #5113): it only
+// tells the sweep to read that job's log for an INFRA_SIGNATURE_RE match.
+export const SETUP_STEP_RE = /^(set up job|run actions\/checkout@\S+|checkout\b|install\b|setup\b|set up\b|restore\b|cache\b|(sudo )?(apt|apt-get|pnpm|npm|pip|pip3|corepack)\b)/i;
+export const INFRA_SIGNATURE_RE = /INFRA rate-limit:|API rate limit (already )?exceeded|secondary rate limit|abuse detection|Temporary failure resolving|Temporary failure in name resolution|Could not resolve host|getaddrinfo (ENOTFOUND|EAI_AGAIN)|\bEAI_AGAIN\b|\bETIMEDOUT\b|\bECONNRESET\b|\bECONNREFUSED\b|503 Service Unavailable|HTTP 503\b|status code 503\b|Failed to fetch|Connection timed out|TLS handshake timeout|lost communication with the server|runner has received a shutdown signal|No space left on device|The hosted runner encountered an error/i;
 export const MARKER_RE = /<!-- infra-rearm head=([0-9a-f]{40}) n=(\d+) -->/g;
 export const NOTICE_RE = /<!-- infra-rearm-notinfra head=([0-9a-f]{40}) -->/;
+export const CAP_RE = /<!-- infra-rearm-cap head=([0-9a-f]{40}) -->/;
 
 /**
  * PURE. `jobs`: [{ name, conclusion, steps: [{ name, conclusion }], annotations: [{ message }] | null }].
@@ -53,12 +57,15 @@ export function classifyEjection({ jobs }) {
   if (!failed.length) return { infra: false, reason: 'no failed job in the merge_group run (another check ejected it)', detail: [] };
   const detail = failed.map((j) => {
     const step = (j.steps ?? []).find((s) => FAILED.has(String(s.conclusion)));
-    const ann = (j.annotations ?? []).map((a) => String(a.message ?? '')).find((m) => INFRA_ANNOTATION_RE.test(m));
+    const ann = (j.annotations ?? []).map((a) => String(a.message ?? '')).find((m) => INFRA_SIGNATURE_RE.test(m));
+    const logHit = typeof j.log === 'string' ? (j.log.match(INFRA_SIGNATURE_RE) ?? [])[0] : null;
+    const setup = !!step && SETUP_STEP_RE.test(step.name);
     let why = null;
     if (ann) why = `annotation: ${ann.slice(0, 120)}`;
     else if (j.conclusion === 'cancelled' || j.conclusion === 'timed_out' || j.conclusion === 'startup_failure') why = `job ${j.conclusion}`;
-    else if (step && SETUP_STEP_RE.test(step.name)) why = `setup step failed: ${step.name}`;
-    return { job: j.name, step: step?.name ?? null, infra: !!why, why: why ?? `test/check failure in step: ${step?.name ?? '(unknown step)'}` };
+    else if (setup && logHit) why = `setup step "${step.name}" failed with "${logHit}" in its log`;
+    const notWhy = setup ? `setup step "${step.name}" failed without an infra signature (a real install/config failure)` : `test/check failure in step: ${step?.name ?? '(unknown step)'}`;
+    return { job: j.name, step: step?.name ?? null, infra: !!why, why: why ?? notWhy };
   });
   const infra = detail.every((d) => d.infra);
   return { infra, reason: infra ? 'every failed job is infra' : 'a real failure', detail };
@@ -141,6 +148,10 @@ async function main() {
         if (!FAILED.has(String(j.conclusion))) continue;
         if (annCalls >= MAX_ANNOTATION_CALLS) { j.annotations = null; continue; }
         try { j.annotations = ghJson(`repos/${repo}/check-runs/${j.id}/annotations?per_page=50`); annCalls++; } catch { j.annotations = null; }
+        const failedStep = (j.steps ?? []).find((s) => FAILED.has(String(s.conclusion)));
+        if (failedStep && SETUP_STEP_RE.test(failedStep.name) && annCalls < MAX_ANNOTATION_CALLS) {
+          try { j.log = gh(['api', `repos/${repo}/actions/jobs/${j.id}/logs`]).slice(-65536); annCalls++; } catch { j.log = null; }
+        }
       }
       verdict = classifyEjection({ jobs });
     }
@@ -155,7 +166,14 @@ async function main() {
       }
       continue;
     }
-    if (done >= MAX_PER_HEAD) { console.log(`CAP ${label}: already re-armed ${done}x at this head; leaving it (${why})`); continue; }
+    if (done >= MAX_PER_HEAD) {
+      console.log(`CAP ${label}: already re-armed ${done}x at this head; leaving it (${why})`);
+      if (!dryRun && !(pr.comments?.nodes ?? []).some((c) => (c.body ?? '').match(CAP_RE)?.[1] === head)) {
+        gh(['pr', 'comment', String(n), '--repo', repo, '--body-file', '-'],
+          `<!-- infra-rearm-cap head=${head} -->\n**Not re-armed again (t/387):** this head was already re-armed ${done}x after infra ejections and was ejected again (${why}). It may not be infra after all: check the run ${run?.html_url ?? ''}, then re-arm by hand with \`node operations/devops/enqueue-pr.mjs ${repo} ${n}\`.`);
+      }
+      continue;
+    }
     if (dryRun) { console.log(`WOULD RE-ARM ${label} (attempt ${done + 1}/${MAX_PER_HEAD}): ${why}`); continue; }
     try {
       const out = execFileSync('node', [path.join(path.dirname(fileURLToPath(import.meta.url)), 'enqueue-pr.mjs'), repo, String(n)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

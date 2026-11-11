@@ -10,15 +10,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyEjection, rearmCount, lastEjection, ejectionsSince, ejectingRun, MAX_PER_HEAD } from './infra-rearm-sweep.mjs';
 
-const job = (name, conclusion, failedStep, annotations = []) => ({
-  name, conclusion,
+const job = (name, conclusion, failedStep, annotations = [], log = null) => ({
+  name, conclusion, log,
   steps: [{ name: 'Set up job', conclusion: 'success' }, ...(failedStep ? [{ name: failedStep, conclusion: conclusion === 'failure' ? 'failure' : conclusion }] : [])],
   annotations: annotations.map((message) => ({ message })),
 });
 const GATE = job('ci-gate', 'failure', 'Block on any failed/cancelled gated job', ['Process completed with exit code 1.']);
 
 test('t/374 shape: render-smoke failed installing Chromium (apt DNS), ci-gate red as a consequence: INFRA', () => {
-  const v = classifyEjection({ jobs: [job('render-smoke', 'failure', 'Install Chromium (Playwright, pinned @playwright/test 1.60.0)'), GATE, job('lint', 'success')] });
+  const v = classifyEjection({ jobs: [job('render-smoke', 'failure', 'Install Chromium (Playwright, pinned @playwright/test 1.60.0)', ['Process completed with exit code 1.'],
+    "Err:1 http://security.ubuntu.com/ubuntu noble-security InRelease\n  Temporary failure resolving 'security.ubuntu.com'\nFailed to install browsers"), GATE, job('lint', 'success')] });
   assert.equal(v.infra, true, JSON.stringify(v));
   assert.deepEqual(v.detail.map((d) => d.job), ['render-smoke'], 'ci-gate is an aggregate and carries no cause of its own');
 });
@@ -41,14 +42,15 @@ for (const [what, j] of [
   ['runner lost', job('test-powershell (3)', 'failure', 'Run Pester', ['The runner has received a shutdown signal.'])],
   ['cancelled job (batch cancelled / runner loss)', job('test-electron', 'cancelled', 'Install dependencies')],
   ['timed out', job('test-container', 'timed_out', 'Build image')],
-  ['checkout failed', job('lib-lint', 'failure', 'Run actions/checkout@v6')],
-  ['pnpm install failed', job('renderer-tsc', 'failure', 'Install dependencies (retry on transient nuget/network failures — t/2968)')],
+  ['checkout failed on the network', job('lib-lint', 'failure', 'Run actions/checkout@v6', [], 'fatal: unable to access https://github.com/...: Failed to connect: Connection timed out')],
+  ['pnpm install hit ECONNRESET', job('renderer-tsc', 'failure', 'Install dependencies (retry on transient nuget/network failures — t/2968)', [], 'ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/x: request failed, reason: read ECONNRESET')],
+  ['registry 503', job('test-python', 'failure', 'pip install -r requirements.txt', [], 'ERROR: HTTP error 503 while getting https://files.pythonhosted.org/... 503 Service Unavailable')],
 ]) {
   test(`INFRA: ${what}`, () => assert.equal(classifyEjection({ jobs: [j, GATE] }).infra, true));
 }
 
 test('NOT INFRA: a real test failure (even next to an infra one) is never re-armed', () => {
-  const v = classifyEjection({ jobs: [job('render-smoke', 'failure', 'Install Chromium (Playwright)'), job('test-electron-vitest (2)', 'failure', 'Run vitest shard', ['AssertionError: expected 3 to equal 4']), GATE] });
+  const v = classifyEjection({ jobs: [job('render-smoke', 'failure', 'Install Chromium (Playwright)', [], 'Temporary failure resolving'), job('test-electron-vitest (2)', 'failure', 'Run vitest shard', ['AssertionError: expected 3 to equal 4']), GATE] });
   assert.equal(v.infra, false);
   assert.match(v.detail.find((d) => !d.infra).why, /test\/check failure in step: Run vitest shard/);
 });
@@ -58,6 +60,20 @@ test('NOT INFRA (fail safe): an unreadable run, or no failed job besides the agg
   assert.equal(classifyEjection({ jobs: [GATE, job('lint', 'success')] }).infra, false);
   assert.equal(classifyEjection({ jobs: [] }).infra, false);
 });
+
+// Quality's probes (#5113 p/119#40): a step NAME alone never makes a failure infra.
+for (const [what, j] of [
+  ['pnpm install with ERR_PNPM_OUTDATED_LOCKFILE (#4968 today)', job('test-electron', 'failure', 'pnpm install --frozen-lockfile', ['Process completed with exit code 1.'], 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with package.json')],
+  ['a test step named "Run cache invalidation tests"', job('test-electron-vitest (1)', 'failure', 'Run cache invalidation tests', ['AssertionError: expected stale entry to be evicted'])],
+  ['a test step named "Run checkout flow e2e"', job('render-smoke', 'failure', 'Run checkout flow e2e', ['locator.click: Timeout 5000ms exceeded'])],
+  ['Setup Python with a version that does not exist', job('test-python', 'failure', 'Setup Python 3.15', ['Version 3.15 was not found in the local cache'], 'Error: Version 3.15 was not found in the local cache')],
+  ['a setup step whose log was not read', job('test-container', 'failure', 'Install buildx')],
+]) {
+  test(`NOT INFRA: ${what}`, () => {
+    const v = classifyEjection({ jobs: [j, GATE] });
+    assert.equal(v.infra, false, JSON.stringify(v.detail));
+  });
+}
 
 test('NOT INFRA: a guard policy verdict (consult-hold present) is a real block', () => {
   assert.equal(classifyEjection({ jobs: [job('consult-hold-guard', 'failure', 'Refuse merge while a consult-hold label is present',
