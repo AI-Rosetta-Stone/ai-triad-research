@@ -209,9 +209,9 @@ describe('ChatWorkspace', () => {
     };
     render(<ChatWorkspace />);
     await user.click(screen.getByRole('button', { name: 'How' }));
-    expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
+    expect(screen.getByText('Raw prompt not recorded for this answer.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Raw Response/ }));
-    expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
+    expect(screen.getByText('Raw response not recorded for this answer.')).toBeInTheDocument();
   });
 
 
