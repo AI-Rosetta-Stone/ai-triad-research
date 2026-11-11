@@ -19,6 +19,11 @@
 //     to push a fix). Re-enqueueing it merged #4561 with its old head 29s after the
 //     dequeue (t/4879);
 //   - no merge conflict, and every REQUIRED_GREEN context passed on the head;
+//   - a `docker/base-repin-*` head is STILL a pure base-pin bump (t/309): the drift workflow
+//     classifies the tier once, at PR creation, so a later push to that branch would otherwise
+//     merge as T0. The head must change only taxonomy-editor/Dockerfile, and Docker's own
+//     classifyRepinTier must say T0 on merge-base vs head. Anything else, or facts we can't
+//     read, skips with a WARN and one comment asking for T1 review;
 //   - IDLE: nothing pushed for IDLE_MINUTES. Pushing to a queued PR is refused, so an
 //     author still adding commits must not be cut off. The push time is taken as the
 //     earliest check-run start on the head (CI starts within seconds of a push; GitHub's
@@ -36,6 +41,33 @@ import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
+import { BRANCH_PREFIX as REPIN_BRANCH_PREFIX, classifyRepinTier } from './docker/base-pin-drift.mjs';
+
+// t/309: the one file a re-pin PR may touch (check-base-pin-drift.yml's DOCKERFILE).
+export const REPIN_DOCKERFILE = 'taxonomy-editor/Dockerfile';
+export const REPIN_COMMENT_MARKER = '<!-- t0-sweep-repin-not-t0:';
+
+export function isRepinBranch(headRefName) {
+  return typeof headRefName === 'string' && headRefName.startsWith(REPIN_BRANCH_PREFIX);
+}
+
+/**
+ * PURE (t/309). Is a re-pin PR's CURRENT head still a pure base-pin bump? `files` is the PR's
+ * changed-file list; `beforeText`/`afterText` are REPIN_DOCKERFILE at the merge base and at the
+ * head. Docker's classifyRepinTier only sees the Dockerfile, so an extra changed file (a script,
+ * a workflow) is checked here first. Never duplicates classifyRepinTier's line rules.
+ * @returns {{tier:'T0'|'T1', reason:string}}
+ */
+export function repinTierCheck({ files, beforeText, afterText }) {
+  const list = files ?? [];
+  if (list.length !== 1 || list[0] !== REPIN_DOCKERFILE) {
+    return { tier: 'T1', reason: `changes ${list.length} file(s) (${list.slice(0, 5).join(', ')}${list.length > 5 ? ', ...' : ''}), want only ${REPIN_DOCKERFILE}` };
+  }
+  if (typeof beforeText !== 'string' || typeof afterText !== 'string') {
+    return { tier: 'T1', reason: `could not read ${REPIN_DOCKERFILE} at both merge base and head` };
+  }
+  return classifyRepinTier(beforeText, afterText);
+}
 
 export const IDLE_MINUTES = 15;
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
@@ -91,6 +123,7 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
     const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
     let reason = null;
     let hold = null;
+    let needsRepinComment = false;
     // Security: the repo is public and `main` requires checks, not a review. A fork PR that
     // writes `Tier: T0` and goes green must never be merged with no human looking at it.
     // Same-repo branches need write access. Fails closed: an unknown value counts as a fork.
@@ -106,6 +139,14 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         '(push a new head, or enqueue it by hand, to release it)';
     }
     else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
+    // t/309: re-check a re-pin branch's head, not the tier the drift workflow declared at
+    // creation. No result (fetch failed, or the caller skipped it) fails closed.
+    else if (isRepinBranch(pr.headRefName) && pr.repinCheck?.tier !== 'T0') {
+      reason = pr.repinCheck
+        ? `WARN: ${pr.headRefName} head is not a pure base-pin bump (${pr.repinCheck.reason}); needs T1 review, not auto-enqueued`
+        : `WARN: ${pr.headRefName} head could not be re-classified (re-pin facts unavailable) -- failing closed`;
+      if (pr.repinCheck) needsRepinComment = true;
+    }
     // t/4952(a): the Design gate and an active changes-request both read role-tagged review/
     // comment BODIES (role-review-verdicts.mjs), never GitHub's review `state` or
     // `reviewDecision` -- gap 2 (#4686: Design's CHANGES_REQUESTED and Quality's APPROVED, same
@@ -149,7 +190,7 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         }
       }
     }
-    if (reason) skip.push({ number: pr.number, reason });
+    if (reason) skip.push({ number: pr.number, reason, ...(needsRepinComment ? { repinComment: { headRefOid: pr.headRefOid, reason: pr.repinCheck.reason } } : {}) });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
   }
   return { enqueue, skip, waiting };
@@ -195,7 +236,7 @@ function listOpenPRs(repo) {
   const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:50,after:$cursor){
     pageInfo{hasNextPage endCursor}
     nodes{... on PullRequest{
-      number body headRefOid baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
+      number body headRefOid headRefName baseRefName isDraft isInMergeQueue mergeStateStatus isCrossRepository
       author{login} labels(first:30){nodes{name}} autoMergeRequest{enabledAt}
       timelineItems(last:10,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{
         __typename ... on RemovedFromMergeQueueEvent{createdAt reason actor{login}}
@@ -214,7 +255,7 @@ function listOpenPRs(repo) {
     for (const n of r.nodes) {
       const reviewDataError = hasReviewDataError(n);
       prs.push({
-        number: n.number, body: n.body, headRefOid: n.headRefOid, baseRefName: n.baseRefName,
+        number: n.number, body: n.body, headRefOid: n.headRefOid, headRefName: n.headRefName, baseRefName: n.baseRefName,
         isDraft: n.isDraft, isInMergeQueue: n.isInMergeQueue, mergeStateStatus: n.mergeStateStatus,
         isCrossRepository: n.isCrossRepository,
         author: n.author?.login ?? '', labels: n.labels.nodes.map((l) => l.name),
@@ -241,6 +282,50 @@ function listOpenPRs(repo) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// t/309: REPIN_DOCKERFILE at the merge base and at the head, for repinTierCheck. Any failure
+// returns null, which selectT0Candidates turns into a fail-closed skip.
+function readRepinCheck(repo, pr) {
+  try {
+    const mergeBase = JSON.parse(gh(['api', `repos/${repo}/compare/main...${pr.headRefOid}`, '--jq', '{sha: .merge_base_commit.sha}'])).sha;
+    const read = (ref) => gh(['api', '-H', 'Accept: application/vnd.github.raw', `repos/${repo}/contents/${REPIN_DOCKERFILE}?ref=${ref}`]);
+    return repinTierCheck({ files: pr.files, beforeText: read(mergeBase), afterText: read(pr.headRefOid) });
+  } catch (err) {
+    console.log(`WARN: #${pr.number}: could not read re-pin facts (${err.message ?? err}); it will be skipped, failing closed`);
+    return null;
+  }
+}
+
+// t/309: one comment per head asking for T1 review. Best-effort: a failed post only WARNs,
+// since the skip itself already kept the PR out of the queue.
+function postRepinComment(repo, number, { headRefOid, reason }) {
+  const marker = `${REPIN_COMMENT_MARKER}${headRefOid} -->`;
+  try {
+    const bodies = JSON.parse(gh(['api', `repos/${repo}/issues/${number}/comments?per_page=100`, '--jq', '[.[].body]']));
+    if (bodies.some((b) => (b ?? '').includes(marker))) return;
+    const body = [
+      `**T0 sweep: not auto-enqueuing this re-pin PR (t/309).** Its head \`${headRefOid.slice(0, 9)}\` is no longer a pure base-pin bump: ${reason}.`,
+      '',
+      '`Tier: T0` was set when the drift workflow opened this PR. A later push changed more than the runtime `FROM` pin, so it needs a T1 review: change line 1 to `Tier: T1`, get the review, and enqueue it as usual. (Or restore the head to a pure pin bump.)',
+      marker,
+    ].join('\n');
+    gh(['api', `repos/${repo}/issues/${number}/comments`, '-f', `body=${body}`]);
+    console.log(`commented on #${number}: re-pin head not T0`);
+  } catch (err) {
+    console.log(`WARN: #${number}: could not post the re-pin T1 comment (${err.message ?? err}); the PR is still skipped`);
+  }
+}
+
+// Fetch re-pin facts only where they can change the verdict: same-repo T0 re-pin PRs whose
+// review data loaded (the earlier skips in selectT0Candidates would fire first otherwise).
+function withRepinChecks(repo, prs) {
+  for (const pr of prs) {
+    if (isRepinBranch(pr.headRefName) && pr.isCrossRepository === false && declaresT0(pr.body) && !pr.reviewDataError) {
+      pr.repinCheck = readRepinCheck(repo, pr);
+    }
+  }
+  return prs;
+}
+
 /**
  * One or more passes. With waitMaxMinutes > 0 (the event-triggered mode), a PR blocked only
  * by the idle window makes this run sleep until it qualifies and sweep again, for up to
@@ -252,8 +337,14 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
   const deadline = Date.now() + waitMaxMinutes * 60000;
   const failures = new Set();
   for (let pass = 1; ; pass++) {
-    const { enqueue, skip, waiting } = selectT0Candidates(listOpenPRs(repo), Date.now());
-    for (const s of skip) console.log(`skip #${s.number}: ${s.reason}`);
+    const { enqueue, skip, waiting } = selectT0Candidates(withRepinChecks(repo, listOpenPRs(repo)), Date.now());
+    for (const s of skip) {
+      console.log(`skip #${s.number}: ${s.reason}`);
+      if (s.repinComment) {
+        if (dryRun) console.log(`[dry-run] would comment on #${s.number}: re-pin head not T0`);
+        else postRepinComment(repo, s.number, s.repinComment);
+      }
+    }
     if (enqueue.length === 0) console.log(`pass ${pass}: no T0 PRs to enqueue.`);
 
     for (const pr of enqueue) {
