@@ -1104,10 +1104,13 @@ export function DebateConfigSection({ debate }: { debate: DebateSession }) {
           <span>{debate.model_tier}</span>
         </div>
       )}
-      <div className="debate-detail-meta-row">
-        <span className="debate-detail-label">Well-tested exclusion:</span>
-        <span>{debate.exclude_greatest_hits ? 'On' : 'Off'}</span>
-      </div>
+      {/* t/196#37: a copy's config is not the owner's run config, so the exclusion row is hidden for copies. */}
+      {!(debate as DebateSession & { copied_from_community?: string }).copied_from_community && (
+        <div className="debate-detail-meta-row">
+          <span className="debate-detail-label">Well-tested exclusion:</span>
+          <span>{debate.exclude_greatest_hits ? 'On' : 'Off'}</span>
+        </div>
+      )}
       {debate.speaker_models && Object.keys(debate.speaker_models).length > 0 && (
         <div className="debate-tab-speaker-models">
           <span className="debate-detail-label debate-tab-speaker-models-label">Speaker Models:</span>
@@ -1309,7 +1312,7 @@ function CommunitySourceSection({ full }: { full: DebateSession | null }) {
 }
 
 function CommunityConfigSection({ full }: { full: DebateSession | null }) {
-  if (!(full && (full.audience || full.debate_model))) return null;
+  if (!(full && full.audience)) return null;
   return (
     <div className="debate-detail-section">
       <h3>Configuration</h3>
@@ -1317,12 +1320,6 @@ function CommunityConfigSection({ full }: { full: DebateSession | null }) {
         <div className="debate-detail-meta-row">
           <span className="debate-detail-label">Audience:</span>
           <span>{full.audience.replace(/_/g, ' ')}</span>
-        </div>
-      )}
-      {full.debate_model && (
-        <div className="debate-detail-meta-row">
-          <span className="debate-detail-label">Model:</span>
-          <span>{full.debate_model}</span>
         </div>
       )}
     </div>
