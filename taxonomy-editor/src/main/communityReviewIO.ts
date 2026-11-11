@@ -8,6 +8,7 @@ import { ActionableError } from '../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { sanitizeText, type SanitizeWarning } from '../../../lib/sanitize/contentSanitizerCore.js';
 import { stripSensitiveKeys as stripSensitiveKeysShared, SENSITIVE_KEYS } from '../../../lib/sanitize/stripSensitiveKeys.js';
+import { stripOpEdStagesForCommunity } from '../../../lib/oped/communityStrip.js';
 
 let _client: CommunityReviewClient | null = null;
 
@@ -74,7 +75,7 @@ function desktopAdminActor(): string {
 
 interface Submission {
   id: string;
-  type: 'chat' | 'debate';
+  type: CommunityType;
   originalId: string;
   submittedBy: string;
   submittedAt: string;
@@ -480,16 +481,25 @@ class CommunityReviewClient {
     }
   }
 
-  /** Promote one pending submission: merge admin edits, sanitize, publish to the public
-   *  community blob, and mark the submission approved. Extracted from executeAction (t/1914). */
+  /** Promote one pending submission: merge admin edits, sanitize, strip sensitive data per type,
+   *  publish to the public community blob, and mark the submission approved. t/301: routes by
+   *  type using communityPrefixFor and strips op-ed stages before publishing. Extracted from
+   *  executeAction (t/1914). */
   private async promoteSubmission(submission: Submission, subPath: string, edits: Record<string, unknown> | undefined): Promise<void> {
     const dataToPublish = (edits && typeof edits === 'object' && submission.data && typeof submission.data === 'object')
       ? { ...(submission.data as Record<string, unknown>), ...edits }
       : submission.data;
-    const sanitized = sanitizeForCommunity(dataToPublish, submission.submittedBy);
-    const dir = submission.type === 'chat' ? 'community/chats' : 'community/debates';
-    const prefix = submission.type === 'chat' ? 'chat-' : 'debate-';
-    await this.writeBlob(`${dir}/${prefix}${sanitized.id}.json`, JSON.stringify(sanitized, null, 2));
+    
+    let sanitized = sanitizeForCommunity(dataToPublish, submission.submittedBy);
+    
+    // t/171: strip op-ed stages (prompts + user source material) before publishing to community
+    if (submission.type === 'opeds') {
+      sanitized = stripOpEdStagesForCommunity(sanitized);
+    }
+    
+    const typeDir = `community/${submission.type}`;
+    const prefix = communityPrefixFor(submission.type);
+    await this.writeBlob(`${typeDir}/${prefix}${sanitized.id}.json`, JSON.stringify(sanitized, null, 2));
     submission.status = 'approved';
     await this.writeBlob(subPath, JSON.stringify(submission, null, 2));
   }
