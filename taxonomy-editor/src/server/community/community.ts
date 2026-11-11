@@ -812,21 +812,36 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
     ...(e.caveats !== undefined ? { caveats: e.caveats } : {}),
     ...(e.model !== undefined ? { model: e.model } : {}),
     ...(e.addressing !== undefined ? { addressing: e.addressing } : {}),
+    ...(e.intervention_metadata !== undefined ? { intervention_metadata: e.intervention_metadata } : {}),
+    ...(e.status !== undefined ? { status: e.status } : {}),
+    ...(e.errorMessage !== undefined ? { errorMessage: e.errorMessage } : {}),
+    ...(e.provider_model !== undefined ? { provider_model: e.provider_model } : {}),
+    ...(e.degraded !== undefined ? { degraded: e.degraded } : {}),
   };
 }
 
 /** Module-level allowlist for community projection (t/196).
- *  Derived from what list/detail/copy paths actually read:
- *  - Chat list reads: id, title, created_at, updated_at, mode, community_metadata, chat_model, pover
- *  - Chat detail reads: full transcript with structural projection including raw_prompt/raw_response (t/345)
- *  - Debate list reads: id, title, created_at, updated_at, phase, community_metadata, debate_model, turn_count
- *  - Debate detail reads: full transcript with structural projection
- *  - Op-ed list reads: id, topic, created_at, updated_at, community_metadata, camps, voice_count, outlet, tag
- *  - Op-ed copy reads: opeds array, topic, params, created_at, updated_at
- *  - Inquiry: fieldClassification matrix (t/3648) */
+ *  Each submission type's allowlist is explicitly defined below. Owner-only fields
+ *  (source_content, config, etc.) are intentionally excluded. New fields added to a type
+ *  must be explicitly allowed here; unknown fields default to dropped (default-deny).
+ *  NOTE: source_content/source_ref are debate fields but excluded here pending TL decision (t/196#11).
+ *  - Inquiry: handled separately via fieldClassification matrix (t/3648) */
 const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
-  chat: new Set(['id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 'chat_model', 'temperature', 'community_metadata']),
-  debate: new Set(['id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript', 'debate_model', 'community_metadata', 'active_povers', 'opening_order', 'argument_network', 'debate_temperature', 'audience', 'prompt_config', 'gap_injections', 'source_type', 'user_is_pover', 'context_summaries', 'stages']),
+  chat: new Set([
+    'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
+    'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
+  ]),
+  debate: new Set([
+    'id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript',
+    'debate_model', 'active_povers', 'opening_order', 'user_is_pover', 'context_summaries',
+    'debate_temperature', 'audience', 'protocol_id', 'adaptive_staging', 'diagnostics',
+    'argument_network', 'commitments', 'convergence_tracker', 'document_analysis',
+    'qbaf_timeline', 'claim_coverage', 'neutral_evaluations', 'unanswered_claims_ledger',
+    'position_drift', 'per_claim_drift', 'missing_arguments', 'taxonomy_suggestions',
+    'extraction_summary', 'turn_validations', 'convergence_signals', 'process_rewards',
+    'turn_embeddings', 'frame_embeddings', 'community_metadata', 'evaluator_model',
+    'speaker_models', 'model_tier'
+  ]),
   oped: new Set(['id', 'topic', 'params', 'opeds', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
   inquiry: new Set(), // inquiry handled separately via fieldClassification
 };
@@ -919,7 +934,7 @@ function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submissi
     // discipline. WARN on suppress: reaching this path means generation populated the field for a
     // degraded run — a producer bug (t/3735's scope), and it must be loud, not silently corrected.
     if (projected.synthesizedHeadline !== undefined) {
-      const { truncated, terminationReason } = deriveTruncation(d as InquiryResult);
+      const { truncated, terminationReason } = deriveTruncation(data as InquiryResult);
       if (truncated) {
         delete projected.synthesizedHeadline;
         log.server.warn(

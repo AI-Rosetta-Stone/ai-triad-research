@@ -106,10 +106,11 @@ describe('Community allowlist projection (t/196)', () => {
         mode: 'brainstorm',
         topic: 'Test',
         pover: 'accelerationist',
+        pov_tag: 'test-tag', // now in allowlist (t/196#11)
+        tag_mode: 'flag', // now in allowlist (t/196#11)
         transcript: [],
         unknown_field_should_drop: 'this should not appear',
-        pov_tag: 'test-tag', // not in allowlist
-        tag_mode: 'flag', // not in allowlist
+        unlisted_field: 'should be dropped',
       };
 
       seed('chat-2', 'chat', chatData);
@@ -119,11 +120,12 @@ describe('Community allowlist projection (t/196)', () => {
       // Allowlisted fields survive
       expect(copy).toHaveProperty('title', 'Test Chat');
       expect(copy).toHaveProperty('mode', 'brainstorm');
+      expect(copy).toHaveProperty('pov_tag', 'test-tag');
+      expect(copy).toHaveProperty('tag_mode', 'flag');
 
       // Unlisted fields are stripped
       expect(copy).not.toHaveProperty('unknown_field_should_drop');
-      expect(copy).not.toHaveProperty('pov_tag');
-      expect(copy).not.toHaveProperty('tag_mode');
+      expect(copy).not.toHaveProperty('unlisted_field');
       expect(JSON.stringify(copy)).not.toContain('unlisted');
     });
   });
@@ -163,8 +165,7 @@ describe('Community allowlist projection (t/196)', () => {
         prompt_config: {},
         gap_injections: [],
         user_is_pover: false,
-        // t/171: debate stages are diagnostic metadata (not source material like op-ed stages)
-        stages: [{ name: 'opening' }, { name: 'rebuttal' }],
+        diagnostics: { turn_count: 2 }, // Diagnostic metadata is allowed
       };
 
       seed('debate-1', 'debate', debateData);
@@ -185,10 +186,9 @@ describe('Community allowlist projection (t/196)', () => {
       expect(copy).toHaveProperty('debate_temperature', 0.8);
       expect(copy).toHaveProperty('argument_network');
       
-      // t/171: debate stages are diagnostic and must survive (unlike op-ed stages which are source material)
-      expect(copy).toHaveProperty('stages');
-      expect((copy.stages as any[])).toHaveLength(2);
-      expect((copy.stages as any[])[0]).toHaveProperty('name', 'opening');
+      // t/171: debate diagnostic metadata must survive (unlike op-ed stages which are source material)
+      expect(copy).toHaveProperty('diagnostics');
+      expect((copy.diagnostics as any)).toHaveProperty('turn_count', 2);
 
       const transcript = copy.transcript as any[];
       expect(transcript).toBeDefined();
