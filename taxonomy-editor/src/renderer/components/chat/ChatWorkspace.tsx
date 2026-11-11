@@ -10,7 +10,6 @@ import { POVER_INFO } from '../../types/debate';
 import type { TaxonomyRef } from '../../types/debate';
 import type { ChatEntry, ChatMode } from '../../types/chat';
 import { CHAT_MODE_INFO } from '../../types/chat';
-import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { DetailPane } from '../shared/DetailPane';
 import { remarkLinkifyRefs, REF_LINK_CLASS } from '../shared/refLinkifyPlugin';
 import { parseEntityRef } from '@lib/entities/types';
@@ -29,11 +28,11 @@ import { CampGlyph, povToCamp } from '../shared/CampGlyph';
 import { SpeakerIdentity } from '../shared/SpeakerIdentity';
 import { EmptyState } from '../shared/EmptyState';
 import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/ChatBubble';
-import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
 import { HowPanel } from '../shared/HowPanel';
+import { BdiGroundingView } from '../debate-workspace/TaxonomyRefs';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -43,10 +42,6 @@ function speakerLabel(speaker: string): string {
   if (speaker === 'system') return 'System';
   const info = POVER_INFO[speaker as keyof typeof POVER_INFO];
   return info?.label || speaker;
-}
-
-function nodeIdToTab(nodeId: string): string {
-  return nodePovFromId(nodeId) ?? 'unknown';
 }
 
 // t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
@@ -85,62 +80,15 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
   };
 }
 
-function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; selected?: boolean; onClick?: () => void }) {
-  const tab = nodeIdToTab(taxRef.node_id);
-  // t/4651 (Design's a11y pass, t/4651#3): was a <span onClick> — no role, no tabIndex, no key
-  // handler, so keyboard/screen-reader users couldn't open a ref's detail at all (WCAG 2.1.1),
-  // and closing the detail had no focusable trigger to return to (fell back to <body>). A real
-  // button fixes both for free — focus return is TaxNodeDetail's existing restore-to-opener
-  // logic (t/4651), which needs document.activeElement to be an actual element, not a span.
-  return (
-    <button
-      type="button"
-      className={`taxonomy-pill tab-${tab}${selected ? ' selected' : ''}`}
-      title={taxRef.relevance || taxRef.node_id}
-      onClick={onClick}
-      aria-expanded={onClick ? selected === true : undefined}
-      data-clickable={onClick ? '' : undefined}
-    >
-      {taxRef.node_id}
-    </button>
-  );
-}
 
 /**
- * t/4627: always-visible per-reply BDI grounding list. Each item is clickable; clicking opens
- * that node's detail inline below the list (one open per reply, click again to hide, clicking a
- * different item switches). This state is local to the reply — separate from the chat-wide
- * `selectedRef`/`onSelectRef` that still drives `ChatDetailPane` for in-text ref links
- * (`makeRefLinkSpan`), which this component does not touch. pol-* and sit-* ids flow through the
- * same `TaxNodeDetail` unchanged — it already resolves policy/situation PinnedData variants.
+ * Why grounding for an answer (t/167): the shared BdiGroundingView from debate, grouped by BDI.
+ * Only answers get Chat's empty line (t/4862); a user message with no refs renders nothing.
  */
-export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; emptyText?: string }) {
-  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
-  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
-
-  // t/165: an answer with no refs says so rather than leaving the "Why" eyebrow over nothing.
-  if (!refs || refs.length === 0) return emptyText ? <p className="chat-why-empty">{emptyText}</p> : null;
-
-  return (
-    <div className="chat-taxonomy-refs">
-      <div className="chat-taxonomy-reasoning">
-        {refs.map((r) => (
-          <div key={r.node_id} className="chat-taxonomy-reasoning-item">
-            <TaxonomyPill
-              taxRef={r}
-              selected={selectedBdiNodeId === r.node_id}
-              onClick={() => toggleBdiNode(r.node_id)}
-            />
-            {r.label && <span className="chat-reasoning-label">{r.label}</span>}
-            {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
-          </div>
-        ))}
-      </div>
-      {selectedBdiNodeId && (
-        <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />
-      )}
-    </div>
-  );
+export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[] | undefined; emptyText?: string }) {
+  const list = refs ?? [];
+  if (list.length === 0 && !emptyText) return null;
+  return <div className="chat-why"><BdiGroundingView refs={list} emptyText={emptyText} /></div>;
 }
 
 // ── Chat message ─────────────────────────────────────────
