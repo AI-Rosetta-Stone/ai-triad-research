@@ -4,253 +4,204 @@
 /**
  * t/77 Phase 0: Staging Boot Guard
  *
- * Fail-closed guard to prevent staging identity from accessing prod data repo,
- * or prod identity from accessing staging repo. This mitigates the correlated
- * override-loss risk identified in t/77#4 (SO conditions: staging must boot
- * with non-default identity markers and refuse mismatched repos).
+ * Fail-closed guard that stops a staging container from booting against the
+ * prod data repo, the prod GitHub App, or the prod `main` branch.
  *
- * The guard is keyed on GitHub App ID (stable, per-environment identity marker)
- * and verifies that:
- *   - If running with staging App ID → repo must be staging repo
- *   - If running with prod App ID → repo must be prod repo
- *   - If running with neither (dev/test) → both repos are allowed
+ * The staging decision is keyed on CONTAINER_APP_NAME, which the platform sets
+ * and the override pipeline (t/4794) does not touch. It is NOT keyed on the
+ * GITHUB_* or STAGING_* values, because those are the values an override loss
+ * drops together (t/77#3 condition 1). When a staging container is missing any
+ * identity value, or any value disagrees, boot is refused. Nothing falls back
+ * to a "dev" path.
  *
- * This is enforced at boot time (GitHubAPIBackend initialization) to fail fast
- * before any data I/O.
+ * Prod and dev containers only get the mismatch check: the prod repo must not
+ * be the staging repo.
+ *
+ * Both checks run at boot, before GitHubAPIBackend is constructed.
  */
 
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 
+/** The prod data repo. Staging must never target it, whatever the env says. */
+const PROD_DATA_REPO = 'AI-Rosetta-Stone/ai-triad-data';
+
+/** The session branch prefix the prod container uses. Staging must not use it. */
+const DEFAULT_SESSION_BRANCH_PREFIX = 'api-session';
+
+/** The branch whose writes reach prod data. Staging must never write to it. */
+const PROD_BRANCH = 'main';
+
 /**
- * Environment-specific identity markers. These are stable, deployment-level
- * values (never per-user or session). They're used to detect which identity
- * is running and enforce repo isolation.
- *
- * Populated from environment variables:
- *   - GITHUB_APP_ID: The GitHub App ID for this deployment
- *   - GITHUB_REPO: The data repository this deployment targets
- *   - STAGING_APP_ID: (optional) The staging App ID, if different from prod
- *   - STAGING_REPO: (optional) The staging data repo, if different from prod
- *
- * If STAGING_* are unset, both staging and prod are treated as "not configured"
- * (no isolation enforced in dev/test mode).
+ * True when the platform says this container is staging. The Container App
+ * name ends in "-staging" (for example "taxonomy-editor-staging").
  */
-interface DeploymentIdentity {
-  appId: string | null;
-  repo: string | null;
-  stagingAppId: string | null;
-  stagingRepo: string | null;
+function isStagingContainer(): boolean {
+  const name = process.env.CONTAINER_APP_NAME;
+  return Boolean(name) && /-staging$/.test(name as string);
+}
+
+function recordGuardFailure(
+  message: string,
+  details: Record<string, string | undefined>,
+  error: ActionableError
+): void {
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'staging-boot-guard',
+    level: 'error',
+    message,
+    error: { name: 'StagingBootGuardFailed', message: error.message, ...details },
+  });
+  log.security.error({ ...details }, `Staging boot guard FAILED: ${message}`);
+}
+
+function guardError(
+  goal: string,
+  problem: string,
+  nextSteps: string[],
+  recordMessage: string,
+  details: Record<string, string | undefined>
+): never {
+  const err = Object.assign(
+    new ActionableError({
+      goal,
+      problem,
+      location: 'security/stagingBootGuard.ts',
+      nextSteps: [...nextSteps, 'This is a fail-closed check. Do not bypass it.'],
+    }),
+    { statusCode: 500 }
+  );
+  recordGuardFailure(recordMessage, details, err);
+  throw err;
 }
 
 /**
- * Extract deployment identity from environment. Returns the stable, per-deployment
- * App ID and repo pairs.
- */
-function getDeploymentIdentity(): DeploymentIdentity {
-  return {
-    appId: process.env.GITHUB_APP_ID ?? null,
-    repo: process.env.GITHUB_REPO ?? null,
-    stagingAppId: process.env.STAGING_APP_ID ?? null,
-    stagingRepo: process.env.STAGING_REPO ?? null,
-  };
-}
-
-/**
- * Determine which identity (staging or prod) is active based on the App ID.
- * Returns 'staging', 'prod', or 'dev' (neither configured).
- */
-function detectActiveIdentity(identity: DeploymentIdentity): 'staging' | 'prod' | 'dev' {
-  const { appId, stagingAppId } = identity;
-
-  // Neither staging nor prod App ID configured → dev/test mode, no isolation
-  if (!stagingAppId && !appId) return 'dev';
-
-  // Staging App ID matches current config → running as staging
-  if (stagingAppId && appId === stagingAppId) return 'staging';
-
-  // Prod App ID is set and doesn't match staging → running as prod
-  if (appId && appId !== stagingAppId) return 'prod';
-
-  // If we reach here, only staging is configured but appId doesn't match
-  // (e.g., staging is set but appId is different). Treat as dev.
-  return 'dev';
-}
-
-/**
- * Validate that the active identity's repo is correct.
- * Throws ActionableError if mismatch detected.
+ * Staging must have every identity value set, and they must agree. Throws if
+ * the container is staging and anything is missing or wrong.
  */
 export function validateStagingBootGuard(): void {
-  const identity = getDeploymentIdentity();
-  const activeIdentity = detectActiveIdentity(identity);
+  const appId = process.env.GITHUB_APP_ID;
+  const repo = process.env.GITHUB_REPO;
+  const stagingAppId = process.env.STAGING_APP_ID;
+  const stagingRepo = process.env.STAGING_REPO;
+  const branch = process.env.GITHUB_BRANCH;
+  const details = {
+    containerAppName: process.env.CONTAINER_APP_NAME,
+    appId,
+    repo,
+    stagingAppId,
+    stagingRepo,
+    branch,
+  };
 
-  const { appId, repo, stagingAppId, stagingRepo } = identity;
-
-  // If no staging is configured (dev mode), allow any repo
-  if (!stagingAppId) {
-    log.auth.info(
-      { activeIdentity, appId, repo, stagingAppId, stagingRepo },
-      'Staging boot guard: dev mode (no staging identity configured), allowing any repo'
-    );
+  if (!isStagingContainer()) {
+    // Prod and dev: only refuse the prod container pointing at the staging repo.
+    if (stagingRepo && repo === stagingRepo) {
+      guardError(
+        'Prevent prod identity from accessing staging data',
+        `Prod container is targeting staging repo "${repo}".`,
+        [
+          'Verify GITHUB_REPO on the prod container.',
+          `Prod data repo: ${PROD_DATA_REPO}`,
+        ],
+        'prod container targeting staging repo',
+        details
+      );
+    }
+    log.auth.info(details, 'Staging boot guard: non-staging container, no staging checks');
     return;
   }
 
-  // Staging identity must match staging repo
-  if (activeIdentity === 'staging') {
-    if (repo === stagingRepo) {
-      log.auth.info(
-        { activeIdentity, appId, repo, stagingAppId, stagingRepo },
-        'Staging boot guard: staging identity correctly targeting staging repo ✓'
-      );
-      return;
-    }
-    const err = Object.assign(
-      new ActionableError({
-        goal: 'Prevent staging identity from accessing prod data',
-        problem: `Staging boot guard failed: staging identity (App ID ${stagingAppId}) is targeting prod repo "${repo}" instead of staging repo "${stagingRepo}"`,
-        location: 'security/stagingBootGuard.ts → validateStagingBootGuard',
-        nextSteps: [
-          `Verify the deployment's GITHUB_REPO and STAGING_REPO environment variables are set correctly.`,
-          `Staging App ID: ${stagingAppId}`,
-          `Staging Repo: ${stagingRepo}`,
-          `Current Repo: ${repo}`,
-          'This is a fail-closed check to prevent accidental staging-to-prod writes after an override loss.',
-          'Do not bypass this guard.',
-        ],
-      }),
-      { statusCode: 500 }
+  // Staging: every value must be present. An unset value is a refusal, not a dev fallback.
+  const missing = Object.entries({
+    GITHUB_APP_ID: appId,
+    STAGING_APP_ID: stagingAppId,
+    GITHUB_REPO: repo,
+    STAGING_REPO: stagingRepo,
+    GITHUB_BRANCH: branch,
+  })
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
+    guardError(
+      'Prevent staging from booting without a verified identity',
+      `Staging container cannot verify its identity: unset ${missing.join(', ')}.`,
+      [
+        `Set ${missing.join(', ')} on the staging container before starting.`,
+        'Check for an override loss (t/4794): the staging env overrides may have been dropped.',
+      ],
+      'staging identity unset',
+      details
     );
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'staging-boot-guard',
-      level: 'error',
-      message: 'Staging boot guard failed: identity/repo mismatch',
-      error: {
-        name: 'StagingBootGuardFailed',
-        message: err.message,
-        activeIdentity,
-        appId,
-        repo,
-        stagingAppId,
-        stagingRepo,
-      },
-    });
-    log.security.error(
-      { activeIdentity, appId, repo, stagingAppId, stagingRepo },
-      'Staging boot guard FAILED: staging identity targeting prod repo'
-    );
-    throw err;
   }
 
-  // Prod identity must not target staging repo
-  if (activeIdentity === 'prod') {
-    if (repo !== stagingRepo) {
-      log.auth.info(
-        { activeIdentity, appId, repo, stagingAppId, stagingRepo },
-        'Staging boot guard: prod identity correctly targeting prod repo ✓'
-      );
-      return;
-    }
-    const err = Object.assign(
-      new ActionableError({
-        goal: 'Prevent prod identity from accessing staging data',
-        problem: `Staging boot guard failed: prod identity (App ID ${appId}) is targeting staging repo "${repo}" instead of prod repo`,
-        location: 'security/stagingBootGuard.ts → validateStagingBootGuard',
-        nextSteps: [
-          `Verify the deployment's GITHUB_REPO and STAGING_REPO environment variables are set correctly.`,
-          `Prod App ID: ${appId}`,
-          `Staging App ID: ${stagingAppId}`,
-          `Current Repo: ${repo}`,
-          'This is a fail-closed check to prevent accidental repo confusion.',
-          'Do not bypass this guard.',
-        ],
-      }),
-      { statusCode: 500 }
+  if (appId !== stagingAppId) {
+    guardError(
+      'Prevent staging identity from running as prod',
+      `Staging container is using App ID ${appId}, not the staging App ID ${stagingAppId}.`,
+      ['Verify GITHUB_APP_ID and STAGING_APP_ID on the staging container.'],
+      'staging container with non-staging App id',
+      details
     );
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'staging-boot-guard',
-      level: 'error',
-      message: 'Staging boot guard failed: prod targeting staging',
-      error: {
-        name: 'StagingBootGuardFailed',
-        message: err.message,
-        activeIdentity,
-        appId,
-        repo,
-        stagingAppId,
-        stagingRepo,
-      },
-    });
-    log.security.error(
-      { activeIdentity, appId, repo, stagingAppId, stagingRepo },
-      'Staging boot guard FAILED: prod identity targeting staging repo'
-    );
-    throw err;
   }
+
+  if (repo === PROD_DATA_REPO || repo !== stagingRepo) {
+    guardError(
+      'Prevent staging identity from accessing prod data',
+      `Staging container is targeting repo "${repo}" instead of staging repo "${stagingRepo}".`,
+      [
+        'Verify GITHUB_REPO and STAGING_REPO on the staging container.',
+        `Prod data repo (never allowed for staging): ${PROD_DATA_REPO}`,
+      ],
+      'staging identity targeting prod repo',
+      details
+    );
+  }
+
+  if (branch === PROD_BRANCH) {
+    guardError(
+      'Prevent staging from writing to prod main',
+      `Staging container resolves GITHUB_BRANCH to "${PROD_BRANCH}".`,
+      ['Set GITHUB_BRANCH to the staging branch on the staging container.'],
+      'staging branch resolves to main',
+      details
+    );
+  }
+
+  log.auth.info(details, 'Staging boot guard: staging identity verified ✓');
 }
 
 /**
- * Validate the session branch prefix to ensure it is non-default.
- * This prevents staging from silently falling back to the default prefix
- * if SESSION_BRANCH_PREFIX is unset or overridden (t/77 SO condition 2).
- *
- * Returns true if validation passes (or not applicable in dev mode).
- * Throws ActionableError if the prefix is default and staging is configured.
+ * Staging must have a non-default session branch prefix, so that an unset or
+ * overridden SESSION_BRANCH_PREFIX cannot send staging sessions to the prod
+ * branch namespace (t/77 SO condition 2). Throws on staging when the prefix is
+ * unset or default. Does nothing on non-staging containers.
  */
 export function validateStagingBranchPrefix(): void {
-  const { stagingAppId } = getDeploymentIdentity();
-  const appId = process.env.GITHUB_APP_ID;
-
-  // If no staging App ID configured, no isolation enforcement
-  if (!stagingAppId) return;
-
-  const isStaging = appId === stagingAppId;
-  if (!isStaging) return; // Prod is allowed any prefix
+  if (!isStagingContainer()) return;
 
   const branchPrefix = process.env.SESSION_BRANCH_PREFIX;
-  const defaultPrefix = 'api-session';
+  const details = {
+    containerAppName: process.env.CONTAINER_APP_NAME,
+    branchPrefix: branchPrefix || '(unset)',
+    defaultPrefix: DEFAULT_SESSION_BRANCH_PREFIX,
+  };
 
-  // Staging must have a non-default prefix (e.g., "staging-session")
-  if (!branchPrefix || branchPrefix === defaultPrefix) {
-    const err = Object.assign(
-      new ActionableError({
-        goal: 'Prevent staging from defaulting to prod session branch prefix',
-        problem: `Staging environment has default SESSION_BRANCH_PREFIX "${branchPrefix || '(unset)'}", which would merge staging sessions into prod main after an override loss.`,
-        location: 'security/stagingBootGuard.ts → validateStagingBranchPrefix',
-        nextSteps: [
-          `Set SESSION_BRANCH_PREFIX to a non-default value (e.g., "staging-session").`,
-          `Current value: ${branchPrefix || '(unset)'}`,
-          `Default value: ${defaultPrefix}`,
-          `Verify the deployment's SESSION_BRANCH_PREFIX environment variable before starting.`,
-        ],
-      }),
-      { statusCode: 500 }
+  if (!branchPrefix || branchPrefix === DEFAULT_SESSION_BRANCH_PREFIX) {
+    guardError(
+      'Prevent staging from defaulting to prod session branch prefix',
+      `Staging container has default SESSION_BRANCH_PREFIX "${branchPrefix || '(unset)'}", which would send staging sessions into the prod branch namespace.`,
+      [
+        'Set SESSION_BRANCH_PREFIX to a non-default value (for example "staging-session").',
+        `Default value: ${DEFAULT_SESSION_BRANCH_PREFIX}`,
+      ],
+      'staging branch prefix is default or unset',
+      details
     );
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'staging-boot-guard',
-      level: 'error',
-      message: 'Staging boot guard failed: default branch prefix',
-      error: {
-        name: 'StagingBootGuardFailed',
-        message: err.message,
-        branchPrefix,
-        stagingAppId,
-        appId,
-      },
-    });
-    log.security.error(
-      { branchPrefix, stagingAppId, appId },
-      'Staging boot guard FAILED: default branch prefix detected'
-    );
-    throw err;
   }
 
-  log.auth.info(
-    { branchPrefix, stagingAppId, appId },
-    'Staging boot guard: branch prefix is non-default ✓'
-  );
+  log.auth.info(details, 'Staging boot guard: branch prefix is non-default ✓');
 }
