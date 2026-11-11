@@ -495,8 +495,9 @@ class CommunityReviewClient {
 
   /** Promote one pending submission: merge admin edits, sanitize, strip sensitive data per type,
    *  publish to the public community blob, and mark the submission approved. t/301: routes by
-   *  type using submissionTypeToCommunityType → communityPrefixFor, strips op-ed stages, applies
-   *  inquiry projection (t/3651). Extracted from executeAction (t/1914). */
+   *  type using submissionTypeToCommunityType → communityPrefixFor, strips op-ed stages before
+   *  publishing (t/171), refuses inquiries until projection is available (t/3651). Extracted
+   *  from executeAction (t/1914). */
   private async promoteSubmission(submission: Submission, subPath: string, edits: Record<string, unknown> | undefined): Promise<void> {
     const dataToPublish = (edits && typeof edits === 'object' && submission.data && typeof submission.data === 'object')
       ? { ...(submission.data as Record<string, unknown>), ...edits }

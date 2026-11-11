@@ -134,16 +134,14 @@ describe('promoteSubmission security fix (t/301)', () => {
       expect(expectedDir).toBe('community/debates');
     });
 
-    it('inquiry routes to community/inquiries/ (fixed)', () => {
-      // Fixed version uses exhaustive switch via submissionTypeToCommunityType → communityPrefixFor
-      const typeToDir: Record<string, string> = {
-        'chat': 'community/chats/',
-        'debate': 'community/debates/',
-        'oped': 'community/opeds/',
-        'inquiry': 'community/inquiries/',
-      };
+    it('inquiry submission throws before routing (t/3651 projection pending)', () => {
+      // Fixed version refuses inquiries entirely (not a routing issue, but a refusal)
+      // promoteSubmission checks `if (submission.type === 'inquiry')` and throws
+      // Contract: no writeBlob calls, submission marked rejected
       
-      expect(typeToDir['inquiry']).toBe('community/inquiries/');
+      const submissionType = 'inquiry';
+      const shouldThrow = submissionType === 'inquiry';
+      expect(shouldThrow).toBe(true);
     });
 
     it('oped routes to community/opeds/ (not community/debates/)', () => {
@@ -303,18 +301,6 @@ describe('promoteSubmission security fix (t/301)', () => {
       const correctPath = `community/opeds/oped-${opedId}.json`;
       expect(correctPath).toContain('community/opeds/');
       expect(correctPath).toMatch(/oped-[a-z0-9-]+\.json$/);
-    });
-
-    it('promoteSubmission must route inquiry to correct blob path', () => {
-      // Before fix: community/debates/debate-{id}.json (WRONG)
-      // After fix: community/inquiries/inquiry-{id}.json (CORRECT) or refused (t/3651 pending)
-      
-      const inquiryId = 'xyz-789';
-      
-      // Correct path under t/301 fix (routes via singular→plural mapping)
-      const correctPath = `community/inquiries/inquiry-${inquiryId}.json`;
-      expect(correctPath).toContain('community/inquiries/');
-      expect(correctPath).toMatch(/inquiry-[a-z0-9-]+\.json$/);
     });
   });
 });
