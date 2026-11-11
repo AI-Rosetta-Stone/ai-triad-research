@@ -107,7 +107,7 @@ describe('LinkedNodePreview', () => {
     
     const nodeWithoutPlain = { ...mockNode, plain_description: null };
     mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
-    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    render(<LinkedNodePreview nodeId="acc-beliefs-999" />);
     
     await waitFor(() => {
       expect(recordSpy).toHaveBeenCalledWith(
@@ -115,7 +115,7 @@ describe('LinkedNodePreview', () => {
           type: 'system.error',
           component: 'LinkedNodePreview',
           level: 'warn',
-          message: expect.stringContaining('acc-beliefs-001'),
+          message: expect.stringContaining('acc-beliefs-999'),
         })
       );
     });
@@ -127,14 +127,14 @@ describe('LinkedNodePreview', () => {
     
     const nodeWithoutPlain = { ...mockNode, plain_description: null };
     mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
-    const { rerender } = render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    const { rerender } = render(<LinkedNodePreview nodeId="acc-beliefs-888" />);
     
     await waitFor(() => {
       expect(recordSpy).toHaveBeenCalledTimes(1);
     });
     
     recordSpy.mockClear();
-    rerender(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    rerender(<LinkedNodePreview nodeId="acc-beliefs-888" />);
     
     await waitFor(() => {
       expect(recordSpy).not.toHaveBeenCalled();
