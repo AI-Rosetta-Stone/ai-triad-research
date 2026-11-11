@@ -2,8 +2,8 @@
   "_doc": "t/4383 item 2 frozen target list. The write replaces the claims for EXACTLY these (org_id, source_id) pairs with claims re-extracted under the #4897 prompt, read from this file, never re-derived. Pairs linked after this snapshot are out of scope.",
   "anchor": "t/4383 item 2 (Interweave t/242)",
   "target_file": "ai-triad-data/taxonomy/Origin/organization_stance_claims.json",
-  "data_origin_main": "e8c0ea43",
-  "target_file_sha256": "1c175e6ac0ce044a013b6b0c6af3474ff7731906810c7122a4c09221ba883e8d",
+  "data_origin_main": "06cfbb9f",
+  "target_file_sha256": "faee6c679747c20fa7f812e16470436bf52033bff932c7502cc28e230ae725bb",
   "prompt": {
     "path": "scripts/AITriad/Prompts/org-stance-extraction.prompt",
     "merged_in": "#4897 (68ced612b)",
@@ -11,7 +11,7 @@
   },
   "usage_id": "enrichment.org-stance-extraction",
   "authorization": null,
-  "claims_before": 81,
+  "claims_before": 77,
   "pairs": [
     {
       "org_id": "org-001",
@@ -59,11 +59,6 @@
       "claims_before": 6
     },
     {
-      "org_id": "org-017",
-      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
-      "claims_before": 4
-    },
-    {
       "org_id": "org-018",
       "source_id": "oecd-framework-classification-ai-systems-2026",
       "claims_before": 5
@@ -83,5 +78,10 @@
       "source_id": "legal-policy-approaches-mitigate-catastrophic-harms-from-ai-2026",
       "claims_before": 5
     }
-  ]
+  ],
+  "repinned": {
+    "from_target_file_sha256": "1c175e6ac0ce044a013b6b0c6af3474ff7731906810c7122a4c09221ba883e8d",
+    "from_data_origin_main": "e8c0ea43",
+    "reason": "t/293 (PI-approved, Second Opinion condition p/120#5) removed org-017's PUBLISHED edge to ensuring-national-policy-framework-artificial-intelligence-2026 (a presidential EO, not OSTP) and its 4 claims; that pair leaves scope (14 -> 13)."
+  }
 }
