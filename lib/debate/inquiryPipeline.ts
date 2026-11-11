@@ -250,8 +250,10 @@ export async function runInquiryPipeline(
         level: 'warn',
         debate_id: session.id,
         message: msg,
-        alignment_mean: meanAlignment,
-        entity_count: alignmentEntities.length,
+        data: {
+          alignment_mean: meanAlignment,
+          entity_count: alignmentEntities.length,
+        },
       });
     }
   }
