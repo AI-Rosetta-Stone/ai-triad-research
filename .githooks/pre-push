@@ -57,16 +57,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   elif [ ! -f "$CTRL_LINT" ] || ! command -v node >/dev/null 2>&1; then
     echo "pre-push: WARN control-character check unavailable (no node or no $CTRL_LINT); CI still runs it." >&2
   else
-    changed=$(git diff --name-only --diff-filter=ACMR "$base" "$local_sha" 2>/dev/null)
-    if [ -n "$changed" ]; then
-      # shellcheck disable=SC2086 # one path per word; repo paths here have no spaces
-      ( cd "$ROOT" && node "$CTRL_LINT" $changed >/tmp/ctrl-lint.$$ 2>&1 ) || {
-        grep -v '^::warning' /tmp/ctrl-lint.$$ >&2
-        echo "pre-push: BLOCKED raw control byte(s) in changed files (t/128). Replace them with an escape, or allowlist the file with a reason in .github/ci/control-chars-allowlist.json." >&2
-        status=1
-      }
-      rm -f /tmp/ctrl-lint.$$
-    fi
+    # t/130: NUL-separated (git diff -z into --stdin0), so a changed path with spaces is scanned whole.
+    ( cd "$ROOT" && git diff -z --name-only --diff-filter=ACMR "$base" "$local_sha" 2>/dev/null \
+        | node "$CTRL_LINT" --stdin0 >/tmp/ctrl-lint.$$ 2>&1 ) || {
+      grep -v '^::warning' /tmp/ctrl-lint.$$ >&2
+      echo "pre-push: BLOCKED raw control byte(s) in changed files (t/128). Replace them with an escape, or allowlist the file with a reason in .github/ci/control-chars-allowlist.json." >&2
+      status=1
+    }
+    rm -f /tmp/ctrl-lint.$$
   fi
   if [ "$SKIP_TS" = "skip" ] || [ ! -f "$CHECKS" ]; then
     continue
