@@ -78,6 +78,7 @@ import { stampNodeAuthorship, diffNodes, changedFields } from './storage/editMet
 import { computeNodeConflicts, type TaxNode, type NodeConflict } from './community/nodeConflicts.js';
 import { getConfig, getConfigState, writeConfig, forceReload as reloadRuntimeConfig, diffFromDefaults } from './runtimeConfig.js';
 import { setRuntimeCredentials, clearRuntimeCredentials, getCredentials } from './security/githubAppAuth.js';
+import { validateStagingBootGuard, validateStagingBranchPrefix } from './security/stagingBootGuard.js';
 import * as proxyTiers from './ai/proxyTiers.js';
 import * as rateLimiter from './security/rateLimiter.js';
 import * as analytics from './community/analytics.js';
@@ -252,6 +253,10 @@ let githubBackend: GitHubAPIBackend | null = null;
 let sessionManager: SessionBranchManager | null = null;
 
 if (STORAGE_MODE === 'github-api') {
+  // t/77 Phase 0: Validate staging boot guard (fail-closed: prevent staging from accessing prod data)
+  validateStagingBootGuard();
+  validateStagingBranchPrefix();
+
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
