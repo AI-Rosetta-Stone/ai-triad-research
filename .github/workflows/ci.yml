@@ -1940,6 +1940,11 @@ jobs:
       - name: guard rate-limit snapshot step suite
         run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
 
+      # t/396: the pre-bulk-loop budget check passes above the floor and fails closed below it or
+      # on an unreadable rate_limit.
+      - name: gh-budget suite
+        run: node --test operations/devops/gh-budget.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
