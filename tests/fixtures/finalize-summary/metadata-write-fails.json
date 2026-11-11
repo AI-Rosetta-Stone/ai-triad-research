@@ -1,6 +1,7 @@
 {
   "scenario": "metadata-write-fails",
   "transcript": [
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
     "[warning] Finalize-Summary: summary written but metadata update failed, leaving '<ROOT>/sources/doc-1/metadata.json' stale: disk full writing sources/doc-1/metadata.json",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
@@ -55,7 +56,8 @@
       "    \"finish_reason\": null,",
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
-      "    \"camp_bridge_dropped\": 0",
+      "    \"camp_bridge_dropped\": 0,",
+      "    \"numeric_ungrounded_dropped\": null",
       "  },",
       "  \"context_rot\": null,",
       "  \"pov_summaries\": {",

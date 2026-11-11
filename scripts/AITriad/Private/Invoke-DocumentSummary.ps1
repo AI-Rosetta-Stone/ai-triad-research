@@ -144,7 +144,7 @@ function Invoke-DocumentSummary {
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed `
         -TaxonomyJson $PipelineResult.TaxonomyJson -MaxTokens $PipelineResult['MaxTokens'] `
-        -FireStats $PipelineResult.FireStats -EnablePolarityGate $EnablePolarityGate `
+        -FireStats $PipelineResult.FireStats -EnablePolarityGate $EnablePolarityGate -SnapshotText $SnapshotText `
         -JsonRepaired $PipelineResult['JsonRepaired'] -Truncated $PipelineResult['Truncated'] `
         -OutputTokens $PipelineResult['OutputTokens']
 }
@@ -459,7 +459,7 @@ $ChunkText
     return Finalize-Summary -SummaryObject $SummaryObject -ThisDocId $ThisDocId `
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed -ChunkCount $ChunkCount `
-        -TaxonomyJson $TaxonomyJson -MaxTokens $ChunkMaxTokens -EnablePolarityGate $EnablePolarityGate `
+        -TaxonomyJson $TaxonomyJson -MaxTokens $ChunkMaxTokens -EnablePolarityGate $EnablePolarityGate -SnapshotText $SnapshotText `
         -JsonRepaired $ChunkJsonRepairedCount -Truncated $ChunkAnyTruncated -OutputTokens $ChunkOutputTokensSum
 }
 
@@ -698,7 +698,9 @@ function Finalize-Summary {
         # means "unknown to this caller", never a guessed value.
         [object]$JsonRepaired = $false,
         [object]$Truncated = $null,
-        [object]$OutputTokens = $null
+        [object]$OutputTokens = $null,
+        # t/375: the text the model summarized, for the numeric-grounding guard. Both callers pass it.
+        [string]$SnapshotText = ''
     )
 
     # -- Schema validation and normalization (Gap 3.4) -------------------------
@@ -743,6 +745,26 @@ function Finalize-Summary {
         Write-Host "  │  camp-bridge: $CampBridgeDropped key_point(s) dropped" -ForegroundColor DarkYellow
     }
 
+    # -- Numeric grounding (t/375): drop factual claims citing numbers the source text doesn't contain --
+    # Every path (single-shot, FIRE, chunked) reaches here. With no snapshot text the guard can't run;
+    # that is a fallback, so it WARNs and records null rather than a misleading 0.
+    if ([string]::IsNullOrWhiteSpace($SnapshotText)) {
+        $SnapFile = Get-SummaryField $Doc 'SnapshotFile'
+        if ($SnapFile -and (Test-Path -LiteralPath $SnapFile)) {
+            Write-Warning "Finalize-Summary: $ThisDocId : no -SnapshotText passed; reading $SnapFile for the numeric-grounding guard (t/375)"
+            $SnapshotText = Read-SnapshotForModel -Path $SnapFile -CallerName 'Finalize-Summary'
+        }
+    }
+    $NumericUngroundedDropped = $null
+    if ([string]::IsNullOrWhiteSpace($SnapshotText)) {
+        Write-Warning "Finalize-Summary: $ThisDocId : no snapshot text available; numeric-grounding guard skipped (t/375)"
+    } else {
+        $NumericUngroundedDropped = Remove-NumericallyUngroundedClaims -SummaryObject $SummaryObject -SnapshotText $SnapshotText -ThisDocId $ThisDocId
+        if ($NumericUngroundedDropped -gt 0) {
+            Write-Host "  │  numeric-grounding: $NumericUngroundedDropped factual claim(s) dropped" -ForegroundColor DarkYellow
+        }
+    }
+
     $SoProps = $SummaryObject.PSObject.Properties
     if ($SoProps['factual_claims'] -and $null -ne $SummaryObject.factual_claims) { $FactualClaims = $SummaryObject.factual_claims } else { $FactualClaims = @() }
     if ($SoProps['unmapped_concepts'] -and $null -ne $SummaryObject.unmapped_concepts) { $UnmappedConcs = $SummaryObject.unmapped_concepts } else { $UnmappedConcs = @() }
@@ -764,7 +786,7 @@ function Finalize-Summary {
     $ModelInfo = New-SummaryModelInfo -Model $Model -Temperature $Temperature -TaxonomyJson $TaxonomyJson `
         -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens `
         -JsonRepaired $JsonRepaired -Truncated $Truncated -OutputTokens $OutputTokens `
-        -CampBridgeDropped $CampBridgeDropped
+        -CampBridgeDropped $CampBridgeDropped -NumericUngroundedDropped $NumericUngroundedDropped
 
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)
