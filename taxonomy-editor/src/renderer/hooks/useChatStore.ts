@@ -138,15 +138,55 @@ export function chatTagSelection(chat: Pick<ChatSession, 'pov_tag' | 'tag_mode'>
   return chat.pov_tag && chat.tag_mode ? { tag: chat.pov_tag, mode: chat.tag_mode } : undefined;
 }
 
-/** The taxonomy a chat is given. Chat has no relevance ranking: every POV node is sent, except that a
- *  Scope-tagged chat is given only its tagged nodes (t/3995). Prioritize keeps every node; its ordering is
- *  applied by chatTaxonomyBlock through formatTaxonomyContext (t/3996). */
+/** Cap POV nodes to ~12 BDI (4 per category) and situation nodes to ~4 per turn (t/348).
+ *  Uses deterministic ordering (id-based for stability); fallback when scoring unavailable.
+ *  Returns nodes in original array order. */
+function capTaxonomyForChat(povNodes: PovNode[], situationNodes: SituationNode[]): { povNodes: PovNode[]; situationNodes: SituationNode[] } {
+  const MAX_PER_CATEGORY = 4;
+  const MAX_SITUATIONS = 4;
+  
+  // Group POV nodes by category (Beliefs, Desires, Intentions)
+  const byCategory = new Map<string, PovNode[]>();
+  for (const node of povNodes) {
+    const category = node.category || 'other';
+    if (!byCategory.has(category)) byCategory.set(category, []);
+    byCategory.get(category)!.push(node);
+  }
+  
+  // Take top MAX_PER_CATEGORY from each BDI category, sorted by id for determinism
+  const capped: PovNode[] = [];
+  for (const [, nodes] of byCategory.entries()) {
+    const sorted = nodes.sort((a, b) => a.id.localeCompare(b.id));
+    const limited = sorted.slice(0, MAX_PER_CATEGORY);
+    capped.push(...limited);
+  }
+  
+  // Take top MAX_SITUATIONS, sorted by id for determinism
+  const cappedSituations = situationNodes
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .slice(0, MAX_SITUATIONS);
+  
+  // Return in original povNodes order (preserve position of selected nodes)
+  const cappedSet = new Set(capped.map(n => n.id));
+  const result: PovNode[] = [];
+  for (const node of povNodes) {
+    if (cappedSet.has(node.id)) result.push(node);
+  }
+  
+  return { povNodes: result, situationNodes: cappedSituations };
+}
+
+/** The taxonomy a chat is given. Capped to ~12 BDI + ~4 situations per turn (t/348).
+ *  Tag filtering applied first (Scope narrows to tagged only; Prioritize keeps all but marks tagged).
+ *  Then nodes are capped deterministically by id ordering (fallback when scoring unavailable).
+ *  Returns selected nodes in original array order. */
 function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>): TaxonomyContext {
   const state = useTaxonomyStore.getState();
   const povFile = state[pov as 'accelerationist' | 'safetyist' | 'skeptic'];
-  const povNodes: PovNode[] = povFile?.nodes ?? [];
+  let povNodes: PovNode[] = povFile?.nodes ?? [];
   const situationNodes: SituationNode[] = state.situations?.nodes ?? [];
   const tagSelection = chatTagSelection(chat);
+  
   if (tagSelection?.mode === 'scope') {
     const { inScope, excluded, sufficient } = checkTagScope(povNodes, tagSelection);
     // Setup refuses a Scope tag below the minimum (t/3959), but tags can change after a chat starts. Per
@@ -158,9 +198,13 @@ function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag
         data: { chat_session_id: chat.id, pov, tag: tagSelection.tag, in_scope: inScope.length, excluded: excluded.length },
       });
     }
-    return { povNodes: inScope, situationNodes };
+    povNodes = inScope;
   }
-  return { povNodes, situationNodes };
+  
+  // Cap to ~12 BDI + ~4 situations (t/348)
+  const { povNodes: cappedPovNodes, situationNodes: cappedSituations } = capTaxonomyForChat(povNodes, situationNodes);
+  
+  return { povNodes: cappedPovNodes, situationNodes: cappedSituations };
 }
 
 /** The formatted taxonomy block for a chat turn. A Prioritize chat passes its tagged ids (the shared
