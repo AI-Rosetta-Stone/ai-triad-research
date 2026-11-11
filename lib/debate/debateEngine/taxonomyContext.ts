@@ -25,10 +25,11 @@ import {
   EDGE_CONTEXT_TOP_N,
   TAG_BOOST_INCREMENT,
 } from '../debateConfig.js';
+import { selectSyntheticGroundedPovNodes, type SyntheticGroundingResult } from './syntheticGrounding.js';
 import { loadProvisionalWeights } from '../phaseTransitions.js';
 import { cosineSimilarity } from '../../embeddings/similarity.js';
 import { computePreDebateFreshness, computeBdiEntropy, weightedSituationScore, PRE_DEBATE_WEIGHTS } from '../situationScoring.js';
-import { type Category } from '../taxonomyTypes.js';
+import { type Category, type PovNode } from '../taxonomyTypes.js';
 
 export function getNodeLabelMap(engine: DebateEngineInternals): Map<string, string> {
   if (engine._nodeLabelMap) return engine._nodeLabelMap;
@@ -458,8 +459,13 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     }
   }
 
+  // Synthetic-statement arm (t/412): each selected node's text is its best-matching synthetic
+  // statement against the debate query; skipped nodes are backfilled. Takes precedence over
+  // useDebateGrounding. Off by default.
+  const synthetic = resolveSyntheticPromptNodes(engine, scoredPov, tagCtx.povNodes, scores, roundFocusVector);
+
   const filteredCtx = {
-    povNodes: scoredPov.map(s => s.node),
+    povNodes: synthetic?.nodes ?? scoredPov.map(s => s.node),
     situationNodes: filteredSit.map(s => s.node),
     policyRegistry: ctx.policyRegistry,
     nodeScores: scores,
@@ -560,21 +566,50 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     }
   }
 
-  let debateGroundingOverrides: Map<string, string> | undefined;
-  if (engine.config.useDebateGrounding) {
-    debateGroundingOverrides = new Map<string, string>();
-    for (const n of filteredCtx.povNodes) {
-      const grounding = n.graph_attributes?.debate_grounding;
-      if (grounding) debateGroundingOverrides.set(n.id, grounding);
-    }
-    if (debateGroundingOverrides.size === 0) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useDebateGrounding: no injected nodes have debate_grounding populated — falling back to description for all nodes' });
-    }
-  }
+  const debateGroundingOverrides = synthetic?.overrides ?? resolveDebateGroundingOverrides(engine, filteredCtx.povNodes);
 
   return formatTaxonomyContext(filteredCtx, pov, undefined, {
     ...(situationStatements ? { situationStatements } : undefined),
     ...(debateGroundingOverrides ? { debateGroundingOverrides } : undefined),
+  });
+}
+
+// t/3366: debate_grounding register text per node when useDebateGrounding is on.
+function resolveDebateGroundingOverrides(engine: DebateEngineInternals, povNodes: PovNode[]): Map<string, string> | undefined {
+  if (!engine.config.useDebateGrounding) return undefined;
+  const overrides = new Map<string, string>();
+  for (const n of povNodes) {
+    const grounding = n.graph_attributes?.debate_grounding;
+    if (grounding) overrides.set(n.id, grounding);
+  }
+  if (overrides.size === 0) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useDebateGrounding: no injected nodes have debate_grounding populated — falling back to description for all nodes' });
+  }
+  return overrides;
+}
+
+// Synthetic-statement arm (t/412): when useSyntheticStatementGrounding is on, returns the prompt
+// nodes and their statement overrides. Returns undefined when the flag is off, or when there is no
+// query embedding (logged; the debate keeps the control prompt).
+function resolveSyntheticPromptNodes(
+  engine: DebateEngineInternals,
+  scoredPov: ScoredPovNode[],
+  eligible: PovNode[],
+  scores: Map<string, number>,
+  roundFocusVector: number[] | null,
+): SyntheticGroundingResult | undefined {
+  if (!engine.config.useSyntheticStatementGrounding) return undefined;
+  if (!roundFocusVector) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useSyntheticStatementGrounding: no query embedding — falling back to the control prompt (description) for this debate' });
+    return undefined;
+  }
+  return selectSyntheticGroundedPovNodes({
+    selected: scoredPov,
+    pool: eligible.map(n => ({ node: n, score: scores.get(n.id) ?? 0 })),
+    queryVector: roundFocusVector,
+    nodeVectors: engine.taxonomy.embeddings,
+    nodeStatements: engine.taxonomy.syntheticStatements ?? {},
+    debateId: engine.session?.id,
   });
 }
 
