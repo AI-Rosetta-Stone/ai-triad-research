@@ -842,7 +842,7 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
     'turn_embeddings', 'frame_embeddings', 'community_metadata', 'evaluator_model',
     'speaker_models', 'model_tier'
   ]),
-  oped: new Set(['id', 'topic', 'params', 'opeds', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
+  oped: new Set(['id', 'topic', 'params', 'opeds', 'camps', 'voice_count', 'outlet', 'tag', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
   inquiry: new Set(), // inquiry handled separately via fieldClassification
 };
 
