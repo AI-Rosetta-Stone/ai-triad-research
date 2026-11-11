@@ -6,11 +6,11 @@
 // components so it reads the same as Chat's.
 
 import type { OpEdStage } from '../../../../../lib/oped/types';
-import { HowPanel, HowSection, HowRawContent, HowNote, HowMethodsLinks } from '../shared/HowPanel';
-import type { HowMethodsLinkSpec } from '../shared/HowPanel';
+import { HowPanel, HowSection, HowRawContent, HowNote } from '../shared/HowPanel';
+import type { HowMethodsLink } from '../shared/HowPanel';
 
 const DOCS = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux';
-export const OPED_HOW_METHODS_LINKS: readonly HowMethodsLinkSpec[] = [
+export const OPED_HOW_METHODS_LINKS: HowMethodsLink[] = [
   { label: 'Theory of Success', url: `${DOCS}/oped-tool-theory-of-success.md` },
   { label: 'Theory of Operations', url: `${DOCS}/oped-tool-theory-of-operations.md` },
   { label: 'Theory of Outlets', url: `${DOCS}/oped-tool-theory-of-outlets.md` },
@@ -64,7 +64,7 @@ function StageList({ stages, kind }: { stages: OpEdStage[]; kind: 'prompt' | 'ou
 export function OpEdHowPanel({ stages }: { stages: readonly OpEdStage[] | undefined }) {
   const ordered = stages && stages.length > 0 ? orderStages(stages) : null;
   return (
-    <HowPanel>
+    <HowPanel methodsLinks={OPED_HOW_METHODS_LINKS}>
       {ordered ? (
         <>
           <HowSection title="Raw Prompt" defaultExpanded>
@@ -76,12 +76,9 @@ export function OpEdHowPanel({ stages }: { stages: readonly OpEdStage[] | undefi
         </>
       ) : (
         <HowSection title="Raw Prompts and Outputs" defaultExpanded>
-          <HowNote>Raw prompts and outputs are visible only to the op-ed's author.</HowNote>
+          <HowNote>No raw prompts or outputs to show. They're recorded only for newer op-eds, and only their author can see them.</HowNote>
         </HowSection>
       )}
-      <HowSection title="Methods" defaultExpanded={false}>
-        <HowMethodsLinks links={OPED_HOW_METHODS_LINKS} component="oped-how-panel" />
-      </HowSection>
     </HowPanel>
   );
 }

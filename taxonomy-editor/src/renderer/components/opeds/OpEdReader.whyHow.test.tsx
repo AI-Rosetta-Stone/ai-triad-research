@@ -48,6 +48,14 @@ describe('Why: top 4 by relevance + Other (N) (t/173)', () => {
     expect(other.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(other);
     expect(rowIds()).toEqual(['b', 'f', 'd', 'c', 'e', 'a']);
+    // Design ruling: the expanded label keeps the count.
+    expect(screen.queryByRole('button', { name: 'Other (2)' })).toBeNull();
+    const hide = screen.getByRole('button', { name: 'Hide other (2)' });
+    expect(hide).toBe(other);
+    expect(hide.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(hide);
+    expect(rowIds()).toEqual(['b', 'f', 'd', 'c']);
+    expect(screen.getByRole('button', { name: 'Other (2)' })).toBeTruthy();
   });
 
   it('keeps the unused toggle after Other, and the Why count covers every element', () => {
@@ -55,6 +63,14 @@ describe('Why: top 4 by relevance + Other (N) (t/173)', () => {
     expect(screen.getByText('Why (7 elements)')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Show 1 unused element' }));
     expect(rowIds()).toContain('u1');
+  });
+
+  it('styles the Other and unused toggles as ghost buttons (Design ruling)', () => {
+    render(<OpEdReader set={setWith({ grounding })} />);
+    for (const name of ['Other (2)', 'Show 1 unused element']) {
+      const cls = screen.getByRole('button', { name }).className.split(/\s+/);
+      expect(cls).toEqual(expect.arrayContaining(['btn', 'btn-ghost', 'btn-sm']));
+    }
   });
 
   it('has no Other expander with 4 or fewer used elements', () => {
@@ -94,10 +110,13 @@ describe('How: per-stage raw prompt and output (t/173)', () => {
     expect(stageLabel({ stage: 'future-stage' as OpEdStage['stage'], attempt: 1 })).toBe('future-stage');
   });
 
-  it('shows owner-only message for op-eds without stages', () => {
+  it('says plainly why there is nothing to show for op-eds without stages', () => {
     render(<OpEdReader set={setWith({})} />);
     openHow();
-    expect(screen.getByText('Raw prompts and outputs are visible only to the op-ed\'s author.')).toBeTruthy();
+    expect(screen.getByText('No raw prompts or outputs to show. They\'re recorded only for newer op-eds, and only their author can see them.')).toBeTruthy();
+    expect(screen.queryByText(/visible only to the op-ed's author/)).toBeNull();
+    // The shared HowPanel's Chat defaults are replaced by the op-ed content, not shown alongside it.
+    expect(screen.queryByText(/not recorded for this message/)).toBeNull();
   });
 
   it('links the three Op-Ed theory docs under Methods', () => {

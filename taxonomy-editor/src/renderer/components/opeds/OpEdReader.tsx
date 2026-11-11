@@ -223,17 +223,17 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
       {other.length > 0 && (
         <button
           type="button"
-          className="oped-grounding-toggle-unused"
+          className="btn btn-ghost btn-sm"
           aria-expanded={showOther}
           onClick={() => setShowOther(v => !v)}
         >
-          {showOther ? 'Hide other' : `Other (${other.length})`}
+          {showOther ? `Hide other (${other.length})` : `Other (${other.length})`}
         </button>
       )}
       {unused.length > 0 && (
         <button
           type="button"
-          className="oped-grounding-toggle-unused"
+          className="btn btn-ghost btn-sm"
           aria-expanded={showUnused}
           onClick={() => setShowUnused(v => !v)}
         >
