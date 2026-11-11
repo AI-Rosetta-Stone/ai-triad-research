@@ -107,6 +107,7 @@ function loadSingleDocMeta(metaPath: string, docName: string): { title: string; 
     if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
     if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
     return docMeta;
+    // Per-document fallback: one metadata file corruption doesn't block others (looped per-dir)
   } catch {
     return null;
   }
