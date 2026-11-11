@@ -74,9 +74,9 @@ When no news hook was given, the generation prompt tells the model not to invent
 3. **Selection per camp.** A camp's own nodes only, with these settings:
    - threshold 0.48;
    - at least 2 nodes per BDI category, even below the threshold;
-   - at most 12 nodes in total (configurable via the Max grounding nodes dialog setting).
+   - at most 12 nodes in total.
 4. **Order.** Nodes are grouped Beliefs, then Desires, then Intentions, each sorted by score. When the 12-node cap trims the list, the camp's top two are kept first and the rest are ordered by score. **The grounding list is therefore not one global ranking by relevance.**
-5. **Situations.** Selected once for the whole set, shared by all camps. Between 1 and 3 (configurable via the Max situations dialog setting), using the same 0.48 threshold.
+5. **Situations.** Selected once for the whole set, shared by all camps. Between 1 and 3, using the same 0.48 threshold.
 6. **A POV tag** narrows (`scope`) or boosts (`prioritize`) the tagged camp's nodes only.
 
 Each grounding element is stored on the member with `relevance` (its similarity score, to 4 decimals) and `how_reflected` (from the reflection stage). `relevance` measures how close the element is to the **request**. It does not measure how strongly the op-ed used the element: the code computes no such score.
@@ -97,7 +97,7 @@ A camp whose generation fails or is cancelled still appears in the set with `sta
 - **Multi-camp:** the same topic argued by several camps, side by side.
 - **URL mode:** each camp responds to a supplied source document, held to the source-fidelity rules.
 - **Settings:** outlet, word count, news hook, thesis, author bio, model, and an optional POV tag.
-  - The New Op-Ed dialog also offers Max grounding nodes, Max situations and Temperature, which are wired via `resolveOpEdTuning()` and applied to the selection and generation stages.
+  - The New Op-Ed dialog also offers Max grounding nodes, Max situations and Temperature. These **are not yet wired** into this pipeline, which uses the fixed values above. That's a known issue.
 
 ## Performance Considerations
 
@@ -110,46 +110,49 @@ A camp whose generation fails or is cancelled still appears in the set with `sta
 
 ## Implementation References
 
-This section cites the code and internal structures that implement the operations described above.
+This section cites the code and internal structures that implement the operations described above. Citations use symbol names where possible to avoid line-number drift.
 
 | Component/Operation | Implementation |
 |---------------------|-----------------|
-| Generator entrypoint | `lib/oped/generate.ts:1067` (`generateOpEdSet`) |
-| Progress events | `generate.ts:54-63` |
-| Prompt loading and slots | `lib/oped/promptLoader.ts:41-43` |
-| Camp soul document | `generate.ts:178` (`loadSoulDoc`); rendering `generate.ts:322` (`buildVoiceBlock`) |
-| Taxonomy loading | `generate.ts:198` (`loadTaxonomy`) |
-| Source brief calls | `generate.ts:1090` |
-| Grounding selection | `generate.ts:272` (`selectRelevantNodes`), `generate.ts:1048` (`selectRelevantSituationNodes`) |
-| Per-camp pipeline | `generate.ts:1144` |
-| Set assembly | `generate.ts:1155-1176` |
-| Call staging recorder | `generate.ts:553` (`callStage`); records to member's `stages` field |
-| Source-brief prompt | `lib/oped/promptLoader.ts:110`; model marks source unreadable `generate.ts:1104` |
-| Generation prompt join | `generate.ts:602` (prompts joined with `---`); temperature `generate.ts:651` |
-| Generation output | `op-ed-generation-user.prompt:41-49`; failure handling `generate.ts:662-677` |
-| Coherence checks | `op-ed-coherence-judge.prompt:7-13`; span validation `coherenceCheck.ts:45-47` |
-| Coherence judge | `generate.ts:663` |
-| Coherence rewrite | `generate.ts:686` |
-| Coherence re-judge | `generate.ts:710` |
-| Readability measurement | `lib/oped/readabilityMeasure.ts:26-56`; target check `generate.ts:769` |
-| Readability edit guards | Guards check `generate.ts:769-857`; collapse guard `generate.ts:783`; voice guard `generate.ts:800-806`; retry logic `generate.ts:809-825`; paragraph split `generate.ts:836` |
-| Grounding reflection | `generate.ts:932`; retry on missing claims `generate.ts:1007-1019`; failure handling `generate.ts:914` |
-| Reflection retry | Temperature 0 retry; miss case `generate.ts:1007-1019` |
-| Fabricated-lede guard | Generation instruction `promptLoader.ts:50-56`; pattern scan `opedGuards.ts:12-13`, `generate.ts:1002`; first 500 characters |
-| Query embedding | `generate.ts:1135-1137` |
-| Node scoring | `lib/debate/taxonomyRelevance.ts:137-148` |
-| Relevance threshold | `lib/debate/calibration-config.json:65` (0.48) |
-| Selection per camp | `generate.ts:272` (`selectRelevantNodes` call with settings); settings `generate.ts:271-277` |
-| Node ordering | `lib/debate/taxonomyRelevance.ts:332-339` (BDI groups); top-2 preservation `lib/debate/taxonomyRelevance.ts:368-385` |
-| Situations selection | `generate.ts:1048` (`selectRelevantSituationNodes`, 1-3, same 0.48 threshold) |
-| POV tag scoping | `generate.ts:263-319` |
-| Member grounding fields | `relevance` score `generate.ts:879` (or `887`); `how_reflected` from reflection stage |
-| Member types | `lib/oped/types.ts:46-50` |
-| Partial failures | `generate.ts:1191-1199` (`status: 'failed'` or `'cancelled'`) |
-| Dialog settings types | `lib/oped/types.ts:11-21` |
-| Dialog settings wiring | `generate.ts:543-551` (`resolveOpEdTuning`); applied at grounding `generate.ts:272` and generation `generate.ts:1074` |
-| Coherence/readability interaction | `generate.ts:648-689` (coherence before readability) |
-| Max tokens formula | `generate.ts:595` (`Math.ceil(targetWords * 3) + 5000`) |
-| Text capture limit | `generate.ts:510-525` (`capStageText` function; 200k chars cap at line ~512) |
+| Generator entrypoint | `lib/oped/generate.ts` → `generateOpEdSet()` (generator function, line ~1120) |
+| Progress events | `lib/oped/generate.ts` → `OpEdProgressEvent` type (line 54) |
+| Prompt loading and slots | `lib/oped/promptLoader.ts` → `loadAndAssemblePrompt()` |
+| Camp soul document | `lib/oped/generate.ts` → `getSoulDocument()` (imported); rendering `buildVoiceBlock()` (line 322) |
+| Taxonomy loading | `lib/oped/generate.ts` → `loadTaxonomy()` calls within `generateOpEdSet()` |
+| Source brief calls | `lib/oped/generate.ts` → `selectSetGrounding()` (line 1033); yields `source_brief_done` event |
+| Grounding selection | `lib/oped/generate.ts` → `selectRelevantNodes()` call (line 272); `selectRelevantSituationNodes()` within `selectSetGrounding()` |
+| Per-camp pipeline | `lib/oped/generate.ts` → `enqueue()` and `runVoice()` functions (lines 1144, 1151); sequential loop (line 1189) |
+| Set assembly | `lib/oped/generate.ts` → `OpEdSet` final assembly (line 1206); `orderedMembers` map (line 1199) |
+| Call staging recorder | `lib/oped/generate.ts` → `callStage()` function (line 553); records stages to member's `stages` field |
+| Source-brief prompt | `lib/oped/prompts/op-ed-source-brief.prompt`; model marks source unreadable; `selectSetGrounding()` handler at line 1033 |
+| Generation prompt join | `lib/oped/generate.ts` → `loadAndAssemblePrompt()` assembles `system` + `user` prompts; temperature in `tuning` (line 548) |
+| Generation output | `lib/oped/prompts/op-ed-generation-user.prompt`; failure handling via try/catch in `runVoiceGeneration()` (line 629) |
+| Coherence checks | `lib/oped/prompts/op-ed-coherence-judge.prompt`; span validation in `coherenceCheck.ts` → `validateClaim()` |
+| Coherence rewrite | `lib/oped/prompts/op-ed-coherence-rewrite.prompt` |
+| Coherence re-judge | `lib/oped/generate.ts` → within `runVoiceGeneration()` coherence flow (lines 663-715 range) |
+| Readability measurement | `lib/oped/readabilityMeasure.ts` → `measureReadability()` function; target check via `needsEdit()` |
+| Readability edit guards | `lib/oped/generate.ts` → guards within `runVoiceGeneration()`; collapse guard (line 783); voice guard via `voiceOnly` param (line 549); retry logic in `attemptEdit()` (line 772); paragraph split via `splitLongParagraphs()` |
+| Grounding reflection | `lib/oped/generate.ts` → reflection stage within `runVoiceGeneration()`; retry on missing claims via `runReflection()` (line 930) |
+| Reflection retry | `lib/oped/generate.ts` → `runReflection()` with temperature 0.1 (line 712) for retries |
+| Fabricated-lede guard | `lib/oped/generate.ts` → `FABRICATED_LEDE_GUARD.test()` on final body (line 1002); pattern from `lib/oped/opedGuards.ts` |
+| Query embedding | `lib/oped/generate.ts` → `computeEmbedding()` call within `selectSetGrounding()` |
+| Node scoring | `lib/debate/taxonomyRelevance.ts` → `scoreNodeRelevance()` function |
+| Relevance threshold | `lib/debate/calibration-config.json` → `relevance.scoreThreshold` (0.48) |
+| Selection per camp | `lib/oped/generate.ts` → `selectRelevantNodes()` call per POV (line 272); settings resolved in `resolveOpEdTuning()` (line 543) |
+| Node ordering | `lib/debate/taxonomyRelevance.ts` → `selectRelevantNodes()` applies BDI grouping; top-2 preservation logic |
+| Situations selection | `lib/oped/generate.ts` → `selectRelevantSituationNodes()` within `selectSetGrounding()` |
+| POV tag scoping | `lib/oped/generate.ts` → `tagSoulForPov()` and tag application logic within `generateOpEdSet()` |
+| Member grounding fields | `lib/oped/generate.ts` → `relevance` score assigned in `withAppliedTag()` chain; `how_reflected` from reflection output |
+| Member types | `lib/oped/types.ts` → `OpEdMember` type definition |
+| Partial failures | `lib/oped/generate.ts` → member status field (line 1167); `'failed'` or `'cancelled'` set on catch/abort |
+| Dialog settings types | `lib/oped/types.ts` → `OpEdTuning` type definition; `OPED_TUNING_DEFAULTS` |
+| Readability/coherence interaction | `lib/oped/generate.ts` → readability checks precede coherence (coherence only runs on readability-passed body) |
+| Max tokens formula | `lib/oped/generate.ts` → `const maxTokens = Math.ceil(targetWords * 3) + 5000` (line 595) |
+| Text capture limit | `lib/oped/generate.ts` → `capStageText()` function (line 510); 200k char limit enforced at line 517 |
+| Word count resolution | `lib/oped/generate.ts` → `const targetWords` in `runVoiceGeneration()` (line 594); resolves from `request.params.wordCount` or outlet band default |
+| Temperature defaults | `lib/oped/generate.ts` → `OPED_TUNING_DEFAULTS` (line 527) sets `temperature: 0.8` for generation; `0.1` for coherence retries (line 665, 712) |
+| Voice guard activation | `lib/oped/generate.ts` → `voiceOnly: params.voiceOnly === true` (line 549); skips taxonomy load when true (line 1127) |
+| Edit attempt retry loop | `lib/oped/generate.ts` → `attemptEdit()` async function (line 772); iterates with increasing temperature on edit failure |
 
-*Accurate to the code at the time of writing. When the pipeline changes, update this document and its citations.*
+*Symbol-based citations resolve to current code. Line numbers provided where the symbol name alone is ambiguous or for block ranges. Accurate to origin/main at t/174 rebase.*
+
