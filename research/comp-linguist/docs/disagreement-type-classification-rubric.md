@@ -34,7 +34,7 @@ Real situations mix levels. A skeptic frequently reframes ("wrong question") eve
 
 ## 3. Seed set (hand-labeled anchors)
 
-Labeled by the CL from each node's `description` + per-POV `interpretations`. These serve as (a) rubric anchors and (b) the agreement-check gold set for the enrichment pass. Run the classifier over these nine **three times** and require each seed's **majority label** to be correct (9/9) before trusting the full-corpus pass. A single draw that must be 9/9 fails by chance even for a sound prompt (t/246 run 1: 9/9, 8/9, 9/9).
+Labeled by the CL from each node's `description` + per-POV `interpretations`. These serve as (a) rubric anchors and (b) the agreement-check gold set for the enrichment pass. Run the classifier over these ten **three times**. Require each of the nine non-abstain seeds' **majority label** to be correct (9/9), **and** the abstain anchor's majority label to be `insufficient`, before trusting the full-corpus pass. A single draw that must be 9/9 fails by chance even for a sound prompt (t/246 run 1: 9/9, 8/9, 9/9).
 
 | Node | Label | Why |
 |---|---|---|
@@ -47,9 +47,11 @@ Labeled by the CL from each node's `description` + per-POV `interpretations`. Th
 | `sit-470` (shared responsibility framework) | **interpretive** | Dispute how to allocate/enforce responsibility, not what it is. |
 | `sit-300` (plural futures) | **structural** | acc rejects the frame as a distraction; skeptic centers it — the disagreement is about which frame organizes the issue. |
 | `sit-400` (normal externality management) | **structural** | "AI is a normal technology governed by ordinary mechanisms" vs "discontinuous catastrophic risk" — competing foundational frames. |
-The seed distribution (6 interpretive, 2 structural, 1 definitional) is expected: definitional forks are genuinely rare, and interpretive is the modal case for AI-policy situations.
+| `sit-154` (challenges in AI governance and policy) | **abstain** | All three per-POV interpretations are empty strings (a `[DEPRECATED]` node, not superseded): insufficient signal (see §4.2). |
 
-*Dropped (t/246):* `sit-050` (business skin in the game) used to be the abstain anchor, because its `interpretations` were null. They were filled on 2026-08-25 (t/3018), and no situation is null or single-POV any more, so no abstain anchor exists. The §4.2 handling still applies to any future low-signal node.
+The seed distribution (6 interpretive, 2 structural, 1 definitional, 1 abstain) is expected: definitional forks are genuinely rare, and interpretive is the modal case for AI-policy situations.
+
+*Replaced (t/246):* `sit-050` (business skin in the game) used to be the abstain anchor, because its `interpretations` were null. They were filled on 2026-08-25 (t/3018). As of 2026-11-11, `sit-154` is the **only** live situation whose interpretations are empty (no situation is single-POV), so it is the abstain anchor. The t/246 iteration-2 classifier run returned `insufficient` for it in 3 of 3 replicates.
 
 ## 4. Classification prompt (for the AIEnrich population pass)
 
@@ -73,7 +75,7 @@ The population step is owned by PowerShell / AI-enrichment; this is the CL-autho
 
 ### 4.2 Handling low signal
 
-Nodes whose `interpretations` are null or single-POV cannot support a reliable label. The classifier must return `"insufficient"`, and the population step **must not** write a `disagreement_type` for these (leave the field absent) rather than fabricate one. `computeDiversityComponent` already treats a missing value as no-diversity-contribution (`if (!situation.disagreement_type) return 0`), so abstention is safe and honest. Track the count of abstentions; if it is large, the fix is to enrich `interpretations` first (a separate concern), not to force labels.
+Nodes whose `interpretations` are null or single-POV (e.g. `sit-154`) cannot support a reliable label. The classifier must return `"insufficient"`, and the population step **must not** write a `disagreement_type` for these (leave the field absent) rather than fabricate one. `computeDiversityComponent` already treats a missing value as no-diversity-contribution (`if (!situation.disagreement_type) return 0`), so abstention is safe and honest. Track the count of abstentions; if it is large, the fix is to enrich `interpretations` first (a separate concern), not to force labels.
 
 ## 5. Acceptance mapping (t/2170)
 
