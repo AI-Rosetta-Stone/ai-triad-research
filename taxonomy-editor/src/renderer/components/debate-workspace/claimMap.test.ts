@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseWorkProduct, normalizeAnticipatedItem, stripLeadingVerb } from './claimMap';
 
 const claims = [
@@ -8,7 +8,7 @@ const claims = [
 
 describe('parseWorkProduct', () => {
   it('returns empty data for an empty work product', () => {
-    expect(parseWorkProduct({})).toEqual({ claims: [], unmappedAttacks: [], assumptions: [], verifiedAttacks: 0 });
+    expect(parseWorkProduct({})).toEqual({ claims: [], unmappedAttacks: [], assumptions: [] });
   });
 
   it('numbers claims from 1 and keeps their evidence and anchors', () => {
@@ -81,12 +81,63 @@ describe('parseWorkProduct', () => {
     ]);
   });
 
-  it('counts no attack as verified while no NLI status is present', () => {
-    const { verifiedAttacks } = parseWorkProduct({
-      argument_structure: claims,
-      anticipated_challenges: ['ATTACK: Objection targeting node acc-saf-001'],
+});
+
+describe('named target wins', () => {
+  const twoClaims = [
+    { point: 'One', taxonomy_anchor: 'acc-B-001' },
+    { point: 'Two', taxonomy_anchor: 'acc-B-002' },
+  ];
+
+  it('maps to the named claim even when another claim anchor appears earlier in the text', () => {
+    const { claims: parsed } = parseWorkProduct({
+      argument_structure: twoClaims,
+      anticipated_challenges: ['ATTACK: acc-B-001 is outweighed targeting node acc-B-002'],
     });
-    expect(verifiedAttacks).toBe(0);
+    expect(parsed[0].attack).toBeUndefined();
+    expect(parsed[1].attack?.text).toBe('acc-B-001 is outweighed');
+  });
+
+  it('leaves an attack unmapped when its named target is no claim, even if a claim anchor appears in the text', () => {
+    const { claims: parsed, unmappedAttacks } = parseWorkProduct({
+      argument_structure: twoClaims,
+      anticipated_challenges: ['ATTACK: Compare acc-B-001 with pol-xyz-009 targeting node pol-xyz-009'],
+    });
+    expect(parsed.every(c => c.attack === undefined)).toBe(true);
+    expect(unmappedAttacks).toHaveLength(1);
+  });
+
+  it('maps a parenthesised anchor and a possessive anchor', () => {
+    const { claims: parsed, unmappedAttacks } = parseWorkProduct({
+      argument_structure: twoClaims,
+      anticipated_challenges: ["ATTACK: The (acc-B-001) premise is weak", "ATTACK: acc-B-002's audit data is thin"],
+    });
+    expect(parsed[0].attack?.text).toBe('The (acc-B-001) premise is weak');
+    expect(parsed[1].attack?.text).toBe("acc-B-002's audit data is thin");
+    expect(unmappedAttacks).toEqual([]);
+  });
+});
+
+describe('malformed items', () => {
+  it('skips and WARNs on items with no readable text, instead of rendering them', () => {
+    const warn = vi.fn();
+    const { assumptions, unmappedAttacks } = parseWorkProduct(
+      { anticipated_challenges: [null, { foo: 1 }, { challenge: '' }, 'ASSUMPTION: ', 'ATTACK: '] },
+      warn,
+    );
+    expect(assumptions).toEqual([]);
+    expect(unmappedAttacks).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(5);
+  });
+
+  it('skips and WARNs on a claim with no point, and numbers the rest from 1', () => {
+    const warn = vi.fn();
+    const { claims: parsed } = parseWorkProduct(
+      { argument_structure: [null, { evidence: 'orphan' }, { point: 'Real claim', taxonomy_anchor: 'acc-B-001' }] },
+      warn,
+    );
+    expect(parsed).toEqual([{ index: 1, point: 'Real claim', evidence: undefined, taxonomy_anchor: 'acc-B-001' }]);
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 });
 

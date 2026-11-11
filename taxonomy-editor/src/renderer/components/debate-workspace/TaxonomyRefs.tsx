@@ -15,7 +15,7 @@ import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
-import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim } from './claimMap';
+import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type WarnFn } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -318,8 +318,6 @@ function AnticipatedBox({ wp, field, title }: { wp: Record<string, unknown>; fie
 interface ClaimMapLayoutProps {
   wp: Record<string, unknown>;
   stage?: string;
-  camp?: string;
-  motion?: string;
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }
@@ -329,16 +327,23 @@ function attackStatus(attack: ParsedAttack): string {
   return attack.verificationStatus && attack.verificationStatus !== 'not yet checked' ? attack.verificationStatus : 'Unverified';
 }
 
+// Every item the claim map skips is logged, so the fallback is never silent.
+const warnClaimMap: WarnFn = message => getGlobalRecorder()?.record({
+  type: 'system.error',
+  component: 'debate-workspace',
+  level: 'warn',
+  message: `Claim map: ${message}`,
+});
+
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: {
+function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal }: {
   eyebrow: string;
   counts: string;
   coreThesis: string;
   strategicGoal: string;
-  motion?: string;
 }) {
   return (
     <header className="claim-map-header">
@@ -352,14 +357,16 @@ function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: 
           <strong>The ask:</strong> {stripLeadingVerb(strategicGoal)}
         </div>
       )}
-      {motion && <div className="claim-map-motion">Motion — {motion}</div>}
     </header>
   );
 }
 
 function ClaimMapLenses({ framingChoices }: { framingChoices: unknown }) {
   const lenses = Array.isArray(framingChoices)
-    ? (framingChoices as { frame: string; why: string }[]).map(fc => ({ title: String(fc.frame), why: String(fc.why) }))
+    ? (framingChoices as { frame?: unknown; why?: unknown }[]).map(fc => ({
+      title: fc.frame ? String(fc.frame) : '',
+      why: fc.why ? String(fc.why) : undefined,
+    }))
     : [{ title: String(framingChoices), why: undefined }];
   return (
     <ul className="claim-map-lenses">
@@ -398,7 +405,7 @@ function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
           )}
         </div>
       </div>
-      <div className="claim-map-attack-col" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
+      <div className="claim-map-attack-col" role="group" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
         {claim.attack ? (
           <div className="claim-map-attack-card">
             <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
@@ -480,6 +487,8 @@ function ClaimMapAssumptions({ assumptions }: { assumptions: ParsedAssumption[] 
 
 function ClaimMapMore({ wp }: { wp: Record<string, unknown> }) {
   const [moreExpanded, setMoreExpanded] = useState(false);
+  // Hidden when the entry has none of the three sections, so no empty disclosure shows.
+  if (!wp.planned_moves && !wp.argument_sketch && !wp.anticipated_responses) return null;
   return (
     <details className="claim-map-more" onToggle={e => setMoreExpanded((e.currentTarget as HTMLDetailsElement).open)}>
       <summary className="claim-map-more-summary">
@@ -496,52 +505,63 @@ function ClaimMapMore({ wp }: { wp: Record<string, unknown> }) {
   );
 }
 
-function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(() => parseWorkProduct(wp), [wp]);
+// Legacy entries (no core_thesis or strategic_goal) keep the old stacked view.
+function LegacyPlanView({ wp, selectedPlanNodeId, setSelectedPlanNodeId }: {
+  wp: Record<string, unknown>;
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  return (
+    <>
+      <SectionErrorBoundary section="Strategic Goal"><StrategicGoalBox wp={wp} /></SectionErrorBoundary>
+      <SectionErrorBoundary section="Framing"><FramingBox wp={wp} /></SectionErrorBoundary>
+      <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
+      <SectionErrorBoundary section="Argument Structure">
+        <ArgumentStructureBox wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />
+      </SectionErrorBoundary>
+      <SectionErrorBoundary section="Argument Sketch"><ArgumentSketchBox wp={wp} /></SectionErrorBoundary>
+      <SectionErrorBoundary section="Anticipated Responses">
+        <AnticipatedBox wp={wp} field="anticipated_responses" title="Anticipated Responses" />
+      </SectionErrorBoundary>
+      <SectionErrorBoundary section="Anticipated Challenges">
+        <AnticipatedBox wp={wp} field="anticipated_challenges" title="Anticipated Challenges" />
+      </SectionErrorBoundary>
+      {selectedPlanNodeId && <TaxNodeDetail nodeId={selectedPlanNodeId} onClose={() => setSelectedPlanNodeId(null)} />}
+    </>
+  );
+}
+
+// Zero terms are left out. No "verified" term until verification is wired (t/388).
+function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number): string {
+  return [
+    claimCount > 0 && plural(claimCount, 'claim'),
+    attackCount > 0 && plural(attackCount, 'attack'),
+    assumptionCount > 0 && plural(assumptionCount, 'assumption'),
+  ].filter(Boolean).join(' · ');
+}
+
+function ClaimMapLayout({ wp, stage = '', selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+  const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
   const framingChoices = wp.framing_choices;
 
-  // Fallback for legacy entries: if no core_thesis or strategic_goal, show the old stacked view
   if (!coreThesis && !strategicGoal) {
-    return (
-      <>
-        <SectionErrorBoundary section="Strategic Goal"><StrategicGoalBox wp={wp} /></SectionErrorBoundary>
-        <SectionErrorBoundary section="Framing"><FramingBox wp={wp} /></SectionErrorBoundary>
-        <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
-        <SectionErrorBoundary section="Argument Structure">
-          <ArgumentStructureBox wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />
-        </SectionErrorBoundary>
-        <SectionErrorBoundary section="Argument Sketch"><ArgumentSketchBox wp={wp} /></SectionErrorBoundary>
-        <SectionErrorBoundary section="Anticipated Responses">
-          <AnticipatedBox wp={wp} field="anticipated_responses" title="Anticipated Responses" />
-        </SectionErrorBoundary>
-        <SectionErrorBoundary section="Anticipated Challenges">
-          <AnticipatedBox wp={wp} field="anticipated_challenges" title="Anticipated Challenges" />
-        </SectionErrorBoundary>
-        {selectedPlanNodeId && <TaxNodeDetail nodeId={selectedPlanNodeId} onClose={() => setSelectedPlanNodeId(null)} />}
-      </>
-    );
+    return <LegacyPlanView wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />;
   }
 
   const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
-  const counts = [
-    plural(claims.length, 'claim'),
-    plural(totalAttacks, 'attack'),
-    plural(assumptions.length, 'assumption'),
-    `${verifiedAttacks} verified`,
-  ].join(' · ');
+  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length);
 
   return (
     <div className="claim-map-layout">
       <SectionErrorBoundary section="Plan Header">
         <ClaimMapHeader
-          eyebrow={`${(camp || 'PLAN').toUpperCase()} · ${String(stage || '')}`}
+          eyebrow={String(stage || 'plan').toUpperCase()}
           counts={counts}
           coreThesis={coreThesis}
           strategicGoal={strategicGoal}
-          motion={motion}
         />
       </SectionErrorBoundary>
       {!!framingChoices && (
@@ -576,7 +596,7 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
     return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
   }
   
-  // t/331: Try claim-map layout; fallback to legacy on error
+  // t/331: claim-map layout. Entries with no thesis or goal use the legacy view inside it.
   return (
     <>
       <SectionErrorBoundary section="Directive"><DirectiveBox wp={wp} /></SectionErrorBoundary>
@@ -584,8 +604,6 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
         <ClaimMapLayout
           wp={wp}
           stage={planStage.stage}
-          camp="Plan"
-          motion={undefined}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
