@@ -78,8 +78,8 @@
 .community-card-badge {
   padding: 1px 6px;
   border-radius: var(--radius-sm);
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--focus-ring, #3b82f6);
+  background: var(--info-bg); /* t/198 S2 */
+  color: var(--info-text);
   font-size: var(--text-xs);
   text-transform: capitalize;
 }
@@ -108,16 +108,16 @@
   padding: 8px 16px;
   margin-bottom: 12px;
   border-radius: var(--radius-md);
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
   font-size: var(--text-md);
 }
 
 .community-toast-error {
-  background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #ef4444;
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
 }
 .community-card-header {
   display: flex;
@@ -139,7 +139,7 @@
   transition: opacity 0.15s;
 }
 .community-card:hover .community-card-remove { opacity: 1; }
-.community-card-remove:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+.community-card-remove:hover { color: var(--error-text); background: var(--error-bg); }
 .community-card-removing {
   opacity: 0;
   transform: scale(0.95);
