@@ -143,9 +143,10 @@ describe('Community allowlist projection (t/196)', () => {
       expect(copy).toHaveProperty('phase', 'debate');
       expect(copy).toHaveProperty('debate_model', 'claude-opus');
 
-      // Detail: active_povers and transcript must survive with allowed fields
+      // Detail: active_povers, stages and transcript must survive with allowed fields
       expect(copy).toHaveProperty('active_povers');
       expect((copy.active_povers as any[])).toContain('skeptic');
+      expect(copy).toHaveProperty('stages');
 
       const transcript = copy.transcript as any[];
       expect(transcript).toBeDefined();
