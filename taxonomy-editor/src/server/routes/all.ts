@@ -31,7 +31,6 @@ import { registerDebatesRoutes } from './debates.js';
 import { registerDebateShareRoutes } from './debateShare.js';
 import { registerDiagnosticsRoutes } from './diagnostics.js';
 import { registerCommunityRoutes } from './community.js';
-import { registerDraftsRoutes } from './drafts.js';
 import { registerOpedRoutes } from './oped.js';
 import { registerDocumentsRoutes } from './documents.js';
 import { registerBriefExportsRoutes } from './briefExports.js';
@@ -73,7 +72,6 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerDebateShareRoutes(router, ctx); // t/4788 — POST/DELETE /api/debate/:id/share + GET /api/public/debate/:shareId
   registerDiagnosticsRoutes(router, ctx);
   registerCommunityRoutes(router, ctx);
-  registerDraftsRoutes(router, ctx); // t/185 — POST /api/drafts, GET /api/drafts/:draftId, POST /api/drafts/:draftId/submit
   registerOpedRoutes(router, ctx);
   registerDocumentsRoutes(router, ctx); // t/274 — POST /api/documents/extract (streams its own capped body)
   registerBriefExportsRoutes(router, ctx);

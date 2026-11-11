@@ -72,7 +72,6 @@ import { initAnonymousSessionStore } from './storage/anonymousSessionStore.js';
 import { ensureFreePoolBudgetBooted } from './storage/freePoolBudget.js';
 import { checkProviderBinding } from './ai/providerBinding.js';
 import * as community from './community/community.js';
-import { getDraftStore } from './community/draftStore.js';
 import * as fileIO from './storage/fileIO.js';
 import { FEEDBACK_CATEGORIES, isFeedbackCategory, paginateFeedback } from './storage/feedbackStore.js';
 import { stampNodeAuthorship, diffNodes, changedFields } from './storage/editMeta.js';
@@ -341,7 +340,6 @@ const serverCtx: ServerCtx = {
   serverStartTime: SERVER_START_TIME,
   broadcastEvent,
   emitToUser,
-  getDraftStore,
 };
 
 // Client IP for rate limiting (M7): the rightmost X-Forwarded-For entry when the
