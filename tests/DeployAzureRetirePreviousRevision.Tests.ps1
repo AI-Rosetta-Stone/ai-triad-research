@@ -13,7 +13,8 @@ BeforeAll {
         [regex]::Match($script:Workflow, "(?s)\n  $([regex]::Escape($Name)):\r?\n.*?(?=\r?\n  [a-z][a-z0-9_-]*:\r?\n|\z)").Value
     }
     function Get-StepText([string]$JobText, [string]$Name) {
-        [regex]::Match($JobText, "(?s)- name: $([regex]::Escape($Name))\r?\n.*?(?=\r?\n      - name:|\r?\n      - uses:|\z)").Value
+        # Stops at the next step, or at any line indented 2 or fewer (a job boundary or a top-level comment).
+        [regex]::Match($JobText, "(?s)- name: $([regex]::Escape($Name))\r?\n.*?(?=\r?\n      - name:|\r?\n      - uses:|\r?\n {0,2}\S|\z)").Value
     }
     function Get-If([string]$Text) { ([regex]::Match($Text, '(?m)^\s+if:\s*(.+)$')).Groups[1].Value.Trim() }
 
@@ -51,6 +52,26 @@ Describe 'retire-previous-revision job (t/266 b)' {
         $script:Retire | Should -Not -BeNullOrEmpty
         $script:Retire | Should -Match 'needs: \[deploy\]'
         $script:Retire | Should -Match 'environment: \$\{\{ inputs\.environment \}\}'
+    }
+
+    It 'SO round 2: has an explicit job-scoped token with id-token (OIDC) and issues (soak alert) write' {
+        $head = ($script:Retire -split "\n    steps:")[0]
+        $perm = [regex]::Match($head, '(?s)\n    permissions:\r?\n((?:      [a-z-]+: [a-z]+[^\r\n]*\r?\n)+)').Groups[1].Value
+        $perm | Should -Match '(?m)^      id-token: write'
+        $perm | Should -Match '(?m)^      issues: write'
+        $perm | Should -Match '(?m)^      contents: read'
+        $perm | Should -Not -Match 'packages: write'
+    }
+
+    It 'SO round 2: the drill''s -DeactivateAfterMeasure is gated by the double-sourced traffic guard' {
+        $cli = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'operations' 'devops' 'Invoke-GatedRollback.ps1')
+        $block = [regex]::Match($cli, '(?s)if \(\$r\.Action -eq ''measured'' -and \$DeactivateAfterMeasure\) \{.*?\n\}').Value
+        $block | Should -Match 'Get-RevisionDeactivationVerdict'
+        $block | Should -Match 'Get-IngressTrafficWeightForRevision'
+        $gate = $block.IndexOf('if ($guard.Action -eq ''deactivate'')')
+        $gate | Should -BeGreaterThan -1 -Because 'the deactivate must sit inside the guard''s deactivate verdict'
+        $gate | Should -BeLessThan $block.IndexOf('az containerapp revision deactivate')
+        $block.IndexOf('Get-RevisionDeactivationVerdict') | Should -BeLessThan $block.IndexOf('az containerapp revision deactivate')
     }
 
     It 'FAILURE ARM (job level): never runs unless deploy succeeded, AC2 passed and no earlier gate rollback fired' {
@@ -105,9 +126,14 @@ Describe 'retire-previous-revision job (t/266 b)' {
         $f | Should -Not -BeNullOrEmpty
         Get-If $f | Should -Be "always() && steps.soak.outputs.passed != 'true'"
         $f | Should -Match '::warning::'
-        $f | Should -Match 'gh issue create --title "\$TITLE" --label "prod-soak-alert,alert-escalated"'
-        $f | Should -Not -Match '(?m)^\s+exit 1\s*$'
-        $script:Retire | Should -Not -Match '(?m)^\s+exit 1\s*$'
+        $f | Should -Match 'gh issue create --title "\$TITLE" --label "prod-soak-alert,alert-escalated" --body "\$BODY" && exit 0'
+        $f | Should -Match 'gh issue comment "\$EXISTING" --body "\$BODY" && exit 0'
+        # SO round 2: a post failure is never swallowed: it falls through to ::error:: + exit 1.
+        $f | Should -Not -Match 'gh issue (create|comment)[^\r\n]*\|\|'
+        $f.IndexOf('::error::t/266: the soak FAILED and the prod-soak-alert issue could not be posted') | Should -BeGreaterThan $f.LastIndexOf('&& exit 0')
+        ($f -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim() | Should -Be 'exit 1'
+        # Only the alert step can exit 1 (double failure: soak failed AND alert unpostable).
+        ([regex]::Matches($script:Retire, '(?m)^\s+exit 1\s*$')).Count | Should -Be 1
         $sum = Get-StepText $script:Retire 'Summary — rollback target status (t/266 b)'
         Get-If $sum | Should -Be 'always()'
         $sum | Should -Match 'Invoke-GatedRollback\.ps1'

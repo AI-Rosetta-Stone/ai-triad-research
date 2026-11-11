@@ -1683,6 +1683,12 @@ jobs:
     environment: ${{ inputs.environment }}  # t/4273: same OIDC subject as deploy (see tag-known-good)
     if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.ac2_failed == 'false' && needs.deploy.outputs.earlier_rollback == 'false' && needs.deploy.outputs.previous_revision != '' && needs.deploy.outputs.new_revision != '' }}
     timeout-minutes: 30
+    # SO round 2: explicit job-scoped token instead of inheriting the workflow set. id-token for the
+    # Azure OIDC login, issues for the soak ops-alert. Job-level permissions REPLACE the workflow set.
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
     outputs:
       # DevOps Lead condition 1: tag-known-good waits for this and tags only on a passed soak.
       soak_passed: ${{ steps.soak.outputs.passed }}
@@ -1855,10 +1861,15 @@ jobs:
           BODY=$(printf 'The 15-minute post-deploy soak did not pass: %s\n\nServing: `%s`. Rollback target `%s` is still **active** (not retired). Decide whether to roll back:\n\n```\n./operations/devops/Invoke-GatedRollback.ps1 -RevisionName %s\n```\n\nRun: %s (t/266)' "${FAILURE:-soak did not complete}" "$NEW_REV" "$PREV_REV" "$PREV_REV" "$RUN_URL")
           EXISTING=$(gh issue list --label "prod-soak-alert" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body "$BODY" || echo "::warning::t/266: could not comment on soak alert #$EXISTING"
+            gh issue comment "$EXISTING" --body "$BODY" && exit 0
           else
-            gh issue create --title "$TITLE" --label "prod-soak-alert,alert-escalated" --body "$BODY" || echo "::warning::t/266: could not open the soak ops-alert issue"
+            gh issue create --title "$TITLE" --label "prod-soak-alert,alert-escalated" --body "$BODY" && exit 0
           fi
+          # SO round 2: the alert IS the signal for a failed soak (the run stays green otherwise), so if
+          # it can't be posted the failure must not be silent: go red. Only this double failure (soak
+          # failed AND alert unpostable) turns the run red.
+          echo "::error::t/266: the soak FAILED and the prod-soak-alert issue could not be posted. Failing this job so the failed soak is not silent. Rollback target '$PREV_REV' is still active."
+          exit 1
 
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────

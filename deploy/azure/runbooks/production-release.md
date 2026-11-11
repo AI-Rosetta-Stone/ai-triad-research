@@ -116,6 +116,18 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 It activates the revision, waits until it is **Provisioned** and **healthy + `/readyz` warm on its own FQDN** (the deploy's own pre-shift standard), and only then shifts 100% traffic and verifies weight 100 + `/health`. If the revision fails to provision, stays cold, or reports a definitive `/readyz` failure, it **refuses and shifts nothing** (exit 1). Never shift traffic onto a just-activated revision by hand without that wait: a cold or still-provisioning revision at 100% is an outage. Activating a still-active revision is a no-op, so the same command works whether or not it was retired. **Measured (staging drill, 2026-11-11, `-MeasureOnly`, t/266):** activate → Provisioned in 4.8–6.5s, and activate → healthy + `/readyz` warm in **45–47s** (2 samples, staging-295ad67 and staging-e326e9a, 0.25 vCPU). Budget **about 1–2 minutes** end to end, including the traffic shift and verification. Prod (1.5 vCPU) should warm no slower, but hasn't been drilled. The script's own timeouts are 300s to provision and 420s to warm, after which it refuses.
 
+**Manual fallback** (only if the script itself can't run, e.g. no checkout at hand). Do the same steps by hand, and **don't shift until `/readyz` says ready**:
+
+```bash
+az containerapp revision activate --name taxonomy-editor -g ai-triad --revision <previous-revision>
+FQDN=$(az containerapp revision show --name taxonomy-editor -g ai-triad --revision <previous-revision> --query properties.fqdn -o tsv)
+# repeat until it returns {"status":"ready",...} with HTTP 200 (about 45s on staging); a {"status":"failed"} means STOP, don't shift
+curl -s -w ' %{http_code}\n' "https://$FQDN/readyz"
+az containerapp ingress traffic set --name taxonomy-editor -g ai-triad --revision-weight "<previous-revision>=100"
+```
+
+A just-activated revision can read `Stopped` for a few polls; the script treats that as transient until its timeout. Only `Failed` refuses at once.
+
 Then deactivate the broken revision (step 3 below).
 
 **When the soak fails:** the previous revision is **not** retired (it stays active), known-good is **not** moved to the new image, and an ops-alert issue (`prod-soak-alert`) is opened. The run itself stays green (CD and the known-good liveness check read successful runs only); the alert is the signal. Decide whether to roll back with the command above.

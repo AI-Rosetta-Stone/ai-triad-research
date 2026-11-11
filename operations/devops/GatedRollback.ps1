@@ -32,7 +32,11 @@
 
 . (Join-Path $PSScriptRoot 'ReadyzWarmGatePredicate.ps1')
 
-$script:GatedRollbackFailedStates = @('Failed', 'Degraded', 'Stopped', 'Deprovisioning', 'Deprovisioned')
+# Only a definitive failure refuses at once. Stopped / Deprovisioned / Deprovisioning / Degraded are
+# what a just-activated revision can still read for a few polls (stale read, start-up), so they are
+# treated as transient until -ProvisionTimeoutSec (DevOps Lead review, p/107#7): an emergency
+# rollback must not be refused on a stale first read.
+$script:GatedRollbackFailedStates = @('Failed')
 
 function Invoke-GatedRollbackCore {
     param(
@@ -69,7 +73,8 @@ function Invoke-GatedRollbackCore {
         if ($state -and $state.Provisioning -eq 'Failed') {
             return Refuse "revision '$RevisionName' failed to provision; not shifting"
         }
-        if ($state -and $state.Provisioning -eq 'Provisioned' -and -not [string]::IsNullOrWhiteSpace($state.Fqdn)) { break }
+        $transient = $state -and $state.Running -in @('Stopped', 'Deprovisioned', 'Deprovisioning', 'Degraded')
+        if ($state -and -not $transient -and $state.Provisioning -eq 'Provisioned' -and -not [string]::IsNullOrWhiteSpace($state.Fqdn)) { break }
         if ([DateTime]::UtcNow -ge $deadline) {
             return Refuse "revision '$RevisionName' not Provisioned with an FQDN within ${ProvisionTimeoutSec}s (last: provisioning '$($state.Provisioning)', running '$($state.Running)'); not shifting"
         }

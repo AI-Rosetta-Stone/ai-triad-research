@@ -65,6 +65,30 @@ Describe 'Invoke-GatedRollbackCore (t/266 b, SO condition 1)' -Tag 'devops' {
         if ($Case -ne 'shift throws') { $script:Shifted | Should -Be 0 }
     }
 
+    It 'a stale Stopped/Deprovisioned read right after activate is transient: waits, then shifts once Running (DevOps Lead p/107#7)' {
+        $script:Polls = 0
+        $a = New-Args @{
+            GetState = {
+                $script:Polls++
+                if ($script:Polls -le 2) { @{ Provisioning = 'Provisioned'; Running = 'Stopped'; Fqdn = 'prev.example' } }
+                else { @{ Provisioning = 'Provisioned'; Running = 'Running'; Fqdn = 'prev.example' } }
+            }
+            ProvisionTimeoutSec = 30
+        }
+        $r = Invoke-GatedRollbackCore @a
+        $r.Action | Should -Be 'shifted'
+        $script:Polls | Should -BeGreaterThan 2
+        $script:Shifted | Should -Be 1
+    }
+
+    It 'a revision that stays Stopped refuses at the timeout, never shifts' {
+        $a = New-Args @{ GetState = { @{ Provisioning = 'Provisioned'; Running = 'Stopped'; Fqdn = 'prev.example' } } }
+        $r = Invoke-GatedRollbackCore @a
+        $r.Action | Should -Be 'refused'
+        $r.Reason | Should -Match 'within'
+        $script:Shifted | Should -Be 0
+    }
+
     It 'post-shift verification failure is reported, not hidden' {
         $a = New-Args @{ VerifyServing = { $false } }; $r = Invoke-GatedRollbackCore @a
         $r.Action | Should -Be 'shifted'
