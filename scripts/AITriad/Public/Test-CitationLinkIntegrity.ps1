@@ -58,6 +58,10 @@ function Test-CitationLinkIntegrity {
               current summaries, AND the index key SET == the live-node SET (t/3896 — a count-only
               comparison misses a swap: dead keys reported as `dead-key`, missing keys as
               `missing-key`).
+          (d) Duplicate claim links — no factual_claims[].linked_taxonomy_nodes[] lists the same
+              node id twice (t/292). Spec source-identity 7.4 keeps a document's repeated links, so a
+              repeat becomes a duplicate fact in source_evidence_index.json; the fix belongs in the
+              data. Advisory: data CI fails only on legs a and c.
 
         Advisory: failing legs emit a WARN with offender detail and set the returned .pass to
         $false, but the cmdlet NEVER throws on offenders. $script:CitationIntegrityBlocking is
@@ -89,6 +93,7 @@ function Test-CitationLinkIntegrity {
         leg 'c' additionally carries `liveKeysChecked` (the live-node key-set size its staleness/
         key-set comparison runs against) — statistic-provenance for a t/4444 coverage floor, the
         same role leg 'a's summariesScanned/refsChecked play for its own floor.
+        leg 'd' offenders are {docId; claimIndex; ref; count}.
     .EXAMPLE
         (Test-CitationLinkIntegrity).results | Format-Table leg, pass, @{n='n';e={$_.offenders.Count}}
     .EXAMPLE
@@ -153,6 +158,7 @@ function Test-CitationLinkIntegrity {
     # pass as clean. refsChecked counts exactly the refs Resolve-Ref evaluates (non-blank).
     $aSummaries = 0
     $aRefs = 0
+    $dOff = [System.Collections.Generic.List[object]]::new()
     foreach ($file in (Get-ChildItem -LiteralPath $SummariesDir -Filter '*.json' -File | Sort-Object Name)) {
         $aSummaries++
         $s = Get-Content -Raw -LiteralPath $file.FullName | ConvertFrom-Json
@@ -170,11 +176,17 @@ function Test-CitationLinkIntegrity {
             }
         }
         if ($s.PSObject.Properties['factual_claims'] -and $s.factual_claims) {
+            $fcIndex = -1
             foreach ($fc in @($s.factual_claims)) {
+                $fcIndex++
                 if (-not $fc.PSObject.Properties['linked_taxonomy_nodes']) { continue }
                 foreach ($ref in @($fc.linked_taxonomy_nodes)) {
                     if (-not [string]::IsNullOrWhiteSpace([string]$ref)) { $aRefs++ }
                     script:Resolve-Ref ([string]$ref) $docId $beliefLive $sitLive $aOff
+                }
+                # Leg (d): one claim links a node once (t/292).
+                foreach ($g in @(@($fc.linked_taxonomy_nodes) | Where-Object { $_ -is [string] -and $_ } | Group-Object -CaseSensitive | Where-Object Count -gt 1)) {
+                    $dOff.Add([pscustomobject]@{ docId = $docId; claimIndex = $fcIndex; ref = $g.Name; count = $g.Count })
                 }
             }
         }
@@ -255,6 +267,7 @@ function Test-CitationLinkIntegrity {
         [pscustomobject]@{ leg = 'a'; name = 'link-resolution';   pass = ($aOff.Count -eq 0); offenders = @($aOff); summariesScanned = $aSummaries; refsChecked = $aRefs }
         [pscustomobject]@{ leg = 'b'; name = 'source-resolution'; pass = ($bOff.Count -eq 0); offenders = @($bOff); checked = $bChecked; accepted = @($bAccepted); skipped = $bSkipped }
         [pscustomobject]@{ leg = 'c'; name = 'staleness';         pass = ($cOff.Count -eq 0); offenders = @($cOff); liveKeysChecked = @($beliefIndexKeys).Count }
+        [pscustomobject]@{ leg = 'd'; name = 'duplicate-claim-links'; pass = ($dOff.Count -eq 0); offenders = @($dOff) }
     )
     $overall = @($results | Where-Object { -not $_.pass }).Count -eq 0
 

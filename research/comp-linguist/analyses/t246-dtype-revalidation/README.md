@@ -16,7 +16,10 @@ was PI-approved: about 40 calls × 3 replicates on gemini-3.5-flash-lite.
 ## Sets
 - **Seeds (rubric §3), 9 non-abstain:** sit-447 definitional; sit-001, 100, 250, 350, 430, 470
   interpretive; sit-300, 400 structural. **sit-050 is dropped:** its abstain anchor is stale
-  (interpretations filled 2026-08-25, t/3018), and 0 of 459 situations are null or single-POV.
+  (interpretations filled 2026-08-25, t/3018). *Corrected (Quality p/167#2): this used to say "0 of 459
+  situations are null or single-POV". That was wrong, because the check counted an interpretations
+  entry as filled whenever its key existed. One live situation, **sit-154**, has all-empty
+  interpretations, and none is single-POV. sit-154 is now the rubric's abstain anchor (#5056).*
 - **Held-out (`heldout_labels.json`), 30:** CL labels, blind to existing labels: 26 interpretive and
   4 structural. Of these, 24 are high confidence and 6 medium or low.
 

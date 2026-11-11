@@ -102,6 +102,27 @@ function Repair-SummaryFactualClaims {
     $FC = @($FC)
     if ($SummaryObject -is [System.Collections.IDictionary]) { $SummaryObject['factual_claims'] = $FC }
     else { $SummaryObject.factual_claims = $FC }
+    Repair-SummaryClaimDuplicateNodeIds -Claims $FC
+}
+
+function Repair-SummaryClaimDuplicateNodeIds {
+    # One claim links a node once (t/292). A model that repeats an id in linked_taxonomy_nodes would
+    # otherwise put the same fact under that node twice in source_evidence_index.json, which spec
+    # source-identity 7.4 deliberately keeps ("including repeats"). Order-preserving; WARNs per claim.
+    param([object[]]$Claims)
+    for ($i = 0; $i -lt $Claims.Count; $i++) {
+        $Claim = $Claims[$i]
+        if ($null -eq $Claim -or -not (Test-SummaryField $Claim 'linked_taxonomy_nodes')) { continue }
+        # Assign, then @(): Get-SummaryField returns `, $value`, so @(Get-SummaryField ...) would nest it.
+        $Linked = Get-SummaryField $Claim 'linked_taxonomy_nodes'
+        $Linked = @($Linked)
+        $Seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $Unique = @($Linked | Where-Object { $null -eq $_ -or $_ -isnot [string] -or $Seen.Add($_) })
+        if ($Unique.Count -eq $Linked.Count) { continue }
+        Write-Warning "Finalize-Summary: factual_claims[$i] repeated $($Linked.Count - $Unique.Count) node id(s) in linked_taxonomy_nodes; kept the first of each (t/292)"
+        if ($Claim -is [System.Collections.IDictionary]) { $Claim['linked_taxonomy_nodes'] = $Unique }
+        else { $Claim.linked_taxonomy_nodes = $Unique }
+    }
 }
 
 function Repair-SummaryUnmappedConcepts {

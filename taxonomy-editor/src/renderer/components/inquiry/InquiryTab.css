@@ -196,14 +196,27 @@
 .inquiry-jobid { font-size: 11px; color: var(--text-muted); }
 .inquiry-stages { display: flex; flex-direction: column; gap: 8px; margin: 22px 0 0; }
 .inquiry-sg {
-  display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: 28px 1fr 5ch auto; gap: 12px; align-items: center;
   border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; background: var(--bg-secondary);
 }
 .inquiry-n { font-size: 11px; font-weight: 700; color: var(--text-muted); }
 .inquiry-sg h5 { margin: 0; font-size: 14px; font-weight: 600; }
 .inquiry-sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
-/* t/4714: the running stage's detail line ("Round 2 of 4 · Skeptic responding"). */
-.inquiry-stage-detail { font-size: 12px; font-style: italic; color: var(--text-secondary, var(--text-muted)); margin-top: 2px; }
+/* t/328: the running stage's sub-steps — an append-only checklist (replaces the single detail line). */
+.inquiry-steps { list-style: none; margin: 4px 0 0; padding: 0; font-size: var(--text-xs); line-height: 1.5; max-height: 15em; overflow-y: auto; scrollbar-width: thin; }
+.inquiry-steps[data-faded="true"] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16px); mask-image: linear-gradient(to bottom, transparent, #000 16px); }
+.inquiry-step { display: flex; align-items: center; gap: 6px; color: var(--text-secondary, var(--text-muted)); }
+.inquiry-step[data-current="true"] { color: var(--text-primary); }
+.inquiry-step-check { width: 14px; flex: none; text-align: center; color: var(--success-text); }
+.inquiry-step-spinner { width: 10px; height: 10px; margin: 0 2px; flex: none; box-sizing: border-box; border: 2px solid var(--border-color); border-top-color: var(--text-primary); border-radius: 50%; animation: inquiry-step-spin 0.9s linear infinite; }
+@keyframes inquiry-step-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .inquiry-step-spinner { animation: none; border-top-color: var(--border-color); background: var(--text-primary); } }
+.inquiry-steps-toggle { background: none; border: 0; padding: 0; margin-top: 2px; font: inherit; font-size: var(--text-xs); color: var(--text-secondary, var(--text-muted)); cursor: pointer; }
+.inquiry-steps-toggle:hover { color: var(--text-primary); }
+/* t/324: fixed-width stage clock; tabular digits so a ticking time doesn't jitter. */
+.inquiry-timer { text-align: right; font-size: var(--text-sm, 13px); font-variant-numeric: tabular-nums; color: var(--text-secondary, var(--text-muted)); }
+.inquiry-sg[data-s="live"] .inquiry-timer { color: var(--text-primary); }
+.inquiry-total-elapsed { font-variant-numeric: tabular-nums; }
 /* t/4714: the throttled screen-reader announcement of the detail line; not shown visually. */
 .inquiry-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .inquiry-stat { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
