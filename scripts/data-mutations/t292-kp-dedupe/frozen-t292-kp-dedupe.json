@@ -1,0 +1,42 @@
+{
+  "ticket": "t/292 (a), TL decision t/292#20 (archiving withdrawn after SO p/120#10)",
+  "operation": "within each POV's key_points, drop a key point that is an exact copy (whole object, every field) of an earlier one; keep the first occurrence and the order; facts and everything else unchanged",
+  "why": "the 2 legacy chunk summaries repeat identical key points up to 5x per POV (61 repeats; 39 of them become duplicate entries in source_evidence_index.json), but also carry ~24 distinct facts and ~55 distinct key points the base summary lacks, which this keeps",
+  "data_commit": "d098f445f0fea2a27de8826d42ee85f134f83afc",
+  "hash_basis": "sha256-lf",
+  "serializer": "json.dumps(indent=2, ensure_ascii=False) + the file's own trailing whitespace; round-trips both inputs",
+  "writes": [
+    {
+      "doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026-1",
+      "removed_per_pov": {
+        "accelerationist": 1,
+        "safetyist": 15,
+        "skeptic": 15
+      },
+      "kept_per_pov": {
+        "accelerationist": 19,
+        "safetyist": 5,
+        "skeptic": 5
+      },
+      "facts_unchanged": 12,
+      "pre_sha256": "b9c44984ca0cd63dfa6538cd5bbb221b194ec6925e24a869b15814998a385d05",
+      "post_sha256": "b1a1b68c958c2a05ed0dcd19264c546913eba8430ff13ad968dfb3e3628ce265"
+    },
+    {
+      "doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026-2",
+      "removed_per_pov": {
+        "accelerationist": 5,
+        "safetyist": 15,
+        "skeptic": 10
+      },
+      "kept_per_pov": {
+        "accelerationist": 15,
+        "safetyist": 5,
+        "skeptic": 10
+      },
+      "facts_unchanged": 12,
+      "pre_sha256": "dacbc22fad52e76fdc121b4914f226be5a4cbcc884a64037aad562a12ef87494",
+      "post_sha256": "4e08dd25ac2a39e47377d0aa94156f2e9e84f019ef638fb7fe965d3331f0ff93"
+    }
+  ]
+}
