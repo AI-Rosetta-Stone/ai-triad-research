@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isTransientGatewayError, withGatewayRetry, SEARCH_PAGE_SIZE, SEARCH_MAX_PAGES, declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
+import { pageCapWarning, isTransientGatewayError, withGatewayRetry, SEARCH_PAGE_SIZE, SEARCH_MAX_PAGES, declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -368,4 +368,10 @@ test('withGatewayRetry: a non-gateway error is rethrown at once, never retried',
 test('search paging: smaller pages, same or larger reach than the old 50 x 10', () => {
   assert.ok(SEARCH_PAGE_SIZE <= 20, 'a page heavy enough to time out at the gateway again');
   assert.ok(SEARCH_PAGE_SIZE * SEARCH_MAX_PAGES >= 300);
+});
+
+test('pageCapWarning: WARN only when the cap is reached with results still unread', () => {
+  assert.equal(pageCapWarning(3, true), null, 'more pages but under the cap: keep reading, no WARN');
+  assert.equal(pageCapWarning(SEARCH_MAX_PAGES, false), null, 'cap reached exactly at the last page: nothing unread');
+  assert.match(pageCapWarning(SEARCH_MAX_PAGES, true), /^WARN: open-PR search stopped at its \d+-page cap \(\d+ PRs\) with more results unread/);
 });
