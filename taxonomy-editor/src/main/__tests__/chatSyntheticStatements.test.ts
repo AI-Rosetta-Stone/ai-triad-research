@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { chatSyntheticStatements } from '../chatSyntheticStatements.js';
+import { chatSyntheticStatements, groupCorpusStatements } from '../chatSyntheticStatements.js';
 
 // Vectors are unit-axis so cosine similarity picks the argmax deterministically.
 const AXIS_A = [1, 0];
@@ -50,8 +50,15 @@ describe('chatSyntheticStatements (t/348)', () => {
     const d = deps({ embed: vi.fn(async () => { throw new Error('model offline'); }) });
     const out = await chatSyntheticStatements({ pov: 'accelerationist', queryText: 'q', nodeIds: ['acc-alpha-001', 'acc-x-009'] }, d);
     expect(out).toEqual({ 'acc-alpha-001': null, 'acc-x-009': null });
-    expect(d.warn).toHaveBeenCalledTimes(1);
-    expect(d.warn.mock.calls[0][0]).toContain('reason=embedding-unavailable');
+  });
+
+  it('groups corpus entries per node, skipping pruned ones, in file order', () => {
+    expect(groupCorpusStatements([
+      { node_id: 'n1', statement: 'a' },
+      { node_id: 'n1', statement: 'pruned', pruned: true },
+      { node_id: 'n1', statement: 'b' },
+      { node_id: 'n2', statement: 'c' },
+    ])).toEqual({ n1: ['a', 'b'], n2: ['c'] });
   });
 
   it('treats an empty query or an empty vector as embedding-unavailable', async () => {

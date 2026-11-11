@@ -61,7 +61,7 @@ import { resolvePoverInfo } from '../../../../lib/debate/soulDocLoader.js';
 import type { TagSelection } from '../../../../lib/debate/types/session.js';
 import type { SpeakerId } from '../../../../lib/debate/types/phase.js';
 import { computeEmbeddings, computeQueryEmbedding } from '../embeddings.js';
-import { chatSyntheticStatements, SYNTHETIC_POV_PREFIX, type ChatSyntheticPov } from '../chatSyntheticStatements.js';
+import { chatSyntheticStatements, groupCorpusStatements, SYNTHETIC_POV_PREFIX, type ChatSyntheticPov } from '../chatSyntheticStatements.js';
 import { computeClaimTaxonomyAttribution } from '../../../../lib/debate/argumentNetwork/attribution.js';
 import type { ArgumentNetworkNode, ClaimTaxonomyAttribution } from '../../../../lib/debate/types.js';
 import { writeNodeDeleteLogEntry } from '../nodeDeleteLog.js';
@@ -832,16 +832,8 @@ export function registerTaxonomyHandlers(): void {
     }
     const pov = b.pov as ChatSyntheticPov;
     const corpus = loadSyntheticCorpus(SYNTHETIC_POV_PREFIX[pov]) as { entries?: { node_id: string; statement: string; pruned?: boolean }[] } | null;
-    // Same grouping as lib/debate/taxonomyLoader.ts loadSyntheticStatementTexts (non-pruned, file order).
-    const nodeStatements: Record<string, string[]> = {};
-    for (const entry of corpus?.entries ?? []) {
-      if (entry.pruned) continue;
-      (nodeStatements[entry.node_id] ??= []).push(entry.statement);
-    }
-    const synthRaw = loadSyntheticEmbeddings() ?? {};
-    const nodeVectors: Record<string, { vectors?: number[][] }> = Object.fromEntries(
-      Object.entries(synthRaw).map(([id, e]) => [id, { vectors: e.vectors }]),
-    );
+    const nodeStatements = groupCorpusStatements(corpus?.entries ?? []);
+    const nodeVectors = loadSyntheticEmbeddings() ?? {};
     return chatSyntheticStatements(
       { pov, queryText: b.queryText, nodeIds: b.nodeIds },
       {

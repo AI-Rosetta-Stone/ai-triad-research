@@ -3,6 +3,7 @@
 // node's description. Pure core: the IPC handler injects the embed and the corpus/vector loaders.
 
 import { bestMatchingSyntheticStatement } from '../../../lib/debate/syntheticStatementLookup.js';
+import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 
 export type ChatSyntheticPov = 'accelerationist' | 'safetyist' | 'skeptic';
 
@@ -30,6 +31,18 @@ export const SYNTHETIC_POV_PREFIX: Record<ChatSyntheticPov, 'acc' | 'saf' | 'skp
   skeptic: 'skp',
 };
 
+/** Group corpus entries per node: non-pruned, file order (same grouping as taxonomyLoader.ts). */
+export function groupCorpusStatements(
+  entries: { node_id: string; statement: string; pruned?: boolean }[],
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const entry of entries) {
+    if (entry.pruned) continue;
+    (out[entry.node_id] ??= []).push(entry.statement);
+  }
+  return out;
+}
+
 export async function chatSyntheticStatements(
   input: ChatSyntheticStatementsInput,
   deps: ChatSyntheticStatementsDeps,
@@ -47,7 +60,10 @@ export async function chatSyntheticStatements(
       const [vec] = await deps.embed([input.queryText]);
       if (Array.isArray(vec) && vec.length > 0) queryVector = vec;
     } catch (err) {
-      deps.warn(`chatSyntheticStatements: reason=embedding-unavailable pov=${input.pov} (${err instanceof Error ? err.message : String(err)})`);
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'taxonomy-handlers', level: 'warn',
+        message: `chatSyntheticStatements: reason=embedding-unavailable pov=${input.pov} (${err instanceof Error ? err.message : String(err)})`,
+      });
       return nullAll();
     }
   }
