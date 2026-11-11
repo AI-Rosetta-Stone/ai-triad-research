@@ -15,20 +15,29 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, chmodSync, existsSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { SNAPSHOT_TARGETS, jobBlock } from './rate-limit-snapshot-targets.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
 const lf = (s) => s.replace(/\r\n/g, '\n');
 const CANONICAL = lf(readFileSync(path.join(here, 'rate-limit-snapshot-step.yml'), 'utf8'));
-export const GUARD_WORKFLOWS = ['tier-check', 't1-approval-guard', 'joint-gv-guard', 'consult-hold-guard', 'foreign-commit-check'];
-
-test('every per-PR guard carries the canonical rate-limit snapshot step verbatim, as its final step', () => {
-  for (const w of GUARD_WORKFLOWS) {
-    const text = lf(readFileSync(path.join(root, '.github', 'workflows', `${w}.yml`), 'utf8'));
-    assert.ok(text.includes(CANONICAL), `${w}.yml: the rate-limit snapshot step is missing or differs from operations/devops/rate-limit-snapshot-step.yml`);
-    assert.ok(text.trimEnd().endsWith(CANONICAL.trimEnd()), `${w}.yml: the snapshot step must be the last step (it records end-of-job usage)`);
+// t/318: the target list (file + job) is shared with the insertion helper, so the jobs that carry
+// the step and the jobs this test checks can never drift apart.
+test('every target job carries the canonical rate-limit snapshot step verbatim, as its final step', () => {
+  for (const [file, job] of SNAPSHOT_TARGETS) {
+    const text = lf(readFileSync(path.join(root, '.github', 'workflows', file), 'utf8'));
+    const block = jobBlock(text, job);
+    assert.ok(block, `${file}: job '${job}' not found`);
+    assert.ok(block.endsWith(CANONICAL.trimEnd()), `${file}:${job}: the snapshot step is missing, differs from operations/devops/rate-limit-snapshot-step.yml, or is not the job's last step (it records end-of-job usage)`);
   }
+});
+
+test('jobBlock finds a job between its key and the next job, excluding trailing blank lines', () => {
+  const wf = 'name: x\non: push\njobs:\n  a:\n    runs-on: u\n    steps:\n      - run: one\n\n  b:\n    steps:\n      - run: two\n';
+  assert.equal(jobBlock(wf, 'a'), '  a:\n    runs-on: u\n    steps:\n      - run: one');
+  assert.equal(jobBlock(wf, 'b'), '  b:\n    steps:\n      - run: two');
+  assert.equal(jobBlock(wf, 'c'), null);
 });
 
 test('the canonical step can never fail or block a guard', () => {
