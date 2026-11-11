@@ -774,51 +774,106 @@ function projectInquiryFields(value: unknown, surface: Surface, path: string): u
   return undefined;
 }
 
+/** Project a ChatEntry onto community-safe fields, excluding raw_prompt and raw_response (owner-only). */
+function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const e = entry as Record<string, unknown>;
+  return {
+    id: e.id,
+    timestamp: e.timestamp,
+    speaker: e.speaker,
+    content: e.content,
+    taxonomy_refs: e.taxonomy_refs,
+    ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
+    ...(e.url_context_metadata !== undefined ? { url_context_metadata: e.url_context_metadata } : {}),
+    // Intentionally omit raw_prompt and raw_response (owner-only)
+  };
+}
+
+/** Project a DebateTranscriptEntry onto community-safe fields. */
+function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const e = entry as Record<string, unknown>;
+  return {
+    id: e.id,
+    timestamp: e.timestamp,
+    type: e.type,
+    speaker: e.speaker,
+    content: e.content,
+    taxonomy_refs: e.taxonomy_refs,
+    ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
+    ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
+  };
+}
+
+/** Module-level allowlist for community projection (t/196).
+ *  Derived from what list/detail/copy paths actually read:
+ *  - Chat list reads: id, title, created_at, updated_at, mode, community_metadata, chat_model, pover
+ *  - Chat detail reads: full transcript with structural projection (excluding raw_prompt/raw_response)
+ *  - Debate list reads: id, title, created_at, updated_at, phase, community_metadata, debate_model, turn_count
+ *  - Debate detail reads: full transcript with structural projection
+ *  - Op-ed list reads: id, topic, created_at, updated_at, community_metadata, camps, voice_count, outlet, tag
+ *  - Op-ed copy reads: opeds array, topic, params, created_at, updated_at
+ *  - Inquiry: fieldClassification matrix (t/3648) */
+const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
+  chat: new Set(['id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 'chat_model', 'community_metadata']),
+  debate: new Set(['id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript', 'debate_model', 'community_metadata', 'active_povers']),
+  oped: new Set(['topic', 'params', 'opeds', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
+  inquiry: new Set(), // inquiry handled separately via fieldClassification
+};
+
 /** t/196: allowlist-project a value onto a subset of community-safe fields, dropping unknowns.
  *  Each submission type carries different fields; the allowlist keeps the surface stable when
- *  new fields are added. Per-type, with WARN on dropped fields (log-only in prod, test assertion).
+ *  new fields are added. Structural projection for nested transcript entries excludes owner-only
+ *  fields (raw_prompt/raw_response). Per-type, with WARN on dropped fields (log-only in prod, test assertion).
  *  The pattern mirrors @lib/inquiry/fieldClassification (t/3648) — explicit positive projection
- *  beats an ever-growing denylist for security. For nested structures (opeds array), the allowlist
- *  applies only to top-level keys; array contents use fieldClassification or pass through whole. */
+ *  beats an ever-growing denylist for security. */
 function projectToCommunityAllowlist(
   data: Record<string, unknown> | undefined,
   type: Submission['type'],
 ): Record<string, unknown> {
   if (!data) return {};
+  if (type === 'inquiry') return data; // inquiry is handled separately via fieldClassification
 
-  // Allowlist per submission type: top-level keys community readers should see
-  const ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
-    // Op-ed: topic (top-level), opeds array (members pass through; stages stripped separately)
-    oped: new Set(['topic', 'opeds']),
-    // Debate: id, title, stages, transcript, metadata, grounding (all pass through as-is)
-    debate: new Set(['id', 'title', 'stages', 'transcript', 'metadata', 'grounding', 'model', 'pover']),
-    // Chat: id, title, model, pover, transcript, metadata (all pass through as-is)
-    chat: new Set(['id', 'title', 'model', 'pover', 'transcript', 'metadata']),
-    // Inquiry: already handled via projectInquiryFields matrix (t/3648)
-    inquiry: new Set(),
-  };
-
-  if (type === 'inquiry') return data; // inquiry is handled separately below
-
-  const allowlist = ALLOWLIST[type];
+  const allowlist = COMMUNITY_PROJECTION_ALLOWLIST[type];
   const out: Record<string, unknown> = {};
   const droppedFields: string[] = [];
 
   for (const [key, value] of Object.entries(data)) {
     if (allowlist.has(key)) {
-      out[key] = value;
+      // Structurally project transcript arrays to exclude owner-only fields
+      if ((key === 'transcript' || key === 'active_povers') && Array.isArray(value)) {
+        if (key === 'transcript') {
+          if (type === 'chat') {
+            out[key] = (value as unknown[]).map(e => projectChatEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+          } else if (type === 'debate') {
+            out[key] = (value as unknown[]).map(e => projectTranscriptEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+          }
+        } else {
+          // active_povers: pass through as-is (array of strings)
+          out[key] = value;
+        }
+      } else {
+        out[key] = value;
+      }
     } else {
       droppedFields.push(key);
     }
   }
 
-  // t/196: WARN if unknown fields are dropped (fields added to submission types but
-  // not the allowlist — a producer oversight we need to catch).
-  if (droppedFields.length > 0 && (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development')) {
-    log.server.warn(
-      { type, droppedFields: droppedFields.slice(0, 20) },
-      `sanitizeForCommunity: dropped ${droppedFields.length} unknown field(s) from ${type} submission (t/196 — check if these should be allowlisted)`,
-    );
+  // t/196: DEBUG log dropped fields in prod (fields added but not allowlisted — producer oversight we need to catch)
+  if (droppedFields.length > 0) {
+    if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+      log.server.warn(
+        { type, droppedFields: droppedFields.slice(0, 20) },
+        `sanitizeForCommunity: dropped ${droppedFields.length} unknown field(s) from ${type} submission (t/196 — check if these should be allowlisted)`,
+      );
+    } else {
+      log.server.debug(
+        { type, fieldCount: droppedFields.length },
+        `sanitizeForCommunity: dropped ${droppedFields.length} field(s) from ${type} (prod — debug only)`,
+      );
+    }
   }
 
   return out;
