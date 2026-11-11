@@ -32,6 +32,7 @@ permissions:
   contents: read
   packages: write
   security-events: write  # For SARIF upload
+  issues: write  # For failure alert (t/220)
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -85,6 +86,7 @@ jobs:
           driver-opts: image=moby/buildkit:buildx-stable-1
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -111,7 +113,7 @@ jobs:
           build-args: |
             CACHE_BUST=${{ steps.date_tag.outputs.tag }}
           cache-from: type=gha,scope=shared-docker
-          cache-to: type=gha,scope=shared-docker,mode=min
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,scope=shared-docker,mode=min' || '' }}
           platforms: linux/amd64
 
       - name: Smoke tests in loaded base image (t/220)
@@ -120,15 +122,20 @@ jobs:
           docker run --rm ai-triad-base:test /bin/bash -c '
             set -e
             echo "=== CA certificates ==="
-            curl -fsSI https://github.com >/dev/null && echo "✓ curl with CA bundle works"
+            curl -fsSI https://github.com >/dev/null || { echo "✗ curl with CA bundle failed"; exit 1; }
+            echo "✓ curl with CA bundle works"
             echo "=== Python SSL ==="
-            python3 -c "import ssl, urllib.request; urllib.request.urlopen(\"https://pypi.org\", timeout=10)" && echo "✓ Python SSL works"
+            python3 -c "import ssl, urllib.request; urllib.request.urlopen(\"https://pypi.org\", timeout=10)" || { echo "✗ Python SSL failed"; exit 1; }
+            echo "✓ Python SSL works"
             echo "=== Node.js HTTPS ==="
-            node -e "const https = require(\"https\"); https.get(\"https://nodejs.org\", () => process.exit(0)).on(\"error\", e => { console.error(e); process.exit(1); })" && echo "✓ Node.js HTTPS works"
+            node -e "const https = require(\"https\"); https.get(\"https://nodejs.org\", () => process.exit(0)).on(\"error\", e => { console.error(e); process.exit(1); })" || { echo "✗ Node.js HTTPS failed"; exit 1; }
+            echo "✓ Node.js HTTPS works"
             echo "=== npm ==="
-            npm --version | grep -E "^[0-9]" && echo "✓ npm works"
+            npm --version | grep -E "^[0-9]" || { echo "✗ npm version check failed"; exit 1; }
+            echo "✓ npm works"
             echo "=== git ==="
-            git ls-remote https://github.com/AI-Rosetta-Stone/ai-triad-data HEAD >/dev/null && echo "✓ git works"
+            git ls-remote https://github.com/AI-Rosetta-Stone/ai-triad-data HEAD >/dev/null || { echo "✗ git ls-remote failed"; exit 1; }
+            echo "✓ git works"
             echo "=== All smoke tests passed ==="
           '
 
@@ -176,11 +183,13 @@ jobs:
       - name: Alert on build failure (t/220)
         if: failure() && github.event_name != 'pull_request'
         run: |
+          # Ensure label exists
+          gh label create base-image-build-alert --repo ${{ github.repository }} --description "Base image build failed" --color FF0000 2>/dev/null || true
+          
           ISSUE_TITLE="base-image build failed ($(date -u +'%Y-%m-%d %H:%M')Z)"
           ISSUE_BODY="## Workflow Failure
           
           Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          
           Event: ${{ github.event_name }}
           Branch: ${{ github.ref_name }}
           Commit: ${{ github.sha }}
@@ -188,16 +197,16 @@ jobs:
           ### Next steps
           - Check the run log for the failed step
           - Verify base-image dependencies (Debian, npm, git, Python)
-          - Re-run or investigate Dockerfile.base"
+          - Investigate Dockerfile.base or re-run"
           
-          gh issue list --repo ${{ github.repository }} --label base-image-build-alert --json number -q ".[0].number" > issue_num.txt || true
-          ISSUE_NUM=$(cat issue_num.txt 2>/dev/null || echo "")
+          # Find existing open issue with this label
+          ISSUE_NUM=$(gh issue list --repo ${{ github.repository }} --label base-image-build-alert --state open --json number -q ".[0].number" 2>/dev/null || echo "")
           
           if [ -z "$ISSUE_NUM" ]; then
             gh issue create --repo ${{ github.repository }} --title "$ISSUE_TITLE" --body "$ISSUE_BODY" --label base-image-build-alert
           else
             gh issue comment $ISSUE_NUM --repo ${{ github.repository }} --body "## Workflow Failure (run ${{ github.run_id }})
-
+            
             [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
         env:
