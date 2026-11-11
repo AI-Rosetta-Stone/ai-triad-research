@@ -1916,6 +1916,11 @@ jobs:
       - name: guard rate-limit snapshot step suite
         run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
 
+      # t/369: consult-hold-guard and joint-gv-guard read the PR over REST through one inline helper;
+      # it stays identical to its canonical copy and classifies rate-limit, 5xx and other 4xx apart.
+      - name: guard PR-read (REST + rate-limit classification) suite
+        run: node --test operations/devops/guard-pr-read.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
