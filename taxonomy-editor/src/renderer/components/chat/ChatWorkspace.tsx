@@ -33,7 +33,6 @@ import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
-import { HowPanel } from '../shared/HowPanel';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -48,12 +47,6 @@ function speakerLabel(speaker: string): string {
 function nodeIdToTab(nodeId: string): string {
   return nodePovFromId(nodeId) ?? 'unknown';
 }
-
-// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
-const CHAT_HOW_METHODS_LINKS = [
-  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
-  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
-];
 
 // ── Taxonomy ref pills ───────────────────────────────────
 
@@ -117,6 +110,8 @@ function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; sele
 export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; emptyText?: string }) {
   const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
   const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
+  const getLabelForId = useTaxonomyStore(s => s.getLabelForId);
+  const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
 
   // t/165: an answer with no refs says so rather than leaving the "Why" eyebrow over nothing.
   if (!refs || refs.length === 0) return emptyText ? <p className="chat-why-empty">{emptyText}</p> : null;
@@ -124,19 +119,23 @@ export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; 
   return (
     <div className="chat-taxonomy-refs">
       <div className="chat-taxonomy-reasoning">
-        {refs.map((r) => (
-          <div key={r.node_id} className="chat-taxonomy-reasoning-item">
-            <TaxonomyPill
-              taxRef={r}
-              selected={selectedBdiNodeId === r.node_id}
-              onClick={() => toggleBdiNode(r.node_id)}
-            />
-            <span className="chat-reasoning-label">
-              {r.label || `${r.node_id} (no longer in taxonomy)`}
-            </span>
-            {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
-          </div>
-        ))}
+        {refs.map((r) => {
+          const label = r.label || (taxonomyLoaded && !getLabelForId(r.node_id) ? null : getLabelForId(r.node_id));
+          const isMissing = taxonomyLoaded && !getLabelForId(r.node_id);
+          return (
+            <div key={r.node_id} className="chat-taxonomy-reasoning-item">
+              <TaxonomyPill
+                taxRef={r}
+                selected={selectedBdiNodeId === r.node_id}
+                onClick={() => toggleBdiNode(r.node_id)}
+              />
+              <span className={`chat-reasoning-label${isMissing ? ' chat-reasoning-label--missing' : ''}`}>
+                {label || (isMissing ? <em>No longer in the taxonomy</em> : null)}
+              </span>
+              {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
+            </div>
+          );
+        })}
       </div>
       {selectedBdiNodeId && (
         <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />
@@ -201,8 +200,98 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
-        {!isUser && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} methodsLinks={CHAT_HOW_METHODS_LINKS} />}
+        {!isUser && <ChatHowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} />}
       </div>
+    </div>
+  );
+}
+
+// ── "How" panel (t/4824) ─────────────────────────────────
+
+// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
+const CHAT_HOW_METHODS_LINKS = [
+  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
+  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
+];
+
+function ChatHowMethodsLink({ label, url }: { label: string; url: string }) {
+  return (
+    <button
+      type="button"
+      className="btn-ghost chat-how-methods-link"
+      onClick={() => {
+        void api.openExternal(url).catch((err: unknown) => {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'chat-how-panel', level: 'error',
+            message: 'Failed to open methods link',
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+        });
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ChatHowSection({ title, defaultExpanded, children }: { title: string; defaultExpanded: boolean; children: React.ReactNode }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  return (
+    <div className="chat-how-section">
+      <button type="button" className="chat-how-section-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
+        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
+        {title}
+      </button>
+      {expanded && <div className="chat-how-section-body">{children}</div>}
+    </div>
+  );
+}
+
+/** Raw Prompt/Response content: the real text in a ~15-visible-line scroll box when the server has
+ *  captured it (t/4848), or the "not available" message when it hasn't — a missing value for an
+ *  older/in-flight turn never reads as a rendering bug. */
+function ChatHowRawContent({ value, label, missingText }: { value: string | undefined; label: string; missingText: string }) {
+  // t/165: absent for entries saved before t/4848 (and openings until t/169), by contract.
+  if (!value) return <p className="chat-how-unavailable">{missingText}</p>;
+  // t/4856 (Design): tabIndex + aria-label so the scrollable box is keyboard-reachable and its
+  // content is announced, matching the section title it sits under.
+  return <pre className="chat-how-textbox" tabIndex={0} aria-label={label}>{value}</pre>;
+}
+
+/** Collapsed by default, below each POV response (t/4824). */
+function ChatHowPanel({ rawPrompt, rawResponse }: { rawPrompt: string | undefined; rawResponse: string | undefined }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasRawFields = rawPrompt || rawResponse;
+  
+  return (
+    <div className="chat-how-panel">
+      <button type="button" className="chat-how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
+        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
+        How
+      </button>
+      {expanded && (
+        <div className="chat-how-body">
+          {hasRawFields ? (
+            <>
+              <ChatHowSection title="Raw Prompt" defaultExpanded>
+                <ChatHowRawContent value={rawPrompt} label="Raw Prompt" missingText="Raw prompt not recorded for this message." />
+              </ChatHowSection>
+              <ChatHowSection title="Raw Response" defaultExpanded={false}>
+                <ChatHowRawContent value={rawResponse} label="Raw Response" missingText="Raw response not recorded for this message." />
+              </ChatHowSection>
+            </>
+          ) : (
+            <p className="chat-how-unavailable">The raw prompt and response weren't recorded for this answer.</p>
+          )}
+          <ChatHowSection title="Methods" defaultExpanded={false}>
+            <ul className="chat-how-methods-list">
+              {CHAT_HOW_METHODS_LINKS.map(link => (
+                <li key={link.url}><ChatHowMethodsLink label={link.label} url={link.url} /></li>
+              ))}
+            </ul>
+          </ChatHowSection>
+        </div>
+      )}
     </div>
   );
 }
