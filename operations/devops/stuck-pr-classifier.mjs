@@ -100,9 +100,15 @@ export const CHANGES_REQUESTED_STALE_HOURS = 2;
  */
 export function findStaleChangesRequest({ reviews, comments, reviewerAppLogin, headSha, lastPushAt }, nowMs) {
   const slots = latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
+  // A comment carries no commit binding, so "no push since" for it rests entirely on lastPushAt.
+  // gateRoleVerdicts treats an unknown lastPushAt as epoch 0, which would make EVERY comment
+  // request look at-head and fire after a fix was pushed (Quality, #5005). Unknown push time:
+  // comment-sourced requests are skipped (no alert), review-sourced ones still count.
+  const pushKnown = Number.isFinite(Date.parse(lastPushAt ?? ''));
   let oldest = null;
   for (const v of slots.values()) {
     if (v.kind !== 'changes_requested' || !v.atHead) continue;
+    if (!pushKnown && v.source !== 'app-review' && v.source !== 'human-review') continue;
     const atMs = Date.parse(v.at);
     if (!Number.isFinite(atMs)) continue;
     const ageHours = (nowMs - atMs) / 3600000;

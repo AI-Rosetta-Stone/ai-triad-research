@@ -511,12 +511,21 @@ jobs:
               // t/308: the same two fetches, mapped to role-review-verdicts.mjs's shape, so
               // classifyBlocker can name `changes-requested-stale`. REST logins carry the
               // `[bot]` suffix (same constant as t1-approval-guard.yml). lastPushAt is the head
-              // commit's committer date (t1-approval-guard.yml convention); it only matters
-              // for comment-sourced requests, since a review is head-bound by commitId.
+              // commit's committer date (t1-approval-guard.yml convention), fetched here because
+              // the pulls.get `head` object carries no `commit` (Quality, #5005). It only matters
+              // for comment-sourced requests (a review is head-bound by commitId); if the fetch
+              // fails it stays null and the classifier skips comment-sourced requests.
+              let headCommitAt = null;
+              try {
+                const { data: headCommit } = await github.rest.git.getCommit({ owner, repo, commit_sha: pr.head.sha });
+                headCommitAt = headCommit.committer?.date ?? headCommit.author?.date ?? null;
+              } catch (e) {
+                core.warning(`#${pr.number}: could not read head commit date (${e.message}); changes-requested-stale ignores comment-sourced requests for this PR.`);
+              }
               const roleReview = {
                 reviewerAppLogin: 'ai-triad-reviewer-jpsnover[bot]',
                 headSha: pr.head?.sha,
-                lastPushAt: pr.head?.commit?.committer?.date ?? null,
+                lastPushAt: headCommitAt,
                 reviews: reviews.map((r) => ({ body: r.body, login: r.user?.login, commitId: r.commit_id, submittedAt: r.submitted_at, state: r.state })),
                 comments: comments.map((c) => ({ body: c.body, login: c.user?.login, createdAt: c.created_at, updatedAt: c.updated_at })),
               };

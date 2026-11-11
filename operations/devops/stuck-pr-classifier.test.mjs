@@ -902,3 +902,18 @@ test('findStaleChangesRequest: picks the OLDEST of two stale requests', () => {
   const s = findStaleChangesRequest(roleReview({ reviews }), NOW);
   assert.equal(s.reviewer, 'Design');
 });
+
+// Quality #5005 hold: in production pulls.get's `head` has no `commit`, so lastPushAt was always
+// null and every comment-sourced request read as at-head. Unknown push time must never fire on a
+// comment; a head-bound review still can.
+test('changes-requested-stale: lastPushAt unknown -> a comment-sourced request does NOT fire (even after a fix was pushed)', () => {
+  const comments = [{ body: 'Changes requested (Quality): add a test', login: APP, createdAt: hoursAgo(4), updatedAt: hoursAgo(4) }];
+  for (const lastPushAt of [null, '']) { // (undefined would take roleReview()'s default)
+    assert.notEqual(classifyBlocker(basePr({ roleReview: roleReview({ comments, lastPushAt }) }), NOW)?.class, 'changes-requested-stale', `lastPushAt=${lastPushAt}`);
+  }
+});
+
+test('changes-requested-stale: lastPushAt unknown -> a review-sourced request at head still fires (commitId binding needs no push time)', () => {
+  const pr = basePr({ roleReview: roleReview({ reviews: [appReview('Changes requested (Design): x', hoursAgo(3))], lastPushAt: null }) });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'changes-requested-stale');
+});
