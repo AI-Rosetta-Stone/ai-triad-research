@@ -9,8 +9,8 @@
     classification-rubric.md §4.1) over situation nodes in situations.json that
     lack a disagreement_type value. Uses gemini-3.5-flash-lite via AIEnrich.
 
-    Runs a 10-node seed check first — must reproduce the 9 non-abstain labels
-    from rubric §3 before the full pass is trusted and written.
+    Runs the rubric §3 seed check first: the 10 seeds three times, judged by each seed's
+    majority label (9 non-abstain plus the sit-154 abstain anchor) before the full pass is trusted.
 .PARAMETER SituationsPath
     Override the situations.json path (default: resolved from .aitriad.json).
 .PARAMETER DryRun
@@ -69,6 +69,25 @@ function Select-BackfillTarget {
     @($out | Where-Object { [string]$_.id -notin $ExcludeIds })
 }
 
+function Get-SeedGateVerdict {
+    # Pure (t/351, rubric §3 after #5056): each seed's label is its strict MAJORITY across the
+    # replicate draws (2 of 3); three different labels is no majority. Pass only when every seed's
+    # majority equals its expected label, the abstain anchor's included ('insufficient').
+    param([System.Collections.IDictionary[]]$Replicates, [System.Collections.IDictionary]$Expected)
+    $modal = [ordered]@{}
+    $misses = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $Expected.Keys) {
+        $draws = @($Replicates | ForEach-Object { [string]$_[$id] })
+        $top = @($draws | Group-Object -NoElement | Sort-Object Count -Descending)[0]
+        $label = if ($top -and $top.Count -gt ($draws.Count / 2)) { $top.Name } else { $null }
+        $modal[$id] = $label
+        if ($label -ne $Expected[$id]) {
+            $misses.Add([pscustomobject]@{ Id = $id; Expected = $Expected[$id]; Majority = $label; Draws = ($draws -join ',') })
+        }
+    }
+    [pscustomobject]@{ Pass = ($misses.Count -eq 0); Majority = $modal; Misses = @($misses) }
+}
+
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'AIEnrich.psm1') -Force -WarningAction SilentlyContinue
 # t/2916 — standalone script: import AITriad for the field-surgical durable writer
@@ -102,8 +121,10 @@ $SeedExpected = [ordered]@{
     'sit-470' = 'interpretive'
     'sit-300' = 'structural'
     'sit-400' = 'structural'
-    'sit-050' = 'insufficient'  # abstain case — all null interpretations
+    'sit-154' = 'insufficient'  # abstain anchor: the only live situation with empty interpretations (t/351; sit-050 was filled by t/3018)
 }
+# Rubric §3: run the seed set this many times and judge each seed by its majority label (t/351).
+$SeedReplicates = 3
 
 # ── Helper: build the per-node prompt input ──────────────────────────────────
 function Build-NodeInput([PSObject]$Node) {
@@ -192,9 +213,9 @@ $Raw   = Get-Content -Raw -Path $SituationsPath | ConvertFrom-Json
 $Nodes = @($Raw.nodes)
 Write-Host "  Loaded $($Nodes.Count) nodes." -ForegroundColor Cyan
 
-# ── Phase 1: Seed check ───────────────────────────────────────────────────────
+# ── Phase 1: Seed check (rubric §3: three replicates, majority label per seed; t/351) ──────────
 Write-Host ''
-Write-Host '=== Seed check (10 nodes, rubric §3) ===' -ForegroundColor Yellow
+Write-Host "=== Seed check ($($SeedExpected.Count) nodes x $SeedReplicates replicates, rubric §3) ===" -ForegroundColor Yellow
 $seedIds   = @($SeedExpected.Keys)
 $seedNodes = @($Nodes | Where-Object { $_.id -in $seedIds })
 
@@ -203,64 +224,47 @@ if ($seedNodes.Count -ne $seedIds.Count) {
     throw "Seed nodes missing from situations.json: $($missing -join ', ')"
 }
 
-$seedResults   = [ordered]@{}
-$seedAgreement = 0
-$seedTotal     = 0
-
-foreach ($node in @($seedIds | ForEach-Object { $id = $_; @($seedNodes | Where-Object { $_.id -eq $id })[0] })) {
-    $nodeId   = $node.id
-    $expected = $SeedExpected[$nodeId]
-    Write-Host "  Classifying $nodeId (expected: $expected)..." -NoNewline
-
-    if (Test-LowSignal $node) {
-        $predicted = 'insufficient'
-        Write-Host " LOW-SIGNAL → insufficient" -ForegroundColor DarkYellow
-    } else {
-        $result = Invoke-ClassifyNode $node
-        if ($null -eq $result) {
-            $predicted = 'error'
-            Write-Host " ERROR" -ForegroundColor Red
+$replicates = [System.Collections.Generic.List[System.Collections.IDictionary]]::new()
+for ($rep = 1; $rep -le $SeedReplicates; $rep++) {
+    Write-Host "  Replicate $rep/$SeedReplicates" -ForegroundColor DarkCyan
+    $draw = [ordered]@{}
+    foreach ($node in @($seedIds | ForEach-Object { $id = $_; @($seedNodes | Where-Object { $_.id -eq $id })[0] })) {
+        $nodeId = $node.id
+        Write-Host "    $nodeId (expected: $($SeedExpected[$nodeId]))..." -NoNewline
+        if (Test-LowSignal $node) {
+            $predicted = 'insufficient'
+            Write-Host ' LOW-SIGNAL → insufficient' -ForegroundColor DarkYellow
         } else {
-            $predicted = [string]$result.disagreement_type
-            $conf      = if ($result.PSObject.Properties['confidence']) { [double]$result.confidence } else { 0.0 }
-            $rationale = if ($result.PSObject.Properties['rationale']) { [string]$result.rationale } else { '' }
-            Write-Host " → $predicted (conf=$([Math]::Round($conf,2))) — $rationale" -ForegroundColor Cyan
+            $result = Invoke-ClassifyNode $node
+            if ($null -eq $result) {
+                $predicted = 'error'
+                Write-Host ' ERROR' -ForegroundColor Red
+            } else {
+                $predicted = [string]$result.disagreement_type
+                $conf = if ($result.PSObject.Properties['confidence']) { [double]$result.confidence } else { 0.0 }
+                $rationale = if ($result.PSObject.Properties['rationale']) { [string]$result.rationale } else { '' }
+                Write-Host " → $predicted (conf=$([Math]::Round($conf,2))) — $rationale" -ForegroundColor Cyan
+            }
         }
+        $draw[$nodeId] = $predicted
     }
-
-    $seedResults[$nodeId] = $predicted
-    $seedTotal++
-    if ($predicted -eq $expected) { $seedAgreement++ }
-    elseif ($expected -eq 'insufficient' -and $predicted -eq 'insufficient') { }
-    else {
-        Write-Host "    !! MISMATCH: expected '$expected', got '$predicted'" -ForegroundColor Red
-    }
+    $replicates.Add($draw)
 }
 
+$verdict = Get-SeedGateVerdict -Replicates $replicates.ToArray() -Expected $SeedExpected
+$correct = @($seedIds | Where-Object { $verdict.Majority[$_] -eq $SeedExpected[$_] }).Count
 Write-Host ''
-Write-Host "Seed agreement: $seedAgreement/$seedTotal" -ForegroundColor $(if ($seedAgreement -ge 9) { 'Green' } else { 'Red' })
+Write-Host "Seed majority agreement: $correct/$($seedIds.Count) (9 non-abstain + the abstain anchor)" -ForegroundColor $(if ($verdict.Pass) { 'Green' } else { 'Red' })
 
-# The §3 rubric requires reproducing the 9 non-abstain labels.
-# sit-050 is expected 'insufficient' — pass if all 10 match OR if only interpretive/structural
-# boundary cases miss (rubric notes this is the expected error mode).
-$nonAbstainAgreement = @($seedIds | Where-Object {
-    $SeedExpected[$_] -ne 'insufficient' -and $seedResults[$_] -eq $SeedExpected[$_]
-}).Count
-
-Write-Host "Non-abstain agreement: $nonAbstainAgreement/9" -ForegroundColor $(if ($nonAbstainAgreement -ge 9) { 'Green' } else { 'Yellow' })
-
-if ($nonAbstainAgreement -lt 9) {
+if (-not $verdict.Pass) {
     Write-Host ''
-    Write-Host 'Seed check FAILED — classifier does not reproduce rubric §3 labels.' -ForegroundColor Red
-    Write-Host 'Mismatches:' -ForegroundColor Red
-    foreach ($id in $seedIds) {
-        if ($SeedExpected[$id] -ne 'insufficient' -and $seedResults[$id] -ne $SeedExpected[$id]) {
-            Write-Host "  $id : expected $($SeedExpected[$id]), got $($seedResults[$id])" -ForegroundColor Red
-        }
+    Write-Host 'Seed check FAILED — the majority labels do not reproduce rubric §3.' -ForegroundColor Red
+    foreach ($m in $verdict.Misses) {
+        $got = if ($m.Majority) { $m.Majority } else { 'no majority' }
+        Write-Host "  $($m.Id) : expected $($m.Expected), majority $got (draws: $($m.Draws))" -ForegroundColor Red
     }
     exit 1
 }
-
 Write-Host 'Seed check PASSED.' -ForegroundColor Green
 
 if ($SeedOnly) {
