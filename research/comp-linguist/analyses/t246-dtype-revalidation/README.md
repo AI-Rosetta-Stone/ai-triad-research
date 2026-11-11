@@ -40,3 +40,26 @@ seeds plus held-out, and reads the live `situations.json` read-only. No corpus w
 Reported with counts: every rate carries its n. If any criterion fails, the candidate is not
 proposed; the failure is reported with its items, and the prompt is not tuned against the held-out
 set and re-scored on the same items.
+
+## Result (run 2026-11-11, after pre-registration commit d7f80be54) — **FAIL; candidate not proposed**
+
+gemini-3.5-flash-lite, T=0.1, 3 replicates, `candidate.prompt` sha256 02bf5b20d2f5…; `results.json`, `score.py`.
+
+| Criterion | Result | |
+|---|---|---|
+| C1 seeds 9/9 in every replicate | 9/9, **8/9**, 9/9 (sit-430 → structural in rep 2) | **FAIL** |
+| C2 held-out modal accuracy ≥ 24/30 | 27/30 (high-confidence subset 21/24) | pass |
+| C3 structural recall ≥ 2/4, precision ≥ 0.5 | recall 4/4, precision 4/7 | pass |
+| C4 interpretive recall ≥ 21/26 | 23/26 | pass |
+
+- **sit-300 is fixed:** structural in 3/3 (0.9).
+- **The failure mode is structural over-firing on a single-POV reframe.** sit-008 (3/3), sit-376
+  (3/3) and sit-168 (2/3) were labelled CL-interpretive with high confidence, and the model called
+  them structural. Its rationales read three distinct POV characterizations as three frames ("treating
+  it variously as a goal, a catastrophic risk, or a mere narrative"), so the two-POV guard isn't
+  binding. The sit-430 seed flip is the same pattern. sit-008 has the same shape as seed sit-001
+  (interpretive).
+- **Flips:** 2/30 held-out items (sit-032, sit-168) and 1/9 seeds (sit-430).
+
+Per the pre-registration, this held-out set is now **spent for tuning**. A revised prompt must be
+scored on a fresh held-out set.
