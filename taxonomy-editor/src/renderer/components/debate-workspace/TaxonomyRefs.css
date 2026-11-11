@@ -662,6 +662,75 @@
   margin: 0;
 }
 
+/* Attack card */
+.claim-map-attack-card {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claim-map-attack-eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warning-text);
+  margin: 0;
+}
+
+.claim-map-attack-text {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.claim-map-attack-footer {
+  display: flex;
+  gap: 8px;
+  font-size: var(--text-2xs);
+  margin-top: 8px;
+}
+
+.claim-map-attack-status {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  color: var(--text-secondary);
+}
+
+.claim-map-attack-id {
+  font-family: monospace;
+  color: var(--text-secondary);
+}
+
+/* Unmapped attacks */
+.claim-map-unmapped-attacks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.claim-map-unmapped-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.claim-map-unmapped-label {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 /* Assumption cards */
 .claim-map-assumptions {
   display: flex;

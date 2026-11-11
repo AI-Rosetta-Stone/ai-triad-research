@@ -332,14 +332,17 @@ interface ParsedClaim {
   point: string;
   evidence?: string;
   taxonomy_anchor?: string;
+  attack?: ParsedAttack; // attack targeting this claim
 }
 
 interface ParsedAttack {
   text: string;
-  targetAnchor?: string;
+  targetAnchor?: string; // which claim's anchor this targets
+  claimIndex?: number; // which claim (1-based)
+  steelmanText?: string; // steelman annotation text, if any
   steelmanAnnotationId?: string;
-  steelmanText?: string;
   verificationStatus?: string;
+  annotationId?: string;
 }
 
 interface ParsedAssumption {
@@ -359,13 +362,36 @@ function parseWorkProduct(wp: Record<string, unknown>, camp: string) {
     });
   }
 
-  const attacks: ParsedAttack[] = [];
+  const unmappedAttacks: ParsedAttack[] = [];
   const assumptions: ParsedAssumption[] = [];
+  let verifiedCount = 0;
+
   if (Array.isArray(wp.anticipated_challenges)) {
-    (wp.anticipated_challenges as unknown[]).forEach((item) => {
+    (wp.anticipated_challenges as unknown[]).forEach((item, idx) => {
       const text = normalizeAnticipatedItem(item);
       if (text.startsWith('ATTACK:')) {
-        attacks.push({ text: text.replace(/^ATTACK:\s*/, '').replace(/\s*targeting node \S+$/, '') });
+        const attackText = text.replace(/^ATTACK:\s*/, '').replace(/\s*targeting node \S+$/, '');
+        // Try to map attack to a claim by finding anchors in the text
+        let mapped = false;
+        for (const claim of claims) {
+          if (claim.taxonomy_anchor && attackText.includes(claim.taxonomy_anchor)) {
+            claim.attack = {
+              text: attackText,
+              targetAnchor: claim.taxonomy_anchor,
+              claimIndex: claim.index,
+              annotationId: `AN-${idx}`,
+            };
+            mapped = true;
+            verifiedCount++;
+            break;
+          }
+        }
+        if (!mapped) {
+          unmappedAttacks.push({
+            text: attackText,
+            annotationId: `AN-${idx}`,
+          });
+        }
       } else if (text.startsWith('ASSUMPTION:')) {
         assumptions.push({ text: text.replace(/^ASSUMPTION:\s*/, '') });
       } else {
@@ -375,14 +401,11 @@ function parseWorkProduct(wp: Record<string, unknown>, camp: string) {
     });
   }
 
-  // Count verified attacks (for counts line)
-  const verifiedAttacks = attacks.filter(a => a.verificationStatus && a.verificationStatus !== 'not yet checked').length;
-
   return {
     claims,
-    attacks,
+    unmappedAttacks,
     assumptions,
-    verifiedAttacks: Math.max(0, Math.min(verifiedAttacks, attacks.length)),
+    verifiedAttacks: verifiedCount,
   };
 }
 
@@ -401,7 +424,7 @@ interface ClaimMapLayoutProps {
 }
 
 function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const { claims, attacks, assumptions, verifiedAttacks } = useMemo(
+  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(
     () => parseWorkProduct(wp, camp),
     [wp, camp]
   );
@@ -410,6 +433,9 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
   const framingChoices = wp.framing_choices;
   const [moreExpanded, setMoreExpanded] = useState(false);
+
+  // Count total attacks (mapped + unmapped)
+  const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
 
   // Fallback for legacy entries: if no core_thesis, show old stacked view
   if (!coreThesis && !strategicGoal) {
@@ -440,7 +466,7 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
         <div className="claim-map-header-top">
           <div className="claim-map-eyebrow">{(camp || 'PLAN').toUpperCase()} · {stage}</div>
           <div className="claim-map-counts">
-            {claims.length} claim{claims.length === 1 ? '' : 's'} · {attacks.length} attack{attacks.length === 1 ? '' : 's'} · {assumptions.length} assumption{assumptions.length === 1 ? '' : 's'} · {verifiedAttacks} verified
+            {claims.length} claim{claims.length === 1 ? '' : 's'} · {totalAttacks} attack{totalAttacks === 1 ? '' : 's'} · {assumptions.length} assumption{assumptions.length === 1 ? '' : 's'} · {verifiedAttacks} verified
           </div>
         </div>
         {coreThesis && <h2 className="claim-map-headline">{coreThesis}</h2>}
@@ -506,16 +532,44 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
                     )}
                   </div>
                 </div>
-                <div className="claim-map-attack-col" aria-label={`Attack on C${claim.index}`}>
-                  {/* Placeholder for no attack */}
-                  <div className="claim-map-no-attack">
-                    <p className="claim-map-no-attack-title">No attack mapped to C{claim.index}</p>
-                    <p className="claim-map-no-attack-text">No anticipated attack targets this claim.</p>
-                  </div>
+                <div className="claim-map-attack-col" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
+                  {claim.attack ? (
+                    <div className="claim-map-attack-card">
+                      <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.attack.claimIndex}</div>
+                      <p className="claim-map-attack-text">{claim.attack.text}</p>
+                      <div className="claim-map-attack-footer">
+                        <span className="claim-map-attack-status">Unverified</span>
+                        {claim.attack.annotationId && <span className="claim-map-attack-id">{claim.attack.annotationId}</span>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="claim-map-no-attack">
+                      <p className="claim-map-no-attack-title">No attack mapped to C{claim.index}</p>
+                      <p className="claim-map-no-attack-text">No anticipated attack targets this claim.</p>
+                    </div>
+                  )}
                 </div>
               </li>
             ))}
           </ol>
+          
+          {/* Unmapped attacks row */}
+          {unmappedAttacks.length > 0 && (
+            <div className="claim-map-unmapped-attacks">
+              {unmappedAttacks.map((attack, i) => (
+                <div key={i} className="claim-map-unmapped-row">
+                  <div className="claim-map-unmapped-label">Unmapped attack</div>
+                  <div className="claim-map-attack-card">
+                    <p className="claim-map-attack-text">{attack.text}</p>
+                    <div className="claim-map-attack-footer">
+                      <span className="claim-map-attack-status">Unverified</span>
+                      {attack.annotationId && <span className="claim-map-attack-id">{attack.annotationId}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
