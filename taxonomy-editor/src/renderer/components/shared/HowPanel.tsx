@@ -108,12 +108,9 @@ export function HowMethodsLinks({ links, component = 'how-panel' }: HowMethodsLi
  * Collapsible How panel for displaying raw prompt/response and methods links.
  * Rendered below each POV response in Chat, and in Op-Ed reader.
  */
-export function HowPanel({ rawPrompt, rawResponse, methodsLinks }: HowPanelProps) {
+export function HowPanel({ rawPrompt, rawResponse, methodsLinks = [] }: HowPanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const linksToDisplay = methodsLinks ?? [
-    { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
-    { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
-  ];
+  const linksToDisplay = methodsLinks;
   return (
     <div className="how-panel">
       <button type="button" className="how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>

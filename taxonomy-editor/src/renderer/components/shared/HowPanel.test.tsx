@@ -82,19 +82,11 @@ describe('HowPanel', () => {
     expect(screen.queryByText('Methods')).not.toBeInTheDocument();
   });
 
-  it('displays default Methods section when no methodsLinks prop provided', async () => {
+  it('does not display Methods section when no methodsLinks prop provided', async () => {
     render(<HowPanel rawPrompt="test" rawResponse="test" />);
     await userEvent.click(screen.getByText('How'));
 
-    // Expand Methods section
-    const methodsToggle = Array.from(screen.getAllByRole('button')).find(btn => 
-      btn.textContent?.includes('Methods')
-    );
-    if (methodsToggle) {
-      await userEvent.click(methodsToggle);
-      expect(screen.getByRole('button', { name: /Theory of Success/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Theory of Operations/i })).toBeInTheDocument();
-    }
+    expect(screen.queryByText('Methods')).not.toBeInTheDocument();
   });
 });
 
