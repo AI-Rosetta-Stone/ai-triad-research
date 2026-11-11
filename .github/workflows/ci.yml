@@ -1900,6 +1900,10 @@ jobs:
       - name: shared-input coverage workflow crash-path suite
         run: node --test operations/devops/ci-shared-input-coverage-workflow.test.mjs
 
+      # t/357: pr-triage's last-activity clock counts the latest push (the head commit date).
+      - name: pr-triage activity-facts suite
+        run: node --test operations/devops/pr-triage-activity.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
