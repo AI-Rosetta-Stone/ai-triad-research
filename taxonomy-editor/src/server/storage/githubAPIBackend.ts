@@ -567,6 +567,11 @@ export class GitHubAPIBackend implements StorageBackend {
     return this.baseBranch;
   }
 
+  /** Check if the GitHub API circuit breaker is currently open (t/268 item 5). */
+  isCircuitBreakerOpen(): boolean {
+    return this.rest.isTripped();
+  }
+
   /**
    * Resolve the effective git ref for the current request.
    * Priority: AsyncLocalStorage (production) → instance field (tests) → baseBranch.

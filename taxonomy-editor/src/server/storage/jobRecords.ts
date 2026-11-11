@@ -87,13 +87,24 @@ function parseRecord(kind: JobRecordKind, userId: string, name: string, raw: str
 
 /**
  * t/268 (item 5): Validate that a GitHub listDirectory [] is genuine, not degraded.
- * On degraded [] (circuit breaker / transient), throws with JOB_RECORD_LIST_FAILED.
+ * Only validates if the circuit breaker is open (potential false-empty).
+ * On degraded [] (circuit breaker open + transient), throws with JOB_RECORD_LIST_FAILED.
+ * A 404 from recheck is treated as a genuine empty (new user with no jobs yet).
  */
 async function validateGitHubListDirectoryResult(backend: StorageBackend, dir: string, kind: JobRecordKind): Promise<void> {
   if (backend instanceof GitHubAPIBackend) {
+    // Only validate if circuit breaker is open — that's when listDirectory might have
+    // returned false-empty. Avoids re-checking on every genuine empty list, undoing t/4179.
+    if (!backend.isCircuitBreakerOpen()) return;
+
     try {
       await backend.listDirectoryStrict(dir);
     } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      if (status === 404) {
+        // 404: directory doesn't exist yet (new user, no jobs yet). This is a genuine empty list.
+        return;
+      }
       if ((err as { kind?: string }).kind === 'transient') {
         // Circuit breaker or transient API failure. Fail closed.
         getGlobalRecorder()?.record({
