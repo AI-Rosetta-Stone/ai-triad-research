@@ -44,7 +44,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 - **Change tiers and decision rights:** see `docs/change-tiers.md`.
   - The PR body's first line is `Tier: T0`, `T1` or `T2`.
   - T2 means a Second Opinion round plus `consult-hold`.
-  - **The PI decides** spending, credentials, product and UX, research claims, deleting prod data, roles and branch protection.
+  - **The PI decides** spending, credentials, product and UX, research claims, deleting prod data, roles and branch protection (standing delegations: docs/change-tiers.md).
 - **Incidents:** `docs/incident-response.md`.
 - **AI backends:** `ai-models.json` is the single source of truth, and a model's backend comes from the registry, never from its id prefix. `AI_API_KEY` is a fallback for gemini models only. Run `npm run verify:config` before landing; when adding a backend, use `/add-ai-backend`.
 - **Dependency security bumps:** `docs/security/dependency-policy.md`. Overrides live in `pnpm-workspace.yaml`.
