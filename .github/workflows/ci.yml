@@ -1829,6 +1829,11 @@ jobs:
       - name: github-retry helper + workflow retry suites
         run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs
 
+      # t/314: the per-PR guards' inline rate-limit snapshot step stays identical to its canonical
+      # copy, and its script records or WARNs without ever failing.
+      - name: guard rate-limit snapshot step suite
+        run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
