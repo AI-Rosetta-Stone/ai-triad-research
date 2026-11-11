@@ -10,7 +10,6 @@
 import type { GitHubAPIBackend } from '../storage/githubAPIBackend.js';
 import type { SessionBranchManager } from '../storage/sessionBranchManager.js';
 import type { FlightRecorder } from '../../../../lib/flight-recorder/flightRecorder.js';
-import type { DraftStore } from '../community/draftStore.js';
 
 export interface ServerCtx {
   /** Live GitHub API backend (null until initialised / in non-GitHub modes). */
@@ -39,6 +38,4 @@ export interface ServerCtx {
   readonly broadcastEvent: (type: string, data: unknown) => void;
   /** Emit a typed event only to the WebSocket clients of a specific authenticated user. Silent no-op for unknown/empty userId. (t/2443) */
   readonly emitToUser: (userId: string, type: string, data: unknown) => void;
-  /** Get the draft store for community draft submissions (t/185). */
-  readonly getDraftStore: () => DraftStore;
 }
