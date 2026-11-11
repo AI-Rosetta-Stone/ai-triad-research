@@ -63,3 +63,33 @@ gemini-3.5-flash-lite, T=0.1, 3 replicates, `candidate.prompt` sha256 02bf5b20d2
 
 Per the pre-registration, this held-out set is now **spent for tuning**. A revised prompt must be
 scored on a fresh held-out set.
+
+## Iteration 2 — pre-registration (PI-approved p/97#6; committed before any v9 run)
+
+**Prompt:** `candidate_v9.prompt` is `candidate.prompt` with the STRUCTURAL guard tightened. Frame
+conflict now means one POV argues the framing is mistaken while another adopts or defends it, and
+the prompt adds: "different characterizations are not, by themselves, a frame conflict". The change
+is aimed at the run-1 failure (single-POV reframes read as structural).
+
+**Held-out set:** `heldout2_labels.json`, a fresh draw (seed 5246) disjoint from run 1's set. It was
+labelled blind **before** v9 was written: 28 interpretive, 1 structural (sit-221) and 1 insufficient
+(sit-154, a deprecated node with empty summaries). Only 1 of the 10 drawn from the existing-structural
+stratum is CL-structural, so structural recall can't be measured here (n=1). The concern is
+over-firing, which these criteria target.
+
+**Seed gate, changed to majority-of-3 (decided before the run):** a single draw at T=0.1 that must
+be 9/9 fails by chance even for a good prompt (run 1: 9/9, 8/9, 9/9). The production gate should run
+the 9 seeds 3 times and take each seed's modal label.
+
+**Pass criteria (all must hold):**
+1. **Seeds, modal label over 3 replicates:** 9/9. Per-replicate scores are reported.
+2. **Held-out, modal accuracy on the 29 non-abstain items:** ≥ 25/29 (86%).
+3. **Over-firing:** at most 2 of the 28 CL-interpretive items come back modal-structural.
+4. **Non-degenerate:** guaranteed by criterion 1. sit-300 and sit-400 must stay structural and
+   sit-447 definitional, so "always interpretive" fails.
+
+**Reported, not gated:** sit-221 (the only held-out structural); sit-154's label; per-item flips.
+Run 1's held-out set re-scored under v9, as **secondary only**: that set was seen while writing v9,
+so it's biased.
+
+If any criterion fails, v9 is not proposed, and neither set is used to tune again.
