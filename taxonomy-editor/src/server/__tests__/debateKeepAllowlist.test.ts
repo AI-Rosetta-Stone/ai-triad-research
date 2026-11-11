@@ -165,6 +165,47 @@ describe('Debate community allowlist: 13 KEEP keys (t/196#25)', () => {
     expect(JSON.stringify(copy)).not.toContain('PRIVATE RAW RESPONSE');
   });
 
+  it('crux embedding never survives; cruxes keep only reader keys (t/196 p/238#2)', async () => {
+    const crux = {
+      id: 'c1',
+      description: 'Whether AI risk is real',
+      disagreement_type: 'empirical',
+      speakers_involved: ['A', 'B'],
+      status: 'addressed',
+      confidence: 'high',
+      embedding: [0.12, 0.34, 0.56],
+      owner_note: 'PRIVATE CRUX NOTE',
+    };
+    seed('deb-1', {
+      ...KEEP_FIELDS,
+      neutral_evaluations: [{ ...KEEP_FIELDS.neutral_evaluations[0], cruxes: [crux] }],
+    });
+    const copy = published((await approveSubmission('deb-1')).communityId);
+    const kept = ((copy.neutral_evaluations as Array<Record<string, unknown>>)[0].cruxes as Array<Record<string, unknown>>)[0];
+    expect(kept).toEqual({
+      id: 'c1',
+      description: 'Whether AI risk is real',
+      disagreement_type: 'empirical',
+      speakers_involved: ['A', 'B'],
+      status: 'addressed',
+      confidence: 'high',
+    });
+    expect(kept).not.toHaveProperty('embedding');
+    expect(JSON.stringify(copy)).not.toContain('0.12');
+    expect(JSON.stringify(copy)).not.toContain('PRIVATE CRUX NOTE');
+  });
+
+  it('evaluation_invalid and invalid_reason are owner-only (no community reader, p/238#2)', async () => {
+    seed('deb-1', {
+      ...KEEP_FIELDS,
+      neutral_evaluations: [{ ...KEEP_FIELDS.neutral_evaluations[0], evaluation_invalid: true, invalid_reason: 'parse_failed' }],
+    });
+    const copy = published((await approveSubmission('deb-1')).communityId);
+    const evaluation = (copy.neutral_evaluations as Array<Record<string, unknown>>)[0];
+    expect(evaluation).not.toHaveProperty('evaluation_invalid');
+    expect(evaluation).not.toHaveProperty('invalid_reason');
+  });
+
   it('adaptive_staging is narrowed to enabled, step_mode and phase_state.current_phase', async () => {
     seed('deb-1', KEEP_FIELDS);
     const copy = published((await approveSubmission('deb-1')).communityId);

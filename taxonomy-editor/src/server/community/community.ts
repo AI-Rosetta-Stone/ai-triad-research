@@ -831,15 +831,28 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
 }
 
 /** Keys of a NeutralEvaluation that the community renderer reads. The three diagnostics_* keys
- *  (prompt, raw response, timing) and any future key are owner-only (t/196#25 item 1). */
+ *  (prompt, raw response, timing) and any future key are owner-only (t/196#25 item 1). evaluation_invalid
+ *  and invalid_reason have no community reader (Security, t/196 p/238#2), so they are owner-only. */
 const COMMUNITY_NEUTRAL_EVALUATION_KEYS: ReadonlySet<string> = new Set([
-  'checkpoint', 'timestamp', 'cruxes', 'claims', 'overall_assessment', 'evaluation_invalid', 'invalid_reason',
+  'checkpoint', 'timestamp', 'cruxes', 'claims', 'overall_assessment',
 ]);
 
-/** Structural projection of one neutral evaluation (t/196#25 item 1). */
+/** Crux keys the community renderer reads. Crux.embedding (a 384-dim vector of the description) is
+ *  owner-only: no community reader (Security, t/196 p/238#2). */
+const COMMUNITY_CRUX_KEYS: ReadonlySet<string> = new Set([
+  'id', 'description', 'disagreement_type', 'speakers_involved', 'status', 'confidence',
+]);
+
+/** Structural projection of one neutral evaluation (t/196#25 item 1, p/238#2 blocker). */
 function projectNeutralEvaluation(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
-  return Object.fromEntries(Object.entries(entry as Record<string, unknown>).filter(([k]) => COMMUNITY_NEUTRAL_EVALUATION_KEYS.has(k)));
+  const evaluation = Object.fromEntries(Object.entries(entry as Record<string, unknown>).filter(([k]) => COMMUNITY_NEUTRAL_EVALUATION_KEYS.has(k)));
+  if (Array.isArray(evaluation.cruxes)) {
+    evaluation.cruxes = evaluation.cruxes
+      .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+      .map(c => Object.fromEntries(Object.entries(c).filter(([k]) => COMMUNITY_CRUX_KEYS.has(k))));
+  }
+  return evaluation;
 }
 
 /** Structural projection of adaptive_staging (t/196#25 item 4): enabled, step_mode, and the phase only. */
