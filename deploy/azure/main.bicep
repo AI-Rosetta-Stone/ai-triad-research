@@ -766,6 +766,12 @@ var stagingEnvOverrides = [
   { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
+  // t/77 / t/406: staging writes only to its own data repo, never prod's. Staging starts empty
+  // (PI-confirmed, option B). Prod's baseEnv keeps GITHUB_REPO = prod.
+  { name: 'GITHUB_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
+  { name: 'STAGING_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
+  // t/406: the staging App ID, for the staging boot guard. Same value as GITHUB_APP_ID on staging.
+  { name: 'STAGING_APP_ID', value: stagingGithubAppId }
   // Isolated cache dir only — AI_TRIAD_DATA_ROOT=/mnt/shared inherited from baseEnv
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
