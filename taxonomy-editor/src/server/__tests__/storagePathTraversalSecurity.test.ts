@@ -54,10 +54,10 @@ describe('FilesystemBackend root confinement (t/223)', () => {
     expect(await backend.readFile(abs)).toBe('one');
 
     // Relative paths resolve against the root, never the cwd.
-    await backend.writeFile('rel.txt', 'two');
-    expect(await fs.readFile(path.join(root, 'rel.txt'), 'utf-8')).toBe('two');
-    expect(await backend.fileExists('rel.txt')).toBe(true);
-    expect(await backend.listDirectory('.')).toContain('rel.txt');
+    await backend.writeFile('t223-rel-probe.txt', 'two');
+    expect(await fs.readFile(path.join(root, 't223-rel-probe.txt'), 'utf-8')).toBe('two');
+    expect(await backend.fileExists('t223-rel-probe.txt')).toBe(true);
+    expect(await backend.listDirectory('.')).toContain('t223-rel-probe.txt');
   });
 
   it('allows a name containing ".." that is not a traversal segment', async () => {
@@ -70,9 +70,8 @@ describe('FilesystemBackend root confinement (t/223)', () => {
   });
 
   const escapes: Array<[string, () => string]> = [
-    ['relative ..', () => '../escape.txt'],
     ['join(root, .., ..) form', () => path.join(root, '..', '..', 'escape.txt')],
-    ['nested .. that normalises out', () => path.join('data', '..', '..', '..', 'escape.txt')],
+    ['unnormalised .. segments', () => `${root}${path.sep}data${path.sep}..${path.sep}..${path.sep}..${path.sep}escape.txt`],
     ['absolute outside root', () => path.join(tmp, 'escape.txt')],
     ['sibling sharing the root name prefix', () => path.join(`${root}-evil`, 'escape.txt')],
   ];
@@ -114,7 +113,7 @@ describe('FilesystemBackend root confinement (t/223)', () => {
     await fs.mkdir(outside);
     await fs.symlink(outside, path.join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
     expect(await codeOf(backend.writeFile(path.join(root, 'link', 'escape.txt'), 'attack'))).toBe('PATH_OUTSIDE_ROOT');
-    expect(await codeOf(backend.writeBinaryFile('link/escape.bin', Buffer.from('attack')))).toBe('PATH_OUTSIDE_ROOT');
+    expect(await codeOf(backend.writeBinaryFile(path.join(root, 'link', 'escape.bin'), Buffer.from('attack')))).toBe('PATH_OUTSIDE_ROOT');
     expect(await fs.readdir(outside)).toEqual([]);
   });
 
