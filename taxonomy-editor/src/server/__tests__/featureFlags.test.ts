@@ -89,6 +89,11 @@ describe('feature flag CRUD + resolution (t/899)', () => {
     expect(getFlag('custom-only')).toBe(true);
   });
 
+  it('useSyntheticStatementGrounding is seeded OFF, global, for every user (t/413)', () => {
+    expect(getFlag('useSyntheticStatementGrounding')).toBe(false);
+    expect(asUser('jpsnover', () => getFlag('useSyntheticStatementGrounding'))).toBe(false);
+  });
+
   it('env-web-opeds is seeded OFF with env:web scope; reveal = admin flip (t/2632)', () => {
     // AC1: present in SEED, scope env:web, default disabled.
     expect(getFlagMetadata('env-web-opeds')).toMatchObject({ enabled: false, scope: 'env:web' });
