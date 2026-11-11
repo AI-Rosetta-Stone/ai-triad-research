@@ -11,7 +11,7 @@ import {
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
   MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS, MERGE_QUEUE_STUCK_MINUTES,
-  classifyHealLiveness, HEAL_WORKFLOW_PATH,
+  classifyHealLiveness, HEAL_WORKFLOW_PATH, findStaleChangesRequest, CHANGES_REQUESTED_STALE_HOURS,
 } from './stuck-pr-classifier.mjs';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -817,4 +817,88 @@ test('FAULT CHECK: a failed run at a different workflow path is ignored, not mis
 test('escalationLevel: heal-failed always escalates straight to tl, even at episode age 0 (no owner to ping)', () => {
   assert.equal(escalationLevel('heal-failed', 0), 'tl');
   assert.equal(escalationLevel('heal-failed', 100), 'tl');
+});
+
+// ── changes-requested-stale (t/308) ──
+// #4930 sat 4h in Design's changes-requested because the fix went to a closed duplicate's branch.
+const APP = 'ai-triad-reviewer-jpsnover[bot]';
+const HEAD = 'headsha1';
+function roleReview({ reviews = [], comments = [], lastPushAt = hoursAgo(5) } = {}) {
+  return { reviewerAppLogin: APP, headSha: HEAD, lastPushAt, reviews, comments };
+}
+const appReview = (body, at, commitId = HEAD, state = 'COMMENTED') => ({ body, login: APP, commitId, submittedAt: at, state });
+
+test('changes-requested-stale: Design requested changes at head 3h ago, no push since -> fires, names reviewer and time, owner on first sight', () => {
+  const pr = basePr({ roleReview: roleReview({ reviews: [appReview('Changes requested (Design): fix the tint', hoursAgo(3))] }) });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'changes-requested-stale');
+  assert.equal(v.detail.reviewer, 'Design');
+  assert.equal(v.detail.requestedAt, hoursAgo(3));
+  assert.equal(v.detail.ageHours, 3);
+  assert.match(v.detail.remedy, /THIS PR's branch/);
+  assert.equal(escalationLevel(v.class, 0), 'owner');
+});
+
+test('changes-requested-stale: a push after the request (review bound to an older commit) -> does NOT fire', () => {
+  const pr = basePr({ roleReview: roleReview({ reviews: [appReview('Changes requested (Design): fix the tint', hoursAgo(3), 'oldsha')], lastPushAt: hoursAgo(1) }) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'changes-requested-stale');
+});
+
+test('changes-requested-stale: a comment-sourced request that predates the latest push -> does NOT fire', () => {
+  const comments = [{ body: 'Changes requested (Quality): add a test', login: APP, createdAt: hoursAgo(4), updatedAt: hoursAgo(4) }];
+  const pr = basePr({ roleReview: roleReview({ comments, lastPushAt: hoursAgo(1) }) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'changes-requested-stale');
+});
+
+test('changes-requested-stale: the same role approves at head after its earlier request -> does NOT fire', () => {
+  const reviews = [
+    appReview('Changes requested (Design): fix the tint', hoursAgo(4)),
+    appReview('Approved (Design): tint fixed', hoursAgo(3), HEAD, 'APPROVED'),
+  ];
+  const pr = basePr({ roleReview: roleReview({ reviews }) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'changes-requested-stale');
+});
+
+test('changes-requested-stale: ANOTHER role approving does not clear the request (#4686 shape) -> still fires, ahead of approved-not-armed', () => {
+  const reviews = [
+    appReview('Changes requested (Design): fix the tint', hoursAgo(4)),
+    appReview('Approved (Quality): tests fine', hoursAgo(3), HEAD, 'APPROVED'),
+  ];
+  const pr = basePr({ hasApproval: true, roleReview: roleReview({ reviews }) });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'changes-requested-stale');
+  assert.equal(v.detail.reviewer, 'Design');
+});
+
+test('BOUNDARY: a request exactly CHANGES_REQUESTED_STALE_HOURS old does NOT fire; one second past does', () => {
+  const at = new Date(NOW - CHANGES_REQUESTED_STALE_HOURS * 3600000).toISOString();
+  const atPlus = new Date(NOW - CHANGES_REQUESTED_STALE_HOURS * 3600000 - 1000).toISOString();
+  const mk = (t) => basePr({ roleReview: roleReview({ reviews: [appReview('Changes requested (Design): x', t)] }) });
+  assert.notEqual(classifyBlocker(mk(at), NOW)?.class, 'changes-requested-stale');
+  assert.equal(classifyBlocker(mk(atPlus), NOW)?.class, 'changes-requested-stale');
+});
+
+test('changes-requested-stale: a human CHANGES_REQUESTED review (per-login slot) also counts', () => {
+  const reviews = [{ body: 'please rename', login: 'someone', commitId: HEAD, submittedAt: hoursAgo(3), state: 'CHANGES_REQUESTED' }];
+  const v = classifyBlocker(basePr({ roleReview: roleReview({ reviews }) }), NOW);
+  assert.equal(v.class, 'changes-requested-stale');
+  assert.equal(v.detail.reviewer, '@someone');
+});
+
+test('changes-requested-stale: no roleReview facts supplied -> class never fires (never guessed)', () => {
+  assert.notEqual(classifyBlocker(basePr(), NOW)?.class, 'changes-requested-stale');
+});
+
+test('changes-requested-stale: a higher-priority blocker (merge conflict) still wins', () => {
+  const pr = basePr({ isConflicting: true, roleReview: roleReview({ reviews: [appReview('Changes requested (Design): x', hoursAgo(3))] }) });
+  assert.equal(classifyBlocker(pr, NOW).class, 'merge-conflict');
+});
+
+test('findStaleChangesRequest: picks the OLDEST of two stale requests', () => {
+  const reviews = [
+    appReview('Changes requested (Quality): a', hoursAgo(3)),
+    appReview('Changes requested (Design): b', hoursAgo(5)),
+  ];
+  const s = findStaleChangesRequest(roleReview({ reviews }), NOW);
+  assert.equal(s.reviewer, 'Design');
 });
