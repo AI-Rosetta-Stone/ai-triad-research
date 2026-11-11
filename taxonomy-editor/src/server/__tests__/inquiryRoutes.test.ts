@@ -76,8 +76,8 @@ vi.mock('../storage/jobCapChecker.js', () => ({
     if (!idempotencyKey) return null;
     return h.durableIdempotent;
   },
-  checkInProcessSubmission: (_userId: string, _kind: string, _debateId: string | undefined) => null,
-  recordInProcessSubmission: (_userId: string, _kind: string, _debateId: string | undefined, _jobId: string) => {},
+  reserveSubmissionSlot: (_userId: string, _kind: string, _debateId: string | undefined) => true, // Always allow in tests
+  releaseSubmissionReservation: (_userId: string, _kind: string, _debateId: string | undefined) => {},
 }));
 const renameInquiryResult = vi.fn(async (jobId: string, title: string) => { h.persisted.set(jobId, { ...(h.persisted.get(jobId) as object ?? {}), title }); });
 const deleteInquiryResult = vi.fn(async (jobId: string) => { h.persisted.delete(jobId); });

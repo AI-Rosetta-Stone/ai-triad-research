@@ -46,13 +46,13 @@ const { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefE
 }));
 vi.mock('../storage/briefExportStore.js', () => ({ listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus }));
 
-const { countUserJobRecords, findRunningJobByIdempotencyKey, checkInProcessSubmission, recordInProcessSubmission } = vi.hoisted(() => ({
+const { countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation } = vi.hoisted(() => ({
   countUserJobRecords: vi.fn(async () => ({ count: 0, error: null })),
   findRunningJobByIdempotencyKey: vi.fn(async () => null),
-  checkInProcessSubmission: vi.fn(() => null),
-  recordInProcessSubmission: vi.fn(),
+  reserveSubmissionSlot: vi.fn(() => true), // Always allow in tests
+  releaseSubmissionReservation: vi.fn(),
 }));
-vi.mock('../storage/jobCapChecker.js', () => ({ countUserJobRecords, findRunningJobByIdempotencyKey, checkInProcessSubmission, recordInProcessSubmission }));
+vi.mock('../storage/jobCapChecker.js', () => ({ countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation }));
 
 import { registerBriefExportsRoutes } from '../routes/briefExports.js';
 import { BRIEF_ARTIFACTS } from '../../../../lib/brief/types.js';
