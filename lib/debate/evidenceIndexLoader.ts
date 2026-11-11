@@ -57,28 +57,9 @@ export function loadDocTitles(sessionId?: string): DocMetaMap | undefined {
   try {
     const __dir = path.dirname(fileURLToPath(import.meta.url));
     const root = resolveRepoRoot(__dir);
-    const configPath = path.join(root, '.aitriad.json');
-    if (!fs.existsSync(configPath)) return undefined;
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const sourcesRoot = config.sources_root ? path.resolve(root, config.sources_root) : null;
-    if (!sourcesRoot || !fs.existsSync(sourcesRoot)) return undefined;
-    const metaMap: Record<string, { title: string; resolved_url?: string; provenance_label?: string }> = {};
-    for (const entry of fs.readdirSync(sourcesRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const metaPath = path.join(sourcesRoot, entry.name, 'metadata.json');
-      if (!fs.existsSync(metaPath)) continue;
-      try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-        if (meta.title) {
-          const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
-          if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
-          if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
-          if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
-          metaMap[entry.name] = docMeta;
-        }
-      } catch { /* per-file meta parse is best-effort */ }
-    }
-    return Object.keys(metaMap).length > 0 ? metaMap : undefined;
+    const sourcesRoot = resolveSourcesRoot(root);
+    if (!sourcesRoot) return undefined;
+    return loadDocMetadataMap(sourcesRoot);
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'state.error',
@@ -93,5 +74,40 @@ export function loadDocTitles(sessionId?: string): DocMetaMap | undefined {
       },
     });
     return undefined;
+  }
+}
+
+function resolveSourcesRoot(root: string): string | null {
+  const configPath = path.join(root, '.aitriad.json');
+  if (!fs.existsSync(configPath)) return null;
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  const sourcesRoot = config.sources_root ? path.resolve(root, config.sources_root) : null;
+  if (!sourcesRoot || !fs.existsSync(sourcesRoot)) return null;
+  return sourcesRoot;
+}
+
+function loadDocMetadataMap(sourcesRoot: string): DocMetaMap | undefined {
+  const metaMap: Record<string, { title: string; resolved_url?: string; provenance_label?: string }> = {};
+  for (const entry of fs.readdirSync(sourcesRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const metaPath = path.join(sourcesRoot, entry.name, 'metadata.json');
+    if (!fs.existsSync(metaPath)) continue;
+    const docMeta = loadSingleDocMeta(metaPath, entry.name);
+    if (docMeta) metaMap[entry.name] = docMeta;
+  }
+  return Object.keys(metaMap).length > 0 ? metaMap : undefined;
+}
+
+function loadSingleDocMeta(metaPath: string, docName: string): { title: string; resolved_url?: string; provenance_label?: string } | null {
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    if (!meta.title) return null;
+    const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
+    if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
+    if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
+    if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
+    return docMeta;
+  } catch {
+    return null;
   }
 }

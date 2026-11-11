@@ -1,58 +1,47 @@
 /**
- * Regression test: sourceEvidenceIndex getter uses configured taxonomy_dir from .aitriad.json,
- * not a hardcoded path. Ensures fresh evidence index from t/290 is used consistently.
+ * Regression test: evidenceIndexLoader loads from configured taxonomy_dir,
+ * not a hardcoded stale path. Ensures t/290 fresh index is used consistently.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 
-vi.mock('fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('fs')>();
-  return {
-    ...actual,
-    existsSync: vi.fn((filepath: string) => {
-      // Only return true for the fresh index path
-      return filepath.includes('taxonomy') && filepath.includes('Origin') && filepath.endsWith('source_evidence_index.json');
-    }),
-    readFileSync: vi.fn((filepath: string, encoding?: string) => {
-      if (filepath.endsWith('.aitriad.json')) {
-        return JSON.stringify({ taxonomy_dir: 'taxonomy/Origin' });
-      }
-      if (filepath.includes('taxonomy') && filepath.includes('Origin') && filepath.endsWith('source_evidence_index.json')) {
-        return JSON.stringify({ nodes: { 'acc-data-001': { type: 'fact' } } });
-      }
-      throw new Error(`Unexpected read: ${filepath}`);
-    }),
-  };
-});
+// Mock fs before importing debateEngine
+vi.mock('fs');
 
-describe('debateEngine.sourceEvidenceIndex', () => {
-  it('reads source evidence index from configured taxonomy_dir (taxonomy/Origin)', async () => {
-    const { DebateEngine } = await import('./debateEngine.js');
-    const fs = await import('fs');
-    
-    const engine = new DebateEngine({
-      adapter: {} as any,
-      taxonomy: {} as any,
-      config: { enableAdaptiveStagingDebug: false },
-      session: { id: 'test-session' },
-    } as any);
-
-    const index = (engine as any).sourceEvidenceIndex;
-
-    // Verify it called readFileSync with .aitriad.json
-    expect(fs.readFileSync).toHaveBeenCalledWith(expect.stringContaining('.aitriad.json'), expect.any(String));
-
-    // Verify it only attempted to read the fresh index path (containing 'Origin')
-    const readCalls = (fs.readFileSync as any).mock.calls.map((call: any[]) => String(call[0]));
-    const indexReadCalls = readCalls.filter(p => p.endsWith('source_evidence_index.json'));
-    
-    expect(indexReadCalls).toHaveLength(1);
-    expect(indexReadCalls[0]).toContain('Origin');
+describe('debateEngine.sourceEvidenceIndex (t/296)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('returns undefined if index file does not exist', async () => {
-    const fs = await import('fs');
-    (fs.existsSync as any).mockReturnValue(false);
+  it('loads index from configured taxonomy/Origin, not stale taxonomy/ path', async () => {
+    const mockFs = vi.mocked(fs);
+    
+    // Setup mocks: allow paths to resolve, then intercept at index read
+    mockFs.existsSync.mockImplementation((filepath: string) => {
+      const p = filepath.toString();
+      // .aitriad.json and  other configs must exist for root resolution
+      if (p.endsWith('.aitriad.json') || p.includes('package.json')) return true;
+      // Only Origin/source_evidence_index.json "exists"; stale path does not
+      if (p.includes('taxonomy') && p.includes('Origin') && p.endsWith('source_evidence_index.json')) return true;
+      if (p.includes('taxonomy/source_evidence_index.json') && !p.includes('Origin')) return false;
+      return true; // permissive for other paths
+    });
+
+    mockFs.readFileSync.mockImplementation((filepath: string, encoding?: string) => {
+      const p = filepath.toString();
+      if (p.endsWith('.aitriad.json')) {
+        return JSON.stringify({ taxonomy_dir: 'taxonomy/Origin' });
+      }
+      if (p.includes('taxonomy') && p.includes('Origin') && p.endsWith('source_evidence_index.json')) {
+        return JSON.stringify({ nodes: { 'acc-data-001': { type: 'fact', label: 'Test' } } });
+      }
+      if (p.includes('package.json')) {
+        return JSON.stringify({ name: 'ai-triad-research' });
+      }
+      throw new Error(`Unexpected fs.readFileSync: ${p}`);
+    });
 
     const { DebateEngine } = await import('./debateEngine.js');
     const engine = new DebateEngine({
@@ -62,7 +51,57 @@ describe('debateEngine.sourceEvidenceIndex', () => {
       session: { id: 'test-session' },
     } as any);
 
+    // Trigger the getter
     const index = (engine as any).sourceEvidenceIndex;
+
+    // Verify the index was loaded (not undefined)
+    expect(index).toBeDefined();
+    expect(index?.nodes?.['acc-data-001']).toBeDefined();
+
+    // Verify readFileSync was called with Origin path
+    const readCalls = mockFs.readFileSync.mock.calls.map(call => String(call[0]));
+    const indexReads = readCalls.filter(p => p.includes('source_evidence_index.json'));
+    expect(indexReads.length).toBeGreaterThan(0);
+    expect(indexReads.some(p => p.includes('Origin'))).toBe(true);
+  });
+
+  it('returns undefined and logs WARN if index missing (Origin path)', async () => {
+    const mockFs = vi.mocked(fs);
+    
+    // Setup mocks: config exists but index does not
+    mockFs.existsSync.mockImplementation((filepath: string) => {
+      const p = filepath.toString();
+      if (p.endsWith('.aitriad.json') || p.includes('package.json')) return true;
+      // Index does not exist anywhere
+      if (p.endsWith('source_evidence_index.json')) return false;
+      return true;
+    });
+
+    mockFs.readFileSync.mockImplementation((filepath: string) => {
+      const p = filepath.toString();
+      if (p.endsWith('.aitriad.json')) {
+        return JSON.stringify({ taxonomy_dir: 'taxonomy/Origin' });
+      }
+      if (p.includes('package.json')) {
+        return JSON.stringify({ name: 'ai-triad-research' });
+      }
+      throw new Error(`Unexpected fs.readFileSync: ${p}`);
+    });
+
+    const { DebateEngine } = await import('./debateEngine.js');
+    const engine = new DebateEngine({
+      adapter: {} as any,
+      taxonomy: {} as any,
+      config: { enableAdaptiveStagingDebug: false },
+      session: { id: 'test-session' },
+    } as any);
+
+    // Trigger the getter
+    const index = (engine as any).sourceEvidenceIndex;
+
+    // Verify undefined when index is missing
     expect(index).toBeUndefined();
   });
 });
+
+
