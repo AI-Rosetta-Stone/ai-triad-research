@@ -52,7 +52,27 @@ export class FilesystemBackend implements StorageBackend {
     return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
   }
 
-  private realRoot?: Promise<string>;
+  private async realContained(abs: string, realRoot: string, filePath: string): Promise<boolean> {
+    // Realpath the deepest existing ancestor so a symlink inside the root can't lead out.
+    let probe = abs;
+    for (;;) {
+      try {
+        return FilesystemBackend.isWithin(await fs.realpath(probe), realRoot);
+      } catch (err) {
+        const parent = path.dirname(probe);
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) {
+          // Fail closed: anything but "does not exist yet" means containment can't be proven.
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'filesystem-backend', level: 'error',
+            message: `confine: cannot verify containment of ${filePath}`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          return false;
+        }
+        probe = parent;
+      }
+    }
+  }
 
   /** t/223: resolve `filePath` against the root and refuse (PATH_OUTSIDE_ROOT) anything that
    *  lands outside it, lexically or through a symlink. Runs before any fs call and returns the
@@ -64,20 +84,20 @@ export class FilesystemBackend implements StorageBackend {
     const abs = path.resolve(root, filePath);
     let ok = FilesystemBackend.isWithin(abs, root);
     if (ok) {
-      this.realRoot ??= fs.realpath(root).catch(() => root);
-      const realRoot = await this.realRoot;
-      // Realpath the deepest existing ancestor so a symlink inside the root can't lead out.
-      let probe = abs;
-      for (;;) {
-        try {
-          ok = FilesystemBackend.isWithin(await fs.realpath(probe), realRoot);
-          break;
-        } catch (err) {
-          const parent = path.dirname(probe);
-          if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) break;
-          probe = parent;
+      // A root that doesn't exist yet can't contain a symlink, so only the lexical check applies.
+      const realRoot = await fs.realpath(root).catch((err: unknown) => {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'filesystem-backend', level: 'error',
+            message: `confine: realpath(root) failed: ${root}`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          return null;
         }
-      }
+        return undefined;
+      });
+      if (realRoot === null) ok = false;
+      else if (realRoot !== undefined) ok = await this.realContained(abs, realRoot, filePath);
     }
     if (!ok) {
       throw new ActionableError({
