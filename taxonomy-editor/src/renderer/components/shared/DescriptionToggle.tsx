@@ -55,10 +55,14 @@ interface DescriptionToggleProps {
   mode: DescriptionMode;
   onToggle: (mode: DescriptionMode) => void;
   hasPlainDescription: boolean;
+  /** Enable Alt+P listener on document. Default: true. Set false to prevent global shortcut registration. */
+  globalShortcut?: boolean;
 }
 
-export function DescriptionToggle({ mode, onToggle, hasPlainDescription }: DescriptionToggleProps) {
+export function DescriptionToggle({ mode, onToggle, hasPlainDescription, globalShortcut = true }: DescriptionToggleProps) {
   useEffect(() => {
+    if (!globalShortcut) return;
+    
     function handleKeyDown(e: KeyboardEvent) {
       if (e.altKey && e.key === 'p') {
         e.preventDefault();
@@ -67,7 +71,7 @@ export function DescriptionToggle({ mode, onToggle, hasPlainDescription }: Descr
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [mode, onToggle]);
+  }, [mode, onToggle, globalShortcut]);
 
   return (
     <div className="description-toggle" role="radiogroup" aria-label="Description style">

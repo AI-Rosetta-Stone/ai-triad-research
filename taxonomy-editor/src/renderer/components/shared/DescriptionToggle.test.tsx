@@ -51,6 +51,18 @@ describe('DescriptionToggle', () => {
     expect(onToggle).toHaveBeenCalledWith('plain');
   });
 
+  it('Alt+P isolation: does not toggle when globalShortcut={false}', () => {
+    render(<DescriptionToggle mode="formal" onToggle={onToggle} hasPlainDescription={true} globalShortcut={false} />);
+    fireEvent.keyDown(document, { key: 'p', altKey: true });
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('Alt+P isolation: default globalShortcut=true still toggles', () => {
+    render(<DescriptionToggle mode="formal" onToggle={onToggle} hasPlainDescription={true} globalShortcut={true} />);
+    fireEvent.keyDown(document, { key: 'p', altKey: true });
+    expect(onToggle).toHaveBeenCalledWith('plain');
+  });
+
   it('uses radiogroup role for accessibility', () => {
     render(<DescriptionToggle mode="plain" onToggle={onToggle} hasPlainDescription={true} />);
     expect(screen.getByRole('radiogroup')).toBeDefined();
