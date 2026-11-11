@@ -283,20 +283,25 @@ var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
 var stagingFreePoolCap = freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
-var oauthSecrets = concat(
+var sharedOauthSecrets = concat(
   googleEnabled ? [ { name: googleClientSecretName, value: googleClientSecret } ] : [],
   githubEnabled ? [ { name: githubClientSecretName, value: githubClientSecret } ] : [],
   aadEnabled ? [ { name: aadClientSecretName, value: aadClientSecret } ] : [],
   githubTokenProvided ? [ { name: githubTokenSecretName, value: githubToken } ] : [],
-  githubWebhookSecretProvided ? [ { name: githubWebhookSecretName, value: githubWebhookSecret } ] : [],
+  githubWebhookSecretProvided ? [ { name: githubWebhookSecretName, value: githubWebhookSecret } ] : []
+)
+var oauthSecrets = concat(sharedOauthSecrets,
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
-// t/4732: the staging app's secrets are prod's plus its own free-tier key. Prod's `secrets:` stays
-// oauthSecrets, so prod can never reference free-tier-gemini-key-staging
-// (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
-var stagingSecrets = concat(oauthSecrets,
-  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : [])
+// t/269: the staging app gets its own free-tier key and no longer holds the shared one. Only when
+// the staging key is empty does staging fall back to the shared key, because its FREE_TIER_GEMINI_KEY
+// then still references it. Prod's `secrets:` stays oauthSecrets, so prod can never reference
+// free-tier-gemini-key-staging (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
+var stagingFallbackFreeTier = freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []
+var stagingSecrets = concat(sharedOauthSecrets,
+  paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : [],
+  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : stagingFallbackFreeTier)
 
 // ── Log Analytics ──
 
