@@ -123,27 +123,18 @@ function Write-DebateQualityTableHeader {
 function Write-DebateQualityMetricRows {
     <#
     .SYNOPSIS
-        Write metric comparison rows in a consistent order.
+        Write metric comparison rows.
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][hashtable]$Deltas,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Deltas,
         [Parameter(Mandatory)][string[]]$LowerIsBetter
     )
     
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
-    # Define metric order for consistent table output
-    $MetricOrder = @(
-        'crux_addressed_ratio', 'repetition_rate', 'claims_forgotten_rate',
-        'taxonomy_mapped_ratio', 'avg_utilization_rate', 'situation_crux_alignment',
-        'avg_branch_cohesion', 'draft_repair_rate', 'concession_cascades',
-        'topic_alignment_rate', 'prm_mean', 'prm_stddev', 'prm_min'
-    )
-
-    foreach ($Key in $MetricOrder) {
-        if (-not $Deltas.ContainsKey($Key)) { continue }
+    foreach ($Key in $Deltas.Keys) {
         $D = $Deltas[$Key]
         $DeltaStr = if ($D.delta -gt 0) { "+$($D.delta)" } elseif ($D.delta -eq 0) { '=' } else { "$($D.delta)" }
         $PctStr = if ($null -ne $D.pct) { "$($D.pct)%" } else { '—' }
@@ -166,8 +157,8 @@ function Write-DebateQualityPrmComponents {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][hashtable]$ComponentsA,
-        [Parameter(Mandatory)][hashtable]$ComponentsB
+        [Parameter(Mandatory)][System.Collections.IDictionary]$ComponentsA,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$ComponentsB
     )
     
     Set-StrictMode -Version Latest
@@ -199,8 +190,8 @@ function Write-DebateQualityAgentUtilities {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][hashtable]$AgentA,
-        [Parameter(Mandatory)][hashtable]$AgentB
+        [Parameter(Mandatory)][System.Collections.IDictionary]$AgentA,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$AgentB
     )
     
     Set-StrictMode -Version Latest
