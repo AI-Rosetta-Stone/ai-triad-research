@@ -25,10 +25,11 @@ import {
   EDGE_CONTEXT_TOP_N,
   TAG_BOOST_INCREMENT,
 } from '../debateConfig.js';
+import { selectSyntheticGroundedPovNodes, type SyntheticGroundingResult } from './syntheticGrounding.js';
 import { loadProvisionalWeights } from '../phaseTransitions.js';
 import { cosineSimilarity } from '../../embeddings/similarity.js';
 import { computePreDebateFreshness, computeBdiEntropy, weightedSituationScore, PRE_DEBATE_WEIGHTS } from '../situationScoring.js';
-import { type Category } from '../taxonomyTypes.js';
+import { type Category, type PovNode } from '../taxonomyTypes.js';
 
 export function getNodeLabelMap(engine: DebateEngineInternals): Map<string, string> {
   if (engine._nodeLabelMap) return engine._nodeLabelMap;
@@ -458,8 +459,13 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     }
   }
 
+  // Synthetic-statement arm (t/412): each selected node's text is its best-matching synthetic
+  // statement against the debate query; skipped nodes are backfilled. Takes precedence over
+  // useDebateGrounding. Off by default.
+  const synthetic = resolveSyntheticPromptNodes(engine, scoredPov, tagCtx.povNodes, scores, roundFocusVector);
+
   const filteredCtx = {
-    povNodes: scoredPov.map(s => s.node),
+    povNodes: synthetic?.arm === 'synthetic' ? synthetic.nodes : scoredPov.map(s => s.node),
     situationNodes: filteredSit.map(s => s.node),
     policyRegistry: ctx.policyRegistry,
     nodeScores: scores,
@@ -471,6 +477,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   }));
   engine._lastInjectionManifest = computeInjectionManifest(filteredCtx, pov);
   engine._lastInjectionManifest.scoring_mode = scoringMode;
+  if (synthetic) (engine._lastInjectionManifest as Record<string, unknown>).synthetic_arm = synthetic.arm;
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
   if (tagSelection) {
     (engine._lastInjectionManifest as Record<string, unknown>).tag_selection = {
@@ -560,22 +567,73 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     }
   }
 
-  let debateGroundingOverrides: Map<string, string> | undefined;
-  if (engine.config.useDebateGrounding) {
-    debateGroundingOverrides = new Map<string, string>();
-    for (const n of filteredCtx.povNodes) {
-      const grounding = n.graph_attributes?.debate_grounding;
-      if (grounding) debateGroundingOverrides.set(n.id, grounding);
-    }
-    if (debateGroundingOverrides.size === 0) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useDebateGrounding: no injected nodes have debate_grounding populated — falling back to description for all nodes' });
-    }
-  }
+  const debateGroundingOverrides = resolveGroundingOverrides(engine, synthetic, filteredCtx.povNodes);
 
   return formatTaxonomyContext(filteredCtx, pov, undefined, {
     ...(situationStatements ? { situationStatements } : undefined),
     ...(debateGroundingOverrides ? { debateGroundingOverrides } : undefined),
   });
+}
+
+// t/3366: debate_grounding register text per node when useDebateGrounding is on.
+function resolveDebateGroundingOverrides(engine: DebateEngineInternals, povNodes: PovNode[]): Map<string, string> | undefined {
+  if (!engine.config.useDebateGrounding) return undefined;
+  const overrides = new Map<string, string>();
+  for (const n of povNodes) {
+    const grounding = n.graph_attributes?.debate_grounding;
+    if (grounding) overrides.set(n.id, grounding);
+  }
+  if (overrides.size === 0) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useDebateGrounding: no injected nodes have debate_grounding populated — falling back to description for all nodes' });
+  }
+  return overrides;
+}
+
+/** Outcome of the synthetic arm for one turn. `undefined` from resolveSyntheticPromptNodes means the flag is off. */
+export type SyntheticArm =
+  | { arm: 'synthetic'; nodes: PovNode[]; overrides: Map<string, string> }
+  | { arm: 'control-fallback' };
+
+// Synthetic-statement arm (t/412). Flag off: undefined. Flag on with no query embedding: the turn is
+// marked 'control-fallback' and runs the control prompt, so the experiment can exclude it from arm B.
+export function resolveSyntheticPromptNodes(
+  engine: DebateEngineInternals,
+  scoredPov: ScoredPovNode[],
+  eligible: PovNode[],
+  scores: Map<string, number>,
+  roundFocusVector: number[] | null,
+): SyntheticArm | undefined {
+  if (!engine.config.useSyntheticStatementGrounding) return undefined;
+  if (!roundFocusVector) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useSyntheticStatementGrounding: no query embedding — control-fallback: this turn runs the control prompt (description) and is marked synthetic_arm=control-fallback' });
+    return { arm: 'control-fallback' };
+  }
+  const grounded: SyntheticGroundingResult = selectSyntheticGroundedPovNodes({
+    selected: scoredPov,
+    pool: eligible.map(n => ({ node: n, score: scores.get(n.id) ?? 0 })),
+    queryVector: roundFocusVector,
+    nodeVectors: engine.taxonomy.embeddings,
+    nodeStatements: engine.taxonomy.syntheticStatements ?? {},
+    debateId: engine.session?.id,
+  });
+  // Zero-node case (TL decision, p/8#142): never send a prompt with no POV nodes. Fall back to the
+  // control path and mark the turn so it is excluded from arm B.
+  if (grounded.nodes.length === 0) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: `useSyntheticStatementGrounding: no POV node has a usable synthetic statement (${grounded.skipped.length} skipped, 0 backfilled) — falling back to the control prompt, marked synthetic_arm=control-fallback` });
+    return { arm: 'control-fallback' };
+  }
+  return { arm: 'synthetic', nodes: grounded.nodes, overrides: grounded.overrides };
+}
+
+// Synthetic statements take precedence over debate_grounding. A control-fallback turn gets the
+// control path unchanged (debate_grounding when useDebateGrounding is on), so it matches arm A.
+export function resolveGroundingOverrides(
+  engine: DebateEngineInternals,
+  synthetic: SyntheticArm | undefined,
+  povNodes: PovNode[],
+): Map<string, string> | undefined {
+  if (synthetic?.arm === 'synthetic') return synthetic.overrides;
+  return resolveDebateGroundingOverrides(engine, povNodes);
 }
 
 export function formatDebaterEdgeContext(engine: DebateEngineInternals, debaterPov: string): { text: string; edges_used: { source: string; target: string; type: string; confidence: number }[] } {
