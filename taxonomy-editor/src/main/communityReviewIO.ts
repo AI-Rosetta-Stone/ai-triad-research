@@ -46,6 +46,18 @@ function assertNeverCommunityType(type: never): never {
   throw new Error(`Unhandled community type: ${String(type)}`);
 }
 
+/** t/301: map singular submission types to plural CommunityType for routing via
+ *  communityPrefixFor. Exhaustive switch ensures new types are handled at compile time. */
+function submissionTypeToCommunityType(type: Submission['type']): CommunityType {
+  switch (type) {
+    case 'chat': return 'chats';
+    case 'debate': return 'debates';
+    case 'oped': return 'opeds';
+    case 'inquiry': return 'inquiries';
+    default: return assertNeverCommunityType(type);
+  }
+}
+
 const COMMUNITY_TYPES = new Set<CommunityType>(['chats', 'debates', 'opeds', 'inquiries']);
 
 /** t/4895 (Quality p/664#33): `type`'s TS type is erased at the Electron IPC boundary — a
@@ -75,7 +87,7 @@ function desktopAdminActor(): string {
 
 interface Submission {
   id: string;
-  type: CommunityType;
+  type: 'chat' | 'debate' | 'oped' | 'inquiry';
   originalId: string;
   submittedBy: string;
   submittedAt: string;
@@ -483,8 +495,8 @@ class CommunityReviewClient {
 
   /** Promote one pending submission: merge admin edits, sanitize, strip sensitive data per type,
    *  publish to the public community blob, and mark the submission approved. t/301: routes by
-   *  type using communityPrefixFor and strips op-ed stages before publishing. Extracted from
-   *  executeAction (t/1914). */
+   *  type using submissionTypeToCommunityType → communityPrefixFor, strips op-ed stages, applies
+   *  inquiry projection (t/3651). Extracted from executeAction (t/1914). */
   private async promoteSubmission(submission: Submission, subPath: string, edits: Record<string, unknown> | undefined): Promise<void> {
     const dataToPublish = (edits && typeof edits === 'object' && submission.data && typeof submission.data === 'object')
       ? { ...(submission.data as Record<string, unknown>), ...edits }
@@ -493,12 +505,24 @@ class CommunityReviewClient {
     let sanitized = sanitizeForCommunity(dataToPublish, submission.submittedBy);
     
     // t/171: strip op-ed stages (prompts + user source material) before publishing to community
-    if (submission.type === 'opeds') {
+    if (submission.type === 'oped') {
       sanitized = stripOpEdStagesForCommunity(sanitized);
     }
     
-    const typeDir = `community/${submission.type}`;
-    const prefix = communityPrefixFor(submission.type);
+    // t/3651: inquiries use projectInquiryFields projection (mirrors server community.ts:787-790)
+    // For now, reject inquiries until projection is available in desktop context
+    if (submission.type === 'inquiry') {
+      throw new ActionableError({
+        goal: 'Publish inquiry to community',
+        problem: 'Inquiry publication not yet supported on desktop',
+        location: 'communityReviewIO.ts → promoteSubmission',
+        nextSteps: ['Wait for inquiry projection implementation (t/3651)'],
+      });
+    }
+    
+    const communityType = submissionTypeToCommunityType(submission.type);
+    const typeDir = `community/${communityType}`;
+    const prefix = communityPrefixFor(communityType);
     await this.writeBlob(`${typeDir}/${prefix}${sanitized.id}.json`, JSON.stringify(sanitized, null, 2));
     submission.status = 'approved';
     await this.writeBlob(subPath, JSON.stringify(submission, null, 2));
