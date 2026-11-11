@@ -21,9 +21,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
 const lf = (s) => s.replace(/\r\n/g, '\n');
 const CANONICAL = lf(readFileSync(path.join(here, 'rate-limit-snapshot-step.yml'), 'utf8'));
-// t/314: the T1 PR wires the two guards off the tier-check R1 path floor; the three R1 guards
-// (tier-check, joint-gv-guard, consult-hold-guard) are added by the stacked T2 PR.
-export const GUARD_WORKFLOWS = ['t1-approval-guard', 'foreign-commit-check'];
+export const GUARD_WORKFLOWS = ['tier-check', 't1-approval-guard', 'joint-gv-guard', 'consult-hold-guard', 'foreign-commit-check'];
 
 test('every per-PR guard carries the canonical rate-limit snapshot step verbatim, as its final step', () => {
   for (const w of GUARD_WORKFLOWS) {
