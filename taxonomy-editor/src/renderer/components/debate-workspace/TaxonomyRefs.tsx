@@ -318,6 +318,7 @@ function AnticipatedBox({ wp, field, title }: { wp: Record<string, unknown>; fie
 interface ClaimMapLayoutProps {
   wp: Record<string, unknown>;
   stage?: string;
+  camp?: string; // the speaker's camp, e.g. SKEPTIC
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }
@@ -486,13 +487,13 @@ function ClaimMapAssumptions({ assumptions }: { assumptions: ParsedAssumption[] 
 }
 
 function ClaimMapMore({ wp }: { wp: Record<string, unknown> }) {
-  const [moreExpanded, setMoreExpanded] = useState(false);
   // Hidden when the entry has none of the three sections, so no empty disclosure shows.
   if (!wp.planned_moves && !wp.argument_sketch && !wp.anticipated_responses) return null;
   return (
-    <details className="claim-map-more" onToggle={e => setMoreExpanded((e.currentTarget as HTMLDetailsElement).open)}>
+    <details className="claim-map-more">
+      {/* The caret is drawn in CSS from the [open] state. */}
       <summary className="claim-map-more-summary">
-        <span className="claim-map-more-toggle">{moreExpanded ? '▾' : '▸'}</span> More from the plan
+        <span className="claim-map-more-toggle" aria-hidden="true" /> More from the plan
       </summary>
       <div className="claim-map-more-content">
         <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
@@ -540,7 +541,7 @@ function claimMapCounts(claimCount: number, attackCount: number, assumptionCount
   ].filter(Boolean).join(' · ');
 }
 
-function ClaimMapLayout({ wp, stage = '', selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
   const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
@@ -558,7 +559,7 @@ function ClaimMapLayout({ wp, stage = '', selectedPlanNodeId, setSelectedPlanNod
     <div className="claim-map-layout">
       <SectionErrorBoundary section="Plan Header">
         <ClaimMapHeader
-          eyebrow={String(stage || 'plan').toUpperCase()}
+          eyebrow={[camp, stage || 'plan'].filter(Boolean).map(part => String(part).toUpperCase()).join(' · ')}
           counts={counts}
           coreThesis={coreThesis}
           strategicGoal={strategicGoal}
@@ -586,7 +587,8 @@ function ClaimMapLayout({ wp, stage = '', selectedPlanNodeId, setSelectedPlanNod
   );
 }
 
-function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
+function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
+  entry?: TranscriptEntry;
   planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -604,6 +606,7 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
         <ClaimMapLayout
           wp={wp}
           stage={planStage.stage}
+          camp={entry?.speaker}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
@@ -612,7 +615,8 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
   );
 }
 
-function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
+function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
+  entry?: TranscriptEntry;
   planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -629,7 +633,7 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
         />
       </summary>
       <div className="debate-reasoning-section-body">
-        <PlanBody planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />
+        <PlanBody planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} entry={entry} />
       </div>
     </details>
   );
@@ -805,8 +809,9 @@ export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs, emptyText =
   return <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />;
 }
 
-function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
-  briefStage?: { stage: string; raw_response: string; work_product: Record<string, unknown> };
+function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
+  entry?: TranscriptEntry;
+  briefStage?:{ stage: string; raw_response: string; work_product: Record<string, unknown> };
   planStage?: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -814,7 +819,7 @@ function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedP
   return (
     <div className="debate-reasoning-list">
       {briefStage && <BriefSection briefStage={briefStage} />}
-      {planStage && <PlanSection planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />}
+      {planStage && <PlanSection planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} entry={entry} />}
     </div>
   );
 }
@@ -902,6 +907,7 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
         <ReasoningList
           briefStage={briefStage}
           planStage={planStage}
+          entry={entry}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
