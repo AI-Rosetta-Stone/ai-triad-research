@@ -1,13 +1,94 @@
 /**
- * Extract text from HTML in one linear pass. No regex runs on the document.
+ * Extract text from HTML in one linear pass. The tag and entity passes use no backtracking regex.
  *
  * Every tag becomes a space. The contents of script, style, head and noscript are dropped.
+ * Character references (named, &#N; and &#xH;) are decoded after stripping, so "&lt;" becomes text, not a tag.
  * Each index is visited at most once, and a failed lookup is remembered so later lookups
  * never rescan the tail. This keeps unclosed tags from going quadratic (t/273).
  */
 export function extractHtmlText(bytes: Uint8Array): string {
   const html = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  return collapseWhitespace(stripTags(html));
+  return collapseWhitespace(decodeEntities(stripTags(html)));
+}
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+const MAX_ENTITY_BODY = 10; // longest body between '&' and ';' we accept, e.g. "#x10FFFF"
+
+// Decodes in one left-to-right pass. Each decoded reference is written once and never re-scanned,
+// so "&amp;lt;" becomes "&lt;". Unknown or malformed references are kept as written.
+function decodeEntities(s: string): string {
+  const out: string[] = [];
+  let copyFrom = 0;
+  let amp = s.indexOf('&');
+  while (amp !== -1) {
+    const semi = entityEnd(s, amp + 1);
+    const decoded = semi === -1 ? null : decodeEntityBody(s.slice(amp + 1, semi));
+    if (decoded === null) {
+      amp = s.indexOf('&', amp + 1);
+      continue;
+    }
+    out.push(s.slice(copyFrom, amp), decoded);
+    copyFrom = semi + 1;
+    amp = s.indexOf('&', copyFrom);
+  }
+  out.push(s.slice(copyFrom));
+  return out.join('');
+}
+
+// Index of the ';' that closes a reference starting at `start`, or -1. Looks at most MAX_ENTITY_BODY characters,
+// so a run of '&' with no ';' costs constant time each.
+function entityEnd(s: string, start: number): number {
+  const limit = Math.min(s.length, start + MAX_ENTITY_BODY + 1);
+  for (let i = start; i < limit; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x3b) {
+      return i; // ';'
+    }
+    const isLetterOrDigit = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    if (!isLetterOrDigit && c !== 0x23) {
+      return -1; // '#'
+    }
+  }
+  return -1;
+}
+
+function decodeEntityBody(body: string): string | null {
+  if (body.startsWith('#')) {
+    const hex = body[1] === 'x' || body[1] === 'X';
+    const digits = body.slice(hex ? 2 : 1);
+    if (!allDigits(digits, hex)) {
+      return null;
+    }
+    const codePoint = parseInt(digits, hex ? 16 : 10);
+    if (codePoint === 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+      return null;
+    }
+    return String.fromCodePoint(codePoint);
+  }
+  return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : null;
+}
+
+// True for a non-empty run of decimal digits (or hex digits when `hex`).
+function allDigits(s: string, hex: boolean): boolean {
+  if (s.length === 0) {
+    return false;
+  }
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    const isDecimal = c >= 48 && c <= 57;
+    const isHex = (c >= 65 && c <= 70) || (c >= 97 && c <= 102);
+    if (!isDecimal && !(hex && isHex)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 const DROPPED_ELEMENTS = new Set(['script', 'style', 'head', 'noscript']);

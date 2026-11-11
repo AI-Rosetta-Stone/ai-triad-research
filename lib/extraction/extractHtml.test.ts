@@ -21,6 +21,22 @@ describe('HTML extraction', () => {
     expect(extractHtmlText(encode('<header>Keep me</header><head>Drop me</head>'))).toBe('Keep me');
   });
 
+  it('decodes named, decimal and hex character references once', () => {
+    const html =
+      'Tom &amp; Jerry &lt;3 &quot;hi&quot; &#39;x&#39; &#x41;&#66; caf&nbsp;e &amp;lt; ' +
+      '&unknown; &#99999999; &#xD800; &#0;';
+    expect(extractHtmlText(encode(html))).toBe(
+      `Tom & Jerry <3 "hi" 'x' AB caf e &lt; &unknown; &#99999999; &#xD800; &#0;`
+    );
+  });
+
+  it('handles 100k "&" with no ";" in linear time', () => {
+    const bytes = encode('&#'.repeat(50_000) + '&'.repeat(50_000));
+    const start = performance.now();
+    extractHtmlText(bytes);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('handles 100k "<" with no ">" in linear time', () => {
     const bytes = encode('<'.repeat(100_000));
     const start = performance.now();
