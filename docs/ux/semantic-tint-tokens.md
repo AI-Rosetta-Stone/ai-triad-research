@@ -128,18 +128,45 @@ These come from the first round of migration questions (t/188, t/189, t/191, t/1
 | S8 | **Hover on a tinted element** | keep the same `-bg` (they're solid, so there's no alpha to lift). On hover, strengthen the border to the tone's `-text`. Base border: the tone's `-border` where it exists (error, warning), otherwise transparent. Don't use `filter: brightness()`, which also changes the text contrast. | — |
 | S9 | **Identity hues that aren't status** (chat modes, one-off method or DOLCE hues) | the tone pair with the **same hue**: orange/amber → warning, green → success, blue/cyan/teal → info, indigo/purple → violet. **Exception:** if the warning pair would make a neutral item read as a problem next to green siblings, use info instead. | per the tone row |
 | S10 | **A camp colour as a generic action fill** (Accept, Apply) | the solid accent pairing: `background: var(--accent-text); color: var(--bg-primary)` (t/104). Camp colours mean camps, not actions. | 6.18 |
-| S11 | **`var(--bg, …)`**: `--bg` is defined in no theme, so it falls back to the hard-coded value (often `#fff`) | `var(--bg-primary)`, or `var(--bg-input)` for an input, select or textarea background. It's a bug fix, not a tint. | — |
+| S11 | **`var(--bg, …)`** where `--bg` is the undefined global (defined in no theme, so it falls back to the hard-coded value, often `#fff`) | `var(--bg-primary)`, or `var(--bg-input)` for an input, select or textarea background. It's a bug fix, not a tint. **Exception:** a component that sets its own local `--bg` (e.g. `OrganizationDetail` sets it inline per avatar) is not this case, so leave it. The checker reports it as `undefined-fill` anyway; note the false positive in the PR. If a smoke fixture pins the old transparent value, regenerate the fixture rather than reverting the fix (#4879). | — |
 | S12 | **Icon-only button on a solid fill** (glyph, no text) | the 3:1 non-text bar applies, not 4.5. White on `--danger` (≥ 3.76) passes. The checker may still count it; note it in the PR. | 3.76 |
+| S13 | **A fixed solid scale whose colour is the meaning** (severity or verdict badge sets: qualify / weaken / retire; correct / incorrect / uncertain / novel) | keep the set **solid with white text**, using fixed fills that pass in every theme. Don't tint one member and leave the rest solid. Values below. | ≥ 4.83 |
+| S14 | **BDI category colour as text** (`--cat-desires/beliefs/intentions` on their own tint) | **not S9**: desires (teal) and beliefs (blue) would both collapse to info. Use the BDI pairs below. The existing `--cat-*` stay for dots, borders and other non-text uses. | ≥ 4.61 |
 
-**New token for S5:** `--danger-fill`, used as the background with white text.
+**New token for S5:** `--danger-fill`, used as the background with white text. Its hover is `--danger-fill-hover`. Both are on main (#4885, #4925). The global `.btn-danger` and `.lib-btn-primary` use them.
 
 | | light | dark | bkc | harvard |
 |---|---|---|---|---|
-| value | `#dc2626` | `#dc2626` | `#dc2626` | `#A5182A` |
+| `--danger-fill` | `#dc2626` | `#dc2626` | `#dc2626` | `#A5182A` |
 | white on it | 4.83 | 4.83 | 4.83 | 7.60 |
 | vs page (non-text) | 4.83 | 3.67 | 3.41 | 7.17 |
+| `--danger-fill-hover` | `#b91c1c` | `#b91c1c` | `#b91c1c` | `#7f1d1d` |
+| white on it | 6.47 | 6.47 | 6.47 | 10.02 |
 
-The global `.btn-danger` (`styles.css`, `background: var(--danger)` with white text) should move to it too.
+**S13 fixed solid sets** (white text on each; these are the same in every theme by design):
+
+| Set | Member → fill (white on it) |
+|---|---|
+| Harvest severity (`.harvest-badge-*`, t/193) | qualify `#b45309` (5.02) · weaken `#dc2626` (4.83) · retire `#7f1d1d` (10.02) |
+| Validation verdict, active (`ValidationTab`, t/198) | correct `#15803d` (5.02) · incorrect `var(--danger-fill)` (≥ 4.83) · uncertain `#a16207` (4.92) · novel `#7c3aed` (5.70) |
+
+Unselected verdict buttons keep their outline style. The solid fill is what marks the selection.
+
+**S14 BDI category pairs: _pending_** (ruled in t/198#7; Rosetta Stone adds them in the t/198 token PR, so use them once they're on main). Text is ≥ 4.6:1 on its own `-bg`, on primary and on secondary:
+
+| | light | dark | bkc | harvard |
+|---|---|---|---|---|
+| `--cat-desires-text` / `-bg` | `#0b7970` / `#ebf4f4` | `#2eaaaa` / `#162f3c` | `#909fa4` / `#313334` | `#1a7468` / `#e4ebe7` |
+| `--cat-beliefs-text` / `-bg` | `#2563eb` / `#eef3fd` | `#6d97c6` / `#202c40` | `#82a2ae` / `#2f3436` | `#2b5797` / `#e5e8ec` |
+| `--cat-intentions-text` / `-bg` | `#9333ea` / `#f6effd` | `#b381c8` / `#2b2941` | `#b196b1` / `#363236` | `#7b3f9e` / `#ede6ec` |
+
+**Situations and conflicts: _pending_** (t/198#8, in the same token PR):
+- `--color-sit-bg` uses the camp-tint pattern: light `#eef5f5`, dark `#15363f`, bkc `#202b2a`, harvard `#e3ebe8` (`--color-sit` on it ≥ 4.51). It replaces the `--tint-sit` rgba wherever text sits on it.
+- bkc `--color-conflicts` changes from `#7a6a82` to `#a196a7` (5.64 on secondary; it was the old failing muted grey). The other themes are unchanged.
+
+**Other rulings from the migration:**
+- **Audience badges** (`PhrasesPanel`) must stay distinct within their set of three: industry leader is info, policymaker is violet, technical researcher is success (t/198#11).
+- **A count badge on an active tab** uses the accent pair, not danger (t/198#8).
 
 ## Rollout
 
