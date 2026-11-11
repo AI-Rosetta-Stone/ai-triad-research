@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyEjection, rearmCount, lastEjection, ejectionsSince, ejectingRun, MAX_PER_HEAD } from './infra-rearm-sweep.mjs';
+import { classifyEjection, rearmCount, lastEjection, ejectionsSince, ejectingRun, settledBy, failingStepContext, MAX_PER_HEAD } from './infra-rearm-sweep.mjs';
 
 const job = (name, conclusion, failedStep, annotations = [], log = null) => ({
   name, conclusion, log,
@@ -38,7 +38,6 @@ test('the agreed guard line (t/369, p/173#1) is INFRA', () => {
 });
 
 for (const [what, j] of [
-  ['DNS in a test step', job('test-python', 'failure', 'Run tests', ['curl: (6) Could not resolve host: pypi.org'])],
   ['runner lost', job('test-powershell (3)', 'failure', 'Run Pester', ['The runner has received a shutdown signal.'])],
   ['cancelled job (batch cancelled / runner loss)', job('test-electron', 'cancelled', 'Install dependencies')],
   ['timed out', job('test-container', 'timed_out', 'Build image')],
@@ -61,8 +60,16 @@ test('NOT INFRA (fail safe): an unreadable run, or no failed job besides the agg
   assert.equal(classifyEjection({ jobs: [] }).infra, false);
 });
 
-// Quality's probes (#5113 p/119#40): a step NAME alone never makes a failure infra.
+// Quality's probes (#5113 p/119#40, #42): a step NAME alone never makes a failure infra, and a
+// NETWORK-looking annotation from a TEST step is the test's own failure (vitest reports as annotations).
 for (const [what, j] of [
+  ['a test step annotation "connect ETIMEDOUT"', job('test-electron-vitest (3)', 'failure', 'Run vitest shard', ['Error: connect ETIMEDOUT 10.0.0.5:443 ❯ src/main/net.test.ts:42'])],
+  ['a test step annotation "TypeError: Failed to fetch"', job('test-electron-vitest (1)', 'failure', 'Run vitest shard', ['TypeError: Failed to fetch ❯ src/renderer/api.test.ts:17'])],
+  ['an e2e test hitting a crashed server (ECONNREFUSED 127.0.0.1:3000)', job('render-smoke', 'failure', 'Run render smoke', ['Error: connect ECONNREFUSED 127.0.0.1:3000'])],
+  ['a check printing "503 Service Unavailable"', job('test-server-prod-config', 'failure', 'Check /health', ['expected 200, got 503 Service Unavailable'])],
+  ['DNS in a test step', job('test-python', 'failure', 'Run tests', ['curl: (6) Could not resolve host: pypi.org'])],
+  ['a retried ECONNRESET followed by a real ETARGET in the same setup step', job('renderer-tsc', 'failure', 'Install dependencies (retry on transient nuget/network failures — t/2968)', [],
+    'npm WARN fetch ECONNRESET registry.npmjs.org, will retry\nnpm http fetch GET 200 https://registry.npmjs.org/a\nnpm ERR! code ETARGET\nnpm ERR! notarget No matching version found for left-pad@9.9.9\n##[error]Process completed with exit code 1.')],
   ['pnpm install with ERR_PNPM_OUTDATED_LOCKFILE (#4968 today)', job('test-electron', 'failure', 'pnpm install --frozen-lockfile', ['Process completed with exit code 1.'], 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with package.json')],
   ['a test step named "Run cache invalidation tests"', job('test-electron-vitest (1)', 'failure', 'Run cache invalidation tests', ['AssertionError: expected stale entry to be evicted'])],
   ['a test step named "Run checkout flow e2e"', job('render-smoke', 'failure', 'Run checkout flow e2e', ['locator.click: Timeout 5000ms exceeded'])],
@@ -78,6 +85,27 @@ for (const [what, j] of [
 test('NOT INFRA: a guard policy verdict (consult-hold present) is a real block', () => {
   assert.equal(classifyEjection({ jobs: [job('consult-hold-guard', 'failure', 'Refuse merge while a consult-hold label is present',
     ["consult-hold-guard: this PR carries the 'consult-hold' label"])] }).infra, false);
+});
+
+test('failingStepContext: only the lines before the first ##[error], retry announcements dropped', () => {
+  const log = ['early: ECONNRESET in an unrelated earlier step', ...Array.from({ length: 30 }, (_, i) => `line ${i}`), 'ECONNRESET, retrying in 3s', 'npm ERR! code ETARGET', '##[error]Process completed with exit code 1.', 'Post job cleanup: Temporary failure resolving'].join('\n');
+  const ctx = failingStepContext(log);
+  assert.doesNotMatch(ctx, /early: ECONNRESET/, 'outside the last lines before the error');
+  assert.doesNotMatch(ctx, /retrying in/, 'a retry announcement is not the cause');
+  assert.doesNotMatch(ctx, /Post job cleanup/, 'after the error');
+  assert.match(ctx, /ETARGET/);
+});
+
+test('settledBy: markers decide BEFORE any API call (Quality #5113 items 2-3)', () => {
+  const H = 'a'.repeat(40), AT = Date.parse('2026-11-11T16:00:00Z');
+  assert.deepEqual(settledBy([], H, AT), {}, 'nothing yet: classify');
+  assert.equal(settledBy([{ body: `<!-- infra-rearm-notinfra head=${H} at=${AT} -->\nnot infra` }], H, AT).skip, true, 'notice for THIS ejection: skip, no API calls');
+  assert.deepEqual(settledBy([{ body: `<!-- infra-rearm-notinfra head=${H} at=${AT - 3600e3} -->` }], H, AT), {}, 'a notice for an EARLIER ejection: the new one is classified');
+  assert.deepEqual(settledBy([{ body: `<!-- infra-rearm-notinfra head=${'b'.repeat(40)} at=${AT} -->` }], H, AT), {}, 'another head');
+  const twice = [{ body: `<!-- infra-rearm head=${H} n=1 -->` }, { body: `<!-- infra-rearm head=${H} n=2 -->` }];
+  assert.deepEqual(settledBy(twice, H, AT), { action: 'cap' }, 'cap reached: post the CAP notice, no classification');
+  assert.equal(settledBy([...twice, { body: `<!-- infra-rearm-cap head=${H} -->` }], H, AT).skip, true, 'CAP already posted: never twice');
+  assert.deepEqual(settledBy([{ body: `<!-- infra-rearm head=${H} n=1 -->` }], H, AT), {}, 'one re-arm so far: classify again');
 });
 
 test('attempt cap: counted per head from comment markers; another head does not count', () => {

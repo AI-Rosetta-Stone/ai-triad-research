@@ -40,11 +40,25 @@ const FAILED = new Set(['failure', 'cancelled', 'timed_out', 'startup_failure'])
 export const AGGREGATE_JOBS = new Set(['ci-gate']);
 // A setup/install step, by an ANCHORED name. Its failure is NOT infra on its own (a real
 // ERR_PNPM_OUTDATED_LOCKFILE or a missing Python version fails here too, Quality #5113): it only
-// tells the sweep to read that job's log for an INFRA_SIGNATURE_RE match.
+// tells the sweep to read that job's log for a NETWORK_RE or PLATFORM_RE match.
 export const SETUP_STEP_RE = /^(set up job|run actions\/checkout@\S+|checkout\b|install\b|setup\b|set up\b|restore\b|cache\b|(sudo )?(apt|apt-get|pnpm|npm|pip|pip3|corepack)\b)/i;
-export const INFRA_SIGNATURE_RE = /INFRA rate-limit:|API rate limit (already )?exceeded|secondary rate limit|abuse detection|Temporary failure resolving|Temporary failure in name resolution|Could not resolve host|getaddrinfo (ENOTFOUND|EAI_AGAIN)|\bEAI_AGAIN\b|\bETIMEDOUT\b|\bECONNRESET\b|\bECONNREFUSED\b|503 Service Unavailable|HTTP 503\b|status code 503\b|Failed to fetch|Connection timed out|TLS handshake timeout|lost communication with the server|runner has received a shutdown signal|No space left on device|The hosted runner encountered an error/i;
+// PLATFORM: the platform itself failed (quota, runner). Infra wherever it appears, including a
+// guard's annotation. NETWORK: only infra in a failed SETUP step; in a test step the same text is
+// usually the test's own failure (vitest annotations: `connect ETIMEDOUT`, `Failed to fetch`, an
+// e2e `ECONNREFUSED 127.0.0.1:3000` from a crashed server, a check printing 503; Quality #5113).
+export const PLATFORM_RE = /INFRA rate-limit:|API rate limit (already )?exceeded|secondary rate limit|abuse detection|lost communication with the server|runner has received a shutdown signal|No space left on device|The hosted runner encountered an error/i;
+export const NETWORK_RE = /Temporary failure resolving|Temporary failure in name resolution|Could not resolve host|getaddrinfo (ENOTFOUND|EAI_AGAIN)|\bEAI_AGAIN\b|\bETIMEDOUT\b|\bECONNRESET\b|\bECONNREFUSED\b|503 Service Unavailable|HTTP 503\b|status code 503\b|Failed to fetch|Connection timed out|TLS handshake timeout/i;
+// 1b: the log evidence is the failing step's last lines before its first `##[error]`, minus lines
+// that announce a retry: a retried ECONNRESET followed by a real ETARGET is the ETARGET's failure.
+export const LOG_CONTEXT_LINES = 25;
+export function failingStepContext(log) {
+  const lines = String(log ?? '').split(/\r?\n/);
+  const err = lines.findIndex((l) => l.includes('##[error]'));
+  const end = err >= 0 ? err : lines.length;
+  return lines.slice(Math.max(0, end - LOG_CONTEXT_LINES), end + 1).filter((l) => !/\bretry(ing)?\b|will retry|retrying in/i.test(l)).join('\n');
+}
 export const MARKER_RE = /<!-- infra-rearm head=([0-9a-f]{40}) n=(\d+) -->/g;
-export const NOTICE_RE = /<!-- infra-rearm-notinfra head=([0-9a-f]{40}) -->/;
+export const NOTICE_RE = /<!-- infra-rearm-notinfra head=([0-9a-f]{40}) at=(\d+) -->/;
 export const CAP_RE = /<!-- infra-rearm-cap head=([0-9a-f]{40}) -->/;
 
 /**
@@ -57,9 +71,11 @@ export function classifyEjection({ jobs }) {
   if (!failed.length) return { infra: false, reason: 'no failed job in the merge_group run (another check ejected it)', detail: [] };
   const detail = failed.map((j) => {
     const step = (j.steps ?? []).find((s) => FAILED.has(String(s.conclusion)));
-    const ann = (j.annotations ?? []).map((a) => String(a.message ?? '')).find((m) => INFRA_SIGNATURE_RE.test(m));
-    const logHit = typeof j.log === 'string' ? (j.log.match(INFRA_SIGNATURE_RE) ?? [])[0] : null;
     const setup = !!step && SETUP_STEP_RE.test(step.name);
+    const msgs = (j.annotations ?? []).map((a) => String(a.message ?? ''));
+    const ann = msgs.find((m) => PLATFORM_RE.test(m)) ?? (setup ? msgs.find((m) => NETWORK_RE.test(m)) : undefined);
+    const ctx = typeof j.log === 'string' ? failingStepContext(j.log) : '';
+    const logHit = ctx ? ((ctx.match(PLATFORM_RE) ?? ctx.match(NETWORK_RE)) ?? [])[0] : null;
     let why = null;
     if (ann) why = `annotation: ${ann.slice(0, 120)}`;
     else if (j.conclusion === 'cancelled' || j.conclusion === 'timed_out' || j.conclusion === 'startup_failure') why = `job ${j.conclusion}`;
@@ -76,6 +92,22 @@ export function rearmCount(comments, headSha) {
   let n = 0;
   for (const c of comments ?? []) for (const m of String(c.body ?? '').matchAll(MARKER_RE)) if (m[1] === headSha) n = Math.max(n, Number(m[2]));
   return n;
+}
+
+/**
+ * PURE (t/387, Quality #5113 p/119#42 items 2-3). Decides from the PR's own comments, BEFORE any
+ * API call, whether this ejection still needs work:
+ *   { skip: true }  a NOT-INFRA notice for this head AND this ejection, or a CAP notice for this head;
+ *   { action: 'cap' } the head is already re-armed MAX_PER_HEAD times: post the CAP notice once,
+ *                     no classification needed;
+ *   { }             classify it.
+ */
+export function settledBy(comments, head, ejectedAt) {
+  const bodies = (comments ?? []).map((c) => String(c.body ?? ''));
+  if (bodies.some((b) => { const m = b.match(NOTICE_RE); return m && m[1] === head && Number(m[2]) === ejectedAt; })) return { skip: true, reason: 'NOT-INFRA notice already posted for this ejection' };
+  if (bodies.some((b) => b.match(CAP_RE)?.[1] === head)) return { skip: true, reason: 'CAP notice already posted for this head' };
+  if (rearmCount(comments, head) >= MAX_PER_HEAD) return { action: 'cap' };
+  return {};
 }
 
 /** PURE. The latest qualifying removal of a PR within the window, or null. */
@@ -109,7 +141,7 @@ const ghJson = (p) => JSON.parse(gh(['api', p]));
 
 function openPrs(repo, replay = false) {
   const [owner, name] = repo.split('/');
-  const q = `query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:${replay ? "[OPEN,MERGED,CLOSED]" : "OPEN"},first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number isDraft headRefOid isInMergeQueue autoMergeRequest{enabledAt} timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT,ADDED_TO_MERGE_QUEUE_EVENT]){nodes{__typename ... on RemovedFromMergeQueueEvent{createdAt reason}}} comments(last:40){nodes{body}}}}}}`;
+  const q = `query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:${replay ? "[OPEN,MERGED,CLOSED]" : "OPEN"},first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number isDraft headRefOid isInMergeQueue autoMergeRequest{enabledAt} timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT,ADDED_TO_MERGE_QUEUE_EVENT]){nodes{__typename ... on RemovedFromMergeQueueEvent{createdAt reason}}} comments(last:100){nodes{body}}}}}}`;
   return JSON.parse(gh(['api', 'graphql', '-f', `query=${q}`, '-f', `o=${owner}`, '-f', `n=${name}`])).data.repository.pullRequests.nodes;
 }
 
@@ -137,12 +169,25 @@ async function main() {
 
   for (const { pr, ej } of candidates) {
     const n = pr.number, head = pr.headRefOid;
+    const settled = settledBy(pr.comments?.nodes, head, ej.at);
+    if (settled.skip) { console.log(`SETTLED #${n} @ ${head.slice(0, 9)}: ${settled.reason}`); continue; }
     const run = ejectingRun(runs, n, ej.at);
+    if (settled.action === 'cap') {
+      console.log(`CAP #${n} @ ${head.slice(0, 9)}: already re-armed ${MAX_PER_HEAD}x at this head and ejected again`);
+      if (!dryRun) gh(['pr', 'comment', String(n), '--repo', repo, '--body-file', '-'],
+        `<!-- infra-rearm-cap head=${head} -->\n**Not re-armed again (t/387):** this head was already re-armed ${MAX_PER_HEAD}x after infra ejections and was ejected again. It may not be infra after all: check the run ${run?.html_url ?? ''}, then re-arm by hand with \`node operations/devops/enqueue-pr.mjs ${repo} ${n}\`.`);
+      continue;
+    }
     let verdict;
     if (!run) verdict = classifyEjection({ jobs: null });
     else {
       let jobs;
-      try { jobs = ghJson(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`).jobs; } catch { jobs = null; }
+      // One retry: a single transient read failure should not cost a PR its re-arm (it would still
+      // fail safe to NOT INFRA, with a WARN).
+      for (let attempt = 1; attempt <= 2 && !jobs; attempt++) {
+        try { jobs = ghJson(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`).jobs; }
+        catch (e) { jobs = null; console.log(`::warning::infra-rearm: reading jobs of run ${run.id} failed (attempt ${attempt}/2): ${String(e.message).split('\n')[0]}`); }
+      }
       let annCalls = 0;
       for (const j of jobs ?? []) {
         if (!FAILED.has(String(j.conclusion))) continue;
@@ -160,17 +205,9 @@ async function main() {
     const why = verdict.detail.map((d) => `${d.job}: ${d.why}`).join('; ') || verdict.reason;
     if (!verdict.infra) {
       console.log(`NOT INFRA ${label}: ${why}`);
-      if (!dryRun && !(pr.comments?.nodes ?? []).some((c) => (c.body ?? '').match(NOTICE_RE)?.[1] === head)) {
+      if (!dryRun) {
         gh(['pr', 'comment', String(n), '--repo', repo, '--body-file', '-'],
-          `<!-- infra-rearm-notinfra head=${head} -->\n**Merge queue ejection, not re-armed (t/387):** the merge-group run ${run ? run.html_url : '(not found)'} failed for a reason that is not infra: ${why}. Fix it and re-arm with \`node operations/devops/enqueue-pr.mjs ${repo} ${n}\`.`);
-      }
-      continue;
-    }
-    if (done >= MAX_PER_HEAD) {
-      console.log(`CAP ${label}: already re-armed ${done}x at this head; leaving it (${why})`);
-      if (!dryRun && !(pr.comments?.nodes ?? []).some((c) => (c.body ?? '').match(CAP_RE)?.[1] === head)) {
-        gh(['pr', 'comment', String(n), '--repo', repo, '--body-file', '-'],
-          `<!-- infra-rearm-cap head=${head} -->\n**Not re-armed again (t/387):** this head was already re-armed ${done}x after infra ejections and was ejected again (${why}). It may not be infra after all: check the run ${run?.html_url ?? ''}, then re-arm by hand with \`node operations/devops/enqueue-pr.mjs ${repo} ${n}\`.`);
+          `<!-- infra-rearm-notinfra head=${head} at=${ej.at} -->\n**Merge queue ejection, not re-armed (t/387):** the merge-group run ${run ? run.html_url : '(not found)'} failed for a reason that is not infra: ${why}. Fix it and re-arm with \`node operations/devops/enqueue-pr.mjs ${repo} ${n}\`.`);
       }
       continue;
     }
