@@ -1,101 +1,80 @@
 /**
- * Extract text from HTML using safe linear-time tag removal.
- * Prevents quadratic regex behavior and DoS attacks on malformed HTML.
+ * Extract text from HTML in one linear pass. No regex runs on the document.
+ *
+ * Every tag becomes a space. The contents of script, style, head and noscript are dropped.
+ * Each index is visited at most once, and a failed lookup is remembered so later lookups
+ * never rescan the tail. This keeps unclosed tags from going quadratic (t/273).
  */
 export function extractHtmlText(bytes: Uint8Array): string {
   const html = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  return stripHtmlFallback(html);
+  return collapseWhitespace(stripTags(html));
 }
 
-function stripHtmlFallback(html: string): string {
-  // Remove problematic tags in a single linear pass
-  let s = html;
-  
-  // Remove script, style, head, noscript tags and their contents in linear time
-  for (const tag of ['script', 'style', 'head', 'noscript']) {
-    s = removeTagLinear(s, tag);
-  }
+const DROPPED_ELEMENTS = new Set(['script', 'style', 'head', 'noscript']);
 
-  // Remove remaining tags with bounded simple replacements
-  const timeoutMs = 5000;
-  const startTime = Date.now();
-  let prev: string;
-  let iterations = 0;
-  const maxIterations = 10;
-
-  do {
-    if (Date.now() - startTime > timeoutMs) {
-      throw new Error('HTML normalization exceeded timeout');
-    }
-    if (++iterations > maxIterations) {
-      break;
-    }
-
-    prev = s;
-    s = s.replace(/<[^>]*>/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
-  } while (s !== prev && s.length > 0);
-
-  return s;
-}
-
-/**
- * Remove a specific tag and its contents in linear time without calling toLowerCase() on the entire document.
- * Handles case-insensitive matching and unclosed tags.
- */
-function removeTagLinear(html: string, tagName: string): string {
-  const tagLower = tagName.toLowerCase();
-  const openTagStart = `<${tagName}`;
-  const openTagStartLower = openTagStart.toLowerCase();
-  const closeTagStr = `</${tagName}>`;
-  const closeTagStrLower = closeTagStr.toLowerCase();
-  
-  let result = '';
+function stripTags(html: string): string {
+  // ASCII-only lowercasing keeps indices aligned with `html`; toLowerCase() can change length.
+  const lower = html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+  const out: string[] = [];
+  const elementsWithoutClose = new Set<string>(); // no closing tag at or after the current position
+  let noGreaterThan = false; // no '>' at or after the current position
+  let copyFrom = 0;
   let pos = 0;
 
-  while (pos < html.length) {
-    // Find opening tag by checking first character match only
-    let foundStart = -1;
-    for (let i = pos; i < html.length; i++) {
-      if (i + openTagStart.length <= html.length) {
-        const candidate = html.substring(i, i + openTagStart.length);
-        if (candidate.toLowerCase() === openTagStartLower) {
-          foundStart = i;
-          break;
-        }
+  for (let lt = html.indexOf('<'); lt !== -1; lt = html.indexOf('<', pos)) {
+    const gt = noGreaterThan ? -1 : html.indexOf('>', lt + 1);
+    if (gt === -1) {
+      // An unterminated "<" is ordinary text.
+      noGreaterThan = true;
+      pos = lt + 1;
+      continue;
+    }
+
+    const name = readTagName(lower, lt + 1);
+    let end = gt + 1;
+    if (DROPPED_ELEMENTS.has(name) && !elementsWithoutClose.has(name)) {
+      const close = findClosingTag(lower, name, gt + 1);
+      if (close === -1) {
+        // Unclosed: drop only the opening tag and keep the content, as before.
+        elementsWithoutClose.add(name);
+      } else {
+        const closeGt = html.indexOf('>', close);
+        end = closeGt === -1 ? html.length : closeGt + 1;
       }
     }
 
-    if (foundStart === -1) {
-      result += html.slice(pos);
-      break;
-    }
-
-    result += html.slice(pos, foundStart);
-
-    // Find end of opening tag
-    const tagEnd = html.indexOf('>', foundStart);
-    if (tagEnd === -1) {
-      break;
-    }
-
-    // Find closing tag
-    let foundEnd = -1;
-    for (let i = tagEnd + 1; i < html.length; i++) {
-      if (i + closeTagStr.length <= html.length) {
-        const candidate = html.substring(i, i + closeTagStr.length);
-        if (candidate.toLowerCase() === closeTagStrLower) {
-          foundEnd = i;
-          break;
-        }
-      }
-    }
-
-    if (foundEnd === -1) {
-      pos = tagEnd + 1;
-    } else {
-      pos = foundEnd + closeTagStr.length;
-    }
+    out.push(html.slice(copyFrom, lt), ' ');
+    copyFrom = end;
+    pos = end;
   }
 
-  return result;
+  out.push(html.slice(copyFrom));
+  return out.join('');
+}
+
+function isNameChar(code: number): boolean {
+  // a-z, 0-9, '-'
+  return (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 45;
+}
+
+// Returns the lowercase element name at `start`. Stops at the first non-name character,
+// so "<header>" reads as "header", not "head".
+function readTagName(lower: string, start: number): string {
+  let end = start;
+  while (end < lower.length && isNameChar(lower.charCodeAt(end))) end++;
+  return lower.slice(start, end);
+}
+
+// Returns the index of "</name" followed by a non-name character, or -1.
+function findClosingTag(lower: string, name: string, from: number): number {
+  const needle = `</${name}`;
+  let idx = lower.indexOf(needle, from);
+  while (idx !== -1 && isNameChar(lower.charCodeAt(idx + needle.length))) {
+    idx = lower.indexOf(needle, idx + 1);
+  }
+  return idx;
+}
+
+function collapseWhitespace(s: string): string {
+  return s.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
 }

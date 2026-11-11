@@ -40,6 +40,11 @@ export function detectFormat(bytes: Uint8Array): DocumentFormat {
     return 'html';
   }
 
+  // Binary content (images, executables) decodes to replacement characters and control codes, not text
+  if (looksBinary(text)) {
+    return 'unsupported';
+  }
+
   // MD: heuristics (frontmatter, headers, common markdown patterns)
   if (isMarkdown(text)) {
     return 'md';
@@ -47,6 +52,22 @@ export function detectFormat(bytes: Uint8Array): DocumentFormat {
 
   // TXT: fallback for plain text
   return 'txt';
+}
+
+/**
+ * True when more than 1% of the leading text is U+FFFD or control codes other than tab, LF, CR and FF.
+ * Real text files pass; binary data that happened to decode does not.
+ */
+function looksBinary(text: string): boolean {
+  const sample = text.slice(0, 8192);
+  let bad = 0;
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample.charCodeAt(i);
+    if (c === 0xfffd || (c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0c && c !== 0x0d)) {
+      bad++;
+    }
+  }
+  return sample.length > 0 && bad / sample.length > 0.01;
 }
 
 /**

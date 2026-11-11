@@ -10,12 +10,9 @@ import { extractRawText } from 'mammoth';
 export async function extractDocxText(bytes: Uint8Array): Promise<string> {
   checkZipBombGuard(bytes);
 
-  const arrayBuf = bytes.buffer instanceof SharedArrayBuffer 
-    ? (new Uint8Array(bytes)).buffer
-    : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-
+  // mammoth's Node entry reads `buffer`; `arrayBuffer` is browser-only and was rejected with "Could not find file in options".
   const result = await extractRawText({
-    arrayBuffer: arrayBuf as ArrayBuffer,
+    buffer: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
   });
 
   return result.value;
@@ -37,7 +34,8 @@ function checkZipBombGuard(bytes: Uint8Array): void {
   let eocdPos = Math.max(0, bytes.length - 65557); // Search from end, up to 65KB back
   let foundEOCD = false;
 
-  while (eocdPos < bytes.length - 22) {
+  // The EOCD record is 22 bytes, so a comment-less archive has it starting at length - 22. Inclusive bound.
+  while (eocdPos <= bytes.length - 22) {
     if (
       bytes[eocdPos] === 0x50 &&
       bytes[eocdPos + 1] === 0x4b &&

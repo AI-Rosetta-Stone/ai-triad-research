@@ -53,9 +53,12 @@ export async function extractDocumentText(
 
   try {
     switch (format) {
-      case 'pdf':
-        extractedText = await extractPdfText(bytes);
+      case 'pdf': {
+        const pdf = await extractPdfText(bytes);
+        extractedText = pdf.text;
+        warnings.push(...pdf.warnings);
         break;
+      }
       case 'docx':
         extractedText = await extractDocxText(bytes);
         break;
@@ -65,12 +68,14 @@ export async function extractDocumentText(
         break;
       case 'html':
         extractedText = extractHtmlText(bytes);
+        break;
       case 'unsupported':
         throw createError('UNSUPPORTED_FORMAT', {
           goal: 'Extract text from document',
-          problem: 'File format is not supported (detected as ZIP but not a valid DOCX, or unknown archive type)',
+          problem: 'File format is not supported (not a valid DOCX, or an unknown archive or binary type)',
           location: 'lib/extraction:extractDocumentText',
           nextSteps: ['Verify the file is a valid PDF, DOCX, plain text, or HTML file', 'Convert to a supported format first'],
+          httpStatus: extractionErrorStatus.UNSUPPORTED_FORMAT,
         });
         break;
       default:
@@ -78,6 +83,10 @@ export async function extractDocumentText(
         throw new Error(`Unhandled format: ${_exhaustive}`);
     }
   } catch (e) {
+    // Our own errors already carry their code and status; wrap only library errors.
+    if (e instanceof ActionableError) {
+      throw e;
+    }
     // Check for encrypted PDF
     if (format === 'pdf' && e instanceof Error && e.name === 'PasswordException') {
       throw createError('ENCRYPTED_DOCUMENT', {
