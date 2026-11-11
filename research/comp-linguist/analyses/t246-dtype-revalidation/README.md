@@ -93,3 +93,21 @@ Run 1's held-out set re-scored under v9, as **secondary only**: that set was see
 so it's biased.
 
 If any criterion fails, v9 is not proposed, and neither set is used to tune again.
+
+## Iteration 2 — result (after pre-registration 6eb1ab495): **FAIL; v9 not proposed**
+
+gemini-3.5-flash-lite, T=0.1, 3 replicates, `candidate_v9.prompt` sha256 687c1c93d7b6…; `results_v9.json`, `score_v9.py`.
+
+| Criterion | Result | |
+|---|---|---|
+| C1 seeds, modal over 3 | 9/9 (per replicate: 9/9, 9/9, 9/9) | pass |
+| C2 held-out modal accuracy | 25/29 (bar 25) | pass |
+| C3 false structural ≤ 2 of 28 | **4/28** (sit-482, sit-075, sit-132, sit-118) | **FAIL** |
+
+- **Reported:** sit-221 → structural (correct); sit-154 → insufficient (correct). Flips: 4/30.
+- **v9 fixed the seed flakiness:** every replicate is 9/9, against 9/9, 8/9, 9/9 in run 1.
+- **Remaining failure mode:** 3 of the 4 false structurals (sit-075, sit-132, sit-118) are situations
+  that are *themselves a frame*, rejected by only one POV. The rubric is ambiguous here: §2.1 step 2
+  says "at least one POV rejects the framing", while §2.2 says one voice can't promote the label.
+  The PI decision (keep the one-dissenting-camp guard) settles it as interpretive. The model follows
+  §2.1. Prompt wording alone hasn't overridden that in two iterations on flash-lite.
