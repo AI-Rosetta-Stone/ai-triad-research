@@ -327,7 +327,6 @@ function chatStatementsByNode(synthKey: string): Promise<Record<string, string[]
   return built;
 }
 
-const chatWarnedNodes = new Set<string>();
 function chatWarn(message: string, data: Record<string, unknown>): void {
   getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy', level: 'warn', message, data });
 }
@@ -355,10 +354,8 @@ function chatNodeStatement(
   const vectors = nodeEmbeddings[nodeId]?.vectors;
   const texts = statements[nodeId];
   if (!vectors || !texts || vectors.length === 0 || vectors.length !== texts.length) {
-    if (!chatWarnedNodes.has(nodeId)) {
-      chatWarnedNodes.add(nodeId);
-      chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
-    }
+    // One WARN per skipped node per request, not once per process: coverage gaps must stay visible in the logs.
+    chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
     return null;
   }
   return bestMatchingSyntheticStatement(nodeId, queryVector, nodeEmbeddings, statements) ?? null;

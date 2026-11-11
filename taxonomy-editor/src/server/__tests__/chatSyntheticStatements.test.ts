@@ -114,6 +114,14 @@ describe('POST /api/taxonomy/chat-synthetic-statements (t/348)', () => {
     expect(warns('no-usable-statements')[0].data).toMatchObject({ nodeId: 'acc-beliefs-999' });
   });
 
+  it('a skipped node WARNs on every request, not once per process (coverage gaps stay visible)', async () => {
+    seedNode();
+    h.embed.mockResolvedValue([1, 0]);
+    await post({ pov: 'accelerationist', queryText: 'x', nodeIds: ['acc-beliefs-999'] });
+    await post({ pov: 'accelerationist', queryText: 'x', nodeIds: ['acc-beliefs-999'] });
+    expect(warns('no-usable-statements')).toHaveLength(2);
+  });
+
   it('a vector/statement count mismatch counts as no usable statements (null, WARN), never a guessed match', async () => {
     h.corpus.mockResolvedValue({ nodeEmbeddings: { 'acc-beliefs-001': { vectors: [[1, 0]] } } });
     h.loadCorpus.mockResolvedValue({ entries: [
