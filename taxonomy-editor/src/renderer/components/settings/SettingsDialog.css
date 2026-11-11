@@ -216,7 +216,7 @@
 }
 
 .settings-dialog-danger-btn {
-  background: #ef4444;
+  background: var(--danger-fill, #dc2626);
   color: #fff;
 }
 
