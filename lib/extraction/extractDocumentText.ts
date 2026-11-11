@@ -29,92 +29,15 @@ export async function extractDocumentText(
     });
   }
 
-  // Detect format from magic bytes
-  let format: DocumentFormat;
-  try {
-    format = detectFormat(bytes);
-  } catch (e) {
-    throw createError('UNSUPPORTED_FORMAT', {
-      goal: 'Identify document format',
-      problem: `Could not determine file format for "${fileName}"`,
-      location: 'lib/extraction:detectFormat',
-      nextSteps: [
-        'Verify the file is a valid PDF, DOCX, TXT, MD, or HTML document',
-        'Check the file is not corrupted',
-      ],
-      innerError: e,
-      httpStatus: extractionErrorStatus.UNSUPPORTED_FORMAT,
-    });
+  const format = detectFormatOrThrow(bytes, fileName);
+  if (format === 'unsupported') {
+    throw unsupportedFormatError();
   }
 
-  // Extract text based on format
-  let extractedText: string;
   const warnings: string[] = [];
-
-  try {
-    switch (format) {
-      case 'pdf': {
-        const pdf = await extractPdfText(bytes);
-        extractedText = pdf.text;
-        warnings.push(...pdf.warnings);
-        break;
-      }
-      case 'docx':
-        extractedText = await extractDocxText(bytes);
-        break;
-      case 'txt':
-      case 'md':
-        extractedText = extractPlainText(bytes);
-        break;
-      case 'html':
-        extractedText = extractHtmlText(bytes);
-        break;
-      case 'unsupported':
-        throw createError('UNSUPPORTED_FORMAT', {
-          goal: 'Extract text from document',
-          problem: 'File format is not supported (not a valid DOCX, or an unknown archive or binary type)',
-          location: 'lib/extraction:extractDocumentText',
-          nextSteps: ['Verify the file is a valid PDF, DOCX, plain text, or HTML file', 'Convert to a supported format first'],
-          httpStatus: extractionErrorStatus.UNSUPPORTED_FORMAT,
-        });
-        break;
-      default:
-        const _exhaustive: never = format;
-        throw new Error(`Unhandled format: ${_exhaustive}`);
-    }
-  } catch (e) {
-    // Our own errors already carry their code and status; wrap only library errors.
-    if (e instanceof ActionableError) {
-      throw e;
-    }
-    // Check for encrypted PDF
-    if (format === 'pdf' && e instanceof Error && e.name === 'PasswordException') {
-      throw createError('ENCRYPTED_DOCUMENT', {
-        goal: 'Extract text from PDF',
-        problem: 'PDF is password-protected or encrypted',
-        location: 'lib/extraction:extractPdfText',
-        nextSteps: ['Remove password protection', 'Use an unencrypted version of the PDF'],
-        innerError: e,
-        httpStatus: extractionErrorStatus.ENCRYPTED_DOCUMENT,
-      });
-    }
-
-    throw createError('EXTRACTION_FAILED', {
-      goal: `Extract text from ${format.toUpperCase()} document`,
-      problem: `Failed to extract text from document`,
-      location: 'lib/extraction:extract*Text',
-      nextSteps: [
-        'Verify the document is not corrupted',
-        'Try a different document',
-        'Check that the file format matches the extension',
-      ],
-      innerError: e,
-      httpStatus: extractionErrorStatus.EXTRACTION_FAILED,
-    });
-  }
+  const trimmed = (await extractByFormat(format, bytes, warnings)).trim();
 
   // Check for empty content
-  const trimmed = extractedText.trim();
   if (trimmed.length === 0) {
     throw createError('EMPTY_DOCUMENT', {
       goal: 'Extract text from document',
@@ -129,20 +52,102 @@ export async function extractDocumentText(
   let cappedText = trimmed;
   if (trimmed.length > TEXT_LIMIT_CHARS) {
     cappedText = trimmed.slice(0, TEXT_LIMIT_CHARS);
-  }
-
-  // Simple text sanitization: remove null bytes and control characters (32 KB limit per chunk)
-  const sanitized = sanitizeTextInChunks(cappedText);
-
-  if (trimmed.length > TEXT_LIMIT_CHARS) {
     warnings.push(`Text truncated from ${trimmed.length} to ${TEXT_LIMIT_CHARS} characters`);
   }
 
+  // Simple text sanitization: remove null bytes and control characters (32 KB limit per chunk)
   return {
-    text: sanitized,
+    text: sanitizeTextInChunks(cappedText),
     format,
     warnings,
   };
+}
+
+// Detect format from magic bytes
+function detectFormatOrThrow(bytes: Uint8Array, fileName: string): DocumentFormat {
+  try {
+    return detectFormat(bytes);
+  } catch (e) {
+    throw createError('UNSUPPORTED_FORMAT', {
+      goal: 'Identify document format',
+      problem: `Could not determine file format for "${fileName}"`,
+      location: 'lib/extraction:detectFormat',
+      nextSteps: [
+        'Verify the file is a valid PDF, DOCX, TXT, MD, or HTML document',
+        'Check the file is not corrupted',
+      ],
+      innerError: e,
+      httpStatus: extractionErrorStatus.UNSUPPORTED_FORMAT,
+    });
+  }
+}
+
+// Extract text based on format. Pdf warnings (page cap) are appended to `warnings`.
+async function extractByFormat(
+  format: Exclude<DocumentFormat, 'unsupported'>,
+  bytes: Uint8Array,
+  warnings: string[]
+): Promise<string> {
+  try {
+    switch (format) {
+      case 'pdf': {
+        const pdf = await extractPdfText(bytes);
+        warnings.push(...pdf.warnings);
+        return pdf.text;
+      }
+      case 'docx':
+        return await extractDocxText(bytes);
+      case 'txt':
+      case 'md':
+        return extractPlainText(bytes);
+      case 'html':
+        return extractHtmlText(bytes);
+      default:
+        const _exhaustive: never = format;
+        throw new Error(`Unhandled format: ${_exhaustive}`);
+    }
+  } catch (e) {
+    throw wrapExtractionError(e, format);
+  }
+}
+
+function unsupportedFormatError(): ActionableError {
+  return createError('UNSUPPORTED_FORMAT', {
+    goal: 'Extract text from document',
+    problem: 'File format is not supported (not a valid DOCX, or an unknown archive or binary type)',
+    location: 'lib/extraction:extractDocumentText',
+    nextSteps: ['Verify the file is a valid PDF, DOCX, plain text, or HTML file', 'Convert to a supported format first'],
+    httpStatus: extractionErrorStatus.UNSUPPORTED_FORMAT,
+  });
+}
+
+// Our own errors already carry their code and status; wrap only library errors.
+function wrapExtractionError(e: unknown, format: DocumentFormat): ActionableError {
+  if (e instanceof ActionableError) {
+    return e;
+  }
+  if (format === 'pdf' && e instanceof Error && e.name === 'PasswordException') {
+    return createError('ENCRYPTED_DOCUMENT', {
+      goal: 'Extract text from PDF',
+      problem: 'PDF is password-protected or encrypted',
+      location: 'lib/extraction:extractPdfText',
+      nextSteps: ['Remove password protection', 'Use an unencrypted version of the PDF'],
+      innerError: e,
+      httpStatus: extractionErrorStatus.ENCRYPTED_DOCUMENT,
+    });
+  }
+  return createError('EXTRACTION_FAILED', {
+    goal: `Extract text from ${format.toUpperCase()} document`,
+    problem: `Failed to extract text from document`,
+    location: 'lib/extraction:extract*Text',
+    nextSteps: [
+      'Verify the document is not corrupted',
+      'Try a different document',
+      'Check that the file format matches the extension',
+    ],
+    innerError: e,
+    httpStatus: extractionErrorStatus.EXTRACTION_FAILED,
+  });
 }
 
 function sanitizeTextInChunks(text: string): string {
