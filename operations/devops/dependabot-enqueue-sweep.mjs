@@ -42,6 +42,22 @@ export function checkVerdict(contexts, name) {
 }
 
 /**
+ * PURE. Names of the check runs on a head that have not finished yet (any context, required or
+ * not). A sweep waits for this to be empty before it arms, so a slow non-required check is not
+ * raced past (TL p/9#101, t/403). A commit status counts as pending while its state is PENDING or
+ * EXPECTED; a check run counts as pending until its status is COMPLETED.
+ */
+export function pendingCheckNames(contexts) {
+  const names = [];
+  for (const c of contexts ?? []) {
+    const state = (c.conclusion ?? c.state ?? '').toUpperCase();
+    const running = c.status !== undefined ? c.status.toUpperCase() !== 'COMPLETED' : false;
+    if (running || state === 'PENDING' || state === 'EXPECTED') names.push(c.name ?? c.context);
+  }
+  return names;
+}
+
+/**
  * PURE. Splits open Dependabot PRs into those to enqueue now and those to skip (with the
  * reason). A PR is enqueued only when the auto-merge workflow armed it (the minor/patch
  * policy marker), it is not a draft, not already queued, has no merge conflict, and every
@@ -67,6 +83,8 @@ export function selectSweepCandidates(prs) {
         const v = checkVerdict(pr.contexts, name);
         if (v !== 'success') { reason = `${name} is ${v}`; break; }
       }
+      const running = pendingCheckNames(pr.contexts);
+      if (!reason && running.length > 0) reason = `${running.length} check(s) still running (${running.join(', ')})`;
     }
     if (reason) skip.push({ number: pr.number, reason });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid });
