@@ -794,10 +794,25 @@ function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
   };
 }
 
-/** Project a DebateTranscriptEntry onto community-safe fields. */
+/** Entry-level metadata keys that the community renderer reads (StatementCard, ClarificationPanel,
+ *  DebateWorkspace). Anything else in metadata (moderator_trace, injection_manifest, key_assumptions,
+ *  and every engine key with no reader) is owner-only (t/196#25 item 3). */
+const COMMUNITY_TRANSCRIPT_METADATA_KEYS: ReadonlySet<string> = new Set([
+  'policy_refs', 'probing_questions', 'fact_check', 'qbaf_net_delta', 'turn_symbols',
+  'vocabulary_resolutions', 'questions',
+]);
+
+/** Project a DebateTranscriptEntry onto community-safe fields (t/196#25 item 3).
+ *  Dropped with no community reader: intervention_metadata, provider_model, degraded, addressing, and
+ *  `model` (a model id, owner-only by analogy with debate model ids, t/196#25 item 6). errorMessage is
+ *  kept (DebateWorkspace shows it). Never carries raw_prompt or raw_response (debate entries never do). */
 function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
   const e = entry as Record<string, unknown>;
+  const meta = e.metadata && typeof e.metadata === 'object' ? (e.metadata as Record<string, unknown>) : undefined;
+  const narrowedMeta = meta
+    ? Object.fromEntries(Object.entries(meta).filter(([k]) => COMMUNITY_TRANSCRIPT_METADATA_KEYS.has(k)))
+    : undefined;
   return {
     id: e.id,
     timestamp: e.timestamp,
@@ -806,17 +821,38 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
     content: e.content,
     taxonomy_refs: e.taxonomy_refs,
     ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
-    ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
+    ...(narrowedMeta !== undefined ? { metadata: narrowedMeta } : {}),
     ...(e.summaries !== undefined ? { summaries: e.summaries } : {}),
     ...(e.display_tier !== undefined ? { display_tier: e.display_tier } : {}),
     ...(e.caveats !== undefined ? { caveats: e.caveats } : {}),
-    ...(e.model !== undefined ? { model: e.model } : {}),
-    ...(e.addressing !== undefined ? { addressing: e.addressing } : {}),
-    ...(e.intervention_metadata !== undefined ? { intervention_metadata: e.intervention_metadata } : {}),
     ...(e.status !== undefined ? { status: e.status } : {}),
     ...(e.errorMessage !== undefined ? { errorMessage: e.errorMessage } : {}),
-    ...(e.provider_model !== undefined ? { provider_model: e.provider_model } : {}),
-    ...(e.degraded !== undefined ? { degraded: e.degraded } : {}),
+  };
+}
+
+/** Keys of a NeutralEvaluation that the community renderer reads. The three diagnostics_* keys
+ *  (prompt, raw response, timing) and any future key are owner-only (t/196#25 item 1). */
+const COMMUNITY_NEUTRAL_EVALUATION_KEYS: ReadonlySet<string> = new Set([
+  'checkpoint', 'timestamp', 'cruxes', 'claims', 'overall_assessment', 'evaluation_invalid', 'invalid_reason',
+]);
+
+/** Structural projection of one neutral evaluation (t/196#25 item 1). */
+function projectNeutralEvaluation(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  return Object.fromEntries(Object.entries(entry as Record<string, unknown>).filter(([k]) => COMMUNITY_NEUTRAL_EVALUATION_KEYS.has(k)));
+}
+
+/** Structural projection of adaptive_staging (t/196#25 item 4): enabled, step_mode, and the phase only. */
+function projectAdaptiveStaging(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const a = value as Record<string, unknown>;
+  const phase = a.phase_state && typeof a.phase_state === 'object'
+    ? { current_phase: (a.phase_state as Record<string, unknown>).current_phase }
+    : undefined;
+  return {
+    enabled: a.enabled,
+    ...(a.step_mode !== undefined ? { step_mode: a.step_mode } : {}),
+    ...(phase !== undefined ? { phase_state: phase } : {}),
   };
 }
 
@@ -831,15 +867,15 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
     'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
     'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
   ]),
-  // Debate: the 19 KEEP fields from the t/196#21 table, as ruled in t/196#23. Every other DebateSession
-  // key is owner-only and not listed here: stages (t/196#19, reverses t/171), prompt_config, origin,
-  // metadata, diagnostics, source_content/source_ref, and the rest. community_metadata is server-added
-  // attribution, not a DebateSession key.
+  // Debate: the 13 keys ruled in t/196#25 (Security re-review). Transcript, neutral_evaluations and
+  // adaptive_staging are projected structurally (projectTranscriptEntry, projectNeutralEvaluation,
+  // projectAdaptiveStaging). Everything else is owner-only, including stages (t/196#19, reverses t/171),
+  // prompt_config, origin, metadata, diagnostics, position_drift, convergence_signals, and model ids
+  // (debate_model, speaker_models, model_tier, protocol_id: t/196#25 item 6, not covered by t/345).
+  // community_metadata is set server-side after projection, so it is not listed here.
   debate: new Set([
-    'id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript',
-    'audience', 'active_povers', 'argument_network', 'convergence_signals', 'position_drift',
-    'neutral_evaluations', 'source_type', 'debate_model', 'speaker_models', 'model_tier',
-    'protocol_id', 'adaptive_staging', 'community_metadata'
+    'id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'audience', 'active_povers',
+    'transcript', 'argument_network', 'neutral_evaluations', 'source_type', 'adaptive_staging'
   ]),
   oped: new Set(['id', 'topic', 'params', 'opeds', 'camps', 'voice_count', 'outlet', 'tag', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
   inquiry: new Set(), // inquiry handled separately via fieldClassification
@@ -876,6 +912,11 @@ function projectToCommunityAllowlist(
           // active_povers: pass through as-is (array of strings)
           out[key] = value;
         }
+      } else if (type === 'debate' && key === 'neutral_evaluations' && Array.isArray(value)) {
+        out[key] = value.map(e => projectNeutralEvaluation(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+      } else if (type === 'debate' && key === 'adaptive_staging') {
+        const staging = projectAdaptiveStaging(value);
+        if (staging !== undefined) out[key] = staging;
       } else {
         out[key] = value;
       }
