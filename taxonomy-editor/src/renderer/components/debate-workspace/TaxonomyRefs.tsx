@@ -15,7 +15,7 @@ import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
-import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAttack } from './claimMap';
+import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -329,23 +329,181 @@ function attackStatus(attack: ParsedAttack): string {
   return attack.verificationStatus && attack.verificationStatus !== 'not yet checked' ? attack.verificationStatus : 'Unverified';
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: {
+  eyebrow: string;
+  counts: string;
+  coreThesis: string;
+  strategicGoal: string;
+  motion?: string;
+}) {
+  return (
+    <header className="claim-map-header">
+      <div className="claim-map-header-top">
+        <div className="claim-map-eyebrow">{eyebrow}</div>
+        <div className="claim-map-counts">{counts}</div>
+      </div>
+      {coreThesis && <h2 className="claim-map-headline">{coreThesis}</h2>}
+      {strategicGoal && (
+        <div className="claim-map-ask">
+          <strong>The ask:</strong> {stripLeadingVerb(strategicGoal)}
+        </div>
+      )}
+      {motion && <div className="claim-map-motion">Motion — {motion}</div>}
+    </header>
+  );
+}
+
+function ClaimMapLenses({ framingChoices }: { framingChoices: unknown }) {
+  const lenses = Array.isArray(framingChoices)
+    ? (framingChoices as { frame: string; why: string }[]).map(fc => ({ title: String(fc.frame), why: String(fc.why) }))
+    : [{ title: String(framingChoices), why: undefined }];
+  return (
+    <ul className="claim-map-lenses">
+      {lenses.map((lens, i) => (
+        <li key={i} className="claim-map-lens-card">
+          <div className="claim-map-lens-eyebrow">LENS {i + 1}</div>
+          <h3 className="claim-map-lens-title">{lens.title}</h3>
+          {lens.why && <p className="claim-map-lens-why">{lens.why}</p>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
+  claim: ParsedClaim;
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  const anchor = claim.taxonomy_anchor;
+  return (
+    <li className="claim-map-row">
+      <div className="claim-map-claim-col">
+        <div className="claim-map-claim-card">
+          <div className="claim-map-claim-badge">C{claim.index}</div>
+          <p className="claim-map-claim-point">{claim.point}</p>
+          {claim.evidence && <div className="claim-map-claim-evidence"><strong>Evidence</strong> · {claim.evidence}</div>}
+          {anchor && (
+            <button
+              className="claim-map-anchor-chip"
+              onClick={() => setSelectedPlanNodeId(prev => (prev === anchor ? null : anchor))}
+              aria-expanded={selectedPlanNodeId === anchor}
+            >
+              {anchor}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="claim-map-attack-col" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
+        {claim.attack ? (
+          <div className="claim-map-attack-card">
+            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
+            <p className="claim-map-attack-text">{claim.attack.text}</p>
+            <div className="claim-map-attack-footer">
+              <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
+              {claim.attack.annotationId && <span className="claim-map-attack-id">{claim.attack.annotationId}</span>}
+            </div>
+          </div>
+        ) : (
+          <div className="claim-map-no-attack">
+            <p className="claim-map-no-attack-title">No attack mapped to C{claim.index}</p>
+            <p className="claim-map-no-attack-text">No anticipated attack targets this claim.</p>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSelectedPlanNodeId }: {
+  claims: ParsedClaim[];
+  unmappedAttacks: ParsedAttack[];
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  return (
+    <div className="claim-map-section">
+      <div className="claim-map-arg-header">
+        <h3>Argument</h3>
+        <div className="claim-map-legend">
+          <span className="claim-map-legend-item">
+            <span className="claim-map-dot claim-map-dot-info">●</span> Our claim
+          </span>
+          <span className="claim-map-legend-item">
+            <span className="claim-map-dot claim-map-dot-warning">●</span> Anticipated attack
+          </span>
+        </div>
+      </div>
+      <ol className="claim-map-grid" aria-label="Argument: claims and anticipated attacks">
+        {claims.map(claim => (
+          <ClaimMapRow key={claim.index} claim={claim} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />
+        ))}
+      </ol>
+      {unmappedAttacks.length > 0 && (
+        <div className="claim-map-unmapped-attacks">
+          {unmappedAttacks.map((attack, i) => (
+            <div key={i} className="claim-map-unmapped-row">
+              <div className="claim-map-unmapped-label">Unmapped attack</div>
+              <div className="claim-map-attack-card">
+                <p className="claim-map-attack-text">{attack.text}</p>
+                <div className="claim-map-attack-footer">
+                  <span className="claim-map-attack-status">{attackStatus(attack)}</span>
+                  {attack.annotationId && <span className="claim-map-attack-id">{attack.annotationId}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaimMapAssumptions({ assumptions }: { assumptions: ParsedAssumption[] }) {
+  return (
+    <div className="claim-map-assumptions">
+      {assumptions.map((assumption, i) => (
+        <div key={i} className="claim-map-assumption-card">
+          <div className="claim-map-assumption-eyebrow">
+            {assumption.tagged ? 'LOAD-BEARING ASSUMPTION · UNDERPINS THE ASK' : 'ANTICIPATED CHALLENGE'}
+          </div>
+          <p className="claim-map-assumption-text">{assumption.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ClaimMapMore({ wp }: { wp: Record<string, unknown> }) {
+  const [moreExpanded, setMoreExpanded] = useState(false);
+  return (
+    <details className="claim-map-more" onToggle={e => setMoreExpanded((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary className="claim-map-more-summary">
+        <span className="claim-map-more-toggle">{moreExpanded ? '▾' : '▸'}</span> More from the plan
+      </summary>
+      <div className="claim-map-more-content">
+        <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
+        <SectionErrorBoundary section="Argument Sketch"><ArgumentSketchBox wp={wp} /></SectionErrorBoundary>
+        <SectionErrorBoundary section="Anticipated Responses">
+          <AnticipatedBox wp={wp} field="anticipated_responses" title="Anticipated Responses" />
+        </SectionErrorBoundary>
+      </div>
+    </details>
+  );
+}
+
 function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const parsed = useMemo(() => parseWorkProduct(wp), [wp]);
-  const claims = parsed.claims;
-  const unmappedAttacks = parsed.unmappedAttacks;
-  const assumptions = parsed.assumptions;
-  const verifiedAttacks = parsed.verifiedAttacks;
+  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(() => parseWorkProduct(wp), [wp]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
   const framingChoices = wp.framing_choices;
-  const stageStr = String(stage || '');
-  const [moreExpanded, setMoreExpanded] = useState(false);
 
-  // Count total attacks (mapped + unmapped)
-  const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
-
-  // Fallback for legacy entries: if no core_thesis, show old stacked view
+  // Fallback for legacy entries: if no core_thesis or strategic_goal, show the old stacked view
   if (!coreThesis && !strategicGoal) {
     return (
       <>
@@ -367,157 +525,42 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
     );
   }
 
+  const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
+  const counts = [
+    plural(claims.length, 'claim'),
+    plural(totalAttacks, 'attack'),
+    plural(assumptions.length, 'assumption'),
+    `${verifiedAttacks} verified`,
+  ].join(' · ');
+
   return (
     <div className="claim-map-layout">
-      {/* Header card */}
       <SectionErrorBoundary section="Plan Header">
-        <header className="claim-map-header">
-          <div className="claim-map-header-top">
-            <div className="claim-map-eyebrow">{(camp || 'PLAN').toUpperCase()} · {stageStr}</div>
-            <div className="claim-map-counts">
-              {claims.length} claim{claims.length === 1 ? '' : 's'} · {totalAttacks} attack{totalAttacks === 1 ? '' : 's'} · {assumptions.length} assumption{assumptions.length === 1 ? '' : 's'} · {verifiedAttacks} verified
-            </div>
-          </div>
-          {coreThesis && <h2 className="claim-map-headline">{coreThesis}</h2>}
-          {strategicGoal && (
-            <div className="claim-map-ask">
-              <strong>The ask:</strong> {stripLeadingVerb(strategicGoal)}
-            </div>
-          )}
-          {motion && <div className="claim-map-motion">Motion — {motion}</div>}
-        </header>
+        <ClaimMapHeader
+          eyebrow={`${(camp || 'PLAN').toUpperCase()} · ${String(stage || '')}`}
+          counts={counts}
+          coreThesis={coreThesis}
+          strategicGoal={strategicGoal}
+          motion={motion}
+        />
       </SectionErrorBoundary>
-
-      {/* Lens cards */}
       {!!framingChoices && (
-        <SectionErrorBoundary section="Lenses">
-          <ul className="claim-map-lenses">
-            {Array.isArray(framingChoices)
-              ? (framingChoices as { frame: string; why: string }[]).map((fc, i) => (
-                <li key={i} className="claim-map-lens-card">
-                  <div className="claim-map-lens-eyebrow">LENS {i + 1}</div>
-                  <h3 className="claim-map-lens-title">{String(fc.frame)}</h3>
-                  <p className="claim-map-lens-why">{String(fc.why)}</p>
-                </li>
-              ))
-              : (
-                <li className="claim-map-lens-card">
-                  <div className="claim-map-lens-eyebrow">LENS 1</div>
-                  <h3 className="claim-map-lens-title">{String(framingChoices)}</h3>
-                </li>
-              )
-            }
-          </ul>
-        </SectionErrorBoundary>
+        <SectionErrorBoundary section="Lenses"><ClaimMapLenses framingChoices={framingChoices} /></SectionErrorBoundary>
       )}
-
-      {/* Argument grid */}
       {claims.length > 0 && (
         <SectionErrorBoundary section="Argument">
-        <div className="claim-map-section">
-          <div className="claim-map-arg-header">
-            <h3>Argument</h3>
-            <div className="claim-map-legend">
-              <span className="claim-map-legend-item">
-                <span className="claim-map-dot claim-map-dot-info">●</span> Our claim
-              </span>
-              <span className="claim-map-legend-item">
-                <span className="claim-map-dot claim-map-dot-warning">●</span> Anticipated attack
-              </span>
-            </div>
-          </div>
-          <ol className="claim-map-grid" aria-label="Argument: claims and anticipated attacks">
-            {claims.map((claim) => (
-              <li key={claim.index} className="claim-map-row">
-                <div className="claim-map-claim-col">
-                  <div className="claim-map-claim-card">
-                    <div className="claim-map-claim-badge">C{claim.index}</div>
-                    <p className="claim-map-claim-point">{claim.point}</p>
-                    {claim.evidence && <div className="claim-map-claim-evidence"><strong>Evidence</strong> · {claim.evidence}</div>}
-                    {claim.taxonomy_anchor && (
-                      <button
-                        className="claim-map-anchor-chip"
-                        onClick={() => setSelectedPlanNodeId((prev: string | null) => prev === claim.taxonomy_anchor ? null : (claim.taxonomy_anchor ?? null))}
-                        aria-expanded={selectedPlanNodeId === claim.taxonomy_anchor}
-                      >
-                        {claim.taxonomy_anchor}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="claim-map-attack-col" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
-                  {claim.attack ? (
-                    <div className="claim-map-attack-card">
-                      <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
-                      <p className="claim-map-attack-text">{claim.attack.text}</p>
-                      <div className="claim-map-attack-footer">
-                        <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
-                        {claim.attack.annotationId && <span className="claim-map-attack-id">{claim.attack.annotationId}</span>}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="claim-map-no-attack">
-                      <p className="claim-map-no-attack-title">No attack mapped to C{claim.index}</p>
-                      <p className="claim-map-no-attack-text">No anticipated attack targets this claim.</p>
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
-          
-          {/* Unmapped attacks row */}
-          {unmappedAttacks.length > 0 && (
-            <div className="claim-map-unmapped-attacks">
-              {unmappedAttacks.map((attack, i) => (
-                <div key={i} className="claim-map-unmapped-row">
-                  <div className="claim-map-unmapped-label">Unmapped attack</div>
-                  <div className="claim-map-attack-card">
-                    <p className="claim-map-attack-text">{attack.text}</p>
-                    <div className="claim-map-attack-footer">
-                      <span className="claim-map-attack-status">{attackStatus(attack)}</span>
-                      {attack.annotationId && <span className="claim-map-attack-id">{attack.annotationId}</span>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          <ClaimMapArgument
+            claims={claims}
+            unmappedAttacks={unmappedAttacks}
+            selectedPlanNodeId={selectedPlanNodeId}
+            setSelectedPlanNodeId={setSelectedPlanNodeId}
+          />
         </SectionErrorBoundary>
       )}
-
-      {/* Assumption cards: tagged ASSUMPTION: items, and untagged challenges as plain cards */}
       {assumptions.length > 0 && (
-        <SectionErrorBoundary section="Assumptions">
-          <div className="claim-map-assumptions">
-            {assumptions.map((assumption, i) => (
-              <div key={i} className="claim-map-assumption-card">
-                <div className="claim-map-assumption-eyebrow">
-                  {assumption.tagged ? 'LOAD-BEARING ASSUMPTION · UNDERPINS THE ASK' : 'ANTICIPATED CHALLENGE'}
-                </div>
-                <p className="claim-map-assumption-text">{assumption.text}</p>
-              </div>
-            ))}
-          </div>
-        </SectionErrorBoundary>
+        <SectionErrorBoundary section="Assumptions"><ClaimMapAssumptions assumptions={assumptions} /></SectionErrorBoundary>
       )}
-
-      {/* More from plan collapsible */}
-      <details className="claim-map-more" onToggle={e => setMoreExpanded((e.currentTarget as HTMLDetailsElement).open)}>
-        <summary className="claim-map-more-summary">
-          <span className="claim-map-more-toggle">{moreExpanded ? '▾' : '▸'}</span> More from the plan
-        </summary>
-        <div className="claim-map-more-content">
-          <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
-          <SectionErrorBoundary section="Argument Sketch"><ArgumentSketchBox wp={wp} /></SectionErrorBoundary>
-          <SectionErrorBoundary section="Anticipated Responses">
-            <AnticipatedBox wp={wp} field="anticipated_responses" title="Anticipated Responses" />
-          </SectionErrorBoundary>
-        </div>
-      </details>
-
-      {/* Inline POV detail */}
+      <SectionErrorBoundary section="More from the plan"><ClaimMapMore wp={wp} /></SectionErrorBoundary>
       {selectedPlanNodeId && <TaxNodeDetail nodeId={selectedPlanNodeId} onClose={() => setSelectedPlanNodeId(null)} />}
     </div>
   );
