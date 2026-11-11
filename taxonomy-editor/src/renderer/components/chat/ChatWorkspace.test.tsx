@@ -38,14 +38,27 @@ vi.mock('../../hooks/useChatStore', () => ({
   },
 }));
 
-vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: () => ({
-    accelerationist: { nodes: [] },
-    safetyist: { nodes: [] },
-    skeptic: { nodes: [] },
-    situations: { nodes: [] },
-  }),
-}));
+vi.mock('../../hooks/useTaxonomyStore', () => {
+  const mockGetLabelForId = vi.fn((id: string) => {
+    const labels: Record<string, string> = {
+      'acc-desires-001': 'Accelerationist Node',
+      'saf-grounding-002': 'Safety Node',
+    };
+    return labels[id] || '';
+  });
+  return {
+    useTaxonomyStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
+      const state = {
+        accelerationist: null,
+        safetyist: null,
+        skeptic: null,
+        situations: null,
+        getLabelForId: mockGetLabelForId,
+      };
+      return selector ? selector(state) : state;
+    }),
+  };
+});
 
 vi.mock('../../hooks/useAuthStatus', () => ({
   useUserProfile: () => null,
@@ -108,6 +121,7 @@ vi.mock('../shared/CommunityShareBanner', () => ({
 }));
 
 import { ChatWorkspace } from './ChatWorkspace';
+import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -241,6 +255,57 @@ describe('ChatWorkspace', () => {
     };
     render(<ChatWorkspace />);
     expect(screen.getAllByText('No taxonomy grounding recorded for this answer.')).toHaveLength(1);
+  });
+
+  it('shows "No longer in the taxonomy" for refs whose nodes are absent from a loaded taxonomy (t/282)', () => {
+    mockChatStoreState = {
+      activeChat: makeChat({
+        transcript: [
+          { id: 'm1', speaker: 'accelerationist', content: 'Answer', taxonomy_refs: [
+            { node_id: 'deleted-node-999', relevance: 'Old reference' },
+          ], timestamp: '2026-01-01T00:00:00Z' },
+        ],
+      }),
+    };
+    // Mock taxonomy as loaded but node not found
+    vi.mocked(useTaxonomyStore).mockImplementation((selector?: (s: Record<string, unknown>) => unknown) => {
+      const state = {
+        accelerationist: { nodes: [] },
+        safetyist: { nodes: [] },
+        skeptic: { nodes: [] },
+        situations: { nodes: [] },
+        getLabelForId: () => '',
+      };
+      return selector ? selector(state) : state;
+    });
+    render(<ChatWorkspace />);
+    expect(screen.getByText('No longer in the taxonomy')).toBeInTheDocument();
+  });
+
+  it('renders node_id when taxonomy is not yet loaded (t/282)', () => {
+    mockChatStoreState = {
+      activeChat: makeChat({
+        transcript: [
+          { id: 'm1', speaker: 'accelerationist', content: 'Answer', taxonomy_refs: [
+            { node_id: 'acc-desires-001', relevance: 'Reference' },
+          ], timestamp: '2026-01-01T00:00:00Z' },
+        ],
+      }),
+    };
+    // Mock taxonomy as NOT loaded
+    vi.mocked(useTaxonomyStore).mockImplementation((selector?: (s: Record<string, unknown>) => unknown) => {
+      const state = {
+        accelerationist: null,
+        safetyist: null,
+        skeptic: null,
+        situations: null,
+        getLabelForId: () => '',
+      };
+      return selector ? selector(state) : state;
+    });
+    render(<ChatWorkspace />);
+    expect(screen.getByText('acc-desires-001')).toBeInTheDocument();
+    expect(screen.queryByText('No longer in the taxonomy')).not.toBeInTheDocument();
   });
 
   it('renders input bar with textarea and send button', () => {
