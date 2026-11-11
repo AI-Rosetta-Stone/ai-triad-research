@@ -14,7 +14,7 @@
 //   node .github/scripts/check-control-chars.mjs              # every tracked file with a scanned extension
 //   node .github/scripts/check-control-chars.mjs <path>...    # just these
 //   git diff -z --name-only ... | node .github/scripts/check-control-chars.mjs --stdin0   # the pre-push hook (t/130)
-// Exits 1 on findings or allowlist problems, 0 when clean. ci.yml runs it continue-on-error (warn-only first).
+// Exits 1 on findings or allowlist problems, 0 when clean. ci.yml workflow-lint runs it as a blocking step (t/130).
 
 import { readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
