@@ -77,16 +77,16 @@ This section cites the code and internal structures that implement the criteria 
 | Faithful to the camp (criterion 2) | `op-ed-generation-system.prompt:1,36` |
 | Internally coherent (criterion 3) | `op-ed-coherence-judge.prompt:7-13`; coherence check logic `lib/oped/coherenceCheck.ts:45-47` |
 | Honest about the news (criterion 6) | `op-ed-generation-system.prompt:13`; `lib/oped/opedGuards.ts:12-13`; only runs when no news hook was supplied |
-| Faithful to the camp (partial check) | `lib/oped/generate.ts:766` |
+| Faithful to the camp (partial check) | `lib/oped/generate.ts:800-806` (voice guard reverts edit that introduces banned tells) |
 | Faithful to its source (criterion 5) | `op-ed-generation-user.prompt:31` |
 | Persuasive (criterion 7) | `op-ed-generation-system.prompt:11-21` |
 | Grounding reflection | `op-ed-grounding-reflection.prompt` |
 | Readability measurement | `lib/oped/readabilityMeasure.ts:26-56` |
-| Stages recording | `lib/oped/generate.ts:619-620` (coherence/readability interaction); raw prompt/output recorded in `stages` field per stage |
+| Stages recording | `lib/oped/generate.ts:553-567` (`callStage()` function records each model call to `stages` array); coherence/readability pass sequencing at :663 (coherence), :769 (readability check), :774 (readability edit) |
 | Readability edit interaction | `generate.ts:619-620` (coherence pass before readability edit) |
 | Readability edit outlet awareness | `generate.ts:774` (outlet-aware edit prompt with readability targets per outlet) |
 | Dialog settings | New Op-Ed dialog sends Max grounding nodes, Max situations, and Temperature; all wired via `resolveOpEdTuning()` at `generate.ts:1043, 1047-1048, 1160` |
-| Model failure handling | `generate.ts:594-609` |
+| Model failure handling | `lib/oped/generate.ts:628-650` (empty response throw on voice generation, handled by runVoice catch to emit voice_failed) |
 | Completion status | `status: 'complete'` field on generated op-eds |
 
 *Accurate to the code at the time of writing. The aspirational metrics need aggregation and persistence that don't exist yet.*

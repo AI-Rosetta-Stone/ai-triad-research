@@ -114,14 +114,14 @@ This section cites the code and internal structures that implement the operation
 
 | Component/Operation | Implementation |
 |---------------------|-----------------|
-| Generator entrypoint | `lib/oped/generate.ts` → `generateOpEdSet()` (generator function, line ~1120) |
+| Generator entrypoint | `lib/oped/generate.ts:1067` → `export async function* generateOpEdSet()` |
 | Progress events | `lib/oped/generate.ts` → `OpEdProgressEvent` type (line 54) |
 | Prompt loading and slots | `lib/oped/promptLoader.ts` → `loadAndAssemblePrompt()` |
 | Camp soul document | `lib/oped/generate.ts` → `getSoulDocument()` (imported); rendering `buildVoiceBlock()` (line 322) |
 | Taxonomy loading | `lib/oped/generate.ts` → `loadTaxonomy()` calls within `generateOpEdSet()` |
-| Source brief calls | `lib/oped/generate.ts` → `selectSetGrounding()` (line 1033); yields `source_brief_done` event |
+| Source brief calls | `lib/oped/generate.ts:1079-1112` (Step 0 source-brief comprehension block); yields `source_brief_done` event |
 | Grounding selection | `lib/oped/generate.ts` → `selectRelevantNodes()` call (line 272); `selectRelevantSituationNodes()` within `selectSetGrounding()` |
-| Per-camp pipeline | `lib/oped/generate.ts` → `enqueue()` and `runVoice()` functions (lines 1144, 1151); sequential loop (line 1189) |
+| Per-camp pipeline | `lib/oped/generate.ts:1186` (sequential for-loop over `request.povs`); `runVoice()` called per POV; results collected via async IIFE |
 | Set assembly | `lib/oped/generate.ts` → `OpEdSet` final assembly (line 1206); `orderedMembers` map (line 1199) |
 | Call staging recorder | `lib/oped/generate.ts` → `callStage()` function (line 553); records stages to member's `stages` field |
 | Source-brief prompt | `lib/oped/prompts/op-ed-source-brief.prompt`; model marks source unreadable; `selectSetGrounding()` handler at line 1033 |
@@ -133,7 +133,7 @@ This section cites the code and internal structures that implement the operation
 | Readability measurement | `lib/oped/readabilityMeasure.ts` → `measureReadability()` function; target check via `needsEdit()` |
 | Readability edit guards | `lib/oped/generate.ts` → guards within `runVoiceGeneration()`; collapse guard (line 783); voice guard via `voiceOnly` param (line 549); retry logic in `attemptEdit()` (line 772); paragraph split via `splitLongParagraphs()` |
 | Grounding reflection | `lib/oped/generate.ts` → reflection stage within `runVoiceGeneration()`; retry on missing claims via `runReflection()` (line 930) |
-| Reflection retry | `lib/oped/generate.ts` → `runReflection()` with temperature 0.1 (line 712) for retries |
+| Reflection retry | `lib/oped/generate.ts:962,979` → `runReflection()` first call at temperature 0.2 (:962), retry on missing claims at temperature 0 (:979); coherence re-judge at temperature 0.1 (:712) |
 | Fabricated-lede guard | `lib/oped/generate.ts` → `FABRICATED_LEDE_GUARD.test()` on final body (line 1002); pattern from `lib/oped/opedGuards.ts` |
 | Query embedding | `lib/oped/generate.ts` → `computeEmbedding()` call within `selectSetGrounding()` |
 | Node scoring | `lib/debate/taxonomyRelevance.ts` → `scoreNodeRelevance()` function |
