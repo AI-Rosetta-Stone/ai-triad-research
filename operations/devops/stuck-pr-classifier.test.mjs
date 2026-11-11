@@ -917,3 +917,16 @@ test('changes-requested-stale: lastPushAt unknown -> a review-sourced request at
   const pr = basePr({ roleReview: roleReview({ reviews: [appReview('Changes requested (Design): x', hoursAgo(3))], lastPushAt: null }) });
   assert.equal(classifyBlocker(pr, NOW)?.class, 'changes-requested-stale');
 });
+
+// t/321: a heal run that deliberately did not need to run is not a failure. The heal workflow
+// skips on non-npm Dependabot branches, which gave every docker/actions/pip PR a false TL alert.
+test('classifyHealLiveness: a SKIPPED or NEUTRAL heal run (non-npm Dependabot branch) -- not flagged', () => {
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [healRun('skipped')] }), null);
+  assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [healRun('neutral')] }), null);
+});
+
+test('classifyHealLiveness: real failure conclusions still flag (timed_out, cancelled, startup_failure)', () => {
+  for (const c of ['timed_out', 'cancelled', 'startup_failure', 'action_required']) {
+    assert.equal(classifyHealLiveness({ isDependabotAuthor: true, runs: [healRun(c)] })?.class, 'heal-failed', c);
+  }
+});
