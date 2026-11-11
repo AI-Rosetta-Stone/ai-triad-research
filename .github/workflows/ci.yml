@@ -2007,6 +2007,9 @@ jobs:
           GH_TOKEN: ''
           GITHUB_TOKEN: ''
         run: node --test operations/devops/t0-rule-order.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs
+      # t/371: my-prs.mjs ownership precedence (title/branch ticket > body ticket > file owners).
+      - name: my-prs ownership suite
+        run: node --test operations/devops/my-prs.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
