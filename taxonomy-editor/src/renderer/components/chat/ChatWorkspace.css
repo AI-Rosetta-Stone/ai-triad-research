@@ -753,6 +753,11 @@
   text-align: right;
 }
 
+/* The Why grounding under a user message reads left-aligned, not with the right-aligned body. */
+.chat-message-user .chat-why {
+  text-align: left;
+}
+
 .chat-message-avatar-identity {
   flex-shrink: 0;
   margin-top: 2px;
