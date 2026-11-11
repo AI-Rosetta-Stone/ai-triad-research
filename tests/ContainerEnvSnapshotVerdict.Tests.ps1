@@ -213,7 +213,8 @@ Describe 'Invoke-ContainerEnvSnapshot.ps1 (shim, az mocked)' {
         }
     }
     AfterAll {
-        Remove-Item function:global:az -ErrorAction SilentlyContinue
+        # Function:\az, not function:global:az: the latter silently removes nothing, leaking the az shim (t/289).
+        Remove-Item -Path Function:\az -ErrorAction SilentlyContinue
         Remove-Variable T4935AzExit, T4935AzOut -Scope Global -ErrorAction SilentlyContinue
     }
     BeforeEach {

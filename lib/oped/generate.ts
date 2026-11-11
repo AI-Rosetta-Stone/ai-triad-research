@@ -771,7 +771,7 @@ async function runVoiceGeneration(
 
       const attemptEdit = async (temperature: number): Promise<string | null> => {
         const violations = buildViolationsText(beforeChecks, readTargets);
-        const editPrompt = assembleReadabilityEditPrompt(deps.promptsDir, finalBody, violations);
+        const editPrompt = assembleReadabilityEditPrompt(deps.promptsDir, finalBody, violations, readTargets, band.style);
         const editRaw = await callStage('readability-edit', editPrompt, {
           maxTokens,
           temperature,

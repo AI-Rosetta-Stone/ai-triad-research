@@ -628,10 +628,38 @@ if (!invokedDirectly) {
   // Imported (self-test) — expose check() without running or exiting.
 } else {
 const args = process.argv.slice(2);
-const { findings, undefinedTokens, unmeasured } = check({
+const synthetic = args.includes('--synthetic');
+let { findings, undefinedTokens, unmeasured } = check({
   all: args.includes('--all'),
   includePageBg: args.includes('--include-page-bg'),
 });
+
+// t/111 test harness: --synthetic generates a large payload (>64KB) to test pipe buffer handling,
+// independent of the real findings count. Append dummy findings with long, unique selectors.
+if (synthetic) {
+  const targetSize = 100 * 1024; // 100 KB, comfortably exceeds the 64 KB pipe buffer test
+  let currentSize = JSON.stringify({ findings, undefinedTokens: [...undefinedTokens], unmeasured: [...unmeasured] }).length;
+  let counter = 0;
+  while (currentSize < targetSize) {
+    findings.push({
+      kind: 'contrast',
+      file: `test/dummy-${counter}.css`,
+      selector: `.test-synthetic-padding-selector-${counter}-this-is-a-long-selector-to-increase-payload-size`,
+      theme: counter % 2 === 0 ? 'light' : 'dark',
+      ratio: 5.0,
+      required: 4.5,
+      nonText: false,
+      fg: '#000000',
+      bg: '#ffffff',
+      bgFrom: 'annotation',
+      text: '16px/400',
+    });
+    counter++;
+    if (counter % 100 === 0) {
+      currentSize = JSON.stringify({ findings, undefinedTokens: [...undefinedTokens], unmeasured: [...unmeasured] }).length;
+    }
+  }
+}
 
 // stderr, so the --json payload on stdout stays parseable for contrast-gate.mjs.
 for (const v of unmeasured) {
