@@ -111,3 +111,7 @@ gemini-3.5-flash-lite, T=0.1, 3 replicates, `candidate_v9.prompt` sha256 687c1c9
   says "at least one POV rejects the framing", while §2.2 says one voice can't promote the label.
   The PI decision (keep the one-dissenting-camp guard) settles it as interpretive. The model follows
   §2.1. Prompt wording alone hasn't overridden that in two iterations on flash-lite.
+
+*Correction:* the pre-registered secondary re-score of run 1's held-out set under v9 was **not run**.
+`results_v9.json` covers only the seeds and `heldout2_labels.json`, so that secondary number doesn't
+exist. No further calls were made to produce it.
