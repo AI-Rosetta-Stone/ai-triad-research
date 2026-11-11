@@ -350,7 +350,8 @@ describe('useChatStore', () => {
     it('a Scope chat at or above the minimum does not WARN', async () => {
       taxonomyNodes.skeptic = Array.from({ length: 6 }, (_, i) => ({ id: `skp-beliefs-00${i}`, pov_tags: i < 5 ? ['critical'] : [] }));
       await opening({ pov_tag: 'critical', tag_mode: 'scope' });
-      expect(sentNodeIds()[0]).toHaveLength(5);
+      // t/348 item 7: the deterministic fallback keeps the first 4 per BDI category, so 5 scoped beliefs send 4.
+      expect(sentNodeIds()[0]).toHaveLength(4);
       expect(tagWarns()).toHaveLength(0);
     });
 
