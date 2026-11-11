@@ -16,11 +16,12 @@ from itertools import product
 from pathlib import Path
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 RESEARCH_DIR = SCRIPT_DIR.parent
 REPO_ROOT = RESEARCH_DIR.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from embed_model_pins import load_sentence_transformer  # noqa: E402  (t/152)
 
 MODEL_NAME = "all-MiniLM-L6-v2"
 FIELD_NAMES = ["description", "assumes", "lineage", "epistemic", "rhetorical"]
@@ -136,7 +137,8 @@ def main():
     log(f"Loaded {len(golden)} golden claims")
 
     log(f"Loading model {MODEL_NAME}...")
-    model = SentenceTransformer(MODEL_NAME)
+    model = load_sentence_transformer(MODEL_NAME)
+    print(f"model resolved_revision={model.resolved_revision}", file=sys.stderr)
 
     node_ids = sorted(nodes.keys())
     node_id_to_idx = {nid: i for i, nid in enumerate(node_ids)}

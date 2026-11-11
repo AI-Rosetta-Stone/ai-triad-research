@@ -23,10 +23,9 @@ import re
 import sys
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "scripts"))
-from embed_model_pins import load_cross_encoder  # noqa: E402
+from embed_model_pins import load_cross_encoder, load_sentence_transformer  # noqa: E402
 
 POV_PREFIX = {"accelerationist": "acc", "safetyist": "saf", "skeptic": "skp"}
 NODE_RE = re.compile(r"^(acc|saf|skp)-(beliefs|desires|intentions)-\d+$")
@@ -66,7 +65,7 @@ def main():
                 if nid in idx and cp and nid in node_text:
                     items.append((POV_PREFIX[camp], str(kp.get("category") or "").lower(), nid, cp))
 
-    bi = SentenceTransformer(emb.get("model", "all-MiniLM-L6-v2"), trust_remote_code=False)
+    bi = load_sentence_transformer(emb.get("model", "all-MiniLM-L6-v2"))  # t/152: pinned revision
     q = bi.encode([it[3] for it in items], normalize_embeddings=True, batch_size=128,
                   show_progress_bar=False).astype(np.float32)
     sims = q @ node_mat.T
