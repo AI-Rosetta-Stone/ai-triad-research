@@ -158,6 +158,19 @@ test('secondary limit without retry-after: waits 60s (GitHub guidance), then suc
   assert.deepEqual(r.sleeps, [60]);
 });
 
+test('a bare 429 (no headers) is a secondary limit, not a token error: waits 60s, then succeeds', { skip }, () => {
+  const r = helper([{ status: 429, body: '{"message":"Too Many Requests"}' }, ok()]);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(r.sleeps, [60]);
+  assert.doesNotMatch(r.out, /token\/permission/);
+});
+
+test('the older "abuse detection mechanism" 403 body is a secondary limit too', { skip }, () => {
+  const r = helper([{ status: 403, body: '{"message":"You have triggered an abuse detection mechanism."}' }, ok()]);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(r.sleeps, [60]);
+});
+
 test('secondary retry-after over the 90s cap: INFRA line with pool=secondary at once, no sleep', { skip }, () => {
   const before = Math.floor(Date.now() / 1000);
   const r = helper([secondary(120)]);

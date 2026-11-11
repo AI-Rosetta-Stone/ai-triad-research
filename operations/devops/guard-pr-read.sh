@@ -8,7 +8,8 @@
 # (fail closed: required gate). The failure classes have different remedies, so each is named:
 #   - primary quota at 0: INFRA rate-limit line + step outputs infra/resets, at once. Never sleeps
 #     to the reset (up to an hour); DevOps & Release's ci-infra-rerun (#4967) re-runs once after it.
-#   - secondary limit: waits retry-after (or 60s if absent, per GitHub's docs), capped at 90s;
+#   - secondary limit (retry-after, any 429, or the "secondary rate limit" / "abuse detection"
+#     body): waits retry-after (or 60s if absent, per GitHub's docs), capped at 90s;
 #     longer, or still limited on attempt 3, it is the same INFRA line with pool=secondary.
 #   - 5xx / no response: retried with 3/6/9s backoff.
 #   - any other 4xx (token, permission, not found): fails at once; a re-run will not fix it.
@@ -42,7 +43,8 @@ guard_read_pr() {
         _guard_infra_ratelimit "$(_guard_hdr "$out" x-ratelimit-resource | tr -cd 'a-z_')" "$reset"
       fi
       retry_after=$(_guard_hdr "$out" retry-after)
-      if [ -n "$retry_after" ] || grep -qi 'secondary rate limit' "$out"; then
+      # Secondary: retry-after, a 429 (always a rate limit), or GitHub's body text, old or new.
+      if [ -n "$retry_after" ] || [ "$status" = 429 ] || grep -qiE 'secondary rate limit|abuse detection' "$out"; then
         wait=60
         if [[ "$retry_after" =~ ^[0-9]+$ ]]; then wait=$retry_after; fi
         if [ "$wait" -gt 90 ] || [ "$attempt" -eq 3 ]; then
