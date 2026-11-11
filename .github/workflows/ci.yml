@@ -1818,6 +1818,11 @@ jobs:
         with:
           node-version: '26'
 
+      # t/315: Dependabot docker auto-merge arms only on digest-only diffs (Docker's predicate +
+      # the fail-closed gate around it + dependabot-auto-merge.yml's wiring).
+      - name: Dependabot docker digest-only gate suites
+        run: node --test operations/devops/dependabot-docker-gate.test.mjs operations/devops/docker/docker-digest-only.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
