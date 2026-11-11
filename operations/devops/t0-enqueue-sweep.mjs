@@ -310,8 +310,20 @@ function listOpenPRs(repo) {
     }
     if (!r.pageInfo.hasNextPage) break;
     cursor = r.pageInfo.endCursor;
+    const warn = pageCapWarning(page + 1, r.pageInfo.hasNextPage);
+    if (warn) console.log(warn);
   }
   return prs;
+}
+
+/**
+ * PURE (t/316, Quality's #5030 note). A WARN when the search stopped at SEARCH_MAX_PAGES with
+ * results still unread, else null. Stopping is the safe direction (the unread PRs just aren't
+ * enqueued this pass), but it must be visible rather than silent.
+ */
+export function pageCapWarning(pagesRead, hasNextPage, maxPages = SEARCH_MAX_PAGES, pageSize = SEARCH_PAGE_SIZE) {
+  if (!hasNextPage || pagesRead < maxPages) return null;
+  return `WARN: open-PR search stopped at its ${maxPages}-page cap (${maxPages * pageSize} PRs) with more results unread; PRs past the cap are not considered this pass (raise SEARCH_MAX_PAGES if open PRs really exceed it).`;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
