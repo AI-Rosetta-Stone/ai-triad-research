@@ -101,7 +101,6 @@ overrides:
 
 allowBuilds:
   '@google/genai': true
-  canvas: false
   electron-winstaller: true
   esbuild: true
   node-pty: true
