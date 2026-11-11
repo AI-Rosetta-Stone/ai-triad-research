@@ -465,7 +465,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   const synthetic = resolveSyntheticPromptNodes(engine, scoredPov, tagCtx.povNodes, scores, roundFocusVector);
 
   const filteredCtx = {
-    povNodes: synthetic?.nodes ?? scoredPov.map(s => s.node),
+    povNodes: synthetic?.arm === 'synthetic' ? synthetic.nodes : scoredPov.map(s => s.node),
     situationNodes: filteredSit.map(s => s.node),
     policyRegistry: ctx.policyRegistry,
     nodeScores: scores,
@@ -477,6 +477,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   }));
   engine._lastInjectionManifest = computeInjectionManifest(filteredCtx, pov);
   engine._lastInjectionManifest.scoring_mode = scoringMode;
+  if (synthetic) (engine._lastInjectionManifest as Record<string, unknown>).synthetic_arm = synthetic.arm;
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
   if (tagSelection) {
     (engine._lastInjectionManifest as Record<string, unknown>).tag_selection = {
@@ -566,7 +567,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     }
   }
 
-  const debateGroundingOverrides = synthetic?.overrides ?? resolveDebateGroundingOverrides(engine, filteredCtx.povNodes);
+  const debateGroundingOverrides = resolveGroundingOverrides(engine, synthetic, filteredCtx.povNodes);
 
   return formatTaxonomyContext(filteredCtx, pov, undefined, {
     ...(situationStatements ? { situationStatements } : undefined),
@@ -588,22 +589,26 @@ function resolveDebateGroundingOverrides(engine: DebateEngineInternals, povNodes
   return overrides;
 }
 
-// Synthetic-statement arm (t/412): when useSyntheticStatementGrounding is on, returns the prompt
-// nodes and their statement overrides. Returns undefined when the flag is off, or when there is no
-// query embedding (logged; the debate keeps the control prompt).
-function resolveSyntheticPromptNodes(
+/** Outcome of the synthetic arm for one turn. `undefined` from resolveSyntheticPromptNodes means the flag is off. */
+export type SyntheticArm =
+  | { arm: 'synthetic'; nodes: PovNode[]; overrides: Map<string, string> }
+  | { arm: 'control-fallback' };
+
+// Synthetic-statement arm (t/412). Flag off: undefined. Flag on with no query embedding: the turn is
+// marked 'control-fallback' and runs the control prompt, so the experiment can exclude it from arm B.
+export function resolveSyntheticPromptNodes(
   engine: DebateEngineInternals,
   scoredPov: ScoredPovNode[],
   eligible: PovNode[],
   scores: Map<string, number>,
   roundFocusVector: number[] | null,
-): SyntheticGroundingResult | undefined {
+): SyntheticArm | undefined {
   if (!engine.config.useSyntheticStatementGrounding) return undefined;
   if (!roundFocusVector) {
-    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useSyntheticStatementGrounding: no query embedding — falling back to the control prompt (description) for this debate' });
-    return undefined;
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: 'useSyntheticStatementGrounding: no query embedding — control-fallback: this turn runs the control prompt (description) and is marked synthetic_arm=control-fallback' });
+    return { arm: 'control-fallback' };
   }
-  return selectSyntheticGroundedPovNodes({
+  const grounded: SyntheticGroundingResult = selectSyntheticGroundedPovNodes({
     selected: scoredPov,
     pool: eligible.map(n => ({ node: n, score: scores.get(n.id) ?? 0 })),
     queryVector: roundFocusVector,
@@ -611,6 +616,18 @@ function resolveSyntheticPromptNodes(
     nodeStatements: engine.taxonomy.syntheticStatements ?? {},
     debateId: engine.session?.id,
   });
+  return { arm: 'synthetic', nodes: grounded.nodes, overrides: grounded.overrides };
+}
+
+// Synthetic statements take precedence over debate_grounding. A control-fallback turn gets the
+// control path unchanged (debate_grounding when useDebateGrounding is on), so it matches arm A.
+export function resolveGroundingOverrides(
+  engine: DebateEngineInternals,
+  synthetic: SyntheticArm | undefined,
+  povNodes: PovNode[],
+): Map<string, string> | undefined {
+  if (synthetic?.arm === 'synthetic') return synthetic.overrides;
+  return resolveDebateGroundingOverrides(engine, povNodes);
 }
 
 export function formatDebaterEdgeContext(engine: DebateEngineInternals, debaterPov: string): { text: string; edges_used: { source: string; target: string; type: string; confidence: number }[] } {
