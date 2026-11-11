@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -81,6 +81,33 @@ test('t/130: --stdin0 reads NUL-separated paths (a path with a space is scanned 
     assert.equal(none.code, 0)
     assert.match(none.out, /clean, 0 file\(s\) scanned/)
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('t/335: an ANSI escape (pasted terminal output) is named as such with a strip hint, as a blocking ::error; other bytes keep the generic hint', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ccl-ansi-'))
+  const cli = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'check-control-chars.mjs')
+  try {
+    const ESC = String.fromCharCode(0x1b)
+    writeFileSync(join(root, 'notes.md'), `CI said: ${ESC}[31mFAIL${ESC}[0m\n`)
+    writeFileSync(join(root, 'test.ts'), `const re = /${BS}x/\n`)
+    mkdirSync(join(root, '.github', 'ci'), { recursive: true })
+    writeFileSync(join(root, '.github', 'ci', 'control-chars-allowlist.json'), JSON.stringify({ entries: [] }))
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    let out = '', code = 0
+    try { out = execFileSync(process.execPath, [cli, 'notes.md', 'test.ts'], { cwd: root, encoding: 'utf8' }) } catch (e) { out = e.stdout; code = e.status }
+    assert.equal(code, 1)
+    assert.match(out, /^::error file=notes\.md,line=1,col=10::check-control-chars \(t\/128\): ANSI escape \(0x1B\), most likely pasted terminal output/m)
+    assert.match(out, /^notes\.md:1:10: 0x1B \(ANSI escape\)$/m)
+    assert.match(out, /^::error file=test\.ts,line=1,col=13::check-control-chars \(t\/128\): control byte 0x08; invisible in PR diffs/m)
+    assert.doesNotMatch(out, /::warning/)
+    assert.match(out, /, 0 allowlist problem\(s\);/)   // the empty allowlist file is valid
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('t/335: the committed allowlist file exists and is valid (the escape hatch is discoverable)', () => {
+  const root = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..')
+  const al = JSON.parse(readFileSync(join(root, '.github', 'ci', 'control-chars-allowlist.json'), 'utf8'))
+  assert.deepEqual(allowlistProblems(al.entries), [])
 })
 
 test('scan: a git repo with a bad file, a clean file, an allowlisted bad file and an unscanned bad file', () => {
