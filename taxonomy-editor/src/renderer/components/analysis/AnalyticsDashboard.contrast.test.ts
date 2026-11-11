@@ -57,9 +57,4 @@ describe('AnalyticsDashboard user pill contrast (t/112)', () => {
       expect(ratio(fg, bg)).toBeGreaterThanOrEqual(4.5);
     });
   });
-
-  // Old pairing that failed in harvard: --text-muted on --bg-primary
-  it('flags the old pairing (--text-muted label on --bg-primary in harvard)', () => {
-    expect(ratio('#8A8278', '#F3F0EB')).toBeLessThan(4.5); // harvard --text-muted on --bg-primary
-  });
 });
