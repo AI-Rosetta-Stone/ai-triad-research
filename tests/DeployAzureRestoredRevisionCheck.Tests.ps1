@@ -45,6 +45,13 @@ Describe 'deploy-azure.yml verifies the restored revision after a gate rollback 
         ($s -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim() | Should -Be 'exit 0'
     }
 
+    It 'a bad az read is caught inside the retry loop, so it cannot throw past the retries and the exit 0 (DevOps Lead p/107#18)' {
+        $s = Get-StepText $script:Check
+        $loop = [regex]::Match($s, '(?s)for \(\$i = 1; \$i -le 3; \$i\+\+\) \{(.*?)\n          \}').Groups[1].Value
+        $loop | Should -Match '(?s)try \{.*az containerapp revision show.*ConvertFrom-Json.*\} catch \{'
+        $loop | Should -Match '::warning::t/353: read'
+    }
+
     It 'SILENT-FAIL ARM: the sev-1 alert fires when the check is not healthy OR did not complete (!= ''true''), and goes red' {
         Get-StepIf $script:Alert | Should -Be "always() && steps.earlier_rollback.outputs.fired == 'true' && steps.restored_check.outputs.healthy != 'true'"
         $a = Get-StepText $script:Alert

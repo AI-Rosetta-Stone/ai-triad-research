@@ -1465,9 +1465,15 @@ jobs:
           . ./operations/devops/Get-RestoredRevisionVerdict.ps1
           $Active = $null; $Weight = $null; $HealthOk = $null
           for ($i = 1; $i -le 3; $i++) {
-            $Info = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $env:RESTORED --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
-            if ($Info) { $Active = [bool]$Info.active; $Weight = if ($null -ne $Info.weight) { [int]$Info.weight } else { $null } }
+            # DevOps Lead p/107#18: GitHub's pwsh shell runs with ErrorActionPreference=Stop, so a non-JSON az
+            # read would throw out of the loop, skip the retries and the exit 0 below. Catch, WARN, retry.
+            try {
+              $Info = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+                --revision $env:RESTORED --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
+              if ($Info) { $Active = [bool]$Info.active; $Weight = if ($null -ne $Info.weight) { [int]$Info.weight } else { $null } }
+            } catch {
+              Write-Host "::warning::t/353: read $i/3 of '$env:RESTORED' failed ($($_.Exception.Message)); retrying (fallback: treated as unknown, so NOT healthy)"
+            }
             if ($Active -eq $true -and $Weight -eq 100) { break }
             Start-Sleep -Seconds 15   # traffic set after a rollback can take a few seconds to read back
           }
