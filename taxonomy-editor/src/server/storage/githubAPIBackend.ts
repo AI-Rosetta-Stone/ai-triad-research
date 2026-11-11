@@ -415,6 +415,49 @@ export class GitHubAPIBackend implements StorageBackend {
     return { store: config.sharedOverlayState.store, active, warnInert };
   }
 
+  /** t/223: Validate that a repo path is relative and does not attempt directory
+   *  traversal. When joined with cacheDir, the result must stay within cacheDir.
+   *  Rejects absolute paths and any path containing `..` (forward or backslash). */
+  private validateRepoPathSafety(repoPath: string): void {
+    // Reject absolute paths
+    if (path.isAbsolute(repoPath)) {
+      throw new ActionableError({
+        goal: 'Validate repository path',
+        problem: `Path is absolute, which could escape the cache root: ${repoPath}`,
+        location: 'GitHubAPIBackend.validateRepoPathSafety',
+        nextSteps: ['Use only relative paths within the repository'],
+        code: 'INVALID_PATH',
+        httpStatus: 400,
+      });
+    }
+
+    // Reject paths containing `..` (forward and backslash)
+    if (repoPath.includes('..') || repoPath.includes('..\\')) {
+      throw new ActionableError({
+        goal: 'Validate repository path',
+        problem: `Path contains .. (parent directory traversal): ${repoPath}`,
+        location: 'GitHubAPIBackend.validateRepoPathSafety',
+        nextSteps: ['Use only relative paths within the repository'],
+        code: 'INVALID_PATH',
+        httpStatus: 400,
+      });
+    }
+
+    // Verify the resolved path stays within cacheDir
+    const resolved = path.resolve(path.join(this.cacheDir, repoPath));
+    const cacheResolved = path.resolve(this.cacheDir);
+    if (!resolved.startsWith(cacheResolved + path.sep) && resolved !== cacheResolved) {
+      throw new ActionableError({
+        goal: 'Validate repository path',
+        problem: `Path traversal would escape cache root: ${repoPath}`,
+        location: 'GitHubAPIBackend.validateRepoPathSafety',
+        nextSteps: ['Use only relative paths within the repository'],
+        code: 'INVALID_PATH',
+        httpStatus: 400,
+      });
+    }
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
   async initialize(): Promise<void> {
@@ -2693,6 +2736,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
+    this.validateRepoPathSafety(repoPath);
     if (!this.manifest?.files[repoPath]) return null;
 
     const diskPath = path.join(this.cacheDir, repoPath);
@@ -2709,6 +2753,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
+    this.validateRepoPathSafety(repoPath);
     if (!this.manifest?.files[repoPath]) return null;
 
     const diskPath = path.join(this.cacheDir, repoPath);
@@ -2729,6 +2774,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeToDiskCache(
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
+    this.validateRepoPathSafety(repoPath);
     try {
       const diskPath = path.join(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
@@ -2778,6 +2824,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeBinaryToDiskCache(
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
+    this.validateRepoPathSafety(repoPath);
     try {
       const diskPath = path.join(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });

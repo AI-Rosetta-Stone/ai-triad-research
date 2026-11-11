@@ -9,7 +9,37 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { gitBlobSha } from './gitBlobSha.js';
 
-/** t/117: tail of the in-flight conditional-write chain per absolute path. Module-level so
+/** t/223: Validate that a path is relative and does not attempt directory traversal.
+ *  Rejects absolute paths and any path containing `..` (forward or backslash).
+ *  This prevents both file reads/writes/deletes and directory listing from escaping
+ *  the data root. */
+function validatePathSafety(filePath: string): void {
+  // Reject absolute paths
+  if (path.isAbsolute(filePath)) {
+    throw new ActionableError({
+      goal: 'Validate storage path',
+      problem: `Path is absolute, which could escape the data root: ${filePath}`,
+      location: 'FilesystemBackend.validatePathSafety',
+      nextSteps: ['Use only relative paths within the data root'],
+      code: 'INVALID_PATH',
+      httpStatus: 400,
+    });
+  }
+
+  // Reject paths containing `..` (forward and backslash)
+  if (filePath.includes('..') || filePath.includes('..\\')) {
+    throw new ActionableError({
+      goal: 'Validate storage path',
+      problem: `Path contains .. (parent directory traversal): ${filePath}`,
+      location: 'FilesystemBackend.validatePathSafety',
+      nextSteps: ['Use only relative paths within the data root'],
+      code: 'INVALID_PATH',
+      httpStatus: 400,
+    });
+  }
+}
+
+/** t/223: tail of the in-flight conditional-write chain per absolute path. Module-level so
  *  every FilesystemBackend instance in this process shares it. */
 const conditionalWriteTails = new Map<string, Promise<unknown>>();
 
@@ -62,6 +92,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readFile(filePath: string, _opts?: { ref?: string; optional?: boolean; consultOverlayOnPin?: boolean }): Promise<string | null> {
+    validatePathSafety(filePath);
     try {
       return await fs.readFile(filePath, 'utf-8');
     } catch (err: unknown) {
@@ -97,6 +128,7 @@ export class FilesystemBackend implements StorageBackend {
    * same directory is still unguarded.
    */
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
+    validatePathSafety(filePath);
     if (opts?.baseSha !== undefined) {
       const baseSha = opts.baseSha;
       return serializeConditionalWrite(filePath, () => this.checkedWrite(filePath, content, baseSha));
@@ -128,6 +160,7 @@ export class FilesystemBackend implements StorageBackend {
    * `baseSha` writes. On a filesystem without hard links it falls back to a `'wx'` write (WARN).
    */
   async writeFileIfAbsent(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+    validatePathSafety(filePath);
     return serializeConditionalWrite(filePath, () => this.createExclusive(filePath, content));
   }
 
@@ -202,6 +235,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string): Promise<string[]> {
+    validatePathSafety(dirPath);
     try {
       return await fs.readdir(dirPath);
     } catch (err: unknown) {
@@ -220,6 +254,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async deleteFile(filePath: string): Promise<void> {
+    validatePathSafety(filePath);
     try {
       await fs.unlink(filePath);
     } catch (err: unknown) {
@@ -236,6 +271,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async fileExists(filePath: string, _opts?: { ref?: string }): Promise<boolean> {
+    validatePathSafety(filePath);
     try {
       await fs.access(filePath);
       return true;
@@ -252,6 +288,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async writeBinaryFile(filePath: string, content: Buffer): Promise<void> {
+    validatePathSafety(filePath);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = filePath + '.tmp';
     await fs.writeFile(tmpPath, content);
@@ -266,6 +303,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readBinaryFile(filePath: string, _opts?: { ref?: string }): Promise<Buffer | null> {
+    validatePathSafety(filePath);
     try {
       return await fs.readFile(filePath);
     } catch (err: unknown) {
