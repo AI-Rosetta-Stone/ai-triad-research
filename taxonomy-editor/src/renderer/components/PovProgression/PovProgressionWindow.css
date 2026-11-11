@@ -5,7 +5,7 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--bg-primary); /* t/198: --bg is defined in no theme */
   color: var(--text-primary);
   font-family: system-ui, sans-serif;
 }

@@ -7,7 +7,7 @@
 # (see deploy/azure/Dockerfile.base)
 
 # ── Stage 1: Build ──
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS builder
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS builder
 
 WORKDIR /build
 
@@ -98,7 +98,7 @@ RUN REAL_PNPM="$(which pnpm)" && \
 # so onnxEmbedding.ts runs fully offline. Without this, each cold-start downloads
 # from HuggingFace at runtime, hitting the 50s route timeout (t/2784).
 # fp32 is required — quantized output diverges from the stored embeddings.json corpus.
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS onnx-model
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS onnx-model
 # hadolint ignore=DL3008
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -124,7 +124,7 @@ RUN mkdir -p /onnx/all-MiniLM-L6-v2 \
  && rm /tmp/onnx-model.sha256
 
 # ── Stage 2: Production dependencies (with build tools for native modules) ──
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS prod-deps
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS prod-deps
 
 # node-pty requires make/g++/python3 for compilation when prebuilds
 # are unavailable. The runtime base image is intentionally slim (no
@@ -179,7 +179,10 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # picked up the fix (1:...-1+deb13u1) via its normal apt-get upgrade; this base tag was
 # just never re-pinned here. Verified live via `docker run ... dpkg-query zlib1g` before
 # bumping — no new base rebuild needed, only this re-pin.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-08@sha256:7856156d55ceb611b05ad56c381d4819c79f42816c6244be6c1bf6094ce7d4b3 AS runtime
+# Bumped to :2026-11-10 (t/156, under t/155) — clears zlib1g CVE-2026-76844 (#6350), which the
+# deployed-image scan still reports for prod. DeployAzure verified the digest carries zlib1g
+# 1:...-1+deb13u1 (t/155#2). npm's bundled-undici alerts don't apply here: step 8 strips npm.
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-11@sha256:2cc7fa21d61bd750037e1ca287e2cb04175e431a5133ec9f328626048fecaf4f AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"

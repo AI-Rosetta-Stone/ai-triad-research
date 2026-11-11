@@ -599,16 +599,16 @@
   padding: 4px 10px;
   font-size: var(--text-xs);
   font-weight: 600;
-  border: 1px solid var(--danger, #ef4444);
+  border: 1px solid var(--error-border);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
-  color: var(--danger, #ef4444);
+  background: var(--error-bg);
+  color: var(--error-text);
   cursor: pointer;
   margin-top: 4px;
 }
 
 .validation-select-correction-btn:hover {
-  background: color-mix(in srgb, var(--danger, #ef4444) 16%, transparent);
+  border-color: var(--error-text); /* t/198 S8: solid -bg, so strengthen the edge on hover */
 }
 
 /* Resize handles */

@@ -30,6 +30,7 @@ import {
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey, withSubmissionLock } from '../storage/jobCapChecker.js';
 import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
@@ -108,23 +109,34 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       const userId = getStorageUserId();
       const idempotencyKey = idempotencyKeyOf(req);
 
-      // Idempotency: an in-window job for the same (user, key) returns its jobId (no second run).
-      const existing = findIdempotentInquiryJob(userId, idempotencyKey);
-      if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
+      // Check-and-create is serialized per user (concurrent POSTs queue, each counting the records its
+      // predecessors wrote). Idempotency + cap read the shared records (cross-replica); the Map is the fast path.
+      const admitted = await withSubmissionLock(userId, 'inquiry', async () => {
+        const local = findIdempotentInquiryJob(userId, idempotencyKey);
+        if (local) return { status: 202 as const, jobId: local.jobId };
+        const byKey = await findRunningJobByIdempotencyKey(
+          userId, 'inquiry', idempotencyKey, undefined, rec => !isTerminalStatus(rec.status),
+        );
+        if (byKey) return { status: 202 as const, jobId: byKey.jobId };
 
-      // Per-user concurrency cap — an inquiry is expensive; one at a time.
-      if (countRunningInquiryJobs(userId) >= MAX_CONCURRENT_INQUIRY_JOBS) {
+        const cap = await countUserJobRecords(userId, 'inquiry', rec => !isTerminalStatus(rec.status));
+        if (cap.error) return { status: 503 as const };
+        if (cap.count >= MAX_CONCURRENT_INQUIRY_JOBS) return { status: 429 as const };
+
+        const job = await startInquiryJob({ userId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
+        getGlobalRecorder()?.record({
+          type: 'inquiry.created', component: 'inquiry', level: 'info',
+          message: `Inquiry job created: ${job.jobId}`,
+          data: { jobId: job.jobId, fidelity: request.fidelity, hasIdempotencyKey: !!idempotencyKey },
+        });
+        return { status: 202 as const, jobId: job.jobId };
+      });
+      if (admitted.status === 503) { error(res, 'Job storage is temporarily unavailable; try again shortly', 503); return; }
+      if (admitted.status === 429) {
         error(res, 'An inquiry is already running — wait for it to finish before starting another', 429);
         return;
       }
-
-      const job = await startInquiryJob({ userId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
-      getGlobalRecorder()?.record({
-        type: 'inquiry.created', component: 'inquiry', level: 'info',
-        message: `Inquiry job created: ${job.jobId}`,
-        data: { jobId: job.jobId, fidelity: request.fidelity, hasIdempotencyKey: !!idempotencyKey },
-      });
-      json(res, { jobId: job.jobId }, 202);
+      json(res, { jobId: admitted.jobId }, 202);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'inquiry', level: 'error', message: 'POST /api/inquiry failed',

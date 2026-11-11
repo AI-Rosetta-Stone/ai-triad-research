@@ -90,11 +90,13 @@ describe('contrast gate — unmeasured color-mix values (t/147)', () => {
 describe('check-contrast.mjs --json — complete output through a pipe (t/111 root cause)', () => {
   it('stdout parses in full when piped (process.exit() used to truncate it on Linux)', () => {
     const script = join(dirname(fileURLToPath(import.meta.url)), 'check-contrast.mjs');
-    const res = spawnSync(process.execPath, [script, '--json'], { cwd: join(dirname(fileURLToPath(import.meta.url)), '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // t/111: use --synthetic to generate a large payload (>64KB) independent of the real findings count,
+    // so the test doesn't break when contrast improvements reduce the real count below the pipe buffer.
+    const res = spawnSync(process.execPath, [script, '--json', '--synthetic'], { cwd: join(dirname(fileURLToPath(import.meta.url)), '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     assert.ok(res.status === 0 || res.status === 1, `exit ${res.status}: ${res.stderr}`);
     const parsed = JSON.parse(res.stdout);
     assert.ok(Array.isArray(parsed.findings));
     assert.ok(Array.isArray(parsed.unmeasured), 'unmeasured must be in the payload for the gate to warn (t/147)');
-    assert.ok(res.stdout.length > 64 * 1024, `payload ${res.stdout.length} bytes should exceed a pipe buffer, or this test proves nothing`);
+    assert.ok(res.stdout.length > 64 * 1024, `synthetic payload ${res.stdout.length} bytes should exceed a pipe buffer (test-only: --synthetic mode)`);
   });
 });

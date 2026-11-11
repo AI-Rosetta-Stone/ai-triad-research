@@ -9,8 +9,8 @@
     classification-rubric.md §4.1) over situation nodes in situations.json that
     lack a disagreement_type value. Uses gemini-3.5-flash-lite via AIEnrich.
 
-    Runs a 10-node seed check first — must reproduce the 9 non-abstain labels
-    from rubric §3 before the full pass is trusted and written.
+    Runs the rubric §3 seed check first: the 10 seeds three times, judged by each seed's
+    majority label (9 non-abstain plus the sit-154 abstain anchor) before the full pass is trusted.
 .PARAMETER SituationsPath
     Override the situations.json path (default: resolved from .aitriad.json).
 .PARAMETER DryRun
@@ -19,18 +19,74 @@
     Stop after the seed check (do not run the full pass).
 .PARAMETER Model
     AI model to use. Default: gemini-3.5-flash-lite.
+.PARAMETER Ids
+    Restrict the full pass to these situation ids (a frozen /data-mutation list, Orca t/4861 / t/214).
+    An id not in situations.json, or one that already has disagreement_type, is an error, so a
+    frozen list can't silently shrink. Omit to classify every unpopulated node, as before.
+.PARAMETER ExcludeIds
+    Situation ids to leave out of the full pass (e.g. one approved for retirement). Requires
+    -ExcludeReason, which is logged with every excluded id.
+.PARAMETER ExcludeReason
+    Why -ExcludeIds are excluded; recorded in the run output.
+.EXAMPLE
+    ./Invoke-DisagreementTypeBackfill.ps1 -DryRun -Ids sit-484,sit-485,sit-487,sit-488,sit-489,sit-490,sit-491,sit-492,sit-493 `
+        -ExcludeIds sit-486 -ExcludeReason 'approved for retirement by the PI; retire mechanism not built yet (Orca t/4861)'
 #>
 [CmdletBinding()]
 param(
     [string]$SituationsPath = '',
     [switch]$DryRun,
     [switch]$SeedOnly,
-    [string]$Model = 'gemini-3.5-flash-lite'
+    [string]$Model = 'gemini-3.5-flash-lite',
+    [string[]]$Ids = @(),
+    [string[]]$ExcludeIds = @(),
+    [string]$ExcludeReason = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+
+function Select-BackfillTarget {
+    # Pure (Orca t/4861, t/214): scope the full pass to a frozen -Ids list and drop -ExcludeIds,
+    # logging each exclusion with its reason. A frozen id that is unknown or already populated is
+    # an error rather than a silent skip.
+    param([object[]]$Candidates, [string[]]$Ids = @(), [string[]]$ExcludeIds = @(), [string]$ExcludeReason = '')
+    if ($ExcludeIds.Count -and [string]::IsNullOrWhiteSpace($ExcludeReason)) {
+        throw 'Invoke-DisagreementTypeBackfill: -ExcludeIds requires -ExcludeReason (it is recorded with each excluded id).'
+    }
+    $byId = @{}; foreach ($c in $Candidates) { $byId[[string]$c.id] = $c }
+    $out = if ($Ids.Count) {
+        $missing = @($Ids | Where-Object { -not $byId.ContainsKey($_) })
+        if ($missing.Count) {
+            throw "Invoke-DisagreementTypeBackfill: -Ids not found among unpopulated situations (unknown, or disagreement_type already set): $($missing -join ', ')"
+        }
+        @($Ids | ForEach-Object { $byId[$_] })
+    } else { @($Candidates) }
+    foreach ($x in $ExcludeIds) {
+        Write-Warning "Invoke-DisagreementTypeBackfill: excluding $x ($ExcludeReason)"
+    }
+    @($out | Where-Object { [string]$_.id -notin $ExcludeIds })
+}
+
+function Get-SeedGateVerdict {
+    # Pure (t/351, rubric §3 after #5056): each seed's label is its strict MAJORITY across the
+    # replicate draws (2 of 3); three different labels is no majority. Pass only when every seed's
+    # majority equals its expected label, the abstain anchor's included ('insufficient').
+    param([System.Collections.IDictionary[]]$Replicates, [System.Collections.IDictionary]$Expected)
+    $modal = [ordered]@{}
+    $misses = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $Expected.Keys) {
+        $draws = @($Replicates | ForEach-Object { [string]$_[$id] })
+        $top = @($draws | Group-Object -NoElement | Sort-Object Count -Descending)[0]
+        $label = if ($top -and $top.Count -gt ($draws.Count / 2)) { $top.Name } else { $null }
+        $modal[$id] = $label
+        if ($label -ne $Expected[$id]) {
+            $misses.Add([pscustomobject]@{ Id = $id; Expected = $Expected[$id]; Majority = $label; Draws = ($draws -join ',') })
+        }
+    }
+    [pscustomobject]@{ Pass = ($misses.Count -eq 0); Majority = $modal; Misses = @($misses) }
+}
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'AIEnrich.psm1') -Force -WarningAction SilentlyContinue
@@ -50,21 +106,9 @@ if (-not (Test-Path $SituationsPath)) {
 }
 
 # ── Classification prompt (rubric §4.1 + v7 concise principled approach) ─────
-$ClassifyPrompt = @'
-You are classifying the **type of cross-POV disagreement** a policy "situation" turns on. You are given a situation's description and how up to three points of view (accelerationist, safetyist, skeptic) interpret it.
-
-**Apply in order:**
-
-**1. DEFINITIONAL** — the dispute is about what the central *object* ontologically IS. The test: would agreeing on a shared definition dissolve the disagreement? The debate must be about the NATURE OF THE THING ITSELF (e.g., "is AI a self-producing organism or an externally designed artifact?"), not about which policy frame to apply to it. (Rare.)
-
-**2. STRUCTURAL** — the primary debate is about which *problem category* this situation belongs to: specifically, whether this is a routine/ordinary instance addressable by familiar tools, versus a categorically different problem where ordinary approaches fundamentally fail. BOTH of the following must be true: (a) the frame-category question IS the central debate, and (b) at least two POVs are directly in frame conflict on this question. A single POV reframing while the other two debate implications does NOT make structural.
-
-**3. INTERPRETIVE (default)** — everything else. Use interpretive when the POVs share a working concept/frame and split on implications, urgency, or action — including when: (a) two POVs debate implications while a third shifts focus elsewhere; (b) the three POVs hold positive, protective, and lower-priority stances toward the same concept; (c) the debate is about what to do, not whether the frame applies. When in doubt, choose **interpretive**.
-
-**Insufficient:** interpretations absent or too thin → `"insufficient"` with low confidence.
-
-Return JSON: { "disagreement_type": "definitional|interpretive|structural|insufficient", "confidence": 0.0-1.0, "rationale": "<= 25 words" }
-'@
+# Prompt text: Prompts/disagreement-type-classification.prompt (CL-owned; moved verbatim from here, t/246).
+# Get-Prompt is module-private, so call it in the AITriad module's scope (imported above).
+$ClassifyPrompt = & (Get-Module AITriad) { Get-Prompt -Name 'disagreement-type-classification' }
 
 # Seed set from rubric §3 — expected labels for the agreement check
 $SeedExpected = [ordered]@{
@@ -77,8 +121,10 @@ $SeedExpected = [ordered]@{
     'sit-470' = 'interpretive'
     'sit-300' = 'structural'
     'sit-400' = 'structural'
-    'sit-050' = 'insufficient'  # abstain case — all null interpretations
+    'sit-154' = 'insufficient'  # abstain anchor: the only live situation with empty interpretations (t/351; sit-050 was filled by t/3018)
 }
+# Rubric §3: run the seed set this many times and judge each seed by its majority label (t/351).
+$SeedReplicates = 3
 
 # ── Helper: build the per-node prompt input ──────────────────────────────────
 function Build-NodeInput([PSObject]$Node) {
@@ -167,9 +213,9 @@ $Raw   = Get-Content -Raw -Path $SituationsPath | ConvertFrom-Json
 $Nodes = @($Raw.nodes)
 Write-Host "  Loaded $($Nodes.Count) nodes." -ForegroundColor Cyan
 
-# ── Phase 1: Seed check ───────────────────────────────────────────────────────
+# ── Phase 1: Seed check (rubric §3: three replicates, majority label per seed; t/351) ──────────
 Write-Host ''
-Write-Host '=== Seed check (10 nodes, rubric §3) ===' -ForegroundColor Yellow
+Write-Host "=== Seed check ($($SeedExpected.Count) nodes x $SeedReplicates replicates, rubric §3) ===" -ForegroundColor Yellow
 $seedIds   = @($SeedExpected.Keys)
 $seedNodes = @($Nodes | Where-Object { $_.id -in $seedIds })
 
@@ -178,64 +224,47 @@ if ($seedNodes.Count -ne $seedIds.Count) {
     throw "Seed nodes missing from situations.json: $($missing -join ', ')"
 }
 
-$seedResults   = [ordered]@{}
-$seedAgreement = 0
-$seedTotal     = 0
-
-foreach ($node in @($seedIds | ForEach-Object { $id = $_; @($seedNodes | Where-Object { $_.id -eq $id })[0] })) {
-    $nodeId   = $node.id
-    $expected = $SeedExpected[$nodeId]
-    Write-Host "  Classifying $nodeId (expected: $expected)..." -NoNewline
-
-    if (Test-LowSignal $node) {
-        $predicted = 'insufficient'
-        Write-Host " LOW-SIGNAL → insufficient" -ForegroundColor DarkYellow
-    } else {
-        $result = Invoke-ClassifyNode $node
-        if ($null -eq $result) {
-            $predicted = 'error'
-            Write-Host " ERROR" -ForegroundColor Red
+$replicates = [System.Collections.Generic.List[System.Collections.IDictionary]]::new()
+for ($rep = 1; $rep -le $SeedReplicates; $rep++) {
+    Write-Host "  Replicate $rep/$SeedReplicates" -ForegroundColor DarkCyan
+    $draw = [ordered]@{}
+    foreach ($node in @($seedIds | ForEach-Object { $id = $_; @($seedNodes | Where-Object { $_.id -eq $id })[0] })) {
+        $nodeId = $node.id
+        Write-Host "    $nodeId (expected: $($SeedExpected[$nodeId]))..." -NoNewline
+        if (Test-LowSignal $node) {
+            $predicted = 'insufficient'
+            Write-Host ' LOW-SIGNAL → insufficient' -ForegroundColor DarkYellow
         } else {
-            $predicted = [string]$result.disagreement_type
-            $conf      = if ($result.PSObject.Properties['confidence']) { [double]$result.confidence } else { 0.0 }
-            $rationale = if ($result.PSObject.Properties['rationale']) { [string]$result.rationale } else { '' }
-            Write-Host " → $predicted (conf=$([Math]::Round($conf,2))) — $rationale" -ForegroundColor Cyan
+            $result = Invoke-ClassifyNode $node
+            if ($null -eq $result) {
+                $predicted = 'error'
+                Write-Host ' ERROR' -ForegroundColor Red
+            } else {
+                $predicted = [string]$result.disagreement_type
+                $conf = if ($result.PSObject.Properties['confidence']) { [double]$result.confidence } else { 0.0 }
+                $rationale = if ($result.PSObject.Properties['rationale']) { [string]$result.rationale } else { '' }
+                Write-Host " → $predicted (conf=$([Math]::Round($conf,2))) — $rationale" -ForegroundColor Cyan
+            }
         }
+        $draw[$nodeId] = $predicted
     }
-
-    $seedResults[$nodeId] = $predicted
-    $seedTotal++
-    if ($predicted -eq $expected) { $seedAgreement++ }
-    elseif ($expected -eq 'insufficient' -and $predicted -eq 'insufficient') { }
-    else {
-        Write-Host "    !! MISMATCH: expected '$expected', got '$predicted'" -ForegroundColor Red
-    }
+    $replicates.Add($draw)
 }
 
+$verdict = Get-SeedGateVerdict -Replicates $replicates.ToArray() -Expected $SeedExpected
+$correct = @($seedIds | Where-Object { $verdict.Majority[$_] -eq $SeedExpected[$_] }).Count
 Write-Host ''
-Write-Host "Seed agreement: $seedAgreement/$seedTotal" -ForegroundColor $(if ($seedAgreement -ge 9) { 'Green' } else { 'Red' })
+Write-Host "Seed majority agreement: $correct/$($seedIds.Count) (9 non-abstain + the abstain anchor)" -ForegroundColor $(if ($verdict.Pass) { 'Green' } else { 'Red' })
 
-# The §3 rubric requires reproducing the 9 non-abstain labels.
-# sit-050 is expected 'insufficient' — pass if all 10 match OR if only interpretive/structural
-# boundary cases miss (rubric notes this is the expected error mode).
-$nonAbstainAgreement = @($seedIds | Where-Object {
-    $SeedExpected[$_] -ne 'insufficient' -and $seedResults[$_] -eq $SeedExpected[$_]
-}).Count
-
-Write-Host "Non-abstain agreement: $nonAbstainAgreement/9" -ForegroundColor $(if ($nonAbstainAgreement -ge 9) { 'Green' } else { 'Yellow' })
-
-if ($nonAbstainAgreement -lt 9) {
+if (-not $verdict.Pass) {
     Write-Host ''
-    Write-Host 'Seed check FAILED — classifier does not reproduce rubric §3 labels.' -ForegroundColor Red
-    Write-Host 'Mismatches:' -ForegroundColor Red
-    foreach ($id in $seedIds) {
-        if ($SeedExpected[$id] -ne 'insufficient' -and $seedResults[$id] -ne $SeedExpected[$id]) {
-            Write-Host "  $id : expected $($SeedExpected[$id]), got $($seedResults[$id])" -ForegroundColor Red
-        }
+    Write-Host 'Seed check FAILED — the majority labels do not reproduce rubric §3.' -ForegroundColor Red
+    foreach ($m in $verdict.Misses) {
+        $got = if ($m.Majority) { $m.Majority } else { 'no majority' }
+        Write-Host "  $($m.Id) : expected $($m.Expected), majority $got (draws: $($m.Draws))" -ForegroundColor Red
     }
     exit 1
 }
-
 Write-Host 'Seed check PASSED.' -ForegroundColor Green
 
 if ($SeedOnly) {
@@ -251,6 +280,7 @@ $toClassify = @($Nodes | Where-Object {
     -not ($_.PSObject.Properties['disagreement_type'] -and
           -not [string]::IsNullOrWhiteSpace([string]$_.disagreement_type))
 })
+$toClassify = @(Select-BackfillTarget -Candidates $toClassify -Ids $Ids -ExcludeIds $ExcludeIds -ExcludeReason $ExcludeReason)
 Write-Host "  Nodes to classify: $($toClassify.Count)" -ForegroundColor Cyan
 
 $counts = @{ definitional = 0; interpretive = 0; structural = 0; insufficient = 0; error = 0 }

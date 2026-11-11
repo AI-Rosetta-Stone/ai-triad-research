@@ -27,7 +27,8 @@ All colors are CSS custom properties on `:root` scoped by `data-theme`.
 |---|---|---|---|---|---|
 | `--color-acc` | #b84e13 | #e89450 | #cc7e45 | #a35012 | Accelerationist (orange/rust) |
 | `--color-saf` | #2b5fad | #7da3d6 | #6d94c2 | #275498 | Safetyist (blue) |
-| `--color-skp` | #7b4fa6 | #a888c8 | #a882be | #6d4595 | Skeptic (purple) |
+| `--color-skp` | #7b4fa6 | #b69bd1 | #b18fc5 | #6d4595 | Skeptic (purple). Dark and bkc lifted in t/48 (were #a888c8 / #a882be) to pass AA on `--bg-hover` and `--bg-tertiary` |
+| `--color-acc-bg` / `-saf-bg` / `-skp-bg` | see `semantic-tint-tokens.md` | | | | Tint behind camp-coloured text (chips, badges). The camp colour on its own tint is ≥ 4.6:1. Use it instead of `color-mix(camp n%)` (t/124) |
 | `--color-sit` | #7c3aed | #9b59b6 | #09465b | #5B2C87 | Situations |
 | `--color-conflicts` | #64748b | #95a5a6 | #7a6a82 | #6B705C | Conflicts |
 
@@ -59,7 +60,8 @@ All colors are CSS custom properties on `:root` scoped by `data-theme`.
 | `--text-primary` | Body text, headings |
 | `--text-secondary` | Supporting text, labels |
 | `--text-muted` | Deemphasized text, placeholders. AA (≥ 4.5:1) on `--bg-primary`, `--bg-secondary`, `--bg-tertiary` and `--bg-hover` in every theme (light #5f6e84, dark #a0a7b3, bkc #a196a7, harvard #68625b; t/123). In bkc it's nearly `--text-secondary` (1.06:1 apart), so carry hierarchy with size and weight, never with a fainter colour. Don't dim it further with opacity. |
-| `--border-color` | Borders, dividers |
+| `--border-color` | Borders, dividers. **Not for form fields:** it's 1.2–1.7:1 against the page, under the 3:1 a field boundary needs |
+| `--input-border` | 1px border of text inputs, selects and textareas: ≥ 3:1 on `--bg-primary` and `--bg-secondary` (light #85909f, dark #6a7381, bkc #78677c, harvard #8d8780; t/66). `--lib-border-control` points at it |
 
 ### Semantic
 
@@ -71,6 +73,17 @@ All colors are CSS custom properties on `:root` scoped by `data-theme`.
 | `--warning` | Flag verdicts, mid-range score bands (light #a16207, dark #f59e0b, bkc #d9a441, harvard #8B6508 — all ≥4.5:1 vs `--bg-secondary`; added t/1386) |
 | `--focus-ring` | Focus indicators, and the fill for selected/active states (light #2563eb, dark #60a5fa, bkc #4d7a8b, harvard #A51C30; light darkened from #3b82f6 in t/123) |
 | `--text-on-focus-ring` | **Text on a `--focus-ring` fill.** Never hard-code `#fff` there (white is 2.54:1 on dark's ring). Light/bkc/harvard `#ffffff`, dark `#111827`; ≥ 4.70:1 everywhere. Use `var(--text-on-focus-ring, #fff)`. Sub-text inside a selected row uses it at full strength, with no opacity or `rgba` dimming (t/123, t/139). |
+
+**Tinted badges, pills and banners** use one solid `-bg`/`-text` pair per tone, never a hand-rolled `rgba(...)` or `color-mix(... n%, transparent)` tint. Every `-text` is ≥ 4.5:1 on its own `-bg`, on `--bg-primary` and on `--bg-secondary`, so it also works as plain coloured text. Values, the migration map and the rationale are in **`semantic-tint-tokens.md`** (t/124).
+
+| Tone | Background | Text |
+|---|---|---|
+| danger | `--error-bg` | `--error-text` |
+| warning | `--warning-bg` | `--warning-text` |
+| success | `--success-bg` | `--success-text` |
+| info | `--info-bg` | `--info-text` |
+| accent | `--accent-bg` | `--accent-text` |
+| violet (non-camp purple badges) | `--violet-bg` | `--violet-text` |
 
 ### Detail Backgrounds
 

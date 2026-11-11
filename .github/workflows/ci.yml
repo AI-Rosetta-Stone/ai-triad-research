@@ -152,6 +152,42 @@ jobs:
   # pushed commit(s) against the previous tip (github.event.before), so a merge only re-runs
   # the job families its files touch. schedule/workflow_dispatch skip this job and every
   # gated job runs unconditionally (the full-suite backstop).
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
   changes:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -176,6 +212,7 @@ jobs:
       schema-drift: ${{ steps.filter.outputs.schema-drift }}
       verify-config: ${{ steps.filter.outputs.verify-config }}
       citation-link-ci: ${{ steps.filter.outputs.citation-link-ci }}
+      dockerfile-scan: ${{ steps.dockerfile-scan.outputs.matrix }}
     steps:
       # push events: paths-filter diffs with local git, so it needs a checkout (PR events use the API).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -445,6 +482,30 @@ jobs:
               - 'tests/fixtures/citation-link-integrity/**'
               - 'operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1'
               - '.github/workflows/ci.yml'
+            # One filter per Dockerfile for dockerfile-trivy (t/256): a PR scans only the
+            # image(s) whose Dockerfile it touches. Report-only, NOT in ci-gate, so a narrow
+            # filter can't false-green anything; test-container's 'container' filter is the
+            # soundness surface for the prod build.
+            dockerfile-taxonomy-editor:
+              - 'taxonomy-editor/Dockerfile'
+            dockerfile-base:
+              - 'deploy/azure/Dockerfile.base'
+            dockerfile-dev:
+              - 'Dockerfile'
+      - name: Dockerfile scan matrix (t/256)
+        id: dockerfile-scan
+        env:
+          TE: ${{ steps.filter.outputs.dockerfile-taxonomy-editor }}
+          BASE: ${{ steps.filter.outputs.dockerfile-base }}
+          DEV: ${{ steps.filter.outputs.dockerfile-dev }}
+        run: |
+          m='[]'
+          add() { m=$(jq -c --arg n "$1" --arg f "$2" '. + [{name: $n, file: $f}]' <<<"$m"); }
+          [ "$TE" = 'true' ] && add taxonomy-editor taxonomy-editor/Dockerfile
+          [ "$BASE" = 'true' ] && add base deploy/azure/Dockerfile.base
+          [ "$DEV" = 'true' ] && add dev Dockerfile
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "Dockerfiles to scan: $m"
 
   test-powershell:
     needs: [changes]
@@ -496,7 +557,7 @@ jobs:
 
       # Node + tsx required by parity tests (-Tag parity) in t/2609.
       # tsx must be available so the no-silent-skip guard fires on absence.
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -904,7 +965,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1025,7 +1086,38 @@ jobs:
         # t/3897, FLIPPED: `--if-present` dropped, same reasoning as Lint above.
         if: matrix.app != 'taxonomy-editor'
         working-directory: ${{ matrix.app }}
-        run: pnpm run test
+        # t/161 (t/61): these apps run lib's dataRootGuard globalSetup (t/158, t/159). The hits file and
+        # tee'd log feed the report below, the same isolated sink taxonomy-editor gets in
+        # test-electron-vitest. pipefail keeps vitest's own exit code through the tee.
+        env:
+          DATA_ROOT_GUARD_HITS_FILE: ${{ runner.temp }}/dataroot-guard-app/${{ matrix.app }}/hits.jsonl
+        run: |
+          set -o pipefail
+          pnpm run test 2>&1 | tee "$RUNNER_TEMP/vitest-${{ matrix.app }}.log"
+
+      - name: Report DATA-ROOT-TEST-WRITE hits and live-fire for this app (warn-only, t/161)
+        # Warn-only sink (#2070 pattern), like test-electron-vitest's per-shard report. Each app runs
+        # unsharded, so its OWN hits file must carry the live-fire positive control (livefire >= 1).
+        if: always() && matrix.app != 'taxonomy-editor'
+        continue-on-error: true
+        shell: bash
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          bash .github/ci/data-root-guard-report.sh app "$RUNNER_TEMP/vitest-$APP.log" "$APP"
+          bash .github/ci/data-root-guard-report.sh app-livefire "$RUNNER_TEMP/dataroot-guard-app/$APP" "$APP"
+
+      - name: Upload DATA-ROOT guard hits file for this app (t/161)
+        # Deliberately NOT named data-root-guard-hits-*: test-electron-coverage downloads that pattern for
+        # taxonomy-editor's cross-shard tally, and these files must not join it (t/161#2).
+        if: always() && matrix.app != 'taxonomy-editor'
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: dataroot-guard-app-hits-${{ matrix.app }}
+          path: ${{ runner.temp }}/dataroot-guard-app/${{ matrix.app }}/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # taxonomy-editor's vitest suite (with coverage thresholds and the DATA-ROOT-TEST-WRITE
       # report) moved OUT of this job into `test-electron-vitest` (3 parallel shards) +
@@ -1085,7 +1177,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1190,7 +1282,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1286,7 +1378,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1321,9 +1413,29 @@ jobs:
           restore-keys: |
             ms-playwright-${{ runner.os }}-
 
+      # `--with-deps` apt-installs Chromium's system libraries and fonts. When the runners can't reach
+      # the Ubuntu mirrors (2026-11-11: `Temporary failure resolving 'security.ubuntu.com'` on every
+      # merge group, which blocked the queue repo-wide), retry once after a back-off, then fall back to
+      # the Chromium binary alone, with a WARN (ubuntu-latest already ships Chrome's runtime libraries).
+      # No masking: the fallback ends with a real headless launch, which fails this step loudly if a
+      # library is missing, and the smoke step below is unchanged and still has to pass.
+      # RENDER_SMOKE_SIMULATE_APT_FAILURE=1 forces the fallback arm, for proving it; it can only make
+      # the install harder, never the gate easier.
       - name: Install Chromium (Playwright, pinned @playwright/test 1.60.0)
         working-directory: taxonomy-editor
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          with_deps() {
+            if [ "${RENDER_SMOKE_SIMULATE_APT_FAILURE:-}" = "1" ]; then echo "simulated apt failure"; return 1; fi
+            pnpm exec playwright install --with-deps chromium
+          }
+          if with_deps; then exit 0; fi
+          echo "render-smoke: playwright install --with-deps failed; retrying once in 20 s"
+          sleep 20
+          if with_deps; then exit 0; fi
+          echo "::warning::render-smoke: apt deps unavailable (playwright install --with-deps chromium failed twice); using bundled Chromium only"
+          pnpm exec playwright install chromium
+          # Prove the fallback browser actually launches. Missing libraries fail here, loudly.
+          node -e "require('@playwright/test').chromium.launch().then(b => b.close()).then(() => console.log('render-smoke: fallback Chromium launches')).catch(e => { console.error('::error::render-smoke: fallback Chromium cannot launch: ' + e.message); process.exit(1) })"
 
       - name: Build prod web artifact + server (build:container)
         working-directory: taxonomy-editor
@@ -1377,7 +1489,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1429,7 +1541,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1584,6 +1696,42 @@ jobs:
   # but tolerates the per-app baselines below. Baselines are co-located here
   # (Gate Co-Location) WITH a rationale + owner follow-up ticket; clearing an
   # advisory = delete its baseline line (the owner ticket tracks the dep bump).
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
   dependency-audit:
     needs: [changes]
     if: >-
@@ -1606,7 +1754,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1669,7 +1817,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1762,6 +1910,20 @@ jobs:
         with:
           node-version: '26'
 
+      # t/315: Dependabot docker auto-merge arms only on digest-only diffs (Docker's predicate +
+      # the fail-closed gate around it + dependabot-auto-merge.yml's wiring).
+      - name: Dependabot docker digest-only gate suites
+        run: node --test operations/devops/dependabot-docker-gate.test.mjs operations/devops/docker/docker-digest-only.test.mjs
+
+      # t/244: the advisory shared-input coverage step's crash path never fails the job, even
+      # when its own comment post is rate-limited too.
+      - name: shared-input coverage workflow crash-path suite
+        run: node --test operations/devops/ci-shared-input-coverage-workflow.test.mjs
+
+      # t/357: pr-triage's last-activity clock counts the latest push (the head commit date).
+      - name: pr-triage activity-facts suite
+        run: node --test operations/devops/pr-triage-activity.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
@@ -1772,6 +1934,16 @@ jobs:
       # end-to-end arms that run each workflow's real script against a mocked API.
       - name: github-retry helper + workflow retry suites
         run: node --test operations/devops/github-retry.test.mjs operations/devops/github-retry-workflow.test.mjs
+
+      # t/314: the per-PR guards' inline rate-limit snapshot step stays identical to its canonical
+      # copy, and its script records or WARNs without ever failing.
+      - name: guard rate-limit snapshot step suite
+        run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
+
+      # t/369: consult-hold-guard and joint-gv-guard read the PR over REST through one inline helper;
+      # it stays identical to its canonical copy and classifies rate-limit, 5xx and other 4xx apart.
+      - name: guard PR-read (REST + rate-limit classification) suite
+        run: node --test operations/devops/guard-pr-read.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -1795,7 +1967,7 @@ jobs:
       - name: Check doc links (main-repo presence)
         run: bash .github/scripts/check-doc-links.sh
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1840,7 +2012,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         continue-on-error: true
         with:
           version: '11.20.0'
@@ -1885,7 +2057,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         continue-on-error: true
         with:
           version: '11.20.0'
@@ -1924,7 +2096,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -2438,7 +2610,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -2523,7 +2695,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -2654,13 +2826,13 @@ jobs:
         continue-on-error: true
         run: node --test .github/scripts/check-review-state-gating.test.mjs
       # t/128: raw ASCII control bytes (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F) in tracked text files are
-      # invisible in PR diffs (#4809: literal 0x08 for \b made a guard pass vacuously). WARN-ONLY first:
-      # this job is in ci-gate's needs, so continue-on-error keeps it advisory until a blocking follow-up.
-      - name: Control-character lint (WARN-ONLY, t/128)
-        continue-on-error: true
+      # invisible in PR diffs (#4809: literal 0x08 for \b made a guard pass vacuously). BLOCKING since t/130
+      # (T2): this job is in ci-gate's needs, so a finding fails the merge gate. Warn-only from #4811 until
+      # every main run was green. Exclude a file that needs raw bytes with a reason in
+      # .github/ci/control-chars-allowlist.json.
+      - name: Control-character lint (t/128, t/130)
         run: node .github/scripts/check-control-chars.mjs
-      - name: Control-character lint arms (WARN-ONLY, t/128)
-        continue-on-error: true
+      - name: Control-character lint arms (t/128, t/130)
         run: node --test .github/scripts/check-control-chars.test.mjs
 
   # ── ci-filter-coverage: each paths-filtered job's test read-set covered by its own filter
@@ -2714,6 +2886,42 @@ jobs:
   # WARN-FIRST (t/3987): never fails the job yet. Flip to blocking is a separate ticket needing
   # a mandatory SO, and must land before the first registry rename/removal (adding tags can't
   # orphan anything).
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
   pov-tag-orphan-check:
     needs: [changes]
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
@@ -2727,7 +2935,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -3263,6 +3471,42 @@ jobs:
   # through the real GraphQL/REST APIs live-fire, so they're proven only via shim tests.
   # Blocking from the start (N2: no continue-on-error, joins ci-gate's needs) -- a
   # self-check for a fail-closed safety script must never be skippable OR merely advisory.
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
   merge-queue-f4-shim-test:
     needs: [changes]
     if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
@@ -3282,6 +3526,216 @@ jobs:
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-headgreen.sh
           operations/devops/test-check-merge-queue-liveness-headgreen.sh
+
+  # ── dockerfile-trivy: report-only Trivy scan of each Dockerfile a PR changes (t/256) ──
+  # Orca t/4943 arm 2: container.yml's blocking Trivy gate runs only on the dispatched build,
+  # so a Dockerfile PR (a re-pin from check-base-pin-drift.yml included) merged without a
+  # scan. This builds each changed Dockerfile's image and scans it with container.yml's
+  # structure (pinned trivy, DB warm-up with retry, scan) and its gate's criterion (fixable
+  # HIGH/CRITICAL, unfixed ignored, .trivyignore not applied).
+  # REPORT-ONLY (TL decision, t/256): no `exit-code: '1'`, continue-on-error at job level, and
+  # NOT in ci-gate's needs. The verdict (PASS / FAIL / GATE-UNREADABLE, t/4496) goes to the job
+  # summary and outputs; a failed build or DB download is GATE-UNREADABLE, never a pass.
+  # Promotion to blocking is a separate T2 step (gate-signal-integrity rule 3).
+  dockerfile-trivy:
+    name: dockerfile-trivy (${{ matrix.name }})
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.dockerfile-scan != '' && needs.changes.outputs.dockerfile-scan != '[]'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # the dev image (torch) is the slowest build; no run history yet
+    permissions:
+      contents: read
+      packages: read  # pull ghcr.io/ai-rosetta-stone/ai-triad-base for the taxonomy-editor runtime stage
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.dockerfile-scan) }}
+    env:
+      IMAGE: pr-scan/${{ matrix.name }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry
+        id: ghcr
+        continue-on-error: true
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: WARN on GHCR login failure
+        if: steps.ghcr.outcome == 'failure'
+        run: |
+          echo "::warning::WARN: dockerfile-trivy: GHCR login failed (fork PR token?); continuing with anonymous pulls, which work while ai-triad-base is public."
+
+      # Pre-pull buildkit with retry - see t/2065 (Docker Hub boot flake).
+      - name: Pre-pull buildkit image with retry (t/2065)
+        run: |
+          for i in 1 2 3; do
+            if docker pull moby/buildkit:buildx-stable-1; then break; fi
+            if [ "$i" -lt 3 ]; then
+              echo "buildkit pull attempt $i failed; retry in $((i * 10))s"; sleep $((i * 10))
+            else
+              echo "::warning::WARN: buildkit pre-pull failed after $i attempts; setup-buildx will attempt its own pull"
+            fi
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1
+
+      - name: Build ${{ matrix.file }}
+        id: build
+        continue-on-error: true
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          # base-image.yml's CACHE_BUST re-runs the apt/npm upgrade layers, so the scan sees what
+          # the weekly rebuild would publish. Other Dockerfiles don't declare it.
+          build-args: ${{ matrix.name == 'base' && format('CACHE_BUST={0}', github.sha) || '' }}
+          # Read the shared cache, never write it: a PR must not seed main's build cache.
+          cache-from: type=gha,scope=shared-docker
+
+      - name: Install Trivy
+        if: steps.build.outcome == 'success'
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
+        with:
+          version: v0.74.0  # same pinned binary as container.yml (t/3520 C4)
+
+      - name: Warm Trivy vuln DB (infra step - a failure here is DB/registry, NOT a CVE finding)
+        id: db
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        env:
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          for attempt in 1 2 3; do
+            if trivy image --download-db-only --cache-dir "$TRIVY_CACHE_DIR"; then
+              echo "Trivy DB ready (attempt $attempt)"; exit 0
+            fi
+            echo "::warning::Trivy DB download failed (attempt $attempt/3) - retrying in 15s"
+            sleep 15
+          done
+          echo "::warning::Trivy DB download failed after 3 attempts - INFRA failure, NOT a vulnerability finding."
+          exit 1
+
+      - name: Scan image with Trivy (report-only)
+        id: scan
+        if: steps.db.outcome == 'success'
+        continue-on-error: true
+        env:
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          trivy image --skip-db-update --cache-dir "$TRIVY_CACHE_DIR" \
+            --severity CRITICAL,HIGH --format json --output trivy.json "$IMAGE"
+
+      - name: Verdict (report-only)
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          FILE: ${{ matrix.file }}
+          BUILD: ${{ steps.build.outcome }}
+          DB: ${{ steps.db.outcome }}
+          SCAN: ${{ steps.scan.outcome }}
+        with:
+          script: |
+            const { execSync } = require('node:child_process');
+            const fs = require('node:fs');
+            const os = require('node:os');
+            const path = require('node:path');
+            const { pathToFileURL } = require('node:url');
+            const cwd = process.env.GITHUB_WORKSPACE;
+            const gate = `dockerfile-trivy (${process.env.FILE})`;
+            // gate-verdict.mjs from the base tip, never the PR head (its header's loading rule).
+            let gv;
+            try {
+              execSync(`git fetch --depth=1 origin ${JSON.stringify(process.env.BASE_REF)}`, { cwd });
+              const text = execSync('git show FETCH_HEAD:operations/devops/gate-verdict.mjs', { cwd, encoding: 'utf8' });
+              const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-verdict-')), 'gate-verdict.mjs');
+              fs.writeFileSync(p, text);
+              gv = await import(pathToFileURL(p).href);
+            } catch (e) {
+              // No helper, so emit the same three outputs and summary block by hand (t/306): a load
+              // failure is GATE-UNREADABLE, never a missing verdict.
+              const reason = `could not load gate-verdict.mjs from ${process.env.BASE_REF}: ${String(e.message).replace(/\s+/g, ' ').trim()}`;
+              core.setOutput('gate', gate);
+              core.setOutput('verdict', 'GATE-UNREADABLE');
+              core.setOutput('reason', reason);
+              core.warning(`${gate}: GATE-UNREADABLE - ${reason}`, { title: 'GATE-UNREADABLE' });
+              try {
+                await core.summary.addRaw(`### Gate verdict: ${gate}\n\n**GATE-UNREADABLE** (could NOT read the target; this is no verdict, not a pass)\n\nReason: ${reason}\n`, true).write();
+              } catch (se) {
+                core.warning(`WARN: could not write the step summary (${se && se.message}); the outputs and this log line still carry the verdict.`);
+              }
+              return;
+            }
+            const { VERDICTS, makeGateVerdict, emitGateVerdict } = gv;
+            const { BUILD, DB, SCAN } = process.env;
+            let v;
+            if (BUILD !== 'success') v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `image build ${BUILD || 'did not run'}; see the Build step` });
+            else if (DB !== 'success') v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `Trivy DB download ${DB || 'did not run'} (infra, not a finding)` });
+            else if (SCAN !== 'success') v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `Trivy scan ${SCAN || 'did not run'}; see the Scan step` });
+            else {
+              let report;
+              try { report = JSON.parse(fs.readFileSync(path.join(cwd, 'trivy.json'), 'utf8')); }
+              catch (e) { report = null; v = makeGateVerdict({ gate, verdict: VERDICTS.UNREADABLE, reason: `trivy.json unreadable: ${e.message}` }); }
+              if (report) {
+                const found = (report.Results || []).flatMap((r) => (r.Vulnerabilities || []).map((x) => ({ ...x, Target: r.Target })));
+                const fixable = found.filter((x) => x.FixedVersion);
+                const details = fixable.slice(0, 25).map((x) => `${x.Severity} ${x.VulnerabilityID} ${x.PkgName} ${x.InstalledVersion} -> ${x.FixedVersion} (${x.Target})`);
+                if (fixable.length > 25) details.push(`... and ${fixable.length - 25} more`);
+                details.push(`${found.length - fixable.length} unfixed HIGH/CRITICAL (no upstream fix; not counted, as in container.yml's gate)`);
+                v = fixable.length
+                  ? makeGateVerdict({ gate, verdict: VERDICTS.FAIL, reason: `${fixable.length} fixable HIGH/CRITICAL finding(s); report-only, does not block this PR`, details })
+                  : makeGateVerdict({ gate, verdict: VERDICTS.PASS, details: [`0 fixable HIGH/CRITICAL across ${(report.Results || []).length} target(s)`, ...details] });
+              }
+            }
+            await emitGateVerdict(core, v);
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
 
   ci-gate:
     name: ci-gate
@@ -3385,7 +3839,15 @@ jobs:
               // A crash must never silently read as clean -- post it, but never fail this
               // advisory job (t/4103's lesson, applied here too).
               core.warning(`ci-shared-input-coverage CRASHED: ${err && err.stack ? err.stack : String(err)}`);
-              await postComment(`**ci-shared-input-coverage: CANNOT EVALUATE** — ${String(err && err.message ? err.message : err)}`);
+              // t/244: posting the comment is itself an API call. When the crash was a rate limit,
+              // the post hits the same limit and threw out of this handler, failing the advisory job
+              // (#4922, run 42839444486). The crash is already in the warning above; a failed post
+              // must only WARN.
+              try {
+                await postComment(`**ci-shared-input-coverage: CANNOT EVALUATE** — ${String(err && err.message ? err.message : err)}`);
+              } catch (postErr) {
+                core.warning(`ci-shared-input-coverage: could not post the CANNOT EVALUATE comment either (${String(postErr && postErr.message ? postErr.message : postErr)}); the job stays green because this check is advisory.`);
+              }
             }
 
             // Wrapped in a named function (not bare top-level code) so `return` is syntactically
@@ -3464,6 +3926,42 @@ jobs:
   # because the guard already reported success before the hold existed. Gating on
   # ci-gate shrinks that window to the few seconds between ci-gate finishing and the
   # queue's own merge decision.
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
   consult-hold-guard:
     name: consult-hold-guard
     # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
@@ -3497,6 +3995,42 @@ jobs:
             exit 1
           fi
           echo "guard OK — no consult-hold label on any PR in this group."
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
 
   joint-gv-guard:
     name: joint-gv-guard
@@ -3547,6 +4081,42 @@ jobs:
   # per-PR verdicts are unit-tested (t1-approval-guard-predicate.test.mjs, pre-existing); the
   # group-aggregation step is unit-tested separately (t1-approval-guard-merge-group-predicate.
   # test.mjs, t/4939) so "does the group pass" is testable independent of the GitHub API fetch.
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi
   t1-approval-guard:
     name: t1-approval-guard
     # t/4939 (DevOps Lead, p/331#2685): the implicit success() in a bare `if:` requires the
@@ -3655,3 +4225,39 @@ jobs:
             } else {
               core.info('t1-approval-guard (merge_group): every T1 member in this batch is approved after its latest push.');
             }
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi

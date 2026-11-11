@@ -6,51 +6,11 @@
 // blocks in styles.css (frozen, read-only), so a token swap in either file re-checks here.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readCss, THEMES, token, ruleVar as ruleVarIn, ratio } from './__tests__/themeContrast';
 
-// Normalize CRLF so the selector openers below match on a Windows checkout.
-const STYLES = readFileSync(join(import.meta.dirname, '..', '..', 'styles.css'), 'utf8').replace(/\r\n/g, '\n');
-const DASH = readFileSync(join(import.meta.dirname, 'AnalyticsDashboard.css'), 'utf8').replace(/\r\n/g, '\n');
-
-const THEME_SELECTORS: Record<string, string> = {
-  light: ':root,\n[data-theme="light"] {',
-  dark: '[data-theme="dark"] {',
-  bkc: '[data-theme="bkc"] {',
-  harvard: '[data-theme="harvard"] {',
-};
-
-function block(css: string, opener: string): string {
-  const start = css.indexOf(opener);
-  if (start < 0) throw new Error(`selector not found: ${opener}`);
-  return css.slice(start + opener.length, css.indexOf('}', start));
-}
-
-function token(theme: string, name: string): string {
-  const m = block(STYLES, THEME_SELECTORS[theme]).match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]{6})\\b`));
-  if (!m) throw new Error(`${name} has no hex value in the ${theme} theme block`);
-  return m[1];
-}
-
-/** `prop: var(--x)` from a rule in AnalyticsDashboard.css → `--x`. */
-function ruleVar(selector: string, prop: string): string {
-  const m = block(DASH, `${selector} {`).match(new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*var\\((--[a-z-]+)\\)`));
-  if (!m) throw new Error(`${selector} has no ${prop}: var(--…)`);
-  return m[1];
-}
-
-function luminance(hex: string): number {
-  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
-    .map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-function ratio(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-const THEMES = Object.keys(THEME_SELECTORS);
+const DASH = readCss(join(import.meta.dirname, 'AnalyticsDashboard.css'));
+const ruleVar = (selector: string, prop: string) => ruleVarIn(DASH, selector, prop);
 
 describe('AnalyticsDashboard chip contrast (t/4964)', () => {
   describe.each(THEMES)('%s theme', (theme) => {

@@ -17,8 +17,8 @@
 .edr-stmt-badge {
   padding: 1px 7px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--focus-ring, #f97316) 12%, transparent);
-  color: var(--focus-ring, #f97316);
+  background: var(--info-bg);
+  color: var(--info-text);
   font-size: var(--text-2xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -68,8 +68,8 @@
   font-weight: 600;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--focus-ring, #f97316) 10%, transparent);
-  color: var(--focus-ring, #f97316);
+  background: var(--info-bg);
+  color: var(--info-text);
   cursor: pointer;
 }
 
@@ -85,8 +85,8 @@
   font-weight: 600;
   border-radius: var(--radius-sm);
   border: none;
-  background: color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent);
-  color: var(--warning, #f59e0b);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   cursor: pointer;
 }
 
@@ -116,8 +116,8 @@
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--focus-ring, #f97316) 15%, transparent);
-  color: var(--focus-ring, #f97316);
+  background: var(--info-bg);
+  color: var(--info-text);
   font-size: var(--text-2xs);
   font-weight: 600;
 }

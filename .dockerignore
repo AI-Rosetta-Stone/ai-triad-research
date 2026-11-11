@@ -12,8 +12,10 @@ summary-viewer/
 
 # Build outputs and caches
 build/
-node_modules/
-taxonomy-editor/node_modules/
+# Patterns anchor at the context root, so a bare node_modules/ misses lib/ and
+# lib/debate/. The dev compose app container installs into the bind mount with
+# Linux symlinks that a Windows host can't read, which breaks the build (t/254).
+**/node_modules/
 taxonomy-editor/dist/
 taxonomy-editor/release/
 

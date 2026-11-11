@@ -55,7 +55,9 @@ BeforeAll {
 }
 
 AfterAll {
-    & (Get-Module DocConverters) { Remove-Item function:script:markitdown, function:script:mutool, function:script:pdftotext, function:script:Write-StubFile -ErrorAction SilentlyContinue }
+    # Function:\name, not function:script:name: the latter silently removes nothing, so the stubs
+    # stayed in the module's scope for later suites (t/289).
+    & (Get-Module DocConverters) { Remove-Item -Path Function:\markitdown, Function:\mutool, Function:\pdftotext, Function:\Write-StubFile -ErrorAction SilentlyContinue }
 }
 
 Describe 'PDF converters read tool output as UTF-8 from a file (t/4394)' -Tag 'ingestion' {

@@ -43,6 +43,26 @@ function parseRenameBody(body: unknown): { title: string; reason?: string } | { 
   return { title, reason };
 }
 
+/**
+ * t/172: an op-ed member's `stages` (every model call's raw prompt and output, t/171) is owner-only
+ * observability. Community items are readable by every signed-in user, and sanitizeForCommunity's
+ * key denylist doesn't cover it, so it's dropped here at the single submission ingress.
+ */
+export function withoutOpEdStages(type: string, data: unknown): unknown {
+  if (type !== 'oped' || !data || typeof data !== 'object') return data;
+  const set = data as { opeds?: unknown };
+  if (!Array.isArray(set.opeds)) return data;
+  let stripped = 0;
+  const opeds = set.opeds.map((m: unknown) => {
+    if (!m || typeof m !== 'object' || !('stages' in m)) return m;
+    stripped++;
+    const { stages: _stages, ...rest } = m as Record<string, unknown>;
+    return rest;
+  });
+  if (stripped > 0) log.server.info({ component: 'community', stripped }, 'Dropped op-ed stages from a community submission (owner-only, t/172)');
+  return { ...set, opeds };
+}
+
 export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
   const { get, post, del, patch } = r;
   const { getGithubBackend } = ctx;
@@ -368,7 +388,7 @@ export function registerCommunityRoutes(r: Router, ctx: ServerCtx): void {
         return;
       }
 
-      json(res, await community.submitToCommunity(type, data, note));
+      json(res, await community.submitToCommunity(type, withoutOpEdStages(type, data), note));
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',

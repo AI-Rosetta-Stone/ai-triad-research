@@ -4,6 +4,7 @@
 import { useEffect, useState, Suspense, type ReactNode } from 'react';
 import './App.css';
 import { api } from '@bridge';
+import { useAppZoom } from './hooks/useAppZoom';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import ErrorBoundary from '../../../lib/electron-shared/components/ErrorBoundary';
 import { useTaxonomyStore, initAIModels } from './hooks/useTaxonomyStore';
@@ -303,52 +304,61 @@ export function App() {
   if (bridgeError) return <div className="app-bridge-error">{bridgeError}</div>;
   if (!bridgeReady) return null;
 
-  // If this window was opened as a diagnostics popout, render only that
-  if (hash.startsWith('#diagnostics-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DiagnosticsWindow /></Suspense></ErrorBoundary>;
-  }
-  if (hash === '#pov-progression-window') {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><PovProgressionWindow /></Suspense></ErrorBoundary>;
-  }
-  if (hash.startsWith('#debate-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DebatePopoutWindow /></Suspense></ErrorBoundary>;
-  }
-  if (hash.startsWith('#prompt-diff-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><PromptDiffWindow /></Suspense></ErrorBoundary>;
-  }
-  if (hash.startsWith('#diff-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DiffWindow /></Suspense></ErrorBoundary>;
-  }
-  if (hash.startsWith('#chat-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><ChatWindow /></Suspense></ErrorBoundary>;
-  }
-  if (hash === '#analytics' && analyticsFlag) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AnalyticsDashboard /></Suspense></ErrorBoundary>;
-  }
-  // Admin-only engagement analytics (t/2468). Non-admins fall through to the main
-  // app — the view is unreachable — and the server independently requireAdmin-gates
-  // the per-user data it serves.
-  if (hash === '#engagement' && isAdmin) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><EngagementDashboard /></Suspense></ErrorBoundary>;
-  }
-  // Self-only "Your Activity" view (t/2469). No admin gate — the panel requests only the
-  // caller's OWN engagement subtree, and the server (t/2467) never returns other users' rows
-  // to a non-admin. Reached from the Help menu (Settings-owned HelpDialog entry).
-  if (hash === '#your-activity') {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><YourActivityPanel /></Suspense></ErrorBoundary>;
-  }
-  if (hash === '#community' && communityFlag) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><CommunityLibrary /></Suspense></ErrorBoundary>;
-  }
-  if (hash === '#admin') {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AdminReviewPanel /></Suspense></ErrorBoundary>;
-  }
-  if (hash === '#admin-legacy' && adminLegacyFlag) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>;
-  }
+  // Try to render a specialized window/panel route
+  const windowRoute = _tryRenderWindowRoute(hash, analyticsFlag, isAdmin, communityFlag, adminLegacyFlag);
+  if (windowRoute) return windowRoute;
 
   // Route between CLI file viewer and main app
   return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><AppRouter /></ErrorBoundary>;
+}
+
+interface WindowRouteEntry {
+  pattern: string | RegExp;
+  component: React.ComponentType<any>;
+  flagRequired?: 'analytics' | 'admin' | 'community' | 'adminLegacy';
+}
+
+const WINDOW_ROUTES: WindowRouteEntry[] = [
+  { pattern: /^#diagnostics-window/, component: DiagnosticsWindow },
+  { pattern: '#pov-progression-window', component: PovProgressionWindow },
+  { pattern: /^#debate-window/, component: DebatePopoutWindow },
+  { pattern: /^#prompt-diff-window/, component: PromptDiffWindow },
+  { pattern: /^#diff-window/, component: DiffWindow },
+  { pattern: /^#chat-window/, component: ChatWindow },
+  { pattern: '#analytics', component: AnalyticsDashboard, flagRequired: 'analytics' },
+  { pattern: '#engagement', component: EngagementDashboard, flagRequired: 'admin' },
+  { pattern: '#your-activity', component: YourActivityPanel },
+  { pattern: '#community', component: CommunityLibrary, flagRequired: 'community' },
+  { pattern: '#admin', component: AdminReviewPanel },
+  { pattern: '#admin-legacy', component: AdminPanel, flagRequired: 'adminLegacy' },
+];
+
+function _matchWindowRoute(hash: string, pattern: string | RegExp): boolean {
+  if (typeof pattern === 'string') return hash === pattern;
+  return pattern.test(hash);
+}
+
+function _checkFlagGate(flagRequired: string | undefined, flags: Record<string, boolean>): boolean {
+  if (!flagRequired) return true;
+  return flags[flagRequired] || false;
+}
+
+function _tryRenderWindowRoute(hash: string, analyticsFlag: boolean, isAdmin: boolean, communityFlag: boolean, adminLegacyFlag: boolean): ReactNode {
+  const flags: Record<string, boolean> = {
+    analytics: analyticsFlag,
+    admin: isAdmin,
+    community: communityFlag,
+    adminLegacy: adminLegacyFlag,
+  };
+
+  for (const route of WINDOW_ROUTES) {
+    if (_matchWindowRoute(hash, route.pattern) && _checkFlagGate(route.flagRequired, flags)) {
+      const Component = route.component;
+      return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><Component /></Suspense></ErrorBoundary>;
+    }
+  }
+
+  return null;
 }
 
 /** Handles CLI-mode detection — hooks are always called in same order */
@@ -574,13 +584,7 @@ function MainApp() {
     return () => mq.removeEventListener('change', handler);
   }, [colorScheme]);
 
-  // Apply zoom level. 112.5% (18px root) is the comfortable web baseline (t/2416); the zoom
-  // control multiplies against it, so "zoom 100%" == the baseline and taxonomy-editor-zoom still
-  // round-trips as a percentage (default 100).
-  useEffect(() => {
-    const BASE_FONT_PCT = 112.5;
-    document.documentElement.style.fontSize = `${(BASE_FONT_PCT * zoomLevel) / 100}%`;
-  }, [zoomLevel]);
+  useAppZoom(zoomLevel, zoomIn, zoomOut, zoomReset); // t/163: one zoom model
 
   // Apply pane spacing
   useEffect(() => {
@@ -599,25 +603,6 @@ function MainApp() {
   useEffect(() => {
     document.documentElement.setAttribute('data-touch', String(isTouch));
   }, [isTouch]);
-
-  // Zoom keyboard shortcuts: Ctrl+= / Ctrl+- / Ctrl+0
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key === '=' || e.key === '+') {
-        e.preventDefault();
-        zoomIn();
-      } else if (e.key === '-') {
-        e.preventDefault();
-        zoomOut();
-      } else if (e.key === '0') {
-        e.preventDefault();
-        zoomReset();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [zoomIn, zoomOut, zoomReset]);
 
   // Screenshot capture: Ctrl+Shift+S — resizes to 960x600, captures, saves via dialog
   useEffect(() => {

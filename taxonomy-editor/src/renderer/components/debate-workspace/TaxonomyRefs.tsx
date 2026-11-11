@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
@@ -15,8 +15,10 @@ import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
+import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type WarnFn } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import './TaxonomyRefs.css';
 
 // Prevents a TheoryLink click inside a <summary> from toggling its parent <details>
@@ -299,18 +301,6 @@ function ArgumentSketchBox({ wp }: { wp: Record<string, unknown> }) {
   );
 }
 
-// t/3418: anticipated_challenges/anticipated_responses migrated object → tagged-string
-// (t/3404, PR #2093), but debates persisted under the old schema still have
-// {challenge, type} objects — rendering one directly is React error #31.
-function normalizeAnticipatedItem(r: unknown): string {
-  if (typeof r === 'string') return r;
-  if (r && typeof r === 'object' && 'challenge' in r) {
-    const { challenge, type } = r as { challenge: unknown; type?: unknown };
-    return `${type ? `${String(type)}: ` : ''}${String(challenge)}`;
-  }
-  return String(r);
-}
-
 function AnticipatedBox({ wp, field, title }: { wp: Record<string, unknown>; field: string; title: string }) {
   const items = wp[field];
   if (!Array.isArray(items) || items.length === 0) return null;
@@ -325,23 +315,206 @@ function AnticipatedBox({ wp, field, title }: { wp: Record<string, unknown>; fie
   );
 }
 
-function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
-  planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
+interface ClaimMapLayoutProps {
+  wp: Record<string, unknown>;
+  stage?: string;
+  camp?: string; // the speaker's camp, e.g. SKEPTIC
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}
+
+/** NLI verdict when a check has run; otherwise the attack is not yet verified. */
+function attackStatus(attack: ParsedAttack): string {
+  return attack.verificationStatus && attack.verificationStatus !== 'not yet checked' ? attack.verificationStatus : 'Unverified';
+}
+
+// Every item the claim map skips is logged, so the fallback is never silent.
+const warnClaimMap: WarnFn = message => getGlobalRecorder()?.record({
+  type: 'system.error',
+  component: 'debate-workspace',
+  level: 'warn',
+  message: `Claim map: ${message}`,
+});
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal }: {
+  eyebrow: string;
+  counts: string;
+  coreThesis: string;
+  strategicGoal: string;
+}) {
+  return (
+    <header className="claim-map-header">
+      <div className="claim-map-header-top">
+        <div className="claim-map-eyebrow">{eyebrow}</div>
+        <div className="claim-map-counts">{counts}</div>
+      </div>
+      {coreThesis && <h2 className="claim-map-headline">{coreThesis}</h2>}
+      {strategicGoal && (
+        <div className="claim-map-ask">
+          <strong>The ask:</strong> {stripLeadingVerb(strategicGoal)}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function ClaimMapLenses({ framingChoices }: { framingChoices: unknown }) {
+  const lenses = Array.isArray(framingChoices)
+    ? (framingChoices as { frame?: unknown; why?: unknown }[]).map(fc => ({
+      title: fc.frame ? String(fc.frame) : '',
+      why: fc.why ? String(fc.why) : undefined,
+    }))
+    : [{ title: String(framingChoices), why: undefined }];
+  return (
+    <ul className="claim-map-lenses">
+      {lenses.map((lens, i) => (
+        <li key={i} className="claim-map-lens-card">
+          <div className="claim-map-lens-eyebrow">LENS {i + 1}</div>
+          <h3 className="claim-map-lens-title">{lens.title}</h3>
+          {lens.why && <p className="claim-map-lens-why">{lens.why}</p>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
+  claim: ParsedClaim;
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
-  const wp = planStage.work_product as Record<string, unknown>;
-  if (!wp || Object.keys(wp).length === 0) {
-    return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
-  }
+  const anchor = claim.taxonomy_anchor;
+  return (
+    <li className="claim-map-row">
+      <div className="claim-map-claim-col">
+        <div className="claim-map-claim-card">
+          <div className="claim-map-claim-badge">C{claim.index}</div>
+          <p className="claim-map-claim-point">{claim.point}</p>
+          {claim.evidence && <div className="claim-map-claim-evidence"><strong>Evidence</strong> · {claim.evidence}</div>}
+          {anchor && (
+            <button
+              className="claim-map-anchor-chip"
+              onClick={() => setSelectedPlanNodeId(prev => (prev === anchor ? null : anchor))}
+              aria-expanded={selectedPlanNodeId === anchor}
+            >
+              {anchor}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="claim-map-attack-col" role="group" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
+        {claim.attack ? (
+          <div className="claim-map-attack-card">
+            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
+            <p className="claim-map-attack-text">{claim.attack.text}</p>
+            <div className="claim-map-attack-footer">
+              <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
+              {claim.attack.annotationId && <span className="claim-map-attack-id">{claim.attack.annotationId}</span>}
+            </div>
+          </div>
+        ) : (
+          <div className="claim-map-no-attack">
+            <p className="claim-map-no-attack-title">No attack mapped to C{claim.index}</p>
+            <p className="claim-map-no-attack-text">No anticipated attack targets this claim.</p>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSelectedPlanNodeId }: {
+  claims: ParsedClaim[];
+  unmappedAttacks: ParsedAttack[];
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  return (
+    <div className="claim-map-section">
+      <div className="claim-map-arg-header">
+        <h3>Argument</h3>
+        <div className="claim-map-legend">
+          <span className="claim-map-legend-item">
+            <span className="claim-map-dot claim-map-dot-info">●</span> Our claim
+          </span>
+          <span className="claim-map-legend-item">
+            <span className="claim-map-dot claim-map-dot-warning">●</span> Anticipated attack
+          </span>
+        </div>
+      </div>
+      <ol className="claim-map-grid" aria-label="Argument: claims and anticipated attacks">
+        {claims.map(claim => (
+          <ClaimMapRow key={claim.index} claim={claim} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />
+        ))}
+      </ol>
+      {unmappedAttacks.length > 0 && (
+        <div className="claim-map-unmapped-attacks">
+          {unmappedAttacks.map((attack, i) => (
+            <div key={i} className="claim-map-unmapped-row">
+              <div className="claim-map-unmapped-label">Unmapped attack</div>
+              <div className="claim-map-attack-card">
+                <p className="claim-map-attack-text">{attack.text}</p>
+                <div className="claim-map-attack-footer">
+                  <span className="claim-map-attack-status">{attackStatus(attack)}</span>
+                  {attack.annotationId && <span className="claim-map-attack-id">{attack.annotationId}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaimMapAssumptions({ assumptions }: { assumptions: ParsedAssumption[] }) {
+  return (
+    <div className="claim-map-assumptions">
+      {assumptions.map((assumption, i) => (
+        <div key={i} className="claim-map-assumption-card">
+          <div className="claim-map-assumption-eyebrow">
+            {assumption.tagged ? 'LOAD-BEARING ASSUMPTION · UNDERPINS THE ASK' : 'ANTICIPATED CHALLENGE'}
+          </div>
+          <p className="claim-map-assumption-text">{assumption.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ClaimMapMore({ wp }: { wp: Record<string, unknown> }) {
+  // Hidden when the entry has none of the three sections, so no empty disclosure shows.
+  if (!wp.planned_moves && !wp.argument_sketch && !wp.anticipated_responses) return null;
+  return (
+    <details className="claim-map-more">
+      {/* The caret is drawn in CSS from the [open] state. */}
+      <summary className="claim-map-more-summary">
+        <span className="claim-map-more-toggle" aria-hidden="true" /> More from the plan
+      </summary>
+      <div className="claim-map-more-content">
+        <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
+        <SectionErrorBoundary section="Argument Sketch"><ArgumentSketchBox wp={wp} /></SectionErrorBoundary>
+        <SectionErrorBoundary section="Anticipated Responses">
+          <AnticipatedBox wp={wp} field="anticipated_responses" title="Anticipated Responses" />
+        </SectionErrorBoundary>
+      </div>
+    </details>
+  );
+}
+
+// Legacy entries (no core_thesis or strategic_goal) keep the old stacked view.
+function LegacyPlanView({ wp, selectedPlanNodeId, setSelectedPlanNodeId }: {
+  wp: Record<string, unknown>;
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
   return (
     <>
-      {/* t/3419: each Box wrapped independently — a render throw in one field
-          (e.g. a legacy-shaped work_product value) degrades to an inline
-          fallback for that section instead of unmounting the whole PLAN body. */}
-      <SectionErrorBoundary section="Directive"><DirectiveBox wp={wp} /></SectionErrorBoundary>
       <SectionErrorBoundary section="Strategic Goal"><StrategicGoalBox wp={wp} /></SectionErrorBoundary>
-      <SectionErrorBoundary section="Core Thesis"><CoreThesisBox wp={wp} /></SectionErrorBoundary>
       <SectionErrorBoundary section="Framing"><FramingBox wp={wp} /></SectionErrorBoundary>
       <SectionErrorBoundary section="Planned Moves"><PlannedMovesBox wp={wp} /></SectionErrorBoundary>
       <SectionErrorBoundary section="Argument Structure">
@@ -354,13 +527,96 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
       <SectionErrorBoundary section="Anticipated Challenges">
         <AnticipatedBox wp={wp} field="anticipated_challenges" title="Anticipated Challenges" />
       </SectionErrorBoundary>
-      {/* Inline POV detail for the clicked argument-structure anchor (t/1724). */}
       {selectedPlanNodeId && <TaxNodeDetail nodeId={selectedPlanNodeId} onClose={() => setSelectedPlanNodeId(null)} />}
     </>
   );
 }
 
-function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
+// Zero terms are left out. No "verified" term until verification is wired (t/388).
+function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number): string {
+  return [
+    claimCount > 0 && plural(claimCount, 'claim'),
+    attackCount > 0 && plural(attackCount, 'attack'),
+    assumptionCount > 0 && plural(assumptionCount, 'assumption'),
+  ].filter(Boolean).join(' · ');
+}
+
+function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+  const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
+
+  const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
+  const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
+  const framingChoices = wp.framing_choices;
+
+  if (!coreThesis && !strategicGoal) {
+    return <LegacyPlanView wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />;
+  }
+
+  const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
+  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length);
+
+  return (
+    <div className="claim-map-layout">
+      <SectionErrorBoundary section="Plan Header">
+        <ClaimMapHeader
+          eyebrow={[camp, stage || 'plan'].filter(Boolean).map(part => String(part).toUpperCase()).join(' · ')}
+          counts={counts}
+          coreThesis={coreThesis}
+          strategicGoal={strategicGoal}
+        />
+      </SectionErrorBoundary>
+      {!!framingChoices && (
+        <SectionErrorBoundary section="Lenses"><ClaimMapLenses framingChoices={framingChoices} /></SectionErrorBoundary>
+      )}
+      {claims.length > 0 && (
+        <SectionErrorBoundary section="Argument">
+          <ClaimMapArgument
+            claims={claims}
+            unmappedAttacks={unmappedAttacks}
+            selectedPlanNodeId={selectedPlanNodeId}
+            setSelectedPlanNodeId={setSelectedPlanNodeId}
+          />
+        </SectionErrorBoundary>
+      )}
+      {assumptions.length > 0 && (
+        <SectionErrorBoundary section="Assumptions"><ClaimMapAssumptions assumptions={assumptions} /></SectionErrorBoundary>
+      )}
+      <SectionErrorBoundary section="More from the plan"><ClaimMapMore wp={wp} /></SectionErrorBoundary>
+      {selectedPlanNodeId && <TaxNodeDetail nodeId={selectedPlanNodeId} onClose={() => setSelectedPlanNodeId(null)} />}
+    </div>
+  );
+}
+
+function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
+  entry?: TranscriptEntry;
+  planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
+  selectedPlanNodeId: string | null;
+  setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  const wp = planStage.work_product as Record<string, unknown>;
+  if (!wp || Object.keys(wp).length === 0) {
+    return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
+  }
+  
+  // t/331: claim-map layout. Entries with no thesis or goal use the legacy view inside it.
+  return (
+    <>
+      <SectionErrorBoundary section="Directive"><DirectiveBox wp={wp} /></SectionErrorBoundary>
+      <SectionErrorBoundary section="Claim Map Layout">
+        <ClaimMapLayout
+          wp={wp}
+          stage={planStage.stage}
+          camp={entry?.speaker}
+          selectedPlanNodeId={selectedPlanNodeId}
+          setSelectedPlanNodeId={setSelectedPlanNodeId}
+        />
+      </SectionErrorBoundary>
+    </>
+  );
+}
+
+function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
+  entry?: TranscriptEntry;
   planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -377,7 +633,7 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
         />
       </summary>
       <div className="debate-reasoning-section-body">
-        <PlanBody planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />
+        <PlanBody planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} entry={entry} />
       </div>
     </details>
   );
@@ -407,31 +663,69 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   );
 }
 
-/**
- * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
- * clicked. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
- * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
- * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).
- */
-function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
+/** t/187: BDI groups in Taxonomy-tree order. Situation nodes (`sit-NNN`) carry no BDI
+ *  category; they get their own group after Beliefs rather than being dropped. */
+const BDI_GROUPS = [
+  { key: 'desires', label: 'Desires' },
+  { key: 'intentions', label: 'Intentions' },
+  { key: 'beliefs', label: 'Beliefs' },
+  { key: 'situations', label: 'Situations' },
+] as const;
+
+/** Category from a `{pov}-{category}-NNN` node id, or `situations` for `sit-NNN` and legacy `cc-NNN`. An id matching
+ *  neither is shown under Situations so it stays visible, with a WARN (Design, p/14#20). */
+function bdiGroupKey(nodeId: string): string {
+  const [prefix, cat] = nodeId.split('-');
+  if (cat === 'desires' || cat === 'intentions' || cat === 'beliefs') return cat;
+  if (prefix === 'sit' || prefix === 'cc') return 'situations';
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'debate-workspace',
+    level: 'warn',
+    message: `BDI grounding: node id "${nodeId}" has no BDI category and isn't a situation; showing it under Situations`,
+  });
+  return 'situations';
+}
+
+/** Non-empty BDI groups in BDI_GROUPS order, each sorted by relevance (desc). */
+function groupRefsByBdi(refs: TaxonomyRef[]): { key: string; label: string; refs: TaxonomyRef[] }[] {
+  const sorted = [...refs].sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
+  const keyed = sorted.map(r => ({ ref: r, key: bdiGroupKey(r.node_id) }));
+  return BDI_GROUPS
+    .map(g => ({ key: g.key, label: g.label, refs: keyed.filter(k => k.key === g.key).map(k => k.ref) }))
+    .filter(g => g.refs.length > 0);
+}
+
+function BdiGroup({ label, refs, selectedBdiNodeId, toggleBdiNode }: {
+  label: string;
   refs: TaxonomyRef[];
-  polRefs: PolicyRefEntry[];
   selectedBdiNodeId: string | null;
-  setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   toggleBdiNode: (nodeId: string) => void;
 }) {
-  const sortedRefs = [...refs].sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
   return (
-    <div className="debate-reasoning-section-body">
+    <div className="taxrefs-bdi-group" role="group" aria-label={`${label}, ${refs.length} node${refs.length === 1 ? '' : 's'}`}>
+      <div className="taxrefs-bdi-group-label">{label} ({refs.length})</div>
       <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {sortedRefs.map((taxRef) => (
-          <TaxonomyPill
-            key={taxRef.node_id}
-            taxRef={taxRef}
-            onSelect={toggleBdiNode}
-            selected={selectedBdiNodeId === taxRef.node_id}
-          />
+        {refs.map((taxRef) => (
+          <TaxonomyPill key={taxRef.node_id} taxRef={taxRef} onSelect={toggleBdiNode} selected={selectedBdiNodeId === taxRef.node_id} />
         ))}
+      </div>
+      {refs.map((taxRef) => (
+        <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
+      ))}
+    </div>
+  );
+}
+
+function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
+  polRefs: PolicyRefEntry[];
+  selectedBdiNodeId: string | null;
+  toggleBdiNode: (nodeId: string) => void;
+}) {
+  return (
+    <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
+      <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
+      <div className="debate-taxonomy-refs taxrefs-refs-mb">
         {polRefs.map((polRef, i) => {
           const { id } = resolvePolRef(polRef);
           return (
@@ -447,9 +741,6 @@ function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
           );
         })}
       </div>
-      {sortedRefs.map((taxRef) => (
-        <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
-      ))}
       {polRefs.map((polRef, i) => {
         const { id, relevance } = resolvePolRef(polRef);
         return (
@@ -466,6 +757,30 @@ function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
+ * clicked. t/187: grouped Desires → Intentions → Beliefs (→ Situations), policy refs last. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
+ * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
+ * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).
+ */
+function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
+  refs: TaxonomyRef[];
+  polRefs: PolicyRefEntry[];
+  selectedBdiNodeId: string | null;
+  setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+  toggleBdiNode: (nodeId: string) => void;
+}) {
+  const groups = useMemo(() => groupRefsByBdi(refs), [refs]);
+  return (
+    <div className="debate-reasoning-section-body">
+      {groups.map(g => (
+        <BdiGroup key={g.key} label={g.label} refs={g.refs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
+      ))}
+      {polRefs.length > 0 && <PolicyRefsBlock polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />}
       {/* Inline POV detail for the clicked BDI ref (chip or node id). */}
       {selectedBdiNodeId && <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />}
     </div>
@@ -478,22 +793,25 @@ function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
  * empty-state line, not an empty pane. (How→Plan used to also show this in a collapsible BDI
  * section; removed as redundant with this always-visible view, t/4625#10.)
  */
-export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs }: {
+export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs, emptyText = 'No BDI grounding for this statement.' }: {
   refs: TaxonomyRef[];
   policyRefs?: PolicyRefEntry[];
   metaPolicyRefs?: PolicyRefEntry[];
+  /** t/187: empty-state line; Chat passes its own wording (t/167#3). */
+  emptyText?: string;
 }) {
   const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
   const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
   const polRefs = metaPolicyRefs || policyRefs || [];
   if (refs.length === 0 && polRefs.length === 0) {
-    return <p className="taxrefs-why-empty">No BDI grounding for this statement.</p>;
+    return <p className="taxrefs-why-empty">{emptyText}</p>;
   }
   return <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />;
 }
 
-function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
-  briefStage?: { stage: string; raw_response: string; work_product: Record<string, unknown> };
+function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
+  entry?: TranscriptEntry;
+  briefStage?:{ stage: string; raw_response: string; work_product: Record<string, unknown> };
   planStage?: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -501,7 +819,7 @@ function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedP
   return (
     <div className="debate-reasoning-list">
       {briefStage && <BriefSection briefStage={briefStage} />}
-      {planStage && <PlanSection planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />}
+      {planStage && <PlanSection planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} entry={entry} />}
     </div>
   );
 }
@@ -589,6 +907,7 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
         <ReasoningList
           briefStage={briefStage}
           planStage={planStage}
+          entry={entry}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />

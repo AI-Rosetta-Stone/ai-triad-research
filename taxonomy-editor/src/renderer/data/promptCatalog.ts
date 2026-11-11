@@ -656,6 +656,17 @@ export const PROMPT_CATALOG: PromptCatalogEntry[] = [
     ],
   },
   {
+    id: 'ps-disagreement-type-classification',
+    title: 'Situation Disagreement-Type Classification',
+    description: 'Classifies a situation\'s cross-POV disagreement as definitional, interpretive, structural, or insufficient.',
+    source: 'AITriad/Prompts/disagreement-type-classification.prompt',
+    template: '(Loading from disk...)',
+    group: 'powershell',
+    purpose: 'Used by scripts/Invoke-DisagreementTypeBackfill.ps1 to fill situations[].disagreement_type, classifying whether POV disagreement turns on object ontology (definitional), problem categorization (structural), implications/actions (interpretive), or insufficient evidence. See research/comp-linguist/docs/disagreement-type-classification-rubric.md for the rubric.',
+    applicableDataSources: ['taxonomyNodes', 'situationNodes'],
+    promptFiles: ['disagreement-type-classification'],
+  },
+  {
     id: 'ps-attribute-extraction',
     title: 'Attribute Extraction',
     description: 'Generates rich analytical attributes (epistemic type, rhetorical strategy, intellectual lineage, etc.) for taxonomy nodes.',

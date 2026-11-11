@@ -4,6 +4,7 @@
     { "file": "actions-cache-budget.yml",     "maxSilentHours": 24  },
     { "file": "base-image.yml",               "maxSilentHours": 348 },
     { "file": "cache-cleanup.yml",            "maxSilentHours": 348 },
+    { "file": "check-base-pin-drift.yml",     "maxSilentHours": 60  },
     { "file": "ci.yml",                       "maxSilentHours": 60  },
     { "file": "cleanup-session-branches.yml", "maxSilentHours": 60  },
     { "file": "cluster-conflicts.yml",        "maxSilentHours": 348 },

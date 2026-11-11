@@ -6,8 +6,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateT1ApprovalGuard, ownerSlugFromBranch } from './t1-approval-guard-predicate.mjs';
+import { readFileSync, mkdtempSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { evaluateT1ApprovalGuard, ownerSlugFromBranch, latestRoleVerdicts as inlinedLatestRoleVerdicts } from './t1-approval-guard-predicate.mjs';
+import { latestRoleVerdicts as sharedLatestRoleVerdicts } from './role-review-verdicts.mjs';
+import { inlinedRegionFrom, currentRegionOf } from './sync-inlined-role-review-verdicts.mjs';
 import { classifyMergeGroupApprovals } from './t1-approval-guard-merge-group-predicate.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 const PUSH = '2026-10-17T18:00:00Z';
 const BEFORE_PUSH = '2026-10-17T17:00:00Z';
@@ -690,4 +698,93 @@ test('FAIL CLOSED: reviews present but no headSha -> missing-head-sha, never a s
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'missing-head-sha');
   assert.deepEqual(mergeGroup(r), { pass: false, failingNumbers: [2] });
+});
+
+// ── t/200: the predicate must load ALONE (the pre-#4804 YAML copies only this file) ──
+const predicatePath = path.join(here, 't1-approval-guard-predicate.mjs');
+
+test('t/200 NO DRIFT: the inlined role-review-verdicts region is byte-identical to role-review-verdicts.mjs', () => {
+  const region = currentRegionOf(readFileSync(predicatePath, 'utf8'));
+  assert.notEqual(region, null, 'the BEGIN/END INLINED markers must be present in the predicate');
+  assert.equal(region, inlinedRegionFrom(readFileSync(path.join(here, 'role-review-verdicts.mjs'), 'utf8')),
+    'drift: run `node operations/devops/sync-inlined-role-review-verdicts.mjs` after editing role-review-verdicts.mjs');
+});
+
+test('t/200 SELF-CONTAINED: the predicate has no static or dynamic import of anything', () => {
+  const code = readFileSync(predicatePath, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  assert.ok(!/^\s*import\s/m.test(code), 'no static import');
+  assert.ok(!/\bimport\s*\(/.test(code), 'no dynamic import()');
+  assert.ok(!/\brequire\s*\(/.test(code), 'no require()');
+});
+
+test('t/200 BEHAVIOUR-EQUAL: the inlined latestRoleVerdicts matches the shared one on the gate fixtures', () => {
+  const input = {
+    reviews: [
+      { commitId: HEAD, state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): ok' },
+      { commitId: OLD_HEAD, state: 'CHANGES_REQUESTED', submittedAt: BEFORE_PUSH, login: REVIEWER_LOGIN, body: 'Changes requested (Design): no' },
+      { commitId: HEAD, state: 'CHANGES_REQUESTED', submittedAt: AFTER_PUSH, login: 'human', body: '' },
+    ],
+    comments: [{ body: '**Changes requested (Quality), at abc**', createdAt: AFTER_PUSH, login: REVIEWER_LOGIN }],
+    reviewerAppLogin: REVIEWER_LOGIN, headSha: HEAD, lastPushAt: PUSH,
+  };
+  for (const mode of ['gate', undefined]) {
+    assert.deepEqual([...inlinedLatestRoleVerdicts({ ...input, mode })], [...sharedLatestRoleVerdicts({ ...input, mode })]);
+  }
+});
+
+test('t/200 ISOLATED LOAD: copied ALONE into an empty dir, the predicate imports and gives both verdicts', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 't200-predicate-alone-'));
+  try {
+    const alone = path.join(dir, 't1-approval-guard-predicate.mjs');
+    copyFileSync(predicatePath, alone);
+    assert.deepEqual(readdirSync(dir), ['t1-approval-guard-predicate.mjs'], 'nothing else is next to it');
+    const { evaluateT1ApprovalGuard: isolated } = await import(pathToFileURL(alone).href);
+    const base = { body: 'Tier: T1', headRefName: 'devops/t200', headSha: HEAD, lastPushAt: PUSH, reviewerAppLogin: REVIEWER_LOGIN, approvalComments: [] };
+    const approved = isolated({ ...base, botReviews: [{ commitId: HEAD, state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): ok' }] });
+    assert.equal(approved.pass, true);
+    assert.equal(approved.reason, 'approved-after-push');
+    const blocked = isolated({ ...base, botReviews: [
+      { commitId: HEAD, state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): ok' },
+      { commitId: HEAD, state: 'CHANGES_REQUESTED', submittedAt: AFTER_PUSH, login: 'human', body: 'please fix' },
+    ] });
+    assert.equal(blocked.pass, false);
+    assert.equal(blocked.reason, 'changes-requested-outstanding');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── t/311: one reviewer, two spellings (#5005: `Changes requested (Quality)` then
+// `Approved (Quality-TechLead)`) must share ONE gate slot, so its own approval clears its hold ──
+const LATER = new Date(Date.parse(AFTER_PUSH) + 60000).toISOString();
+const t311Guard = (reviews, headRefName = 'devops/t308-x') => evaluateT1ApprovalGuard({
+  body: 'Tier: T1', headRefName, lastPushAt: PUSH, headSha: HEAD, approvalComments: [], botReviews: reviews, reviewerAppLogin: REVIEWER_LOGIN,
+});
+const t311Review = (body, at, state = 'COMMENTED') => ({ commitId: HEAD, state, submittedAt: at, login: REVIEWER_LOGIN, body });
+
+test('t/311: a hold as `Quality` is cleared by an approval as `Quality-TechLead` (the #5005 shape) -> pass', () => {
+  const r = t311Guard([t311Review('Changes requested (Quality): fix it', AFTER_PUSH), t311Review('Approved (Quality-TechLead): fixed', LATER, 'APPROVED')]);
+  assert.equal(r.pass, true);
+  assert.equal(r.approver.role, 'Quality');
+});
+
+test('t/311: the reverse spellings, and `Quality (Tech Lead)` / `Quality-TL`, also share the slot', () => {
+  for (const [hold, ok] of [['Quality-TechLead', 'Quality'], ['Quality', 'QualityTechLead'], ['Quality-TL', 'Quality']]) {
+    const r = t311Guard([t311Review(`Changes requested (${hold}): x`, AFTER_PUSH), t311Review(`Approved (${ok}): y`, LATER, 'APPROVED')]);
+    assert.equal(r.pass, true, `${hold} -> ${ok}`);
+  }
+});
+
+test('FIRE ARM t/311: distinct roles never merge -- a Quality hold is NOT cleared by a Design (or Quality-Sage) approval', () => {
+  for (const other of ['Design', 'Quality-Sage']) {
+    const r = t311Guard([t311Review('Changes requested (Quality): x', AFTER_PUSH), t311Review(`Approved (${other}): y`, LATER, 'APPROVED')]);
+    assert.equal(r.pass, false, other);
+    assert.equal(r.reason, 'changes-requested-outstanding');
+  }
+});
+
+test('FIRE ARM t/311: an alias cannot be used to self-approve -- `quality-techlead/` branch approved as `Quality` -> no approval', () => {
+  const r = t311Guard([t311Review('Approved (Quality): mine', LATER, 'APPROVED')], 'quality-techlead/t311-x');
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
 });

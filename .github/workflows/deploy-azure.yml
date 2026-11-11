@@ -220,8 +220,56 @@ jobs:
       # so image existence is proven by successful digest resolution. A separate tag-existence check
       # would be redundant and would reintroduce a `:latest`/tag-name code path this change retires.
 
-  deploy:
+  # ── pin-digest: t/121 (SO condition t/121#5) ──────────────────────────────
+  # Prod pins revisions BY DIGEST, but GHCR cleanup protects images BY TAG. A container.yml re-run
+  # for the same commit (for example a CVE base-image rebuild) moves sha-<commit> to a NEW digest
+  # and leaves the pinned one untagged; after 30 days ghcr-cleanup could delete it and its child
+  # manifests, and a minReplicas:0 cold start would then fail to pull (a prod outage).
+  # This job tags preflight's resolved digest as pinned-<run_id>-<hex12> BEFORE deploy, so the
+  # digest is tagged before any revision (prod, or the staging template the same Bicep apply
+  # writes) references it, whatever happens after the traffic shift. The tag never moves
+  # (Set-TaxEditorPinnedTag refuses to move one), and Get-StaleImageDeletionVerdict protects
+  # pinned-* by pattern as well as by "tagged". Retiring old pinned tags is a follow-up.
+  #
+  # WARN-ONLY and NOT a gate: `deploy` waits for this job (needs:) only for ordering, and its
+  # `if:` reads preflight's result alone, so a registry hiccup here never blocks a deploy.
+  # packages:write is scoped to this job (the same class tag-known-good already holds, SO C3);
+  # preflight keeps its minimal permissions. No Azure login, so no id-token or environment.
+  pin-digest:
     needs: [preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Tag the digest this deploy will pin with a non-moving pinned tag (t/121)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+            $Pin = Set-TaxEditorPinnedTag -ImageRef $env:DEPLOYED_IMAGE_REF -RunId $env:RUN_ID -Confirm:$false
+            Write-Host "t/121: $($Pin.Action): $($Pin.Tag) -> $($Pin.Digest)"
+          } catch {
+            Write-Host "::warning::t/121: could not tag the digest to deploy ($env:DEPLOYED_IMAGE_REF) with a pinned tag: $($_.Exception.Message) - the deploy proceeds; tag-known-good retries the pin after a successful deploy."
+            Write-Warning "t/121: pinned-tag fallback taken: the digest was NOT pinned before deploy ($($_.Exception.Message))"
+          }
+
+  deploy:
+    # t/121: pin-digest is in needs: for ORDERING only (the pin lands before any revision pulls the
+    # digest). The if: reads preflight alone, so deploy's gating is unchanged: it runs exactly when
+    # preflight succeeded and the run isn't cancelled, whatever pin-digest's result.
+    needs: [preflight, pin-digest]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     timeout-minutes: 45  # SO C2 (t/4194, p/682#16): without this, a hung deploy holds the shared
@@ -235,11 +283,21 @@ jobs:
       # itself or re-running the gates.
       image_accepted: ${{ steps.acceptance.outputs.accepted }}
       persona_accepted: ${{ steps.persona.outputs.accepted }}
+      # t/266 (b): what retire-previous-revision needs to decide, read from the steps that own them.
+      previous_revision: ${{ steps.current_revision.outputs.revision }}
+      new_revision: ${{ steps.new_revision.outputs.revision }}
+      app_url: ${{ steps.deploy.outputs.appUrl }}
+      ac2_failed: ${{ steps.ac2.outputs.failed }}
+      earlier_rollback: ${{ steps.earlier_rollback.outputs.fired }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           fetch-depth: 0  # t/4194: full history, so the refuse-older-than-running guard's
                            # `git merge-base --is-ancestor` below can actually see both commits.
+          filter: blob:none  # t/4844 WP6: commits and trees only; blobs come for the checked-out
+                             # tree alone. Safe because the only history reads in this job are that
+                             # guard's `git rev-parse` + `git merge-base`, which need no blobs. A step
+                             # that reads an OLD commit's file contents would lazily fetch it per blob.
 
       - name: Wait for a concurrent staging deploy to finish (t/4194 SO C1)
         shell: pwsh
@@ -475,6 +533,8 @@ jobs:
         env:
           # t/4326: passed through env (not inlined) so bash never interprets the value.
           IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
+          # t/4732: 'true'/'false' only — the key itself never enters this step's env.
+          STAGING_FREE_TIER_KEY_SET: ${{ secrets.FREE_TIER_GEMINI_KEY_STAGING != '' }}
         run: |
           # t/4326: legacy names may contain spaces (quoted below) but never quote/shell
           # characters — arm-deploy re-tokenises its parameter string on double quotes, and the
@@ -482,6 +542,23 @@ jobs:
           if printf '%s' "$IDENTITY_MAP_VALUE" | grep -q "[\"'\`\$]"; then
             echo "::error::vars.IDENTITY_MAP contains a quote, backtick or \$ — not supported (t/4326)."
             exit 1
+          fi
+          # t/4732: staging's dedicated free-tier key. Empty falls back to the shared prod pool key
+          # (main.bicep stagingExtraFreeTier, cap back to 200), so say so instead of falling back silently.
+          # SO condition 3 (t/261): once the staging app HOLDS free-tier-gemini-key-staging, an empty
+          # secret would make this apply drop a secret its active revision references. ACA rejects that,
+          # and the rejection would fail the PROD deploy too (one apply). Fail here, before any change.
+          # Reads secret NAMES only (az containerapp secret list never returns values without --show-values).
+          if [ "$STAGING_FREE_TIER_KEY_SET" != "true" ]; then
+            if ! STAGING_SECRET_NAMES=$(az containerapp secret list -n "${{ env.CONTAINER_APP_NAME }}-staging" -g "${{ env.RESOURCE_GROUP }}" --query "[].name" -o tsv); then
+              echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty and the staging app's secret names could not be read, so this run can't rule out dropping a secret the staging revision still references. Refusing to deploy (fail-closed). Restore the GitHub secret, or check the Azure login."
+              exit 1
+            fi
+            if printf '%s\n' "$STAGING_SECRET_NAMES" | grep -qx 'free-tier-gemini-key-staging'; then
+              echo "::error::t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty, but the staging app already holds secret free-tier-gemini-key-staging. Applying would drop a secret its active revision references, and ACA would reject the whole apply, prod included. Restore the GitHub secret before deploying."
+              exit 1
+            fi
+            echo "::warning::WARN t/4732: secrets.FREE_TIER_GEMINI_KEY_STAGING is empty — staging falls back to the SHARED prod free-tier key pool (free-tier-gemini-key), at the interim cap of 200."
           fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \
@@ -512,6 +589,7 @@ jobs:
               githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }} \
               githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }} \
               freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }} \
+              freeTierGeminiKeyStaging=${{ secrets.FREE_TIER_GEMINI_KEY_STAGING }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
               stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }} \
@@ -581,6 +659,7 @@ jobs:
             githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
             githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }}
             freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }}
+            freeTierGeminiKeyStaging=${{ secrets.FREE_TIER_GEMINI_KEY_STAGING }}
             geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }}
             budgetAlertEmail=${{ vars.ALERT_EMAIL }}
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
@@ -1281,6 +1360,40 @@ jobs:
           if ($Diag.SystemLogs) { $Diag.SystemLogs | ForEach-Object { Write-Host $_ } }
           else { Write-Host '(no system logs available)' }
 
+      # t/4844 WP6: visible failing-step gates. The three gates above always exit 0 and carry their
+      # verdict in outputs (diagnostics has no always(), see t/4252), so on a failed deploy only
+      # "Rollback on failure" went red and the run page never said WHICH gate failed. Each step below
+      # turns one gate's 'false' verdict into a red step of its own. They sit AFTER diagnostics (which
+      # must still run first) and BEFORE rollback, which keeps always() and runs regardless. == 'false'
+      # (not != 'true') so a gate that never ran (skipped or earlier failure) is not reported as failed.
+      - name: Gate failed — health check
+        if: always() && steps.health_check.outputs.healthy == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: health check (step 'Health check new revision' reported healthy=false). Its log names the cause; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
+      - name: Gate failed — mount readiness
+        if: always() && steps.mount_probe.outputs.ready == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: mount readiness (step 'Mount readiness probe (t/4513)' reported ready=false). Its log names the cause; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
+      - name: Gate failed — full smoke
+        if: always() && steps.acceptance.outputs.accepted == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: full smoke (step 'Acceptance tests — full smoke (pre-traffic shift)' reported accepted=false). Its log lists the failed endpoints; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
+      # t/265 (DevOps Lead p/107#2): persona is the fourth exit-0, output-driven rollback gate. Safe in
+      # this block: with persona=='false', every later step either has always() or needs
+      # persona=='true', so this red step skips nothing that would otherwise run. (warm_gate is
+      # different, see "Gate failed — warm-gate" at the END of this job.)
+      - name: Gate failed — persona matrix
+        if: always() && steps.persona.outputs.accepted == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: persona matrix (step 'Persona matrix (pre-traffic shift)' reported accepted=false). Its log lists the auth-gate regressions; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
       - name: Re-authenticate before rollback
         if: always() && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
@@ -1315,7 +1428,10 @@ jobs:
           exit 1
 
       - name: Fail if unhealthy (no previous revision to rollback to)
-        if: (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
+        # always() (t/4844 WP6): a red "Gate failed" step above would otherwise skip this one. The
+        # health_check outcome clause keeps the old reach: that step always exits 0, so 'success'
+        # means it ran; an earlier failure (login, Bicep, new revision) still skips this step as before.
+        if: always() && steps.health_check.outcome == 'success' && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
         run: |
           echo "::error::Health check failed and no previous revision exists for rollback"
           exit 1
@@ -1532,6 +1648,252 @@ jobs:
             -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
             -BicepPath './deploy/azure/main.bicep'
 
+      - name: Record the rollback target in the job summary (t/266 b)
+        # t/266#5: the previous revision's name is printed on every deploy, so a rollback never
+        # needs a lookup. retire-previous-revision (below) may deactivate it after a green soak;
+        # the commands here work either way (activating an already-active revision is a no-op).
+        if: always() && steps.current_revision.outputs.revision != ''
+        env:
+          PREV_REV: ${{ steps.current_revision.outputs.revision }}
+          NEW_REV: ${{ steps.new_revision.outputs.revision }}
+          APP: ${{ env.CONTAINER_APP_NAME }}
+          RG: ${{ env.RESOURCE_GROUP }}
+        run: |
+          {
+            echo "### Rollback target (t/266)"
+            echo ""
+            echo "- Previous revision: \`$PREV_REV\`"
+            echo "- New revision: \`${NEW_REV:-(not created)}\`"
+            echo ""
+            echo "Roll back with the gated script: it activates, waits until Provisioned + healthy + /readyz warm on the revision's own FQDN, and only then shifts traffic (refuses otherwise). See deploy/azure/runbooks/production-release.md#rollback."
+            echo ""
+            echo '```bash'
+            echo "./operations/devops/Invoke-GatedRollback.ps1 -AppName $APP -ResourceGroup $RG -RevisionName $PREV_REV"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # t/265 (DevOps Lead p/107#2): warm_gate is the fifth exit-0, output-driven rollback gate; this step
+      # only names it on the run page. Placement is not load-bearing. With warm=='false', "Rollback on
+      # failure" (or "Fail if unhealthy", with no previous revision) already ends in an unconditional
+      # exit 1, so every later implicit-success() step (AC2, "Post-deploy verification (traffic
+      # shifted)") is skipped wherever this goes (SO p/106#18, DevOps Lead p/107#14). It sits last
+      # simply as the last word on the run page. That AC2 never verifies the RESTORED revision after a
+      # gate rollback is a pre-existing gap, tracked in t/353.
+      - name: Gate failed — warm-gate
+        if: always() && steps.warm_gate.outputs.warm == 'false'
+        run: |
+          echo "::error::Deploy gate FAILED: warm-gate (step 'Warm-gate (/readyz)' reported warm=false: the embeddings cache never became ready, or /readyz reported a definitive failure). Its log has the last /readyz status; 'Collect failure diagnostics' has the revision state and logs."
+          exit 1
+
+
+  # ── retire-previous-revision: t/266 option (b) ────────────────────────────
+  # t/264/t/266#4: after a deploy, the previous revision (kept active at 0% as the rollback target)
+  # was found holding a replica for hours with zero requests and no KEDA events, which put billed
+  # vCPU-h over budget on 4 consecutive days (t/260#6). TL ruling t/266#5: deactivate it, but only
+  # after AC2 passed AND a 15-minute green soak, and NEVER on any failure.
+  #
+  # A SEPARATE job, so a soak failure can't trip deploy's rollback steps, and deploy's result
+  # stays exactly what it was. Gated on deploy success + AC2 passed + no earlier gate rollback
+  # (when one fired, AC2 checked the PREVIOUS revision, which is serving again). The retire
+  # decision is Get-PreviousRevisionRetireVerdict.ps1 (Pester-tested both arms), fed fresh reads.
+  # A red soak means: the new revision is serving but unhealthy, and the rollback target is
+  # still active. The job summary (and deploy's) carries the one-command rollback.
+  # Concurrency: this job is inside the same run, so it extends the run by ~16 min. deploy-staging.yml
+  # waits up to 45 min for an in-progress deploy-azure run, then fails closed (t/4194 SO C1b).
+  retire-previous-revision:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}  # t/4273: same OIDC subject as deploy (see tag-known-good)
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.ac2_failed == 'false' && needs.deploy.outputs.earlier_rollback == 'false' && needs.deploy.outputs.previous_revision != '' && needs.deploy.outputs.new_revision != '' }}
+    timeout-minutes: 30
+    # SO round 2: explicit job-scoped token instead of inheriting the workflow set. id-token for the
+    # Azure OIDC login, issues for the soak ops-alert. Job-level permissions REPLACE the workflow set.
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    outputs:
+      # DevOps Lead condition 1: tag-known-good waits for this and tags only on a passed soak.
+      soak_passed: ${{ steps.soak.outputs.passed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Soak — 15 minutes of health + full smoke on the serving revision
+        id: soak
+        shell: pwsh
+        env:
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+          APP_URL: ${{ needs.deploy.outputs.app_url }}
+        run: |
+          # t/266#5: 15 min of health AND smoke green before the rollback target is retired.
+          # 5 rounds, 3 min apart (round 1 at t=0, round 5 at ~t=12m, plus smoke time ≈ 15 min).
+          # Each round: the new revision still active at weight 100, /health healthy, full smoke
+          # passes. Any failure ends the soak at once with passed=false. Always exits 0: the
+          # verdict is the output; "Fail if the soak failed" below turns it red visibly.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          $Rounds = 5; $IntervalSec = 180; $Failure = $null
+          # DevOps Lead condition 3: one retry (after 20s) for the az read and the smoke within a round,
+          # so a single blip doesn't fail the soak. /health already retries (MaxAttempts 3).
+          function Get-ServingInfo {
+            az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $env:NEW_REV --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
+          }
+          function Test-Serving($Info) { $Info -and [bool]$Info.active -and [int]$Info.weight -eq 100 }
+          for ($i = 1; $i -le $Rounds -and -not $Failure; $i++) {
+            if ($i -gt 1) { Start-Sleep -Seconds $IntervalSec }
+            $Info = Get-ServingInfo
+            if (-not (Test-Serving $Info)) { Start-Sleep -Seconds 20; $Info = Get-ServingInfo }
+            if (-not (Test-Serving $Info)) {
+              $Failure = "round ${i}: '$env:NEW_REV' is not active at weight 100 ($($Info | ConvertTo-Json -Compress))"; break
+            }
+            $Health = Test-TaxEditorHealth -BaseUrl $env:APP_URL -TimeoutSec 15 -MaxAttempts 3 -RetryIntervalSec 10
+            if (-not $Health.Healthy) { $Failure = "round ${i}: /health not healthy"; break }
+            # Read-only smoke, the same check "Post-deploy verification (traffic shifted)" runs (t/4912
+            # anonymous cookie). Not Invoke-TaxEditorSmokeTest: its analytics phase WRITES to prod and
+            # its GitHub phase spends API quota, five times per deploy.
+            $Results = @(Test-TaxEditorEndpoints -BaseUrl $env:APP_URL -UserType Anonymous)
+            $Fails = @($Results | Where-Object { -not $_.Pass })
+            if ($Results.Count -eq 0 -or $Fails.Count -gt 0) {
+              Start-Sleep -Seconds 20
+              $Results = @(Test-TaxEditorEndpoints -BaseUrl $env:APP_URL -UserType Anonymous)
+              $Fails = @($Results | Where-Object { -not $_.Pass })
+            }
+            if ($Results.Count -eq 0 -or $Fails.Count -gt 0) {
+              $Failure = "round ${i}: smoke $($Results.Count - $Fails.Count)/$($Results.Count) passed after one retry; failed: $(($Fails | ForEach-Object Endpoint) -join ', ')"; break
+            }
+            Write-Host "Soak round $i/${Rounds}: active@100, /health ok, smoke $($Results.Count)/$($Results.Count)"
+          }
+          if ($Failure) {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value 'passed=false'
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "failure=$($Failure -replace '[\r\n]', ' ')"
+            Write-Host "::warning::t/266 soak FAILED, $Failure. The previous revision stays active as the rollback target (see the job summary); an ops-alert issue is opened below."
+          } else {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value 'passed=true'
+            Write-Host "t/266 soak passed: $Rounds rounds green."
+          }
+          exit 0
+
+      - name: Re-authenticate after the soak
+        # The OIDC token from the first login can age out across a ~15 min soak.
+        if: steps.soak.outputs.passed == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Retire verdict (fresh traffic reads)
+        id: verdict
+        if: always() && steps.soak.outcome == 'success'
+        shell: pwsh
+        env:
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+          AC2_FAILED: ${{ needs.deploy.outputs.ac2_failed }}
+          EARLIER_ROLLBACK: ${{ needs.deploy.outputs.earlier_rollback }}
+          SOAK_PASSED: ${{ steps.soak.outputs.passed }}
+        run: |
+          . ./operations/devops/Get-PreviousRevisionRetireVerdict.ps1
+          function Get-Weight([string]$Rev) {
+            $w = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $Rev --query 'properties.trafficWeight' -o tsv 2>$null
+            if ($LASTEXITCODE -ne 0 -or $w -notmatch '^\d+$') { return $null }   # unknown is never read as 0
+            [int]$w
+          }
+          $v = Get-PreviousRevisionRetireVerdict -Ac2Failed $env:AC2_FAILED -EarlierRollbackFired $env:EARLIER_ROLLBACK `
+            -SoakPassed $env:SOAK_PASSED -PreviousRevision $env:PREV_REV -NewRevision $env:NEW_REV `
+            -NewRevisionWeight (Get-Weight $env:NEW_REV) -PreviousRevisionWeight (Get-Weight $env:PREV_REV)
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "action=$($v.Action)"
+          Write-Host "t/266 retire verdict: $($v.Action) — $($v.Reason)"
+
+      - name: Deactivate the previous revision (t/266 b)
+        id: retire
+        if: steps.verdict.outputs.action == 'retire'
+        shell: pwsh
+        env:
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+        run: |
+          # Same double-sourced weight guard as "Cleanup stale revisions" (t/4242): the revision's own
+          # trafficWeight AND the ingress traffic config, read fresh right before the deactivate, with
+          # the serving revision name-protected.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          . ./operations/devops/Get-RevisionDeactivationVerdict.ps1
+          $FreshRaw = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $env:PREV_REV -o json | ConvertFrom-Json
+          $App = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' -o json | ConvertFrom-Json
+          $TrafficEntries = if ($App.properties.configuration.ingress.PSObject.Properties['traffic']) { @($App.properties.configuration.ingress.traffic) } else { $null }
+          $Ingress = Get-IngressTrafficWeightForRevision -RevisionName $env:PREV_REV -TrafficEntries $TrafficEntries -LatestRevisionName $App.properties.latestRevisionName
+          $FreshWeight = if ($FreshRaw.properties.PSObject.Properties['trafficWeight']) { $FreshRaw.properties.trafficWeight } else { $null }
+          $FreshActive = if ($FreshRaw.properties.PSObject.Properties['active']) { [bool]$FreshRaw.properties.active } else { $false }
+          $Guard = Get-RevisionDeactivationVerdict -RevisionName $env:PREV_REV -TrafficWeight $FreshWeight -Active $FreshActive `
+            -IngressWeight $Ingress.IngressWeight -IsLatestRevisionWithTraffic $Ingress.IsLatestRevisionWithTraffic -ProtectedNames @($env:NEW_REV)
+          if ($Guard.Action -ne 'deactivate') {
+            Write-Host "::warning::t/266: not retiring '$env:PREV_REV' on the final guard: $($Guard.Reason). It stays active."
+            exit 0
+          }
+          Disable-ContainerAppRevision -RevisionName $env:PREV_REV -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+          $After = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $env:PREV_REV --query 'properties.active' -o tsv
+          Write-Host "t/266: retired '$env:PREV_REV' (active=$After). Rollback: see the job summary."
+
+      - name: Summary — rollback target status (t/266 b)
+        if: always()
+        env:
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          SOAK: ${{ steps.soak.outputs.passed }}
+          ACTION: ${{ steps.verdict.outputs.action }}
+          RETIRE: ${{ steps.retire.outcome }}
+          APP: ${{ env.CONTAINER_APP_NAME }}
+          RG: ${{ env.RESOURCE_GROUP }}
+        run: |
+          {
+            echo "### Previous revision after the soak (t/266)"
+            echo ""
+            echo "- Previous revision: \`$PREV_REV\`"
+            echo "- Soak passed: \`${SOAK:-not run}\`; verdict: \`${ACTION:-not run}\`; deactivate step: \`${RETIRE:-skipped}\`"
+            echo ""
+            echo '```bash'
+            echo "./operations/devops/Invoke-GatedRollback.ps1 -AppName $APP -ResourceGroup $RG -RevisionName $PREV_REV"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ops-alert — soak did not pass, rollback target kept (t/266 b)
+        # DevOps Lead condition 2: a warning + alert, NOT exit 1. A red run would stall
+        # continuous-deploy.yml (hold-batch-timestamp-unknown, :183) and make
+        # Get-KnownGoodLivenessVerdict.ps1 (:148) under-count deploys, since both read only
+        # `--status success` runs. The failed soak still withholds known-good (tag-known-good
+        # gates on soak_passed) and keeps the rollback target active.
+        if: always() && steps.soak.outputs.passed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+          FAILURE: ${{ steps.soak.outputs.failure }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "::warning::t/266: the soak did not pass (${FAILURE:-soak did not complete}), so '$PREV_REV' was NOT retired. '$NEW_REV' is serving; decide whether to roll back (job summary)."
+          gh label create "prod-soak-alert" --color D93F0B --description 'Post-deploy soak failed; rollback target kept (t/266)' --force >/dev/null 2>&1 || true
+          TITLE="Prod post-deploy soak failed: $NEW_REV (rollback target $PREV_REV kept)"
+          BODY=$(printf 'The 15-minute post-deploy soak did not pass: %s\n\nServing: `%s`. Rollback target `%s` is still **active** (not retired). Decide whether to roll back:\n\n```\n./operations/devops/Invoke-GatedRollback.ps1 -RevisionName %s\n```\n\nRun: %s (t/266)' "${FAILURE:-soak did not complete}" "$NEW_REV" "$PREV_REV" "$PREV_REV" "$RUN_URL")
+          EXISTING=$(gh issue list --label "prod-soak-alert" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY" && exit 0
+          else
+            gh issue create --title "$TITLE" --label "prod-soak-alert,alert-escalated" --body "$BODY" && exit 0
+          fi
+          # SO round 2: the alert IS the signal for a failed soak (the run stays green otherwise), so if
+          # it can't be posted the failure must not be silent: go red. Only this double failure (soak
+          # failed AND alert unpostable) turns the run red.
+          echo "::error::t/266: the soak FAILED and the prod-soak-alert issue could not be posted. Failing this job so the failed soak is not silent. Rollback target '$PREV_REV' is still active."
+          exit 1
+
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────
   # Set-TaxEditorKnownGood was manual-only and never actually run, consistently, across the org
@@ -1549,7 +1911,10 @@ jobs:
   # steps use (exposed via `deploy`'s `outputs:` block, SO C3), so this never runs on a deploy
   # that didn't actually promote traffic.
   tag-known-good:
-    needs: [preflight, deploy]
+    # t/266 (DevOps Lead condition 1): also waits for retire-previous-revision, so known-good never
+    # lands on an image whose soak then fails. 'skipped' (first deploy, AC2/earlier-rollback paths)
+    # keeps today's behaviour; a run that soaked tags only on soak_passed == 'true'.
+    needs: [preflight, deploy, retire-previous-revision]
     runs-on: ubuntu-latest
     # t/4273: same environment as `deploy`, so azure/login presents the environment OIDC subject
     # the federated credential matches. Without it the subject is ref-form and login fails AADSTS700213.
@@ -1560,7 +1925,9 @@ jobs:
     # known-good-liveness job correctly reporting "missing" since 04:55Z — not a wiring bug, the
     # disable switch was simply never removed after its own trigger condition landed. Checkable
     # fact, acted on directly (Pre-Authorized-Trigger Discipline).
-    if: needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true'
+    # t/121: explicit !cancelled() (workflow-lint Check 5 convention). The deploy-success term
+    # below already implies it, so the gate is unchanged.
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true' && (needs.retire-previous-revision.result == 'skipped' || needs.retire-previous-revision.outputs.soak_passed == 'true') }}
     timeout-minutes: 10
     continue-on-error: true  # SO C3: a checkout/login/module-import failure must not fail the
                               # job and turn an otherwise-successful deploy run red.
@@ -1580,6 +1947,29 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── t/121: idempotent RETRY of the pre-deploy pin (pin-digest job is the guarantee) ──
+      # pin-digest tagged this run's digest BEFORE deploy (t/121#5: post-shift steps can fail with
+      # no rollback, so a pin gated on deploy success could leave prod on an unpinned digest). Here
+      # the same name, pinned-<run_id>-<hex12>, is computed again, so a pin-digest success makes this
+      # AlreadyPinned (no write), and a transient pin-digest failure gets one more try. Uses this
+      # job's existing packages:write; no new permission. WARN-ONLY, like the known-good step.
+      - name: Re-check the pinned tag on the deployed digest (t/121, idempotent retry)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+            $Pin = Set-TaxEditorPinnedTag -ImageRef $env:DEPLOYED_IMAGE_REF -RunId $env:RUN_ID -Confirm:$false
+            Write-Host "t/121: $($Pin.Action): $($Pin.Tag) -> $($Pin.Digest)"
+          } catch {
+            Write-Host "::warning::t/121: could not confirm the pinned tag on the deployed digest ($env:DEPLOYED_IMAGE_REF): $($_.Exception.Message) - see the pin-digest job; if it also failed, this digest is protected from ghcr-cleanup only while sha-<commit> or known-good still names it."
+            Write-Warning "t/121: pinned-tag fallback taken: the post-deploy pin retry failed ($($_.Exception.Message))"
+          }
 
       - name: Set known-good image tag and assert it resolves to the deployed digest
         shell: pwsh

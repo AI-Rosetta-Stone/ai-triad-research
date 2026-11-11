@@ -33,6 +33,10 @@ jobs:
   tier-check:
     runs-on: ubuntu-latest
     continue-on-error: true
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+    if: github.event.issue.pull_request || !github.event.issue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -404,3 +408,39 @@ jobs:
 
             await postVerdictComment(body);
             } // end run()
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi

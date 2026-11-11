@@ -75,7 +75,8 @@
 }
 .fallacy-panel-item.selected .fallacy-panel-item-cat {
   color: var(--text-on-focus-ring, #fff);
-  background: rgba(255,255,255,0.2);
+  background: transparent;
+  border: 1px solid var(--text-on-focus-ring, #fff);
   font-weight: 600;
 }
 
@@ -107,13 +108,9 @@
   font-weight: 500;
 }
 .fallacy-panel-item.selected .fallacy-panel-item-count {
-  background: #fff;
+  background: var(--text-on-focus-ring, #fff);
   color: var(--focus-ring, #2563eb);
   box-shadow: none;
-}
-.fallacy-panel-item.selected .fallacy-panel-item-count.zero {
-  background: rgba(255,255,255,0.85);
-  color: var(--text-secondary);
 }
 .fallacy-panel-item-cat {
   font-size: var(--text-2xs);

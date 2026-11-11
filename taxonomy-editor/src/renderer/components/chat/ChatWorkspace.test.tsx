@@ -198,7 +198,7 @@ describe('ChatWorkspace', () => {
     expect(screen.getByText('The raw model text')).toBeInTheDocument();
   });
 
-  it('shows "not available" in the How panel when raw prompt/response are absent', async () => {
+  it('says "not recorded" in the How panel when raw prompt/response are absent (t/165)', async () => {
     const user = userEvent.setup();
     mockChatStoreState = {
       activeChat: makeChat({
@@ -209,7 +209,40 @@ describe('ChatWorkspace', () => {
     };
     render(<ChatWorkspace />);
     await user.click(screen.getByRole('button', { name: 'How' }));
-    expect(screen.getAllByText('Not available for this response yet.').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Raw prompt not recorded for this message.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Raw Response/ }));
+    expect(screen.getByText('Raw response not recorded for this message.')).toBeInTheDocument();
+  });
+
+
+  it('shows Methods links (Theory of Success and Theory of Operations) in Chat How panel (t/241)', async () => {
+    const user = userEvent.setup();
+    mockChatStoreState = {
+      activeChat: makeChat({
+        transcript: [
+          { id: 'm1', speaker: 'accelerationist', content: 'Answer', taxonomy_refs: [], timestamp: '2026-01-01T00:00:00Z' },
+        ],
+      }),
+    };
+    render(<ChatWorkspace />);
+    await user.click(screen.getByRole('button', { name: 'How' }));
+    // Expand Methods section to show Chat's methods links
+    await user.click(screen.getByRole('button', { name: /Methods/ }));
+    // Methods section should render with the two Chat-specific links
+    expect(screen.getByRole('button', { name: /Theory of Success/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Theory of Operations/ })).toBeInTheDocument();
+  });
+  it('an answer with no taxonomy refs says so under Why; a user message shows no such line (t/165)', () => {
+    mockChatStoreState = {
+      activeChat: makeChat({
+        transcript: [
+          { id: 'u1', speaker: 'user', content: 'Question', taxonomy_refs: [], timestamp: '2026-01-01T00:00:00Z' },
+          { id: 'm1', speaker: 'accelerationist', content: 'Answer', taxonomy_refs: [], timestamp: '2026-01-01T00:00:01Z' },
+        ],
+      }),
+    };
+    render(<ChatWorkspace />);
+    expect(screen.getAllByText('No taxonomy grounding recorded for this answer.')).toHaveLength(1);
   });
 
   it('renders input bar with textarea and send button', () => {

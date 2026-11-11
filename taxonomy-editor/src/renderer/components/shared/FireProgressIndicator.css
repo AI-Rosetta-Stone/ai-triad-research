@@ -27,9 +27,13 @@
   border-radius: var(--radius-sm);
   transition: width 0.3s;
 }
-.fire-conf-high { background: #16a34a; color: #16a34a; }
-.fire-conf-medium { background: #d97706; color: #d97706; }
-.fire-conf-low { background: #dc2626; color: #dc2626; }
+/* t/198: the bar keeps its solid fill; the compact text label takes the tone's -text (was colour-on-same-colour). */
+.fire-progress-bar-fill.fire-conf-high { background: #16a34a; }
+.fire-progress-bar-fill.fire-conf-medium { background: #d97706; }
+.fire-progress-bar-fill.fire-conf-low { background: #dc2626; }
+.fire-progress-conf.fire-conf-high { color: var(--success-text); }
+.fire-progress-conf.fire-conf-medium { color: var(--warning-text); }
+.fire-progress-conf.fire-conf-low { color: var(--error-text); }
 .fire-progress-details {
   display: flex;
   justify-content: space-between;

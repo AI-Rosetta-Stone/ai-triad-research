@@ -24,8 +24,8 @@
   font-size: var(--text-2xs);
   padding: 2px 10px;
   border-radius: 20px;
-  background: rgba(148, 163, 184, 0.15);
-  color: var(--text-muted);
+  background: var(--bg-tertiary); /* t/198 S1: neutral chip */
+  color: var(--text-secondary);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;

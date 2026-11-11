@@ -10,6 +10,17 @@ version: 2
 #   - Low-churn ecosystems (github-actions, docker base images) moved to monthly.
 #   - Expected steady state with weekly triage: ~5-8 open dependabot PRs.
 # Change the limits here (not by manually closing PRs) if the pile reappears.
+#
+# ── Incident t/313 (2026-11-11): Actions quota exhausted ──
+# Dependabot auto-rebases every open PR whenever main moves; 4 simultaneous rebases at 02:32
+# started 117 workflow runs in one minute. So every entry now has `rebase-strategy: disabled`
+# (the merge queue tests against current main anyway; for a PR that actually conflicts,
+# comment `@dependabot rebase` on it), and limits are lowered (aggregate 20 -> 10).
+# Off-peak schedule (t/317): every entry runs between 05:05 and 06:50 UTC, 15 min apart, in
+# the quietest hour of the Actions run data (Nov 3-10: ~16 runs/h at 05 UTC vs ~150-195 at
+# 12-17 UTC). The slots sit off the round marks that the daily 04:00 and 06:00 workflow crons
+# use. So a grouped PR that regenerates (~24 runs each) does it in a quiet window, one
+# ecosystem at a time. GitHub treats `time` as best-effort, so a job may start late.
 updates:
   # ── npm workspace ROOT — a single entry owns the ENTIRE pnpm workspace ──
   # All workspace members (pnpm-workspace.yaml: taxonomy-editor, lib, poviewer,
@@ -33,10 +44,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: '05:05'  # t/317
+      timezone: Etc/UTC
     groups:
       minor-and-patch:
         update-types: [minor, patch]
-    open-pull-requests-limit: 6  # covers taxonomy-editor majors (was on its own entry) too
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 3  # t/313: was 6; covers taxonomy-editor majors too
     # undici MAJOR was HELD (t/2053/t/2113/t/2281; #1091) until the pinned Node runtime
     # bundled a newer undici major -- that happened with the t/1990 Node 26 bump (Node 26
     # bundles undici 8.x). The ignore is dropped now that userland undici has moved to ^8.x
@@ -48,29 +63,40 @@ updates:
     directory: /lib/debate
     schedule:
       interval: weekly
+      day: monday
+      time: '05:20'  # t/317
+      timezone: Etc/UTC
     groups:
       minor-and-patch:
         update-types: [minor, patch]
-    open-pull-requests-limit: 2
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
 
   - package-ecosystem: npm
     directory: /deploy/azure/runner/function
     schedule:
       interval: weekly
+      day: monday
+      time: '05:35'  # t/317
+      timezone: Etc/UTC
     groups:
       minor-and-patch:
         update-types: [minor, patch]
-    open-pull-requests-limit: 2
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
 
   # ── github-actions — monthly (actions rarely change; weekly was noise) ──
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+      time: '05:50'  # t/317
+      timezone: Etc/UTC
     groups:
       actions:
         patterns: ["*"]
-    open-pull-requests-limit: 2
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
 
   # ── pip — the PowerShell module's Python helpers (scripts/requirements.txt) ──
   # Grouped: requirements.txt is one logical set (was ungrouped — each bump its
@@ -83,10 +109,14 @@ updates:
     directory: /scripts
     schedule:
       interval: weekly
+      day: monday
+      time: '06:05'  # t/317
+      timezone: Etc/UTC
     groups:
       pip-deps:
         patterns: ["*"]
-    open-pull-requests-limit: 2
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
 
   # ── docker — web image + azure base image. Monthly (base images update rarely).
   # Left UNGROUPED deliberately: each directory tracks a SINGLE base image, so a
@@ -100,10 +130,36 @@ updates:
     directory: /taxonomy-editor
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
+      time: '06:20'  # t/317
+      timezone: Etc/UTC
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
 
   - package-ecosystem: docker
     directory: /deploy/azure
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
+      time: '06:35'  # t/317
+      timezone: Etc/UTC
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
+
+  # Dev container (root Dockerfile): devcontainers/javascript-node + python:3.12-slim-trixie,
+  # both digest-pinned (t/270). External bases update through Dependabot, not the
+  # ai-triad-base drift workflow (PI decision 3, t/249). Weekly: the image is unhardened and
+  # rebuilt often upstream, so digest bumps retire its CVEs sooner.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:50'  # t/317
+      timezone: Etc/UTC
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 1
+    # Python is pinned to 3.12 on purpose (requirements + torch). #5015 auto-merged a
+    # 3.12 -> 3.15 tag bump as "semver-minor" and broke the dev build (t/313). Digest
+    # refreshes of 3.12 still flow; a Python version move is a deliberate PR.
+    ignore:
+      - dependency-name: python
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']

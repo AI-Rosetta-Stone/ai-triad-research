@@ -106,7 +106,7 @@
 
 .save-bar-error-dismiss:hover {
   background: var(--bg-hover, rgba(127,127,127,0.15));
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .save-bar-error-panel {

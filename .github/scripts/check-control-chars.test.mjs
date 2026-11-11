@@ -1,16 +1,16 @@
 // .github/scripts/check-control-chars.test.mjs
-// Run: `node --test .github/scripts/check-control-chars.test.mjs` (ci.yml workflow-lint runs it, warn-only first).
+// Run: `node --test .github/scripts/check-control-chars.test.mjs` (ci.yml workflow-lint runs it, blocking since t/130).
 //
 // t/128: both arms of check-control-chars.mjs. Control bytes in these fixtures are built with
 // String.fromCharCode / Buffer.from, never typed raw, so this file passes its own lint.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { findControlChars, isBadByte, isAllowlisted, allowlistProblems, scan, SCANNED_EXT } from './check-control-chars.mjs'
+import { findControlChars, isBadByte, isAllowlisted, allowlistProblems, scan, SCANNED_EXT, isScanned } from './check-control-chars.mjs'
 
 const BS = String.fromCharCode(0x08)
 
@@ -54,6 +54,60 @@ test('allowlist entries need a path and a real reason', () => {
 test('scanned extensions follow the ticket list', () => {
   for (const p of ['a.ts', 'a.tsx', 'a.js', 'a.mjs', 'a.cjs', 'a.ps1', 'a.psm1', 'a.py', 'a.json', 'a.yml', 'a.yaml', 'a.md', 'a.css']) assert.ok(SCANNED_EXT.test(p), p)
   for (const p of ['a.png', 'a.woff2', 'a.onnx', 'a.txt']) assert.ok(!SCANNED_EXT.test(p), p)
+})
+
+test('t/130: .mts/.cts/.jsx, Dockerfiles and .githooks scripts are scanned; look-alikes are not', () => {
+  for (const p of ['workflow-app/vitest.config.mts', 'a.cts', 'a.jsx', 'Dockerfile', 'taxonomy-editor/Dockerfile', 'deploy/azure/Dockerfile.base', '.githooks/pre-push', '.githooks/post-checkout']) assert.ok(isScanned(p), p)
+  for (const p of ['docs/Dockerfile-notes.png', 'Dockerfiles/readme.txt', 'scripts/pre-push', '.githooks/README.txt', 'a.png']) assert.ok(!isScanned(p), p)
+})
+
+test('t/130: --stdin0 reads NUL-separated paths (a path with a space is scanned whole); empty stdin scans nothing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ccl0-'))
+  const cli = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'check-control-chars.mjs')
+  const run = (input) => {
+    try { return { code: 0, out: execFileSync(process.execPath, [cli, '--stdin0'], { cwd: root, input, encoding: 'utf8' }) } }
+    catch (e) { return { code: e.status, out: e.stdout } }
+  }
+  try {
+    mkdirSync(join(root, 'my dir'), { recursive: true })
+    writeFileSync(join(root, 'my dir', 'bad file.ts'), `const re = /${BS}x/\n`)
+    writeFileSync(join(root, 'ok.ts'), 'const x = 1\n')
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    const hit = run('ok.ts\0my dir/bad file.ts\0')
+    assert.equal(hit.code, 1)
+    assert.match(hit.out, /my dir\/bad file\.ts:1:13: 0x08/)
+    assert.match(hit.out, /; 2 file\(s\) scanned/)
+    const none = run('')
+    assert.equal(none.code, 0)
+    assert.match(none.out, /clean, 0 file\(s\) scanned/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('t/335: an ANSI escape (pasted terminal output) is named as such with a strip hint, as a blocking ::error; other bytes keep the generic hint', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ccl-ansi-'))
+  const cli = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'check-control-chars.mjs')
+  try {
+    const ESC = String.fromCharCode(0x1b)
+    writeFileSync(join(root, 'notes.md'), `CI said: ${ESC}[31mFAIL${ESC}[0m\n`)
+    writeFileSync(join(root, 'test.ts'), `const re = /${BS}x/\n`)
+    mkdirSync(join(root, '.github', 'ci'), { recursive: true })
+    writeFileSync(join(root, '.github', 'ci', 'control-chars-allowlist.json'), JSON.stringify({ entries: [] }))
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    let out = '', code = 0
+    try { out = execFileSync(process.execPath, [cli, 'notes.md', 'test.ts'], { cwd: root, encoding: 'utf8' }) } catch (e) { out = e.stdout; code = e.status }
+    assert.equal(code, 1)
+    assert.match(out, /^::error file=notes\.md,line=1,col=10::check-control-chars \(t\/128\): ANSI escape \(0x1B\), most likely pasted terminal output/m)
+    assert.match(out, /^notes\.md:1:10: 0x1B \(ANSI escape\)$/m)
+    assert.match(out, /^::error file=test\.ts,line=1,col=13::check-control-chars \(t\/128\): control byte 0x08; invisible in PR diffs/m)
+    assert.doesNotMatch(out, /::warning/)
+    assert.match(out, /, 0 allowlist problem\(s\);/)   // the empty allowlist file is valid
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('t/335: the committed allowlist file exists and is valid (the escape hatch is discoverable)', () => {
+  const root = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..')
+  const al = JSON.parse(readFileSync(join(root, '.github', 'ci', 'control-chars-allowlist.json'), 'utf8'))
+  assert.deepEqual(allowlistProblems(al.entries), [])
 })
 
 test('scan: a git repo with a bad file, a clean file, an allowlisted bad file and an unscanned bad file', () => {

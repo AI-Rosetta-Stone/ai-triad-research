@@ -8,22 +8,14 @@ Set-StrictMode -Version Latest
 # Module root paths
 # Supports both dev layout (scripts/AITriad/) and PSGallery install (flat module dir)
 # ─────────────────────────────────────────────────────────────────────────────
-$script:ModuleRoot = $PSScriptRoot
-
-# Detect if we're in a dev repo (scripts/AITriad/) or a PSGallery install
-$_resolvedParent = Resolve-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') -ErrorAction SilentlyContinue
-if ($_resolvedParent) { $_candidateRepoRoot = $_resolvedParent.Path } else { $_candidateRepoRoot = $null }
-if ($_candidateRepoRoot -and (Test-Path (Join-Path $_candidateRepoRoot '.aitriad.json'))) {
-    $script:RepoRoot = $_candidateRepoRoot
-    $script:IsDevInstall = $true
-} elseif ($_candidateRepoRoot -and (Test-Path (Join-Path $_candidateRepoRoot 'CLAUDE.md'))) {
-    $script:RepoRoot = $_candidateRepoRoot
-    $script:IsDevInstall = $true
-} else {
-    # PSGallery or standalone install — module root IS the root
-    $script:RepoRoot = $PSScriptRoot
-    $script:IsDevInstall = $false
-}
+# One detection shared with AIEnrich.psm1 (t/153). Dot-sourced here, ahead of everything that
+# reads the roots; the Private/ loop below loads the same file again, which only redefines it.
+. (Join-Path $PSScriptRoot 'Private' 'Get-AITriadModuleRoot.ps1')
+$_roots = Get-AITriadModuleRoot -AITriadDir $PSScriptRoot
+$script:ModuleRoot   = $_roots.ModuleRoot
+$script:RepoRoot     = $_roots.RepoRoot
+$script:IsDevInstall = $_roots.IsDevInstall
+Remove-Variable _roots
 
 # Sentinel for an ambiguous (backend, apiModelId) pricing-key pair (t/3951):
 # Get-AICostPricing's ApiModelIdMap stores this instead of either candidate
@@ -1026,6 +1018,7 @@ Export-ModuleMember -Function @(
     'Get-TaxEditorImage'
     'Deploy-TaxEditorImage'
     'Set-TaxEditorKnownGood'
+    'Set-TaxEditorPinnedTag'
     'Restore-TaxEditorKnownGood'
     'Test-TaxEditorInfra'
     'Deploy-TaxEditorInfra'

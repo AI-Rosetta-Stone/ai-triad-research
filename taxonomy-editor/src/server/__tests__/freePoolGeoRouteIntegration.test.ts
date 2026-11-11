@@ -54,7 +54,9 @@ vi.mock('../../../../lib/ai-client/index.js', () => ({
   generateViaGeminiStream: vi.fn(),
 }));
 
+const getStoredUserKeysBeforeFreePool = vi.fn(async (): Promise<string[]> => []);
 vi.mock('../config.js', () => ({
+  getStoredUserKeysBeforeFreePool: (...a: unknown[]) => getStoredUserKeysBeforeFreePool(...(a as [])),
   hasApiKey: vi.fn(() => false),
   getPaidGeminiFallbackKey: vi.fn(() => null),
   getApiKeys: vi.fn(() => ({})),
@@ -80,7 +82,8 @@ const h = vi.hoisted(() => ({ tier: null as unknown, byokFallbackApplies: false 
 vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: vi.fn(() => h.tier),
   isBackendAllowed: vi.fn(() => true),
-  byokGeminiFallbackApplies: vi.fn(() => h.byokFallbackApplies),
+  // Like the real predicate, a key already in hand means no fallback (t/204's request-key case).
+  byokGeminiFallbackApplies: vi.fn((_level: string, _backend: string, key: unknown) => h.byokFallbackApplies && !key),
   freeTierEnabled: vi.fn(() => true),
   freeTierKeyCount: vi.fn(() => 1),
   LOCAL_EMBED_RPM_PER_IP: 120,
@@ -186,8 +189,61 @@ describe('free-pool geo gate wiring across generate, chat and NLI (t/4486)', () 
     h.tier = FREE_TIER;
     h.byokFallbackApplies = false;
     getFreePoolKeys.mockReset();
+    getStoredUserKeysBeforeFreePool.mockReset().mockResolvedValue([]);
     classifyNli.mockReset().mockResolvedValue({ results: [] });
     generateTextByUsage.mockReset().mockResolvedValue({ text: 'ok', tokenUsage: null });
+  });
+
+  // t/204: precedence is request key → stored Settings key → free pool → paid fallback (pool 429 only).
+  it('t/204 generate: a stored Settings key and no request key → the stored key, and the free pool (geo) is never consulted', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getStoredUserKeysBeforeFreePool.mockResolvedValue(['stored-key']);
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi' });
+    expect(getFreePoolKeys).not.toHaveBeenCalled();
+    expect(generateTextByUsage.mock.calls[0][4]).toBe('stored-key');
+  });
+
+  it('t/204 chat-stream: a stored Settings key and no request key → the free pool is never consulted', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getStoredUserKeysBeforeFreePool.mockResolvedValue(['stored-key']);
+    const handlers = registerAll();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), fakeRes(), { messages: [{ role: 'user', content: 'hi' }] });
+    expect(getStoredUserKeysBeforeFreePool).toHaveBeenCalledWith('gemini');
+    expect(getFreePoolKeys).not.toHaveBeenCalled();
+  });
+
+  it('t/204 NLI: a signed-in user\'s stored key is used instead of the free pool', async () => {
+    getStoredUserKeysBeforeFreePool.mockResolvedValue(['stored-key']);
+    const handlers = registerAll();
+    await handlers['POST /api/nli/classify'](fakeReq(), fakeRes(), { pairs: [{ text_a: 'a', text_b: 'b' }] });
+    expect(getFreePoolKeys).not.toHaveBeenCalled();
+    expect(classifyNli.mock.calls[0][1]).toEqual(['stored-key']);
+  });
+
+  it('t/204 generate: a request key beats a stored key — neither the store nor the pool is consulted', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getStoredUserKeysBeforeFreePool.mockResolvedValue(['stored-key']);
+    const handlers = registerAll();
+    await handlers['POST /api/ai/generate'](fakeReq(), fakeRes(), { prompt: 'hi', apiKey: 'request-key' });
+    expect(getStoredUserKeysBeforeFreePool).not.toHaveBeenCalled();
+    expect(getFreePoolKeys).not.toHaveBeenCalled();
+    expect(generateTextByUsage.mock.calls[0][4]).toBe('request-key');
+  });
+
+  it('t/204 generate: no request key and no stored key → the free pool, unchanged', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getFreePoolKeys.mockResolvedValue({ ok: true, keys: ['server-key-1'] });
+    const handlers = registerAll();
+    await handlers['POST /api/ai/generate'](fakeReq(), fakeRes(), { prompt: 'hi' });
+    expect(getStoredUserKeysBeforeFreePool).toHaveBeenCalledWith('gemini');
+    expect(getFreePoolKeys).toHaveBeenCalledTimes(1);
+    expect(generateTextByUsage.mock.calls[0][4]).toBe('server-key-1');
   });
 
   it('POST /api/ai/generate: free+DE → 403 free_pool_region, never reaches the provider', async () => {

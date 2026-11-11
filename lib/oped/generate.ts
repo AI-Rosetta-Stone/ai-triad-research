@@ -17,7 +17,7 @@ import type { ScoredPovNode, ScoredSituationNode } from '../debate/taxonomyRelev
 import { scoreNodeRelevance, selectRelevantNodes, selectRelevantSituationNodes } from '../debate/taxonomyRelevance.js';
 import { loadTaxonomy } from '../debate/taxonomyLoader.js';
 import { computeEmbedding } from '../embeddings/onnxEmbedding.js';
-import type { OpEdMember, OpEdParams, OpEdSet, OpEdGroundingRef, EditingMeta, CoherenceMeta, OpEdSoulProvenance } from './types.js';
+import type { OpEdMember, OpEdParams, OpEdSet, OpEdGroundingRef, EditingMeta, CoherenceMeta, OpEdSoulProvenance, OpEdStage, OpEdStageName } from './types.js';
 import { resolveOutletBand } from './outletBands.js';
 import { loadAndAssemblePrompt, assembleReflectionPrompt, assembleSourceBriefPrompt, assembleReadabilityEditPrompt, assembleCoherenceJudgePrompt, assembleCoherenceRewritePrompt, type SourceBrief } from './promptLoader.js';
 import { FABRICATED_LEDE_GUARD } from './opedGuards.js';
@@ -31,11 +31,14 @@ export interface GenerateOpEdRequest {
   topic: string;
   params: OpEdParams;
   povs: PovKey[];
-  /** Raw source markdown (pre-fetched from URL). Omit for topic-only requests. */
+  /** Raw source markdown (pre-fetched from URL or extracted from document). Omit for topic-only requests. */
   sourceMaterial?: string;
   /** The URL `sourceMaterial` was fetched from — persisted as OpEdSet.source_url for
    *  provenance (t/2898). The app-half handler passes it; absent for topic runs. */
   sourceUrl?: string;
+  /** The document file name (without path) — persisted as OpEdSet.source_name for
+   *  provenance (t/2898). Absent for topic/url runs. */
+  sourceName?: string;
   signal?: AbortSignal;
 }
 
@@ -262,6 +265,7 @@ function withAppliedTag(member: OpEdMember, applied: AppliedTag | undefined): Op
  *  exactly as untagged (t/3960). Returns the applied-tag record for the tagged camp. */
 function selectCampGrounding(
   pov: PovKey, campNodes: PovNode[], scores: Map<string, number>, plan: OpEdTagPlan | undefined, deps: OpEdGeneratorDeps,
+  maxNodes: number,
 ): { grounding: ScoredPovNode[]; applied?: AppliedTag } {
   const tagged = plan && pov === plan.selection.pov ? applyOpEdTag(plan, scores) : undefined;
   if (tagged) {
@@ -273,8 +277,8 @@ function selectCampGrounding(
     tagged?.scores ?? scores,
     undefined, // use default threshold
     2,         // minPerCategory
-    12,        // maxTotal — mirrors PS MaxGroundingNodes default
-  );
+    maxNodes,  // maxTotal — params.maxGroundingNodes (t/203), default 12 like PS MaxGroundingNodes
+  ).slice(0, maxNodes); // the per-camp diversity floor keeps 2 even when the cap is lower; the user's cap wins
   return { grounding, applied: tagged?.applied };
 }
 
@@ -501,6 +505,78 @@ interface EditResponse {
   edit_notes?: string;
 }
 
+// ── Per-stage capture (t/171) ─────────────────────────────────────────────────
+
+/** Max chars kept per captured prompt or output; past it the text is cut and marked (t/171). */
+export const OPED_STAGE_TEXT_CAP = 200_000;
+
+function capStageText(text: string, what: string, deps: OpEdGeneratorDeps, setId: string): string {
+  if (text.length <= OPED_STAGE_TEXT_CAP) return text;
+  const cut = text.length - OPED_STAGE_TEXT_CAP;
+  deps.recorder?.record({
+    type: 'system.error', component: 'opedGenerate', level: 'warn',
+    message: `Op-ed ${what} is ${text.length} chars, over the ${OPED_STAGE_TEXT_CAP}-char capture cap — stored truncated by ${cut} chars (set=${setId}, t/171)`,
+  });
+  return `${text.slice(0, OPED_STAGE_TEXT_CAP)}…[truncated ${cut} chars]`;
+}
+
+/**
+ * The ONE place a pipeline stage calls the model: forwards to adapter.generateText unchanged and appends the
+ * call (prompt, raw output or error) to `stages` in the order it ran. A throw is recorded, then rethrown, so
+ * every stage's existing error handling is unchanged.
+ */
+/** Generation tuning resolved from request params (t/203). Absent params get today's fixed values. */
+export interface OpEdTuning { maxGroundingNodes: number; maxSituations: number; temperature: number; voiceOnly: boolean }
+export const OPED_TUNING_DEFAULTS: Readonly<OpEdTuning> = { maxGroundingNodes: 12, maxSituations: 3, temperature: 0.8, voiceOnly: false };
+
+/** A numeric param: absent -> default; non-finite -> default + WARN; out of range (or non-integer when
+ *  `integer`) -> rounded and clamped + WARN. Never throws (t/203). */
+function clampParam(name: string, value: unknown, def: number, min: number, max: number, integer: boolean, deps: OpEdGeneratorDeps): number {
+  if (value === undefined) return def;
+  const warn = (what: string) => deps.recorder?.record({
+    type: 'system.error', component: 'opedGenerate', level: 'warn',
+    message: `Op-ed params.${name}=${String(value)} ${what} (t/203)`,
+  });
+  if (typeof value !== 'number' || !Number.isFinite(value)) { warn(`is not a number — using the default ${def}`); return def; }
+  const clamped = Math.min(max, Math.max(min, integer ? Math.round(value) : value));
+  if (clamped !== value) warn(`is outside ${min}–${max}${integer ? ' (integer)' : ''} — using ${clamped}`);
+  return clamped;
+}
+
+export function resolveOpEdTuning(params: OpEdParams, deps: OpEdGeneratorDeps): OpEdTuning {
+  const d = OPED_TUNING_DEFAULTS;
+  return {
+    maxGroundingNodes: clampParam('maxGroundingNodes', params.maxGroundingNodes, d.maxGroundingNodes, 0, 40, true, deps),
+    maxSituations: clampParam('maxSituations', params.maxSituations, d.maxSituations, 0, 15, true, deps),
+    temperature: clampParam('temperature', params.temperature, d.temperature, 0, 2, false, deps),
+    voiceOnly: params.voiceOnly === true,
+  };
+}
+
+async function callStage(
+  stage: OpEdStageName,
+  prompt: string,
+  options: Parameters<AIAdapter['generateText']>[2],
+  stages: OpEdStage[],
+  request: GenerateOpEdRequest,
+  deps: OpEdGeneratorDeps,
+): Promise<string> {
+  const attempt = stages.filter(s => s.stage === stage).length + 1;
+  const model = request.params.model;
+  const base = {
+    stage, attempt, model, prompt: capStageText(prompt, `${stage} prompt`, deps, request.set_id),
+    ...(options?.temperature !== undefined && { temperature: options.temperature }),
+  };
+  try {
+    const raw = await deps.adapter.generateText(prompt, model, options);
+    stages.push({ ...base, output: capStageText(raw, `${stage} output`, deps, request.set_id) });
+    return raw;
+  } catch (err) {
+    stages.push({ ...base, output: '', error: String(err) });
+    throw err;
+  }
+}
+
 async function runVoiceGeneration(
   pov: PovKey,
   groundingNodes: ScoredPovNode[],
@@ -510,6 +586,10 @@ async function runVoiceGeneration(
   sourceBrief: SourceBrief | undefined,
   /** The soul voicing this member: the tag soul for the tagged member, the base soul otherwise (voiceFor). */
   voiced: VoiceSoul,
+  /** Owned by the caller so the calls made before a throw survive onto the failed member (t/171). */
+  stages: OpEdStage[],
+  /** params.temperature resolved (t/203); the generation call only. */
+  temperature: number,
 ): Promise<OpEdMember> {
   const soul = voiced.soul;
   const band = resolveOutletBand(request.params.outlet);
@@ -535,12 +615,12 @@ async function runVoiceGeneration(
   // Prepend system to prompt — generateText has no separate system channel;
   // adapters that support adapter.generate() can be wired later for native system messages.
   const fullPrompt = `${system}\n\n---\n\n${user}`;
-  const rawText = await deps.adapter.generateText(fullPrompt, request.params.model, {
+  const rawText = await callStage('generation', fullPrompt, {
     maxTokens,
-    temperature: 0.8,
+    temperature,
     responseSchema: ESSAY_SCHEMA as Record<string, unknown>,
     signal: request.signal,
-  });
+  }, stages, request, deps);
 
   // t/3013: an empty AI response comes back as '' WITHOUT throwing — e.g. Gemini returns a
   // candidate with empty/absent text parts on a safety block or certain truncations, and
@@ -583,12 +663,12 @@ async function runVoiceGeneration(
       const valueHierarchyText = soul.value_hierarchy.map((v, i) => `${i + 1}. ${v}`).join('\n');
       const thesisText = request.params.thesis?.trim() ?? '';
       const judgePrompt = assembleCoherenceJudgePrompt(deps.promptsDir, body, thesisText, valueHierarchyText);
-      const judgeRaw = await deps.adapter.generateText(judgePrompt, request.params.model, {
+      const judgeRaw = await callStage('coherence-judge', judgePrompt, {
         maxTokens: 1200,
         temperature: 0.1,
         responseSchema: COHERENCE_JUDGE_SCHEMA as Record<string, unknown>,
         signal: request.signal,
-      });
+      }, stages, request, deps);
       const judgeResult = JSON.parse(stripCodeFences(judgeRaw)) as CoherenceJudgeResult;
       const checks = normalizeJudgeResult(judgeResult);
       const flags = validFlags(checks);
@@ -606,11 +686,11 @@ async function runVoiceGeneration(
       } else {
         const violationsText = buildCoherenceViolationsText(checks);
         const rewritePrompt = assembleCoherenceRewritePrompt(deps.promptsDir, body, violationsText);
-        const rewriteRaw = await deps.adapter.generateText(rewritePrompt, request.params.model, {
+        const rewriteRaw = await callStage('coherence-rewrite', rewritePrompt, {
           maxTokens,
           temperature: 0.3,
           signal: request.signal,
-        });
+        }, stages, request, deps);
         const candidate = stripCodeFences(rewriteRaw).trim();
 
         if (!candidate) {
@@ -630,12 +710,12 @@ async function runVoiceGeneration(
         } else {
           // Re-judge to verify the originally-flagged checks resolved.
           const reJudgePrompt = assembleCoherenceJudgePrompt(deps.promptsDir, candidate, thesisText, valueHierarchyText);
-          const reJudgeRaw = await deps.adapter.generateText(reJudgePrompt, request.params.model, {
+          const reJudgeRaw = await callStage('coherence-rejudge', reJudgePrompt, {
             maxTokens: 1200,
             temperature: 0.1,
             responseSchema: COHERENCE_JUDGE_SCHEMA as Record<string, unknown>,
             signal: request.signal,
-          });
+          }, stages, request, deps);
           const reJudgeResult = JSON.parse(stripCodeFences(reJudgeRaw)) as CoherenceJudgeResult;
           const reChecks = normalizeJudgeResult(reJudgeResult);
           const origFlagIds = new Set(flags.map(f => f.check_id));
@@ -694,13 +774,13 @@ async function runVoiceGeneration(
 
       const attemptEdit = async (temperature: number): Promise<string | null> => {
         const violations = buildViolationsText(beforeChecks, readTargets);
-        const editPrompt = assembleReadabilityEditPrompt(deps.promptsDir, finalBody, violations);
-        const editRaw = await deps.adapter.generateText(editPrompt, request.params.model, {
+        const editPrompt = assembleReadabilityEditPrompt(deps.promptsDir, finalBody, violations, readTargets, band.style);
+        const editRaw = await callStage('readability-edit', editPrompt, {
           maxTokens,
           temperature,
           responseSchema: EDIT_SCHEMA as Record<string, unknown>,
           signal: request.signal,
-        });
+        }, stages, request, deps);
         const editParsed = JSON.parse(stripCodeFences(editRaw)) as EditResponse;
         const candidate = editParsed.body_markdown ?? '';
         // Word-count collapse guard: discard if >40% shorter than original
@@ -852,12 +932,12 @@ async function runVoiceGeneration(
     // so a reflection failure can never block generation.
     const runReflection = async (temperature: number): Promise<boolean> => {
       try {
-        const reflRaw = await deps.adapter.generateText(reflPrompt, request.params.model, {
+        const reflRaw = await callStage('grounding-reflection', reflPrompt, {
           maxTokens: reflMaxTokens,
           temperature,
           responseSchema: REFLECTION_SCHEMA as Record<string, unknown>,
           signal: request.signal,
-        });
+        }, stages, request, deps);
         const reflParsed = JSON.parse(stripCodeFences(reflRaw)) as ReflectionResponse;
         const usageMap = new Map(reflParsed.grounding_usage.map(u => [u.id, u]));
         for (const ref of allGroundingRefs) {
@@ -948,7 +1028,34 @@ async function runVoiceGeneration(
     ...(editingMeta && { editing_meta: editingMeta }),
     ...(coherenceMeta && { coherence_meta: coherenceMeta }),
     soul: voiced.provenance,
+    stages, // never empty here: the generation call above always records itself
   };
+}
+
+/** Step 1 of a set: per-camp BDI grounding plus shared situations, under the request's tuning (t/203). */
+async function selectSetGrounding(
+  request: GenerateOpEdRequest, tuning: OpEdTuning, tagPlan: OpEdTagPlan | undefined, deps: OpEdGeneratorDeps,
+): Promise<{ groundingByPov: Map<PovKey, ScoredPovNode[]>; appliedByPov: Map<PovKey, AppliedTag | undefined>; sitNodes: ScoredSituationNode[]; nodeCount: number }> {
+  const taxonomy = loadTaxonomy(deps.repoRoot);
+  const queryParts = [request.topic, request.params.newsHook, request.params.thesis].filter(Boolean);
+  const vec = await computeEmbedding(queryParts.join('. '));
+  const scores = scoreNodeRelevance(vec, taxonomy.embeddings);
+  const groundingByPov = new Map<PovKey, ScoredPovNode[]>();
+  const appliedByPov = new Map<PovKey, AppliedTag | undefined>();
+  for (const pov of request.povs) {
+    const { grounding, applied } = selectCampGrounding(pov, taxonomy[pov]?.nodes ?? [], scores, tagPlan, deps, tuning.maxGroundingNodes);
+    groundingByPov.set(pov, grounding);
+    appliedByPov.set(pov, applied);
+  }
+  const max = tuning.maxSituations;
+  const sitNodes = selectRelevantSituationNodes(taxonomy.situations?.nodes ?? [], scores, undefined, Math.min(1, max), max).slice(0, max);
+  // Count distinct grounding elements across the whole set (per-POV BDI node ids
+  // are disjoint by camp; situations counted once) — a truthful set-level total.
+  const distinctBdi = new Set<string>();
+  for (const nodes of groundingByPov.values()) {
+    for (const { node } of nodes) distinctBdi.add(node.id);
+  }
+  return { groundingByPov, appliedByPov, sitNodes, nodeCount: distinctBdi.size + sitNodes.length };
 }
 
 // ── Main exported generator ───────────────────────────────────────────────────
@@ -967,9 +1074,10 @@ export async function* generateOpEdSet(
   // ── Tag pre-flight (t/3960): refuse BEFORE any generation, so a bad or thin tag never yields a partial
   // set. Throws ActionableError; an untagged request gets undefined and runs exactly as before.
   const tagPlan = preflightOpEdTag(request, deps);
+  const tuning = resolveOpEdTuning(request.params, deps);
   // What the tag did, per camp (only the tagged camp gets an entry). Absent if grounding failed before the
   // filter ran: that member then carries the tag soul (member.soul) but no applied filter, by omission.
-  const appliedByPov = new Map<PovKey, AppliedTag | undefined>();
+  let appliedByPov = new Map<PovKey, AppliedTag | undefined>();
 
   // ── Step 0: source-brief comprehension (when URL source present) ─────────
   // Extracts structured SourceBrief (thesis/author/stance/key_claims) from raw
@@ -977,15 +1085,17 @@ export async function* generateOpEdSet(
   // populated in the generation prompt. Non-fatal — falls through with undefined
   // so voices still generate from raw {{SOURCE_MATERIAL}} text on failure.
   let sourceBrief: SourceBrief | undefined;
+  // The set-level call (the source brief), copied into each member's stages as entry 0 (t/171).
+  const setStages: OpEdStage[] = [];
   if (request.sourceMaterial) {
     try {
       const briefPrompt = assembleSourceBriefPrompt(deps.promptsDir, request.sourceMaterial);
-      const briefRaw = await deps.adapter.generateText(briefPrompt, request.params.model, {
+      const briefRaw = await callStage('source-brief', briefPrompt, {
         maxTokens: 2000,
         temperature: 0.1,
         responseSchema: SOURCE_BRIEF_SCHEMA as Record<string, unknown>,
         signal: request.signal,
-      });
+      }, setStages, request, deps);
       const parsed = JSON.parse(stripCodeFences(briefRaw)) as SourceBrief;
       if (parsed.readable !== false) {
         sourceBrief = parsed;
@@ -1013,38 +1123,19 @@ export async function* generateOpEdSet(
   // every voice in the first camp's nodes, making all voices display identical
   // grounding tables (a Safetyist essay grounded in `acc-*` nodes). Situations are
   // camp-agnostic, so `sitNodes` is legitimately selected once and shared.
-  const groundingByPov = new Map<PovKey, ScoredPovNode[]>();
+  let groundingByPov = new Map<PovKey, ScoredPovNode[]>();
   let sitNodes: ScoredSituationNode[] = [];
 
-  try {
-    const taxonomy = loadTaxonomy(deps.repoRoot);
-    const queryParts = [request.topic, request.params.newsHook, request.params.thesis].filter(Boolean);
-    const query = queryParts.join('. ');
-    const vec = await computeEmbedding(query);
-    const scores = scoreNodeRelevance(vec, taxonomy.embeddings);
-
-    for (const pov of request.povs) {
-      const { grounding, applied } = selectCampGrounding(pov, taxonomy[pov]?.nodes ?? [], scores, tagPlan, deps);
-      groundingByPov.set(pov, grounding);
-      appliedByPov.set(pov, applied);
+  // params.voiceOnly (t/203): no taxonomy load, no embedding; every voice argues from its soul alone.
+  if (!tuning.voiceOnly) {
+    try {
+      const g = await selectSetGrounding(request, tuning, tagPlan, deps);
+      ({ groundingByPov, appliedByPov, sitNodes } = g);
+      yield { type: 'grounding_done', nodeCount: g.nodeCount };
+    } catch (err) {
+      yield { type: 'grounding_failed', error: String(err) };
+      // continue voice-only
     }
-    sitNodes = selectRelevantSituationNodes(
-      taxonomy.situations?.nodes ?? [],
-      scores,
-      undefined,
-      1,
-      3,
-    );
-    // Count distinct grounding elements across the whole set (per-POV BDI node ids
-    // are disjoint by camp; situations counted once) — a truthful set-level total.
-    const distinctBdi = new Set<string>();
-    for (const nodes of groundingByPov.values()) {
-      for (const { node } of nodes) distinctBdi.add(node.id);
-    }
-    yield { type: 'grounding_done', nodeCount: distinctBdi.size + sitNodes.length };
-  } catch (err) {
-    yield { type: 'grounding_failed', error: String(err) };
-    // continue voice-only
   }
 
   // ── Step 2: sequential voice generation (memory-bounded, t/2719) ──────────
@@ -1066,16 +1157,17 @@ export async function* generateOpEdSet(
       enqueue({ type: 'voice_cancelled', pov });
     } else {
       enqueue({ type: 'voice_start', pov });
+      const stages: OpEdStage[] = setStages.map(s => ({ ...s }));
       try {
         const member = withAppliedTag(
-          await runVoiceGeneration(pov, groundingByPov.get(pov) ?? [], sitNodes, request, deps, sourceBrief, voiceFor(pov, tagPlan, deps)),
+          await runVoiceGeneration(pov, groundingByPov.get(pov) ?? [], sitNodes, request, deps, sourceBrief, voiceFor(pov, tagPlan, deps), stages, tuning.temperature),
           appliedByPov.get(pov),
         );
         members.push({ pov, member });
         enqueue({ type: 'voice_complete', pov, member });
       } catch (err) {
         const cancelled = request.signal?.aborted;
-        members.push({ pov, member: { pov, status: cancelled ? 'cancelled' : 'failed', headline: '', subtitle: '', body: '', byline: '', disclosure: '', rhetorical_meta: '', wordCount: 0, grounding: [] } });
+        members.push({ pov, member: { pov, status: cancelled ? 'cancelled' : 'failed', headline: '', subtitle: '', body: '', byline: '', disclosure: '', rhetorical_meta: '', wordCount: 0, grounding: [], ...(stages.length > 0 && { stages }) } });
         if (cancelled) {
           enqueue({ type: 'voice_cancelled', pov });
         } else {
@@ -1112,17 +1204,20 @@ export async function* generateOpEdSet(
   // Source provenance (t/2897/t/2898): source_mode is ALWAYS set on new sets so a
   // topic run (a URL pasted into the topic box → no source fetched → no claims) is
   // distinguishable from the file alone. url mode also carries the fetched URL and the
-  // comprehension-pass claim count (0 = brief failed/unreadable/empty).
-  const isUrlMode = !!request.sourceMaterial;
+  // comprehension-pass claim count (0 = brief failed/unreadable/empty). document mode
+  // carries the file name (without path) from extractDocumentText.
+  const isUrlMode = !!request.sourceMaterial && !request.sourceName;
+  const isDocumentMode = !!request.sourceMaterial && !!request.sourceName;
   const set: OpEdSet = {
     schema_version: 1,
     set_id: request.set_id,
     topic: request.topic,
-    params: request.params,
+    params: { ...request.params, ...tuning }, // the tuning actually used, defaults included (t/203)
     created_at: new Date().toISOString(),
     opeds: orderedMembers,
-    source_mode: isUrlMode ? 'url' : 'topic',
+    source_mode: isDocumentMode ? 'document' : (isUrlMode ? 'url' : 'topic'),
     ...(isUrlMode && request.sourceUrl ? { source_url: request.sourceUrl } : {}),
+    ...(isDocumentMode && request.sourceName ? { source_name: request.sourceName } : {}),
     ...(isUrlMode ? { source_key_claims_count: sourceBrief?.key_claims?.length ?? 0 } : {}),
   };
 

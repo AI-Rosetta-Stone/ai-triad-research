@@ -2423,14 +2423,13 @@ Set-Alias -Name 'Get-GeminiMetadata' -Value 'Get-AIMetadata'
 $_aitriadDir = @((Join-Path $PSScriptRoot 'AITriad'), $PSScriptRoot) |   # dev: scripts/AITriad; gallery: flat module root
     Where-Object { Test-Path (Join-Path $_ 'Private' 'AICallLog.ps1') } | Select-Object -First 1
 if ($_aitriadDir) {
-    # Root detection mirrors AITriad.psm1's (the AICallLog parity test pins both to the same log path).
-    $script:ModuleRoot = $_aitriadDir
-    $_repo = Resolve-Path (Join-Path $_aitriadDir '..' '..') -ErrorAction SilentlyContinue
-    if ($_repo -and ((Test-Path (Join-Path $_repo.Path '.aitriad.json')) -or (Test-Path (Join-Path $_repo.Path 'CLAUDE.md')))) {
-        $script:RepoRoot = $_repo.Path; $script:IsDevInstall = $true
-    } else {
-        $script:RepoRoot = $_aitriadDir; $script:IsDevInstall = $false
-    }
+    # The same root detection AITriad.psm1 runs, from the same file (t/153); the AICallLog parity
+    # test still pins both modules to one log path.
+    . (Join-Path $_aitriadDir 'Private' 'Get-AITriadModuleRoot.ps1')
+    $_roots = Get-AITriadModuleRoot -AITriadDir $_aitriadDir
+    $script:ModuleRoot   = $_roots.ModuleRoot
+    $script:RepoRoot     = $_roots.RepoRoot
+    $script:IsDevInstall = $_roots.IsDevInstall
     . (Join-Path $_aitriadDir 'Private' 'New-ActionableError.ps1')
     . (Join-Path $_aitriadDir 'Public' 'Get-WorktreeMainRoot.ps1')
     . (Join-Path $_aitriadDir 'Private' 'Resolve-DataPath.ps1')
@@ -2443,7 +2442,7 @@ if ($_aitriadDir) {
 } else {
     Write-Warning "AIEnrich: AI call-log writer not found next to the module (looked for AITriad/Private/AICallLog.ps1); Invoke-AIApi calls will NOT be logged, and Test-AICallLogReady will report false (t/150)."
 }
-Remove-Variable _aitriadDir, _repo -ErrorAction SilentlyContinue
+Remove-Variable _aitriadDir, _roots -ErrorAction SilentlyContinue
 
 function Test-AIDefaultCallLoggerRegistered {
     <#

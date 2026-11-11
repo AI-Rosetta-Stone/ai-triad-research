@@ -16,6 +16,7 @@
  */
 import { SO_CLEARED_RE } from './fleet-delivery-metrics.mjs';
 import { extractTier } from './tier-check-predicate.mjs';
+import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL', 'joint-gv-guard', 'consult-hold-guard'];
 
@@ -76,6 +77,48 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
 // t/4660: twice the max observed merge-queue batch time (15-30min, t/4567) -- a queue entry
 // older than this is genuinely stuck, not just waiting its normal turn.
 export const MERGE_QUEUE_STUCK_MINUTES = 60;
+// t/308: an outstanding changes-request with no push since it, for longer than this, names
+// `changes-requested-stale`. #4930 sat 4h in Design's changes-requested because the owner's fix
+// went to a closed duplicate's branch, and nothing noticed.
+export const CHANGES_REQUESTED_STALE_HOURS = 2;
+
+/**
+ * PURE (t/308). The oldest outstanding changes-request that has had NO push since it was made
+ * and is older than CHANGES_REQUESTED_STALE_HOURS, or null.
+ *
+ * Verdicts come from `latestRoleVerdicts(..., mode: 'gate')` (t/116), never raw review `state`:
+ * a request stays outstanding until that same role (or human login) approves or the review is
+ * dismissed, so an approval at head after an earlier request clears it, and another role's
+ * approval does not. "No push since" is the slot's `atHead`: for a review, `commitId === headSha`
+ * (any push since moves the head, whatever the commit dates say); for a comment, posted after
+ * `lastPushAt`. A request that predates the latest push is the owner having responded and
+ * waiting on re-review -- a different state, not this class.
+ *
+ * @param {{reviews:Array, comments:Array, reviewerAppLogin:string, headSha:string, lastPushAt:string|null}} input
+ * @param {number} nowMs
+ * @returns {{reviewer:string, requestedAt:string, ageHours:number}|null}
+ */
+export function findStaleChangesRequest({ reviews, comments, reviewerAppLogin, headSha, lastPushAt }, nowMs) {
+  const slots = latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
+  // A comment carries no commit binding, so "no push since" for it rests entirely on lastPushAt.
+  // gateRoleVerdicts treats an unknown lastPushAt as epoch 0, which would make EVERY comment
+  // request look at-head and fire after a fix was pushed (Quality, #5005). Unknown push time:
+  // comment-sourced requests are skipped (no alert), review-sourced ones still count.
+  const pushKnown = Number.isFinite(Date.parse(lastPushAt ?? ''));
+  let oldest = null;
+  for (const v of slots.values()) {
+    if (v.kind !== 'changes_requested' || !v.atHead) continue;
+    if (!pushKnown && v.source !== 'app-review' && v.source !== 'human-review') continue;
+    const atMs = Date.parse(v.at);
+    if (!Number.isFinite(atMs)) continue;
+    const ageHours = (nowMs - atMs) / 3600000;
+    if (ageHours <= CHANGES_REQUESTED_STALE_HOURS) continue;
+    if (!oldest || atMs < Date.parse(oldest.requestedAt)) {
+      oldest = { reviewer: v.role, requestedAt: v.at, ageHours: Math.round(ageHours * 10) / 10 };
+    }
+  }
+  return oldest;
+}
 
 /**
  * PURE. Classifies one open, non-draft PR's blocker, or null if it has none.
@@ -129,6 +172,10 @@ export const MERGE_QUEUE_STUCK_MINUTES = 60;
  * @param {boolean} [pr.hasApproval] - true if any PR review is in APPROVED state (t/4557).
  *   Combined with every required context green and NOT autoMergeEnabled, this is
  *   `approved-not-armed`, not generic `idle` -- a ready-to-merge PR nobody armed yet.
+ * @param {{reviews:Array, comments:Array, reviewerAppLogin:string, headSha:string, lastPushAt:string|null}} [pr.roleReview]
+ *   t/308: review facts for `changes-requested-stale`, in role-review-verdicts.mjs's shape
+ *   (reviews `{body, login, commitId, submittedAt, state}`, comments `{body, login, createdAt,
+ *   updatedAt}`). Omitted means the class can't be evaluated and never fires.
  * @param {string} [pr.body] - the PR body (t/4557); extractTier(pr.body) === 'T0' also counts
  *   as "ready" for `approved-not-armed` even with no review at all, since T0 needs none.
  * @param {number} nowMs
@@ -304,6 +351,24 @@ export function classifyBlocker(pr, nowMs) {
     }
   }
 
+  // 5b. changes-requested-stale (t/308) -- a reviewer asked for changes and nothing has been
+  //     pushed since, for over CHANGES_REQUESTED_STALE_HOURS. Checked BEFORE approved-not-armed:
+  //     `hasApproval` reads raw review state, so a role's outstanding request (the #4686 shape)
+  //     must never be reported as "ready, arm it". Only when the caller supplied review facts
+  //     (`pr.roleReview`); without them this class is silently inapplicable, never guessed.
+  if (pr.roleReview) {
+    const stale = findStaleChangesRequest(pr.roleReview, nowMs);
+    if (stale) {
+      return {
+        class: 'changes-requested-stale',
+        detail: {
+          ...stale,
+          remedy: `Changes requested by ${stale.reviewer} at ${stale.requestedAt}, and no commit has reached this PR since. Push the fix to THIS PR's branch (check you didn't push it to another branch or a closed duplicate), or reply on the PR if you disagree with the request.`,
+        },
+      };
+    }
+  }
+
   // 6. approved-not-armed (t/4557, TL p/702#93/#95) -- checked BEFORE idle so a PR that is
   //    genuinely ready to merge but simply never got armed is never mistaken for generic
   //    staleness. Distinct from (and lower-severity than) a real blocker: escalates to the
@@ -371,6 +436,7 @@ export function classifyBlocker(pr, nowMs) {
 // a merge, it just means a Dependabot PR's lockfile/license drift wasn't healed, which is purely
 // DevOps's own automation to fix, never the PR author's (Dependabot's) problem.
 export const HEAL_WORKFLOW_PATH = '.github/workflows/dependabot-lockfile-heal.yml';
+export const HEAL_NOT_FAILED = new Set(['success', 'skipped', 'neutral']);
 
 /**
  * PURE. Flags an open Dependabot PR whose latest `dependabot-lockfile-heal` run AT ITS CURRENT
@@ -382,7 +448,10 @@ export const HEAL_WORKFLOW_PATH = '.github/workflows/dependabot-lockfile-heal.ym
 export function classifyHealLiveness(pr) {
   if (!pr.isDependabotAuthor) return null;
   const run = (pr.runs ?? []).find((r) => r.path === HEAL_WORKFLOW_PATH);
-  if (!run || run.status !== 'completed' || run.conclusion === 'success') return null;
+  // t/321: `skipped` and `neutral` are not failures. dependabot-lockfile-heal.yml deliberately
+  // skips on non-npm Dependabot branches (docker/actions/pip), and treating that as failed sent a
+  // false TL-level `heal-failed` on every such PR (#5021, run 42965010012).
+  if (!run || run.status !== 'completed' || HEAL_NOT_FAILED.has(run.conclusion)) return null;
   return {
     class: 'heal-failed',
     detail: {
@@ -414,7 +483,9 @@ export function escalationLevel(blockerClass, episodeAgeHours) {
   // no owner step that makes sense here.
   if (blockerClass === 'heal-failed') return 'tl';
   if (episodeAgeHours >= TL_SLA_HOURS) return 'tl';
-  if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed') return 'owner';
+  // t/308: changes-requested-stale already waited CHANGES_REQUESTED_STALE_HOURS before it can
+  // fire at all, so it pings the owner on first sight, like the two classes it sits beside.
+  if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed' || blockerClass === 'changes-requested-stale') return 'owner';
   if (episodeAgeHours >= OWNER_SLA_HOURS) return 'owner';
   return 'none';
 }

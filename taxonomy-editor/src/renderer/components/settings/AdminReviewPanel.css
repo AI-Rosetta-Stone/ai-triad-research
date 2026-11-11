@@ -111,18 +111,18 @@
 }
 
 .admin-review-domain-badge--calibration {
-  background: color-mix(in srgb, #f59e0b 15%, transparent);
-  color: #b45309;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .admin-review-domain-badge--community {
-  background: color-mix(in srgb, #3b82f6 15%, transparent);
-  color: #1d4ed8;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .admin-review-domain-badge--taxonomy {
-  background: color-mix(in srgb, #10b981 15%, transparent);
-  color: #047857;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .admin-review-card-submitter {
@@ -213,9 +213,9 @@
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger);
-  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-border);
 }
 
 .admin-review-empty {
@@ -440,7 +440,7 @@
   font-weight: 700;
   line-height: 16px;
   text-align: center;
-  background: var(--danger, #ef4444);
+  background: var(--danger-fill, #dc2626);
   color: #fff;
 }
 

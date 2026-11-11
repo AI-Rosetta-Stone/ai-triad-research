@@ -18,6 +18,14 @@ export interface OpEdParams {
   /** POV tag for ONE member (t/3960). The member whose `pov` matches gets the tag soul and the tag
    *  filter; every other member runs exactly as untagged. Absent: an untagged set, as before. */
   tagSelection?: TagSelection;
+  /** Max BDI grounding nodes per camp (t/203). Integer 0–40; default 12; 0 = no BDI grounding. */
+  maxGroundingNodes?: number;
+  /** Max situation nodes, shared across camps (t/203). Integer 0–15; default 3. */
+  maxSituations?: number;
+  /** Sampling temperature for the generation call only (t/203). 0–2; default 0.8. */
+  temperature?: number;
+  /** Skip grounding entirely and argue from the camp voice alone (t/203). Default false. */
+  voiceOnly?: boolean;
 }
 
 /** Which soul file voiced a member (t/3960; t/4007). `file` is soul-docs-relative (e.g. "skeptic.soul.json");
@@ -77,6 +85,38 @@ export interface OpEdMember {
   tag?: AppliedTag;
   /** Which soul file voiced this member. Set on every generated member, base or tag soul. */
   soul?: OpEdSoulProvenance;
+  /** Every model call made for this member, in the order they ran (t/171), for the How panel (t/170).
+   *  The set-level source brief is copied in as entry 0. Absent on sets generated before t/171. */
+  stages?: OpEdStage[];
+}
+
+/** The op-ed pipeline's model calls (t/171). The schema keeps `stage` a plain string so an older reader
+ *  never rejects a set over a stage name it doesn't know; lib only writes these. */
+export type OpEdStageName =
+  | 'source-brief'
+  | 'generation'
+  | 'coherence-judge'
+  | 'coherence-rewrite'
+  | 'coherence-rejudge'
+  | 'readability-edit'
+  | 'grounding-reflection';
+
+/** One model call, captured verbatim (t/171). */
+export interface OpEdStage {
+  stage: OpEdStageName;
+  /** 1-based; >1 only for a retried call (readability-edit and grounding-reflection can retry once). */
+  attempt: number;
+  /** The model id the call was sent to. */
+  model: string;
+  /** The exact string passed to the adapter (generation: system + "\n\n---\n\n" + user). Capped at
+   *  OPED_STAGE_TEXT_CAP chars; past it, it ends with "…[truncated N chars]". */
+  prompt: string;
+  /** The model's raw text before any parsing or cleanup (same cap). '' when the call threw. */
+  output: string;
+  /** Present only when the call threw. */
+  error?: string;
+  /** The sampling temperature the call was sent with (t/203). */
+  temperature?: number;
 }
 
 /** Outcome record for the readability edit pass (t/3707). Written for CL validation tooling; log-only. */
@@ -124,9 +164,11 @@ export interface OpEdSet {
   created_at: string;
   opeds: OpEdMember[];
   /** Source provenance (t/2897): how this set was created. Absent on pre-existing sets. */
-  source_mode?: 'topic' | 'url';
+  source_mode?: 'topic' | 'url' | 'document';
   /** The fetched source URL — url mode only. */
   source_url?: string;
+  /** The source document file name (without path) — document mode only. */
+  source_name?: string;
   /** key_claims extracted by the comprehension pass (0 = brief failed/empty). url mode only. */
   source_key_claims_count?: number;
 }

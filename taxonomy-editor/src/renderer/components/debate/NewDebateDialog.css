@@ -299,8 +299,8 @@
   padding: 2px 8px;
 }
 .ndd-fullpage .ndd-model-tag-free {
-  background: var(--info, #3b82f6);
-  color: #fff;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 .ndd-fullpage .ndd-link-inherit {
   color: inherit;

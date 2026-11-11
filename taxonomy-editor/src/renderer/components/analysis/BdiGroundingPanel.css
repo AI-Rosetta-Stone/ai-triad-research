@@ -68,15 +68,15 @@
 }
 
 .bdi-gr-dolce--kind {
-  background: rgba(139, 92, 246, 0.12);
-  color: #8b5cf6;
-  border: 1px solid rgba(139, 92, 246, 0.25);
+  background: var(--violet-bg);
+  color: var(--violet-text);
+  border: 1px solid var(--violet-text);
 }
 
 .bdi-gr-dolce--particular {
-  background: rgba(6, 182, 212, 0.1);
-  color: #0891b2;
-  border: 1px solid rgba(6, 182, 212, 0.25);
+  background: var(--info-bg);
+  color: var(--info-text);
+  border: 1px solid var(--info-text);
 }
 
 /* ─── Row ─────────────────────────────────────────────── */
@@ -147,13 +147,13 @@
 .bdi-gr-method--surface,
 .bdi-gr-method--exact,
 .bdi-gr-method--alias {
-  background: rgba(34, 197, 94, 0.12);
-  color: #16a34a;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .bdi-gr-method--embedding {
-  background: rgba(249, 115, 22, 0.1);
-  color: #ea580c;
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 /* ─── Status badge ────────────────────────────────────── */
@@ -167,13 +167,13 @@
 }
 
 .bdi-gr-status--linked {
-  background: rgba(34, 197, 94, 0.12);
-  color: #16a34a;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .bdi-gr-status--proposed {
-  background: rgba(234, 179, 8, 0.12);
-  color: #ca8a04;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 /* ─── Debate Grounding section (t/3466) ──────────────────
@@ -187,9 +187,9 @@
   border-radius: var(--radius-sm);
   letter-spacing: 0.03em;
   white-space: nowrap;
-  background: rgba(20, 184, 166, 0.12);
-  color: #0d9488;
-  border: 1px solid rgba(20, 184, 166, 0.25);
+  background: var(--info-bg);
+  color: var(--info-text);
+  border: 1px solid var(--info-text);
   margin-left: auto;
 }
 
@@ -241,9 +241,9 @@
   border-radius: var(--radius-sm);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  background: rgba(234, 179, 8, 0.15);
-  color: #ca8a04;
-  border: 1px solid rgba(234, 179, 8, 0.3);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
   margin-left: auto;
 }
 
@@ -256,9 +256,9 @@
 
 .bdi-gr-fol-weak-note {
   font-size: var(--text-2xs);
-  color: #ca8a04;
-  background: rgba(234, 179, 8, 0.08);
-  border: 1px solid rgba(234, 179, 8, 0.2);
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
   border-radius: var(--radius-sm);
   padding: 5px 8px;
   margin: 0;
@@ -287,13 +287,13 @@
 }
 
 .bdi-gr-fol-polarity--positive {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .bdi-gr-fol-polarity--negative {
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .bdi-gr-fol-modality,
@@ -376,8 +376,8 @@
 }
 
 .bdi-gr-fol-status--accepted {
-  background: rgba(34, 197, 94, 0.12);
-  color: #16a34a;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .bdi-gr-fol-status--proposed {
@@ -386,8 +386,8 @@
 }
 
 .bdi-gr-fol-status--rejected {
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .bdi-gr-fol-confidence {

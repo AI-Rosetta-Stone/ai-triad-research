@@ -275,6 +275,9 @@ export interface ElectronAPI {
   closeDiagnosticsWindow: () => Promise<void>;
   /** t/4642/t/4663: bring an already-open diagnostics popout to the front. */
   focusDiagnosticsWindow: () => Promise<'focused' | 'not-open'>;
+  /** t/163: page zoom driven by the store's zoomLevel; the View menu sends commands back. */
+  setZoomFactor: (factor: number) => void;
+  onZoomCommand: (callback: (command: 'in' | 'out' | 'reset') => void) => () => void;
   sendDiagnosticsState: (state: unknown) => void;
   onDiagnosticsStateUpdate: (callback: (state: unknown) => void) => () => void;
   onDiagnosticsPopoutClosed: (callback: () => void) => () => void;

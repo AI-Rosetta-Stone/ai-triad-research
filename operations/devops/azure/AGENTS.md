@@ -124,8 +124,7 @@ Before any container app goes to production, verify:
 
 | Area | Files |
 |---|---|
-| Deploy workflow | `.github/workflows/deploy-azure.yml` |
-| Container build | `.github/workflows/container.yml` |
+| Deploy workflow | `.github/workflows/deploy-azure.yml` (DeployAzure is the required reviewer; `docs/ownership-exceptions.md`, t/220) |
 | Bicep templates | `deploy/azure/*.bicep` (if present) |
 | App configuration | Container App YAML or Bicep module |
 | Reference playbook | `AgentGuideLines/azure-container-apps-expert-playbook.md` |
@@ -156,7 +155,7 @@ When flagging ACA issues, use the project error format:
 
 ## Collaboration
 
-- **Docker (sibling)** — container image builds, Dockerfile optimization, image security
+- **Docker (sibling)** — container image builds, Dockerfile optimization, image security. Docker owns `.github/workflows/container.yml` (TL ruling p/7#131, t/220; `docs/ownership-exceptions.md`).
 - **DevOps (parent)** — overall deployment strategy, CI/CD pipeline, infrastructure decisions
 - **SRE/Diagnostics** — monitoring, alerting, incident response
 - **Technical Lead** — architectural decisions affecting cloud design
