@@ -1,5 +1,5 @@
 // .github/scripts/check-control-chars.test.mjs
-// Run: `node --test .github/scripts/check-control-chars.test.mjs` (ci.yml workflow-lint runs it, warn-only first).
+// Run: `node --test .github/scripts/check-control-chars.test.mjs` (ci.yml workflow-lint runs it, blocking since t/130).
 //
 // t/128: both arms of check-control-chars.mjs. Control bytes in these fixtures are built with
 // String.fromCharCode / Buffer.from, never typed raw, so this file passes its own lint.
