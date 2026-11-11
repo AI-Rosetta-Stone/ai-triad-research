@@ -2,6 +2,9 @@
 # What:  Compares taxonomy-editor/Dockerfile's runtime pin (ai-triad-base tag AND digest) with
 #        the newest date tag in GHCR. On drift, opens a re-pin PR as the author App; until that
 #        App's credentials are in Actions, it opens (or updates) one tracking issue instead.
+#        Re-pin PRs declare `Tier: T0` (PI decision 4, t/305), so the T0 enqueue sweep merges
+#        them once ci-gate (incl. test-container) is green -- but ONLY when the committed diff is
+#        exactly the runtime ai-triad-base tag/digest line; anything else opens as T1.
 #        Verdict is three-state (PASS / FAIL / GATE-UNREADABLE, t/4496): an unreadable
 #        Dockerfile or registry fails the run rather than passing quietly.
 # Why:   On 2026-11-08 base-image.yml's rebuild fixed CVE-2026-76844, but the pin stayed old and
@@ -51,6 +54,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: read  # find the Base Image run for the re-pin PR body
     steps:
       # Always main: the App key is in this job, so no PR-controlled code runs here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -102,6 +106,9 @@ jobs:
           PINNED_TAG: ${{ steps.drift.outputs.pinned_tag }}
           PINNED_DIGEST: ${{ steps.drift.outputs.pinned_digest }}
           REASON: ${{ steps.drift.outputs.reason }}
+          READ_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          DRIFT_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
@@ -115,19 +122,29 @@ jobs:
           git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
           git commit -m "fix(docker): re-pin runtime base to ai-triad-base:${LATEST_TAG} (t/255)" -- "$DOCKERFILE"
+
+          # The Base Image run behind the new digest: the triggering run on workflow_run, else
+          # the newest successful base-image.yml run on main.
+          BASE_IMAGE_RUN="$WORKFLOW_RUN_URL"
+          if [ -z "$BASE_IMAGE_RUN" ]; then
+            BASE_IMAGE_RUN=$(GH_TOKEN="$READ_TOKEN" gh run list --workflow base-image.yml --branch main --status success -L 1 --json url --jq '.[0].url // empty' || true)
+            [ -n "$BASE_IMAGE_RUN" ] || echo "::warning::WARN: base-pin-drift: no successful base-image.yml run found for the PR body."
+          fi
+          export BASE_IMAGE_RUN
+
+          # Tier is judged on the COMMITTED diff (t/305, TL guardrail p/103#19): T0 only when the
+          # commit touches nothing but $DOCKERFILE and only its runtime ai-triad-base pin line.
+          git show "HEAD~1:${DOCKERFILE}" > "$RUNNER_TEMP/before.Dockerfile"
+          node operations/devops/docker/base-pin-drift.mjs pr-body "$RUNNER_TEMP/before.Dockerfile" "$DOCKERFILE" "$RUNNER_TEMP/pr-body.md"
+          changed=$(git diff --name-only HEAD~1 HEAD)
+          if [ "$changed" != "$DOCKERFILE" ]; then
+            echo "::warning::WARN: base-pin-drift: commit changed '${changed//$'\n'/ }', not only $DOCKERFILE; forcing Tier: T1."
+            sed -i '1s/^Tier: T0$/Tier: T1/' "$RUNNER_TEMP/pr-body.md"
+            printf "\n**Forced to T1:** the commit changed %s, not only \`%s\`.\n" "${changed//$'\n'/, }" "$DOCKERFILE" >> "$RUNNER_TEMP/pr-body.md"
+          fi
+          echo "PR tier: $(head -n 1 "$RUNNER_TEMP/pr-body.md")" | tee -a "$GITHUB_STEP_SUMMARY"
+
           git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
-          {
-            echo "Tier: T1"
-            echo
-            echo "Automated re-pin from \`check-base-pin-drift.yml\` (t/255): ${REASON}."
-            echo
-            echo "- was: \`${PINNED_TAG}@${PINNED_DIGEST}\`"
-            echo "- now: \`${LATEST_TAG}@${LATEST_DIGEST}\`"
-            echo
-            echo "Only the runtime \`FROM\` line of \`${DOCKERFILE}\` changes. Docker reviews; container CI and Trivy must pass on this head before approval."
-            echo
-            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > "$RUNNER_TEMP/pr-body.md"
           url=$(gh pr create --base main --head "$BRANCH" --title "fix(docker): re-pin runtime base to ai-triad-base:${LATEST_TAG}" --body-file "$RUNNER_TEMP/pr-body.md")
           echo "Opened $url"
           echo "Re-pin PR: $url" >> "$GITHUB_STEP_SUMMARY"

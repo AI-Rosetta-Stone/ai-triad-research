@@ -17,6 +17,7 @@
 // CLI (used by .github/workflows/check-base-pin-drift.yml):
 //   node base-pin-drift.mjs check <dockerfile>             verdict -> $GITHUB_OUTPUT / summary
 //   node base-pin-drift.mjs repin <dockerfile> <tag> <digest>   rewrite the runtime FROM line
+//   node base-pin-drift.mjs pr-body <before> <after> <file>     tier (T0 only for a pure pin bump) + PR body
 //
 // Tests: node --test operations/devops/docker/base-pin-drift.test.mjs
 
@@ -118,6 +119,57 @@ export function repinBranch({ tag, digest }) {
   return `${BRANCH_PREFIX}${tag}-${digest.slice('sha256:'.length, 'sha256:'.length + 12)}`;
 }
 
+/**
+ * PURE. The tier a re-pin PR may declare (t/305; PI decision 4, TL guardrail p/103#19).
+ * `Tier: T0` makes the T0 enqueue sweep merge it with no human, so T0 is allowed ONLY when the
+ * change is exactly one line, that line is the runtime FROM before and after, and both point at
+ * our own ai-triad-base (RUNTIME_FROM matches only that image) with a date tag and digest.
+ * Anything else is T1, so `Tier: T0` can't carry another Dockerfile edit.
+ * @returns {{tier: 'T0'|'T1', reason: string}}
+ */
+export function classifyRepinTier(beforeText, afterText) {
+  const t1 = (reason) => ({ tier: 'T1', reason });
+  const before = String(beforeText).split(/\r?\n/);
+  const after = String(afterText).split(/\r?\n/);
+  if (before.length !== after.length) return t1(`line count changed (${before.length} -> ${after.length})`);
+  const changed = [];
+  before.forEach((line, i) => { if (line !== after[i]) changed.push(i); });
+  if (changed.length !== 1) return t1(`${changed.length} lines changed, want exactly 1`);
+  const i = changed[0];
+  const was = RUNTIME_FROM.exec(before[i].trim());
+  const now = RUNTIME_FROM.exec(after[i].trim());
+  if (!was || !now) return t1(`line ${i + 1} is not the '${IMAGE}:<tag>@sha256:<digest> AS runtime' line on both sides`);
+  if (!DATE_TAG.test(was[1]) || !DATE_TAG.test(now[1])) return t1('tag is not YYYY-MM-DD on both sides');
+  if (was[1] === now[1] && was[2] === now[2]) return t1('pin did not change');
+  return { tier: 'T0', reason: 'only the runtime ai-triad-base tag/digest changed (dependency bump, docs/change-tiers.md)' };
+}
+
+/**
+ * PURE. The re-pin PR body. Line 1 is the tier (AGENTS.md); the body names old -> new tag and
+ * digest and the Base Image run that produced the new one (TL guardrail p/103#19).
+ */
+export function repinPrBody({ tier, tierReason, reason, dockerfile, pinned, latest, baseImageRun, driftRun }) {
+  return [
+    `Tier: ${tier}`,
+    '',
+    `Automated re-pin from \`check-base-pin-drift.yml\` (t/255, t/305): ${reason}.`,
+    '',
+    '| | tag | digest |',
+    '|---|---|---|',
+    `| was | \`${pinned.tag}\` | \`${pinned.digest}\` |`,
+    `| now | \`${latest.tag}\` | \`${latest.digest}\` |`,
+    '',
+    `- Base Image run that produced it: ${baseImageRun || 'not found (WARN: no successful base-image.yml run listed)'}`,
+    `- Drift check run: ${driftRun}`,
+    `- Tier ${tier}: ${tierReason}.`,
+    '',
+    tier === 'T0'
+      ? `Only the runtime \`FROM\` line of \`${dockerfile}\` changes. The T0 enqueue sweep merges this once the required checks (ci-gate, which includes test-container) are green; \`dockerfile-trivy\` reports but doesn't block (PI decision 2, t/249).`
+      : `This change is more than a runtime pin bump, so it needs a T1 review (owner of \`${dockerfile}\` + Quality) before merge.`,
+    '',
+  ].join('\n');
+}
+
 // ---- I/O below -------------------------------------------------------------------------------
 
 const MANIFEST_ACCEPT = [
@@ -201,13 +253,39 @@ function repin(dockerfilePath, tag, digest) {
   return 0;
 }
 
+/**
+ * Tier + PR body for a re-pin, judged on the file as committed on main (`before`) vs the
+ * working copy (`after`). Inputs beyond the paths come from the workflow's env.
+ * Writes tier= / tier_reason= to $GITHUB_OUTPUT and the body to <bodyFile>.
+ */
+function prBody(beforePath, afterPath, bodyFile) {
+  const env = process.env;
+  const { tier, reason: tierReason } = classifyRepinTier(fs.readFileSync(beforePath, 'utf8'), fs.readFileSync(afterPath, 'utf8'));
+  const body = repinPrBody({
+    tier,
+    tierReason,
+    reason: env.REASON,
+    dockerfile: env.DOCKERFILE,
+    pinned: { tag: env.PINNED_TAG, digest: env.PINNED_DIGEST },
+    latest: { tag: env.LATEST_TAG, digest: env.LATEST_DIGEST },
+    baseImageRun: env.BASE_IMAGE_RUN,
+    driftRun: env.DRIFT_RUN,
+  });
+  fs.writeFileSync(bodyFile, body);
+  appendFile('GITHUB_OUTPUT', `tier=${tier}\ntier_reason=${tierReason}\n`);
+  console.log(`${GATE}: re-pin PR tier ${tier} (${tierReason})`);
+  if (tier !== 'T0') console.log(`::warning::WARN: ${GATE}: re-pin PR opens as ${tier}, not T0: ${tierReason}`);
+  return 0;
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const [cmd, ...rest] = process.argv.slice(2);
   let code;
   if (cmd === 'check' && rest.length === 1) code = await check(rest[0]);
   else if (cmd === 'repin' && rest.length === 3) code = repin(...rest);
+  else if (cmd === 'pr-body' && rest.length === 3) code = prBody(...rest);
   else {
-    console.error('usage: base-pin-drift.mjs check <dockerfile> | repin <dockerfile> <tag> <digest>');
+    console.error('usage: base-pin-drift.mjs check <dockerfile> | repin <dockerfile> <tag> <digest> | pr-body <before> <after> <body-file>');
     code = 2;
   }
   process.exit(code);
