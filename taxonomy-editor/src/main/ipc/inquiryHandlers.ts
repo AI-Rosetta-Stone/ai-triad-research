@@ -299,9 +299,16 @@ function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
   // linger once the stage has moved on.
   if (status !== 'debating') job.stageDetail = null;
 
-  // t/327: record stage transition timings (only when transitioning between pipeline stages)
-  if (nextStage !== undefined) {
-    advanceStageTimings(job.stageTimings, prevStage, nextStage, Date.now());
+  // t/327: record stage transition timings. A same-status repeat (e.g. deriving→grounding, both
+  // mapping to 'grounding') is not a transition, so it must not restart the stage's clock.
+  if (prevStatus !== status) {
+    const now = Date.now();
+    if (nextStage !== undefined) {
+      advanceStageTimings(job.stageTimings, prevStage, nextStage, now);
+    } else if (isTerminalStatus(status) && prevStage !== undefined) {
+      // Terminal: end the stage the job was in (the last stage, or the one a failed job died in).
+      job.stageTimings[prevStage].endedAt = now;
+    }
   }
 }
 
@@ -507,8 +514,8 @@ function jobView(job: InquiryJob): Record<string, unknown> {
     terminationReason: job.terminationReason,
     resultId: job.resultId,
     error: job.error,
-    // t/327: include stageTimings in the poll response (optional, additive)
-    ...(Object.keys(job.stageTimings).length > 0 ? { stageTimings: job.stageTimings } : {}),
+    // t/327: stageTimings is always sent (all four stages, empty until entered)
+    stageTimings: job.stageTimings,
   };
   return job.result ? { ...base, result: job.result } : base;
 }
