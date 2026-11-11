@@ -147,6 +147,7 @@ function toRecord(job: ExportJob): BriefExportJobRecord {
     status: job.status, progressPct: job.progressPct, warnings: [...job.warnings],
     error: job.error, errorCode: job.errorCode ?? null, exportId: job.exportId,
     startedAt: job.startedAt, lastHeartbeatAt: new Date().toISOString(),
+    idempotencyKey: job.idempotencyKey ?? null,
   };
 }
 

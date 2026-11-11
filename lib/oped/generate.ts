@@ -31,11 +31,14 @@ export interface GenerateOpEdRequest {
   topic: string;
   params: OpEdParams;
   povs: PovKey[];
-  /** Raw source markdown (pre-fetched from URL). Omit for topic-only requests. */
+  /** Raw source markdown (pre-fetched from URL or extracted from document). Omit for topic-only requests. */
   sourceMaterial?: string;
   /** The URL `sourceMaterial` was fetched from — persisted as OpEdSet.source_url for
    *  provenance (t/2898). The app-half handler passes it; absent for topic runs. */
   sourceUrl?: string;
+  /** The document file name (without path) — persisted as OpEdSet.source_name for
+   *  provenance (t/2898). Absent for topic/url runs. */
+  sourceName?: string;
   signal?: AbortSignal;
 }
 
@@ -1201,8 +1204,10 @@ export async function* generateOpEdSet(
   // Source provenance (t/2897/t/2898): source_mode is ALWAYS set on new sets so a
   // topic run (a URL pasted into the topic box → no source fetched → no claims) is
   // distinguishable from the file alone. url mode also carries the fetched URL and the
-  // comprehension-pass claim count (0 = brief failed/unreadable/empty).
-  const isUrlMode = !!request.sourceMaterial;
+  // comprehension-pass claim count (0 = brief failed/unreadable/empty). document mode
+  // carries the file name (without path) from extractDocumentText.
+  const isUrlMode = !!request.sourceMaterial && !request.sourceName;
+  const isDocumentMode = !!request.sourceMaterial && !!request.sourceName;
   const set: OpEdSet = {
     schema_version: 1,
     set_id: request.set_id,
@@ -1210,8 +1215,9 @@ export async function* generateOpEdSet(
     params: { ...request.params, ...tuning }, // the tuning actually used, defaults included (t/203)
     created_at: new Date().toISOString(),
     opeds: orderedMembers,
-    source_mode: isUrlMode ? 'url' : 'topic',
+    source_mode: isDocumentMode ? 'document' : (isUrlMode ? 'url' : 'topic'),
     ...(isUrlMode && request.sourceUrl ? { source_url: request.sourceUrl } : {}),
+    ...(isDocumentMode && request.sourceName ? { source_name: request.sourceName } : {}),
     ...(isUrlMode ? { source_key_claims_count: sourceBrief?.key_claims?.length ?? 0 } : {}),
   };
 

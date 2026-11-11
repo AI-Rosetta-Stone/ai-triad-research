@@ -54,6 +54,29 @@ export function stageStatus(current: string | null, stage: (typeof STAGE_ORDER)[
 }
 export { STAGE_ORDER };
 
+/** t/324: `m:ss` (`0:07`, `12:05`), `h:mm:ss` from one hour. Negative input (clock skew) reads as 0. */
+export function formatStageElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+/** t/324: the full spoken form for screen readers ("1 minute 42 seconds") — `1:42` is read poorly. */
+export function formatStageElapsedSpoken(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const parts: string[] = [];
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) parts.push(unit(h, 'hour'));
+  if (m > 0) parts.push(unit(m, 'minute'));
+  if (s > 0 || parts.length === 0) parts.push(unit(s, 'second'));
+  return parts.join(' ');
+}
+
 /** ADR-001 graceful-empty makes "found nothing" and "never looked" arrive identically (TL
  *  t/3583#4 point 2) — a terminal result with no substantive content needs its OWN treatment,
  *  not a blank answer page that reads as broken. */

@@ -234,6 +234,7 @@ function buildRecord(job: InquiryJob, userId: string): InquiryJobRecord {
     error: null,
     debateId: job.debateId,
     startedAt: job.startedAt,
+    idempotencyKey: job.idempotencyKey ?? null,
   };
 }
 

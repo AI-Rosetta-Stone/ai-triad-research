@@ -20,9 +20,11 @@ import { createWebOpEdAdapter } from '../ai/opedAdapter.js';
 import { resolveExportModel, type ClientModelSource } from './exportModel.js';
 import { enforceBackendAllowed } from './generationContext.js';
 import {
-  startExportJob, getExportJob, hasExportJob, sweepExportJobs, countRunningExportJobs,
+  startExportJob, getExportJob, hasExportJob, sweepExportJobs,
   findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { isTerminalExportStatus } from '../storage/briefExportJobStore.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
 import type { DebateSession } from '../../../../lib/debate/types.js';
@@ -148,24 +150,33 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     const models = resolveExportModels(req, res, b);
     if (!models) return; // helper already wrote the 400/403
 
-    // Idempotency + concurrency.
+    // Idempotency + concurrency. Check-and-create is serialized per user (concurrent POSTs queue and each
+    // counts the records its predecessors wrote); idempotency and the cap read the shared records.
     sweepExportJobs();
     const userId = getStorageUserId();
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined) || undefined;
-    const existing = findIdempotentJob(userId, debateId, idempotencyKey);
-    if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
-    if (countRunningExportJobs(userId) >= MAX_CONCURRENT_EXPORT_JOBS) {
-      json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
-      return;
-    }
-
     const framingMeta = b.framingMeta === false ? false : undefined;
     const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;
-    await startJobAndRespond(res, {
-      userId, session, debateId, models,
-      request: { preset, skipNarration, framingMeta, allowOpen, templateId },
-      toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
-      idempotencyKey, adapter: createWebOpEdAdapter(),
+    await withSubmissionLock(userId, 'brief-export', async () => {
+      const existing = findIdempotentJob(userId, debateId, idempotencyKey);
+      if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
+      const durable = await findRunningJobByIdempotencyKey(
+        userId, 'brief-export', idempotencyKey, debateId, rec => !isTerminalExportStatus(rec.status),
+      );
+      if (durable) { json(res, { jobId: durable.jobId }, 202); return; }
+
+      const cap = await countUserJobRecords(userId, 'brief-export', rec => !isTerminalExportStatus(rec.status));
+      if (cap.error) { error(res, 'Job storage is temporarily unavailable; try again shortly', 503); return; }
+      if (cap.count >= MAX_CONCURRENT_EXPORT_JOBS) {
+        json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
+        return;
+      }
+      await startJobAndRespond(res, {
+        userId, session, debateId, models,
+        request: { preset, skipNarration, framingMeta, allowOpen, templateId },
+        toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
+        idempotencyKey, adapter: createWebOpEdAdapter(),
+      });
     });
   });
 
