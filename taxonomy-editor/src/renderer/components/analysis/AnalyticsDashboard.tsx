@@ -133,6 +133,11 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
+/** Format duration in milliseconds as whole seconds for session event timeline (t/5012). */
+function fmtEventDurationSeconds(ms: number): string {
+  return `${Math.round(ms / 1000)}s`;
+}
+
 function fmtNumber(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
@@ -430,7 +435,7 @@ function SessionExplorer({ from, to, selectedUser, categoryFilter }: {
                   {detailStr}
                 </span>
                 {evt.duration_ms != null && (
-                  <span className="adash-event-duration">({evt.duration_ms}ms)</span>
+                  <span className="adash-event-duration">({fmtEventDurationSeconds(evt.duration_ms)})</span>
                 )}
               </div>
             );
