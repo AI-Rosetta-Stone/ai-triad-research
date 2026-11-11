@@ -1343,13 +1343,42 @@ export class DebateEngine {
       const __dir = path.dirname(fileURLToPath(import.meta.url));
       const root = resolveRepoRoot(__dir);
       const dataRoot = resolveDataRoot(root);
-      const taxonomyDir = path.join(dataRoot, 'taxonomy', 'Origin');
+
+      // Read .aitriad.json for taxonomy_dir (same as assignWeights.ts, modulateEdgeWeights.ts)
+      const aitriadPath = path.join(root, '.aitriad.json');
+      const aitriadConfig = JSON.parse(
+        fs.readFileSync(aitriadPath, 'utf-8').replace(/^\uFEFF/, ''),
+      ) as { taxonomy_dir: string };
+      const taxonomyDir = path.join(dataRoot, aitriadConfig.taxonomy_dir);
+
       const indexPath = path.join(taxonomyDir, 'source_evidence_index.json');
       if (fs.existsSync(indexPath)) {
         this._sourceEvidenceIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
         return this._sourceEvidenceIndex;
       }
-    } catch (err) { getGlobalRecorder()?.record({ type: 'state.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Source evidence index unavailable', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); }
+
+      // File not found: log WARN with actual path
+      getGlobalRecorder()?.record({
+        type: 'state.error',
+        component: 'debate-engine',
+        level: 'warn',
+        debate_id: this.session?.id,
+        message: `Source evidence index not found at ${indexPath}`,
+      });
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'state.error',
+        component: 'debate-engine',
+        level: 'warn',
+        debate_id: this.session?.id,
+        message: 'Source evidence index unavailable',
+        error: {
+          name: (err as Error).name ?? 'Error',
+          message: String(err),
+          stack: (err as Error).stack,
+        },
+      });
+    }
     this._sourceEvidenceIndex = undefined as unknown as import('./evidenceFromSummaries.js').SourceEvidenceIndex;
     return undefined;
   }
