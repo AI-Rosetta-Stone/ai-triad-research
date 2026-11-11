@@ -774,8 +774,7 @@ function projectInquiryFields(value: unknown, surface: Surface, path: string): u
   return undefined;
 }
 
-/** Project a ChatEntry onto community-safe fields. If chat is submitted to community,
- *  all fields including raw_prompt/raw_response are community-readable (t/196 PI clarification). */
+/** Project a ChatEntry onto community-safe fields, excluding raw_prompt and raw_response (owner-only, t/196#6). */
 function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
   const e = entry as Record<string, unknown>;
@@ -787,8 +786,7 @@ function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
     taxonomy_refs: e.taxonomy_refs,
     ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
     ...(e.url_context_metadata !== undefined ? { url_context_metadata: e.url_context_metadata } : {}),
-    ...(e.raw_prompt !== undefined ? { raw_prompt: e.raw_prompt } : {}),
-    ...(e.raw_response !== undefined ? { raw_response: e.raw_response } : {}),
+    // Intentionally omit raw_prompt and raw_response (owner-only per t/196#6)
   };
 }
 

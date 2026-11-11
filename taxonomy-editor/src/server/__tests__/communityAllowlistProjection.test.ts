@@ -84,7 +84,7 @@ describe('Community allowlist projection (t/196)', () => {
       expect(copy).toHaveProperty('pover', 'skeptic');
       expect(copy).toHaveProperty('chat_model', 'gpt-4');
 
-      // Detail: transcript must survive with all fields including raw_prompt/raw_response
+      // Detail: transcript must survive with all allowed fields
       const transcript = copy.transcript as any[];
       expect(transcript).toBeDefined();
       expect(transcript).toHaveLength(1);
@@ -92,10 +92,12 @@ describe('Community allowlist projection (t/196)', () => {
       expect(transcript[0]).toHaveProperty('speaker', 'skeptic');
       expect(transcript[0]).toHaveProperty('content', 'Here is my analysis...');
       expect(transcript[0]).toHaveProperty('taxonomy_refs');
-      
-      // If chat is submitted to community, raw fields are community-readable (PI clarification: t/196)
-      expect(transcript[0]).toHaveProperty('raw_prompt', 'FULL CONTEXT: [user document content]');
-      expect(transcript[0]).toHaveProperty('raw_response', 'Raw model output before filtering');
+
+      // Owner-only fields must be stripped per t/196#6
+      expect(transcript[0]).not.toHaveProperty('raw_prompt');
+      expect(transcript[0]).not.toHaveProperty('raw_response');
+      expect(JSON.stringify(copy)).not.toContain('FULL CONTEXT');
+      expect(JSON.stringify(copy)).not.toContain('Raw model output');
     });
   });
 
