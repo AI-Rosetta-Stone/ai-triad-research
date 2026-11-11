@@ -48,3 +48,26 @@ describe('AnalyticsDashboard chip contrast (t/4964)', () => {
     expect(ratio('#ffffff', '#cc7e45')).toBeLessThan(4.5); // white on bkc --color-acc
   });
 });
+
+describe('AnalyticsDashboard user pill contrast (t/112)', () => {
+  describe.each(THEMES)('%s theme', (theme) => {
+    it('user-pill label with --text-secondary passes 4.5:1 on bg-primary', () => {
+      const fg = token(theme, ruleVar('.adash-session-user-pill', 'color'));
+      const bg = token(theme, ruleVar('.adash-session-user-pill', 'background'));
+      expect(ratio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  // Validation: show that --text-secondary strengthens the ratio across all themes
+  // (--text-muted was already passing, so this is a strengthening, not a bug fix).
+  describe.each(THEMES)('%s theme: --text-secondary stronger than --text-muted', (theme) => {
+    it('--text-secondary > --text-muted on bg-primary', () => {
+      const bgPrimary = token(theme, '--bg-primary');
+      const textMuted = token(theme, '--text-muted');
+      const textSecondary = token(theme, '--text-secondary');
+      const ratioMuted = ratio(textMuted, bgPrimary);
+      const ratioSecondary = ratio(textSecondary, bgPrimary);
+      expect(ratioSecondary).toBeGreaterThan(ratioMuted);
+    });
+  });
+});
