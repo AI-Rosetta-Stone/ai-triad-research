@@ -42,7 +42,7 @@ Get-Help <CmdletName> -Full                     # full docs for any cmdlet
 | `Get-OrganizationStakeholders` | Get supporters/opposers for a policy action (pol-*) |
 | `Import-Organization` | Create or update an organization record (upsert + integrity check) |
 | `Compare-OrganizationPositions` | Side-by-side POV alignment table for 2+ organizations |
-| `Get-OrganizationEdge` | Look up organization actor-relationship edges (filter by OrgId, Type, Direction; t/1526) |
+| `Get-OrganizationEdge` | Look up organization actor-relationship edges (filter by OrgId, Type, Direction, Status; rejected edges hidden unless `-Status rejected`; t/1526, t/299) |
 | `Import-OrganizationEdge` | Upsert an organization actor edge by (source,target,type) composite key with integrity check (t/1526) |
 
 ### Entities (t/1804)

@@ -7,8 +7,11 @@ function Get-OrganizationEdge {
         Look up organization actor-relationship edges.
     .DESCRIPTION
         Reads organization_edges.json and returns matching [OrganizationEdge] records.
-        With no filters, returns all edges. Uses the module-scope cache — first call
-        reads from disk, subsequent calls return cached results until mtime changes.
+        With no filters, returns every edge except rejected ones (t/299): a rejected
+        edge is a reviewer's "no", kept in the file only so seeding never re-proposes it.
+        Pass -Status to choose statuses explicitly, including rejected. Uses the
+        module-scope cache — first call reads from disk, subsequent calls return cached
+        results until mtime changes.
     .PARAMETER OrgId
         An org-* id. By default matches edges where OrgId is the source; use -Direction
         to control (Out matches source, In matches target, Either matches either).
@@ -20,6 +23,10 @@ function Get-OrganizationEdge {
         Ignored if -OrgId is not supplied.
     .PARAMETER Target
         Filter by exact target id (org-* / sit-* / pol-* / src-* / BDI node).
+    .PARAMETER Status
+        Return only edges with these statuses (approved, proposed, disputed, rejected).
+        An edge with no status field counts as approved. Default: every status except
+        rejected.
     .OUTPUTS
         [OrganizationEdge]
     .EXAMPLE
@@ -28,6 +35,10 @@ function Get-OrganizationEdge {
         Get-OrganizationEdge -OrgId org-001 -Direction Either -Type COMPETES_WITH
     .EXAMPLE
         Get-OrganizationEdge -Type FUNDS
+    .EXAMPLE
+        Get-OrganizationEdge -OrgId org-017 -Status rejected
+    .EXAMPLE
+        Get-OrganizationEdge -Status approved, proposed, disputed, rejected
     .LINK
         Show-AITriadHelp
     .LINK
@@ -46,7 +57,10 @@ function Get-OrganizationEdge {
         [ValidateSet('Out','In','Either')]
         [string]$Direction = 'Out',
 
-        [string]$Target
+        [string]$Target,
+
+        [ValidateSet('approved','proposed','disputed','rejected')]
+        [string[]]$Status = @('approved','proposed','disputed')
     )
 
     Set-StrictMode -Version Latest
@@ -88,7 +102,9 @@ function Get-OrganizationEdge {
         if ($normType -and $y.ToUpperInvariant() -ne $normType) { continue }
         if ($Target -and $t -ne $Target) { continue }
 
-        ConvertTo-OrganizationEdgeObject -Raw $e
+        $edge = ConvertTo-OrganizationEdgeObject -Raw $e
+        if ($Status -notcontains $edge.Status) { continue }
+        $edge
     }
 
     return @($filtered)

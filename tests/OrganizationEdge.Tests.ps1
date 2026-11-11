@@ -240,6 +240,64 @@ Describe 'Get-OrganizationEdge filter semantics (t/1526)' -Tag 'taxonomy' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Get-OrganizationEdge — status filter (t/299)
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Get-OrganizationEdge -Status (t/299)' -Tag 'taxonomy' {
+
+    BeforeAll {
+        $script:statusPath = New-EdgeFixture -Edges @(
+            [ordered]@{ source = 'org-001'; target = 'org-002'; type = 'ALLIED_WITH';   rationale = 'a'; source_refs = @(); status = 'approved' }
+            [ordered]@{ source = 'org-001'; target = 'org-003'; type = 'COMPETES_WITH'; rationale = 'p'; source_refs = @(); status = 'proposed' }
+            [ordered]@{ source = 'org-001'; target = 'org-004'; type = 'FUNDS';         rationale = 'r'; source_refs = @(); status = 'rejected' }
+            [ordered]@{ source = 'org-001'; target = 'org-005'; type = 'OPPOSES';       rationale = 'n'; source_refs = @() }
+        )
+    }
+    AfterAll {
+        if (Test-Path $script:statusPath) { Remove-Item $script:statusPath -Force -ErrorAction SilentlyContinue }
+        InModuleScope AITriad { Clear-OrganizationEdgesCache }
+    }
+
+    It 'excludes rejected edges by default, and counts a missing status as approved' {
+        InModuleScope AITriad -Parameters @{ P = $script:statusPath } {
+            param($P)
+            $script:__testEdgePath = $P
+            Mock Get-OrganizationEdgesFilePath { $script:__testEdgePath } -ModuleName AITriad
+            Clear-OrganizationEdgesCache
+            $r = @(Get-OrganizationEdge)
+            @($r.Target | Sort-Object) | Should -Be @('org-002', 'org-003', 'org-005')
+            ($r | Where-Object Target -eq 'org-005').Status | Should -Be 'approved'
+        }
+    }
+
+    It '-Status rejected returns only the rejected edge' {
+        InModuleScope AITriad -Parameters @{ P = $script:statusPath } {
+            param($P)
+            $script:__testEdgePath = $P
+            Mock Get-OrganizationEdgesFilePath { $script:__testEdgePath } -ModuleName AITriad
+            Clear-OrganizationEdgesCache
+            $r = @(Get-OrganizationEdge -OrgId org-001 -Status rejected)
+            $r.Count     | Should -Be 1
+            $r[0].Target | Should -Be 'org-004'
+        }
+    }
+
+    It '-Status with every value returns every edge' {
+        InModuleScope AITriad -Parameters @{ P = $script:statusPath } {
+            param($P)
+            $script:__testEdgePath = $P
+            Mock Get-OrganizationEdgesFilePath { $script:__testEdgePath } -ModuleName AITriad
+            Clear-OrganizationEdgesCache
+            @(Get-OrganizationEdge -Status approved, proposed, disputed, rejected).Count | Should -Be 4
+            @(Get-OrganizationEdge -Status approved).Target | Sort-Object | Should -Be @('org-002', 'org-005')
+        }
+    }
+
+    It 'rejects an unknown -Status at binding' {
+        { Get-OrganizationEdge -Status accepted } | Should -Throw
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Import-OrganizationEdge — upsert + validation
 # ─────────────────────────────────────────────────────────────────────────────
 Describe 'Import-OrganizationEdge upsert + validation (t/1526)' -Tag 'taxonomy' {
@@ -357,7 +415,9 @@ Describe 'Import-OrganizationEdge upsert + validation (t/1526)' -Tag 'taxonomy' 
             Mock Get-OrganizationEdgesFilePath { $script:__testEdgePath } -ModuleName AITriad
             $r = Import-OrganizationEdge -Source org-001 -Target org-002 -Type COMPETES_WITH -Rationale 'no longer viable' -Status rejected -Confirm:$false 6>$null 3>$null
             $r.Status | Should -Be 'rejected'
-            (Get-OrganizationEdge)[0].Status | Should -Be 'rejected'
+            # Rejected edges are hidden by default since t/299; ask for them explicitly.
+            @(Get-OrganizationEdge)                  | Should -HaveCount 0
+            (Get-OrganizationEdge -Status rejected)[0].Status | Should -Be 'rejected'
         }
     }
 
