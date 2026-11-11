@@ -197,7 +197,9 @@ export interface OpEdProgressEvent { set_id: string; voice: string; stage: strin
 // Inquiry (t/3582, T-inquiry) — client shapes of the T-inquiry REST API (server: routes/inquiry.ts,
 // t/3581). Field-for-field identical to the route contract (t/3582#1) so the two stay in lockstep.
 import type { InquiryResult as _InquiryResult, InquiryJobStatus as _InquiryJobStatus } from '../../../../lib/inquiry';
+import type { InquiryStageTimings as _InquiryStageTimings } from '../../../../lib/inquiry/jobStatus';
 export type InquiryResult = _InquiryResult;
+export type InquiryStageTimings = _InquiryStageTimings;
 // t/3609: hoisted to lib/inquiry (single source of truth across server/main/renderer) — re-exported
 // here so existing `from '../bridge/types'` imports keep working unchanged. isInquiryTerminal
 // (a byte-identical duplicate of lib/inquiry's isTerminalStatus, confirmed by diff at e/196#9) is
@@ -231,6 +233,9 @@ export interface InquiryStatusResponse {
   terminationReason: string | null;
   resultId: string | null;
   error: string | null;
+  /** t/327: Timing information for the inquiry pipeline stages (grounding/debating/judging/synthesizing).
+   *  Each stage records when it started and ended. Always sent; a stage not yet entered has no startedAt/endedAt. */
+  stageTimings?: InquiryStageTimings;
   /** Present on `done` / `done_truncated` (including the cross-replica persisted-result fallback). */
   result?: InquiryResult;
 }
