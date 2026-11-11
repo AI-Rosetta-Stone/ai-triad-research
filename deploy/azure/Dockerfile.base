@@ -26,7 +26,7 @@
 # (ci.yml node-version + userland undici@8 + the app Dockerfile, landed atomically
 # per t/1990#6 — Node 26 bundles undici 8.x, which trips the undici major-version
 # invariant if the app runtime moves alone).
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Research — base image with Node 26 and baked ONNX embedding model"
