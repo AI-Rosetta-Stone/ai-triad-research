@@ -48,3 +48,18 @@ describe('AnalyticsDashboard chip contrast (t/4964)', () => {
     expect(ratio('#ffffff', '#cc7e45')).toBeLessThan(4.5); // white on bkc --color-acc
   });
 });
+
+describe('AnalyticsDashboard user pill contrast (t/112)', () => {
+  describe.each(THEMES)('%s theme', (theme) => {
+    it('user-pill label passes 4.5:1 on bg-primary', () => {
+      const fg = token(theme, ruleVar('.adash-session-user-pill', 'color'));
+      const bg = token(theme, ruleVar('.adash-session-user-pill', 'background'));
+      expect(ratio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  // Old pairing that failed in harvard: --text-muted on --bg-primary
+  it('flags the old pairing (--text-muted label on --bg-primary in harvard)', () => {
+    expect(ratio('#8A8278', '#F3F0EB')).toBeLessThan(4.5); // harvard --text-muted on --bg-primary
+  });
+});
