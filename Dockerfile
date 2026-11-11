@@ -1,7 +1,7 @@
 # Both bases are digest-pinned (t/270, PI decision 2026-11-10): Dependabot's docker
 # ecosystem (`directory: /`) proposes digest bumps, so a rebuild is reproducible and
 # updates arrive as reviewable PRs. dockerfile-trivy scans this image report-only.
-FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS python
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS python
 
 FROM mcr.microsoft.com/devcontainers/javascript-node:26-trixie@sha256:045e66010973363cc211c8d86133580eb6106713314797066efe60cba970b9a8
 
