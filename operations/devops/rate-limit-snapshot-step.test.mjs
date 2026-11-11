@@ -15,20 +15,29 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, chmodSync, existsSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { SNAPSHOT_TARGETS, jobBlock } from './rate-limit-snapshot-targets.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
 const lf = (s) => s.replace(/\r\n/g, '\n');
 const CANONICAL = lf(readFileSync(path.join(here, 'rate-limit-snapshot-step.yml'), 'utf8'));
-export const GUARD_WORKFLOWS = ['tier-check', 't1-approval-guard', 'joint-gv-guard', 'consult-hold-guard', 'foreign-commit-check'];
-
-test('every per-PR guard carries the canonical rate-limit snapshot step verbatim, as its final step', () => {
-  for (const w of GUARD_WORKFLOWS) {
-    const text = lf(readFileSync(path.join(root, '.github', 'workflows', `${w}.yml`), 'utf8'));
-    assert.ok(text.includes(CANONICAL), `${w}.yml: the rate-limit snapshot step is missing or differs from operations/devops/rate-limit-snapshot-step.yml`);
-    assert.ok(text.trimEnd().endsWith(CANONICAL.trimEnd()), `${w}.yml: the snapshot step must be the last step (it records end-of-job usage)`);
+// t/318: the target list (file + job) is shared with the insertion helper, so the jobs that carry
+// the step and the jobs this test checks can never drift apart.
+test('every target job carries the canonical rate-limit snapshot step verbatim, as its final step', () => {
+  for (const [file, job] of SNAPSHOT_TARGETS) {
+    const text = lf(readFileSync(path.join(root, '.github', 'workflows', file), 'utf8'));
+    const block = jobBlock(text, job);
+    assert.ok(block, `${file}: job '${job}' not found`);
+    assert.ok(block.endsWith(CANONICAL.trimEnd()), `${file}:${job}: the snapshot step is missing, differs from operations/devops/rate-limit-snapshot-step.yml, or is not the job's last step (it records end-of-job usage)`);
   }
+});
+
+test('jobBlock finds a job between its key and the next job, excluding trailing blank lines', () => {
+  const wf = 'name: x\non: push\njobs:\n  a:\n    runs-on: u\n    steps:\n      - run: one\n\n  b:\n    steps:\n      - run: two\n';
+  assert.equal(jobBlock(wf, 'a'), '  a:\n    runs-on: u\n    steps:\n      - run: one');
+  assert.equal(jobBlock(wf, 'b'), '  b:\n    steps:\n      - run: two');
+  assert.equal(jobBlock(wf, 'c'), null);
 });
 
 test('the canonical step can never fail or block a guard', () => {
@@ -40,8 +49,8 @@ test('the canonical step can never fail or block a guard', () => {
 });
 
 // ── run the step's script under bash with a fake `gh` ──
-function runScript() {
-  const lines = CANONICAL.split('\n');
+function runScript(step = CANONICAL) {
+  const lines = step.split('\n');
   const start = lines.findIndex((l) => /^ {8}run: \|$/.test(l));
   return lines.slice(start + 1).filter((l) => l.startsWith('          ') || l === '').map((l) => l.slice(10)).join('\n');
 }
@@ -52,12 +61,12 @@ function bashPath() {
 }
 const BASH = bashPath();
 
-function runWithFakeGh(ghBody) {
+function runWithFakeGh(ghBody, step = CANONICAL) {
   const dir = mkdtempSync(path.join(tmpdir(), 't314-'));
   try {
     writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\n${ghBody}\n`);
     chmodSync(path.join(dir, 'gh'), 0o755);
-    writeFileSync(path.join(dir, 'step.sh'), runScript());
+    writeFileSync(path.join(dir, 'step.sh'), runScript(step));
     const summary = path.join(dir, 'summary.md');
     // Git Bash on Windows: a `C:/...` entry would split PATH at the drive colon, so use the MSYS
     // form `/c/...`. Linux paths are unchanged.
@@ -111,4 +120,37 @@ test('null (jq tostring -> "null") or an extra field WARNs, never a table', { sk
     assert.match(r.out, /::warning::t\/314/, line);
     assert.equal(r.summary, '', line);
   }
+});
+
+// ── t/318 (TL p/9#46): the App-token variant, for the enqueue sweep's own pool ──
+const APP_STEP = lf(readFileSync(path.join(here, 'rate-limit-snapshot-step-app.yml'), 'utf8'));
+const stepOf = (s) => s.slice(s.indexOf('      - name: '));
+// The ONLY allowed differences from the canonical step. Anything else (e.g. a parse fix landed in
+// one copy but not the other) fails parity.
+function toAppVariant(canonicalStep) {
+  return canonicalStep
+    .replace('      - name: Rate-limit snapshot (t/314)', '      - name: Rate-limit snapshot, App token (t/318)')
+    .replace("        if: ${{ !cancelled() }}", "        if: ${{ !cancelled() && steps.app.outputs.token != '' }}")
+    .replace('          GH_TOKEN: ${{ github.token }}', '          GH_TOKEN: ${{ steps.app.outputs.token }}')
+    .replace('echo "t/314 rate-limit: workflow=', 'echo "t/314 rate-limit: pool=app workflow=')
+    .replace('### GITHUB_TOKEN rate limit at end of job (t/314)', '### GitHub App installation token rate limit at end of job (t/318)')
+    .replace('::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot', '::warning::t/318: could not read GET /rate_limit with the App token, so no App-pool snapshot');
+}
+
+test('App variant = canonical step with only the token and label substitutions (parity)', () => {
+  assert.equal(stepOf(APP_STEP), toAppVariant(stepOf(CANONICAL)));
+  assert.match(APP_STEP, /^ {8}continue-on-error: true$/m);
+  assert.match(APP_STEP, /^ {8}timeout-minutes: 1$/m);
+});
+
+test('enqueue-sweep: the App variant sits immediately before the canonical step at the end of the sweep job', () => {
+  const block = jobBlock(lf(readFileSync(path.join(root, '.github', 'workflows', 'enqueue-sweep.yml'), 'utf8')), 'sweep');
+  assert.ok(block.endsWith(`${APP_STEP.trimEnd()}\n\n${CANONICAL.trimEnd()}`), 'enqueue-sweep.yml sweep: expected <App variant><blank line><canonical step> at the end of the job');
+});
+
+test('App variant script: readable /rate_limit logs a pool=app line, exit 0', { skip: !BASH && 'no bash' }, () => {
+  const r = runWithFakeGh(`echo '120,4880,5000,1794371400,900,4100,5000'`, APP_STEP);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /t\/314 rate-limit: pool=app workflow=joint-gv-guard job=joint-gv-guard core used=120 remaining=4880 limit=5000/);
+  assert.match(r.summary, /GitHub App installation token rate limit/);
 });
