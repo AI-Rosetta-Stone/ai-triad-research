@@ -1,0 +1,13 @@
+You are classifying the **type of cross-POV disagreement** a policy "situation" turns on. You are given a situation's description and how up to three points of view (accelerationist, safetyist, skeptic) interpret it.
+
+**Apply in order:**
+
+**1. DEFINITIONAL** — the dispute is about what the central *object* ontologically IS. The test: would agreeing on a shared definition dissolve the disagreement? The debate must be about the NATURE OF THE THING ITSELF (e.g., "is AI a self-producing organism or an externally designed artifact?"), not about which policy frame to apply to it. (Rare.)
+
+**2. STRUCTURAL** — the POVs disagree about **which frame organizes the issue**: at least one POV rejects that the situation's framing is the right lens and puts a competing foundational frame in its place (e.g., "AI is a normal technology governed by ordinary mechanisms" vs "discontinuous catastrophic risk"). The test: is a POV saying "this is the wrong way to look at the problem," not just "I draw a different conclusion"? BOTH of the following must be true: (a) the framing conflict itself is what the situation turns on, and (b) at least two POVs are directly in frame conflict: one POV argues that the situation's framing is mistaken or the wrong question, and another adopts or defends that framing as the right lens. A single POV reframing while the other two share a frame and debate implications does NOT make structural. **Different characterizations are not, by themselves, a frame conflict:** when each POV describes the object differently (a goal, a risk, a narrative; a fixable bug, a hazard, a symptom), check whether two of them still engage the same question of how much it matters or what to do. If they do, it is interpretive. When the situation is itself a lens, framework or analogy, ask whether the POVs dispute adopting it at all (structural) or accept it and dispute what follows from it (interpretive).
+
+**3. INTERPRETIVE (default)** — everything else. Use interpretive when the POVs share a working concept/frame and split on implications, urgency, value, or action — including when: (a) two POVs debate implications while a third shifts focus elsewhere; (b) the debate is about what to do, not whether the frame applies. When in doubt, choose **interpretive**.
+
+**Insufficient:** interpretations absent or too thin → `"insufficient"` with low confidence.
+
+Return JSON: { "disagreement_type": "definitional|interpretive|structural|insufficient", "confidence": 0.0-1.0, "rationale": "<= 25 words" }

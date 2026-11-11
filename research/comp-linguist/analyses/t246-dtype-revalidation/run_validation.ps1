@@ -10,7 +10,11 @@
 param(
     [int]$Replicates = 3,
     [string]$Model = 'gemini-3.5-flash-lite',
-    [string]$SituationsPath
+    [string]$SituationsPath,
+    # Iteration 2 (t/246): defaults reproduce run 1; pass candidate_v9.prompt / heldout2_labels.json / results_v9.json.
+    [string]$PromptFile = 'candidate.prompt',
+    [string]$HeldoutFile = 'heldout_labels.json',
+    [string]$OutFile = 'results.json'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -26,13 +30,13 @@ $data  = Get-Content $SituationsPath -Raw | ConvertFrom-Json
 $nodes = if ($data.PSObject.Properties['nodes']) { $data.nodes } else { $data }
 $byId  = @{}; foreach ($n in $nodes) { $byId[[string]$n.id] = $n }
 
-$ClassifyPrompt = (Get-Content (Join-Path $here 'candidate.prompt') -Raw).TrimEnd()
+$ClassifyPrompt = (Get-Content (Join-Path $here $PromptFile) -Raw).TrimEnd()
 $seeds = [ordered]@{
     'sit-447' = 'definitional'; 'sit-001' = 'interpretive'; 'sit-100' = 'interpretive'; 'sit-250' = 'interpretive'
     'sit-350' = 'interpretive'; 'sit-430' = 'interpretive'; 'sit-470' = 'interpretive'; 'sit-300' = 'structural'
     'sit-400' = 'structural'
 }
-$held = (Get-Content (Join-Path $here 'heldout_labels.json') -Raw | ConvertFrom-Json).labels
+$held = (Get-Content (Join-Path $here $HeldoutFile) -Raw | ConvertFrom-Json).labels
 
 # ── verbatim from Invoke-DisagreementTypeBackfill.ps1 ──
 function Build-NodeInput([PSObject]$Node) {
@@ -99,10 +103,10 @@ for ($rep = 1; $rep -le $Replicates; $rep++) {
     Write-Host "replicate $rep done"
 }
 $result = [ordered]@{
-    model = $Model; temperature = 0.1; replicates = $Replicates
-    prompt_sha256 = (Get-FileHash (Join-Path $here 'candidate.prompt') -Algorithm SHA256).Hash.ToLower()
+    model = $Model; temperature = 0.1; replicates = $Replicates; prompt_file = $PromptFile; heldout_file = $HeldoutFile
+    prompt_sha256 = (Get-FileHash (Join-Path $here $PromptFile) -Algorithm SHA256).Hash.ToLower()
     situations_sha256 = (Get-FileHash $SituationsPath -Algorithm SHA256).Hash.ToLower()
     runs = $runs
 }
-$result | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $here 'results.json') -Encoding utf8NoBOM
-Write-Host "wrote results.json"
+$result | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $here $OutFile) -Encoding utf8NoBOM
+Write-Host "wrote $OutFile"
