@@ -4,11 +4,12 @@
 # t/4572 write-freeze (SO C3, e/370#2, e/370#4): the small, committed set of consumer
 # keys that have been RECALIBRATED against the corrected contradiction/entailment/
 # neutral label mapping. A consumer's own recalibration PR adds its key here; nothing
-# else may add or remove a key. Empty today -- no consumer has recalibrated yet, so
-# every consumer is frozen by default (SO: "frozen unless explicitly marked
-# recalibrated", never "frozen only if someone remembers to set a flag").
+# else may add or remove a key. Every other consumer stays frozen by default (SO: "frozen
+# unless explicitly marked recalibrated", never "frozen only if someone remembers to set a flag").
+#   OrgClaimMatching -- t/334: live NLI re-run on the frozen O01-O29 set met CL's C1-C5
+#                       (t/334#3); CL sign-off t/334 (p/70#52).
 $script:NliDirectionalGateRecalibratedConsumers = [System.Collections.Generic.HashSet[string]]::new(
-    [string[]]@(),
+    [string[]]@('OrgClaimMatching'),
     [System.StringComparer]::OrdinalIgnoreCase
 )
 
