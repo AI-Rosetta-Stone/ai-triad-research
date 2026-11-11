@@ -94,12 +94,10 @@ describe('How: per-stage raw prompt and output (t/173)', () => {
     expect(stageLabel({ stage: 'future-stage' as OpEdStage['stage'], attempt: 1 })).toBe('future-stage');
   });
 
-  it('says "not recorded" for op-eds generated before stages existed', () => {
+  it('shows owner-only message for op-eds without stages', () => {
     render(<OpEdReader set={setWith({})} />);
     openHow();
-    expect(screen.getByText('Raw prompt not recorded for this op-ed.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Raw Output' }));
-    expect(screen.getByText('Raw output not recorded for this op-ed.')).toBeTruthy();
+    expect(screen.getByText('Raw prompts and outputs are visible only to the op-ed\'s author.')).toBeTruthy();
   });
 
   it('links the three Op-Ed theory docs under Methods', () => {
