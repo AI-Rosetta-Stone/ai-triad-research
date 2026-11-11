@@ -193,6 +193,8 @@ export interface ElectronAPI {
   // t/3316: the renderer's view of the main-process attribution handler ElectronMain implements (t/3322)
   // — computes from the LOCAL corpus via the same pure fn. Contract shared with web via bridge/types.ts.
   computeAttribution: (payload: FetchClaimAttributionPayload) => Promise<ClaimAttributionResponse>;
+  // t/348: read-only chat synthetic-statement lookup (ElectronMain handler, src/main/ipc/taxonomyHandlers.ts).
+  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }) => Promise<Record<string, string | null>>;
   nliClassify: (pairs: Array<{ text_a: string; text_b: string }>) => Promise<{ results: Array<{ nli_label: string; nli_entailment: number; nli_neutral: number; nli_contradiction: number; margin: number }> }>;
 
   // Debate sessions
