@@ -304,52 +304,65 @@ export function App() {
   if (bridgeError) return <div className="app-bridge-error">{bridgeError}</div>;
   if (!bridgeReady) return null;
 
-  // If this window was opened as a diagnostics popout, render only that
+  // Try to render a specialized window/panel route
+  const windowRoute = _tryRenderWindowRoute(hash, analyticsFlag, isAdmin, communityFlag, adminLegacyFlag);
+  if (windowRoute) return windowRoute;
+
+  // Route between CLI file viewer and main app
+  return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><AppRouter /></ErrorBoundary>;
+}
+
+function _tryRenderWindowRoute(hash: string, analyticsFlag: boolean, isAdmin: boolean, communityFlag: boolean, adminLegacyFlag: boolean): ReactNode {
+  // Diagnostics window
   if (hash.startsWith('#diagnostics-window')) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DiagnosticsWindow /></Suspense></ErrorBoundary>;
   }
+  // POV progression window
   if (hash === '#pov-progression-window') {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><PovProgressionWindow /></Suspense></ErrorBoundary>;
   }
+  // Debate popout window
   if (hash.startsWith('#debate-window')) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DebatePopoutWindow /></Suspense></ErrorBoundary>;
   }
+  // Prompt diff window
   if (hash.startsWith('#prompt-diff-window')) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><PromptDiffWindow /></Suspense></ErrorBoundary>;
   }
+  // General diff window
   if (hash.startsWith('#diff-window')) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DiffWindow /></Suspense></ErrorBoundary>;
   }
+  // Chat window
   if (hash.startsWith('#chat-window')) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><ChatWindow /></Suspense></ErrorBoundary>;
   }
+  // Analytics dashboard (web only, flagged)
   if (hash === '#analytics' && analyticsFlag) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AnalyticsDashboard /></Suspense></ErrorBoundary>;
   }
-  // Admin-only engagement analytics (t/2468). Non-admins fall through to the main
-  // app — the view is unreachable — and the server independently requireAdmin-gates
-  // the per-user data it serves.
+  // Engagement dashboard (admin only, t/2468)
   if (hash === '#engagement' && isAdmin) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><EngagementDashboard /></Suspense></ErrorBoundary>;
   }
-  // Self-only "Your Activity" view (t/2469). No admin gate — the panel requests only the
-  // caller's OWN engagement subtree, and the server (t/2467) never returns other users' rows
-  // to a non-admin. Reached from the Help menu (Settings-owned HelpDialog entry).
+  // Your activity panel (self-only, t/2469)
   if (hash === '#your-activity') {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><YourActivityPanel /></Suspense></ErrorBoundary>;
   }
+  // Community library (web only, flagged)
   if (hash === '#community' && communityFlag) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><CommunityLibrary /></Suspense></ErrorBoundary>;
   }
+  // Admin review panel
   if (hash === '#admin') {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AdminReviewPanel /></Suspense></ErrorBoundary>;
   }
+  // Admin legacy panel (legacy, flagged)
   if (hash === '#admin-legacy' && adminLegacyFlag) {
     return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>;
   }
 
-  // Route between CLI file viewer and main app
-  return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><AppRouter /></ErrorBoundary>;
+  return null;
 }
 
 /** Handles CLI-mode detection — hooks are always called in same order */
