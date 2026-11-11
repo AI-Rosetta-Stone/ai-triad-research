@@ -283,6 +283,12 @@ jobs:
       # itself or re-running the gates.
       image_accepted: ${{ steps.acceptance.outputs.accepted }}
       persona_accepted: ${{ steps.persona.outputs.accepted }}
+      # t/266 (b): what retire-previous-revision needs to decide, read from the steps that own them.
+      previous_revision: ${{ steps.current_revision.outputs.revision }}
+      new_revision: ${{ steps.new_revision.outputs.revision }}
+      app_url: ${{ steps.deploy.outputs.appUrl }}
+      ac2_failed: ${{ steps.ac2.outputs.failed }}
+      earlier_rollback: ${{ steps.earlier_rollback.outputs.fired }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -1631,6 +1637,194 @@ jobs:
             -App '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
             -BicepPath './deploy/azure/main.bicep'
+
+      - name: Record the rollback target in the job summary (t/266 b)
+        # t/266#5: the previous revision's name is printed on every deploy, so a rollback never
+        # needs a lookup. retire-previous-revision (below) may deactivate it after a green soak;
+        # the commands here work either way (activating an already-active revision is a no-op).
+        if: always() && steps.current_revision.outputs.revision != ''
+        env:
+          PREV_REV: ${{ steps.current_revision.outputs.revision }}
+          NEW_REV: ${{ steps.new_revision.outputs.revision }}
+          APP: ${{ env.CONTAINER_APP_NAME }}
+          RG: ${{ env.RESOURCE_GROUP }}
+        run: |
+          {
+            echo "### Rollback target (t/266)"
+            echo ""
+            echo "- Previous revision: \`$PREV_REV\`"
+            echo "- New revision: \`${NEW_REV:-(not created)}\`"
+            echo ""
+            echo "Roll back (about a minute; see deploy/azure/runbooks/production-release.md#rollback):"
+            echo ""
+            echo '```bash'
+            echo "az containerapp revision activate --name $APP -g $RG --revision $PREV_REV"
+            echo "az containerapp ingress traffic set --name $APP -g $RG --revision-weight $PREV_REV=100"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+  # ── retire-previous-revision: t/266 option (b) ────────────────────────────
+  # t/264/t/266#4: after a deploy, the previous revision (kept active at 0% as the rollback target)
+  # was found holding a replica for hours with zero requests and no KEDA events, which put billed
+  # vCPU-h over budget on 4 consecutive days (t/260#6). TL ruling t/266#5: deactivate it, but only
+  # after AC2 passed AND a 15-minute green soak, and NEVER on any failure.
+  #
+  # A SEPARATE job, so a soak failure can't trip deploy's rollback steps, and deploy's result
+  # stays exactly what it was. Gated on deploy success + AC2 passed + no earlier gate rollback
+  # (when one fired, AC2 checked the PREVIOUS revision, which is serving again). The retire
+  # decision is Get-PreviousRevisionRetireVerdict.ps1 (Pester-tested both arms), fed fresh reads.
+  # A red soak means: the new revision is serving but unhealthy, and the rollback target is
+  # still active. The job summary (and deploy's) carries the one-command rollback.
+  # Concurrency: this job is inside the same run, so it extends the run by ~16 min. deploy-staging.yml
+  # waits up to 45 min for an in-progress deploy-azure run, then fails closed (t/4194 SO C1b).
+  retire-previous-revision:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}  # t/4273: same OIDC subject as deploy (see tag-known-good)
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.deploy.outputs.ac2_failed == 'false' && needs.deploy.outputs.earlier_rollback == 'false' && needs.deploy.outputs.previous_revision != '' && needs.deploy.outputs.new_revision != '' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Soak — 15 minutes of health + full smoke on the serving revision
+        id: soak
+        shell: pwsh
+        env:
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+          APP_URL: ${{ needs.deploy.outputs.app_url }}
+        run: |
+          # t/266#5: 15 min of health AND smoke green before the rollback target is retired.
+          # 5 rounds, 3 min apart (round 1 at t=0, round 5 at ~t=12m, plus smoke time ≈ 15 min).
+          # Each round: the new revision still active at weight 100, /health healthy, full smoke
+          # passes. Any failure ends the soak at once with passed=false. Always exits 0: the
+          # verdict is the output; "Fail if the soak failed" below turns it red visibly.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          $Rounds = 5; $IntervalSec = 180; $Failure = $null
+          for ($i = 1; $i -le $Rounds -and -not $Failure; $i++) {
+            if ($i -gt 1) { Start-Sleep -Seconds $IntervalSec }
+            $Info = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $env:NEW_REV --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
+            if (-not $Info -or -not [bool]$Info.active -or [int]$Info.weight -ne 100) {
+              $Failure = "round ${i}: '$env:NEW_REV' is not active at weight 100 ($($Info | ConvertTo-Json -Compress))"; break
+            }
+            $Health = Test-TaxEditorHealth -BaseUrl $env:APP_URL -TimeoutSec 15 -MaxAttempts 3 -RetryIntervalSec 10
+            if (-not $Health.Healthy) { $Failure = "round ${i}: /health not healthy"; break }
+            # Read-only smoke, the same check "Post-deploy verification (traffic shifted)" runs (t/4912
+            # anonymous cookie). Not Invoke-TaxEditorSmokeTest: its analytics phase WRITES to prod and
+            # its GitHub phase spends API quota, five times per deploy.
+            $Results = @(Test-TaxEditorEndpoints -BaseUrl $env:APP_URL -UserType Anonymous)
+            $Fails = @($Results | Where-Object { -not $_.Pass })
+            if ($Results.Count -eq 0 -or $Fails.Count -gt 0) {
+              $Failure = "round ${i}: smoke $($Results.Count - $Fails.Count)/$($Results.Count) passed; failed: $(($Fails | ForEach-Object Endpoint) -join ', ')"; break
+            }
+            Write-Host "Soak round $i/${Rounds}: active@100, /health ok, smoke $($Results.Count)/$($Results.Count)"
+          }
+          if ($Failure) {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value 'passed=false'
+            Write-Host "::error::t/266 soak FAILED, $Failure. The previous revision stays active as the rollback target (see the job summary)."
+          } else {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value 'passed=true'
+            Write-Host "t/266 soak passed: $Rounds rounds green."
+          }
+          exit 0
+
+      - name: Re-authenticate after the soak
+        # The OIDC token from the first login can age out across a ~15 min soak.
+        if: steps.soak.outputs.passed == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Retire verdict (fresh traffic reads)
+        id: verdict
+        if: always() && steps.soak.outcome == 'success'
+        shell: pwsh
+        env:
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+          AC2_FAILED: ${{ needs.deploy.outputs.ac2_failed }}
+          EARLIER_ROLLBACK: ${{ needs.deploy.outputs.earlier_rollback }}
+          SOAK_PASSED: ${{ steps.soak.outputs.passed }}
+        run: |
+          . ./operations/devops/Get-PreviousRevisionRetireVerdict.ps1
+          function Get-Weight([string]$Rev) {
+            $w = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $Rev --query 'properties.trafficWeight' -o tsv 2>$null
+            if ($LASTEXITCODE -ne 0 -or $w -notmatch '^\d+$') { return $null }   # unknown is never read as 0
+            [int]$w
+          }
+          $v = Get-PreviousRevisionRetireVerdict -Ac2Failed $env:AC2_FAILED -EarlierRollbackFired $env:EARLIER_ROLLBACK `
+            -SoakPassed $env:SOAK_PASSED -PreviousRevision $env:PREV_REV -NewRevision $env:NEW_REV `
+            -NewRevisionWeight (Get-Weight $env:NEW_REV) -PreviousRevisionWeight (Get-Weight $env:PREV_REV)
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "action=$($v.Action)"
+          Write-Host "t/266 retire verdict: $($v.Action) — $($v.Reason)"
+
+      - name: Deactivate the previous revision (t/266 b)
+        id: retire
+        if: steps.verdict.outputs.action == 'retire'
+        shell: pwsh
+        env:
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          NEW_REV: ${{ needs.deploy.outputs.new_revision }}
+        run: |
+          # Same double-sourced weight guard as "Cleanup stale revisions" (t/4242): the revision's own
+          # trafficWeight AND the ingress traffic config, read fresh right before the deactivate, with
+          # the serving revision name-protected.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          . ./operations/devops/Get-RevisionDeactivationVerdict.ps1
+          $FreshRaw = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $env:PREV_REV -o json | ConvertFrom-Json
+          $App = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' -o json | ConvertFrom-Json
+          $TrafficEntries = if ($App.properties.configuration.ingress.PSObject.Properties['traffic']) { @($App.properties.configuration.ingress.traffic) } else { $null }
+          $Ingress = Get-IngressTrafficWeightForRevision -RevisionName $env:PREV_REV -TrafficEntries $TrafficEntries -LatestRevisionName $App.properties.latestRevisionName
+          $FreshWeight = if ($FreshRaw.properties.PSObject.Properties['trafficWeight']) { $FreshRaw.properties.trafficWeight } else { $null }
+          $FreshActive = if ($FreshRaw.properties.PSObject.Properties['active']) { [bool]$FreshRaw.properties.active } else { $false }
+          $Guard = Get-RevisionDeactivationVerdict -RevisionName $env:PREV_REV -TrafficWeight $FreshWeight -Active $FreshActive `
+            -IngressWeight $Ingress.IngressWeight -IsLatestRevisionWithTraffic $Ingress.IsLatestRevisionWithTraffic -ProtectedNames @($env:NEW_REV)
+          if ($Guard.Action -ne 'deactivate') {
+            Write-Host "::warning::t/266: not retiring '$env:PREV_REV' on the final guard: $($Guard.Reason). It stays active."
+            exit 0
+          }
+          Disable-ContainerAppRevision -RevisionName $env:PREV_REV -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+          $After = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $env:PREV_REV --query 'properties.active' -o tsv
+          Write-Host "t/266: retired '$env:PREV_REV' (active=$After). Rollback: see the job summary."
+
+      - name: Summary — rollback target status (t/266 b)
+        if: always()
+        env:
+          PREV_REV: ${{ needs.deploy.outputs.previous_revision }}
+          SOAK: ${{ steps.soak.outputs.passed }}
+          ACTION: ${{ steps.verdict.outputs.action }}
+          RETIRE: ${{ steps.retire.outcome }}
+          APP: ${{ env.CONTAINER_APP_NAME }}
+          RG: ${{ env.RESOURCE_GROUP }}
+        run: |
+          {
+            echo "### Previous revision after the soak (t/266)"
+            echo ""
+            echo "- Previous revision: \`$PREV_REV\`"
+            echo "- Soak passed: \`${SOAK:-not run}\`; verdict: \`${ACTION:-not run}\`; deactivate step: \`${RETIRE:-skipped}\`"
+            echo ""
+            echo '```bash'
+            echo "az containerapp revision activate --name $APP -g $RG --revision $PREV_REV"
+            echo "az containerapp ingress traffic set --name $APP -g $RG --revision-weight $PREV_REV=100"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if the soak failed (t/266 b)
+        if: always() && steps.soak.outputs.passed != 'true'
+        run: |
+          echo "::error::t/266: the soak did not pass, so the previous revision was NOT retired. The new revision is serving; decide whether to roll back with the commands in the job summary."
+          exit 1
 
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────

@@ -108,7 +108,16 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 ## Rollback
 
-If post-deploy issues are found after traffic shift:
+**One-command rollback (t/266).** Every prod deploy prints the previous revision's name and these exact commands in its run's job summary ("Rollback target"), so no lookup is needed. After AC2 passes and a 15-minute green soak, the `retire-previous-revision` job **deactivates** the previous revision. An active 0%-traffic rollback target was found holding a replica for hours (t/264, t/266#4). Rolling back is therefore activate, then shift traffic, which takes about a minute. Activating a revision that is still active is a no-op, so the same two commands work whether or not it was retired:
+
+```bash
+az containerapp revision activate --name taxonomy-editor -g ai-triad --revision <previous-revision>
+az containerapp ingress traffic set --name taxonomy-editor -g ai-triad --revision-weight "<previous-revision>=100"
+```
+
+Then deactivate the broken revision (step 3 below). If AC2 or the soak failed, the previous revision is **not** retired: it stays active, so only the traffic shift is needed. A red `retire-previous-revision` job means exactly that: the new revision is serving, the soak saw it unhealthy, and you decide whether to roll back.
+
+If post-deploy issues are found after traffic shift and the job summary isn't at hand:
 
 1. List revisions and identify the previous good one:
    ```bash
