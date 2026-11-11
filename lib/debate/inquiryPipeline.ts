@@ -326,7 +326,8 @@ function measureAlignmentPerTurn(transcript: TranscriptEntry[], targetEntities: 
   const scores: number[] = [];
   const lowerTargets = targetEntities.map(e => e.toLowerCase());
   for (const entry of transcript) {
-    if (entry.type !== 'opening' && entry.type !== 'argumentation' && entry.type !== 'testimony') continue;
+    // Skip opening and system turns
+    if (entry.type === 'opening' || entry.type === 'system') continue;
     const turnText = entry.content.toLowerCase();
     let hitCount = 0;
     for (const entity of lowerTargets) {

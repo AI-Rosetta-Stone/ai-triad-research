@@ -176,6 +176,7 @@ export type EventType =
   // 'inquiry.abandoned' is deferred until t/3728's job persistence lands (t/3724#1).
   | 'inquiry.created'
   | 'inquiry.not_found'
+  | 'inquiry.alignment-gate'
   // System
   | 'system.error'
   | 'system.info'
