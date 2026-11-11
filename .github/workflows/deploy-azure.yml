@@ -1447,6 +1447,65 @@ jobs:
         run: |
           echo "fired=${{ (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != '' }}" >> "$GITHUB_OUTPUT"
 
+      # t/353 (SO p/106#18, DevOps Lead p/107#14): "Rollback on failure" ends in an unconditional exit 1,
+      # so after ANY gate rollback the AC2 step below (implicit success()) is skipped, and its t/4309
+      # "check the restored revision" branch never ran. Nothing verified that prod is actually serving
+      # again. This always()-gated pair does, keyed on the same earlier_rollback signal: a fresh read of
+      # the restored revision (active, weight 100) plus app /health, judged by the pure, Pester-tested
+      # Get-RestoredRevisionVerdict (fail-closed: any unknown is NOT healthy). The check always exits 0;
+      # its verdict is the output, so an az hiccup in the check can't hide behind a red step.
+      - name: Verify the restored revision after a gate rollback (t/353)
+        id: restored_check
+        if: always() && steps.earlier_rollback.outputs.fired == 'true'
+        shell: pwsh
+        env:
+          RESTORED: ${{ steps.current_revision.outputs.revision }}
+          APP_URL: ${{ steps.deploy.outputs.appUrl }}
+        run: |
+          . ./operations/devops/Get-RestoredRevisionVerdict.ps1
+          $Active = $null; $Weight = $null; $HealthOk = $null
+          for ($i = 1; $i -le 3; $i++) {
+            $Info = az containerapp revision show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $env:RESTORED --query '{active:properties.active,weight:properties.trafficWeight}' -o json 2>$null | ConvertFrom-Json
+            if ($Info) { $Active = [bool]$Info.active; $Weight = if ($null -ne $Info.weight) { [int]$Info.weight } else { $null } }
+            if ($Active -eq $true -and $Weight -eq 100) { break }
+            Start-Sleep -Seconds 15   # traffic set after a rollback can take a few seconds to read back
+          }
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+            if ([string]::IsNullOrWhiteSpace($env:APP_URL)) { throw 'app URL unknown (the Bicep apply output is empty)' }
+            $HealthOk = [bool](Test-TaxEditorHealth -BaseUrl $env:APP_URL -TimeoutSec 15 -MaxAttempts 4 -RetryIntervalSec 15).Healthy
+          } catch {
+            Write-Host "::warning::t/353: /health check could not run: $($_.Exception.Message)"
+          }
+          $v = Get-RestoredRevisionVerdict -RestoredRevision $env:RESTORED -Active $Active -Weight $Weight -HealthOk $HealthOk
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=$($v.Healthy.ToString().ToLowerInvariant())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "reason=$($v.Reason -replace '[\r\n]', ' ')"
+          if ($v.Healthy) { Write-Host "t/353: restored revision verified: $($v.Reason)" }
+          else { Write-Host "::error::t/353: restored revision NOT verified: $($v.Reason)" }
+          exit 0
+
+      - name: Sev-1 alert — restored revision not serving after a gate rollback (t/353)
+        if: always() && steps.earlier_rollback.outputs.fired == 'true' && steps.restored_check.outputs.healthy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REV: ${{ steps.new_revision.outputs.revision }}
+          RESTORED: ${{ steps.current_revision.outputs.revision }}
+          REASON: ${{ steps.restored_check.outputs.reason || 'the restored-revision check did not complete' }}
+        run: |
+          set -uo pipefail
+          gh label create "prod-ac2-sev1" --color B60205 --description 'Prod AC2 failure unresolved by rollback (t/4309) -- sev-1' --force >/dev/null 2>&1 || true
+          TITLE="🚨 SEV-1: prod not verified serving after a gate rollback ($RESTORED)"
+          BODY=$(printf '**t/353: a deploy gate rolled back, but the restored revision could NOT be verified as serving.**\n\n- Failed new revision: `%s`\n- Restored (rollback target) revision: `%s`\n- Reason: %s\n- Run: %s/%s/actions/runs/%s\n\nProd may be down or degraded. Check `az containerapp revision list -n taxonomy-editor -g ai-triad` and the app `/health` now (production-release.md § Rollback).' "$REV" "$RESTORED" "$REASON" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          EXISTING=$(gh issue list --label "prod-ac2-sev1" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY" || echo "::error::t/353: could not comment on sev-1 issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --label "prod-ac2-sev1,alert-escalated" --body "$BODY" || echo "::error::t/353: could not open the sev-1 issue"
+          fi
+          echo "::error::t/353 SEV-1 — restored revision '$RESTORED' not verified serving: $REASON"
+          exit 1
+
       - name: Post-deploy verification — serving revision active + /health 200 (t/4242 AC2)
         id: ac2
         if: steps.acceptance.outputs.accepted == 'true' && steps.persona.outputs.accepted == 'true'
