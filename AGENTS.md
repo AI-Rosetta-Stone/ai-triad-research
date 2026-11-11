@@ -38,6 +38,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 ## Situational Rules (read the doc first)
 
+- **Ownership:** for `.github/workflows/*` and other paths `resolve-owner` can't express, `docs/ownership-exceptions.md` wins.
 - **Landing code:** see `docs/pr-landing.md`.
   - Merge through a PR to `main` via the merge queue.
   - Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`. If it refuses, stop and escalate; never fall back to the raw `enablePullRequestAutoMerge` mutation or `gh pr merge --auto`, which skip the approval guard (PI-approved 2026-11-09, t/4939).
