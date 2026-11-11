@@ -31,8 +31,10 @@ jobs:
     # A fork PR's token is read-only and can't cancel anything; the schedule covers those runs.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      # The canceller runs from the default branch, never the PR head, so a PR can't change what
-      # it cancels.
+      # The SCRIPT comes from the default branch, so a PR can't change the cancel rules by editing
+      # it. On a pull_request event GitHub still runs the PR's own copy of THIS workflow file,
+      # with actions: write; that is no escalation, since only same-repo PRs (whose authors already
+      # have write access) get a writable token, and fork PRs skip via the job `if:` below.
       - name: Check out the canceller from the default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
