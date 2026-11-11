@@ -71,7 +71,7 @@ function Format-DebateQualityTable {
         [Parameter(Mandatory)][psobject]$Result,
         [Parameter(Mandatory)][psobject]$BaselineMetrics,
         [Parameter(Mandatory)][psobject]$TreatmentMetrics,
-        [Parameter(Mandatory)][object[]]$Confounds
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Confounds
     )
     
     Set-StrictMode -Version Latest
@@ -123,7 +123,7 @@ function Write-DebateQualityTableHeader {
 function Write-DebateQualityMetricRows {
     <#
     .SYNOPSIS
-        Write metric comparison rows.
+        Write metric comparison rows in a consistent order.
     #>
     [CmdletBinding()]
     param(
@@ -134,7 +134,16 @@ function Write-DebateQualityMetricRows {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
-    foreach ($Key in $Deltas.Keys) {
+    # Define metric order for consistent table output
+    $MetricOrder = @(
+        'crux_addressed_ratio', 'repetition_rate', 'claims_forgotten_rate',
+        'taxonomy_mapped_ratio', 'avg_utilization_rate', 'situation_crux_alignment',
+        'avg_branch_cohesion', 'draft_repair_rate', 'concession_cascades',
+        'topic_alignment_rate', 'prm_mean', 'prm_stddev', 'prm_min'
+    )
+
+    foreach ($Key in $MetricOrder) {
+        if (-not $Deltas.ContainsKey($Key)) { continue }
         $D = $Deltas[$Key]
         $DeltaStr = if ($D.delta -gt 0) { "+$($D.delta)" } elseif ($D.delta -eq 0) { '=' } else { "$($D.delta)" }
         $PctStr = if ($null -ne $D.pct) { "$($D.pct)%" } else { '—' }
