@@ -1916,6 +1916,10 @@ jobs:
       - name: guard rate-limit snapshot step suite
         run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
 
+      # t/371: my-prs.mjs ownership precedence (title/branch ticket > body ticket > file owners).
+      - name: my-prs ownership suite
+        run: node --test operations/devops/my-prs.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:

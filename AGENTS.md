@@ -30,6 +30,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 ## Working Rules
 
 - **Claim before you implement:** first check for a peer's claim, an open PR or a recent commit. Ticket → **In Progress** when you start, and **Done** when it merges.
+- **Find your PRs** with `node operations/devops/my-prs.mjs --agent <your collaborator id>`. Every PR's GitHub author is the one shared login, so `gh pr list --author @me` lists everyone's.
 - **Verify against the authoritative source:** `origin/main` (not the shared checkout), the cloud API (not the workflow YAML), and the failing arm of a gate. A file that *configures* Y is not evidence that Y happens.
 - **Errors:** use `New-ActionableError` / `ActionableError` (Goal / Problem / Location / Next Steps), never a bare `throw`. **Log every fallback with a `WARN`** saying it was taken and why. See `docs/error-handling.md`.
 - **Tokens:** prefer pings to email, reference entities (`t/KEY`) instead of inlining them, read files in ranges, pipe long output through head/tail/grep, quote test summaries not runs, and read CI with `gh run view --log-failed`.
