@@ -78,14 +78,14 @@ importers:
         specifier: 3.10.2
         version: 3.10.2
       mammoth:
-        specifier: 1.8.0
-        version: 1.8.0
+        specifier: ^1.11.0
+        version: 1.13.0
       micromark-util-decode-numeric-character-reference:
         specifier: 2.0.2
         version: 2.0.2
       pdfjs-dist:
-        specifier: 4.2.67
-        version: 4.2.67(supports-color@10.2.2)
+        specifier: ^6.0.0
+        version: 6.5.438
       pptxgenjs:
         specifier: 4.0.1
         version: 4.0.1
@@ -112,7 +112,7 @@ importers:
   lib/debate:
     devDependencies:
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.6
         version: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
 
   poviewer:
@@ -133,7 +133,7 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
       zustand:
-        specifier: ^5.0.16
+        specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
       '@types/react':
@@ -146,10 +146,10 @@ importers:
         specifier: ^6.2.1
         version: 6.3.0(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       concurrently:
-        specifier: ^10.0.6
+        specifier: ^10.0.7
         version: 10.0.7
       electron:
-        specifier: ^45.2.2
+        specifier: ^45.2.3
         version: 45.2.3(supports-color@10.2.2)
       eslint:
         specifier: ^10.14.0
@@ -164,7 +164,7 @@ importers:
         specifier: ^8.72.1
         version: 8.72.2(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.6
         version: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
       vitest:
         specifier: ^5.1.0
@@ -194,7 +194,7 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
       zustand:
-        specifier: ^5.0.16
+        specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
       '@types/react':
@@ -207,10 +207,10 @@ importers:
         specifier: ^6.2.1
         version: 6.3.0(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       concurrently:
-        specifier: ^10.0.6
+        specifier: ^10.0.7
         version: 10.0.7
       electron:
-        specifier: ^45.2.2
+        specifier: ^45.2.3
         version: 45.2.3(supports-color@10.2.2)
       eslint:
         specifier: ^10.14.0
@@ -225,7 +225,7 @@ importers:
         specifier: ^8.72.1
         version: 8.72.2(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.6
         version: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
       vitest:
         specifier: ^5.1.0
@@ -318,7 +318,7 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1(supports-color@10.2.2)
       undici:
-        specifier: ^8.12.2
+        specifier: ^8.12.4
         version: 8.12.4
       ws:
         specifier: ^8.22.1
@@ -327,7 +327,7 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
       zustand:
-        specifier: ^5.0.16
+        specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
       '@playwright/test':
@@ -367,7 +367,7 @@ importers:
         specifier: ^3.37.0
         version: 3.37.0(@types/node@26.6.6)(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       concurrently:
-        specifier: ^10.0.6
+        specifier: ^10.0.7
         version: 10.0.7
       cross-env:
         specifier: ^10.1.0
@@ -376,7 +376,7 @@ importers:
         specifier: ^18.7.2
         version: 18.7.2
       electron:
-        specifier: ^45.2.2
+        specifier: ^45.2.3
         version: 45.2.3(supports-color@10.2.2)
       electron-builder:
         specifier: ^26.18.0
@@ -403,7 +403,7 @@ importers:
         specifier: ^11.0.5
         version: 11.0.5
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.6
         version: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
       vite-plugin-pwa:
         specifier: ^2.0.0
@@ -427,7 +427,7 @@ importers:
         specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
       zustand:
-        specifier: ^5.0.16
+        specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
       '@types/react':
@@ -440,13 +440,13 @@ importers:
         specifier: ^6.2.1
         version: 6.3.0(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       concurrently:
-        specifier: ^10.0.6
+        specifier: ^10.0.7
         version: 10.0.7
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
       electron:
-        specifier: ^45.2.2
+        specifier: ^45.2.3
         version: 45.2.3(supports-color@10.2.2)
       electron-builder:
         specifier: ^26.18.0
@@ -464,7 +464,7 @@ importers:
         specifier: ^8.72.1
         version: 8.72.2(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
       vite:
-        specifier: ^8.3.5
+        specifier: ^8.3.6
         version: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
       vitest:
         specifier: ^5.1.0
@@ -4629,6 +4629,11 @@ packages:
     resolution: {integrity: sha512-g3FeP20LNwhALb/6Cz6Dd4F2ngze0jz7tbzrD2wAV+o9FeNHe4rL+yK2md0J/fiSf1sa1ADhXqi5+oVwOM/eGw==}
     engines: {node: '>=8'}
 
+  mammoth@1.13.0:
+    resolution: {integrity: sha512-2cawcYFcP7ISfXbBcL9lmVgTNWo88v/52ND1gnywHtVT/pX0//puPnf0iMPV9ZgmuvNOE+zkIhDgZ9M2c2dDDg==}
+    engines: {node: '>=12.0.0'}
+    hasBin: true
+
   mammoth@1.8.0:
     resolution: {integrity: sha512-pJNfxSk9IEGVpau+tsZFz22ofjUsl2mnA5eT8PjPs2n0BP+rhVte4Nez6FdgEuxv3IGI3afiV46ImKqTGDVlbA==}
     engines: {node: '>=12.0.0'}
@@ -5929,6 +5934,7 @@ packages:
 
   tldts-core@7.4.20:
     resolution: {integrity: sha512-C630TWXZCZmLq0F2bW4QqwnaaxCQ/svpAqvJwnC4JvgEM5ohhBnGsEzTLSOXcN+xjz+kEaHS5uoWIw2klnqd0A==}
+    deprecated: Partial release, see https://github.com/remusao/tldts/issues/2735. Use >=7.4.22.
 
   tldts@7.4.19:
     resolution: {integrity: sha512-48dH6aSpQnpbzDUc4vIQZ1VjB8tkK+e8c1yx05/SZK+rkssgjEOlxDd/yU8/a4vGYQ9vRgJr9dwMq9TJ0b3X2Q==}
@@ -11270,6 +11276,17 @@ snapshots:
     dependencies:
       semver: 6.3.2
     optional: true
+
+  mammoth@1.13.0:
+    dependencies:
+      '@xmldom/xmldom': 0.8.15
+      argparse: 1.0.10
+      base64-js: 1.5.1
+      dingbat-to-unicode: 1.0.2
+      jszip: 3.10.2
+      lop: 0.4.2
+      underscore: 1.13.8
+      xmlbuilder: 10.1.1
 
   mammoth@1.8.0:
     dependencies:
