@@ -16,6 +16,7 @@ AI Triad Research: a multi-perspective research platform for AI policy and safet
 
 Orca config lives in the overlay repo `.orca-git/`, so it stays private while this repo is public. `ogit` is `git --git-dir=.orca-git --work-tree=.`, run from the repo root.
 - **Never `git add` or `git commit`** `.orca.yaml`, `.orca/`, `.orca-gitignore` or any **nested** `AGENTS.md`. Only this file and `operations/devops/azure/AGENTS.md` belong to the main repo. If unsure, run `sh .githooks/agent-file-owner.sh --path <file>`.
+- **Interweave apps and config are overlay-only** (PI rule, 2026-11-11). Build apps under `.interweave/apps/<name>/` and commit them only with `ogit add -f` and a pathspec. Main's `.gitignore` excludes `.interweave/`; never force-add it to main.
 - **New role or instance:** `ogit add -f <role>/AGENTS.md`, then run `sh .githooks/agent-file-owner.sh --audit` before your next commit. Never `--no-verify`. Never ogit-add a `.worktrees/<name>/AGENTS.md`.
 - **Feedback rules and skills only through the MCP tools** (`create_feedback_rule`, `manage_skill`). Hand-written rules load as dead. To repair an invalid rule, back it up, delete it and re-create it with the same `scope`. Only an observed injection proves a rule works. Ref §1.
 
