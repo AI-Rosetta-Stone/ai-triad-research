@@ -1,0 +1,41 @@
+{
+  "ticket": "t/292 (a), TL decision t/292#10",
+  "operation": "byte-identical move of 2 legacy chunk summaries from summaries/ to _archive/summaries/ (originals kept); no re-summarize",
+  "why": "per-chunk files from a pipeline that no longer writes them; no source dir; identical key points repeated up to 5x per POV (39 duplicate index entries); the base doc has a clean 2026-05-22 merged summary",
+  "archive_location": "_archive/summaries/ at the data root, following the _archived_edges.json underscore convention; summaries/*.json readers (build-evidence-index.py, Test-CitationLinkIntegrity, Build-NodeSourceIndex) don't recurse into it",
+  "references_left_unchanged": {
+    "derived, refreshed by regeneration": [
+      "taxonomy/Origin/source_index.json",
+      "taxonomy/Origin/source_evidence_index.json",
+      "taxonomy/source_evidence_index.json (stale copy, t/296)"
+    ],
+    "historical snapshots": [
+      "debates/*",
+      "qbaf-conflicts/qbaf-analysis-*",
+      "calibration/unmapped-triage.json",
+      "research-artifacts/comp-linguist/training_corpus*.json"
+    ],
+    "other": [
+      "taxonomy/Origin/entities.json source refs (the -1 id never had a source dir)",
+      ".summarise-queue.json (both ids are already unprocessable queue entries; tracked in t/355)"
+    ]
+  },
+  "data_commit": "d098f445f0fea2a27de8826d42ee85f134f83afc",
+  "hash_basis": "sha256-lf",
+  "moves": [
+    {
+      "doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026-1",
+      "base_doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026",
+      "from": "summaries/explaining-womens-skepticism-toward-artificial-intelligence-2026-1.json",
+      "to": "_archive/summaries/explaining-womens-skepticism-toward-artificial-intelligence-2026-1.json",
+      "pre_sha256": "b9c44984ca0cd63dfa6538cd5bbb221b194ec6925e24a869b15814998a385d05"
+    },
+    {
+      "doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026-2",
+      "base_doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026",
+      "from": "summaries/explaining-womens-skepticism-toward-artificial-intelligence-2026-2.json",
+      "to": "_archive/summaries/explaining-womens-skepticism-toward-artificial-intelligence-2026-2.json",
+      "pre_sha256": "dacbc22fad52e76fdc121b4914f226be5a4cbcc884a64037aad562a12ef87494"
+    }
+  ]
+}
