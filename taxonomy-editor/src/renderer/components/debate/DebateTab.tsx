@@ -1311,7 +1311,7 @@ function CommunitySourceSection({ full }: { full: DebateSession | null }) {
   );
 }
 
-function CommunityConfigSection({ full }: { full: DebateSession | null }) {
+export function CommunityConfigSection({ full }: { full: DebateSession | null }) {
   if (!(full && full.audience)) return null;
   return (
     <div className="debate-detail-section">
