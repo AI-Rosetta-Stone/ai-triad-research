@@ -72,10 +72,12 @@ vi.mock('../storage/jobCapChecker.js', () => ({
     if (h.capCountError) return { count: null, error: h.capCountError };
     return { count: h.capCount, error: null };
   },
-  findRunningJobByIdempotencyKey: async (_userId: string, _kind: string, idempotencyKey: string | undefined, _isRunning: (r: unknown) => boolean) => {
+  findRunningJobByIdempotencyKey: async (_userId: string, _kind: string, idempotencyKey: string | undefined, _debateId: string | undefined, _isRunning: (r: unknown) => boolean) => {
     if (!idempotencyKey) return null;
     return h.durableIdempotent;
   },
+  checkInProcessSubmission: (_userId: string, _kind: string, _debateId: string | undefined) => null,
+  recordInProcessSubmission: (_userId: string, _kind: string, _debateId: string | undefined, _jobId: string) => {},
 }));
 const renameInquiryResult = vi.fn(async (jobId: string, title: string) => { h.persisted.set(jobId, { ...(h.persisted.get(jobId) as object ?? {}), title }); });
 const deleteInquiryResult = vi.fn(async (jobId: string) => { h.persisted.delete(jobId); });
