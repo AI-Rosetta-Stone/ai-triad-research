@@ -3783,30 +3783,41 @@ jobs:
           echo "::error::ci-gate: a gated job did not pass (see results above)"
           exit 1
 
-      # t/391 (TL p/9#81 condition 2, gate-signal integrity): on merge_group a SKIPPED gated job
-      # counts as a pass only when `changes` positively judged the batch: it succeeded, its scope
-      # said full=false, and every family filter output is exactly 'true' or 'false'. With full
-      # anything but 'false' (fail-safe), no gated job may be skipped at all.
+      # t/391 (TL p/9#81 condition 2, gate-signal integrity; SO C1 p/136#12): on merge_group a
+      # SKIPPED gated job counts as a pass only when `changes` succeeded, its scope said
+      # full=false, and THAT JOB's own filter keys (JOB_FAMILIES: the job's `needs.changes.outputs.<key>
+      # == 'true'` clauses) are each exactly 'false'. A job with no filter keys must never skip.
+      # JOB_FAMILIES is drift-tested against every gated job's `if:` (ci-merge-group-scope.test.mjs).
       - name: Merge-group skip integrity (t/391)
         if: always() && github.event_name == 'merge_group'
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
+          JOB_FAMILIES: '{"test-powershell":["powershell"],"test-electron":["electron"],"test-electron-vitest":["electron"],"test-electron-coverage":["electron"],"test-electron-matrix-membership":[],"test-container":["container"],"python-embed-smoke":["embed-models"],"test-python":["python"],"dependency-coverage":["container","lib"],"lockfile-overrides-check":["lockfile-sync"],"lib-lint":["lib"],"renderer-tsc":["electron","lib"],"contrast-check":["electron"],"test-server-prod-config":["container"],"workflow-lint":[],"bicep-env-drift":["bicep-env"],"schema-version-bump":["lib"],"render-smoke":["electron"],"bicep-aca-resources":["bicep-resources"],"embedding-onnx-equivalence":["embeddings"],"complexity-budget":["powershell"],"agents-md-budget":[],"merge-queue-f4-shim-test":[],"gate-self-health":[]}'
         run: |
           node -e '
             const needs = JSON.parse(process.env.NEEDS_JSON);
+            const families = JSON.parse(process.env.JOB_FAMILIES);
             const ch = needs.changes || {};
             const out = ch.outputs || {};
             const skipped = Object.entries(needs).filter(([n, v]) => n !== "changes" && v.result === "skipped").map(([n]) => n);
             const fail = (m) => { console.log(`::error::ci-gate merge_group skip integrity (t/391): ${m}`); process.exit(1); };
             if (ch.result !== "success") fail(`changes is ${ch.result}, so no skip can be trusted`);
+            const unmapped = Object.keys(needs).filter((n) => n !== "changes" && !(n in families));
+            if (unmapped.length) fail(`gated jobs missing from JOB_FAMILIES: ${unmapped.join(", ")}`);
             if (out.full !== "false") {
               if (skipped.length) fail(`full suite expected (full=${JSON.stringify(out.full)}) but skipped: ${skipped.join(", ")}`);
               console.log(`merge_group: full suite (full=${out.full}); no gated job skipped.`);
               process.exit(0);
             }
-            const vague = Object.entries(out).filter(([k, v]) => !["full", "dockerfile-scan"].includes(k) && v !== "true" && v !== "false");
-            if (vague.length) fail(`full=false but filter outputs are not positive verdicts: ${vague.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")}`);
-            console.log(`merge_group: scoped run (full=false); skipped by positive filter verdicts: ${skipped.join(", ") || "none"}`);
+            const bad = [];
+            for (const job of skipped) {
+              const keys = families[job];
+              if (!keys.length) { bad.push(`${job} (no filter keys: it must never skip)`); continue; }
+              const notFalse = keys.filter((k) => out[k] !== "false");
+              if (notFalse.length) bad.push(`${job} (its filter ${notFalse.map((k) => `${k}=${JSON.stringify(out[k])}`).join(", ")} is not a positive false)`);
+            }
+            if (bad.length) fail(`skipped without its own family positively untouched: ${bad.join("; ")}`);
+            console.log(`merge_group: scoped run (full=false); each skip backed by its own families = false: ${skipped.map((j) => `${j}[${families[j].join("+")}]`).join(", ") || "none"}`);
           '
 
       - name: CI shared-input coverage check (t/4368 deliverable 2)
