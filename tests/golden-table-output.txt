@@ -1,0 +1,39 @@
+DEBATE QUALITY COMPARISON
+  ────────────────────────────────────────────────────────────────────────────────
+                               Baseline                 Treatment               
+  topic                        AI Safety Test Case      AI Safety Test Case     
+  model                        gpt-4-turbo              gpt-4-turbo             
+  temperature                  0.7                      0.7                     
+  protocol                     standard-debate-v2       standard-debate-v2      
+  app_version                  3.2.1                    3.2.1                   
+  created_at                   11/1/2026 10:00:00 AM    11/1/2026 10:00:00 AM   
+  total_rounds                 0                        0                       
+  ────────────────────────────────────────────────────────────────────────────────
+  Metric                         Baseline  Treatment    Delta     %Chg
+  crux_addressed_ratio               0.85       0.88 
+   +0.03     3.5%
+  repetition_rate                    0.12       0.09 
+   -0.03     -25%
+  claims_forgotten_rate              0.08       0.05 
+   -0.03   -37.5%
+  taxonomy_mapped_ratio               0.9       0.93 
+   +0.03     3.3%
+  avg_utilization_rate               0.78       0.81 
+   +0.03     3.8%
+  situation_crux_alignment           0.82       0.85 
+   +0.03     3.7%
+  avg_branch_cohesion                0.75       0.78 
+   +0.03       4%
+  draft_repair_rate                  0.18       0.14 
+   -0.04   -22.2%
+  concession_cascades                   3          2 
+      -1   -33.3%
+  topic_alignment_rate               0.88       0.91 
+   +0.03     3.4%
+  prm_mean                           0.72       0.75 
+   +0.03     4.2%
+  prm_stddev                         0.15       0.12 
+   -0.03     -20%
+  prm_min                            0.42       0.48 
+   +0.06    14.3%
+  ────────────────────────────────────────────────────────────────────────────────
