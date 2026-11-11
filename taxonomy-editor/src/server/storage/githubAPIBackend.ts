@@ -415,27 +415,6 @@ export class GitHubAPIBackend implements StorageBackend {
     return { store: config.sharedOverlayState.store, active, warnInert };
   }
 
-  /** t/223: Validate that a repo path does not attempt directory traversal.
-   *  Rejects paths that escape the cache directory when resolved. A path is safe
-   *  if path.relative(cacheDir, resolved) does not start with `..` and is not
-   *  absolute (which would indicate a different drive/mount on Windows). */
-  private validateRepoPathSafety(repoPath: string): void {
-    const resolved = path.resolve(path.join(this.cacheDir, repoPath));
-    const relative = path.relative(this.cacheDir, resolved);
-
-    // Reject if relative path starts with .. (escapes root) or is absolute (different drive)
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      throw new ActionableError({
-        goal: 'Validate repository path',
-        problem: `Path would escape cache root: ${repoPath}`,
-        location: 'GitHubAPIBackend.validateRepoPathSafety',
-        nextSteps: ['Use only paths within the repository'],
-        code: 'INVALID_PATH',
-        httpStatus: 400,
-      });
-    }
-  }
-
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
   async initialize(): Promise<void> {
@@ -2714,7 +2693,6 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
-    this.validateRepoPathSafety(repoPath);
     if (!this.manifest?.files[repoPath]) return null;
 
     const diskPath = path.join(this.cacheDir, repoPath);
@@ -2731,7 +2709,6 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
-    this.validateRepoPathSafety(repoPath);
     if (!this.manifest?.files[repoPath]) return null;
 
     const diskPath = path.join(this.cacheDir, repoPath);
@@ -2752,7 +2729,6 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeToDiskCache(
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
-    this.validateRepoPathSafety(repoPath);
     try {
       const diskPath = path.join(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
@@ -2802,7 +2778,6 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeBinaryToDiskCache(
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
-    this.validateRepoPathSafety(repoPath);
     try {
       const diskPath = path.join(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });

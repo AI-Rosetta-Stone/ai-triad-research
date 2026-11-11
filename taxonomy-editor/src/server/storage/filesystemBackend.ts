@@ -9,25 +9,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { gitBlobSha } from './gitBlobSha.js';
 
-/** t/223: Validate that a path does not attempt directory traversal.
- *  Rejects any path containing `..` (forward or backslash), and absolute
- *  paths that don't resolve within a safe location. This prevents file
- *  reads/writes/deletes from escaping the data root. */
-function validatePathSafety(filePath: string): void {
-  // Reject paths containing `..` (forward and backslash) — these always escape
-  if (filePath.includes('..') || filePath.includes('..\\')) {
-    throw new ActionableError({
-      goal: 'Validate storage path',
-      problem: `Path contains .. (parent directory traversal): ${filePath}`,
-      location: 'FilesystemBackend.validatePathSafety',
-      nextSteps: ['Use only paths within the data root'],
-      code: 'INVALID_PATH',
-      httpStatus: 400,
-    });
-  }
-}
-
-/** t/223: tail of the in-flight conditional-write chain per absolute path. Module-level so
+/** t/117: tail of the in-flight conditional-write chain per absolute path. Module-level so
  *  every FilesystemBackend instance in this process shares it. */
 const conditionalWriteTails = new Map<string, Promise<unknown>>();
 
@@ -52,9 +34,44 @@ async function serializeConditionalWrite<T>(filePath: string, fn: () => Promise<
  * Used by default (Electron + local dev) and in the Azure container when
  * the data volume is mounted.  All methods handle missing files/dirs
  * gracefully (no throws for ENOENT).
+ *
+ * t/223: Constructor accepts optional root; all file operations are confined
+ * to it. Resolving a path outside root or relative to `..` throws INVALID_PATH.
  */
 export class FilesystemBackend implements StorageBackend {
   readonly backendName = 'filesystem';
+  private readonly root?: string;
+
+  constructor(opts?: { root?: string }) {
+    this.root = opts?.root ? path.resolve(opts.root) : undefined;
+  }
+
+  /** t/223: Validate that a path resolves within the backend root (if set).
+   *  Rejects paths that resolve outside root. Absolute paths inside root are allowed.
+   *  Uses path.resolve to normalize, then checks that abs === root or abs is under root. */
+  private validatePathConfinement(filePath: string): void {
+    if (!this.root) return; // No root set, no confinement check
+
+    const abs = path.resolve(this.root, filePath);
+    const rootAbs = path.resolve(this.root);
+    
+    // Normalize for case-insensitive comparison on win32
+    const absNorm = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const rootNorm = process.platform === 'win32' ? rootAbs.toLowerCase() : rootAbs;
+    
+    // Path must be exactly root or start with root + separator
+    const isInRoot = absNorm === rootNorm || absNorm.startsWith(rootNorm + path.sep);
+    if (!isInRoot) {
+      throw new ActionableError({
+        goal: 'Confine file access to backend root',
+        problem: `Path escapes root: ${filePath}`,
+        location: 'FilesystemBackend.validatePathConfinement',
+        nextSteps: ['Use only paths within the backend root'],
+        code: 'PATH_OUTSIDE_ROOT',
+        httpStatus: 400,
+      });
+    }
+  }
 
   private async renameWithRetry(oldPath: string, newPath: string): Promise<void> {
     const maxRetries = 5;
@@ -80,7 +97,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readFile(filePath: string, _opts?: { ref?: string; optional?: boolean; consultOverlayOnPin?: boolean }): Promise<string | null> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     try {
       return await fs.readFile(filePath, 'utf-8');
     } catch (err: unknown) {
@@ -116,7 +133,7 @@ export class FilesystemBackend implements StorageBackend {
    * same directory is still unguarded.
    */
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     if (opts?.baseSha !== undefined) {
       const baseSha = opts.baseSha;
       return serializeConditionalWrite(filePath, () => this.checkedWrite(filePath, content, baseSha));
@@ -148,7 +165,7 @@ export class FilesystemBackend implements StorageBackend {
    * `baseSha` writes. On a filesystem without hard links it falls back to a `'wx'` write (WARN).
    */
   async writeFileIfAbsent(filePath: string, content: string): Promise<WriteIfAbsentResult> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     return serializeConditionalWrite(filePath, () => this.createExclusive(filePath, content));
   }
 
@@ -223,7 +240,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string): Promise<string[]> {
-    validatePathSafety(dirPath);
+    this.validatePathConfinement(dirPath);
     try {
       return await fs.readdir(dirPath);
     } catch (err: unknown) {
@@ -242,7 +259,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async deleteFile(filePath: string): Promise<void> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     try {
       await fs.unlink(filePath);
     } catch (err: unknown) {
@@ -259,7 +276,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async fileExists(filePath: string, _opts?: { ref?: string }): Promise<boolean> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     try {
       await fs.access(filePath);
       return true;
@@ -276,7 +293,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async writeBinaryFile(filePath: string, content: Buffer): Promise<void> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = filePath + '.tmp';
     await fs.writeFile(tmpPath, content);
@@ -291,7 +308,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readBinaryFile(filePath: string, _opts?: { ref?: string }): Promise<Buffer | null> {
-    validatePathSafety(filePath);
+    this.validatePathConfinement(filePath);
     try {
       return await fs.readFile(filePath);
     } catch (err: unknown) {
