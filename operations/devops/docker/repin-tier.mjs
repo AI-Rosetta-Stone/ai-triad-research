@@ -13,6 +13,8 @@
 //        (the drift module's own tests also cover classifyRepinTier through its re-export)
 
 export const IMAGE = 'ghcr.io/ai-rosetta-stone/ai-triad-base';
+/** Branch prefix of the drift workflow's re-pin PRs; the T0 sweep keys its re-check on it (t/312). */
+export const BRANCH_PREFIX = 'docker/base-repin-';
 export const DATE_TAG = /^\d{4}-\d{2}-\d{2}$/;
 export const DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** The runtime stage's FROM line, and ONLY for our own ai-triad-base. Groups: tag, digest. */
