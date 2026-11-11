@@ -36,6 +36,9 @@ test('every per-PR guard carries the canonical rate-limit snapshot step verbatim
 test('the canonical step can never fail or block a guard', () => {
   assert.match(CANONICAL, /^ {8}continue-on-error: true$/m);
   assert.match(CANONICAL, /^ {8}if: \$\{\{ !cancelled\(\) \}\}$/m);
+  // Second-Opinion (#5029): continue-on-error does not cover a HANG. Without a step timeout a
+  // stalled `gh api` holds a required guard pending for the 360-minute job default.
+  assert.match(CANONICAL, /^ {8}timeout-minutes: 1$/m);
 });
 
 // ── run the step's script under bash with a fake `gh` ──
@@ -72,7 +75,7 @@ function runWithFakeGh(ghBody) {
 }
 
 test('readable /rate_limit: one greppable log line and a summary table, exit 0', { skip: !BASH && 'no bash' }, () => {
-  const r = runWithFakeGh(`printf '812\\t188\\t1000\\t1794371400\\t40\\t4960\\t5000\\n'`);
+  const r = runWithFakeGh(`echo '812,188,1000,1794371400,40,4960,5000'`);
   assert.equal(r.code, 0);
   assert.match(r.out, /t\/314 rate-limit: workflow=joint-gv-guard job=joint-gv-guard core used=812 remaining=188 limit=1000 reset=\d\d:\d\d:\d\dZ graphql used=40 remaining=4960 limit=5000/);
   assert.match(r.summary, /\| REST core \| 812 \| 188 \| 1000 \|/);
@@ -91,4 +94,23 @@ test('gh prints something that is not seven numbers: WARN only, never a bogus ta
   assert.equal(r.code, 0);
   assert.match(r.out, /::warning::t\/314/);
   assert.equal(r.summary, '');
+});
+
+// Quality, #5028 review: with whitespace-split reads an EMPTY field shifted the later values
+// (used=6 remaining=7 limit="") and still passed a concatenated-digits check.
+test('an empty field (e.g. graphql.used missing) WARNs instead of shifting later values into the wrong columns', { skip: !BASH && 'no bash' }, () => {
+  const r = runWithFakeGh(`echo '812,188,1000,1794371400,,4960,5000'`);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /::warning::t\/314/);
+  assert.doesNotMatch(r.out, /t\/314 rate-limit:/);
+  assert.equal(r.summary, '');
+});
+
+test('null (jq tostring -> "null") or an extra field WARNs, never a table', { skip: !BASH && 'no bash' }, () => {
+  for (const line of ['812,188,1000,1794371400,null,4960,5000', '812,188,1000,1794371400,40,4960,5000,9']) {
+    const r = runWithFakeGh(`echo '${line}'`);
+    assert.equal(r.code, 0, line);
+    assert.match(r.out, /::warning::t\/314/, line);
+    assert.equal(r.summary, '', line);
+  }
 });
