@@ -2,59 +2,40 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
- * Extract text from HTML.
- * Reuses the same approach as lib/oped URL mode for consistency.
- * This is a simple text extraction that removes HTML tags and entities.
+ * Extract text from HTML using the stable stripHtmlFallback implementation.
+ * Reuses the same approach as lib/debate URL mode for consistency.
+ * Strips script/style/head/noscript tags via a stability loop that guarantees termination.
  */
 export function extractHtmlText(bytes: Uint8Array): string {
   const html = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-
-  // Remove script and style tags and their content
-  let text = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-
-  // Remove HTML tags
-  text = text.replace(/<[^>]+>/g, ' ');
-
-  // Decode HTML entities
-  text = decodeHtmlEntities(text);
-
-  // Normalize whitespace
-  text = text
-    .split(/\s+/)
-    .filter((s) => s.length > 0)
-    .join(' ')
-    .trim();
-
-  return text;
+  return stripHtmlFallback(html);
 }
 
 /**
- * Decode common HTML entities.
+ * Strip HTML tags and normalize whitespace.
+ * Uses a do-while loop that strips iteratively until stable (no further removals possible).
+ * Termination is guaranteed because lazy matching always removes the shortest match,
+ * so the string strictly shrinks toward a fixed point.
+ *
+ * codeql[js/bad-tag-filter]
+ * codeql[js/incomplete-multi-character-sanitization] do-while exits on stability; termination guaranteed
  */
-function decodeHtmlEntities(text: string): string {
-  const entities: Record<string, string> = {
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&quot;': '"',
-    '&#39;': "'",
-    '&apos;': "'",
-    '&nbsp;': ' ',
-    '&copy;': '©',
-    '&reg;': '®',
-    '&deg;': '°',
-  };
-
-  let result = text;
-  for (const [entity, char] of Object.entries(entities)) {
-    result = result.replace(new RegExp(entity, 'g'), char);
-  }
-
-  // Decode numeric entities (&#123; and &#xAB;)
-  result = result.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
-  result = result.replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
-
-  return result;
+function stripHtmlFallback(html: string): string {
+  let s = html;
+  let prev: string;
+  do {
+    prev = s;
+    s = s
+      .replace(/<script[\s\S]*?<\/script[^>]*>/gi, '')
+      .replace(/<style[\s\S]*?<\/style[^>]*>/gi, '')
+      .replace(/<noscript[\s\S]*?<\/noscript[^>]*>/gi, '')
+      .replace(/<head[\s\S]*?<\/head[^>]*>/gi, '')
+      .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  } while (s !== prev);
+  return s;
 }

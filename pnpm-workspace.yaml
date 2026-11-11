@@ -101,7 +101,7 @@ overrides:
 
 allowBuilds:
   '@google/genai': true
-  canvas: set this to true or false
+  canvas: false
   electron-winstaller: true
   esbuild: true
   node-pty: true
@@ -109,5 +109,3 @@ allowBuilds:
   protobufjs: true
   sharp: true
 
-ignoredBuiltDependencies:
-  - canvas
