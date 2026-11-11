@@ -61,37 +61,14 @@ function renderPolicyPreview(policy: any, referencingNodes: any[], nodeId: strin
   );
 }
 
-/**
- * Enriched fields that may live under `graph_attributes` at runtime but are not
- * part of the declared {@link GraphAttributes} shape (per the project data
- * convention — enriched fields vary per node). Accessed defensively.
- */
-
-/**
- * Read-only inline preview of a linked taxonomy node, situation, or conflict,
- * resolved from the taxonomy store by id. Renders nothing for unknown ids.
- *
- * Shared by ConflictDetail (Conflicts tab) and CruxDetail (Cruxes tab) so both
- * present linked entities identically without navigating away.
- */
-export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
-  const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
-  const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
-
-  const data = lookupPinnedData(nodeId);
-  if (!data) return null;
-
-  if (data.type === 'conflict') {
-    return renderConflictPreview(data.conflict, nodeId);
-  }
-
-  if (data.type === 'policy') {
-    return renderPolicyPreview(data.policy, data.referencingNodes, nodeId);
-  }
-
-  const node = data.node;
-  const povLabel = data.type === 'pov' ? POV_LABELS[data.pov] ?? data.pov : 'Situation';
-  const category = data.type === 'pov' ? data.node.category : null;
+function renderNodePreview(
+  node: any,
+  nodeId: string,
+  povLabel: string,
+  category: string | null,
+  descMode: 'plain' | 'formal',
+  setDescMode: (mode: 'plain' | 'formal') => void,
+) {
   const enriched = node.graph_attributes as (GraphAttributes & EnrichedAttrs) | undefined;
   const interpretation = enriched?.interpretation;
   const keyPoints = enriched?.key_points ?? [];
@@ -134,4 +111,39 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
       )}
     </div>
   );
+}
+
+/**
+ * Enriched fields that may live under `graph_attributes` at runtime but are not
+ * part of the declared {@link GraphAttributes} shape (per the project data
+ * convention — enriched fields vary per node). Accessed defensively.
+ */
+
+/**
+ * Read-only inline preview of a linked taxonomy node, situation, or conflict,
+ * resolved from the taxonomy store by id. Renders nothing for unknown ids.
+ *
+ * Shared by ConflictDetail (Conflicts tab) and CruxDetail (Cruxes tab) so both
+ * present linked entities identically without navigating away.
+ */
+export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
+  const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
+  const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
+
+  const data = lookupPinnedData(nodeId);
+  if (!data) return null;
+
+  if (data.type === 'conflict') {
+    return renderConflictPreview(data.conflict, nodeId);
+  }
+
+  if (data.type === 'policy') {
+    return renderPolicyPreview(data.policy, data.referencingNodes, nodeId);
+  }
+
+  const node = data.node;
+  const povLabel = data.type === 'pov' ? POV_LABELS[data.pov] ?? data.pov : 'Situation';
+  const category = data.type === 'pov' ? data.node.category : null;
+
+  return renderNodePreview(node, nodeId, povLabel, category, descMode, setDescMode);
 }
