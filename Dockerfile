@@ -2,8 +2,8 @@
 # ecosystem (`directory: /`) proposes digest bumps, so a rebuild is reproducible and
 # updates arrive as reviewable PRs. dockerfile-trivy scans this image report-only.
 # Python stays on 3.12: requirements (e.g. markitdown, Requires-Python <3.15) and torch are
-# built against it. Dependabot is told to ignore python minor/major tags here (t/313), so only
-# digest refreshes of 3.12 arrive; a version move is a deliberate, reviewed change.
+# built against it (#5015's 3.15 bump broke the build, t/313). A Dependabot ignore for python
+# minor/major on `/` lands with #5023; until then reject any python tag-bump PR here.
 FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS python
 
 FROM mcr.microsoft.com/devcontainers/javascript-node:26-trixie@sha256:045e66010973363cc211c8d86133580eb6106713314797066efe60cba970b9a8

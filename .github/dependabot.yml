@@ -117,9 +117,3 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 2
-    # Python is pinned to 3.12 on purpose (requirements + torch). #5015 auto-merged a
-    # 3.12 -> 3.15 tag bump as "semver-minor" and broke the build (t/313). Digest refreshes of
-    # 3.12 still flow; a Python version move is a deliberate PR.
-    ignore:
-      - dependency-name: python
-        update-types: ['version-update:semver-major', 'version-update:semver-minor']
