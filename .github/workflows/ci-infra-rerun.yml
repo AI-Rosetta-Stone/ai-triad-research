@@ -46,7 +46,31 @@ jobs:
           github-token: ${{ github.token }}
           merge-multiple: true
 
+      - name: Check GitHub API rate-limit status — back off during storms (t/236)
+        id: rate-limit-check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { data: rateLimit } = await github.rest.rateLimit.get();
+            const remaining = rateLimit.resources.core.remaining;
+            const limit = rateLimit.resources.core.limit;
+            const resetEpoch = rateLimit.resources.core.reset;
+            const nowEpoch = Math.floor(Date.now() / 1000);
+            const resetMinutes = Math.ceil((resetEpoch - nowEpoch) / 60);
+            
+            // If less than 10% of quota remains and reset is >5 min away, back off
+            const threshold = Math.ceil(limit * 0.1);
+            if (remaining < threshold && resetMinutes > 5) {
+              core.warning(`Rate-limit storm detected: ${remaining}/${limit} remaining (${resetMinutes}min to reset). Backing off rerun to avoid amplification.`);
+              core.setOutput('backoff', 'true');
+              return;
+            }
+            
+            core.info(`Rate-limit OK: ${remaining}/${limit} remaining`);
+            core.setOutput('backoff', 'false');
+
       - name: Rerun each abnormal-end shard job once, and log it
+        if: steps.rate-limit-check.outputs.backoff == 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         # t/4577: a deleted t4548-infra-rerun-log label would throw on issues.create
         # AFTER the reruns above already succeeded -- don't let that read as a handler
