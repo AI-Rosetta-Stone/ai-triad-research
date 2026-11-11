@@ -15,6 +15,9 @@ import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/in
 
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 export const DRAFT_GLOBAL_PENDING_CAP = 50;
+export const DRAFT_PER_CLIENT_CAP = 5; // max drafts per client in 24h (prevents exhaustion of global cap)
+export const DRAFT_MAX_NOTE_BYTES = 2000; // max sanitized note size
+export const DRAFT_MAX_PAYLOAD_BYTES = 1024 * 1024; // 1MB max payload size
 
 /** 'drf_' + 32 lowercase hex (crypto.randomBytes(16)). An unguessable capability, never logged in full. */
 export type DraftId = string;
@@ -32,6 +35,8 @@ export interface CanonicalNodeRef {
 export interface DraftCreateContext {
   /** Taxonomy node id → canonical label/camp. */
   nodesById: ReadonlyMap<string, CanonicalNodeRef>;
+  /** Client identifier (typically IP address or session ID) for per-client rate limiting (B6). */
+  clientId?: string;
 }
 
 export interface DraftPrincipal {
@@ -52,7 +57,7 @@ export interface CommunityDraftView {
 export type CreateDraftResult =
   | { ok: true; draftId: DraftId; expiresAt: string }
   | { ok: false; reason: 'cap_reached' } // → 429
-  | { ok: false; reason: 'invalid'; detail: 'schema' | 'all_refs_unknown' | 'unprunable_ref' }; // → 400, no input echoed
+  | { ok: false; reason: 'invalid'; detail: 'schema' | 'all_refs_unknown' | 'unprunable_ref' | 'note_too_large' }; // → 400, no input echoed
 
 export type GetDraftResult =
   | { ok: true; draft: CommunityDraftView }
@@ -188,6 +193,30 @@ class DraftStoreImpl implements DraftStore {
     return 'ok';
   }
 
+  // B6: Check per-client rate limit (prevent one client from exhausting global cap)
+  private async countClientPendingDrafts(clientId: string | undefined): Promise<number> {
+    if (!clientId) return 0; // no client id → can't track per-client (allow through)
+    let count = 0;
+    try {
+      const files = await this.backend.listDirectory('community/_drafts');
+      for (const file of files) {
+        if (!file.endsWith('.json') || file === 'claims') continue;
+        const data = await this.backend.readFile(`community/_drafts/${file}`);
+        if (data !== null) {
+          const rec = JSON.parse(data);
+          // Match based on some client identifier stored in draft (for now, we'll track by IP via route context)
+          // This is a simplified version; in production you'd store clientId in the draft record
+          if (rec.clientId === clientId) count++;
+        }
+      }
+    } catch (err) {
+      log.server.error(`countClientPendingDrafts: list/read failed: ${(err as any)?.message}`);
+      // Fail closed: if we can't count, assume limit is reached
+      return DRAFT_PER_CLIENT_CAP;
+    }
+    return count;
+  }
+
   private sanitizeAndProject(
     payload: InquiryPayload,
     ctx: DraftCreateContext,
@@ -237,6 +266,12 @@ class DraftStoreImpl implements DraftStore {
       return { ok: false, reason: 'invalid', detail: 'schema' };
     }
 
+    // B6: Check payload size before processing
+    const payloadSize = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    if (payloadSize > DRAFT_MAX_PAYLOAD_BYTES) {
+      return { ok: false, reason: 'invalid', detail: 'unprunable_ref' };
+    }
+
     const droppedRefs: string[] = [];
     const droppedAuthFields: string[] = [];
 
@@ -265,10 +300,28 @@ class DraftStoreImpl implements DraftStore {
       return { ok: false, reason: 'invalid', detail: 'all_refs_unknown' };
     }
 
+    // B4: Sanitize and cap the note field (max DRAFT_MAX_NOTE_BYTES)
+    let sanitizedNote = '';
+    if (typeof (payload as any).note === 'string') {
+      sanitizedNote = sanitizeUserText((payload as any).note);
+      const noteBytes = Buffer.byteLength(sanitizedNote, 'utf8');
+      if (noteBytes > DRAFT_MAX_NOTE_BYTES) {
+        return { ok: false, reason: 'invalid', detail: 'note_too_large' };
+      }
+    }
+
     // Check global pending cap
     const capResult = await this.checkGlobalCap();
     if (capResult === 'cap_reached') {
       return { ok: false, reason: 'cap_reached' };
+    }
+
+    // B6: Check per-client rate limit (prevent one client from exhausting global cap)
+    if (ctx.clientId) {
+      const clientCount = await this.countClientPendingDrafts(ctx.clientId);
+      if (clientCount >= DRAFT_PER_CLIENT_CAP) {
+        return { ok: false, reason: 'cap_reached' };
+      }
     }
 
     // Create and write draft
@@ -278,7 +331,8 @@ class DraftStoreImpl implements DraftStore {
     const draftRecord = {
       draftId,
       projection: projected,
-      note: (payload as any).note || '',
+      note: sanitizedNote,
+      clientId: ctx.clientId, // B6: track client for per-client rate limiting
       droppedRefs,
       droppedAuthFields,
       expiresAt,
@@ -468,7 +522,7 @@ class DraftStoreImpl implements DraftStore {
       return { ok: false, reason: 'not_found' };
     }
 
-    if (!principal.storageUserId || principal.storageUserId === '_anonymous') {
+    if (!principal.storageUserId || principal.storageUserId === '_local') {
       return { ok: false, reason: 'anonymous' };
     }
 
@@ -562,8 +616,15 @@ class DraftStoreImpl implements DraftStore {
           if (rec.submittedBy?.id === userId && rec.status === 'pending') count++;
         }
       }
-    } catch {
-      /* telemetry — silent by design (best-effort count, continue with 0) */
+    } catch (err) {
+      log.server.error(`countUserPendingSubmissions: list/read failed: ${(err as any)?.message} (failing closed)`);
+      throw new ActionableError({
+        goal: 'Count user pending submissions',
+        problem: 'Failed to list/read submissions directory (fail-closed for cap check)',
+        location: 'draftStore.countUserPendingSubmissions',
+        nextSteps: ['Check storage backend health'],
+        httpStatus: 503,
+      });
     }
     return count;
   }
@@ -580,8 +641,15 @@ class DraftStoreImpl implements DraftStore {
           if (rec.status === 'pending') count++;
         }
       }
-    } catch {
-      /* telemetry — silent by design (best-effort count, continue with 0) */
+    } catch (err) {
+      log.server.error(`countGlobalPendingSubmissions: list/read failed: ${(err as any)?.message} (failing closed)`);
+      throw new ActionableError({
+        goal: 'Count global pending submissions',
+        problem: 'Failed to list/read submissions directory (fail-closed for cap check)',
+        location: 'draftStore.countGlobalPendingSubmissions',
+        nextSteps: ['Check storage backend health'],
+        httpStatus: 503,
+      });
     }
     return count;
   }
