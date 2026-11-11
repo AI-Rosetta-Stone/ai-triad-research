@@ -18,15 +18,53 @@ const CONFLICT_STATUS_LABELS: Record<string, string> = {
   'wont-fix': "Won't Fix",
 };
 
+interface EnrichedAttrs {
+  interpretation?: string | { summary?: string };
+  key_points?: string[];
+}
+
+function renderConflictPreview(conflict: any, nodeId: string) {
+  return (
+    <div className="linked-node-preview">
+      <div className="linked-node-preview-header">
+        <span className="linked-node-preview-pov">Conflict</span>
+        <span className="linked-node-preview-category">{CONFLICT_STATUS_LABELS[conflict.status] ?? conflict.status}</span>
+        <span className="linked-node-preview-id">{nodeId}</span>
+      </div>
+      <div className="linked-node-preview-label">{conflict.claim_label}</div>
+      <div className="linked-node-preview-description">{conflict.description}</div>
+      {conflict.instances.length > 0 && (
+        <div className="linked-node-preview-attrs">
+          <span className="linked-node-preview-attr-label">Instances:</span>
+          <span>{conflict.instances.length}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderPolicyPreview(policy: any, referencingNodes: any[], nodeId: string) {
+  return (
+    <div className="linked-node-preview">
+      <div className="linked-node-preview-header">
+        <span className="linked-node-preview-pov">Policy</span>
+        <span className="linked-node-preview-id">{nodeId}</span>
+      </div>
+      <div className="linked-node-preview-label">{policy.action}</div>
+      {policy.description && <div className="linked-node-preview-description">{policy.description}</div>}
+      <div className="linked-node-preview-attrs">
+        <span className="linked-node-preview-attr-label">Referenced by:</span>
+        <span>{referencingNodes.length} node{referencingNodes.length === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Enriched fields that may live under `graph_attributes` at runtime but are not
  * part of the declared {@link GraphAttributes} shape (per the project data
  * convention — enriched fields vary per node). Accessed defensively.
  */
-interface EnrichedAttrs {
-  interpretation?: string | { summary?: string };
-  key_points?: string[];
-}
 
 /**
  * Read-only inline preview of a linked taxonomy node, situation, or conflict,
@@ -38,9 +76,7 @@ interface EnrichedAttrs {
 export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
   const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
-  const data = lookupPinnedData(nodeId);
-  if (!data) return null;
-
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.altKey && e.code === 'KeyP') {
@@ -52,43 +88,15 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const data = lookupPinnedData(nodeId);
+  if (!data) return null;
+
   if (data.type === 'conflict') {
-    const c = data.conflict;
-    return (
-      <div className="linked-node-preview">
-        <div className="linked-node-preview-header">
-          <span className="linked-node-preview-pov">Conflict</span>
-          <span className="linked-node-preview-category">{CONFLICT_STATUS_LABELS[c.status] ?? c.status}</span>
-          <span className="linked-node-preview-id">{nodeId}</span>
-        </div>
-        <div className="linked-node-preview-label">{c.claim_label}</div>
-        <div className="linked-node-preview-description">{c.description}</div>
-        {c.instances.length > 0 && (
-          <div className="linked-node-preview-attrs">
-            <span className="linked-node-preview-attr-label">Instances:</span>
-            <span>{c.instances.length}</span>
-          </div>
-        )}
-      </div>
-    );
+    return renderConflictPreview(data.conflict, nodeId);
   }
 
   if (data.type === 'policy') {
-    const { policy, referencingNodes } = data;
-    return (
-      <div className="linked-node-preview">
-        <div className="linked-node-preview-header">
-          <span className="linked-node-preview-pov">Policy</span>
-          <span className="linked-node-preview-id">{nodeId}</span>
-        </div>
-        <div className="linked-node-preview-label">{policy.action}</div>
-        {policy.description && <div className="linked-node-preview-description">{policy.description}</div>}
-        <div className="linked-node-preview-attrs">
-          <span className="linked-node-preview-attr-label">Referenced by:</span>
-          <span>{referencingNodes.length} node{referencingNodes.length === 1 ? '' : 's'}</span>
-        </div>
-      </div>
-    );
+    return renderPolicyPreview(data.policy, data.referencingNodes, nodeId);
   }
 
   const node = data.node;
