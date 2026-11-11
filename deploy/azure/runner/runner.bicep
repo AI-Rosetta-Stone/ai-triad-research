@@ -127,7 +127,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = if (enabled) {
         // Managed-identity storage for runtime (C3) — replaces connection string
         { name: 'AzureWebJobsStorage__accountName', value: storageAccount.name }
         // Content share still needs connection string (Consumption plan limitation)
-        { name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}' }
+        { name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount!.listKeys().keys[0].value}' }
         { name: 'WEBSITE_CONTENTSHARE', value: 'runner-func-${uniqueSuffix}' }
         { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
         { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }
