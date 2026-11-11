@@ -209,7 +209,7 @@ describe('ChatWorkspace', () => {
     };
     render(<ChatWorkspace />);
     await user.click(screen.getByRole('button', { name: 'How' }));
-    expect(screen.getByText("The raw prompt and output weren't recorded for this answer.")).toBeInTheDocument();
+    expect(screen.getByText("The raw prompt and response weren't recorded for this answer.")).toBeInTheDocument();
   });
 
 
