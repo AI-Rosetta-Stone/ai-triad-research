@@ -312,54 +312,50 @@ export function App() {
   return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><AppRouter /></ErrorBoundary>;
 }
 
+interface WindowRouteEntry {
+  pattern: string | RegExp;
+  component: React.ComponentType<any>;
+  flagRequired?: 'analytics' | 'admin' | 'community' | 'adminLegacy';
+}
+
+const WINDOW_ROUTES: WindowRouteEntry[] = [
+  { pattern: /^#diagnostics-window/, component: DiagnosticsWindow },
+  { pattern: '#pov-progression-window', component: PovProgressionWindow },
+  { pattern: /^#debate-window/, component: DebatePopoutWindow },
+  { pattern: /^#prompt-diff-window/, component: PromptDiffWindow },
+  { pattern: /^#diff-window/, component: DiffWindow },
+  { pattern: /^#chat-window/, component: ChatWindow },
+  { pattern: '#analytics', component: AnalyticsDashboard, flagRequired: 'analytics' },
+  { pattern: '#engagement', component: EngagementDashboard, flagRequired: 'admin' },
+  { pattern: '#your-activity', component: YourActivityPanel },
+  { pattern: '#community', component: CommunityLibrary, flagRequired: 'community' },
+  { pattern: '#admin', component: AdminReviewPanel },
+  { pattern: '#admin-legacy', component: AdminPanel, flagRequired: 'adminLegacy' },
+];
+
+function _matchWindowRoute(hash: string, pattern: string | RegExp): boolean {
+  if (typeof pattern === 'string') return hash === pattern;
+  return pattern.test(hash);
+}
+
+function _checkFlagGate(flagRequired: string | undefined, flags: Record<string, boolean>): boolean {
+  if (!flagRequired) return true;
+  return flags[flagRequired] || false;
+}
+
 function _tryRenderWindowRoute(hash: string, analyticsFlag: boolean, isAdmin: boolean, communityFlag: boolean, adminLegacyFlag: boolean): ReactNode {
-  // Diagnostics window
-  if (hash.startsWith('#diagnostics-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DiagnosticsWindow /></Suspense></ErrorBoundary>;
-  }
-  // POV progression window
-  if (hash === '#pov-progression-window') {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><PovProgressionWindow /></Suspense></ErrorBoundary>;
-  }
-  // Debate popout window
-  if (hash.startsWith('#debate-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DebatePopoutWindow /></Suspense></ErrorBoundary>;
-  }
-  // Prompt diff window
-  if (hash.startsWith('#prompt-diff-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><PromptDiffWindow /></Suspense></ErrorBoundary>;
-  }
-  // General diff window
-  if (hash.startsWith('#diff-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><DiffWindow /></Suspense></ErrorBoundary>;
-  }
-  // Chat window
-  if (hash.startsWith('#chat-window')) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><ChatWindow /></Suspense></ErrorBoundary>;
-  }
-  // Analytics dashboard (web only, flagged)
-  if (hash === '#analytics' && analyticsFlag) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AnalyticsDashboard /></Suspense></ErrorBoundary>;
-  }
-  // Engagement dashboard (admin only, t/2468)
-  if (hash === '#engagement' && isAdmin) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><EngagementDashboard /></Suspense></ErrorBoundary>;
-  }
-  // Your activity panel (self-only, t/2469)
-  if (hash === '#your-activity') {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><YourActivityPanel /></Suspense></ErrorBoundary>;
-  }
-  // Community library (web only, flagged)
-  if (hash === '#community' && communityFlag) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><CommunityLibrary /></Suspense></ErrorBoundary>;
-  }
-  // Admin review panel
-  if (hash === '#admin') {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AdminReviewPanel /></Suspense></ErrorBoundary>;
-  }
-  // Admin legacy panel (legacy, flagged)
-  if (hash === '#admin-legacy' && adminLegacyFlag) {
-    return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>;
+  const flags: Record<string, boolean> = {
+    analytics: analyticsFlag,
+    admin: isAdmin,
+    community: communityFlag,
+    adminLegacy: adminLegacyFlag,
+  };
+
+  for (const route of WINDOW_ROUTES) {
+    if (_matchWindowRoute(hash, route.pattern) && _checkFlagGate(route.flagRequired, flags)) {
+      const Component = route.component;
+      return <ErrorBoundary buildInfo={BUILD_FINGERPRINT}><Suspense fallback={null}><Component /></Suspense></ErrorBoundary>;
+    }
   }
 
   return null;
