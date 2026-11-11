@@ -508,7 +508,28 @@ jobs:
                 if (r.user?.type === 'Bot') continue;
                 times.push(r.submitted_at);
               }
-              return { lastActivityAt: times.filter(Boolean).sort().at(-1), soClearanceDetected, hasApproval };
+              // t/308: the same two fetches, mapped to role-review-verdicts.mjs's shape, so
+              // classifyBlocker can name `changes-requested-stale`. REST logins carry the
+              // `[bot]` suffix (same constant as t1-approval-guard.yml). lastPushAt is the head
+              // commit's committer date (t1-approval-guard.yml convention), fetched here because
+              // the pulls.get `head` object carries no `commit` (Quality, #5005). It only matters
+              // for comment-sourced requests (a review is head-bound by commitId); if the fetch
+              // fails it stays null and the classifier skips comment-sourced requests.
+              let headCommitAt = null;
+              try {
+                const { data: headCommit } = await github.rest.git.getCommit({ owner, repo, commit_sha: pr.head.sha });
+                headCommitAt = headCommit.committer?.date ?? headCommit.author?.date ?? null;
+              } catch (e) {
+                core.warning(`#${pr.number}: could not read head commit date (${e.message}); changes-requested-stale ignores comment-sourced requests for this PR.`);
+              }
+              const roleReview = {
+                reviewerAppLogin: 'ai-triad-reviewer-jpsnover[bot]',
+                headSha: pr.head?.sha,
+                lastPushAt: headCommitAt,
+                reviews: reviews.map((r) => ({ body: r.body, login: r.user?.login, commitId: r.commit_id, submittedAt: r.submitted_at, state: r.state })),
+                comments: comments.map((c) => ({ body: c.body, login: c.user?.login, createdAt: c.created_at, updatedAt: c.updated_at })),
+              };
+              return { lastActivityAt: times.filter(Boolean).sort().at(-1), soClearanceDetected, hasApproval, roleReview };
             }
 
             // t/4533: when did `consult-hold` first FIRST get applied to this PR? Fetched only
@@ -639,7 +660,7 @@ jobs:
               }
 
               const labels = (full.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
-              const { lastActivityAt, soClearanceDetected, hasApproval } = await activityAndSoFacts(full);
+              const { lastActivityAt, soClearanceDetected, hasApproval, roleReview } = await activityAndSoFacts(full);
               // t/4533: the consult-hold timeline fetch is only worth paying for when the label
               // is actually present -- the large majority of open PRs carry neither label.
               const holdAppliedAt = labels.includes('consult-hold') ? await consultHoldAppliedAt(full) : null;
@@ -668,6 +689,7 @@ jobs:
                 consultHoldAppliedAt: holdAppliedAt,
                 soClearanceDetected,
                 hasApproval,
+                roleReview,
                 body: full.body,
                 // t/4137 item 5: heal failed silently for 2 days unnoticed before a human
                 // caught it by hand. Same shared-login caveat as everywhere else in this repo
