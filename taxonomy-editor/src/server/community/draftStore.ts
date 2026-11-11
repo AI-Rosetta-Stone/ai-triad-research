@@ -217,7 +217,81 @@ class DraftStoreImpl implements DraftStore {
     return count;
   }
 
-  private sanitizeAndProject(
+  private async validatePayloadAndNote(
+    payload: InquiryPayload,
+    ctx: DraftCreateContext,
+  ): Promise<{ ok: true; sanitizedNote: string; droppedRefs: string[]; droppedAuthFields: string[]; projected: Record<string, unknown> } | { ok: false; reason: 'invalid'; detail: string }> {
+    // Validate schema
+    try {
+      inquiryPayloadSchema.parse(payload);
+    } catch {
+      return { ok: false, reason: 'invalid', detail: 'schema' };
+    }
+
+    // Check payload size
+    const payloadSize = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    if (payloadSize > DRAFT_MAX_PAYLOAD_BYTES) {
+      return { ok: false, reason: 'invalid', detail: 'unprunable_ref' };
+    }
+
+    const droppedRefs: string[] = [];
+    const droppedAuthFields: string[] = [];
+
+    // Sanitize and project
+    let projected: Record<string, unknown>;
+    try {
+      projected = this.sanitizeAndProject(payload, ctx, droppedRefs, droppedAuthFields);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'draftStore',
+        level: 'error',
+        message: `createDraft sanitization failed: ${(err as any)?.message}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw new ActionableError({
+        goal: 'Sanitize draft payload',
+        problem: 'Payload sanitization or validation failed',
+        location: 'draftStore.createDraft',
+        nextSteps: ['Verify payload schema', 'Check sanitization budget'],
+      });
+    }
+
+    // Check if all refs were dropped
+    if (hasNodeRefs(payload) && droppedRefs.length > 0 && !hasNodeRefs(projected)) {
+      return { ok: false, reason: 'invalid', detail: 'all_refs_unknown' };
+    }
+
+    // Sanitize and cap the note field (B4)
+    let sanitizedNote = '';
+    if (typeof (payload as any).note === 'string') {
+      sanitizedNote = sanitizeUserText((payload as any).note);
+      const noteBytes = Buffer.byteLength(sanitizedNote, 'utf8');
+      if (noteBytes > DRAFT_MAX_NOTE_BYTES) {
+        return { ok: false, reason: 'invalid', detail: 'note_too_large' };
+      }
+    }
+
+    return { ok: true, sanitizedNote, droppedRefs, droppedAuthFields, projected };
+  }
+
+  private async checkCapLimits(clientId?: string): Promise<'cap_reached' | 'ok'> {
+    // Check global pending cap
+    const capResult = await this.checkGlobalCap();
+    if (capResult === 'cap_reached') {
+      return 'cap_reached';
+    }
+
+    // Check per-client rate limit (B6)
+    if (clientId) {
+      const clientCount = await this.countClientPendingDrafts(clientId);
+      if (clientCount >= DRAFT_PER_CLIENT_CAP) {
+        return 'cap_reached';
+      }
+    }
+
+    return 'ok';
+  }
     payload: InquiryPayload,
     ctx: DraftCreateContext,
     droppedRefs: string[],
@@ -258,70 +332,16 @@ class DraftStoreImpl implements DraftStore {
   }
 
   async createDraft(payload: InquiryPayload, ctx: DraftCreateContext): Promise<CreateDraftResult> {
-    // Validate schema
-    try {
-      inquiryPayloadSchema.parse(payload);
-    } catch {
-      /* telemetry — silent by design (schema validation is user input validation) */
-      return { ok: false, reason: 'invalid', detail: 'schema' };
+    // Validate and sanitize
+    const validation = await this.validatePayloadAndNote(payload, ctx);
+    if (!validation.ok) {
+      return validation;
     }
 
-    // B6: Check payload size before processing
-    const payloadSize = Buffer.byteLength(JSON.stringify(payload), 'utf8');
-    if (payloadSize > DRAFT_MAX_PAYLOAD_BYTES) {
-      return { ok: false, reason: 'invalid', detail: 'unprunable_ref' };
-    }
-
-    const droppedRefs: string[] = [];
-    const droppedAuthFields: string[] = [];
-
-    // Sanitize and project payload
-    let projected: Record<string, unknown>;
-    try {
-      projected = this.sanitizeAndProject(payload, ctx, droppedRefs, droppedAuthFields);
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'draftStore',
-        level: 'error',
-        message: `createDraft sanitization failed: ${(err as any)?.message}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw new ActionableError({
-        goal: 'Sanitize draft payload',
-        problem: 'Payload sanitization or validation failed',
-        location: 'draftStore.createDraft',
-        nextSteps: ['Verify payload schema', 'Check sanitization budget'],
-      });
-    }
-
-    // Check if all refs were dropped (if there were any)
-    if (hasNodeRefs(payload) && droppedRefs.length > 0 && !hasNodeRefs(projected)) {
-      return { ok: false, reason: 'invalid', detail: 'all_refs_unknown' };
-    }
-
-    // B4: Sanitize and cap the note field (max DRAFT_MAX_NOTE_BYTES)
-    let sanitizedNote = '';
-    if (typeof (payload as any).note === 'string') {
-      sanitizedNote = sanitizeUserText((payload as any).note);
-      const noteBytes = Buffer.byteLength(sanitizedNote, 'utf8');
-      if (noteBytes > DRAFT_MAX_NOTE_BYTES) {
-        return { ok: false, reason: 'invalid', detail: 'note_too_large' };
-      }
-    }
-
-    // Check global pending cap
-    const capResult = await this.checkGlobalCap();
-    if (capResult === 'cap_reached') {
+    // Check caps (global + per-client)
+    const capCheck = await this.checkCapLimits(ctx.clientId);
+    if (capCheck === 'cap_reached') {
       return { ok: false, reason: 'cap_reached' };
-    }
-
-    // B6: Check per-client rate limit (prevent one client from exhausting global cap)
-    if (ctx.clientId) {
-      const clientCount = await this.countClientPendingDrafts(ctx.clientId);
-      if (clientCount >= DRAFT_PER_CLIENT_CAP) {
-        return { ok: false, reason: 'cap_reached' };
-      }
     }
 
     // Create and write draft
@@ -330,11 +350,11 @@ class DraftStoreImpl implements DraftStore {
 
     const draftRecord = {
       draftId,
-      projection: projected,
-      note: sanitizedNote,
-      clientId: ctx.clientId, // B6: track client for per-client rate limiting
-      droppedRefs,
-      droppedAuthFields,
+      projection: validation.projected,
+      note: validation.sanitizedNote,
+      clientId: ctx.clientId,
+      droppedRefs: validation.droppedRefs,
+      droppedAuthFields: validation.droppedAuthFields,
       expiresAt,
       createdAt: new Date(this.now()).toISOString(),
     };
