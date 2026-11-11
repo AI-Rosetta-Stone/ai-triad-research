@@ -111,32 +111,3 @@ jobs:
             exit 1
           fi
           echo "guard OK — no consult-hold label present; reporting success."
-
-      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
-      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
-      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
-      # Records how much of the GITHUB_TOKEN installation quota (REST core + GraphQL) is used at
-      # the end of this job. GET /rate_limit does not count against the quota. Never fails the job.
-      - name: Rate-limit snapshot (t/314)
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | @tsv' 2>&1) \
-            && read -r cu cr cl creset gu gr gl <<<"$out" && [[ "$cu$cr$cl$creset$gu$gr$gl" =~ ^[0-9]+$ ]]; then
-            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
-            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
-            {
-              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
-              echo ""
-              echo "| API | used | remaining | limit |"
-              echo "|---|---|---|---|"
-              echo "| REST core | $cu | $cr | $cl |"
-              echo "| GraphQL | $gu | $gr | $gl |"
-              echo ""
-              echo "REST core window resets at $reset."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
-          fi
