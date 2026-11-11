@@ -26,10 +26,12 @@ export interface JobCapError {
   cause: unknown;
 }
 
-/** In-process guard: per-user job submissions to prevent same-replica double-submit.
- *  Keyed by (userId, kind, debateId?), records the most recent jobId submitted.
- *  Updated at the end of successful create, checked before durable count. */
-const IN_PROCESS_SUBMISSIONS = new Map<string, string>();
+/** t/182: In-process concurrency guard — a Set of pending (userId, kind, debateId) to prevent
+ *  same-replica double-submit race. Reserved BEFORE job creation, released after (in finally).
+ *  Key: `${userId}:${kind}:${debateId ?? ''}`.
+ *  This synchronously prevents concurrent POSTs on the same replica from both passing the cap
+ *  check before either writes their durable record. */
+const IN_PROCESS_PENDING = new Set<string>();
 
 /** Get the staleness threshold for a job kind (in ms from lastHeartbeatAt). */
 function getStalenesThreshold(kind: JobRecordKind): number {
@@ -122,21 +124,28 @@ export async function findRunningJobByIdempotencyKey<K extends JobRecordKind>(
 }
 
 /**
- * Record a submission in the in-process guard to prevent same-replica double-submit.
- * Key: (userId, kind, debateId) — for inquiry, debateId is undefined.
+ * Reserve a job creation slot (userId, kind, debateId) to prevent same-replica double-submit.
+ * MUST be called synchronously before any async work (including the durable cap check).
+ * Returns true if the slot was reserved (first caller). Returns false if already reserved.
+ * The caller MUST call releaseSubmissionReservation in a finally block to allow the next request.
  */
-export function recordInProcessSubmission(userId: string, kind: JobRecordKind, debateId: string | undefined, jobId: string): void {
+export function reserveSubmissionSlot(userId: string, kind: JobRecordKind, debateId: string | undefined): boolean {
   const key = `${userId}:${kind}:${debateId ?? ''}`;
-  IN_PROCESS_SUBMISSIONS.set(key, jobId);
+  if (IN_PROCESS_PENDING.has(key)) return false;
+  IN_PROCESS_PENDING.add(key);
+  return true;
 }
 
 /**
- * Check the in-process guard: if a submission is in-flight on this replica for the same
- * (userId, kind, debateId), return the in-process jobId. Otherwise return null.
- * This prevents same-replica race: two simultaneous POSTs both pass the durable cap check
- * before either writes their record.
+ * Release the submission slot reserved by reserveSubmissionSlot. MUST be called in finally
+ * to ensure the next concurrent request can proceed (if this request fails).
  */
-export function checkInProcessSubmission(userId: string, kind: JobRecordKind, debateId: string | undefined): string | null {
+export function releaseSubmissionReservation(userId: string, kind: JobRecordKind, debateId: string | undefined): void {
   const key = `${userId}:${kind}:${debateId ?? ''}`;
-  return IN_PROCESS_SUBMISSIONS.get(key) ?? null;
+  IN_PROCESS_PENDING.delete(key);
+}
+
+/** t/182: For testing — clear the in-process pending set (simulates a restart). */
+export function clearSubmissionPendingForTesting(): void {
+  IN_PROCESS_PENDING.clear();
 }

@@ -30,7 +30,7 @@ import {
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
-import { countUserJobRecords, findRunningJobByIdempotencyKey, checkInProcessSubmission, recordInProcessSubmission } from '../storage/jobCapChecker.js';
+import { countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation } from '../storage/jobCapChecker.js';
 import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
@@ -109,9 +109,12 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       const userId = getStorageUserId();
       const idempotencyKey = idempotencyKeyOf(req);
 
-      // In-process guard: prevent same-replica double-submit
-      const inProcessJobId = checkInProcessSubmission(userId, 'inquiry', undefined);
-      if (inProcessJobId) { json(res, { jobId: inProcessJobId }, 202); return; }
+      // t/182: Reserve submission slot before async checks to prevent concurrent POSTs both passing cap check.
+      if (!reserveSubmissionSlot(userId, 'inquiry', undefined)) {
+        error(res, 'An inquiry is already being started for this user — please wait', 429);
+        return;
+      }
+      try {
 
       // Durable idempotency check: cross-replica, fail-closed returns null to allow writeFileIfAbsent to enforce it.
       const existingByKey = await findRunningJobByIdempotencyKey(
@@ -135,13 +138,15 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       }
 
       const job = await startInquiryJob({ userId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
-      recordInProcessSubmission(userId, 'inquiry', undefined, job.jobId);
       getGlobalRecorder()?.record({
         type: 'inquiry.created', component: 'inquiry', level: 'info',
         message: `Inquiry job created: ${job.jobId}`,
         data: { jobId: job.jobId, fidelity: request.fidelity, hasIdempotencyKey: !!idempotencyKey },
       });
       json(res, { jobId: job.jobId }, 202);
+    } finally {
+      releaseSubmissionReservation(userId, 'inquiry', undefined);
+    }
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'inquiry', level: 'error', message: 'POST /api/inquiry failed',
