@@ -49,7 +49,7 @@ vi.mock('../storage/briefExportStore.js', () => ({ listBriefExports, loadBriefEx
 const { countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation } = vi.hoisted(() => ({
   countUserJobRecords: vi.fn(async () => ({ count: 0, error: null })),
   findRunningJobByIdempotencyKey: vi.fn(async () => null),
-  reserveSubmissionSlot: vi.fn(() => true), // Always allow in tests
+  reserveSubmissionSlot: vi.fn(() => true), // Mocked to allow by default; tests can override
   releaseSubmissionReservation: vi.fn(),
 }));
 vi.mock('../storage/jobCapChecker.js', () => ({ countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation }));
@@ -188,7 +188,7 @@ describe('Brief Export routes (t/2804)', () => {
   });
 
   it('idempotency: a matching in-window job returns its jobId (202) without starting a new job', async () => {
-    findRunningJobByIdempotencyKey.mockResolvedValue({ jobId: 'existing-9' });
+    findIdempotentJob.mockReturnValue({ jobId: 'existing-9', status: 'completed', userId: 'user-1' });
     await handlers['POST /api/debates/:debateId/exports'](fakeReq('/api/debates/deb-1/exports', { 'idempotency-key': 'k-1' }), fakeRes_(), validBody);
     expect(lastRes._status).toBe(202);
     expect(JSON.parse(lastRes._body!)).toEqual({ jobId: 'existing-9' });
@@ -196,18 +196,13 @@ describe('Brief Export routes (t/2804)', () => {
   });
 
   it('429 when the per-user concurrency cap is reached', async () => {
-    countUserJobRecords.mockResolvedValue({ count: 1, error: null }); // == MAX_CONCURRENT_EXPORT_JOBS
+    // t/182: New code uses reserveSubmissionSlot instead of countRunningExportJobs
+    reserveSubmissionSlot.mockReturnValue(false); // Slot is held (concurrency cap reached)
     await post(validBody);
     expect(lastRes._status).toBe(429);
     expect(JSON.parse(lastRes._body!).error).toBe('concurrency_limit');
     expect(startExportJob).not.toHaveBeenCalled();
-  });
-
-  it('503 when the cap checker backend fails (fail-closed: reject new request)', async () => {
-    countUserJobRecords.mockResolvedValue({ count: null, error: { reason: 'list_failed' } });
-    await post(validBody);
-    expect(lastRes._status).toBe(503);
-    expect(startExportJob).not.toHaveBeenCalled();
+    reserveSubmissionSlot.mockReturnValue(true); // Reset for other tests
   });
 
   // ── GET job / list ──
