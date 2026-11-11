@@ -59,7 +59,7 @@ test('docs-only batch: full=false (families follow the filter)', { skip }, () =>
   } finally { r.cleanup(); }
 });
 
-for (const f of ['lib/debate/x.ts', 'taxonomy-editor/src/server/a.ts', '.github/workflows/ci.yml', '.github/actions/a/action.yml', '.github/ci/tier-paths.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'taxonomy-editor/package.json', 'lib/tsconfig.json', 'tsconfig.base.json']) {
+for (const f of ['lib/debate/x.ts', 'taxonomy-editor/src/server/a.ts', '.github/workflows/ci.yml', '.github/actions/a/action.yml', '.github/ci/tier-paths.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'taxonomy-editor/package.json', 'lib/tsconfig.json', 'tsconfig.base.json', '.github/scripts/test-electron-matrix-membership.mjs', '.npmrc', '.nvmrc', 'eslint.config.mjs']) {
   test(`shared code ${f}: full=true`, { skip }, () => {
     const r = repo();
     try {
@@ -122,19 +122,60 @@ function integrityScript() {
   assert.ok(m, 'ci-gate: skip-integrity step not found');
   return m[1];
 }
-const POSITIVE = { powershell: 'false', electron: 'false', lib: 'false', debate: 'true', 'dockerfile-scan': '[]', full: 'false' };
-function gate(needs) {
-  const r = spawnSync(process.execPath, ['-e', integrityScript()], { encoding: 'utf8', env: { ...process.env, NEEDS_JSON: JSON.stringify(needs) } });
+// JOB_FAMILIES as ci-gate carries it, and as derived from each gated job's own `if:`.
+const JOB_FAMILIES = JSON.parse(CI.match(/^ {10}JOB_FAMILIES: '(.*)'$/m)[1]);
+function deriveFamilies() {
+  const L = CI.split('\n');
+  const jobsAt = L.indexOf('jobs:');
+  const gateNeeds = CI.match(/ {2}ci-gate:\n {4}name: ci-gate\n {4}needs: \[([^\]]+)\]/)[1].split(',').map((x) => x.trim()).filter((x) => x !== 'changes');
+  const map = {};
+  for (const j of gateNeeds) {
+    const s = L.findIndex((l, i) => i > jobsAt && l === `  ${j}:`);
+    assert.ok(s > 0, `gated job ${j} not found`);
+    let e = L.findIndex((l, i) => i > s && /^ {2}[a-z0-9_-]+:\s*$/.test(l)); if (e < 0) e = L.length;
+    const ifm = L.slice(s, e).join('\n').match(/\n {4}if: (?:>-\n((?: {6}.*\n?)+)|(.*))/);
+    const iff = ifm ? (ifm[1] || ifm[2] || '') : '';
+    map[j] = [...new Set([...iff.matchAll(/needs\.changes\.outputs\.([a-z0-9-]+) == 'true'/g)].map((m) => m[1]))];
+  }
+  return map;
+}
+test('ci-gate JOB_FAMILIES matches every gated job\'s own filter keys (drift guard)', () => {
+  assert.deepEqual(JOB_FAMILIES, deriveFamilies());
+  assert.deepEqual(JOB_FAMILIES['test-powershell'], ['powershell']);
+  assert.deepEqual(JOB_FAMILIES['renderer-tsc'], ['electron', 'lib']);
+  assert.deepEqual(JOB_FAMILIES['workflow-lint'], [], 'an always-style job has no filter keys');
+});
+
+const POSITIVE = { powershell: 'false', electron: 'false', lib: 'false', container: 'true', 'dockerfile-scan': '[]', full: 'false' };
+function gate(needs, families = JOB_FAMILIES) {
+  const r = spawnSync(process.execPath, ['-e', integrityScript()], { encoding: 'utf8', env: { ...process.env, NEEDS_JSON: JSON.stringify(needs), JOB_FAMILIES: JSON.stringify(families) } });
   return { code: r.status, out: r.stdout + r.stderr };
 }
-test('ci-gate integrity: full=false + positive verdicts: skips are accepted', () => {
-  const g = gate({ changes: { result: 'success', outputs: POSITIVE }, 'test-powershell': { result: 'skipped' }, 'debate-eval': { result: 'success' } });
+test('ci-gate integrity: full=false, each skip backed by its own family = false: accepted', () => {
+  const g = gate({ changes: { result: 'success', outputs: POSITIVE }, 'test-powershell': { result: 'skipped' }, 'renderer-tsc': { result: 'skipped' }, 'test-container': { result: 'success' } });
   assert.equal(g.code, 0, g.out);
-  assert.match(g.out, /skipped by positive filter verdicts: test-powershell/);
+  assert.match(g.out, /each skip backed by its own families = false: test-powershell\[powershell\], renderer-tsc\[electron\+lib\]/);
 });
-test('ci-gate integrity: full=false but a family output is not a positive verdict: RED', () => {
+test('C1: a job skipped although ITS OWN family said true: RED (the other families being false does not help)', () => {
+  const g = gate({ changes: { result: 'success', outputs: POSITIVE }, 'test-container': { result: 'skipped' } });
+  assert.equal(g.code, 1, g.out);
+  assert.match(g.out, /test-container \(its filter container="true" is not a positive false\)/);
+});
+test('C1: a multi-family job skipped while one of its families is not false: RED', () => {
+  const g = gate({ changes: { result: 'success', outputs: { ...POSITIVE, lib: 'true' } }, 'renderer-tsc': { result: 'skipped' } });
+  assert.equal(g.code, 1); assert.match(g.out, /renderer-tsc \(its filter lib="true"/);
+});
+test('C1: a job with no filter keys (always-style) skipped: RED', () => {
+  const g = gate({ changes: { result: 'success', outputs: POSITIVE }, 'workflow-lint': { result: 'skipped' } });
+  assert.equal(g.code, 1); assert.match(g.out, /workflow-lint \(no filter keys: it must never skip\)/);
+});
+test('a family output that is empty, not a positive false: RED', () => {
   const g = gate({ changes: { result: 'success', outputs: { ...POSITIVE, electron: '' } }, 'test-electron': { result: 'skipped' } });
-  assert.equal(g.code, 1); assert.match(g.out, /not positive verdicts: electron=""/);
+  assert.equal(g.code, 1); assert.match(g.out, /test-electron \(its filter electron="" is not a positive false\)/);
+});
+test('a gated job missing from JOB_FAMILIES: RED', () => {
+  const g = gate({ changes: { result: 'success', outputs: POSITIVE }, 'brand-new-job': { result: 'success' } });
+  assert.equal(g.code, 1); assert.match(g.out, /gated jobs missing from JOB_FAMILIES: brand-new-job/);
 });
 test('ci-gate integrity: full=true (or missing) with any skipped gated job: RED', () => {
   for (const full of ['true', undefined, '']) {

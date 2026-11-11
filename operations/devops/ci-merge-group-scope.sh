@@ -15,8 +15,9 @@
 set -uo pipefail
 
 # Shared code: anything most job families import or build on, plus CI's own config. A change here
-# runs everything (TL: "full suite for lib/, server, workflows, actions, manifests/lockfiles").
-SHARED_RE='^(lib/|taxonomy-editor/src/server/|\.github/workflows/|\.github/actions/|\.github/ci/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$)|(^|/)package\.json$|(^|/)tsconfig[^/]*\.json$'
+# runs everything (TL: "full suite for lib/, server, workflows, actions, manifests/lockfiles"), plus
+# CI's own scripts (.github/scripts/) and root config several families read (SO #5110 p/136#12).
+SHARED_RE='^(lib/|taxonomy-editor/src/server/|\.github/workflows/|\.github/actions/|\.github/ci/|\.github/scripts/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.npmrc$|\.nvmrc$|\.node-version$|eslint\.config\.[cm]?[jt]s$)|(^|/)package\.json$|(^|/)tsconfig[^/]*\.json$'
 
 out=${GITHUB_OUTPUT:-/dev/stdout}
 base=${1:-} head=${2:-} outcome=${3:-}
