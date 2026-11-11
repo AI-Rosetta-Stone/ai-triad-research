@@ -1895,6 +1895,11 @@ jobs:
       - name: Dependabot docker digest-only gate suites
         run: node --test operations/devops/dependabot-docker-gate.test.mjs operations/devops/docker/docker-digest-only.test.mjs
 
+      # t/244: the advisory shared-input coverage step's crash path never fails the job, even
+      # when its own comment post is rate-limited too.
+      - name: shared-input coverage workflow crash-path suite
+        run: node --test operations/devops/ci-shared-input-coverage-workflow.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
@@ -3805,7 +3810,15 @@ jobs:
               // A crash must never silently read as clean -- post it, but never fail this
               // advisory job (t/4103's lesson, applied here too).
               core.warning(`ci-shared-input-coverage CRASHED: ${err && err.stack ? err.stack : String(err)}`);
-              await postComment(`**ci-shared-input-coverage: CANNOT EVALUATE** — ${String(err && err.message ? err.message : err)}`);
+              // t/244: posting the comment is itself an API call. When the crash was a rate limit,
+              // the post hits the same limit and threw out of this handler, failing the advisory job
+              // (#4922, run 42839444486). The crash is already in the warning above; a failed post
+              // must only WARN.
+              try {
+                await postComment(`**ci-shared-input-coverage: CANNOT EVALUATE** — ${String(err && err.message ? err.message : err)}`);
+              } catch (postErr) {
+                core.warning(`ci-shared-input-coverage: could not post the CANNOT EVALUATE comment either (${String(postErr && postErr.message ? postErr.message : postErr)}); the job stays green because this check is advisory.`);
+              }
             }
 
             // Wrapped in a named function (not bare top-level code) so `return` is syntactically
