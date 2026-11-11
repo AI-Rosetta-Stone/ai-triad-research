@@ -107,3 +107,13 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 2
+
+  # Dev container (root Dockerfile): devcontainers/javascript-node + python:3.12-slim-trixie,
+  # both digest-pinned (t/270). External bases update through Dependabot, not the
+  # ai-triad-base drift workflow (PI decision 3, t/249). Weekly: the image is unhardened and
+  # rebuilt often upstream, so digest bumps retire its CVEs sooner.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
