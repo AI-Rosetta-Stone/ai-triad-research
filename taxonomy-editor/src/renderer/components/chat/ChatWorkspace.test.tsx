@@ -215,7 +215,6 @@ describe('ChatWorkspace', () => {
   });
 
 
-
   it('shows Methods links (Theory of Success and Theory of Operations) in Chat How panel (t/241)', async () => {
     const user = userEvent.setup();
     mockChatStoreState = {
@@ -228,15 +227,10 @@ describe('ChatWorkspace', () => {
     render(<ChatWorkspace />);
     await user.click(screen.getByRole('button', { name: 'How' }));
     // Expand Methods section to show Chat's methods links
-    const methodsToggle = Array.from(screen.getAllByRole('button')).find(btn => 
-      btn.textContent?.includes('Methods')
-    );
-    if (methodsToggle) {
-      await user.click(methodsToggle);
-      // Methods section should render with the two Chat-specific links
-      expect(screen.getByRole('button', { name: /Theory of Success/ })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Theory of Operations/ })).toBeInTheDocument();
-    }
+    await user.click(screen.getByRole('button', { name: /Methods/ }));
+    // Methods section should render with the two Chat-specific links
+    expect(screen.getByRole('button', { name: /Theory of Success/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Theory of Operations/ })).toBeInTheDocument();
   });
   it('an answer with no taxonomy refs says so under Why; a user message shows no such line (t/165)', () => {
     mockChatStoreState = {
