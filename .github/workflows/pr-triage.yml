@@ -526,7 +526,10 @@ jobs:
             // bot or not (the reviewer App posts real APPROVED reviews, e.g. PR #3911's
             // `ai-triad-reviewer-jpsnover` review) -- reuses the SAME reviews fetch.
             async function activityAndSoFacts(pr) {
-              const times = [pr.head?.commit?.committer?.date ?? pr.created_at];
+              // t/357: the head commit's date is pushed below, once it has been fetched. pulls.get's
+              // `head` carries no `commit`, so reading pr.head.commit here always fell back to
+              // created_at and the idle clock ignored the latest push.
+              const times = [];
               const [{ data: comments }, { data: reviews }] = await Promise.all([
                 github.rest.issues.listComments({ owner, repo, issue_number: pr.number, per_page: 100 }),
                 github.rest.pulls.listReviews({ owner, repo, pull_number: pr.number, per_page: 100 }),
@@ -558,6 +561,8 @@ jobs:
               } catch (e) {
                 core.warning(`#${pr.number}: could not read head commit date (${e.message}); changes-requested-stale ignores comment-sourced requests for this PR.`);
               }
+              // t/357: the latest push counts as activity; created_at only if the head date is unknown.
+              times.push(headCommitAt ?? pr.created_at);
               const roleReview = {
                 reviewerAppLogin: 'ai-triad-reviewer-jpsnover[bot]',
                 headSha: pr.head?.sha,
