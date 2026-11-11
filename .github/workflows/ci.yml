@@ -557,7 +557,7 @@ jobs:
 
       # Node + tsx required by parity tests (-Tag parity) in t/2609.
       # tsx must be available so the no-silent-skip guard fires on absence.
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -965,7 +965,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1177,7 +1177,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1282,7 +1282,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1378,7 +1378,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1469,7 +1469,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1521,7 +1521,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1734,7 +1734,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1797,7 +1797,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1933,7 +1933,7 @@ jobs:
       - name: Check doc links (main-repo presence)
         run: bash .github/scripts/check-doc-links.sh
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -1978,7 +1978,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         continue-on-error: true
         with:
           version: '11.20.0'
@@ -2023,7 +2023,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         continue-on-error: true
         with:
           version: '11.20.0'
@@ -2062,7 +2062,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -2576,7 +2576,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -2661,7 +2661,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -2901,7 +2901,7 @@ jobs:
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115  # v6.1.1
         with:
           version: '11.20.0'
 
@@ -3527,7 +3527,7 @@ jobs:
       - name: Log in to GitHub Container Registry
         id: ghcr
         continue-on-error: true
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
