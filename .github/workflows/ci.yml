@@ -189,7 +189,9 @@ jobs:
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   changes:
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    # t/391: also merge_group, which diffs the whole batch (base_sha..head_sha) instead of running
+    # every family unconditionally; see the scope step at the end of this job.
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
@@ -213,15 +215,24 @@ jobs:
       verify-config: ${{ steps.filter.outputs.verify-config }}
       citation-link-ci: ${{ steps.filter.outputs.citation-link-ci }}
       dockerfile-scan: ${{ steps.dockerfile-scan.outputs.matrix }}
+      # t/391: 'false' only when a merge_group batch was positively judged to touch no shared code.
+      full: ${{ steps.scope.outputs.full }}
     steps:
-      # push events: paths-filter diffs with local git, so it needs a checkout (PR events use the API).
+      # push and merge_group events: paths-filter diffs with local git, so they need a full-history
+      # checkout (PR events use the API).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'merge_group'
         with:
           fetch-depth: 0
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
         id: filter
+        # t/391: on merge_group a filter failure must not fail `changes`; the scope step below
+        # turns it into a FULL suite (fail-safe). PR and push keep failing loudly, as before.
+        continue-on-error: ${{ github.event_name == 'merge_group' }}
         with:
+          # merge_group: the whole batch. Empty on other events, which is the action's default.
+          base: ${{ github.event.merge_group.base_sha }}
+          ref: ${{ github.event.merge_group.head_sha }}
           filters: |
             # 'ai-models.json' is in powershell/electron/debate because the AI
             # registry completeness gates run inside those job families (t/2090):
@@ -507,11 +518,22 @@ jobs:
           echo "matrix=$m" >> "$GITHUB_OUTPUT"
           echo "Dockerfiles to scan: $m"
 
+      # t/391 (TL p/9#81): merge_group scope. full=false only when the batch diff was computed and
+      # touches no shared code; every failure mode means the FULL suite, with a WARN.
+      - name: Merge-group scope (t/391)
+        id: scope
+        if: always() && github.event_name == 'merge_group'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          FILTER_OUTCOME: ${{ steps.filter.outcome }}
+        run: bash operations/devops/ci-merge-group-scope.sh "$BASE_SHA" "$HEAD_SHA" "$FILTER_OUTCOME"
+
   test-powershell:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.powershell == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.powershell == 'true')
     # Outer hang-bound for the whole job (replaces GitHub's 360-min default — a hung suite
     # otherwise burns 6h of CI). Set 5 min above the step-level Pester timeout below so the STEP
     # timeout fires first on the common case (the Pester run), yielding the clear "has timed out"
@@ -952,7 +974,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15  # longest green run 5.2m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
@@ -1164,7 +1186,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30  # longest green run 12.8m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
@@ -1276,7 +1298,7 @@ jobs:
     needs: [changes, test-electron-vitest]
     if: >-
       always() && !cancelled() && needs.test-electron-vitest.result != 'skipped' &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -1369,7 +1391,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30  # longest green run 14.8m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -1483,7 +1505,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -1526,7 +1548,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.verify-config == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.verify-config == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -1627,7 +1649,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
@@ -1736,7 +1758,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
@@ -1811,7 +1833,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -1854,7 +1876,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     permissions:
@@ -1936,6 +1958,10 @@ jobs:
       - name: guard rate-limit snapshot step suite
         run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
 
+      # t/391: scoped merge_group CI: fail-safe scope script, ci-gate skip integrity, nightly alert.
+      - name: merge_group scope suite
+        run: node --test operations/devops/ci-merge-group-scope.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
@@ -1994,7 +2020,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.debate == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.debate == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     env:
@@ -2038,7 +2064,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.schema == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -2078,7 +2104,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema-drift == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.schema-drift == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -2142,7 +2168,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30  # longest green run 13.0m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -2378,7 +2404,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     env:
@@ -2451,7 +2477,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.embed-models == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.embed-models == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     # PYTHONUTF8=1: PEP 540 UTF-8 Mode — forces UTF-8 for stdio AND open() on win32.
@@ -2544,7 +2570,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lockfile-sync == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.lockfile-sync == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -2569,7 +2595,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' ||
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') ||
        needs.changes.outputs.container == 'true' ||
        needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
@@ -2595,7 +2621,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -2680,7 +2706,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.embeddings == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.embeddings == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -3004,7 +3030,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-env == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.bicep-env == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -3026,7 +3052,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.env-bicep-wiring == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.env-bicep-wiring == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -3077,7 +3103,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-resources == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.bicep-resources == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -3106,7 +3132,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.citation-link-ci == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.citation-link-ci == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
@@ -3181,7 +3207,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.powershell == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'merge_group' && needs.changes.outputs.full != 'false') || needs.changes.outputs.powershell == 'true')
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -3776,6 +3802,43 @@ jobs:
         run: |
           echo "::error::ci-gate: a gated job did not pass (see results above)"
           exit 1
+
+      # t/391 (TL p/9#81 condition 2, gate-signal integrity; SO C1 p/136#12): on merge_group a
+      # SKIPPED gated job counts as a pass only when `changes` succeeded, its scope said
+      # full=false, and THAT JOB's own filter keys (JOB_FAMILIES: the job's `needs.changes.outputs.<key>
+      # == 'true'` clauses) are each exactly 'false'. A job with no filter keys must never skip.
+      # JOB_FAMILIES is drift-tested against every gated job's `if:` (ci-merge-group-scope.test.mjs).
+      - name: Merge-group skip integrity (t/391)
+        if: always() && github.event_name == 'merge_group'
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          JOB_FAMILIES: '{"test-powershell":["powershell"],"test-electron":["electron"],"test-electron-vitest":["electron"],"test-electron-coverage":["electron"],"test-electron-matrix-membership":[],"test-container":["container"],"python-embed-smoke":["embed-models"],"test-python":["python"],"dependency-coverage":["container","lib"],"lockfile-overrides-check":["lockfile-sync"],"lib-lint":["lib"],"renderer-tsc":["electron","lib"],"contrast-check":["electron"],"test-server-prod-config":["container"],"workflow-lint":[],"bicep-env-drift":["bicep-env"],"schema-version-bump":["lib"],"render-smoke":["electron"],"bicep-aca-resources":["bicep-resources"],"embedding-onnx-equivalence":["embeddings"],"complexity-budget":["powershell"],"agents-md-budget":[],"merge-queue-f4-shim-test":[],"gate-self-health":[]}'
+        run: |
+          node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON);
+            const families = JSON.parse(process.env.JOB_FAMILIES);
+            const ch = needs.changes || {};
+            const out = ch.outputs || {};
+            const skipped = Object.entries(needs).filter(([n, v]) => n !== "changes" && v.result === "skipped").map(([n]) => n);
+            const fail = (m) => { console.log(`::error::ci-gate merge_group skip integrity (t/391): ${m}`); process.exit(1); };
+            if (ch.result !== "success") fail(`changes is ${ch.result}, so no skip can be trusted`);
+            const unmapped = Object.keys(needs).filter((n) => n !== "changes" && !(n in families));
+            if (unmapped.length) fail(`gated jobs missing from JOB_FAMILIES: ${unmapped.join(", ")}`);
+            if (out.full !== "false") {
+              if (skipped.length) fail(`full suite expected (full=${JSON.stringify(out.full)}) but skipped: ${skipped.join(", ")}`);
+              console.log(`merge_group: full suite (full=${out.full}); no gated job skipped.`);
+              process.exit(0);
+            }
+            const bad = [];
+            for (const job of skipped) {
+              const keys = families[job];
+              if (!keys.length) { bad.push(`${job} (no filter keys: it must never skip)`); continue; }
+              const notFalse = keys.filter((k) => out[k] !== "false");
+              if (notFalse.length) bad.push(`${job} (its filter ${notFalse.map((k) => `${k}=${JSON.stringify(out[k])}`).join(", ")} is not a positive false)`);
+            }
+            if (bad.length) fail(`skipped without its own family positively untouched: ${bad.join("; ")}`);
+            console.log(`merge_group: scoped run (full=false); each skip backed by its own families = false: ${skipped.map((j) => `${j}[${families[j].join("+")}]`).join(", ") || "none"}`);
+          '
 
       - name: CI shared-input coverage check (t/4368 deliverable 2)
         # PR-only: on a push event (post-merge main run) there is no PR to comment on, and the
