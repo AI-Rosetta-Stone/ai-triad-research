@@ -16,6 +16,7 @@ AI Triad Research: a multi-perspective research platform for AI policy and safet
 
 Orca config lives in the overlay repo `.orca-git/`, so it stays private while this repo is public. `ogit` is `git --git-dir=.orca-git --work-tree=.`, run from the repo root.
 - **Never `git add` or `git commit`** `.orca.yaml`, `.orca/`, `.orca-gitignore` or any **nested** `AGENTS.md`. Only this file and `operations/devops/azure/AGENTS.md` belong to the main repo. If unsure, run `sh .githooks/agent-file-owner.sh --path <file>`.
+- **Interweave apps and config are overlay-only** (PI rule, 2026-11-11). Build apps under `.interweave/apps/<name>/` and commit them only with `ogit add -f` and a pathspec. Main's `.gitignore` excludes `.interweave/`; never force-add it to main.
 - **New role or instance:** `ogit add -f <role>/AGENTS.md`, then run `sh .githooks/agent-file-owner.sh --audit` before your next commit. Never `--no-verify`. Never ogit-add a `.worktrees/<name>/AGENTS.md`.
 - **Feedback rules and skills only through the MCP tools** (`create_feedback_rule`, `manage_skill`). Hand-written rules load as dead. To repair an invalid rule, back it up, delete it and re-create it with the same `scope`. Only an observed injection proves a rule works. Ref §1.
 
@@ -33,6 +34,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 - **Verify against the authoritative source:** `origin/main` (not the shared checkout), the cloud API (not the workflow YAML), and the failing arm of a gate. A file that *configures* Y is not evidence that Y happens.
 - **Errors:** use `New-ActionableError` / `ActionableError` (Goal / Problem / Location / Next Steps), never a bare `throw`. **Log every fallback with a `WARN`** saying it was taken and why. See `docs/error-handling.md`.
 - **Tokens:** prefer pings to email, reference entities (`t/KEY`) instead of inlining them, read files in ranges, pipe long output through head/tail/grep, quote test summaries not runs, and read CI with `gh run view --log-failed`.
+- **Playbooks:** `/name` in these docs is the skill `interweave:name` that Claude and Copilot sessions load (t/366). Either name means the same playbook.
 
 ## Situational Rules (read the doc first)
 
@@ -44,7 +46,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 - **Change tiers and decision rights:** see `docs/change-tiers.md`.
   - The PR body's first line is `Tier: T0`, `T1` or `T2`.
   - T2 means a Second Opinion round plus `consult-hold`.
-  - **The PI decides** spending, credentials, product and UX, research claims, deleting prod data, roles and branch protection.
+  - **The PI decides** spending, credentials, product and UX, research claims, deleting prod data, roles and branch protection (standing delegations: docs/change-tiers.md).
 - **Incidents:** `docs/incident-response.md`.
 - **AI backends:** `ai-models.json` is the single source of truth, and a model's backend comes from the registry, never from its id prefix. `AI_API_KEY` is a fallback for gemini models only. Run `npm run verify:config` before landing; when adding a backend, use `/add-ai-backend`.
 - **Dependency security bumps:** `docs/security/dependency-policy.md`. Overrides live in `pnpm-workspace.yaml`.
