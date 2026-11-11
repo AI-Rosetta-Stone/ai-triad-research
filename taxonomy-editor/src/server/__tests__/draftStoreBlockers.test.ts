@@ -16,14 +16,16 @@ import { DRAFT_TTL_MS, DRAFT_GLOBAL_PENDING_CAP, DRAFT_PER_CLIENT_CAP } from '..
 const files = new Map<string, string>();
 const normalize = (p: string) => p.replace(/\\/g, '/');
 
+const listDirectoryImpl = async (dir: string) => {
+  const prefix = `${normalize(dir)}/`;
+  return [...new Set([...files.keys()].filter(k => k.startsWith(prefix) && k !== prefix).map(k => k.slice(prefix.length).split('/')[0]))];
+};
+
 const mockBackend: StorageBackend = {
   readFile: vi.fn(async (p: string) => files.get(normalize(p)) ?? null),
   writeFile: vi.fn(async (p: string, content: string) => { files.set(normalize(p), content); }),
   deleteFile: vi.fn(async (p: string) => { files.delete(normalize(p)); }),
-  listDirectory: vi.fn(async (dir: string) => {
-    const prefix = `${normalize(dir)}/`;
-    return [...new Set([...files.keys()].filter(k => k.startsWith(prefix) && k !== prefix).map(k => k.slice(prefix.length).split('/')[0]))];
-  }),
+  listDirectory: vi.fn(listDirectoryImpl),
   exists: vi.fn(async (p: string) => files.has(normalize(p))),
 };
 
@@ -48,11 +50,12 @@ vi.mock('../security/contentSanitizer.js', () => ({
 
 import { createDraftStore } from '../community/draftStore.js';
 import type { InquiryPayload } from '../../../../lib/inquiry/index.js';
+import { makeValidResult } from '../../../../lib/inquiry/__fixtures__/validResult.js';
 
-const basePayload: InquiryPayload = {
-  request: { question: 'Test question' },
-  results: [],
-};
+const basePayload = {
+  result: makeValidResult(),
+  note: '',
+} as unknown as InquiryPayload;
 
 const now = () => Date.now();
 
@@ -60,6 +63,8 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
   beforeEach(() => {
     files.clear();
     vi.clearAllMocks();
+    // A test that overrides listDirectory must not leak its override into the next test.
+    (mockBackend.listDirectory as any).mockImplementation(listDirectoryImpl);
   });
 
   describe('B1: DraftStore interface methods are tested', () => {
@@ -146,24 +151,21 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       }
     });
 
-    it('createDraft throws ActionableError when global cap count fails', async () => {
+    it('createDraft refuses (cap_reached) when the per-client count fails, and writes nothing', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
 
-      // Mock listDirectory to throw on the second call (during cap check)
+      // Mock listDirectory to throw on the second call (the per-client count, after the global count)
       let callCount = 0;
-      (mockBackend.listDirectory as any).mockImplementation(async () => {
+      (mockBackend.listDirectory as any).mockImplementation(async (dir: string) => {
         callCount++;
         if (callCount > 1) throw new Error('Storage error');
-        return [];
+        return listDirectoryImpl(dir);
       });
 
-      // createDraft should throw, not silently continue
-      try {
-        await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
-        expect.fail('Should have thrown ActionableError');
-      } catch (err) {
-        expect((err as any).message).toContain('Count');
-      }
+      // Fail closed: a failed count refuses the draft (never admits it)
+      const result = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      expect(result).toEqual({ ok: false, reason: 'cap_reached' });
+      expect([...files.keys()].some(k => k.includes('/_drafts/drf_'))).toBe(false);
     });
   });
 
@@ -251,10 +253,8 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
     it('creates draft payload size cap (B6)', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
 
-      const hugePayload: InquiryPayload = {
-        request: { question: 'x'.repeat(2 * 1024 * 1024) }, // 2MB
-        results: [],
-      };
+      // The schema's note cap (5000 chars) rejects a 2MB note before the byte-size check runs.
+      const hugePayload = { result: makeValidResult(), note: 'x'.repeat(2 * 1024 * 1024) } as unknown as InquiryPayload;
 
       const result = await store.createDraft(hugePayload, {
         nodesById: new Map(),
@@ -263,7 +263,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
 
       expect(result.ok).toBe(false);
       expect((result as any).reason).toBe('invalid');
-      expect((result as any).detail).toBe('unprunable_ref');
+      expect((result as any).detail).toBe('schema');
     });
 
     it('note field is sanitized and capped (B4)', async () => {

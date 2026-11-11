@@ -220,11 +220,12 @@ class DraftStoreImpl implements DraftStore {
   private async validatePayloadAndNote(
     payload: InquiryPayload,
     ctx: DraftCreateContext,
-  ): Promise<{ ok: true; sanitizedNote: string; droppedRefs: string[]; droppedAuthFields: string[]; projected: Record<string, unknown> } | { ok: false; reason: 'invalid'; detail: string }> {
+  ): Promise<{ ok: true; sanitizedNote: string; droppedRefs: string[]; droppedAuthFields: string[]; projected: Record<string, unknown> } | { ok: false; reason: 'invalid'; detail: Extract<CreateDraftResult, { reason: 'invalid' }>['detail'] }> {
     // Validate schema
     try {
       inquiryPayloadSchema.parse(payload);
     } catch {
+      /* telemetry — silent by design (schema validation is user input validation) */
       return { ok: false, reason: 'invalid', detail: 'schema' };
     }
 
@@ -292,6 +293,8 @@ class DraftStoreImpl implements DraftStore {
 
     return 'ok';
   }
+
+  private sanitizeAndProject(
     payload: InquiryPayload,
     ctx: DraftCreateContext,
     droppedRefs: string[],
