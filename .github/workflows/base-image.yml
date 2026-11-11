@@ -18,6 +18,11 @@ on:
     # responsiveness the no-fix residual policy needs. Cost negligible (public GHCR +
     # Actions minutes are free; base build ~6 min).
     - cron: '0 0 * * 0'
+  pull_request:
+    # t/220: verify Dockerfile.base changes early, before main, with in-image smoke tests
+    paths:
+      - 'deploy/azure/Dockerfile.base'
+      - '.github/workflows/base-image.yml'
   push:
     branches: [main]  # t/4157: a feature branch touching this file must not publish :latest unreviewed
     paths:
@@ -96,10 +101,9 @@ jobs:
         with:
           context: .
           file: deploy/azure/Dockerfile.base
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.date_tag.outputs.tag }}
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ github.event_name != 'pull_request' && format('{0}/{1}:latest,{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.date_tag.outputs.tag) || 'ai-triad-base:test' }}
           # CACHE_BUST invalidates the npm@latest + apt-get upgrade layers so security
           # upgrades genuinely re-run instead of restoring a stale cached layer (t/3137).
           # Date-tag granularity busts on the real rebuild cadence (weekly cron / new-day
@@ -110,10 +114,30 @@ jobs:
           cache-to: type=gha,scope=shared-docker,mode=min
           platforms: linux/amd64
 
+      - name: Smoke tests in loaded base image (t/220)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --rm ai-triad-base:test /bin/bash -c '
+            set -e
+            echo "=== CA certificates ==="
+            curl -fsSI https://github.com >/dev/null && echo "✓ curl with CA bundle works"
+            echo "=== Python SSL ==="
+            python3 -c "import ssl, urllib.request; urllib.request.urlopen(\"https://pypi.org\", timeout=10)" && echo "✓ Python SSL works"
+            echo "=== Node.js HTTPS ==="
+            node -e "const https = require(\"https\"); https.get(\"https://nodejs.org\", () => process.exit(0)).on(\"error\", e => { console.error(e); process.exit(1); })" && echo "✓ Node.js HTTPS works"
+            echo "=== npm ==="
+            npm --version | grep -E "^[0-9]" && echo "✓ npm works"
+            echo "=== git ==="
+            git ls-remote https://github.com/AI-Rosetta-Stone/ai-triad-data HEAD >/dev/null && echo "✓ git works"
+            echo "=== All smoke tests passed ==="
+          '
+
       - name: Install Trivy
+        if: github.event_name != 'pull_request'
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
 
       - name: Scan image with Trivy
+        if: github.event_name != 'pull_request'
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
@@ -126,11 +150,12 @@ jobs:
 
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066  # v4
-        if: always() && hashFiles('trivy-results.sarif') != ''
+        if: github.event_name != 'pull_request' && always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: 'trivy-results.sarif'
 
       - name: Generate SBOM
+        if: github.event_name != 'pull_request'
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.date_tag.outputs.tag }}
@@ -138,6 +163,7 @@ jobs:
           output-file: sbom-base.spdx.json
 
       - name: Upload SBOM artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: sbom-base
@@ -146,3 +172,33 @@ jobs:
       - name: Image size report
         if: success()
         run: docker images ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+
+      - name: Alert on build failure (t/220)
+        if: failure() && github.event_name != 'pull_request'
+        run: |
+          ISSUE_TITLE="base-image build failed ($(date -u +'%Y-%m-%d %H:%M')Z)"
+          ISSUE_BODY="## Workflow Failure
+          
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Event: ${{ github.event_name }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          
+          ### Next steps
+          - Check the run log for the failed step
+          - Verify base-image dependencies (Debian, npm, git, Python)
+          - Re-run or investigate Dockerfile.base"
+          
+          gh issue list --repo ${{ github.repository }} --label base-image-build-alert --json number -q ".[0].number" > issue_num.txt || true
+          ISSUE_NUM=$(cat issue_num.txt 2>/dev/null || echo "")
+          
+          if [ -z "$ISSUE_NUM" ]; then
+            gh issue create --repo ${{ github.repository }} --title "$ISSUE_TITLE" --body "$ISSUE_BODY" --label base-image-build-alert
+          else
+            gh issue comment $ISSUE_NUM --repo ${{ github.repository }} --body "## Workflow Failure (run ${{ github.run_id }})
+
+            [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
