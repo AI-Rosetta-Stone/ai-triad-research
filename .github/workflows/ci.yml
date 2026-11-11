@@ -1427,7 +1427,8 @@ jobs:
       # `--with-deps` apt-installs Chromium's system libraries and fonts. When the runners can't reach
       # the Ubuntu mirrors (2026-11-11: `Temporary failure resolving 'security.ubuntu.com'` on every
       # merge group, which blocked the queue repo-wide), the install comes from the apt cache above with
-      # no `apt-get update` and no network (t/394). If that is a miss, retry the live install once after
+      # no `apt-get update` and no mirror access (t/394). The browser binary may still download from
+      # Playwright's CDN on that arm. If the cache is a miss, retry the live install once after
       # a back-off, then fall back to the Chromium binary alone, with a WARN (ubuntu-latest already ships
       # Chrome's runtime libraries). No masking: every arm ends with a real headless launch, which fails
       # this step loudly if a library is missing, and the smoke step below is unchanged and still has to
@@ -1441,7 +1442,8 @@ jobs:
           verify_launch() {
             node -e "require('@playwright/test').chromium.launch().then(b => b.close()).then(() => console.log('render-smoke: Chromium launches')).catch(e => { console.error('::error::render-smoke: Chromium cannot launch: ' + e.message); process.exit(1) })"
           }
-          # Cache arm: install the packages from the cached .debs, offline. WARN and fall through on any miss.
+          # Cache arm: install the apt packages from the cached .debs, with no mirror access. The browser
+          # binary (`playwright install chromium`) may still download from Playwright's CDN. Any miss falls through.
           from_cache() {
             if [ "${RENDER_SMOKE_SIMULATE_APT_FAILURE:-}" = "1" ]; then return 1; fi
             [ -s "$APT_CACHE/packages.txt" ] || return 1
