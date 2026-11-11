@@ -135,6 +135,10 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
         try {
           job = await startInquiryJob({ userId, jobId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
         } catch (err) {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'inquiry', level: 'error', message: 'Inquiry job start failed — slot released',
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
           await releaseJobSlot(getUserContentBackend(), slot);
           throw err;
         }

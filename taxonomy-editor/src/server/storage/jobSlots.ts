@@ -81,15 +81,20 @@ async function currentHolder(
   if (generation < 0) return { generation: -1, holder: null };
   const raw = await backend.readFile(`${dir}/slot-${index}-${generation}.json`);
   if (raw === null) return { generation, holder: null };
+  let parsed: Partial<SlotHolder> | null = null;
   try {
-    const parsed = JSON.parse(raw) as SlotHolder;
-    if (typeof parsed.jobId !== 'string') throw new Error('slot holder lacks jobId');
-    return { generation, holder: parsed };
+    parsed = JSON.parse(raw) as Partial<SlotHolder>;
   } catch (err) {
     log.server.warn({ slot: index, generation, err: String(err), cause: 'job-slot-unreadable' },
       'job slot holder unreadable — treated as free');
     return { generation, holder: null };
   }
+  if (typeof parsed.jobId !== 'string' || typeof parsed.claimedAt !== 'string') {
+    log.server.warn({ slot: index, generation, cause: 'job-slot-unreadable' },
+      'job slot holder lacks jobId or claimedAt — treated as free');
+    return { generation, holder: null };
+  }
+  return { generation, holder: { jobId: parsed.jobId, claimedAt: parsed.claimedAt } };
 }
 
 /** Free a slot this request claimed but did not start a job in (the create failed), so the user's
