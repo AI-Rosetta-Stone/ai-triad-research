@@ -33,7 +33,7 @@ import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
-import { HowPanel } from '../shared/HowPanel';
+import { HowPanel, HowSection, HowRawContent, HowMethodsLinks } from '../shared/HowPanel';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -199,7 +199,19 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
-        {!isUser && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} methodsLinks={CHAT_HOW_METHODS_LINKS} />}
+        {!isUser && (
+          <HowPanel>
+            <HowSection title="Raw Prompt" defaultExpanded>
+              <HowRawContent value={entry.raw_prompt} label="Chat raw prompt" missingText="Raw prompt not recorded for this answer." />
+            </HowSection>
+            <HowSection title="Raw Response" defaultExpanded={false}>
+              <HowRawContent value={entry.raw_response} label="Chat raw response" missingText="Raw response not recorded for this answer." />
+            </HowSection>
+            <HowSection title="Methods" defaultExpanded={false}>
+              <HowMethodsLinks links={CHAT_HOW_METHODS_LINKS} component="chat-workspace" />
+            </HowSection>
+          </HowPanel>
+        )}
       </div>
     </div>
   );
