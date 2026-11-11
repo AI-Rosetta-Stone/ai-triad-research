@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { findControlChars, isBadByte, isAllowlisted, allowlistProblems, scan, SCANNED_EXT } from './check-control-chars.mjs'
+import { findControlChars, isBadByte, isAllowlisted, allowlistProblems, scan, SCANNED_EXT, isScanned } from './check-control-chars.mjs'
 
 const BS = String.fromCharCode(0x08)
 
@@ -54,6 +54,33 @@ test('allowlist entries need a path and a real reason', () => {
 test('scanned extensions follow the ticket list', () => {
   for (const p of ['a.ts', 'a.tsx', 'a.js', 'a.mjs', 'a.cjs', 'a.ps1', 'a.psm1', 'a.py', 'a.json', 'a.yml', 'a.yaml', 'a.md', 'a.css']) assert.ok(SCANNED_EXT.test(p), p)
   for (const p of ['a.png', 'a.woff2', 'a.onnx', 'a.txt']) assert.ok(!SCANNED_EXT.test(p), p)
+})
+
+test('t/130: .mts/.cts/.jsx, Dockerfiles and .githooks scripts are scanned; look-alikes are not', () => {
+  for (const p of ['workflow-app/vitest.config.mts', 'a.cts', 'a.jsx', 'Dockerfile', 'taxonomy-editor/Dockerfile', 'deploy/azure/Dockerfile.base', '.githooks/pre-push', '.githooks/post-checkout']) assert.ok(isScanned(p), p)
+  for (const p of ['docs/Dockerfile-notes.png', 'Dockerfiles/readme.txt', 'scripts/pre-push', '.githooks/README.txt', 'a.png']) assert.ok(!isScanned(p), p)
+})
+
+test('t/130: --stdin0 reads NUL-separated paths (a path with a space is scanned whole); empty stdin scans nothing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ccl0-'))
+  const cli = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'check-control-chars.mjs')
+  const run = (input) => {
+    try { return { code: 0, out: execFileSync(process.execPath, [cli, '--stdin0'], { cwd: root, input, encoding: 'utf8' }) } }
+    catch (e) { return { code: e.status, out: e.stdout } }
+  }
+  try {
+    mkdirSync(join(root, 'my dir'), { recursive: true })
+    writeFileSync(join(root, 'my dir', 'bad file.ts'), `const re = /${BS}x/\n`)
+    writeFileSync(join(root, 'ok.ts'), 'const x = 1\n')
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    const hit = run('ok.ts\0my dir/bad file.ts\0')
+    assert.equal(hit.code, 1)
+    assert.match(hit.out, /my dir\/bad file\.ts:1:13: 0x08/)
+    assert.match(hit.out, /; 2 file\(s\) scanned/)
+    const none = run('')
+    assert.equal(none.code, 0)
+    assert.match(none.out, /clean, 0 file\(s\) scanned/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('scan: a git repo with a bad file, a clean file, an allowlisted bad file and an unscanned bad file', () => {
