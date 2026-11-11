@@ -19,8 +19,6 @@
 //          [--repo owner/name] [--daemon http://127.0.0.1:7420] [--no-files]
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
@@ -117,6 +115,9 @@ function parseArgs(argv) {
     else throw new Error(`unknown argument ${a}`);
   }
   if (!o.agent) throw new Error('missing --agent <collaborator id> (your own id, from your prompt)');
+  // The daemon is a local MCP endpoint; refuse anything that is not loopback so a stray env var or flag cannot send ticket data off-host.
+  const host = new URL(o.daemon).hostname;
+  if (host !== '127.0.0.1' && host !== 'localhost') throw new Error(`--daemon must be a loopback URL, got ${o.daemon}`);
   return o;
 }
 
@@ -159,8 +160,6 @@ async function main() {
     .split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
   const root = o.files ? mainCheckoutRoot() : null;
-  const cacheDir = path.join(tmpdir(), 'aitriad-my-prs', o.repo.replace('/', '_'));
-  if (o.files) mkdirSync(cacheDir, { recursive: true });
   const dirOwner = new Map();
   const ownerOf = async (file) => {
     const dir = path.posix.dirname(file);
@@ -179,16 +178,11 @@ async function main() {
     const refs = ticketRefs(pr);
     let fileOwners = null;
     if (o.files && claim({ refs, myTickets, fileOwners: null, agent: o.agent }).needsFiles) {
-      const cache = path.join(cacheDir, `${pr.number}-${pr.sha}.json`);
       let files;
-      if (existsSync(cache)) files = JSON.parse(readFileSync(cache, 'utf8'));
-      else {
-        try {
-          files = gh(['api', '--paginate', `repos/${o.repo}/pulls/${pr.number}/files?per_page=100`, '--jq', '.[].filename']).split('\n').filter(Boolean);
-          restCalls++;
-          writeFileSync(cache, JSON.stringify(files));
-        } catch (e) { warn(`could not list files of #${pr.number} (${String(e.message).split('\n')[0]}); judged by ticket refs only`); files = []; }
-      }
+      try {
+        files = gh(['api', '--paginate', `repos/${o.repo}/pulls/${pr.number}/files?per_page=100`, '--jq', '.[].filename']).split('\n').filter(Boolean);
+        restCalls++;
+      } catch (e) { warn(`could not list files of #${pr.number} (${String(e.message).split('\n')[0]}); judged by ticket refs only`); files = []; }
       fileOwners = [];
       for (const f of files) fileOwners.push(await ownerOf(f));
     }
