@@ -447,7 +447,7 @@
 }
 
 .claim-map-headline {
-  font-size: 1.4rem;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.3;
