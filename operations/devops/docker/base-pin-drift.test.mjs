@@ -223,3 +223,18 @@ test('classifyRepinTier T1: runtime line edited but tag and digest unchanged (wh
   assert.equal(r.tier, 'T1');
   assert.match(r.reason, /pin did not change/);
 });
+
+// ---- t/309: repin-tier.mjs stays import-free and is the code base-pin-drift uses -------------
+
+test('repin-tier.mjs has no imports (the T0 sweep imports it as-is) and is the re-exported predicate', async () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.join(here, 'repin-tier.mjs'), 'utf8');
+  const code = src.split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  assert.doesNotMatch(code, /^\s*import\s|\bimport\s*\(|\brequire\s*\(/m, 'repin-tier.mjs must not import anything');
+  assert.doesNotMatch(code, /\bprocess\.|\bfetch\s*\(/, 'repin-tier.mjs must do no I/O');
+  const standalone = await import('./repin-tier.mjs');
+  assert.equal(standalone.classifyRepinTier, classifyRepinTier, 'base-pin-drift must re-export the same function');
+  const before = dockerfile('2026-11-01', D_OLD);
+  assert.equal(standalone.classifyRepinTier(before, dockerfile('2026-11-08', D_NEW)).tier, 'T0');
+  assert.equal(standalone.classifyRepinTier(before, `${before}\nUSER root`).tier, 'T1');
+});

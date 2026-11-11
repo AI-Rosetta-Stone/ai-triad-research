@@ -30,15 +30,14 @@ import {
   formatVerdictOutputs,
   formatVerdictSummary,
 } from '../gate-verdict.mjs';
+// The pin patterns and the T0/T1 predicate live in an import-free module so the T0 enqueue
+// sweep can import the same code (t/309). Re-exported here for existing callers.
+import { IMAGE, DATE_TAG, DIGEST, RUNTIME_FROM, classifyRepinTier } from './repin-tier.mjs';
 
+export { IMAGE, classifyRepinTier };
 export const GATE = 'base-pin-drift';
-export const IMAGE = 'ghcr.io/ai-rosetta-stone/ai-triad-base';
 export const REPO_PATH = 'ai-rosetta-stone/ai-triad-base';
 export const BRANCH_PREFIX = 'docker/base-repin-';
-
-const DATE_TAG = /^\d{4}-\d{2}-\d{2}$/;
-const DIGEST = /^sha256:[0-9a-f]{64}$/;
-const RUNTIME_FROM = /^FROM\s+ghcr\.io\/ai-rosetta-stone\/ai-triad-base:(\S+?)@(sha256:[0-9a-f]{64})\s+AS\s+runtime\s*$/i;
 
 /** PURE. The runtime stage's base pin, or null when no single well-formed pin line exists. */
 export function parseRuntimePin(dockerfileText) {
@@ -117,31 +116,6 @@ export function repinDockerfile(dockerfileText, { tag, digest }) {
 /** PURE. The re-pin branch. The digest prefix keeps a same-day re-push distinct. */
 export function repinBranch({ tag, digest }) {
   return `${BRANCH_PREFIX}${tag}-${digest.slice('sha256:'.length, 'sha256:'.length + 12)}`;
-}
-
-/**
- * PURE. The tier a re-pin PR may declare (t/305; PI decision 4, TL guardrail p/103#19).
- * `Tier: T0` makes the T0 enqueue sweep merge it with no human, so T0 is allowed ONLY when the
- * change is exactly one line, that line is the runtime FROM before and after, and both point at
- * our own ai-triad-base (RUNTIME_FROM matches only that image) with a date tag and digest.
- * Anything else is T1, so `Tier: T0` can't carry another Dockerfile edit.
- * @returns {{tier: 'T0'|'T1', reason: string}}
- */
-export function classifyRepinTier(beforeText, afterText) {
-  const t1 = (reason) => ({ tier: 'T1', reason });
-  const before = String(beforeText).split(/\r?\n/);
-  const after = String(afterText).split(/\r?\n/);
-  if (before.length !== after.length) return t1(`line count changed (${before.length} -> ${after.length})`);
-  const changed = [];
-  before.forEach((line, i) => { if (line !== after[i]) changed.push(i); });
-  if (changed.length !== 1) return t1(`${changed.length} lines changed, want exactly 1`);
-  const i = changed[0];
-  const was = RUNTIME_FROM.exec(before[i].trim());
-  const now = RUNTIME_FROM.exec(after[i].trim());
-  if (!was || !now) return t1(`line ${i + 1} is not the '${IMAGE}:<tag>@sha256:<digest> AS runtime' line on both sides`);
-  if (!DATE_TAG.test(was[1]) || !DATE_TAG.test(now[1])) return t1('tag is not YYYY-MM-DD on both sides');
-  if (was[1] === now[1] && was[2] === now[2]) return t1('pin did not change');
-  return { tier: 'T0', reason: 'only the runtime ai-triad-base tag/digest changed (dependency bump, docs/change-tiers.md)' };
 }
 
 /**
