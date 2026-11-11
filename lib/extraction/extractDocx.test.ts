@@ -54,9 +54,9 @@ describe('DOCX zip-bomb guard', () => {
     expect(result.text).toContain('Hello docx');
   });
 
-  it('refuses a crafted high-ratio DOCX with no archive comment', async () => {
-    // 5 MB of one character deflates to a few KB: a ratio far above the 100:1 limit.
-    const bytes = await buildDocx(documentXml('A'.repeat(5 * 1024 * 1024)));
+  it('refuses a DOCX whose entry inflates past the 20 MB per-entry cap', async () => {
+    // Honest sizes, but 25 MB of inflated content in one entry.
+    const bytes = await buildDocx(documentXml('A'.repeat(25 * 1024 * 1024)));
     const inner = await innerErrorOf(bytes);
     expect(inner?.message).toContain('Zip bomb detected');
   });
@@ -138,6 +138,44 @@ describe('DOCX zip-bomb guard with patched sizes', () => {
 
     expect(err.message).toContain('Zip bomb detected');
     expect(elapsed).toBeLessThan(5000);
+  });
+
+  it('refuses a bomb with 64 bytes prepended, before any inflation', async () => {
+    const deflated = await deflateZeros(400 * 1024 * 1024);
+    const archive = rawZip([
+      { name: '[Content_Types].xml', method: 0, data: Buffer.from(CONTENT_TYPES), declaredSize: CONTENT_TYPES.length },
+      { name: 'word/document.xml', method: 8, data: deflated, declaredSize: 1 },
+    ]);
+    // Starts with "PK" so format detection reaches the DOCX guard, as a real attacker's file would.
+    const bytes = Buffer.concat([Buffer.from('PK'), Buffer.alloc(62, 0x78), archive]);
+
+    const start = performance.now();
+    const err = await extractDocumentText(bytes, 'prepended.docx').catch((e) => e);
+    const elapsed = performance.now() - start;
+
+    expect(err.code).toBe('CORRUPT_DOCUMENT');
+    expect(err.problem).toContain('ambiguous');
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('refuses a bomb with a fake end-of-central-directory record earlier in the file', async () => {
+    const deflated = await deflateZeros(400 * 1024 * 1024);
+    const archive = rawZip([
+      { name: '[Content_Types].xml', method: 0, data: Buffer.from(CONTENT_TYPES), declaredSize: CONTENT_TYPES.length },
+      { name: 'word/document.xml', method: 8, data: deflated, declaredSize: 1 },
+    ]);
+    // A bare EOCD record (signature, zero entries) in front of the real archive: a reader that takes the first one sees nothing.
+    const fakeEocd = Buffer.alloc(22);
+    fakeEocd.writeUInt32LE(0x06054b50, 0);
+    const bytes = Buffer.concat([fakeEocd, archive]);
+
+    const start = performance.now();
+    const err = await extractDocumentText(bytes, 'fake-eocd.docx').catch((e) => e);
+    const elapsed = performance.now() - start;
+
+    expect(err.code).toBe('CORRUPT_DOCUMENT');
+    expect(err.problem).toContain('ambiguous');
+    expect(elapsed).toBeLessThan(1000);
   });
 });
 

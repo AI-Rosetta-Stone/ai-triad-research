@@ -1,70 +1,94 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { inflateRawSync } from 'node:zlib';
+import type { Readable } from 'node:stream';
+import JSZip from 'jszip';
 import { extractRawText } from 'mammoth';
 import { ActionableError } from '../debate/errors.js';
 
 const MAX_TOTAL_UNCOMPRESSED = 50 * 1024 * 1024; // 50 MB of actual inflated bytes, all entries together
 const MAX_SINGLE_ENTRY = 20 * 1024 * 1024; // 20 MB of actual inflated bytes, per entry
-const MAX_RATIO_ALLOWED = 100; // Actual inflated size / compressed size for DEFLATE
 const EOCD_SIZE = 22; // End of Central Directory record without a comment
 const MAX_EOCD_SEARCH = 65557; // EOCD plus the largest possible (65535-byte) comment
 const LOCAL_HEADER_SIZE = 30;
 const CENTRAL_HEADER_SIZE = 46;
-const METHOD_STORED = 0;
-const METHOD_DEFLATE = 8;
 
 /**
  * Extract text from DOCX using mammoth.
- * The zip-bomb guard inflates each entry under a byte budget before mammoth sees the file.
+ *
+ * Two layers, in order:
+ * 1. Refuse any archive whose structure two parsers could read differently (prepended bytes, two EOCD records).
+ * 2. Inflate every entry through JSZip, the parser mammoth uses, counting bytes as they are produced. Inflation
+ *    stops at the caps. The bounded content is rebuilt into a fresh archive, and only that goes to mammoth.
  */
 export async function extractDocxText(bytes: Uint8Array): Promise<string> {
-  checkZipBombGuard(bytes);
+  checkUnambiguousZip(bytes);
+  const bounded = await rebuildWithinCaps(bytes);
 
   // mammoth's Node entry reads `buffer`; `arrayBuffer` is browser-only and was rejected with "Could not find file in options".
   const result = await extractRawText({
-    buffer: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    buffer: Buffer.from(bounded.buffer, bounded.byteOffset, bounded.byteLength),
   });
 
   return result.value;
 }
 
 /**
- * Inflate every central-directory entry and count the bytes actually produced. Declared sizes are never trusted:
- * a patched header can claim 1 byte for a 400 MB payload. Inflation stops at the budget, so memory stays bounded.
+ * Structural checks, without inflating anything. The archive must have exactly one end-of-central-directory record,
+ * a central directory that ends right at it, and an entry count that matches the directory. Anything else is refused,
+ * so no reader can see a different archive than the one checked.
  */
-function checkZipBombGuard(bytes: Uint8Array): void {
-  const eocdPos = findEocd(bytes);
-  // No EOCD: not a readable zip, so mammoth will reject it
-  if (eocdPos === -1) {
-    return;
+function checkUnambiguousZip(bytes: Uint8Array): void {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+  const eocdPos = findSingleEocd(bytes);
+
+  const count = view.getUint16(eocdPos + 10, true);
+  const centralDirSize = view.getUint32(eocdPos + 12, true);
+  const centralDirOffset = view.getUint32(eocdPos + 16, true);
+  if (count === 0 || centralDirOffset === 0xffffffff || centralDirSize === 0xffffffff) {
+    throw ambiguousZip('no entries, or a zip64 archive');
+  }
+  // With prepended or appended bytes the directory no longer ends at the EOCD, and readers disagree on the offsets
+  if (centralDirOffset + centralDirSize !== eocdPos) {
+    throw ambiguousZip('the central directory does not end at the end-of-central-directory record');
   }
 
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
-  const centralDirOffset = view.getUint32(eocdPos + 16, true);
-  const centralDirSize = view.getUint32(eocdPos + 12, true);
-  const endPos = centralDirOffset + centralDirSize;
-
-  let totalInflated = 0;
+  let seen = 0;
   let pos = centralDirOffset;
-  while (pos < endPos && pos + CENTRAL_HEADER_SIZE <= bytes.length && hasSignature(bytes, pos, 0x01, 0x02)) {
-    totalInflated += inflateCentralDirEntry(bytes, view, pos, MAX_TOTAL_UNCOMPRESSED - totalInflated);
-
-    // Move to the next central-directory header (APPNOTE 4.4: name length at +28, extra at +30, comment at +32)
+  while (pos < eocdPos) {
+    if (pos + CENTRAL_HEADER_SIZE > eocdPos || !hasSignature(bytes, pos, 0x01, 0x02)) {
+      throw ambiguousZip('the central directory is malformed');
+    }
+    // Each entry's local header must sit where the directory says
+    const localPos = view.getUint32(pos + 42, true);
+    if (localPos + LOCAL_HEADER_SIZE > bytes.length || !hasSignature(bytes, localPos, 0x03, 0x04)) {
+      throw ambiguousZip('an entry has no local header at the offset its directory names');
+    }
+    seen++;
+    // Next central-directory header (APPNOTE 4.4: name length at +28, extra at +30, comment at +32)
     pos += CENTRAL_HEADER_SIZE + view.getUint16(pos + 28, true) + view.getUint16(pos + 30, true) + view.getUint16(pos + 32, true);
+  }
+  if (pos !== eocdPos || seen !== count) {
+    throw ambiguousZip('the entry count does not match the central directory');
   }
 }
 
-// Scan from the end of the archive for "PK\x05\x06". The first match from the window start is the EOCD.
-// The record is 22 bytes, so a comment-less archive has it at length - 22: the bound is inclusive.
-function findEocd(bytes: Uint8Array): number {
+// Finds the end-of-central-directory record. There must be exactly one: a second one is a way to make two readers
+// disagree about which directory to use. Looks at the last 65557 bytes, the window JSZip searches.
+function findSingleEocd(bytes: Uint8Array): number {
+  const found: number[] = [];
   for (let pos = Math.max(0, bytes.length - MAX_EOCD_SEARCH); pos <= bytes.length - EOCD_SIZE; pos++) {
     if (hasSignature(bytes, pos, 0x05, 0x06)) {
-      return pos;
+      found.push(pos);
     }
   }
-  return -1;
+  if (found.length === 0) {
+    throw ambiguousZip('no end-of-central-directory record');
+  }
+  if (found.length > 1) {
+    throw ambiguousZip('multiple end-of-central-directory records');
+  }
+  return found[0];
 }
 
 // Checks the "PK" prefix followed by the two given bytes.
@@ -72,81 +96,86 @@ function hasSignature(bytes: Uint8Array, pos: number, third: number, fourth: num
   return bytes[pos] === 0x50 && bytes[pos + 1] === 0x4b && bytes[pos + 2] === third && bytes[pos + 3] === fourth;
 }
 
-// Inflates one entry, enforcing the per-entry cap and the bytes left in the total budget. Returns the actual size.
-function inflateCentralDirEntry(bytes: Uint8Array, view: DataView, cdPos: number, remainingTotal: number): number {
-  const method = view.getUint16(cdPos + 10, true);
-  const compressedSize = view.getUint32(cdPos + 20, true);
-  const localPos = view.getUint32(cdPos + 42, true);
-  const data = readEntryData(bytes, view, localPos, compressedSize);
-
-  const cap = Math.min(MAX_SINGLE_ENTRY, remainingTotal);
-  const actual = inflatedSize(method, data, cap);
-
-  if (method === METHOD_DEFLATE && compressedSize > 0 && actual / compressedSize > MAX_RATIO_ALLOWED) {
-    throw zipError(
-      'compression ratio exceeds the safety threshold',
-      `Zip bomb detected: compression ratio ${(actual / compressedSize).toFixed(0)}:1 exceeds ${MAX_RATIO_ALLOWED}:1. ` +
-      `Entry inflates to ${actual} bytes from ${compressedSize} compressed. File may be malformed or malicious.`
-    );
-  }
-  return actual;
-}
-
-// Returns the entry's compressed bytes, located through its local header.
-function readEntryData(bytes: Uint8Array, view: DataView, localPos: number, size: number): Uint8Array {
-  if (localPos + LOCAL_HEADER_SIZE > bytes.length || !hasSignature(bytes, localPos, 0x03, 0x04)) {
-    throw zipError('local header missing', 'ZIP entry has no local file header at the offset its directory names');
-  }
-  const start = localPos + LOCAL_HEADER_SIZE + view.getUint16(localPos + 26, true) + view.getUint16(localPos + 28, true);
-  if (start + size > bytes.length) {
-    throw zipError('entry data past end of file', 'ZIP entry data extends past the end of the file');
-  }
-  return bytes.subarray(start, start + size);
-}
-
-// Actual inflated size, with inflation stopped at `cap` bytes.
-function inflatedSize(method: number, data: Uint8Array, cap: number): number {
-  if (method !== METHOD_STORED && method !== METHOD_DEFLATE) {
-    throw zipError('unsupported compression method', `ZIP entry uses compression method ${method}; only stored and DEFLATE are accepted`);
-  }
-  if (cap <= 0) {
-    throw overBudgetError(MAX_TOTAL_UNCOMPRESSED);
-  }
-  if (method === METHOD_STORED) {
-    if (data.length > cap) {
-      throw overBudgetError(cap);
-    }
-    return data.length;
-  }
+/**
+ * Loads the archive with JSZip and streams every file entry through a counter. Declared sizes are never read.
+ * Returns a fresh STORE archive holding only the verified content, so mammoth never inflates the original.
+ */
+async function rebuildWithinCaps(bytes: Uint8Array): Promise<Uint8Array> {
+  let source: JSZip;
   try {
-    return inflateRawSync(data, { maxOutputLength: cap }).length;
+    source = await JSZip.loadAsync(bytes);
   } catch (e: any) {
-    if (e?.code === 'ERR_BUFFER_TOO_LARGE') {
-      throw overBudgetError(cap);
-    }
-    throw zipError('DEFLATE data is corrupt', `ZIP entry cannot be inflated: ${e?.message ?? e}`);
+    throw zipError('archive unreadable', `ZIP archive cannot be read: ${e?.message ?? e}`);
   }
+
+  const out = new JSZip();
+  let total = 0;
+  for (const name of Object.keys(source.files)) {
+    const entry = source.files[name];
+    if (entry.dir) {
+      continue;
+    }
+    const cap = Math.min(MAX_SINGLE_ENTRY, MAX_TOTAL_UNCOMPRESSED - total);
+    const data = await readCounted(entry, name, cap);
+    total += data.length;
+    out.file(name, data, { binary: true });
+  }
+  return out.generateAsync({ type: 'uint8array', compression: 'STORE' });
 }
 
-function overBudgetError(cap: number): ActionableError {
+// Streams one entry, stopping as soon as it produces more than `cap` bytes.
+function readCounted(entry: JSZip.JSZipObject, name: string, cap: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    // JSZip types this as a web ReadableStream; at runtime it is a Node Readable, which has destroy().
+    const stream = entry.nodeStream('nodebuffer') as unknown as Readable;
+    stream.on('data', (chunk: Uint8Array) => {
+      size += chunk.length;
+      if (size > cap) {
+        stream.destroy();
+        reject(overBudgetError(cap, name));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('end', () => {
+      const data = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        data.set(chunk, offset);
+        offset += chunk.length;
+      }
+      resolve(data);
+    });
+    stream.on('error', (e: Error) => reject(zipError('DEFLATE data is corrupt', `ZIP entry "${name}" cannot be inflated: ${e.message}`)));
+  });
+}
+
+function overBudgetError(cap: number, name: string): ActionableError {
   if (cap === MAX_SINGLE_ENTRY) {
     return zipError(
       'single entry inflates past the limit',
-      `Zip bomb detected: a single entry inflates past ${MAX_SINGLE_ENTRY / 1024 / 1024} MB. Limit is ${MAX_SINGLE_ENTRY / 1024 / 1024} MB per entry.`
+      `Zip bomb detected: entry "${name}" inflates past ${MAX_SINGLE_ENTRY / 1024 / 1024} MB. Limit is ${MAX_SINGLE_ENTRY / 1024 / 1024} MB per entry.`
     );
   }
   return zipError(
     'total inflated size exceeds the limit',
-    `Zip bomb detected: total inflated size exceeds ${MAX_TOTAL_UNCOMPRESSED / 1024 / 1024} MB.`
+    `Zip bomb detected: total inflated size exceeds ${MAX_TOTAL_UNCOMPRESSED / 1024 / 1024} MB at entry "${name}".`
   );
+}
+
+function ambiguousZip(detail: string): ActionableError {
+  return zipError('ambiguous zip structure', `ZIP structure is ambiguous (${detail}). Refusing to read it`);
 }
 
 function zipError(reason: string, message: string): ActionableError {
   return new ActionableError({
     goal: 'Extract text from DOCX document',
     problem: `${message} (${reason})`,
-    location: 'lib/extraction:checkZipBombGuard',
+    location: 'lib/extraction:extractDocxText',
     nextSteps: ['Verify the file is a valid, unmodified DOCX', 'Re-save the document in Word and try again'],
+    code: 'CORRUPT_DOCUMENT',
     httpStatus: 422,
   });
 }
