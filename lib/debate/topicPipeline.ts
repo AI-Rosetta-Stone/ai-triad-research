@@ -516,22 +516,11 @@ export class TopicPipeline {
 
     const totalClauses = this.ctx.session.topic.clauses?.length ?? 0;
     const coveredSet = new Set<number>();
-    let consecutiveOffClause = 0;
-    for (let i = signals.length - 1; i >= 0; i--) {
-      const c = signals[i].clause_coverage;
-      if (!c) break;
-      if (c.no_clause_engaged) consecutiveOffClause++;
-      else break;
-    }
-    for (const s of recent) {
-      const c = s.clause_coverage;
-      if (c && c.best_clause_id != null) coveredSet.add(c.best_clause_id + 1);
-    }
+    const consecutiveOffClause = this.countConsecutiveOffClauses(signals);
+    this.addCoveredClauses(recent, coveredSet);
+
     const covered = Array.from(coveredSet).sort((a, b) => a - b);
-    const uncovered: number[] = [];
-    for (let i = 1; i <= totalClauses; i++) {
-      if (!coveredSet.has(i)) uncovered.push(i);
-    }
+    const uncovered = this.computeUncoveredClauses(coveredSet, totalClauses);
 
     return {
       phaseMeanSimilarity: latest.arco?.phase_mean,
@@ -540,5 +529,31 @@ export class TopicPipeline {
       uncoveredClauses: uncovered,
       consecutiveOffClause,
     };
+  }
+
+  private countConsecutiveOffClauses(signals: DebateSession['convergence_signals']): number {
+    let consecutiveOffClause = 0;
+    for (let i = signals!.length - 1; i >= 0; i--) {
+      const c = signals![i].clause_coverage;
+      if (!c) break;
+      if (c.no_clause_engaged) consecutiveOffClause++;
+      else break;
+    }
+    return consecutiveOffClause;
+  }
+
+  private addCoveredClauses(recent: DebateSession['convergence_signals'], coveredSet: Set<number>): void {
+    for (const s of recent) {
+      const c = s.clause_coverage;
+      if (c && c.best_clause_id != null) coveredSet.add(c.best_clause_id + 1);
+    }
+  }
+
+  private computeUncoveredClauses(coveredSet: Set<number>, totalClauses: number): number[] {
+    const uncovered: number[] = [];
+    for (let i = 1; i <= totalClauses; i++) {
+      if (!coveredSet.has(i)) uncovered.push(i);
+    }
+    return uncovered;
   }
 }
