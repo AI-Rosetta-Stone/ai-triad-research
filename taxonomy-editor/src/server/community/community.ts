@@ -826,7 +826,7 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
  *  - Inquiry: fieldClassification matrix (t/3648) */
 const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
   chat: new Set(['id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 'chat_model', 'temperature', 'community_metadata']),
-  debate: new Set(['id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript', 'debate_model', 'community_metadata', 'active_povers', 'opening_order', 'argument_network', 'debate_temperature', 'audience', 'prompt_config', 'gap_injections', 'source_type', 'user_is_pover', 'context_summaries']),
+  debate: new Set(['id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript', 'debate_model', 'community_metadata', 'active_povers', 'opening_order', 'argument_network', 'debate_temperature', 'audience', 'prompt_config', 'gap_injections', 'source_type', 'user_is_pover', 'context_summaries', 'stages']),
   oped: new Set(['id', 'topic', 'params', 'opeds', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
   inquiry: new Set(), // inquiry handled separately via fieldClassification
 };

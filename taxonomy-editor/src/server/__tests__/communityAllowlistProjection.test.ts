@@ -129,7 +129,7 @@ describe('Community allowlist projection (t/196)', () => {
   });
 
   describe('Debate: required fields survive, structural projection applied', () => {
-    it('realistic debate preserves list/detail/copy fields', async () => {
+    it('realistic debate preserves list/detail/copy fields and diagnostic stages', async () => {
       const debateData = {
         id: 'debate-1',
         title: 'AI Safety Debate',
@@ -163,6 +163,8 @@ describe('Community allowlist projection (t/196)', () => {
         prompt_config: {},
         gap_injections: [],
         user_is_pover: false,
+        // t/171: debate stages are diagnostic metadata (not source material like op-ed stages)
+        stages: [{ name: 'opening' }, { name: 'rebuttal' }],
       };
 
       seed('debate-1', 'debate', debateData);
@@ -182,6 +184,11 @@ describe('Community allowlist projection (t/196)', () => {
       expect(copy).toHaveProperty('opening_order');
       expect(copy).toHaveProperty('debate_temperature', 0.8);
       expect(copy).toHaveProperty('argument_network');
+      
+      // t/171: debate stages are diagnostic and must survive (unlike op-ed stages which are source material)
+      expect(copy).toHaveProperty('stages');
+      expect((copy.stages as any[])).toHaveLength(2);
+      expect((copy.stages as any[])[0]).toHaveProperty('name', 'opening');
 
       const transcript = copy.transcript as any[];
       expect(transcript).toBeDefined();
