@@ -1,6 +1,6 @@
 {
   "ticket": "t/292 (a), TL decision t/292#10",
-  "operation": "byte-identical move of 2 legacy chunk summaries from summaries/ to _archive/summaries/ (originals kept); no re-summarize",
+  "operation": "byte-identical move of 2 legacy chunk summaries from summaries/ to _archive/summaries/, where the originals are kept; no re-summarize",
   "why": "per-chunk files from a pipeline that no longer writes them; no source dir; identical key points repeated up to 5x per POV (39 duplicate index entries); the base doc has a clean 2026-05-22 merged summary",
   "archive_location": "_archive/summaries/ at the data root, following the _archived_edges.json underscore convention; summaries/*.json readers (build-evidence-index.py, Test-CitationLinkIntegrity, Build-NodeSourceIndex) don't recurse into it",
   "references_left_unchanged": {

@@ -13,8 +13,9 @@ byte, no re-summarize.
 
 Reads ONLY frozen-t292-archive-chunks.json (/data-mutation element 1). Hashes are sha256-lf (t/247).
 
-  --mode dry-run (default)  Every check runs (each source matches pre_sha256, its source dir is
-                            still absent, its base still has a summary, the destination is free);
+  --mode dry-run (default)  Every check runs (each source matches pre_sha256, its base doc's source
+                            dir exists, so --sources-root is right; its own source dir is still
+                            absent; its base still has a summary; the destination is free);
                             moves nothing.
   --mode apply              The same checks; refuses if any fails; moves each file and re-hashes
                             it at the destination. Requires --frozen-sha.
@@ -48,6 +49,10 @@ def plan(data_root, sources_root, frozen):
             continue
         if freeze_sha256(src) != m["pre_sha256"]:
             problems.append(f"{m['from']}: bytes differ from pre_sha256 (changed since the freeze)")
+            continue
+        # Validate the root first: with a wrong --sources-root the orphan check below would pass vacuously.
+        if not (sources_root / m["base_doc_id"] / "metadata.json").is_file():
+            problems.append(f"{m['doc_id']}: base source {m['base_doc_id']} not found under {sources_root}; is --sources-root right?")
             continue
         if (sources_root / m["doc_id"] / "metadata.json").exists():
             problems.append(f"{m['doc_id']}: now has a source dir; it is no longer an orphan chunk")
