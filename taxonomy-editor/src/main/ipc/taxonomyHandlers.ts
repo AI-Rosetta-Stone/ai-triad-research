@@ -831,9 +831,20 @@ export function registerTaxonomyHandlers(): void {
       throw new Error('Missing queryText/nodeIds (expected string and string[])');
     }
     const pov = b.pov as ChatSyntheticPov;
-    const corpus = loadSyntheticCorpus(SYNTHETIC_POV_PREFIX[pov]) as { entries?: { node_id: string; statement: string; pruned?: boolean }[] } | null;
+    // Corpus or vector load failure is fail-soft (t/348#7): every node falls back, one WARN, no throw.
+    let corpus: { entries?: { node_id: string; statement: string; pruned?: boolean }[] } | null;
+    let nodeVectors: Record<string, { vectors?: number[][] }>;
+    try {
+      corpus = loadSyntheticCorpus(SYNTHETIC_POV_PREFIX[pov]) as typeof corpus;
+      nodeVectors = loadSyntheticEmbeddings() ?? {};
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'taxonomy-handlers', level: 'warn',
+        message: `chat-synthetic-statements: reason=corpus-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)})`,
+      });
+      return Object.fromEntries(b.nodeIds.map(id => [id, null]));
+    }
     const nodeStatements = groupCorpusStatements(corpus?.entries ?? []);
-    const nodeVectors = loadSyntheticEmbeddings() ?? {};
     return chatSyntheticStatements(
       { pov, queryText: b.queryText, nodeIds: b.nodeIds },
       {
