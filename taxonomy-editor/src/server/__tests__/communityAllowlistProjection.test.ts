@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/196: Test that community sanitization allowlist preserves all required fields and strips owner-only fields.
-// This test derives the allowlist from real type shapes and verifies that approved items render correctly
-// in list, detail, and copy paths without losing critical fields.
+// t/196: Test that community sanitization allowlist preserves all required fields and exposes
+// fields per PI decision t/345 (raw_prompt/raw_response are public). Verifies that approved items
+// render correctly in list, detail, and copy paths without losing critical fields or leaking unknown fields.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DebateSession } from '../../../lib/debate/types/session.js';
@@ -44,9 +44,9 @@ function published(communityId: string): Record<string, unknown> {
 describe('Community allowlist projection (t/196)', () => {
   beforeEach(() => files.clear());
 
-  describe('Chat: required fields survive, owner-only fields are stripped', () => {
-    it('realistic ChatSession preserves list/detail/copy fields', async () => {
-      const chatSession: Partial<ChatSession> = {
+  describe('Chat: required fields survive, raw fields exposed per t/345', () => {
+    it('realistic chat preserves list/detail/copy fields and exposes raw_prompt/raw_response', async () => {
+      const chatData = {
         id: 'chat-1',
         title: 'Policy Discussion',
         created_at: '2026-01-01T00:00:00Z',
@@ -63,18 +63,17 @@ describe('Community allowlist projection (t/196)', () => {
             speaker: 'skeptic',
             content: 'Here is my analysis...',
             taxonomy_refs: [{ node_id: 'acc-belief-001', label: 'Alignment', relevance: 'high' }],
-            raw_prompt: 'FULL CONTEXT: [user document content]', // owner-only: should be dropped
-            raw_response: 'Raw model output before filtering', // owner-only: should be dropped
+            raw_prompt: 'FULL CONTEXT: [user document content]', // t/345: now public
+            raw_response: 'Raw model output before filtering', // t/345: now public
           },
         ],
       };
 
-      seed('chat-1', 'chat', chatSession as any);
+      seed('chat-1', 'chat', chatData);
       const { communityId } = await approveSubmission('chat-1');
       const copy = published(communityId);
 
       // List fields must survive
-      expect(copy).toHaveProperty('id', 'chat-1');
       expect(copy).toHaveProperty('title', 'Policy Discussion');
       expect(copy).toHaveProperty('created_at', '2026-01-01T00:00:00Z');
       expect(copy).toHaveProperty('updated_at', '2026-01-02T00:00:00Z');
@@ -82,8 +81,9 @@ describe('Community allowlist projection (t/196)', () => {
       expect(copy).toHaveProperty('topic', 'AI Regulation');
       expect(copy).toHaveProperty('pover', 'skeptic');
       expect(copy).toHaveProperty('chat_model', 'gpt-4');
+      expect(copy).toHaveProperty('temperature', 0.7);
 
-      // Detail: transcript must survive with all allowed fields
+      // Detail: transcript must survive with all allowed fields including raw fields (t/345)
       const transcript = copy.transcript as any[];
       expect(transcript).toBeDefined();
       expect(transcript).toHaveLength(1);
@@ -91,18 +91,46 @@ describe('Community allowlist projection (t/196)', () => {
       expect(transcript[0]).toHaveProperty('speaker', 'skeptic');
       expect(transcript[0]).toHaveProperty('content', 'Here is my analysis...');
       expect(transcript[0]).toHaveProperty('taxonomy_refs');
+      
+      // t/345: raw_prompt and raw_response are now public
+      expect(transcript[0]).toHaveProperty('raw_prompt', 'FULL CONTEXT: [user document content]');
+      expect(transcript[0]).toHaveProperty('raw_response', 'Raw model output before filtering');
+    });
 
-      // Owner-only fields must be stripped per t/196#6
-      expect(transcript[0]).not.toHaveProperty('raw_prompt');
-      expect(transcript[0]).not.toHaveProperty('raw_response');
-      expect(JSON.stringify(copy)).not.toContain('FULL CONTEXT');
-      expect(JSON.stringify(copy)).not.toContain('Raw model output');
+    it('strips unknown/unlisted fields from chat', async () => {
+      const chatData = {
+        id: 'chat-2',
+        title: 'Test Chat',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        mode: 'brainstorm',
+        topic: 'Test',
+        pover: 'accelerationist',
+        transcript: [],
+        unknown_field_should_drop: 'this should not appear',
+        pov_tag: 'test-tag', // not in allowlist
+        tag_mode: 'flag', // not in allowlist
+      };
+
+      seed('chat-2', 'chat', chatData);
+      const { communityId } = await approveSubmission('chat-2');
+      const copy = published(communityId);
+
+      // Allowlisted fields survive
+      expect(copy).toHaveProperty('title', 'Test Chat');
+      expect(copy).toHaveProperty('mode', 'brainstorm');
+
+      // Unlisted fields are stripped
+      expect(copy).not.toHaveProperty('unknown_field_should_drop');
+      expect(copy).not.toHaveProperty('pov_tag');
+      expect(copy).not.toHaveProperty('tag_mode');
+      expect(JSON.stringify(copy)).not.toContain('unlisted');
     });
   });
 
-  describe('Debate: required fields survive, owner-only fields are stripped', () => {
-    it('realistic DebateSession preserves list/detail/copy fields', async () => {
-      const debateSession: Partial<DebateSession> = {
+  describe('Debate: required fields survive, structural projection applied', () => {
+    it('realistic debate preserves list/detail/copy fields', async () => {
+      const debateData = {
         id: 'debate-1',
         title: 'AI Safety Debate',
         created_at: '2026-01-01T00:00:00Z',
@@ -117,6 +145,9 @@ describe('Community allowlist projection (t/196)', () => {
         source_content: '',
         active_povers: ['skeptic', 'accelerationist'],
         debate_model: 'claude-opus',
+        debate_temperature: 0.8,
+        opening_order: ['skeptic', 'accelerationist'],
+        argument_network: {},
         transcript: [
           {
             id: 'turn-1',
@@ -128,24 +159,29 @@ describe('Community allowlist projection (t/196)', () => {
           },
         ],
         context_summaries: [],
+        audience: 'policymakers',
+        prompt_config: {},
+        gap_injections: [],
+        user_is_pover: false,
       };
 
-      seed('debate-1', 'debate', debateSession as any);
+      seed('debate-1', 'debate', debateData);
       const { communityId } = await approveSubmission('debate-1');
       const copy = published(communityId);
 
       // List fields must survive
-      expect(copy).toHaveProperty('id', 'debate-1');
       expect(copy).toHaveProperty('title', 'AI Safety Debate');
       expect(copy).toHaveProperty('created_at', '2026-01-01T00:00:00Z');
       expect(copy).toHaveProperty('updated_at', '2026-01-02T00:00:00Z');
       expect(copy).toHaveProperty('phase', 'debate');
       expect(copy).toHaveProperty('debate_model', 'claude-opus');
 
-      // Detail: active_povers, stages and transcript must survive with allowed fields
+      // Detail: active_povers and transcript must survive with allowed fields
       expect(copy).toHaveProperty('active_povers');
       expect((copy.active_povers as any[])).toContain('skeptic');
-      expect(copy).toHaveProperty('stages');
+      expect(copy).toHaveProperty('opening_order');
+      expect(copy).toHaveProperty('debate_temperature', 0.8);
+      expect(copy).toHaveProperty('argument_network');
 
       const transcript = copy.transcript as any[];
       expect(transcript).toBeDefined();
@@ -159,12 +195,14 @@ describe('Community allowlist projection (t/196)', () => {
   });
 
   describe('Op-Ed: required fields survive, stages are stripped', () => {
-    it('realistic OpEdSet preserves list/detail/copy fields', async () => {
-      const opedSet: Partial<OpEdSet> = {
+    it('realistic op-ed preserves list/detail/copy fields and strips stages', async () => {
+      const opedData = {
         schema_version: 1,
         set_id: 'oped-set-1',
+        id: 'oped-1-orig', // original id, will be re-minted
         topic: 'AI Governance Frameworks',
         created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
         params: {
           wordCount: 800,
           outlet: 'Policy Brief',
@@ -204,15 +242,15 @@ describe('Community allowlist projection (t/196)', () => {
         ],
       };
 
-      seed('oped-1', 'oped', opedSet as any);
+      seed('oped-1', 'oped', opedData);
       const { communityId } = await approveSubmission('oped-1');
       const copy = published(communityId);
 
       // List fields must survive
-      expect(copy).toHaveProperty('set_id', 'oped-set-1');
       expect(copy).toHaveProperty('topic', 'AI Governance Frameworks');
       expect(copy).toHaveProperty('created_at', '2026-01-01T00:00:00Z');
       expect(copy).toHaveProperty('schema_version', 1);
+      expect(copy).toHaveProperty('set_id', 'oped-set-1');
 
       // Copy: params and opeds fields must survive
       expect(copy).toHaveProperty('params');

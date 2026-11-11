@@ -774,7 +774,8 @@ function projectInquiryFields(value: unknown, surface: Surface, path: string): u
   return undefined;
 }
 
-/** Project a ChatEntry onto community-safe fields, excluding raw_prompt and raw_response (owner-only, t/196#6). */
+/** Project a ChatEntry onto community-safe fields.
+ *  Includes raw_prompt and raw_response per PI decision (t/345): submitted chats' raw fields are public. */
 function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
   const e = entry as Record<string, unknown>;
@@ -787,7 +788,9 @@ function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
     ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
     ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
     ...(e.url_context_metadata !== undefined ? { url_context_metadata: e.url_context_metadata } : {}),
-    // Intentionally omit raw_prompt and raw_response (owner-only per t/196#6)
+    // t/345: raw_prompt and raw_response are public — submitted chats' context is community-readable
+    ...(e.raw_prompt !== undefined ? { raw_prompt: e.raw_prompt } : {}),
+    ...(e.raw_response !== undefined ? { raw_response: e.raw_response } : {}),
   };
 }
 
@@ -815,7 +818,7 @@ function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undef
 /** Module-level allowlist for community projection (t/196).
  *  Derived from what list/detail/copy paths actually read:
  *  - Chat list reads: id, title, created_at, updated_at, mode, community_metadata, chat_model, pover
- *  - Chat detail reads: full transcript with structural projection (excluding raw_prompt/raw_response)
+ *  - Chat detail reads: full transcript with structural projection including raw_prompt/raw_response (t/345)
  *  - Debate list reads: id, title, created_at, updated_at, phase, community_metadata, debate_model, turn_count
  *  - Debate detail reads: full transcript with structural projection
  *  - Op-ed list reads: id, topic, created_at, updated_at, community_metadata, camps, voice_count, outlet, tag
