@@ -1343,7 +1343,8 @@ export class DebateEngine {
       const __dir = path.dirname(fileURLToPath(import.meta.url));
       const root = resolveRepoRoot(__dir);
       const dataRoot = resolveDataRoot(root);
-      const indexPath = path.join(dataRoot, 'taxonomy', 'source_evidence_index.json');
+      const taxonomyDir = path.join(dataRoot, 'taxonomy', 'Origin');
+      const indexPath = path.join(taxonomyDir, 'source_evidence_index.json');
       if (fs.existsSync(indexPath)) {
         this._sourceEvidenceIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
         return this._sourceEvidenceIndex;
