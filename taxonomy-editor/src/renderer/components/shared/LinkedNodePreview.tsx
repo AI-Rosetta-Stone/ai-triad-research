@@ -2,9 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { POV_META, type PovMetaKey } from '@lib/electron-shared/povMeta';
+import { useState, useEffect } from 'react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { GraphAttributes } from '../../types/taxonomy';
-import { useDescriptionMode, resolveDescription, DescriptionToggle } from './DescriptionToggle';
+import { resolveDescription, DescriptionToggle } from './DescriptionToggle';
 import './LinkedNodePreview.css';
 
 const POV_LABELS: Record<string, string> = Object.fromEntries(
@@ -36,9 +37,20 @@ interface EnrichedAttrs {
  */
 export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
-  const [descMode, setDescMode] = useDescriptionMode('plain');
+  const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
   const data = lookupPinnedData(nodeId);
   if (!data) return null;
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.code === 'KeyP') {
+        e.preventDefault();
+        setDescMode(m => (m === 'plain' ? 'formal' : 'plain'));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (data.type === 'conflict') {
     const c = data.conflict;
