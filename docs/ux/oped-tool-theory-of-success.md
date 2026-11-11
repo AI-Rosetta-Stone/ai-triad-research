@@ -73,20 +73,20 @@ This section cites the code and internal structures that implement the criteria 
 
 | Criterion | Implementation |
 |-----------|-----------------|
-| Grounded (criterion 1) | `lib/oped/prompts/op-ed-generation-user.prompt:33-36` |
-| Faithful to the camp (criterion 2) | `op-ed-generation-system.prompt:1,36` |
-| Internally coherent (criterion 3) | `op-ed-coherence-judge.prompt:7-13`; coherence check logic `lib/oped/coherenceCheck.ts:45-47` |
-| Honest about the news (criterion 6) | `op-ed-generation-system.prompt:13`; `lib/oped/opedGuards.ts:12-13`; only runs when no news hook was supplied |
-| Faithful to the camp (partial check) | `lib/oped/generate.ts:800-806` (voice guard reverts edit that introduces banned tells) |
-| Faithful to its source (criterion 5) | `op-ed-generation-user.prompt:31` |
-| Persuasive (criterion 7) | `op-ed-generation-system.prompt:11-21` |
+| Grounded (criterion 1) | `lib/oped/prompts/op-ed-generation-user.prompt`: the "YOUR CAMP'S REGISTERED POSITIONS" section ({{GROUNDING_NODES}}) and the scope paragraph after it |
+| Faithful to the camp (criterion 2) | `op-ed-generation-system.prompt`: the opening paragraph, "YOUR VOICE" ({{VOICE_BLOCK}}), and the closing "Stay inside your camp's voice" paragraph |
+| Internally coherent (criterion 3) | `op-ed-coherence-judge.prompt`: "Run exactly three checks" (CHECK 1-3); coherence check logic `validFlags()` in `lib/oped/coherenceCheck.ts` |
+| Honest about the news (criterion 6) | `op-ed-generation-system.prompt`: "LEDE + NEWS HOOK"; the no-hook `NEWS_HOOK` text in `loadAndAssemblePrompt()` (`lib/oped/promptLoader.ts`); `FABRICATED_LEDE_GUARD` in `lib/oped/opedGuards.ts`, tested in `runVoiceGeneration()` (`lib/oped/generate.ts`) only when no news hook was supplied |
+| Faithful to the camp (partial check) | `lib/oped/generate.ts` → readability pass in `runVoiceGeneration()`: `findIntroducedTells()` guard reverts an edit that introduces banned tells (`BANNED_TELLS` in `lib/oped/readabilityMeasure.ts`) |
+| Faithful to its source (criterion 5) | `op-ed-generation-user.prompt`: "SOURCE FIDELITY IS A HARD CONSTRAINT" paragraph |
+| Persuasive (criterion 7) | `op-ed-generation-system.prompt`: "THE CRAFT OF A PUBLISHABLE OP-ED" section |
 | Grounding reflection | `op-ed-grounding-reflection.prompt` |
-| Readability measurement | `lib/oped/readabilityMeasure.ts:26-56` |
-| Stages recording | `lib/oped/generate.ts:553-567` (`callStage()` function records each model call to `stages` array); coherence/readability pass sequencing at :663 (coherence), :769 (readability check), :774 (readability edit) |
-| Readability edit interaction | `generate.ts:619-620` (coherence pass before readability edit) |
-| Readability edit outlet awareness | `generate.ts:774` (outlet-aware edit prompt with readability targets per outlet) |
-| Dialog settings | New Op-Ed dialog sends Max grounding nodes, Max situations, and Temperature; all wired via `resolveOpEdTuning()` at `generate.ts:1043, 1047-1048, 1160` |
-| Model failure handling | `lib/oped/generate.ts:628-650` (empty response throw on voice generation, handled by runVoice catch to emit voice_failed) |
+| Readability measurement | `lib/oped/readabilityMeasure.ts` → `measureReadability()` (using `fkGrade()`, `maxSentenceWords()`, `maxParagraphWords()`) |
+| Stages recording | `lib/oped/generate.ts` → `callStage()` records each model call to the `stages` array; in `runVoiceGeneration()` the order is `coherence-judge` (and rewrite/re-judge), then `needsEdit()`, then `readability-edit` via `attemptEdit()` |
+| Readability edit interaction | `lib/oped/generate.ts` → in `runVoiceGeneration()` the coherence pass runs before the readability edit pass, so the edit can re-introduce a contradiction |
+| Readability edit outlet awareness | `lib/oped/generate.ts` → `attemptEdit()` builds the prompt with `assembleReadabilityEditPrompt()` (`lib/oped/promptLoader.ts`) from the outlet's `readTargets` and `band.style` |
+| Dialog settings | New Op-Ed dialog sends Max grounding nodes, Max situations, and Temperature; resolved by `resolveOpEdTuning()` in `generateOpEdSet()`, then used by `selectSetGrounding()` / `selectCampGrounding()` (nodes, situations) and passed by `runVoice()` to `runVoiceGeneration()` (temperature) |
+| Model failure handling | `lib/oped/generate.ts` → `runVoiceGeneration()` throws on an empty (or non-JSON) generation response; `runVoice()` in `generateOpEdSet()` catches it, marks the member `'failed'` and emits `voice_failed` |
 | Completion status | `status: 'complete'` field on generated op-eds |
 
-*Accurate to the code at the time of writing. The aspirational metrics need aggregation and persistence that don't exist yet.*
+*Citations are file plus symbol (or prompt section), checked against origin/main. The aspirational metrics need aggregation and persistence that don't exist yet.*

@@ -9,7 +9,7 @@ This document describes **what changes when you pick a different outlet** in the
 ## Where Outlets Are Defined
 
 - **One source of truth:** `lib/oped/outlets.json`. It has 9 outlets, a default outlet, and a `styleDefaults` block. Its shape is fixed by `lib/oped/outlets.schema.json`.
-- **Loader:** The loader ensures consistency with the outlet count.
+- **Loader:** The loader throws if the declared outlet count doesn't match the number of outlets.
 - **Lookup:** An unknown outlet name is refused with the list of valid names. No outlet given means `TechPolicyPress`.
 - **Who reads it:**
   - the New Op-Ed dialog's outlet list and default;
@@ -64,7 +64,7 @@ Every other outlet uses the defaults. Tech Policy Press is the one that differs:
 ## How to Add an Outlet
 
 1. **Add an entry** under `outlets` in `lib/oped/outlets.json`, with `words` and `guidance`. Add `readability` and/or `style` only if the desk differs from the defaults. A `style` block must have all six strings.
-2. **Bump the outlet count** in the same file. The loader ensures consistency if the count is wrong.
+2. **Bump the outlet count** in the same file. The loader throws if the count is wrong.
 3. **Add a dialog label and band** to the presentation map in the Op-Ed dialog component. Without one, the dialog shows the raw key.
 4. **Run the outlet tests:**
    - Check that the TypeScript outlet set equals `outlets.json`;
@@ -82,23 +82,23 @@ This section cites the code structures that implement the outlet system.
 |-----------|-----------------|
 | Outlet source file | `lib/oped/outlets.json` |
 | Outlet schema | `lib/oped/outlets.schema.json` |
-| Outlet type definitions | `lib/oped/outletsSsot.ts:29-36` |
-| Outlet loader | `lib/oped/loadOutlets.ts:24-30` |
-| Loader consistency check | `loadOutlets.ts:8-20` |
-| Outlet lookup function | `lib/oped/outletBands.ts:33-50` (`resolveOutletBand`) |
-| Default outlet | `outletBands.ts:35` (fallback when no outlet specified) |
-| Outlet band types | `outletBands.ts:22-29` |
-| Word count usage | `lib/oped/generate.ts:560` (request override); token budget `generate.ts:561` (formula `ceil(words × 3) + 5000`) |
-| Guidance slot injection | `lib/oped/promptLoader.ts:88` ({{OUTLET_GUIDANCE}} in user prompt only) |
-| Word count slot injection | prompt loader ({{WORD_COUNT}}) |
-| Style defaults | `outlets.json:11-16` |
-| Readability defaults | `outlets.json:17-21` |
-| Style slot injection | `promptLoader.ts:64-71` |
-| Style prompt sections | `op-ed-generation-system.prompt:1,23-28` (opening line and STYLE MECHANICS); `op-ed-generation-user.prompt:44` (body format) |
-| Readability check trigger | `generate.ts:559,735`; measurement `readabilityMeasure.ts:67-69` |
-| Readability edit prompt | `lib/oped/prompts/op-ed-readability-edit.prompt:1,10-12` |
-| Dialog outlet list | `taxonomy-editor/src/renderer/components/opeds/NewOpEdDialog.tsx:38-54` |
-| Server outlet validation | `taxonomy-editor/src/server/routes/oped.ts:69-70` |
-| PowerShell outlet data | `scripts/AITriad/Private/Get-OpEdOutletsData.ps1:78` |
+| Outlet type definitions | `lib/oped/outletsSsot.ts` → `OutletsData` (with `OutletsMeta` and `OutletStyleDefaults`) |
+| Outlet loader | `lib/oped/loadOutlets.ts` → `loadOutletsData()` |
+| Loader consistency check | `lib/oped/loadOutlets.ts` → `validateOutletsData()` (throws if `__meta__.outlets_count` differs from the number of outlets) |
+| Outlet lookup function | `lib/oped/outletBands.ts` → `resolveOutletBand()` |
+| Default outlet | `lib/oped/outletBands.ts` → `resolveOutletBand()` returns `TechPolicyPress` when no outlet is specified; the dialog's default is `defaultOutlet` in `lib/oped/outlets.json` |
+| Outlet band types | `lib/oped/outletBands.ts` → `OutletBand` and `OutletBandStyle` |
+| Word count usage | `lib/oped/generate.ts` → `targetWords` in `runVoiceGeneration()` (request word count if above 0, else the band's `words`); token budget `maxTokens` in `runVoiceGeneration()` (formula `ceil(words × 3) + 5000`) |
+| Guidance slot injection | `lib/oped/promptLoader.ts` → `loadAndAssemblePrompt()` ({{OUTLET_GUIDANCE}}; only `op-ed-generation-user.prompt` contains this slot) |
+| Word count slot injection | `lib/oped/promptLoader.ts` → `loadAndAssemblePrompt()` ({{WORD_COUNT}}) |
+| Style defaults | `lib/oped/outlets.json` → `styleDefaults` (six prose strings) |
+| Readability defaults | `lib/oped/outlets.json` → `styleDefaults.readability`, exposed as `DEFAULT_READABILITY_TARGETS` in `lib/oped/readabilityMeasure.ts` |
+| Style slot injection | `lib/oped/promptLoader.ts` → `loadAndAssemblePrompt()` (each style string falls back to `styleDefaults`) |
+| Style prompt sections | `op-ed-generation-system.prompt`: opening paragraph ({{STYLE_AUDIENCE}}) and the STYLE MECHANICS section; `op-ed-generation-user.prompt`: the `body_markdown` field ({{STYLE_BODY_FORMAT}}) |
+| Readability check trigger | `lib/oped/generate.ts` → `runVoiceGeneration()` calls `needsEdit()` on `measureReadability()` with `readTargets` (the band's `readability`, else `DEFAULT_READABILITY_TARGETS`); both functions are in `lib/oped/readabilityMeasure.ts` |
+| Readability edit prompt | `lib/oped/prompts/op-ed-readability-edit.prompt`: "RULES FOR YOUR EDIT (this outlet's targets)" ({{FK_MAX}}, {{MAX_SENT_WORDS}}, {{MAX_PARA_WORDS}}), filled by `assembleReadabilityEditPrompt()` in `lib/oped/promptLoader.ts` |
+| Dialog outlet list | `taxonomy-editor/src/renderer/components/opeds/NewOpEdDialog.tsx` → `OUTLET_PRESENTATION` and `OUTLETS` |
+| Server outlet validation | `taxonomy-editor/src/server/routes/oped.ts` → `validateOutlet()` |
+| PowerShell outlet data | `scripts/AITriad/Private/Get-OpEdOutletsData.ps1` → `Get-OpEdOutletsData` (validates against `outlets.schema.json` with `Test-Json`) |
 
-*Accurate to the code at the time of writing. When `outlets.json` or the prompts change, update this document and its citations.*
+*Citations are file plus symbol (or JSON key / prompt section), checked against origin/main. When `outlets.json` or the prompts change, update this document and its citations.*
