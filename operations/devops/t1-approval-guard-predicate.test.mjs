@@ -753,3 +753,38 @@ test('t/200 ISOLATED LOAD: copied ALONE into an empty dir, the predicate imports
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── t/311: one reviewer, two spellings (#5005: `Changes requested (Quality)` then
+// `Approved (Quality-TechLead)`) must share ONE gate slot, so its own approval clears its hold ──
+const LATER = new Date(Date.parse(AFTER_PUSH) + 60000).toISOString();
+const t311Guard = (reviews, headRefName = 'devops/t308-x') => evaluateT1ApprovalGuard({
+  body: 'Tier: T1', headRefName, lastPushAt: PUSH, headSha: HEAD, approvalComments: [], botReviews: reviews, reviewerAppLogin: REVIEWER_LOGIN,
+});
+const t311Review = (body, at, state = 'COMMENTED') => ({ commitId: HEAD, state, submittedAt: at, login: REVIEWER_LOGIN, body });
+
+test('t/311: a hold as `Quality` is cleared by an approval as `Quality-TechLead` (the #5005 shape) -> pass', () => {
+  const r = t311Guard([t311Review('Changes requested (Quality): fix it', AFTER_PUSH), t311Review('Approved (Quality-TechLead): fixed', LATER, 'APPROVED')]);
+  assert.equal(r.pass, true);
+  assert.equal(r.approver.role, 'Quality');
+});
+
+test('t/311: the reverse spellings, and `Quality (Tech Lead)` / `Quality-TL`, also share the slot', () => {
+  for (const [hold, ok] of [['Quality-TechLead', 'Quality'], ['Quality', 'QualityTechLead'], ['Quality-TL', 'Quality']]) {
+    const r = t311Guard([t311Review(`Changes requested (${hold}): x`, AFTER_PUSH), t311Review(`Approved (${ok}): y`, LATER, 'APPROVED')]);
+    assert.equal(r.pass, true, `${hold} -> ${ok}`);
+  }
+});
+
+test('FIRE ARM t/311: distinct roles never merge -- a Quality hold is NOT cleared by a Design (or Quality-Sage) approval', () => {
+  for (const other of ['Design', 'Quality-Sage']) {
+    const r = t311Guard([t311Review('Changes requested (Quality): x', AFTER_PUSH), t311Review(`Approved (${other}): y`, LATER, 'APPROVED')]);
+    assert.equal(r.pass, false, other);
+    assert.equal(r.reason, 'changes-requested-outstanding');
+  }
+});
+
+test('FIRE ARM t/311: an alias cannot be used to self-approve -- `quality-techlead/` branch approved as `Quality` -> no approval', () => {
+  const r = t311Guard([t311Review('Approved (Quality): mine', LATER, 'APPROVED')], 'quality-techlead/t311-x');
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
+});
