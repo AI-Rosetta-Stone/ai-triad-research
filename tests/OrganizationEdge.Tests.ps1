@@ -292,6 +292,27 @@ Describe 'Get-OrganizationEdge -Status (t/299)' -Tag 'taxonomy' {
         }
     }
 
+    It 'returns an edge with an unknown status under any -Status, with a warning' {
+        $odd = New-EdgeFixture -Edges @(
+            [ordered]@{ source = 'org-001'; target = 'org-002'; type = 'ALLIED_WITH'; rationale = 'x'; source_refs = @(); status = 'pending-review' }
+        )
+        try {
+            InModuleScope AITriad -Parameters @{ P = $odd } {
+                param($P)
+                $script:__testEdgePath = $P
+                Mock Get-OrganizationEdgesFilePath { $script:__testEdgePath } -ModuleName AITriad
+                Clear-OrganizationEdgesCache
+                $r = @(Get-OrganizationEdge -WarningVariable w -WarningAction SilentlyContinue)
+                $r.Count | Should -Be 1
+                "$w" | Should -Match "unknown status 'pending-review'"
+                @(Get-OrganizationEdge -Status rejected -WarningAction SilentlyContinue).Count | Should -Be 1
+            }
+        } finally {
+            Remove-Item $odd -Force -ErrorAction SilentlyContinue
+            InModuleScope AITriad { Clear-OrganizationEdgesCache }
+        }
+    }
+
     It 'rejects an unknown -Status at binding' {
         { Get-OrganizationEdge -Status accepted } | Should -Throw
     }

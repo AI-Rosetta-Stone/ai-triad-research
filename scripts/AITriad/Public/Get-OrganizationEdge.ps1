@@ -26,7 +26,7 @@ function Get-OrganizationEdge {
     .PARAMETER Status
         Return only edges with these statuses (approved, proposed, disputed, rejected).
         An edge with no status field counts as approved. Default: every status except
-        rejected.
+        rejected. An edge with any other status is always returned, with a warning.
     .OUTPUTS
         [OrganizationEdge]
     .EXAMPLE
@@ -86,6 +86,10 @@ function Get-OrganizationEdge {
         $normType = $res.Type
     }
 
+    # Kept in step with the -Status ValidateSet. An edge outside it is returned with a WARN rather
+    # than hidden, since no -Status value could ever select it.
+    $KnownStatuses = @('approved', 'proposed', 'disputed', 'rejected')
+
     $filtered = foreach ($e in $raw) {
         $s = if ($e.PSObject.Properties['source']) { [string]$e.source } else { '' }
         $t = if ($e.PSObject.Properties['target']) { [string]$e.target } else { '' }
@@ -103,6 +107,11 @@ function Get-OrganizationEdge {
         if ($Target -and $t -ne $Target) { continue }
 
         $edge = ConvertTo-OrganizationEdgeObject -Raw $e
+        if ($KnownStatuses -notcontains $edge.Status) {
+            Write-Warning "Get-OrganizationEdge: edge $s -> $t ($y) has unknown status '$($edge.Status)'; returning it regardless of -Status. Fix organization_edges.json or add the status to the cmdlet's -Status set."
+            $edge
+            continue
+        }
         if ($Status -notcontains $edge.Status) { continue }
         $edge
     }
