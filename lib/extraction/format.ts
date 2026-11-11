@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-export type DocumentFormat = 'pdf' | 'docx' | 'txt' | 'md' | 'html';
+export type DocumentFormat = 'pdf' | 'docx' | 'txt' | 'md' | 'html' | 'unsupported';
 
 /**
- * Detect document format from magic bytes.
+ * Detect document format from magic bytes and structure validation.
  * Prioritizes magic bytes over extension to prevent spoofing.
  */
 export function detectFormat(bytes: Uint8Array): DocumentFormat {
@@ -17,10 +17,15 @@ export function detectFormat(bytes: Uint8Array): DocumentFormat {
     return 'pdf';
   }
 
-  // ZIP (DOCX is ZIP with [Content_Types].xml and word/document.xml)
+  // ZIP (PK magic bytes: 0x50 0x4b)
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    // 0x50 0x4b = 'PK'
-    return 'docx';
+    // Not all ZIPs are DOCX - validate DOCX structure
+    // DOCX must contain [Content_Types].xml (required by spec)
+    if (isValidDocx(bytes)) {
+      return 'docx';
+    }
+    // Otherwise, it's an unsupported ZIP format
+    return 'unsupported';
   }
 
   // Try to decode as text to detect HTML/MD/TXT
@@ -42,6 +47,76 @@ export function detectFormat(bytes: Uint8Array): DocumentFormat {
 
   // TXT: fallback for plain text
   return 'txt';
+}
+
+/**
+ * Validate that a ZIP file is actually a DOCX by checking for required DOCX structure.
+ * A DOCX is a ZIP that must contain [Content_Types].xml at the root.
+ */
+function isValidDocx(bytes: Uint8Array): boolean {
+  if (bytes.length < 30) {
+    return false;
+  }
+
+  // Search for [Content_Types].xml in the ZIP
+  // It's typically near the beginning as the first file in the archive
+  const searchStr = '[Content_Types].xml';
+  const searchBytes = new TextEncoder().encode(searchStr);
+
+  // Check first 10KB for [Content_Types].xml filename
+  const searchLimit = Math.min(10000, bytes.length);
+  for (let i = 0; i < searchLimit - searchBytes.length; i++) {
+    let match = true;
+    for (let j = 0; j < searchBytes.length; j++) {
+      if (bytes[i + j] !== searchBytes[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Detect if text looks like Markdown.
+ * Heuristics: frontmatter, headers, lists, code blocks, etc.
+ */
+function isMarkdown(text: string): boolean {
+  // YAML frontmatter
+  if (text.startsWith('---\n')) {
+    return true;
+  }
+
+  // Markdown headers
+  if (/^\s*#{1,6}\s+/m.test(text)) {
+    return true;
+  }
+
+  // Unordered lists
+  if (/^\s*[-*+]\s+/m.test(text)) {
+    return true;
+  }
+
+  // Ordered lists
+  if (/^\s*\d+\.\s+/m.test(text)) {
+    return true;
+  }
+
+  // Code blocks (fenced)
+  if (/```/m.test(text)) {
+    return true;
+  }
+
+  // Links and images
+  if (/\[.+\]\(.+\)/.test(text)) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -76,46 +151,4 @@ function decodeText(bytes: Uint8Array): string {
     // Fallback: use utf-8 with replacements
     return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   }
-}
-
-/**
- * Heuristic detection for Markdown format.
- * Looks for common Markdown markers.
- */
-function isMarkdown(text: string): boolean {
-  const lines = text.split('\n').slice(0, 20); // Check first 20 lines
-
-  for (const line of lines) {
-    // YAML frontmatter
-    if (line === '---') {
-      return true;
-    }
-
-    // Markdown headers
-    if (/^\#+\s/.test(line)) {
-      return true;
-    }
-
-    // Markdown lists
-    if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) {
-      return true;
-    }
-
-    // Code fences
-    if (/^```/.test(line)) {
-      return true;
-    }
-
-    // Bold/italic
-    if (/\*\*|__|\*|_|~~/.test(line)) {
-      return true;
-    }
-
-    // Links
-    if (/\[.*\]\(.*\)/.test(line)) {
-      return true;
-    }
-  }
-
-  return false;
 }
