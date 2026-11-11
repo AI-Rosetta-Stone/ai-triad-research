@@ -10,7 +10,6 @@ import { POVER_INFO } from '../../types/debate';
 import type { TaxonomyRef } from '../../types/debate';
 import type { ChatEntry, ChatMode } from '../../types/chat';
 import { CHAT_MODE_INFO } from '../../types/chat';
-import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { DetailPane } from '../shared/DetailPane';
 import { remarkLinkifyRefs, REF_LINK_CLASS } from '../shared/refLinkifyPlugin';
 import { parseEntityRef } from '@lib/entities/types';
@@ -29,7 +28,6 @@ import { CampGlyph, povToCamp } from '../shared/CampGlyph';
 import { SpeakerIdentity } from '../shared/SpeakerIdentity';
 import { EmptyState } from '../shared/EmptyState';
 import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/ChatBubble';
-import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
@@ -44,10 +42,6 @@ function speakerLabel(speaker: string): string {
   if (speaker === 'system') return 'System';
   const info = POVER_INFO[speaker as keyof typeof POVER_INFO];
   return info?.label || speaker;
-}
-
-function nodeIdToTab(nodeId: string): string {
-  return nodePovFromId(nodeId) ?? 'unknown';
 }
 
 // t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
@@ -88,13 +82,13 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
 
 
 /**
- * t/167: Chat's Why grounding now uses the shared BdiGroundingView from debate.
- * It groups refs by BDI category (Desires, Intentions, Beliefs), renders each with
- * labels, and allows inline node detail viewing via click. Empty refs show Chat's
- * approved wording from t/4862.
+ * Why grounding for an answer (t/167): the shared BdiGroundingView from debate, grouped by BDI.
+ * Only answers get Chat's empty line (t/4862); a user message with no refs renders nothing.
  */
-export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[]; emptyText?: string }) {
-  return <BdiGroundingView refs={refs} emptyText={emptyText} />;
+export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[] | undefined; emptyText?: string }) {
+  const list = refs ?? [];
+  if (list.length === 0 && !emptyText) return null;
+  return <BdiGroundingView refs={list} emptyText={emptyText} />;
 }
 
 // ── Chat message ─────────────────────────────────────────
