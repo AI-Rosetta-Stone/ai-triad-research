@@ -432,6 +432,7 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
   const framingChoices = wp.framing_choices;
+  const stageStr = String(stage || '');
   const [moreExpanded, setMoreExpanded] = useState(false);
 
   // Count total attacks (mapped + unmapped)
@@ -464,7 +465,7 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
       {/* Header card */}
       <header className="claim-map-header">
         <div className="claim-map-header-top">
-          <div className="claim-map-eyebrow">{(camp || 'PLAN').toUpperCase()} · {stage}</div>
+          <div className="claim-map-eyebrow">{(camp || 'PLAN').toUpperCase()} · {stageStr}</div>
           <div className="claim-map-counts">
             {claims.length} claim{claims.length === 1 ? '' : 's'} · {totalAttacks} attack{totalAttacks === 1 ? '' : 's'} · {assumptions.length} assumption{assumptions.length === 1 ? '' : 's'} · {verifiedAttacks} verified
           </div>
@@ -485,8 +486,8 @@ function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId,
             ? (framingChoices as { frame: string; why: string }[]).map((fc, i) => (
               <div key={i} className="claim-map-lens-card">
                 <div className="claim-map-lens-eyebrow">LENS {i + 1}</div>
-                <h3 className="claim-map-lens-title">{fc.frame}</h3>
-                <p className="claim-map-lens-why">{fc.why}</p>
+                <h3 className="claim-map-lens-title">{String(fc.frame)}</h3>
+                <p className="claim-map-lens-why">{String(fc.why)}</p>
               </div>
             ))
             : (
