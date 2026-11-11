@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   cap: 1,
   pending: [] as Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }>,
   pipelineCalls: 0,
+  failNextInquiryStart: false,
+  failNextExportStart: false,
 }));
 
 vi.mock('../routes/generationContext.js', () => ({
@@ -49,11 +51,22 @@ vi.mock('../storage/briefExportStore.js', async (orig) => ({
 vi.mock('../inquiryJobs.js', async (orig) => {
   const m = { ...(await orig<typeof import('../inquiryJobs.js')>()) };
   Object.defineProperty(m, 'MAX_CONCURRENT_INQUIRY_JOBS', { get: () => h.cap, enumerable: true });
+  // Fails the next create once, before any record is written, to exercise the lock's release on a throw.
+  const realStart = m.startInquiryJob;
+  m.startInquiryJob = async (args) => {
+    if (h.failNextInquiryStart) { h.failNextInquiryStart = false; throw new Error('simulated job-record write failure'); }
+    return realStart(args);
+  };
   return m;
 });
 vi.mock('../briefExportJobs.js', async (orig) => {
   const m = { ...(await orig<typeof import('../briefExportJobs.js')>()) };
   Object.defineProperty(m, 'MAX_CONCURRENT_EXPORT_JOBS', { get: () => h.cap, enumerable: true });
+  const realStart = m.startExportJob;
+  m.startExportJob = async (args) => {
+    if (h.failNextExportStart) { h.failNextExportStart = false; throw new Error('simulated job-record write failure'); }
+    return realStart(args);
+  };
   return m;
 });
 
@@ -98,6 +111,8 @@ afterEach(async () => {
   await new Promise(resolve => setTimeout(resolve, 150)); // let the failed-record writes land before the next test / rm
   h.cap = 1;
   h.pipelineCalls = 0;
+  h.failNextInquiryStart = false;
+  h.failNextExportStart = false;
   _resetInquiryJobsForTest();
 });
 
@@ -214,6 +229,14 @@ describe('POST /api/inquiry — durable idempotency and caps (real records)', ()
     expect(second.status).toBe(202);
     expect(second.body.jobId).not.toBe(first.body.jobId);
   });
+
+  it('a create that throws releases the per-user lock: the next POST from that user gets 202', async () => {
+    const u = newUser();
+    h.failNextInquiryStart = true;
+    expect((await postInquiry(u)).status).toBe(500);
+    expect(await listUserJobRecords(u, 'inquiry')).toHaveLength(0);
+    expect((await postInquiry(u)).status).toBe(202);
+  });
 });
 
 describe('POST /api/debates/:debateId/exports — durable idempotency and caps (real records)', () => {
@@ -280,5 +303,13 @@ describe('POST /api/debates/:debateId/exports — durable idempotency and caps (
     const second = await postExport(u);
     expect(second.status).toBe(202);
     expect(second.body.jobId).not.toBe(first.body.jobId);
+  });
+
+  it('a create that throws releases the per-user lock: the next POST from that user gets 202', async () => {
+    const u = newUser();
+    h.failNextExportStart = true;
+    expect((await postExport(u)).status).toBe(503);
+    expect(await listUserJobRecords(u, 'brief-export')).toHaveLength(0);
+    expect((await postExport(u)).status).toBe(202);
   });
 });
