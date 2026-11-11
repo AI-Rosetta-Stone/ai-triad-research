@@ -28,12 +28,15 @@ export function median(xs) {
 
 /**
  * PURE. Peak number of simultaneously running jobs per UTC hour.
- * `jobs`: [{ started_at, completed_at|null }] (queued jobs have no started_at and are ignored).
+ * `jobs`: [{ started_at, completed_at|null, runner_name }]. Only jobs that got a RUNNER count: a job
+ * cancelled while still queued has started_at..completed_at spanning its queue time, not runner time
+ * (a 504 "peak" under the 1-job throttle on 2026-11-11 was exactly that).
  * `now`: ms, the end for still-running jobs. Returns [{ hour: 'YYYY-MM-DDTHH', peak }] sorted.
  */
 export function peakParallelByHour(jobs, now) {
   const ev = [];
   for (const j of jobs) {
+    if (!j.runner_name) continue;
     const s = Date.parse(j.started_at);
     if (!Number.isFinite(s)) continue;
     const e = j.completed_at ? Date.parse(j.completed_at) : now;
@@ -82,7 +85,8 @@ async function main() {
       if (b.workflow_runs.length < 100) break;
     }
   }
-  const started = runs.filter((r) => r.run_started_at);
+  // Newest first: if the call cap truncates, the recent hours (the live t/386 signal) stay complete.
+  const started = runs.filter((r) => r.run_started_at).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const want = Math.min(started.length, maxJobCalls);
   const budget = checkBudget({ need: want, floor: 1000, pool: 'core', rateLimitJson: gh(['api', 'rate_limit']) });
   if (!budget.ok) throw refusalError(budget);
@@ -97,7 +101,8 @@ async function main() {
   console.log(`- PRs created in the last 24h: **${created}**; merged: **${merged}**`);
   console.log(`- Median size of PRs merged in the last 24h: **${median(sizes) ?? 'n/a'}** lines changed (additions + deletions, n=${sizes.length})`);
   console.log(`- Peak parallel jobs per hour, last ${hours}h${partial}: ${peaks.map((p) => `${p.hour.slice(11)}Z **${p.peak}**`).join(', ') || 'no jobs ran'}`);
-  console.log(`- t/386 (1-job throttle): ${peaks.some((p) => p.peak > 5) ? 'peak above 5 in the window: tell the TL' : 'still at or below 5'}`);
+  const latest = peaks.at(-1);
+  console.log(`- t/386 (1-job throttle), latest hour ${latest ? `${latest.hour.slice(11)}Z peak ${latest.peak}` : 'n/a'}: ${latest && latest.peak > 5 ? 'ABOVE 5: tell the TL' : 'at or below 5: still throttled'}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
