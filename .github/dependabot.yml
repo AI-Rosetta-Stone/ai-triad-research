@@ -16,6 +16,11 @@ version: 2
 # started 117 workflow runs in one minute. So every entry now has `rebase-strategy: disabled`
 # (the merge queue tests against current main anyway; for a PR that actually conflicts,
 # comment `@dependabot rebase` on it), and limits are lowered (aggregate 20 -> 10).
+# Off-peak schedule (t/317): every entry runs between 05:05 and 06:50 UTC, 15 min apart, in
+# the quietest hour of the Actions run data (Nov 3-10: ~16 runs/h at 05 UTC vs ~150-195 at
+# 12-17 UTC). The slots sit off the round marks that the daily 04:00 and 06:00 workflow crons
+# use. So a grouped PR that regenerates (~24 runs each) does it in a quiet window, one
+# ecosystem at a time. GitHub treats `time` as best-effort, so a job may start late.
 updates:
   # ── npm workspace ROOT — a single entry owns the ENTIRE pnpm workspace ──
   # All workspace members (pnpm-workspace.yaml: taxonomy-editor, lib, poviewer,
@@ -39,6 +44,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: '05:05'  # t/317
+      timezone: Etc/UTC
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -55,6 +63,9 @@ updates:
     directory: /lib/debate
     schedule:
       interval: weekly
+      day: monday
+      time: '05:20'  # t/317
+      timezone: Etc/UTC
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -65,6 +76,9 @@ updates:
     directory: /deploy/azure/runner/function
     schedule:
       interval: weekly
+      day: monday
+      time: '05:35'  # t/317
+      timezone: Etc/UTC
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -76,6 +90,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+      time: '05:50'  # t/317
+      timezone: Etc/UTC
     groups:
       actions:
         patterns: ["*"]
@@ -93,6 +109,9 @@ updates:
     directory: /scripts
     schedule:
       interval: weekly
+      day: monday
+      time: '06:05'  # t/317
+      timezone: Etc/UTC
     groups:
       pip-deps:
         patterns: ["*"]
@@ -111,6 +130,8 @@ updates:
     directory: /taxonomy-editor
     schedule:
       interval: monthly
+      time: '06:20'  # t/317
+      timezone: Etc/UTC
     rebase-strategy: disabled  # t/313
     open-pull-requests-limit: 1
 
@@ -118,6 +139,8 @@ updates:
     directory: /deploy/azure
     schedule:
       interval: monthly
+      time: '06:35'  # t/317
+      timezone: Etc/UTC
     rebase-strategy: disabled  # t/313
     open-pull-requests-limit: 1
 
@@ -129,6 +152,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: '06:50'  # t/317
+      timezone: Etc/UTC
     rebase-strategy: disabled  # t/313
     open-pull-requests-limit: 1
     # Python is pinned to 3.12 on purpose (requirements + torch). #5015 auto-merged a
