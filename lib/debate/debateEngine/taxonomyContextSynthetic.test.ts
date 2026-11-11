@@ -41,6 +41,23 @@ describe('resolveSyntheticPromptNodes: no-embedding fallback (t/412 CL item 1)',
   });
 });
 
+describe('resolveSyntheticPromptNodes: zero-node case (TL decision, p/8#142)', () => {
+  it('falls back to control-fallback when every selected node is skipped and none backfills', () => {
+    const a = node('acc-data-001', 'data');
+    const e = engine({ useSyntheticStatementGrounding: true }, { 'acc-data-001': { vectors: [[1, 0]] } }, {});
+    const r = resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a], new Map([['acc-data-001', 0.9]]), QUERY);
+    expect(r).toEqual({ arm: 'control-fallback' });
+  });
+
+  it('keeps the control path, so the prompt still has POV nodes (description path, debate_grounding if on)', () => {
+    const a = node('acc-data-001', 'data', { graph_attributes: { debate_grounding: 'register text' } });
+    const e = engine({ useSyntheticStatementGrounding: true, useDebateGrounding: true }, { 'acc-data-001': { vectors: [[1, 0]] } }, {});
+    const r = resolveSyntheticPromptNodes(e, [{ node: a, score: 0.9 }], [a], new Map([['acc-data-001', 0.9]]), QUERY);
+    expect(r?.arm).toBe('control-fallback');
+    expect(resolveGroundingOverrides(e, r, [a])?.get('acc-data-001')).toBe('register text');
+  });
+});
+
 describe('resolveGroundingOverrides: flag precedence (t/412 CL item 2)', () => {
   const withGrounding = node('acc-data-001', 'data', { graph_attributes: { debate_grounding: 'register text' } });
 

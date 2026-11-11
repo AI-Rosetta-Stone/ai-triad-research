@@ -616,6 +616,12 @@ export function resolveSyntheticPromptNodes(
     nodeStatements: engine.taxonomy.syntheticStatements ?? {},
     debateId: engine.session?.id,
   });
+  // Zero-node case (TL decision, p/8#142): never send a prompt with no POV nodes. Fall back to the
+  // control path and mark the turn so it is excluded from arm B.
+  if (grounded.nodes.length === 0) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: engine.session?.id, message: `useSyntheticStatementGrounding: no POV node has a usable synthetic statement (${grounded.skipped.length} skipped, 0 backfilled) — falling back to the control prompt, marked synthetic_arm=control-fallback` });
+    return { arm: 'control-fallback' };
+  }
   return { arm: 'synthetic', nodes: grounded.nodes, overrides: grounded.overrides };
 }
 
