@@ -69,6 +69,93 @@ jobs:
             core.info(`Rate-limit OK: ${remaining}/${limit} remaining`);
             core.setOutput('backoff', 'false');
 
+      - name: Check for INFRA rate-limit failures in guard jobs (t/318, t/238)
+        id: guard-rate-limit-check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        continue-on-error: true
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const runId = context.payload.workflow_run.id;
+            
+            // List all jobs in the failed run, looking for consult-hold-guard or joint-gv-guard failures
+            const { data: jobsResp } = await github.rest.actions.listJobsForWorkflowRun({
+              owner, repo, run_id: runId, per_page: 100
+            });
+            
+            const guardJobs = jobsResp.jobs.filter(j => 
+              (j.name === 'consult-hold-guard' || j.name === 'joint-gv-guard') && j.conclusion === 'failure'
+            );
+            
+            if (!guardJobs.length) {
+              core.info('No guard job failures found.');
+              core.setOutput('found', 'false');
+              return;
+            }
+            
+            // For each failed guard job, fetch its logs and search for INFRA rate-limit classification
+            const infraFailures = [];
+            for (const job of guardJobs) {
+              try {
+                const logs = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  owner, repo, job_id: job.id
+                });
+                const logText = logs.data || '';
+                
+                // Match the INFRA rate-limit pattern: INFRA rate-limit: ... resets=<ISO-time>
+                const match = logText.match(/INFRA rate-limit:.*resets=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)/);
+                if (match) {
+                  const resetsTime = match[1];
+                  core.info(`Found INFRA rate-limit in ${job.name}: resets=${resetsTime}`);
+                  infraFailures.push({
+                    jobName: job.name,
+                    jobId: job.id,
+                    resetsTime: resetsTime
+                  });
+                }
+              } catch (err) {
+                core.warning(`Could not fetch logs for ${job.name}: ${err.message}`);
+              }
+            }
+            
+            if (infraFailures.length > 0) {
+              core.setOutput('found', 'true');
+              core.setOutput('failures', JSON.stringify(infraFailures));
+              core.info(`Found ${infraFailures.length} INFRA rate-limit failure(s) to re-run after reset.`);
+            } else {
+              core.setOutput('found', 'false');
+            }
+
+      - name: Wait for quota reset and re-run guard jobs (t/318, t/238)
+        if: steps.guard-rate-limit-check.outputs.found == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        continue-on-error: true
+        with:
+          script: |
+            const failures = JSON.parse('${{ steps.guard-rate-limit-check.outputs.failures }}');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            
+            for (const failure of failures) {
+              // Parse ISO 8601 time: YYYY-MM-DDTHH:MM:SSZ
+              const resetsEpoch = Math.floor(new Date(failure.resetsTime).getTime() / 1000);
+              const nowEpoch = Math.floor(Date.now() / 1000);
+              const waitSeconds = Math.max(0, resetsEpoch - nowEpoch + 1); // +1s buffer
+              
+              if (waitSeconds > 0) {
+                core.info(`${failure.jobName}: Waiting ${waitSeconds}s for quota reset (resets=${failure.resetsTime})`);
+                await new Promise(r => setTimeout(r, waitSeconds * 1000));
+              }
+              
+              try {
+                core.info(`Re-running ${failure.jobName} (job ${failure.jobId}) after quota reset`);
+                await github.rest.actions.reRunJobForWorkflowRun({
+                  owner, repo, job_id: failure.jobId
+                });
+              } catch (err) {
+                core.warning(`Re-run request for ${failure.jobName} failed: ${err.message}`);
+              }
+            }
+
       - name: Rerun each abnormal-end shard job once, and log it
         if: steps.rate-limit-check.outputs.backoff == 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
