@@ -65,6 +65,13 @@ export async function extractDocumentText(
         break;
       case 'html':
         extractedText = extractHtmlText(bytes);
+      case 'unsupported':
+        throw createError('UNSUPPORTED_FORMAT', {
+          goal: 'Extract text from document',
+          problem: 'File format is not supported (detected as ZIP but not a valid DOCX, or unknown archive type)',
+          location: 'lib/extraction:extractDocumentText',
+          nextSteps: ['Verify the file is a valid PDF, DOCX, plain text, or HTML file', 'Convert to a supported format first'],
+        });
         break;
       default:
         const _exhaustive: never = format;

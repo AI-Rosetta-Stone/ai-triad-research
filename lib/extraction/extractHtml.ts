@@ -1,101 +1,99 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
-// Licensed under the MIT License. See LICENSE file in the project root.
-
 /**
  * Extract text from HTML using safe linear-time tag removal.
- * Prevents quadratic regex behavior on malformed HTML (unclosed tags).
- * Script/style/head/noscript tags removed in linear time to prevent DoS.
+ * Prevents quadratic regex behavior and DoS attacks on malformed HTML.
  */
 export function extractHtmlText(bytes: Uint8Array): string {
   const html = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   return stripHtmlFallback(html);
 }
 
-/**
- * Strip HTML tags and normalize whitespace safely.
- * Step 1: Remove problematic tags (script/style/head/noscript) using linear-time parser
- * Step 2: Iteratively normalize other tags with bounded iterations and timeout
- *
- * codeql[js/bad-tag-filter]
- * codeql[js/incomplete-multi-character-sanitization] linear removal + bounded iteration + timeout
- */
 function stripHtmlFallback(html: string): string {
-  // Step 1: Remove problematic tags in linear time (prevent quadratic regex on unclosed tags)
-  let s = removeTagsByName(html, ['script', 'style', 'noscript', 'head']);
+  // Remove problematic tags in a single linear pass
+  let s = html;
+  
+  // Remove script, style, head, noscript tags and their contents in linear time
+  for (const tag of ['script', 'style', 'head', 'noscript']) {
+    s = removeTagLinear(s, tag);
+  }
 
-  // Step 2: Iteratively normalize with bounded iterations (max 100 passes, 5s timeout)
-  const maxIterations = 100;
+  // Remove remaining tags with bounded simple replacements
   const timeoutMs = 5000;
   const startTime = Date.now();
-  let iterations = 0;
-
   let prev: string;
+  let iterations = 0;
+  const maxIterations = 10;
+
   do {
-    if (++iterations > maxIterations) {
-      throw new Error(`HTML normalization exceeded ${maxIterations} iterations (possible malformed HTML)`);
-    }
     if (Date.now() - startTime > timeoutMs) {
-      throw new Error(`HTML normalization exceeded ${timeoutMs}ms timeout`);
+      throw new Error('HTML normalization exceeded timeout');
+    }
+    if (++iterations > maxIterations) {
+      break;
     }
 
     prev = s;
-    s = s
-      .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  } while (s !== prev);
+    s = s.replace(/<[^>]*>/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+  } while (s !== prev && s.length > 0);
+
   return s;
 }
 
 /**
- * Remove tags by name in linear time using character-by-character parsing.
- * Handles unclosed tags and prevents quadratic regex behavior.
+ * Remove a specific tag and its contents in linear time without calling toLowerCase() on the entire document.
+ * Handles case-insensitive matching and unclosed tags.
  */
-function removeTagsByName(html: string, tagNames: string[]): string {
-  let result = html;
-  for (const tag of tagNames) {
-    result = removeTag(result, tag);
-  }
-  return result;
-}
-
-/**
- * Remove a specific tag and its contents in linear time, handling unclosed tags safely.
- */
-function removeTag(html: string, tagName: string): string {
-  const openTag = `<${tagName}`;
-  const closeTag = `</${tagName}>`;
+function removeTagLinear(html: string, tagName: string): string {
+  const tagLower = tagName.toLowerCase();
+  const openTagStart = `<${tagName}`;
+  const openTagStartLower = openTagStart.toLowerCase();
+  const closeTagStr = `</${tagName}>`;
+  const closeTagStrLower = closeTagStr.toLowerCase();
+  
   let result = '';
   let pos = 0;
 
   while (pos < html.length) {
-    const start = html.toLowerCase().indexOf(openTag.toLowerCase(), pos);
-    if (start === -1) {
+    // Find opening tag by checking first character match only
+    let foundStart = -1;
+    for (let i = pos; i < html.length; i++) {
+      if (i + openTagStart.length <= html.length) {
+        const candidate = html.substring(i, i + openTagStart.length);
+        if (candidate.toLowerCase() === openTagStartLower) {
+          foundStart = i;
+          break;
+        }
+      }
+    }
+
+    if (foundStart === -1) {
       result += html.slice(pos);
       break;
     }
 
-    result += html.slice(pos, start);
+    result += html.slice(pos, foundStart);
 
-    // Find the end of the opening tag
-    const tagEnd = html.indexOf('>', start);
+    // Find end of opening tag
+    const tagEnd = html.indexOf('>', foundStart);
     if (tagEnd === -1) {
-      // Malformed: unclosed opening tag, include it as-is
-      result += html.slice(start);
       break;
     }
 
-    // Find the closing tag
-    const closePos = html.toLowerCase().indexOf(closeTag.toLowerCase(), tagEnd + 1);
-    if (closePos === -1) {
-      // Unclosed tag: skip opening tag but keep content
+    // Find closing tag
+    let foundEnd = -1;
+    for (let i = tagEnd + 1; i < html.length; i++) {
+      if (i + closeTagStr.length <= html.length) {
+        const candidate = html.substring(i, i + closeTagStr.length);
+        if (candidate.toLowerCase() === closeTagStrLower) {
+          foundEnd = i;
+          break;
+        }
+      }
+    }
+
+    if (foundEnd === -1) {
       pos = tagEnd + 1;
     } else {
-      // Found closing tag: skip both opening and closing tags
-      pos = closePos + closeTag.length;
+      pos = foundEnd + closeTagStr.length;
     }
   }
 
