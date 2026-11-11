@@ -46,13 +46,15 @@ const { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefE
 }));
 vi.mock('../storage/briefExportStore.js', () => ({ listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus }));
 
-const { countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation } = vi.hoisted(() => ({
+const { countUserJobRecords, findRunningJobByIdempotencyKey } = vi.hoisted(() => ({
   countUserJobRecords: vi.fn(async () => ({ count: 0, error: null })),
   findRunningJobByIdempotencyKey: vi.fn(async () => null),
-  reserveSubmissionSlot: vi.fn(() => true), // Mocked to allow by default; tests can override
-  releaseSubmissionReservation: vi.fn(),
 }));
-vi.mock('../storage/jobCapChecker.js', () => ({ countUserJobRecords, findRunningJobByIdempotencyKey, reserveSubmissionSlot, releaseSubmissionReservation }));
+// Serialization is covered with real records in jobCapRoutes.test.ts; here the lock is a passthrough.
+vi.mock('../storage/jobCapChecker.js', () => ({
+  countUserJobRecords, findRunningJobByIdempotencyKey,
+  withSubmissionLock: async (_userId: string, _kind: string, fn: () => Promise<unknown>) => fn(),
+}));
 
 import { registerBriefExportsRoutes } from '../routes/briefExports.js';
 import { BRIEF_ARTIFACTS } from '../../../../lib/brief/types.js';
@@ -196,13 +198,18 @@ describe('Brief Export routes (t/2804)', () => {
   });
 
   it('429 when the per-user concurrency cap is reached', async () => {
-    // t/182: New code uses reserveSubmissionSlot instead of countRunningExportJobs
-    reserveSubmissionSlot.mockReturnValue(false); // Slot is held (concurrency cap reached)
+    countUserJobRecords.mockResolvedValue({ count: 1, error: null }); // == MAX_CONCURRENT_EXPORT_JOBS
     await post(validBody);
     expect(lastRes._status).toBe(429);
     expect(JSON.parse(lastRes._body!).error).toBe('concurrency_limit');
     expect(startExportJob).not.toHaveBeenCalled();
-    reserveSubmissionSlot.mockReturnValue(true); // Reset for other tests
+  });
+
+  it('503 (and starts nothing) when the durable cap listing fails — fail closed (t/182)', async () => {
+    countUserJobRecords.mockResolvedValue({ count: null, error: { reason: 'list_failed' } } as never);
+    await post(validBody);
+    expect(lastRes._status).toBe(503);
+    expect(startExportJob).not.toHaveBeenCalled();
   });
 
   // ── GET job / list ──

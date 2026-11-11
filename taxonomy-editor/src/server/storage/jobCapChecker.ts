@@ -26,12 +26,31 @@ export interface JobCapError {
   cause: unknown;
 }
 
-/** t/182: In-process concurrency guard — a Set of pending (userId, kind, debateId) to prevent
- *  same-replica double-submit race. Reserved BEFORE job creation, released after (in finally).
- *  Key: `${userId}:${kind}:${debateId ?? ''}`.
- *  This synchronously prevents concurrent POSTs on the same replica from both passing the cap
- *  check before either writes their durable record. */
-const IN_PROCESS_PENDING = new Set<string>();
+/** Tail of the per-(user, kind) submission queue. Same-replica only; cross-replica races are
+ *  bounded by the durable records, which each admitted request writes before the lock is released. */
+const SUBMISSION_TAILS = new Map<string, Promise<void>>();
+
+/**
+ * Run `fn` (check idempotency + cap, then create the durable record) exclusively per (user, kind).
+ * Concurrent callers QUEUE rather than reject, so N concurrent POSTs under the cap are all
+ * admitted, and each later caller counts the records its predecessors already wrote.
+ * `fn` must write its durable record before returning.
+ */
+export async function withSubmissionLock<T>(userId: string, kind: JobRecordKind, fn: () => Promise<T>): Promise<T> {
+  const key = `${userId}:${kind}`;
+  const prev = SUBMISSION_TAILS.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const mine = new Promise<void>(resolve => { release = resolve; });
+  const tail = prev.then(() => mine);
+  SUBMISSION_TAILS.set(key, tail);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (SUBMISSION_TAILS.get(key) === tail) SUBMISSION_TAILS.delete(key);
+  }
+}
 
 /** Get the staleness threshold for a job kind (in ms from lastHeartbeatAt). */
 function getStalenesThreshold(kind: JobRecordKind): number {
@@ -113,39 +132,11 @@ export async function findRunningJobByIdempotencyKey<K extends JobRecordKind>(
   } catch (err) {
     log.server.warn(
       { cause: 'idempotency-check-failed', userId, kind, err: String(err) },
-      `idempotency check failed: listing ${kind} records for ${userId} — failing closed (returning null, new job will be created)`,
+      `idempotency check failed: listing ${kind} records for ${userId} — treating as no match`,
     );
-    // Return null (fail-closed): if we can't verify idempotency, allow a new job to be created
-    // rather than blocking the user. The durable record will enforce idempotency on the next
-    // write. This is safe because createXxxJobRecordIfAbsent uses writeFileIfAbsent: the first
-    // write wins, so concurrent identical requests will have one succeed and others get 'exists'.
+    // The caller's cap check reads the same listing and fails closed (503) on the same error, so
+    // a store outage never admits a job; this null only lets that check report it.
     return null;
   }
 }
 
-/**
- * Reserve a job creation slot (userId, kind, debateId) to prevent same-replica double-submit.
- * MUST be called synchronously before any async work (including the durable cap check).
- * Returns true if the slot was reserved (first caller). Returns false if already reserved.
- * The caller MUST call releaseSubmissionReservation in a finally block to allow the next request.
- */
-export function reserveSubmissionSlot(userId: string, kind: JobRecordKind, debateId: string | undefined): boolean {
-  const key = `${userId}:${kind}:${debateId ?? ''}`;
-  if (IN_PROCESS_PENDING.has(key)) return false;
-  IN_PROCESS_PENDING.add(key);
-  return true;
-}
-
-/**
- * Release the submission slot reserved by reserveSubmissionSlot. MUST be called in finally
- * to ensure the next concurrent request can proceed (if this request fails).
- */
-export function releaseSubmissionReservation(userId: string, kind: JobRecordKind, debateId: string | undefined): void {
-  const key = `${userId}:${kind}:${debateId ?? ''}`;
-  IN_PROCESS_PENDING.delete(key);
-}
-
-/** t/182: For testing — clear the in-process pending set (simulates a restart). */
-export function clearSubmissionPendingForTesting(): void {
-  IN_PROCESS_PENDING.clear();
-}
