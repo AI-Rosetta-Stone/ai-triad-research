@@ -263,7 +263,8 @@ function New-OpEd {
 
     # ── Readability edit pass, word count, reflection ────────────────────────
     $Limits    = Get-OpEdReadabilityLimit -OutletInfo $OutletInfo
-    $Edit      = Invoke-OpEdReadabilityEdit -Body $Draft.Body -Limits $Limits -Model $Model -MaxTokens $MaxTokens -PromptsDir $OPedPromptsDir
+    $EditStyle = Get-OpEdEditStyle -OutletInfo $OutletInfo
+    $Edit      = Invoke-OpEdReadabilityEdit -Body $Draft.Body -Limits $Limits -Style $EditStyle -Model $Model -MaxTokens $MaxTokens -PromptsDir $OPedPromptsDir
     $FinalBody = $Edit.FinalBody
     $ActualWords = Measure-OpEdWordCount -Text $FinalBody
     Add-OpEdGroundingReflection -Grounding $Grounding -FinalBody $FinalBody -SBrief $SBrief -Model $Model -PromptsDir $OPedPromptsDir
