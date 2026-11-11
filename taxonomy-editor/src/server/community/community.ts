@@ -831,6 +831,7 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
     'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
     'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
   ]),
+  // `stages` is deliberately absent: debate diagnostics carry raw prompts and stay owner-only (t/196#19, which reverses the t/171 expectation).
   debate: new Set([
     'id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript',
     'debate_model', 'active_povers', 'opening_order', 'user_is_pover', 'context_summaries',

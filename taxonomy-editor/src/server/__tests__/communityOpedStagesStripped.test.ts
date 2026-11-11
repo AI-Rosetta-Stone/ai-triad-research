@@ -54,10 +54,11 @@ describe('Community publication strips op-ed stages (t/171)', () => {
     expect(JSON.stringify(copy)).not.toContain('a private document');
   });
 
-  it("a debate's own `stages` key is untouched (the strip is op-ed-only, not a denylist key)", async () => {
+  // t/196#19 reverses the t/171 expectation: debate `stages` carries raw diagnostic prompts, so it is owner-only (default-deny allowlist).
+  it("a debate's own `stages` key is dropped (not on the community allowlist, t/196#19)", async () => {
     seed('d1', 'debate', { id: 'deb-1', title: 'A debate', stages: [{ name: 'context-rot' }] });
     const { communityId } = await approveSubmission('d1');
-    expect(published(communityId).stages).toEqual([{ name: 'context-rot' }]);
+    expect(published(communityId)).not.toHaveProperty('stages');
   });
 
   // t/196: unknown new fields are dropped by allowlist (not published by default)
