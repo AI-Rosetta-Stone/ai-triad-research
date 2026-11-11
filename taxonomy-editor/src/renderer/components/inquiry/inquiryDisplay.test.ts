@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { isZeroResult, stageStatus, trustVerdictLabel, STAGE_ORDER } from './inquiryDisplay';
+import { isZeroResult, stageStatus, trustVerdictLabel, STAGE_ORDER, formatStageElapsed, formatStageElapsedSpoken } from './inquiryDisplay';
 import type { InquiryResult } from '@lib/inquiry';
 
 function makeResult(overrides: Partial<InquiryResult> = {}): InquiryResult {
@@ -53,5 +53,26 @@ describe('stageStatus', () => {
     expect(stageStatus('judging', 'debating')).toBe('done');
     expect(stageStatus('judging', 'judging')).toBe('live');
     expect(stageStatus('judging', 'synthesizing')).toBe('wait');
+  });
+});
+
+describe('formatStageElapsed (t/324)', () => {
+  it('formats m:ss, rolling to h:mm:ss at one hour', () => {
+    expect(formatStageElapsed(0)).toBe('0:00');
+    expect(formatStageElapsed(7_900)).toBe('0:07');
+    expect(formatStageElapsed(102_000)).toBe('1:42');
+    expect(formatStageElapsed(725_000)).toBe('12:05');
+    expect(formatStageElapsed(3_600_000)).toBe('1:00:00');
+    expect(formatStageElapsed(3_725_000)).toBe('1:02:05');
+  });
+  it('clamps negative input to 0:00', () => {
+    expect(formatStageElapsed(-5_000)).toBe('0:00');
+  });
+  it('speaks the full form for screen readers', () => {
+    expect(formatStageElapsedSpoken(102_000)).toBe('1 minute 42 seconds');
+    expect(formatStageElapsedSpoken(1_000)).toBe('1 second');
+    expect(formatStageElapsedSpoken(120_000)).toBe('2 minutes');
+    expect(formatStageElapsedSpoken(3_725_000)).toBe('1 hour 2 minutes 5 seconds');
+    expect(formatStageElapsedSpoken(0)).toBe('0 seconds');
   });
 });
