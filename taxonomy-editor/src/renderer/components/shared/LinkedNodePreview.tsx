@@ -3,6 +3,7 @@
 
 import { POV_META, type PovMetaKey } from '@lib/electron-shared/povMeta';
 import { useState, useEffect } from 'react';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { GraphAttributes } from '../../types/taxonomy';
 import { resolveDescription, DescriptionToggle } from './DescriptionToggle';
@@ -76,17 +77,6 @@ function renderPolicyPreview(policy: any, referencingNodes: any[], nodeId: strin
 export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
   const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
-  
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.altKey && e.code === 'KeyP') {
-        e.preventDefault();
-        setDescMode(m => (m === 'plain' ? 'formal' : 'plain'));
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   const data = lookupPinnedData(nodeId);
   if (!data) return null;
@@ -107,16 +97,26 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
   const keyPoints = enriched?.key_points ?? [];
   const hasPlain = Boolean(node.plain_description);
 
+  const descResult = resolveDescription(node, descMode);
+  if (descResult.isGenerating && !node.plain_description) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'LinkedNodePreview',
+      level: 'warn',
+      message: `Node ${nodeId} has no plain_description, falling back to formal`,
+    });
+  }
+
   return (
     <div className="linked-node-preview">
       <div className="linked-node-preview-header">
         <span className="linked-node-preview-pov">{povLabel}</span>
         {category && <span className="linked-node-preview-category">{category}</span>}
         <span className="linked-node-preview-id">{nodeId}</span>
-        <DescriptionToggle mode={descMode} onToggle={setDescMode} hasPlainDescription={hasPlain} />
+        <DescriptionToggle mode={descMode} onToggle={setDescMode} hasPlainDescription={hasPlain} globalShortcut={false} />
       </div>
       <div className="linked-node-preview-label">{node.label}</div>
-      <div className="linked-node-preview-description">{resolveDescription(node, descMode).text}</div>
+      <div className="linked-node-preview-description">{descResult.text}</div>
       {interpretation && (
         <div className="linked-node-preview-attrs">
           <span className="linked-node-preview-attr-label">Interpretation:</span>

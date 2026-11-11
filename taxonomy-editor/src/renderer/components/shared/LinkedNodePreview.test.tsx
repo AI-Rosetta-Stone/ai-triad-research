@@ -6,6 +6,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LinkedNodePreview } from './LinkedNodePreview';
 import * as useTaxonomyStoreModule from '../../hooks/useTaxonomyStore';
+import * as flightRecorderModule from '@lib/flight-recorder/index';
 
 describe('LinkedNodePreview', () => {
   const mockNode = {
@@ -60,20 +61,22 @@ describe('LinkedNodePreview', () => {
     expect(plainButton.textContent).toContain('…');
   });
 
-  it('toggles mode with Alt+P key binding', async () => {
+  it('toggles mode with button click (no global Alt+P shortcut)', async () => {
     mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
     const user = userEvent.setup();
     render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
     
     expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
     
-    await user.keyboard('{Alt>}p{/Alt}');
+    const formalButton = screen.getByRole('radio', { name: /formal/i });
+    await user.click(formalButton);
     
     await waitFor(() => {
       expect(screen.getByText('Formal description of the belief')).toBeInTheDocument();
     });
     
-    await user.keyboard('{Alt>}p{/Alt}');
+    const plainButton = screen.getByRole('radio', { name: /plain/i });
+    await user.click(plainButton);
     
     await waitFor(() => {
       expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
@@ -96,6 +99,24 @@ describe('LinkedNodePreview', () => {
     
     localStorageSpy.mockRestore();
     setItemSpy.mockRestore();
+  });
+
+  it('logs WARN when node has no plain_description and falls back to formal', () => {
+    const recordSpy = vi.fn();
+    vi.spyOn(flightRecorderModule, 'getGlobalRecorder').mockReturnValue({ record: recordSpy } as any);
+    
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    expect(recordSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'system.error',
+        component: 'LinkedNodePreview',
+        level: 'warn',
+        message: expect.stringContaining('acc-beliefs-001'),
+      })
+    );
   });
 
   it('renders conflict data correctly', () => {
