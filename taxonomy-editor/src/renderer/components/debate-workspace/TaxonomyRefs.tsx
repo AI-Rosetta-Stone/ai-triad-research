@@ -349,7 +349,7 @@ interface ParsedAssumption {
   text: string;
 }
 
-function parseWorkProduct(wp: Record<string, unknown>, camp: string) {
+function parseWorkProduct(wp: Record<string, unknown>, camp: string): { claims: ParsedClaim[]; unmappedAttacks: ParsedAttack[]; assumptions: ParsedAssumption[]; verifiedAttacks: number } {
   const claims: ParsedClaim[] = [];
   if (Array.isArray(wp.argument_structure)) {
     (wp.argument_structure as { point: string; evidence?: string; taxonomy_anchor?: string }[]).forEach((s, i) => {
@@ -424,10 +424,14 @@ interface ClaimMapLayoutProps {
 }
 
 function ClaimMapLayout({ wp, stage = '', camp = '', motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(
+  const parsed = useMemo(
     () => parseWorkProduct(wp, camp),
     [wp, camp]
   );
+  const claims = parsed.claims;
+  const unmappedAttacks = parsed.unmappedAttacks;
+  const assumptions = parsed.assumptions;
+  const verifiedAttacks = parsed.verifiedAttacks;
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
