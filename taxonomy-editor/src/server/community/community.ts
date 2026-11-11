@@ -831,17 +831,15 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
     'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
     'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
   ]),
-  // `stages` is deliberately absent: debate diagnostics carry raw prompts and stay owner-only (t/196#19, which reverses the t/171 expectation).
+  // Debate: the 19 KEEP fields from the t/196#21 table, as ruled in t/196#23. Every other DebateSession
+  // key is owner-only and not listed here: stages (t/196#19, reverses t/171), prompt_config, origin,
+  // metadata, diagnostics, source_content/source_ref, and the rest. community_metadata is server-added
+  // attribution, not a DebateSession key.
   debate: new Set([
     'id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'transcript',
-    'debate_model', 'active_povers', 'opening_order', 'user_is_pover', 'context_summaries',
-    'debate_temperature', 'audience', 'protocol_id', 'adaptive_staging', 'diagnostics',
-    'argument_network', 'commitments', 'convergence_tracker', 'document_analysis',
-    'qbaf_timeline', 'claim_coverage', 'neutral_evaluations', 'unanswered_claims_ledger',
-    'position_drift', 'per_claim_drift', 'missing_arguments', 'taxonomy_suggestions',
-    'extraction_summary', 'turn_validations', 'convergence_signals', 'process_rewards',
-    'turn_embeddings', 'frame_embeddings', 'community_metadata', 'evaluator_model',
-    'speaker_models', 'model_tier'
+    'audience', 'active_povers', 'argument_network', 'convergence_signals', 'position_drift',
+    'neutral_evaluations', 'source_type', 'debate_model', 'speaker_models', 'model_tier',
+    'protocol_id', 'adaptive_staging', 'community_metadata'
   ]),
   oped: new Set(['id', 'topic', 'params', 'opeds', 'camps', 'voice_count', 'outlet', 'tag', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
   inquiry: new Set(), // inquiry handled separately via fieldClassification
