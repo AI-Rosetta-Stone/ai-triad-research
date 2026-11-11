@@ -45,6 +45,12 @@ export interface OpeningStagePromptInput {
   anchorToQuestion?: boolean;
 }
 
+/** Inquiry debates (t/284): the opening's first sentence must answer the user's question. Empty otherwise. */
+function inquiryAnchorLine(input: OpeningStagePromptInput): string {
+  if (!input.anchorToQuestion) return '';
+  return `- INQUIRY ANCHOR: Your opening's FIRST SENTENCE MUST state your direct answer to the user's question: "${input.topic}". Every later paragraph must tie back to that question.\n`;
+}
+
 export function briefOpeningStagePrompt(input: OpeningStagePromptInput): string {
   const documentBlock = input.documentAnalysis
     ? documentAnalysisContext(input.documentAnalysis)
@@ -216,8 +222,7 @@ Pre-empting your strongest anticipated objection is often the most persuasive mo
 
 OUTPUT CONSTRAINTS:
 - NODE-ID PROHIBITION: Never surface taxonomy node IDs in statement text. Use plain language.
-- INQUIRY ANCHOR (t/284): ${input.anchorToQuestion ? `For this inquiry debate, your opening's FIRST SENTENCE MUST directly answer the user's question. Format: "The answer to '[${input.topic}]' is that [your position]. [evidence]"` : 'Not applicable for this debate.'}
-- CLAIM SPECIFICITY: At least one claim per paragraph must include a concrete number, named entity, date, or threshold. If source evidence is provided above, use it — cite the specific statistic, year, or finding rather than paraphrasing vaguely. Abstract claims without any specifics weaken your argument.
+${inquiryAnchorLine(input)}- CLAIM SPECIFICITY: At least one claim per paragraph must include a concrete number, named entity, date, or threshold. If source evidence is provided above, use it — cite the specific statistic, year, or finding rather than paraphrasing vaguely. Abstract claims without any specifics weaken your argument.
 - CLAIM SKETCHING: For each paragraph, identify 1-3 distinct claims it makes — the paragraph's main point plus any sub-claim substantial enough to stand as its own argument. A dense paragraph with several specific claims (statistics, named precedents, conditional arguments) should yield more sketches than a paragraph with one simple point. For each, extract a near-verbatim sentence.
 - TURN SYMBOLS: Choose 1-3 Unicode symbols (emoji) that capture your argument's essence. Tooltip: 1-sentence analogy connecting the symbol to your argument.
 - EPISTEMIC DEPTH: Prefer narrow, evidence-grounded claims over broad assertions. A claim backed by a specific statistic, case, or precedent generates more productive engagement than a sweeping generalization. Ask: 'Does this claim invite a substantive response, or just a dismissal?' If the latter, narrow it until a thoughtful opponent would need to bring counter-evidence rather than just disagree.

@@ -512,15 +512,8 @@ export class DebateEngine {
         seedExplorationSummary(this._internal, this.config.explorationSummary);
       }
 
-      // Phase 1: Clarification (optional)
-      if (this.config.enableClarification) {
-        await this._topicPipeline.runClarification();
-      }
-
-      // Phase 1.3: Resolution Anchoring for inquiry debates (t/284)
-      if (this.config.anchorToResolution) {
-        await this._topicPipeline.runResolutionAnchoring();
-      }
+      // Phase 1: Clarification (optional) + inquiry resolution anchoring (t/284)
+      await this._topicPipeline.runClarificationPhase();
 
       // Phase 1.5: Document pre-analysis
       if (this.config.sourceType === 'document' || this.config.sourceType === 'url') {

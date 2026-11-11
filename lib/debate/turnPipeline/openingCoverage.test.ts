@@ -36,6 +36,11 @@ const FIELD_EXEMPTIONS: Record<string, { engineRequired: boolean; rendererRequir
     rendererRequired: false,
     note: 'intentional: provider defaults suffice; only needed for a model-specific token cap on plan/draft/cite stages (mirrors briefMaxTokens, t/4121)',
   },
+  anchorToQuestion: {
+    engineRequired: true,
+    rendererRequired: false,
+    note: 'intentional asymmetry: inquiry debates (t/284) run headless through the engine; the renderer clarification flow has no inquiry mode',
+  },
   stageTemperatures: {
     engineRequired: true,
     rendererRequired: false,

@@ -47,7 +47,7 @@ function makeSession(id = 'sess-001'): DebateSession {
     created_at: '2026-09-23T00:00:00Z',
     updated_at: '2026-09-23T00:00:00Z',
     phase: 'closed',
-    topic: { original: 'test', refined: null, final: 'test topic' },
+    topic: { original: 'test', refined: null, final: 'What are the risks?' },
     source_type: 'topic',
     source_ref: '',
     source_content: '',
@@ -166,7 +166,13 @@ describe('runInquiryPipeline — happy path', () => {
   });
 
   it('passes the derived config and question to runDebate', async () => {
-    const deps = makeDeps();
+    const deps = makeDeps({
+      runDebate: vi.fn().mockImplementation(async (_config: unknown, question: string) => {
+        const session = makeSession();
+        session.topic.final = question;
+        return { session };
+      }),
+    });
     await runInquiryPipeline(makeRequest({ question: 'Specific question?' }), deps);
     expect(deps.runDebate).toHaveBeenCalledWith(
       expect.objectContaining({ topic: 'test' }),

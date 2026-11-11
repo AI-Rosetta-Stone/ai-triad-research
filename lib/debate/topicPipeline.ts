@@ -62,6 +62,15 @@ export interface TopicPipelineContext {
 // session.topic.clause_embeddings — embedResolutionAnchors
 // session.phase               — runClarification
 
+/** Inquiry debates (t/284) never apply the critique's rewrite; keep it for synthesis (t/285). */
+function storeCritiqueSuggestion(
+  config: { anchorToResolution?: boolean },
+  session: { topic: { critique_suggestion?: string } },
+  rewrittenTopic: string | undefined,
+): void {
+  if (config.anchorToResolution && rewrittenTopic) session.topic.critique_suggestion = rewrittenTopic;
+}
+
 export class TopicPipeline {
   constructor(private readonly ctx: TopicPipelineContext) {}
 
@@ -156,77 +165,67 @@ export class TopicPipeline {
       const threshold = this.ctx.config.wisdomReframeThreshold ?? 10;
       const autoReframe = this.ctx.config.wisdomAutoReframe !== false;
 
-      if (critique.composite_score < threshold && critique.rewritten_topic) {
-        // For inquiry debates (t/284): store the suggestion separately, don't apply it
-        if (this.ctx.config.anchorToResolution) {
-          this.ctx.session.topic.critique_suggestion = critique.rewritten_topic;
-          this.ctx.addEntry({
-            type: 'system', speaker: 'system',
-            content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Rewrite suggestion stored (not applied — inquiry debates keep user question).`,
-            taxonomy_refs: [], metadata: {},
-          });
-        } else if (autoReframe) {
-          // For normal debates: apply the reframe as before
-          this.ctx.progress('setup', undefined, 'Reframing topic for productive disagreement');
+      if (critique.composite_score < threshold && critique.rewritten_topic && autoReframe) {
+        this.ctx.progress('setup', undefined, 'Reframing topic for productive disagreement');
 
-          this.ctx.session.topic.refined = this.ctx.session.topic.final;
-          this.ctx.session.topic.final = critique.rewritten_topic;
-          critique.reframe_applied = true;
+        this.ctx.session.topic.refined = this.ctx.session.topic.final;
+        this.ctx.session.topic.final = critique.rewritten_topic;
+        critique.reframe_applied = true;
 
-          if (topicEmbedding && (adapter as ExtendedAIAdapter).computeQueryEmbedding) {
-            try {
-              const { vector: reframedEmbedding } = await (adapter as ExtendedAIAdapter).computeQueryEmbedding!(critique.rewritten_topic);
-              const reframedStructural = computeStructuralScore({
-                topicEmbedding: reframedEmbedding,
-                povNodes,
-                situationNodes: this.ctx.taxonomy.situations?.nodes ?? [],
-                embeddings: this.ctx.taxonomy.embeddings,
-                evidenceIndex: this.ctx.sourceEvidenceIndex ?? undefined,
-              });
-              if (reframedStructural.total < structuralScore.total) {
-                this.ctx.session.topic.final = this.ctx.session.topic.refined!;
-                this.ctx.session.topic.refined = null;
-                critique.reframe_applied = false;
-                critique.reframe_changes = 'Reverted: structural score regressed after reframing';
-                this.ctx.addEntry({
-                  type: 'system', speaker: 'system',
-                  content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframing reverted: structural score regressed (${reframedStructural.total} < ${structuralScore.total}).`,
-                  taxonomy_refs: [], metadata: {},
-                });
-              } else {
-                critique.reframe_changes = `Reframed topic applied (structural: ${structuralScore.total} → ${reframedStructural.total})`;
-                this.ctx.addEntry({
-                  type: 'system', speaker: 'system',
-                  content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed: ${critique.reframe_changes}`,
-                  taxonomy_refs: [], metadata: {},
-                });
-              }
-            } catch (err) {
-              getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.ctx.session?.id, message: 'Topic re-score after reframe failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-              critique.reframe_changes = 'Reframed topic applied (post-reframe re-score unavailable)';
+        if (topicEmbedding && (adapter as ExtendedAIAdapter).computeQueryEmbedding) {
+          try {
+            const { vector: reframedEmbedding } = await (adapter as ExtendedAIAdapter).computeQueryEmbedding!(critique.rewritten_topic);
+            const reframedStructural = computeStructuralScore({
+              topicEmbedding: reframedEmbedding,
+              povNodes,
+              situationNodes: this.ctx.taxonomy.situations?.nodes ?? [],
+              embeddings: this.ctx.taxonomy.embeddings,
+              evidenceIndex: this.ctx.sourceEvidenceIndex ?? undefined,
+            });
+            if (reframedStructural.total < structuralScore.total) {
+              this.ctx.session.topic.final = this.ctx.session.topic.refined!;
+              this.ctx.session.topic.refined = null;
+              critique.reframe_applied = false;
+              critique.reframe_changes = 'Reverted: structural score regressed after reframing';
               this.ctx.addEntry({
                 type: 'system', speaker: 'system',
-                content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (re-score skipped).`,
+                content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframing reverted: structural score regressed (${reframedStructural.total} < ${structuralScore.total}).`,
+                taxonomy_refs: [], metadata: {},
+              });
+            } else {
+              critique.reframe_changes = `Reframed topic applied (structural: ${structuralScore.total} → ${reframedStructural.total})`;
+              this.ctx.addEntry({
+                type: 'system', speaker: 'system',
+                content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed: ${critique.reframe_changes}`,
                 taxonomy_refs: [], metadata: {},
               });
             }
-          } else {
-            critique.reframe_changes = 'Reframed topic applied (no embedding available for re-score)';
+          } catch (err) {
+            getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', debate_id: this.ctx.session?.id, message: 'Topic re-score after reframe failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+            critique.reframe_changes = 'Reframed topic applied (post-reframe re-score unavailable)';
             this.ctx.addEntry({
               type: 'system', speaker: 'system',
-              content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (no re-score).`,
+              content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (re-score skipped).`,
               taxonomy_refs: [], metadata: {},
             });
           }
-
-          this.ctx.progress('setup', undefined, `Topic reframed: ${critique.reframe_changes}`);
-        } else if (critique.composite_score < threshold && !autoReframe) {
+        } else {
+          critique.reframe_changes = 'Reframed topic applied (no embedding available for re-score)';
           this.ctx.addEntry({
             type: 'system', speaker: 'system',
-            content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Auto-reframe disabled — topic unchanged.`,
+            content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Reframed (no re-score).`,
             taxonomy_refs: [], metadata: {},
           });
         }
+
+        this.ctx.progress('setup', undefined, `Topic reframed: ${critique.reframe_changes}`);
+      } else if (critique.composite_score < threshold && !autoReframe) {
+        storeCritiqueSuggestion(this.ctx.config, this.ctx.session, critique.rewritten_topic);
+        this.ctx.addEntry({
+          type: 'system', speaker: 'system',
+          content: `Topic wisdom score: ${critique.composite_score}/20 (below ${threshold}). Auto-reframe disabled — topic unchanged.`,
+          taxonomy_refs: [], metadata: {},
+        });
       } else {
         const exploratoryNote = critique.exploratory ? ' [exploratory — low evidence coverage]' : '';
         this.ctx.addEntry({
@@ -443,16 +442,20 @@ export class TopicPipeline {
     await this.embedResolutionAnchors();
   }
 
-  // ── ArCo Phase: Resolution Anchoring ────────────────────────
-  // Moved out of clarification (t/284) so it can run independently when anchorToResolution: true.
-  // This method runs both decomposition and embedding together.
-
-  async runResolutionAnchoring(): Promise<void> {
-    await this.decomposeResolutionIntoClauses();
-    await this.embedResolutionAnchors();
+  /**
+   * Phase 1 (t/284): clarification when enabled, then clause decomposition and anchor
+   * embedding for inquiry debates (`anchorToResolution`). Normal debates keep ArCo
+   * only where clarification already ran it.
+   */
+  async runClarificationPhase(): Promise<void> {
+    if (this.ctx.config.enableClarification) await this.runClarification();
+    if (this.ctx.config.anchorToResolution && !this.ctx.session.topic.clauses?.length) {
+      await this.decomposeResolutionIntoClauses();
+      await this.embedResolutionAnchors();
+    }
   }
 
-  async decomposeResolutionIntoClauses(): Promise<void> {
+  private async decomposeResolutionIntoClauses(): Promise<void> {
     const resolution = this.ctx.session.topic.final;
     if (!resolution || resolution.trim().length === 0) return;
 
@@ -474,7 +477,7 @@ export class TopicPipeline {
     }
   }
 
-  async embedResolutionAnchors(): Promise<void> {
+  private async embedResolutionAnchors(): Promise<void> {
     const adapter = this.ctx.adapter as ExtendedAIAdapter;
     if (!adapter.computeQueryEmbedding) return;
     const resolution = this.ctx.session.topic.final;
@@ -516,11 +519,22 @@ export class TopicPipeline {
 
     const totalClauses = this.ctx.session.topic.clauses?.length ?? 0;
     const coveredSet = new Set<number>();
-    const consecutiveOffClause = this.countConsecutiveOffClauses(signals);
-    this.addCoveredClauses(recent, coveredSet);
-
+    let consecutiveOffClause = 0;
+    for (let i = signals.length - 1; i >= 0; i--) {
+      const c = signals[i].clause_coverage;
+      if (!c) break;
+      if (c.no_clause_engaged) consecutiveOffClause++;
+      else break;
+    }
+    for (const s of recent) {
+      const c = s.clause_coverage;
+      if (c && c.best_clause_id != null) coveredSet.add(c.best_clause_id + 1);
+    }
     const covered = Array.from(coveredSet).sort((a, b) => a - b);
-    const uncovered = this.computeUncoveredClauses(coveredSet, totalClauses);
+    const uncovered: number[] = [];
+    for (let i = 1; i <= totalClauses; i++) {
+      if (!coveredSet.has(i)) uncovered.push(i);
+    }
 
     return {
       phaseMeanSimilarity: latest.arco?.phase_mean,
@@ -529,31 +543,5 @@ export class TopicPipeline {
       uncoveredClauses: uncovered,
       consecutiveOffClause,
     };
-  }
-
-  private countConsecutiveOffClauses(signals: DebateSession['convergence_signals']): number {
-    let consecutiveOffClause = 0;
-    for (let i = signals!.length - 1; i >= 0; i--) {
-      const c = signals![i].clause_coverage;
-      if (!c) break;
-      if (c.no_clause_engaged) consecutiveOffClause++;
-      else break;
-    }
-    return consecutiveOffClause;
-  }
-
-  private addCoveredClauses(recent: DebateSession['convergence_signals'], coveredSet: Set<number>): void {
-    for (const s of recent) {
-      const c = s.clause_coverage;
-      if (c && c.best_clause_id != null) coveredSet.add(c.best_clause_id + 1);
-    }
-  }
-
-  private computeUncoveredClauses(coveredSet: Set<number>, totalClauses: number): number[] {
-    const uncovered: number[] = [];
-    for (let i = 1; i <= totalClauses; i++) {
-      if (!coveredSet.has(i)) uncovered.push(i);
-    }
-    return uncovered;
   }
 }

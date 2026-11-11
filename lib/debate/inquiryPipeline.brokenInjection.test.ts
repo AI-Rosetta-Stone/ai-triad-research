@@ -63,7 +63,7 @@ function makeSession(
     created_at: '2026-10-19T00:00:00Z',
     updated_at: '2026-10-19T00:00:00Z',
     phase: 'closed',
-    topic: { original: 'test', refined: null, final: 'test topic' },
+    topic: { original: 'test', refined: null, final: 'What are the risks?' },
     source_type: 'topic',
     source_ref: '',
     source_content: '',

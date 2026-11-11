@@ -134,6 +134,7 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
         ? narrativeBlockForDebater(engine.session.narrative_voicing.narratives, poverId)
         : undefined,
       soul: info,
+      anchorToQuestion: engine.config.anchorToResolution,
       opponentSouls: Object.fromEntries(
         order.filter(id => id !== poverId).map(id => [id, engine.getSoulForSpeaker(id)]),
       ),

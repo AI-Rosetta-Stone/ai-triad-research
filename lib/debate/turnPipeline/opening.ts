@@ -104,6 +104,8 @@ export interface OpeningPipelineInput {
   soul?: PovInfo;
   /** Resolved souls for the other speakers (t/3988). Keys are SpeakerId. */
   opponentSouls?: Partial<Record<SpeakerId, PovInfo>>;
+  /** Inquiry debates (t/284): the opening's first sentence must answer the user's question. */
+  anchorToQuestion?: boolean;
 }
 
 export async function runOpeningPipeline(
@@ -137,6 +139,7 @@ export async function runOpeningPipeline(
     narrativeVoicing: input.narrativeVoicing,
     soul: input.soul!,
     opponentSouls: input.opponentSouls,
+    anchorToQuestion: input.anchorToQuestion,
   };
   const stageDiags: StageDiagnostics[] = [];
   const pipelineStart = Date.now();
