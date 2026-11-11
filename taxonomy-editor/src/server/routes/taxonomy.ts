@@ -332,6 +332,38 @@ function chatWarn(message: string, data: Record<string, unknown>): void {
   getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy', level: 'warn', message, data });
 }
 
+/** The chat query's vector, or null when it is empty or can't be embedded (never throws). */
+async function chatQueryVector(queryText: string): Promise<number[] | null> {
+  if (queryText.length === 0) return null;
+  try {
+    const v = await ai.computeQueryEmbedding(queryText);
+    return Array.isArray(v) && v.length > 0 ? v : null;
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'taxonomy', level: 'warn', message: 'Chat query embedding failed — description fallback',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return null;
+  }
+}
+
+/** One node's chat statement: the argmax, or null (WARN once per node) when it has no usable statements. */
+function chatNodeStatement(
+  nodeId: string, queryVector: number[],
+  nodeEmbeddings: Record<string, { vectors?: number[][] }>, statements: Record<string, string[]>,
+): string | null {
+  const vectors = nodeEmbeddings[nodeId]?.vectors;
+  const texts = statements[nodeId];
+  if (!vectors || !texts || vectors.length === 0 || vectors.length !== texts.length) {
+    if (!chatWarnedNodes.has(nodeId)) {
+      chatWarnedNodes.add(nodeId);
+      chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
+    }
+    return null;
+  }
+  return bestMatchingSyntheticStatement(nodeId, queryVector, nodeEmbeddings, statements) ?? null;
+}
+
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   const { get, put, post } = r;
   const { ensureSessionBranch } = ctx;
@@ -469,20 +501,8 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       return Object.fromEntries(nodeIds.map(id => [id, null]));
     };
 
-    // The query embed never throws to the caller: an unembeddable query yields all nulls, one WARN.
-    const queryText = b.queryText.trim().slice(0, CHAT_SYNTH_QUERY_MAX_CHARS);
-    let queryVector: number[] | null = null;
-    if (queryText.length > 0) {
-      try {
-        const v = await ai.computeQueryEmbedding(queryText);
-        queryVector = Array.isArray(v) && v.length > 0 ? v : null;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'taxonomy', level: 'warn', message: 'Chat query embedding failed — description fallback',
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-      }
-    }
+    // An unembeddable query yields all nulls, one WARN; the route never throws to the caller.
+    const queryVector = await chatQueryVector(b.queryText.trim().slice(0, CHAT_SYNTH_QUERY_MAX_CHARS));
     if (!queryVector) { json(res, allNull('embedding-unavailable')); return; }
 
     let nodeEmbeddings: Awaited<ReturnType<typeof getAssembledCorpus>>['nodeEmbeddings'];
@@ -499,19 +519,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
     }
 
     const out: Record<string, string | null> = {};
-    for (const nodeId of nodeIds) {
-      const vectors = nodeEmbeddings[nodeId]?.vectors;
-      const texts = statements[nodeId];
-      if (!vectors || !texts || vectors.length === 0 || texts.length === 0 || vectors.length !== texts.length) {
-        if (!chatWarnedNodes.has(nodeId)) {
-          chatWarnedNodes.add(nodeId);
-          chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
-        }
-        out[nodeId] = null;
-        continue;
-      }
-      out[nodeId] = bestMatchingSyntheticStatement(nodeId, queryVector, nodeEmbeddings, statements) ?? null;
-    }
+    for (const nodeId of nodeIds) out[nodeId] = chatNodeStatement(nodeId, queryVector, nodeEmbeddings, statements);
     json(res, out);
   });
 }
