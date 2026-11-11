@@ -44,6 +44,18 @@ test('NOT digest-only: #5015, a tag move (the incident)', () => {
   assert.match(r.reason, /image\/tag changed python:3\.12-slim-trixie -> python:3\.15-slim-trixie/);
 });
 
+test('NOT digest-only: mixed multi-FROM diff, one digest-only and one tag change (TL t/315 case)', () => {
+  const mixed = file('taxonomy-editor/Dockerfile', hunk([
+    [`FROM node:26.13.0-trixie-slim@${A} AS builder`, `FROM node:26.13.0-trixie-slim@${B} AS builder`],
+    [`FROM node:26.13.0-trixie-slim@${A} AS prod-deps`, `FROM node:26.14.0-trixie-slim@${B} AS prod-deps`],
+  ]));
+  const r = isDigestOnlyDockerUpdate([mixed]);
+  assert.equal(r.digestOnly, false);
+  assert.match(r.reason, /node:26\.13\.0-trixie-slim -> node:26\.14\.0-trixie-slim/);
+  // ...and across files: a clean file plus a tag-moving file is still not digest-only.
+  assert.equal(isDigestOnlyDockerUpdate([node5013, py5015]).digestOnly, false);
+});
+
 test('NOT digest-only: image swapped, platform changed, stage renamed, digest unchanged', () => {
   const swap = file('Dockerfile', hunk([[`FROM node:26@${A}`, `FROM evil/node:26@${B}`]]));
   const plat = file('Dockerfile', hunk([[`FROM --platform=linux/amd64 node:26@${A}`, `FROM --platform=linux/arm64 node:26@${B}`]]));
