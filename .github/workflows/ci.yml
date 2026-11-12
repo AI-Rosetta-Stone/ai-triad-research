@@ -521,7 +521,7 @@ jobs:
     # cancels on main (t/3663 area); the durable fix is trimming/parallelizing the suite (t/3665,
     # PowerShell scope) off its ~14-min edge.
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'merge_group') && '"[\"self-hosted\",\"linux\",\"trusted-only\"]"' || '"[\"ubuntu-latest\"]"') }}
     # t/3668: shard the Pester suite across parallel matrix jobs, KEEPING -Force per-file isolation
     # (each shard runs a DISJOINT slice — no import-once, no state bleed; t/3665 close-out chose
     # shard-with-Force over the 84-var reset re-architecture). ci-gate aggregates the shards via
@@ -953,7 +953,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'merge_group') && '"[\"self-hosted\",\"linux\",\"trusted-only\"]"' || '"[\"ubuntu-latest\"]"') }}
     timeout-minutes: 15  # longest green run 5.2m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
       fail-fast: false
@@ -1165,7 +1165,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'merge_group') && '"[\"self-hosted\",\"linux\",\"trusted-only\"]"' || '"[\"ubuntu-latest\"]"') }}
     timeout-minutes: 30  # longest green run 12.8m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     strategy:
       fail-fast: false
@@ -1277,7 +1277,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.test-electron-vitest.result != 'skipped' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'merge_group') && '"[\"self-hosted\",\"linux\",\"trusted-only\"]"' || '"[\"ubuntu-latest\"]"') }}
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2191,7 +2191,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'merge_group') && '"[\"self-hosted\",\"linux\",\"trusted-only\"]"' || '"[\"ubuntu-latest\"]"') }}
     timeout-minutes: 30  # longest green run 13.0m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2644,7 +2644,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'merge_group') && '"[\"self-hosted\",\"linux\",\"trusted-only\"]"' || '"[\"ubuntu-latest\"]"') }}
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
