@@ -367,6 +367,8 @@ export interface DebateSession {
     clause_embeddings?: number[][];
     /** Pre-debate topic quality critique (wisdom-generating scoring). Set once before clarification. */
     critique?: import('../topicCritique.js').TopicCritique;
+    /** The AI-suggested rewrite of the topic (from critique). For inquiry debates (t/284), stored separately instead of replacing topic.final. */
+    critique_suggestion?: string;
     /** Post-refinement topic critique — scores the refined topic for old-vs-new comparison. */
     refined_critique?: import('../topicCritique.js').TopicCritique;
     /** Critique of the AI-suggested rewrite (for side-by-side comparison in the critique card). */

@@ -518,6 +518,11 @@ export class DebateEngine {
         await this._topicPipeline.runClarification();
       }
 
+      // Phase 1.3: Resolution Anchoring for inquiry debates (t/284)
+      if (this.config.anchorToResolution) {
+        await this._topicPipeline.runResolutionAnchoring();
+      }
+
       // Phase 1.5: Document pre-analysis
       if (this.config.sourceType === 'document' || this.config.sourceType === 'url') {
         await runDocumentAnalysis(this._internal);

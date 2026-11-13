@@ -24,7 +24,7 @@ import { synthesizeInquiry } from './inquirySynthesis.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { AIAdapter } from './aiAdapter.js';
-import type { DebateSession } from './types/session.js';
+import type { DebateSession, TranscriptEntry } from './types/session.js';
 import type { DebateConfig } from './debateEngine/internals.js';
 import type { InquiryRequest, InquiryResult } from '../inquiry/schema.js';
 import type { TerminationReason } from './calibrationLogger/extract.js';
@@ -213,6 +213,51 @@ export async function runInquiryPipeline(
     : undefined;
   const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
 
+  // ── Inquiry anchor validation (t/284): ensure topic.final === request.question ──────
+  // For inquiry debates, the topic must stay anchored to the user's literal question.
+  // If it drifted (e.g. due to accidental reframe), throw so the user knows.
+  if (session.topic.final !== request.question) {
+    throw new ActionableError({
+      goal: `Anchor inquiry debate to user's question: "${request.question.slice(0, 60)}"`,
+      problem: `topic.final drifted to: "${session.topic.final.slice(0, 60)}" — inquiry debates must not reframe the question`,
+      location: 'lib/debate/inquiryPipeline.ts › runInquiryPipeline',
+      nextSteps: [
+        'Check that wisdomAutoReframe is false in inquiryConfig.ts for this request',
+        'If the debate legitimately refined the question, store the refinement as topic.critique_suggestion instead',
+      ],
+    });
+  }
+
+  // ── Alignment gate (t/284): verify turns reference key entities from the question ──────
+  // Extract entities from ArCo clause decomposition (if available) as alignment targets.
+  // Heuristic fallback: extract capitalized phrases from question (basic NER fallback).
+  const clauseEntities = extractEntitiesFromClauses(session.topic.clauses ?? []);
+  const questionEntities = extractEntitiesFromQuestion(request.question);
+  const alignmentEntities = clauseEntities.length > 0 ? clauseEntities : questionEntities;
+  
+  if (alignmentEntities.length > 0) {
+    const alignmentScores = measureAlignmentPerTurn(session.transcript, alignmentEntities);
+    const meanAlignment = alignmentScores.length > 0
+      ? alignmentScores.reduce((a, b) => a + b, 0) / alignmentScores.length
+      : 0;
+    if (meanAlignment < 0.4) {
+      const msg = `Inquiry debate alignment gate: mean entity coverage ${(meanAlignment * 100).toFixed(1)}% ` +
+        `(threshold 40%). Turns may not adequately reference question entities. ` +
+        `Question: "${request.question.slice(0, 60)}". Entity list: [${alignmentEntities.slice(0, 5).join(', ')}${alignmentEntities.length > 5 ? '…' : ''}]`;
+      getGlobalRecorder()?.record({
+        type: 'inquiry.alignment-gate',
+        component: 'inquiry-pipeline',
+        level: 'warn',
+        debate_id: session.id,
+        message: msg,
+        data: {
+          alignment_mean: meanAlignment,
+          entity_count: alignmentEntities.length,
+        },
+      });
+    }
+  }
+
   // ── Stage 4: project trust ─────────────────────────────────────────────────
   deps.onStage?.('projecting');
   const rawMetrics = getRawMetrics(session);
@@ -241,4 +286,58 @@ export async function runInquiryPipeline(
   warnBrokenInjection(session, Object.keys(deps.taxonomy.nodeEmbeddings).length, debateId);
 
   return synthesizeInquiry(session, grounding, calibration, derivation, request, deps.adapter, debateId);
+}
+
+// ── Alignment gate helpers (t/284) ────────────────────────────────────────────
+
+/** Extract entities from ArCo clause decomposition (if available).
+ *  Clauses are semantic chunks of the resolution; their text is the entity source. */
+function extractEntitiesFromClauses(clauses: string[]): string[] {
+  if (!clauses || clauses.length === 0) return [];
+  const entities = new Set<string>();
+  for (const clause of clauses) {
+    // Heuristic: extract capitalized phrases (basic NER) from clause text
+    const matches = clause.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
+    matches.forEach(m => {
+      if (m.length > 2) entities.add(m); // Filter out single letters
+    });
+  }
+  return Array.from(entities);
+}
+
+/** Extract entities from the user's question using heuristic fallback (capitalized phrases).
+ *  Used when ArCo clauses are unavailable. */
+function extractEntitiesFromQuestion(question: string): string[] {
+  const entities = new Set<string>();
+  // Heuristic: extract capitalized phrases (2+ words or >4 chars)
+  const matches = question.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
+  matches.forEach(m => {
+    if (m.length > 2 || m.split(' ').length > 1) {
+      entities.add(m);
+    }
+  });
+  // Also extract common technical/policy terms (lowercase patterns)
+  const terms = question.match(/\b(AI|machine learning|artificial intelligence|regulation|policy|development|safety|alignment)\b/gi) || [];
+  terms.forEach(t => entities.add(t));
+  return Array.from(entities);
+}
+
+/** Measure alignment between turn content and target entities.
+ *  Returns array of alignment scores per turn: how many target entities appear in the turn. */
+function measureAlignmentPerTurn(transcript: TranscriptEntry[], targetEntities: string[]): number[] {
+  const scores: number[] = [];
+  const lowerTargets = targetEntities.map(e => e.toLowerCase());
+  for (const entry of transcript) {
+    // Skip opening and system turns
+    if (entry.type === 'opening' || entry.type === 'system') continue;
+    const turnText = entry.content.toLowerCase();
+    let hitCount = 0;
+    for (const entity of lowerTargets) {
+      // Simple substring match (case-insensitive word boundary would be better with regex)
+      if (turnText.includes(entity.toLowerCase())) hitCount++;
+    }
+    const score = lowerTargets.length > 0 ? hitCount / lowerTargets.length : 0;
+    scores.push(score);
+  }
+  return scores;
 }
