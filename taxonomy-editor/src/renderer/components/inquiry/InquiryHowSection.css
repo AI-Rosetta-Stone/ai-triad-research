@@ -4,6 +4,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+  padding: 0 8px;
 }
 
 .inquiry-how-debate-id {
