@@ -6,6 +6,7 @@
 // is reached from the "Open the debate" button instead.
 
 import { HowPanel, type HowMethodsLink } from '../shared/HowPanel';
+import './InquiryHowSection.css';
 
 const INQUIRY_HOW_METHODS_LINKS: HowMethodsLink[] = [
   { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/ask-a-question-theory-of-success.md' },
