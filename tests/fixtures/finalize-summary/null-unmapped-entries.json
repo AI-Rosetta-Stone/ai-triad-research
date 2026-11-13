@@ -2,6 +2,7 @@
   "scenario": "null-unmapped-entries",
   "transcript": [
     "[warning] Finalize-Summary: dropped 2 null unmapped_concepts entry/entries (t/3907, model=gemini-3.5-flash-lite)",
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 0 (0 unmapped)  factual: 0  new_concepts: 1",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -52,7 +53,8 @@
       "    \"finish_reason\": null,",
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
-      "    \"camp_bridge_dropped\": 0",
+      "    \"camp_bridge_dropped\": 0,",
+      "    \"numeric_ungrounded_dropped\": null",
       "  },",
       "  \"context_rot\": null,",
       "  \"pov_summaries\": {",
