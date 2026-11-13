@@ -63,23 +63,25 @@ describe('toPublicInquiryShare — t/285 directAnswer Condition A and questionDr
   it('includes directAnswer and questionDrift on a healthy run', () => {
     const result = makeResult({
       directAnswer: { text: 'Yes.', agreement: 'consensus' },
-      questionDrift: { warning: false },
+      questionDrift: { debatedTopic: 'Other topic', warning: true },
       calibration: makeCalibration({ verdict: 'trust', reason: 'natural', terminationReason: 'natural' }),
     });
     const share = toPublicInquiryShare(result);
     expect(share.directAnswer).toEqual({ text: 'Yes.', agreement: 'consensus' });
-    expect(share.questionDrift).toEqual({ warning: false });
+    // The warning is gated (t/285#7): the public share carries the topic, never the warning.
+    expect(share.questionDrift).toEqual({ debatedTopic: 'Other topic' });
   });
 
   it('suppresses directAnswer on a censored run, as for the headline, but keeps questionDrift', () => {
     const result = makeResult({
       directAnswer: { text: 'Should not appear.', agreement: 'consensus' },
-      questionDrift: { warning: true },
+      questionDrift: { debatedTopic: 'Other topic', warning: true },
       calibration: makeCalibration({ verdict: 'censored', reason: 'api_ceiling reached', terminationReason: 'api_ceiling' }),
     });
     const share = toPublicInquiryShare(result);
     expect(share.directAnswer).toBeUndefined();
-    expect(share.questionDrift).toEqual({ warning: true });
+    expect(share.questionDrift).toEqual({ debatedTopic: 'Other topic' });
+    expect(share).not.toHaveProperty('questionDrift.warning');
   });
 
   it('carries the per-camp answer flag and note on a healthy run', () => {
