@@ -33,6 +33,8 @@ const PublicTrustStateSchema = z.object({
   terminationReason: z.string().optional(),
   metricFamily: z.string().optional(),
 }).strict();
+// t/285: the public share drops questionDrift.warning until the CL validation gate is met (t/285#7).
+const PublicQuestionDriftSchema = QuestionDriftSchema.omit({ warning: true }).strict();
 // t/285: answer flags are public-safe (fieldClassification: include on all surfaces). Named, not spread, so a new field stays out until classified.
 const PublicCampVerdictSchema = z.object({
   camp: CampSchema,
@@ -97,8 +99,9 @@ export const PublicInquiryShareSchema = z.object({
   synthesizedHeadline: z.string().optional(),
   /** t/285: the answer to the question as asked. Condition A applies (as for the headline): omitted on degraded runs. */
   directAnswer: DirectAnswerSchema.optional(),
-  /** t/285: whether the debate stayed on the question. Always present on a new result (diagnostic, not substance). */
-  questionDrift: QuestionDriftSchema.optional(),
+  /** t/285: whether the debate stayed on the question. The warning is gated (CL t/285#7 notes 1 and 3): the public
+   *  share carries debatedTopic and driftScore only, never `warning`. */
+  questionDrift: PublicQuestionDriftSchema.optional(),
 }).strict();
 export type PublicInquiryShare = z.infer<typeof PublicInquiryShareSchema>;
 
@@ -307,7 +310,10 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       }
       return { directAnswer: result.directAnswer };
     })(),
-    ...(result.questionDrift !== undefined ? { questionDrift: result.questionDrift } : {}),
+    // t/285: the warning is gated, so only the debated topic and score reach the public share.
+    ...(result.questionDrift !== undefined
+      ? { questionDrift: { ...(result.questionDrift.debatedTopic !== undefined ? { debatedTopic: result.questionDrift.debatedTopic } : {}), ...(result.questionDrift.driftScore !== undefined ? { driftScore: result.questionDrift.driftScore } : {}) } }
+      : {}),
   };
   return PublicInquiryShareSchema.parse(share);
 }
