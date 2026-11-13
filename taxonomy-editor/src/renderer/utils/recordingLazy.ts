@@ -3,6 +3,7 @@
 
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { probeLazyGraph, shouldReloadOnce, type GraphProbe } from './lazyModuleProbe';
 
 // Chrome/Vite reject a failed dynamic import with a TypeError whose message embeds the
 // resolved module URL, e.g.:
@@ -53,17 +54,20 @@ export function probeModule(url: string): Promise<ModuleProbe> {
 }
 
 // Exported for unit testing the t/2314 disambiguation logic; not part of the public API.
+// Probe only in dev (import.meta.hot present) — the whole branch is tree-shaken out of
+// production builds, where there is no dev server to interrogate.
+async function probeFailedModule(moduleUrl: string | null): Promise<{ probe: ModuleProbe; graph: GraphProbe | null }> {
+  if (!moduleUrl || !import.meta.hot) return { probe: { status: null, body: null, error: null }, graph: null };
+  return { probe: await probeModule(moduleUrl), graph: await probeLazyGraph(moduleUrl) };
+}
+
 export async function recordModuleFetchFailure(err: unknown): Promise<void> {
   const name = err instanceof Error ? err.name : 'Error';
   const message = err instanceof Error ? err.message : String(err);
   const stack = err instanceof Error ? err.stack : undefined;
   const moduleUrl = MODULE_FETCH_ERROR_RE.exec(message)?.[1] ?? null;
 
-  // Probe only in dev (import.meta.hot present) — the whole branch is tree-shaken out of
-  // production builds, where there is no dev server to interrogate.
-  const probe: ModuleProbe = moduleUrl && import.meta.hot
-    ? await probeModule(moduleUrl)
-    : { status: null, body: null, error: null };
+  const { probe, graph } = await probeFailedModule(moduleUrl);
 
   getGlobalRecorder()?.record({
     type: 'system.error',
@@ -76,6 +80,9 @@ export async function recordModuleFetchFailure(err: unknown): Promise<void> {
       http_status: probe.status,
       probe_error: probe.error,
       body_snippet: probe.body,
+      graph_ok: graph?.graph_ok ?? null,
+      graph_error: graph?.graph_error ?? null,
+      child_url: graph?.child_url ?? null,
     },
   });
 }
@@ -95,6 +102,11 @@ export function recordingLazy<T extends ComponentType<any>>(
   return lazy(() =>
     loader().catch(async (err: unknown): Promise<{ default: T }> => {
       await recordModuleFetchFailure(err);
+      const message = err instanceof Error ? err.message : String(err);
+      const moduleUrl = MODULE_FETCH_ERROR_RE.exec(message)?.[1] ?? null;
+      if (moduleUrl && shouldReloadOnce(moduleUrl, window.sessionStorage)) {
+        window.location.reload();
+      }
       throw err;
     }),
   );

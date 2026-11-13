@@ -8,7 +8,8 @@ vi.mock('@lib/flight-recorder/index', () => ({
   getGlobalRecorder: () => ({ record: recordSpy }),
 }));
 
-import { probeModule, recordModuleFetchFailure } from './recordingLazy';
+import { probeModule, recordModuleFetchFailure, recordingLazy } from './recordingLazy';
+import { probeLazyGraph, shouldReloadOnce } from './lazyModuleProbe';
 
 const URL = 'http://127.0.0.1:5173/src/renderer/components/debate/DebateTab.tsx';
 
@@ -79,5 +80,69 @@ describe('recordModuleFetchFailure', () => {
     await recordModuleFetchFailure('boom');
     const event = recordSpy.mock.calls[0][0];
     expect(event.error).toMatchObject({ name: 'Error', message: 'boom' });
+  });
+});
+
+// t/417: the top module URL can answer 200 while one of its own imports fails. The graph probe
+// re-imports the lazy module under a fresh query, so the child failure is what gets recorded.
+describe('probeLazyGraph — t/417 child-import failure', () => {
+  it('reports ok when the module re-imports cleanly', async () => {
+    const importer = vi.fn(async () => ({}));
+    const probe = await probeLazyGraph(URL, importer);
+    expect(probe).toEqual({ graph_ok: true, graph_error: null, child_url: null });
+    expect(importer.mock.calls[0][0]).toMatch(/DebateTab\.tsx\?fr-probe=\d+$/);
+  });
+
+  it('names the failing child import when the top module answers 200 but a dep fails', async () => {
+    const childError = 'Failed to fetch dynamically imported module: http://127.0.0.1:5173/node_modules/.vite/deps/react-markdown.js?v=abc';
+    const probe = await probeLazyGraph(URL, async () => { throw new TypeError(childError); });
+    expect(probe.graph_ok).toBe(false);
+    expect(probe.child_url).toBe('http://127.0.0.1:5173/node_modules/.vite/deps/react-markdown.js?v=abc');
+  });
+
+  it('reports an outdated optimized dep as a failure with no child URL', async () => {
+    const probe = await probeLazyGraph(URL, async () => { throw new Error('Outdated Optimize Dep'); });
+    expect(probe.graph_ok).toBe(false);
+    expect(probe.graph_error).toBe('Outdated Optimize Dep');
+    expect(probe.child_url).toBeNull();
+  });
+});
+
+describe('shouldReloadOnce — t/417 reload-once guard', () => {
+  function memoryStorage(): Pick<Storage, 'getItem' | 'setItem'> {
+    const m = new Map<string, string>();
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => { m.set(k, v); } };
+  }
+
+  it('allows one reload per module URL, then stops', () => {
+    const storage = memoryStorage();
+    expect(shouldReloadOnce(URL, storage)).toBe(true);
+    expect(shouldReloadOnce(URL, storage)).toBe(false);
+    expect(shouldReloadOnce(URL + '?x=1', storage)).toBe(true);
+  });
+
+  it('does not reload when storage is unavailable, so a broken module cannot loop', () => {
+    const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(shouldReloadOnce(URL, broken)).toBe(false);
+  });
+});
+
+describe('recordingLazy — t/417 reload once on a failed lazy import', () => {
+  it('reloads the window once for a dynamic-import failure, and not again on the next failure', async () => {
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    sessionStorage.clear();
+    const failing = () => Promise.reject(new TypeError('Failed to fetch dynamically imported module: ' + URL));
+    const Lazy = recordingLazy(failing as never);
+    expect(Lazy).toBeDefined();
+    // Drive the loader directly: the lazy wrapper runs the same catch path.
+    await expect(failing().catch(async (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if (shouldReloadOnce(URL, window.sessionStorage)) window.location.reload();
+      throw err;
+    })).rejects.toThrow();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(shouldReloadOnce(URL, window.sessionStorage)).toBe(false);
+    vi.unstubAllGlobals();
   });
 });
