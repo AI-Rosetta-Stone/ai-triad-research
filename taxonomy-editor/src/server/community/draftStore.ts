@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { randomBytes } from 'crypto';
-import type { InquiryPayload, InquiryResult } from '../../../../lib/inquiry/index.js';
-import { inquiryPayloadSchema, deriveTruncation } from '../../../../lib/inquiry/index.js';
+import type { InquiryPayload } from '../../../../lib/inquiry/index.js';
+import { inquiryPayloadSchema } from '../../../../lib/inquiry/index.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { getUserContentBackend, writeFileIfAbsentStrict } from '../storage/fileIO.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
@@ -320,29 +320,29 @@ class DraftStoreImpl implements DraftStore {
     }
     droppedAuthFields.push(...new Set(droppedAnswerPaths));
 
+    // TL p/77#74 (same rule): synthesizedHeadline and derivation are dropped too. Their trust rests on client data
+    // on this path. The synthesizedHeadline degraded gate read the client body (deriveTruncation), so it protected
+    // nothing; derivation (models, rounds, callsUsed, costUsd) is run metadata the server never verifies here.
+    for (const field of ['synthesizedHeadline', 'derivation'] as const) {
+      if (result[field] !== undefined) {
+        delete result[field];
+        droppedAuthFields.push(field);
+      }
+    }
+
     // Project onto community surface. questionDrift.warning is excluded by the community column (t/285).
     const p = projectInquiryFields(result, 'community', '') as Record<string, unknown>;
 
-    // Track dropped auth fields (from the matrix diff). calibration is kept as content (TL p/77#68).
-    const authPaths = ['derivation', 'synthesizedHeadline', 'grounding.campCoverage', 'singleRunCaveat', 'debateId'];
+    // Track dropped auth fields (from the matrix diff).
+    const authPaths = ['grounding.campCoverage', 'singleRunCaveat', 'debateId'];
     for (const ap of authPaths) {
       if (hasPath(result, ap) && !hasPath(p, ap)) {
         droppedAuthFields.push(ap);
       }
     }
 
-    // Suppress synthesizedHeadline on degraded runs (t/3742)
-    if (p.synthesizedHeadline !== undefined) {
-      const { truncated } = deriveTruncation(result as unknown as InquiryResult);
-      if (truncated) {
-        delete p.synthesizedHeadline;
-        log.server.warn('DraftStore: synthesizedHeadline suppressed on degraded-trust inquiry');
-      }
-    }
-
     // calibration is a platform trust badge (fieldClassification.ts:211-213). On the anonymous path the body supplies
-    // it, so it is dropped from the stored projection (TL p/77#72, Security t185#21). It is read above, for the
-    // synthesizedHeadline check, before this drop.
+    // it, so it is dropped from the stored projection (TL p/77#72, Security t185#21).
     if (p.calibration !== undefined) {
       delete p.calibration;
       droppedAuthFields.push('calibration');
