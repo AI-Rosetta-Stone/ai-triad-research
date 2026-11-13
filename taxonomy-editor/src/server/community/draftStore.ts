@@ -330,6 +330,14 @@ class DraftStoreImpl implements DraftStore {
       }
     }
 
+    // TL p/77#76 and p/77#78: questionDrift.driftScore is a t285 pipeline score, the same unverified-client class as
+    // calibration and derivation, so it is dropped on anonymous drafts. debatedTopic is topic text and is kept.
+    const drift = result.questionDrift as Record<string, unknown> | undefined;
+    if (drift?.driftScore !== undefined) {
+      delete drift.driftScore;
+      droppedAuthFields.push('questionDrift.driftScore');
+    }
+
     // Project onto community surface. questionDrift.warning is excluded by the community column (t/285).
     const p = projectInquiryFields(result, 'community', '') as Record<string, unknown>;
 
