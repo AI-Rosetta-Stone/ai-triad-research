@@ -289,3 +289,10 @@ describe('deriveDebateConfig — seat_tags', () => {
     expect(config.seat_tags!['skeptic']).toEqual({ pov_tag: 'capabilities', tag_mode: 'prioritize' });
   });
 });
+
+describe('deriveDebateConfig — no silent reframe (t/284 item 1)', () => {
+  it('sets wisdomAutoReframe: false so the user question stays topic.final', () => {
+    const { config } = deriveDebateConfig(makeRequest(), makeRegistry());
+    expect(config.wisdomAutoReframe).toBe(false);
+  });
+});
