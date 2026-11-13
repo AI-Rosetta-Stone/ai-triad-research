@@ -96,14 +96,43 @@ Describe 'deploy-azure.yml deploy job reads no git history beyond rev-parse / me
     # show/diff/log -p/cat-file ...) would lazily fetch blobs mid-deploy, depending on the network and
     # the token at the worst moment. Only the t/4194 guard's rev-parse + merge-base (no blobs) are allowed.
     BeforeAll {
-        # Executable lines only: drop comment lines (YAML and in-script #), keep run: bodies and with: values.
-        $script:GitSubcommands = @(
-            $script:DeployJob -split '\r?\n' |
+        # t/353 (SO non-blocking on #5059): also catch `git -C <dir> <sub>` / `git -c k=v <sub>`, and scan the
+        # repo scripts the deploy job runs or dot-sources (./operations/**, ./scripts/** .ps1), not just YAML.
+        # (The AITriad module is imported whole; its cmdlets are out of this scan's reach by design.)
+        # Command position only (line start, or after & ; | ( { $( =), so prose like "a git error" in strings or
+        # help text doesn't count; <# ... #> block comments are stripped before scanning.
+        $script:GitPattern = '(?:^|[;&|({=]|\$\()\s*(?:&\s*)?git(?:\s+-[Cc]\s+\S+)*\s+([a-z][a-z-]*)'
+        function Get-GitSubcommands([string]$Text) {
+            $Text = [regex]::Replace($Text, '(?s)<#.*?#>', '')
+            @($Text -split '\r?\n' |
                 Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') } |
-                ForEach-Object { [regex]::Matches($_, '(?<![\w./-])git\s+([a-z][a-z-]*)') } |
-                ForEach-Object { $_.Groups[1].Value } |
+                ForEach-Object { [regex]::Matches($_, $script:GitPattern) } |
+                ForEach-Object { $_.Groups[1].Value })
+        }
+        $script:InvokedScripts = @([regex]::Matches(
+                ($script:DeployJob -split '\r?\n' | Where-Object { -not $_.Trim().StartsWith('#') }) -join "`n",
+                '\./((?:operations|scripts)/[\w./-]+\.ps1)') |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        $root = Join-Path $PSScriptRoot '..'
+        $script:GitSubcommands = @(
+            @(Get-GitSubcommands $script:DeployJob) +
+            @($script:InvokedScripts | ForEach-Object { Get-GitSubcommands (Get-Content -Raw (Join-Path $root $_)) }) |
                 Sort-Object -Unique
         )
+    }
+
+    It 'finds the repo scripts the deploy job invokes (the scan has something to read)' {
+        $script:InvokedScripts.Count | Should -BeGreaterThan 5
+        $script:InvokedScripts | Should -Contain 'operations/devops/Get-DeployAgeVerdict.ps1'
+    }
+
+    It 'FIRE ARM: the pattern catches git -C <dir> show, at line start and inside a { } block' {
+        foreach ($line in '          git -C ./repo show HEAD~1:x', 'function Get-X { git -C . show HEAD~1:README.md }', '$x = & git cat-file -p HEAD~2:a') {
+            $hits = [regex]::Matches($line, $script:GitPattern) | ForEach-Object { $_.Groups[1].Value }
+            $hits | Where-Object { $_ -in 'show', 'cat-file' } | Should -Not -BeNullOrEmpty -Because "'$line' must be caught"
+        }
+        # ...and prose is not a command:
+        [regex]::Matches('Write-Host "a git error, not a git repo"', $script:GitPattern).Count | Should -Be 0
     }
 
     It 'invokes only rev-parse and merge-base' {
