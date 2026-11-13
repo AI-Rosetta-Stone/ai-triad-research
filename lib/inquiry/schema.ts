@@ -253,8 +253,33 @@ export const CampVerdictSchema = z.object({
   camp: CampSchema,
   verdict: z.string(),
   nodes: z.array(NodeRefSchema),
+  /** Whether this camp directly answered the user's literal question (t/285). Absent on v1 results. */
+  answeredLiteralQuestion: z.boolean().optional(),
+  /** One-line note when the camp did not answer directly, e.g. "Focused on X instead; here's why". */
+  answerNote: z.string().max(300).optional(),
 });
 export type CampVerdict = z.infer<typeof CampVerdictSchema>;
+
+// ── Direct answer and question drift (t/285) ─────────────────────────────────
+// Additive optional fields on InquiryResult: no schemaVersion bump (schema.ts:26). Old results load unchanged.
+/** A short answer to the literal question, or an explicit "no consensus" with the reason. */
+export const DirectAnswerSchema = z.object({
+  text: z.string().min(1).max(1000),
+  /** 'consensus': the camps agree on a direct answer. 'split': they diverge; `text` says why. */
+  agreement: z.enum(['consensus', 'split']),
+});
+export type DirectAnswer = z.infer<typeof DirectAnswerSchema>;
+
+/** Whether the debate answered the question that was asked (t/283). Present on results produced after t/285. */
+export const QuestionDriftSchema = z.object({
+  /** The topic the debate actually addressed, when it differs from the question. Absent when they match. */
+  debatedTopic: z.string().optional(),
+  /** Drift score 0–1 from t/283 A (0 = on the question). Absent until t/283 A supplies it. */
+  driftScore: z.number().min(0).max(1).optional(),
+  /** True when any camp did not answer the question, or the drift score is over the Debate Engine threshold. */
+  warning: z.boolean(),
+});
+export type QuestionDrift = z.infer<typeof QuestionDriftSchema>;
 
 // ── InquiryResult ─────────────────────────────────────────────────────────────
 // The rendered answer's data model and a persisted, shareable artifact. `.passthrough()` = tolerant
@@ -324,6 +349,11 @@ export const InquiryResultSchema = z
      *  is what was actually asked and never changes. Blank → absent on read. Display via
      *  `inquiryDisplayTitle`. Additive optional field, so no schemaVersion bump. */
     title: readTitle,
+    /** Short answer to the literal question (t/285). Generated first in the synthesis; absent on v1 results and
+     *  when the model omits it (the synthesis logs a WARN and does not fabricate one). */
+    directAnswer: DirectAnswerSchema.optional(),
+    /** Whether the debate stayed on the question (t/285). Absent = not analyzed. */
+    questionDrift: QuestionDriftSchema.optional(),
   })
   .passthrough();
 export type InquiryResult = z.infer<typeof InquiryResultSchema>;
