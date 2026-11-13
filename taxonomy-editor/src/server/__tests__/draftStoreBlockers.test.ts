@@ -52,8 +52,22 @@ import { createDraftStore } from '../community/draftStore.js';
 import type { InquiryPayload } from '../../../../lib/inquiry/index.js';
 import { makeValidResult } from '../../../../lib/inquiry/__fixtures__/validResult.js';
 
+// The draft endpoint takes the community projection (the upload paths project before they send), so the
+// fixture has no questionDrift.warning. CommunityInquiryResultSchema refuses an unprojected result.
+function communityResult(): Record<string, unknown> {
+  const r = makeValidResult() as Record<string, unknown> & { questionDrift?: Record<string, unknown> };
+  if (r.questionDrift) delete r.questionDrift.warning;
+  return r;
+}
+
+// Canonical taxonomy nodes the fixture references (label and camp as the server knows them).
+const FIXTURE_NODES = new Map<string, { label: string; camp?: 'acc' | 'saf' | 'skp' | 'cc' }>([
+  ['skp-beliefs-029', { label: 'Precaution under uncertainty', camp: 'skp' }],
+  ['acc-beliefs-004', { label: 'Regulatory process', camp: 'acc' }],
+]);
+
 const basePayload = {
-  result: makeValidResult(),
+  result: communityResult(),
   note: '',
 } as unknown as InquiryPayload;
 
@@ -70,7 +84,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
   describe('B1: DraftStore interface methods are tested', () => {
     it('createDraft creates a draft and returns draftId', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
-      const result = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const result = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(result.ok).toBe(true);
       expect(result).toHaveProperty('draftId');
       expect((result as any).draftId).toMatch(/^drf_[a-f0-9]{32}$/);
@@ -78,7 +92,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
 
     it('getDraft retrieves a created draft', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
-      const created = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(created.ok).toBe(true);
       const draftId = (created as any).draftId;
 
@@ -91,7 +105,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
 
     it('finalizeDraft claims a draft and creates a submission', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
-      const created = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(created.ok).toBe(true);
       const draftId = (created as any).draftId;
 
@@ -116,7 +130,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
         now: pastTime,
       });
 
-      const created = await storeWithPastTime.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const created = await storeWithPastTime.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(created.ok).toBe(true);
 
       // Now sweep (using current time)
@@ -131,7 +145,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       const store = createDraftStore({ backend: mockBackend, now });
 
       // Create a draft
-      const created = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(created.ok).toBe(true);
       const draftId = (created as any).draftId;
 
@@ -163,7 +177,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       });
 
       // Fail closed: a failed count refuses the draft (never admits it)
-      const result = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const result = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(result).toEqual({ ok: false, reason: 'cap_reached' });
       expect([...files.keys()].some(k => k.includes('/_drafts/drf_'))).toBe(false);
     });
@@ -173,7 +187,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
     it('finalizeDraft rejects _local storageUserId (anonymous guard)', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
 
-      const created = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(created.ok).toBe(true);
       const draftId = (created as any).draftId;
 
@@ -190,7 +204,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
     it('finalizeDraft accepts non-_local storageUserId', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
 
-      const created = await store.createDraft(basePayload, { nodesById: new Map(), clientId: 'client-1' });
+      const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-1' });
       expect(created.ok).toBe(true);
       const draftId = (created as any).draftId;
 
@@ -214,7 +228,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       const created: any[] = [];
       for (let i = 0; i < DRAFT_PER_CLIENT_CAP + 1; i++) {
         const result = await store.createDraft(basePayload, {
-          nodesById: new Map(),
+          nodesById: FIXTURE_NODES,
           clientId,
         });
         created.push(result);
@@ -236,7 +250,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       // Client 1 creates at limit
       for (let i = 0; i < DRAFT_PER_CLIENT_CAP; i++) {
         const result = await store.createDraft(basePayload, {
-          nodesById: new Map(),
+          nodesById: FIXTURE_NODES,
           clientId: 'client-1',
         });
         expect(result.ok).toBe(true);
@@ -244,7 +258,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
 
       // Client 2 should still be able to create drafts
       const result = await store.createDraft(basePayload, {
-        nodesById: new Map(),
+        nodesById: FIXTURE_NODES,
         clientId: 'client-2',
       });
       expect(result.ok).toBe(true);
@@ -257,7 +271,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       const hugePayload = { result: makeValidResult(), note: 'x'.repeat(2 * 1024 * 1024) } as unknown as InquiryPayload;
 
       const result = await store.createDraft(hugePayload, {
-        nodesById: new Map(),
+        nodesById: FIXTURE_NODES,
         clientId: 'client-1',
       });
 
@@ -275,7 +289,7 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
       } as any;
 
       const result = await store.createDraft(payloadWithNote, {
-        nodesById: new Map(),
+        nodesById: FIXTURE_NODES,
         clientId: 'client-1',
       });
 
