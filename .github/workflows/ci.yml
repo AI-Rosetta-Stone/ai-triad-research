@@ -521,7 +521,10 @@ jobs:
     # cancels on main (t/3663 area); the durable fix is trimming/parallelizing the suite (t/3665,
     # PowerShell scope) off its ~14-min edge.
     timeout-minutes: 30
-    runs-on: ubuntu-latest  # t/386: stays hosted. Shards 3, 5 need Azure CLI (az); shard 6 needs xdg-open; shards 1, 2, 4, 7, 8 never ran on the runner.
+    # t/386: hosted for now. Routing to tl-wsl-SnoverX9 waits for Security to clear the shims below
+    # (p/102#59 conditions 1-3) and the fork-PR canary (condition 6). When routed, use the same expression
+    # as test-electron (self-hosted, same-repo pull_request, dependabot[bot] excluded).
+    runs-on: ubuntu-latest
     # t/3668: shard the Pester suite across parallel matrix jobs, KEEPING -Force per-file isolation
     # (each shard runs a DISJOINT slice — no import-once, no state bleed; t/3665 close-out chose
     # shard-with-Force over the 84-var reset re-architecture). ci-gate aggregates the shards via
@@ -552,6 +555,42 @@ jobs:
       # made this step SLOWER (165-204s vs 45-78s for full checkouts in the same run): with
       # sparse-checkout set, actions/checkout fetches --filter=blob:none and then lazily fetches
       # every needed blob at checkout, which is far slower than one depth-1 pack.
+      # t/386 (Security p/102#59, conditions 1-3). Self-hosted only; hosted runners skip this step.
+      # Refuses a runner that holds Azure credentials, then puts az and xdg-open shims first on PATH:
+      # an unmocked az call fails loudly and logs; xdg-open logs and opens nothing.
+      - name: Self-hosted guard and az/xdg-open shims (t/386)
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        env:
+          RUNNER_NAME_CTX: ${{ runner.name }}
+          SHIM_DIR: ${{ runner.temp }}/shims
+          SHIM_LOG_DIR: ${{ runner.temp }}/shim-logs
+        run: |
+          set -u
+          echo "t/386 self-hosted runner: ${RUNNER_NAME_CTX}" | tee -a "$GITHUB_STEP_SUMMARY"
+          fail=0
+          if [ -e "$HOME/.azure" ]; then echo "::error::~/.azure exists on the self-hosted runner"; fail=1; fi
+          if env | grep -qE '^(AZURE_|ARM_)'; then echo "::error::an AZURE_* or ARM_* variable is set on the self-hosted runner"; fail=1; fi
+          if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1; then echo "::error::az account show succeeds: a logged-in Azure session is on the runner"; fail=1; fi
+          if ! dpkg -s xdg-utils >/dev/null 2>&1; then echo "::error::xdg-utils is not installed on the self-hosted runner"; fail=1; fi
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          mkdir -p "$SHIM_DIR" "$SHIM_LOG_DIR"
+          cat > "$SHIM_DIR/az" <<'SHIM'
+          #!/bin/bash
+          echo "$(date -u +%FT%TZ) az $*" >> "$AZ_SHIM_LOG"
+          echo "t/386 az shim: Azure CLI is not allowed on the self-hosted runner (unmocked call: az $*)" >&2
+          exit 97
+          SHIM
+          cat > "$SHIM_DIR/xdg-open" <<'SHIM'
+          #!/bin/bash
+          echo "$(date -u +%FT%TZ) xdg-open $*" >> "$XDG_SHIM_LOG"
+          exit 0
+          SHIM
+          chmod +x "$SHIM_DIR/az" "$SHIM_DIR/xdg-open"
+          echo "AZ_SHIM_LOG=$SHIM_LOG_DIR/az.log" >> "$GITHUB_ENV"
+          echo "XDG_SHIM_LOG=$SHIM_LOG_DIR/xdg-open.log" >> "$GITHUB_ENV"
+          echo "$SHIM_DIR" >> "$GITHUB_PATH"
+
       - name: Checkout data repo (cached, t/4841)
         uses: ./.github/actions/checkout-ai-triad-data
 
@@ -828,6 +867,16 @@ jobs:
           } else {
             "### DATA-ROOT-TEST-WRITE (shard $($env:SHARD)): 0 hits" >> $env:GITHUB_STEP_SUMMARY
           }
+
+      # t/386 condition 5: runner name and shim logs, recorded on every self-hosted run.
+      - name: Upload t/386 shim logs (self-hosted only)
+        if: always() && runner.environment == 'self-hosted'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: t386-shim-logs-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shim-logs
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Record test-powershell self-heals (t/4085, isolated sink)
         # #2070 sink pattern: this step is ISOLATED from the Pester step's verdict by construction.
