@@ -41,6 +41,81 @@ describe('validateCreateOpEdPayload (t/2908/t/2910)', () => {
   it('returns an actionable error with next steps', () => {
     const err = validateCreateOpEdPayload({ voices: [] });
     expect(err?.nextSteps.length).toBeGreaterThan(0);
-    expect(err?.problem).toMatch(/topic or a web-page URL/i);
+    expect(err?.problem).toMatch(/topic.*web-page URL.*document/i);
+  });
+
+  // t/275: document source mode (op-ed from extracted document text)
+  it('accepts a document source payload with text and name', () => {
+    expect(validateCreateOpEdPayload({
+      documentSource: { text: 'Extracted document text', name: 'research.pdf' },
+      voices,
+    })).toBeNull();
+  });
+
+  it('rejects document source with empty text', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: '', name: 'empty.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('empty');
+  });
+
+  it('rejects document source with blank name', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: '   ' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('name');
+  });
+
+  // t/275 + t/273#4: enforce 500k char limit (re-validate at handler)
+  it('rejects document source exceeding 500k character limit', () => {
+    const hugeText = 'x'.repeat(500_001);
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: hugeText, name: 'huge.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('500k');
+  });
+
+  // t/275: bare file name only (no paths)
+  it('rejects document name containing forward slash', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: 'folder/document.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('path');
+  });
+
+  it('rejects document name containing backslash', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: 'folder\\document.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('path');
+  });
+
+  it('rejects document name containing parent directory reference', () => {
+    const err = validateCreateOpEdPayload({
+      documentSource: { text: 'Some text', name: '../document.pdf' },
+      voices,
+    });
+    expect(err).toBeInstanceOf(ActionableError);
+    expect(err?.problem).toContain('path');
+  });
+
+  it('treats document source as a valid third mode alongside topic and url', () => {
+    // All three sources independently valid; first non-empty one is used
+    expect(validateCreateOpEdPayload({
+      topic: '',
+      url: '',
+      documentSource: { text: 'doc text', name: 'doc.pdf' },
+      voices,
+    })).toBeNull();
   });
 });
