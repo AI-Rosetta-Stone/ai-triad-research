@@ -126,14 +126,21 @@ describe('DraftStore content (t/185, TL p/77#72)', () => {
     expect(raw).not.toContain('"trust":');
   });
 
-  it('questionDrift.warning is absent from the stored projection (hasOwnProperty); debatedTopic and driftScore stay', async () => {
-    const body = communityResult(makeDriftedResult()) as Record<string, any>;
-    body.questionDrift.driftScore = 0.4;
-    const { record } = await createAndRead(body);
+  it('questionDrift.warning is absent from the stored projection (hasOwnProperty); debatedTopic stays', async () => {
+    const { record } = await createAndRead(communityResult(makeDriftedResult()));
     expect(record.projection.questionDrift).toBeDefined();
     expect(Object.prototype.hasOwnProperty.call(record.projection.questionDrift, 'warning')).toBe(false);
     expect(record.projection.questionDrift).toHaveProperty('debatedTopic', 'How should AI regulation be designed?');
-    expect(record.projection.questionDrift).toHaveProperty('driftScore', 0.4);
+  });
+
+  it('questionDrift.driftScore is absent from the stored projection, by key and by value (TL p/77#76, p/77#78)', async () => {
+    const body = communityResult(makeDriftedResult()) as Record<string, any>;
+    body.questionDrift.driftScore = 0.4;
+    const { record, raw } = await createAndRead(body);
+    expect(Object.prototype.hasOwnProperty.call(record.projection.questionDrift, 'driftScore')).toBe(false);
+    expect(record.projection.questionDrift).toHaveProperty('debatedTopic', 'How should AI regulation be designed?');
+    expect(raw).not.toContain('"driftScore"');
+    expect((record as { droppedAuthFields: string[] }).droppedAuthFields).toContain('questionDrift.driftScore');
   });
 
   it('directAnswer is dropped on every anonymous draft, even on a healthy-claimed body (fail closed, TL p/77#72)', async () => {
