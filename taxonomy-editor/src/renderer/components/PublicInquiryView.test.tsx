@@ -112,7 +112,8 @@ describe('PublicInquiryView (t/3628)', () => {
     expect(screen.getByText(SAMPLE.singleRunCaveat)).toBeInTheDocument();
 
     expect(screen.queryByRole('textbox')).toBeNull();
-    expect(screen.queryByRole('button')).toBeNull();
+    // t/280: the How section adds one disclosure button (expands methods links only). No action buttons.
+    expect(screen.getAllByRole('button').map(b => b.textContent?.trim())).toEqual(['▸How']);
   });
 
   // SO review must-includes (t/3628#2) — omitting these would let a reader unfamiliar with
