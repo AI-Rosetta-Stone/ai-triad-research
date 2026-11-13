@@ -163,4 +163,23 @@ describe('DraftStore content (t/185, TL p/77#72)', () => {
     expect(Object.prototype.hasOwnProperty.call(record.projection, 'calibration')).toBe(false);
     expect(record.projection.campVerdicts[0]).not.toHaveProperty('answerNote');
   });
+
+  it('synthesizedHeadline is dropped on every anonymous draft, even on a healthy-claimed body (fail closed, TL p/77#74)', async () => {
+    const body = communityResult(healthyClaim(makeValidResult())) as Record<string, unknown>;
+    body.synthesizedHeadline = 'A headline the client wrote about a degraded run';
+    const { record, raw } = await createAndRead(body);
+    expect(Object.prototype.hasOwnProperty.call(record.projection, 'synthesizedHeadline')).toBe(false);
+    expect(raw).not.toContain('A headline the client wrote');
+    expect(record.droppedAuthFields).toContain('synthesizedHeadline');
+  });
+
+  it('derivation (models, rounds, callBudget, costUsd) is dropped on every anonymous draft (fail closed, TL p/77#74)', async () => {
+    const body = communityResult(makeValidResult()) as Record<string, unknown>;
+    body.derivation = { fidelity: 'standard', models: { debate: 'client-claimed-model' }, rounds: 99, callBudget: 1, costUsd: 0 };
+    const { record, raw } = await createAndRead(body);
+    expect(Object.prototype.hasOwnProperty.call(record.projection, 'derivation')).toBe(false);
+    expect(raw).not.toContain('client-claimed-model');
+    expect(record.droppedAuthFields).toContain('derivation');
+    expect(record.projection.request?.question).toBe('What counts as an AI harm?');
+  });
 });
