@@ -166,13 +166,12 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
     community: I(COMMUNITY_CORE),
     export: I(EXPORT_FULL),
   },
-  // GATED (t/285#7, CL notes 1 and 3): stipulated, from the model's self-report. Not shown on user-facing
-  // surfaces until a validation rate is reported. Export stays include: owner-initiated, own-data (see export
-  // note in inquiryExport.ts), and that call is flagged to the TL.
+  // GATED (t/285#7, CL notes 1 and 3; TL p/35#86): stipulated, from the model's self-report. Not shown on any
+  // surface a person can read until a validation rate is reported, the owner's JSON download included.
   'questionDrift.warning': {
     'public-share': X('GATED (t/285): stipulated warning from the model self-report; not user-facing until CL validation is reported.'),
     community: X('GATED (t/285): stipulated warning from the model self-report; not user-facing until CL validation is reported.'),
-    export: I(EXPORT_FULL),
+    export: X('GATED (t/285, TL p/35#86): the owner is a user reading the download; the warning is not shown until CL validation is reported.'),
   },
 
   // ── convergences ──

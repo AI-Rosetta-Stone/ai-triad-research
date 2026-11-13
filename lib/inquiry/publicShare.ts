@@ -208,7 +208,7 @@ const publicTagSelection = (t: { pov: PovName; tag: string; mode: TagMode }) => 
  *  "cut short by a binding budget/ceiling", per jobStatus.ts). These two arms are independent: `censored`
  *  is an explicit trust failure; a truncation reason marks an incomplete run that happened to pass the trust
  *  gate. `synthesizedHeadline` must not appear in the anonymous public projection for either (t/3667). */
-function isRunDegraded(result: InquiryResult): boolean {
+export function isRunDegraded(result: InquiryResult): boolean {
   return result.calibration.some(
     (c) => c.trust.verdict === 'censored' ||
            (c.trust.terminationReason !== undefined && TRUNCATION_REASONS.has(c.trust.terminationReason)),
