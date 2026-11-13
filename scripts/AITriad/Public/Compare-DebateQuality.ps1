@@ -182,101 +182,10 @@ function Compare-DebateQuality {
 
     if ($PassThru) { return $Result }
 
-    if ($Format -eq 'Json') {
-        return ($Result | ConvertTo-Json -Depth 10)
+    # Dispatch to format handler
+    switch ($Format) {
+        'Json'  { return Format-DebateQualityJson $Result }
+        'Csv'   { return Format-DebateQualityCsv $Result }
+        'Table' { return Format-DebateQualityTable $Result $MA $MB $Confounds }
     }
-    if ($Format -eq 'Csv') {
-        $Rows = [System.Collections.Generic.List[PSObject]]::new()
-        foreach ($Key in $Result.deltas.Keys) {
-            $D = $Result.deltas[$Key]
-            $Rows.Add([PSCustomObject]@{
-                Metric    = $Key
-                Baseline  = $D.baseline
-                Treatment = $D.treatment
-                Delta     = $D.delta
-                PctChange = $D.pct
-            })
-        }
-        return ($Rows | ConvertTo-Csv -NoTypeInformation)
-    }
-
-    # Table format
-    foreach ($C in $Confounds) { Write-Warning $C }
-
-    Write-Host ""
-    Write-Host "  DEBATE QUALITY COMPARISON" -ForegroundColor White
-    Write-Host "  $('─' * 80)" -ForegroundColor DarkGray
-
-    # Header
-    Write-Host ('  {0,-28} {1,-24} {2,-24}' -f '', 'Baseline', 'Treatment') -ForegroundColor Cyan
-    foreach ($Key in $MA.header.Keys) {
-        $VA = $MA.header[$Key] ?? '—'
-        $VB = $MB.header[$Key] ?? '—'
-        Write-Host ('  {0,-28} {1,-24} {2,-24}' -f $Key, $VA, $VB) -ForegroundColor Gray
-    }
-
-    Write-Host "  $('─' * 80)" -ForegroundColor DarkGray
-    Write-Host ('  {0,-28} {1,10} {2,10} {3,8} {4,8}' -f 'Metric', 'Baseline', 'Treatment', 'Delta', '%Chg') -ForegroundColor Cyan
-
-    $LowerIsBetter = @('repetition_rate', 'claims_forgotten_rate', 'concession_cascades', 'prm_stddev')
-
-    foreach ($Key in $Result.deltas.Keys) {
-        $D = $Result.deltas[$Key]
-        $DeltaStr = if ($D.delta -gt 0) { "+$($D.delta)" } elseif ($D.delta -eq 0) { '=' } else { "$($D.delta)" }
-        $PctStr = if ($null -ne $D.pct) { "$($D.pct)%" } else { '—' }
-
-        $Color = if ($Key -in $LowerIsBetter) {
-            if ($D.delta -le 0) { 'Green' } else { 'Yellow' }
-        } else {
-            if ($D.delta -gt 0) { 'Green' } elseif ($D.delta -lt 0) { 'Yellow' } else { 'Gray' }
-        }
-
-        Write-Host ('  {0,-28} {1,10} {2,10} ' -f $Key, $D.baseline, $D.treatment) -ForegroundColor Gray -NoNewline
-        Write-Host ('{0,8} {1,8}' -f $DeltaStr, $PctStr) -ForegroundColor $Color
-    }
-
-    # PRM components
-    $AllCompKeys = [System.Collections.Generic.HashSet[string]]::new()
-    foreach ($K in $MA.prm_components.Keys) { [void]$AllCompKeys.Add($K) }
-    foreach ($K in $MB.prm_components.Keys) { [void]$AllCompKeys.Add($K) }
-
-    if ($AllCompKeys.Count -gt 0) {
-        Write-Host "  $('─' * 80)" -ForegroundColor DarkGray
-        Write-Host "  PRM COMPONENTS" -ForegroundColor White
-        foreach ($Key in ($AllCompKeys | Sort-Object)) {
-            $VA = if ($MA.prm_components.Contains($Key)) { $MA.prm_components[$Key] } else { 0 }
-            $VB = if ($MB.prm_components.Contains($Key)) { $MB.prm_components[$Key] } else { 0 }
-            $Delta = [Math]::Round($VB - $VA, 4)
-            $DeltaStr = if ($Delta -gt 0) { "+$Delta" } elseif ($Delta -eq 0) { '=' } else { "$Delta" }
-            $Color = if ($Delta -gt 0) { 'Green' } elseif ($Delta -lt 0) { 'Yellow' } else { 'Gray' }
-            Write-Host ('  {0,-28} {1,10} {2,10} ' -f "  $Key", $VA, $VB) -ForegroundColor Gray -NoNewline
-            Write-Host ('{0,8}' -f $DeltaStr) -ForegroundColor $Color
-        }
-    }
-
-    # Per-agent
-    $AllAgents = [System.Collections.Generic.HashSet[string]]::new()
-    foreach ($K in $MA.agents.Keys) { [void]$AllAgents.Add($K) }
-    foreach ($K in $MB.agents.Keys) { [void]$AllAgents.Add($K) }
-
-    if ($AllAgents.Count -gt 0) {
-        Write-Host "  $('─' * 80)" -ForegroundColor DarkGray
-        Write-Host "  PER-AGENT UTILITIES" -ForegroundColor White
-        foreach ($Agent in ($AllAgents | Sort-Object)) {
-            Write-Host "    $Agent" -ForegroundColor Cyan
-            $SubA = if ($MA.agents.Contains($Agent)) { $MA.agents[$Agent] } else { [ordered]@{ composite = 0; crux_engagement = 0; topic_coherence = 0 } }
-            $SubB = if ($MB.agents.Contains($Agent)) { $MB.agents[$Agent] } else { [ordered]@{ composite = 0; crux_engagement = 0; topic_coherence = 0 } }
-            foreach ($Metric in @('composite', 'crux_engagement', 'topic_coherence')) {
-                $VA = $SubA[$Metric]; $VB = $SubB[$Metric]
-                $Delta = [Math]::Round($VB - $VA, 4)
-                $DeltaStr = if ($Delta -gt 0) { "+$Delta" } elseif ($Delta -eq 0) { '=' } else { "$Delta" }
-                $Color = if ($Delta -gt 0) { 'Green' } elseif ($Delta -lt 0) { 'Yellow' } else { 'Gray' }
-                Write-Host ('  {0,-28} {1,10} {2,10} ' -f "    $Metric", $VA, $VB) -ForegroundColor Gray -NoNewline
-                Write-Host ('{0,8}' -f $DeltaStr) -ForegroundColor $Color
-            }
-        }
-    }
-
-    Write-Host "  $('─' * 80)" -ForegroundColor DarkGray
-    Write-Host ""
 }
