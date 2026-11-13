@@ -52,6 +52,13 @@
   margin-bottom: 6px;
 }
 
+.linked-node-preview-note {
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
 .linked-node-preview-attrs {
   display: flex;
   gap: 6px;
