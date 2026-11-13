@@ -59,6 +59,46 @@ describe('toPublicInquiryShare — synthesizedHeadline Condition A', () => {
   });
 });
 
+describe('toPublicInquiryShare — t/285 directAnswer Condition A and questionDrift', () => {
+  it('includes directAnswer and questionDrift on a healthy run', () => {
+    const result = makeResult({
+      directAnswer: { text: 'Yes.', agreement: 'consensus' },
+      questionDrift: { debatedTopic: 'Other topic', warning: true },
+      calibration: makeCalibration({ verdict: 'trust', reason: 'natural', terminationReason: 'natural' }),
+    });
+    const share = toPublicInquiryShare(result);
+    expect(share.directAnswer).toEqual({ text: 'Yes.', agreement: 'consensus' });
+    // The warning is gated (t/285#7): the public share carries the topic, never the warning.
+    expect(share.questionDrift).toEqual({ debatedTopic: 'Other topic' });
+  });
+
+  it('suppresses directAnswer on a censored run, as for the headline, but keeps questionDrift', () => {
+    const result = makeResult({
+      directAnswer: { text: 'Should not appear.', agreement: 'consensus' },
+      questionDrift: { debatedTopic: 'Other topic', warning: true },
+      calibration: makeCalibration({ verdict: 'censored', reason: 'api_ceiling reached', terminationReason: 'api_ceiling' }),
+    });
+    const share = toPublicInquiryShare(result);
+    expect(share.directAnswer).toBeUndefined();
+    expect(share.questionDrift).toEqual({ debatedTopic: 'Other topic' });
+    expect(share).not.toHaveProperty('questionDrift.warning');
+  });
+
+  it('carries the per-camp answer flag and note on a healthy run', () => {
+    const base = makeResult({
+      calibration: makeCalibration({ verdict: 'trust', reason: 'natural', terminationReason: 'natural' }),
+    });
+    const node = { nodeId: 'skp-beliefs-029', label: 'Precaution', camp: 'skp' as const };
+    const withFlag = {
+      ...base,
+      campVerdicts: [{ camp: 'acc' as const, verdict: 'v', nodes: [node], answeredLiteralQuestion: false, answerNote: 'Focused on X.' }],
+    } as InquiryResult;
+    const cv = toPublicInquiryShare(withFlag).campVerdicts[0];
+    expect(cv.answeredLiteralQuestion).toBe(false);
+    expect(cv.answerNote).toBe('Focused on X.');
+  });
+});
+
 describe('toPublicInquiryShare — synthesizedHeadline Condition B', () => {
   it('suppresses synthesizedHeadline when over HEADLINE_MAX_CHARS (400 chars)', () => {
     const result = makeResult({ synthesizedHeadline: 'x'.repeat(401) });

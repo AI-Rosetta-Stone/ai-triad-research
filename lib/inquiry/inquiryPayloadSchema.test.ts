@@ -3,7 +3,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { inquiryPayloadSchema, HttpUrlSchema } from './inquiryPayloadSchema.js';
-import { makeValidResult } from './__fixtures__/validResult.js';
+import { makeValidResult, makeDriftedResult } from './__fixtures__/validResult.js';
+import { toCommunityInquiryResult } from './communityProjection.js';
 
 describe('HttpUrlSchema', () => {
   it('accepts valid HTTP URLs', () => {
@@ -113,5 +114,25 @@ describe('inquiryPayloadSchema', () => {
       expect(parsed.result).toBeTruthy();
       expect(parsed.note).toBe('');
     });
+  });
+});
+
+// t/285 (TL p/35#89): the community projection drops questionDrift.warning, so it must pass the upload schema.
+describe('inquiryPayloadSchema with questionDrift (t/285)', () => {
+  it('accepts a community-projected drifted result (warning dropped)', () => {
+    const projected = toCommunityInquiryResult(makeDriftedResult() as any);
+    const parsed = inquiryPayloadSchema.safeParse({ result: projected, note: 'n' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.result.questionDrift).toEqual({
+      debatedTopic: 'How should AI regulation be designed?',
+    });
+  });
+
+  it('refuses an unprojected drifted result that still carries the gated warning', () => {
+    expect(inquiryPayloadSchema.safeParse({ result: makeDriftedResult(), note: '' }).success).toBe(false);
+  });
+
+  it('still accepts a result with no questionDrift block at all', () => {
+    expect(inquiryPayloadSchema.safeParse({ result: makeValidResult(), note: '' }).success).toBe(true);
   });
 });

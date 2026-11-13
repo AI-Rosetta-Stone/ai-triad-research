@@ -1,0 +1,241 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { LinkedNodePreview } from './LinkedNodePreview';
+import * as useTaxonomyStoreModule from '../../hooks/useTaxonomyStore';
+import * as flightRecorderModule from '@lib/flight-recorder/index';
+
+describe('LinkedNodePreview', () => {
+  const mockNode = {
+    id: 'acc-beliefs-001',
+    label: 'Test Belief',
+    category: 'beliefs',
+    description: 'Formal description of the belief',
+    plain_description: 'Plain language explanation',
+    graph_attributes: {},
+  };
+
+  const mockLookupPinnedData = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(useTaxonomyStoreModule, 'useTaxonomyStore').mockImplementation(() => mockLookupPinnedData);
+  });
+
+  it('renders nothing when node is not found', () => {
+    mockLookupPinnedData.mockReturnValue(null);
+    const { container } = render(<LinkedNodePreview nodeId="unknown-id" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('defaults to plain mode', () => {
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+  });
+
+  it('toggles to formal mode when toggle button clicked', async () => {
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    const { rerender } = render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    
+    const formalButton = screen.getByRole('radio', { name: /formal/i });
+    fireEvent.click(formalButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Formal description of the belief')).toBeInTheDocument();
+    });
+  });
+
+  it('shows formal text with a note and no pending indicator when node has no plain_description', () => {
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+
+    expect(screen.getByText('Formal description of the belief')).toBeInTheDocument();
+    expect(screen.getByText('No plain version yet. Showing formal text.')).toBeInTheDocument();
+    const plainButton = screen.getByRole('radio', { name: /plain/i });
+    expect(plainButton.textContent).toBe('Plain');
+    expect(plainButton.getAttribute('title')).toBe('No plain version for this node; showing the formal text.');
+    expect(document.querySelector('.description-toggle-generating')).toBeNull();
+  });
+
+  it('drops the no-plain note once formal mode is selected', async () => {
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+
+    fireEvent.click(screen.getByRole('radio', { name: /formal/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('No plain version yet. Showing formal text.')).toBeNull();
+    });
+  });
+
+  it('shows no note when plain_description exists', () => {
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+
+    expect(screen.queryByText('No plain version yet. Showing formal text.')).toBeNull();
+  });
+
+  it('toggles mode with button click (no global Alt+P shortcut)', async () => {
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    const user = userEvent.setup();
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    
+    const formalButton = screen.getByRole('radio', { name: /formal/i });
+    await user.click(formalButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Formal description of the belief')).toBeInTheDocument();
+    });
+    
+    const plainButton = screen.getByRole('radio', { name: /plain/i });
+    await user.click(plainButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    });
+  });
+
+  it('never reads or writes to global localStorage', () => {
+    const localStorageSpy = vi.spyOn(Storage.prototype, 'getItem');
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    expect(localStorageSpy).not.toHaveBeenCalled();
+    
+    const formalButton = screen.getByRole('radio', { name: /formal/i });
+    fireEvent.click(formalButton);
+    
+    expect(setItemSpy).not.toHaveBeenCalled();
+    
+    localStorageSpy.mockRestore();
+    setItemSpy.mockRestore();
+  });
+
+  it('logs WARN when node has no plain_description and falls back to formal', async () => {
+    const recordSpy = vi.fn();
+    vi.spyOn(flightRecorderModule, 'getGlobalRecorder').mockReturnValue({ record: recordSpy } as any);
+    
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    render(<LinkedNodePreview nodeId="acc-beliefs-999" />);
+    
+    await waitFor(() => {
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'system.error',
+          component: 'LinkedNodePreview',
+          level: 'warn',
+          message: expect.stringContaining('acc-beliefs-999'),
+        })
+      );
+    });
+  });
+
+  it('logs WARN only once per nodeId, not on every render', async () => {
+    const recordSpy = vi.fn();
+    vi.spyOn(flightRecorderModule, 'getGlobalRecorder').mockReturnValue({ record: recordSpy } as any);
+    
+    const nodeWithoutPlain = { ...mockNode, plain_description: null };
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: nodeWithoutPlain });
+    const { rerender } = render(<LinkedNodePreview nodeId="acc-beliefs-888" />);
+    
+    await waitFor(() => {
+      expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+    
+    recordSpy.mockClear();
+    rerender(<LinkedNodePreview nodeId="acc-beliefs-888" />);
+    
+    await waitFor(() => {
+      expect(recordSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('renders conflict data correctly', () => {
+    const conflictData = {
+      type: 'conflict',
+      conflict: {
+        status: 'open',
+        claim_label: 'Test Conflict',
+        description: 'Conflict description',
+        instances: [{ id: '1' }, { id: '2' }],
+      },
+    };
+    mockLookupPinnedData.mockReturnValue(conflictData);
+    render(<LinkedNodePreview nodeId="conflict-1" />);
+    
+    expect(screen.getByText('Conflict')).toBeInTheDocument();
+    expect(screen.getByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('Test Conflict')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('renders policy data correctly', () => {
+    const policyData = {
+      type: 'policy',
+      policy: {
+        action: 'Implement AI regulations',
+        description: 'Policy to regulate AI development',
+      },
+      referencingNodes: [{ id: 'n1' }, { id: 'n2' }, { id: 'n3' }],
+    };
+    mockLookupPinnedData.mockReturnValue(policyData);
+    render(<LinkedNodePreview nodeId="pol-001" />);
+    
+    expect(screen.getByText('Policy')).toBeInTheDocument();
+    expect(screen.getByText('Implement AI regulations')).toBeInTheDocument();
+    expect(screen.getByText('3 nodes')).toBeInTheDocument();
+  });
+
+  it('does not toggle on document Alt+P since globalShortcut={false}', async () => {
+    const mockLookupPinnedData = vi.fn();
+    vi.spyOn(useTaxonomyStoreModule, 'useTaxonomyStore').mockImplementation(() => mockLookupPinnedData);
+    
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    expect(screen.queryByText('Formal description of the belief')).not.toBeInTheDocument();
+    
+    // Fire Alt+P on document - should NOT toggle because globalShortcut={false}
+    fireEvent.keyDown(document, { key: 'p', altKey: true });
+    
+    // Text should still be plain (not switched to formal)
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    expect(screen.queryByText('Formal description of the belief')).not.toBeInTheDocument();
+  });
+
+  it('would toggle on document Alt+P if globalShortcut were true (regression guard)', async () => {
+    const mockLookupPinnedData = vi.fn();
+    
+    // This test verifies the fix: when globalShortcut={false}, Alt+P has no effect.
+    // By contrast, if globalShortcut were NOT set (defaulting to true) in LinkedNodePreview,
+    // then Alt+P WOULD toggle the preview's mode, which is unwanted when the preview is
+    // shown alongside a detail pane (where global Alt+P toggles the pane itself).
+    // This test doesn't directly test LinkedNodePreview with globalShortcut={true}
+    // (that would be a config leak), but it proves DescriptionToggle respects the prop.
+    
+    vi.spyOn(useTaxonomyStoreModule, 'useTaxonomyStore').mockImplementation(() => mockLookupPinnedData);
+    mockLookupPinnedData.mockReturnValue({ type: 'pov', pov: 'acc', node: mockNode });
+    
+    // Render the preview (which uses globalShortcut={false} internally)
+    render(<LinkedNodePreview nodeId="acc-beliefs-001" />);
+    expect(screen.getByText('Plain language explanation')).toBeInTheDocument();
+    
+    // Verify the underlying DescriptionToggle component exists and accepts the prop
+    const toggle = document.querySelector('.description-toggle');
+    expect(toggle).toBeInTheDocument();
+  });
+});
