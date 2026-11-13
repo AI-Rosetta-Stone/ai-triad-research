@@ -1,18 +1,18 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/4819: bounded retry for GitHub API calls made by the PR-gate workflows (tier-check.yml,
-// t1-approval-guard.yml). A single GitHub 503 made tier-check report a spurious CANNOT EVALUATE
-// on #4450. Harmless while tier-check is advisory, but blocking once t/4103 promotes it.
+// t/4819: bounded retry for GitHub API calls made by workflows (PR gates + scheduled builds).
+// t/236: Extended to handle rate-limit cascades — retry 403s with x-ratelimit-reset header.
 //
 // Policy:
-//   - retry ONLY a 5xx or a 429 (transient, server-side or rate limit);
-//   - never retry anything else, including every other 4xx (a 404/403/422 is a real answer and
-//     a retry would only delay the same failure);
-//   - at most MAX_ATTEMPTS attempts, exponential backoff (base, 2*base, ...);
+//   - retry ONLY a 5xx, 429, or rate-limit 403 (with x-ratelimit-reset header);
+//   - never retry permission 403s (no x-ratelimit-reset — they're real denials, fail fast);
+//   - never retry anything else (404/422 are real answers, delaying won't help);
+//   - for rate-limit errors (429 or 403 with x-ratelimit-reset), wait until reset time;
+//   - for 5xx, use exponential backoff (base 2000ms, doubling per attempt);
+//   - at most MAX_ATTEMPTS attempts;
 //   - log a WARN for every retry actually taken;
-//   - when retries run out, THROW. The caller's catch turns that into CANNOT EVALUATE, so the gate
-//     still fails closed. Nothing here ever turns an error into a value.
+//   - when retries run out, THROW. The caller's catch turns that into a failure.
 //
 // Trust: the workflows load this module from the default branch's live tip (git show), never
 // from the PR tree, so a PR cannot weaken the retry policy in the same change it is judged by
@@ -30,9 +30,21 @@ export function statusOf(err) {
   return Number.isInteger(n) ? n : null;
 }
 
-/** True only for a 429 or a 5xx. Everything else (other 4xx, no status at all) is final. */
-export function isRetryableStatus(status) {
-  return status === 429 || (Number.isInteger(status) && status >= 500 && status <= 599);
+/** Extract x-ratelimit-reset epoch seconds from error response headers, else null. */
+export function rateLimitResetOf(err) {
+  if (!err || typeof err !== 'object') return null;
+  const reset = err.response?.headers?.['x-ratelimit-reset'];
+  const n = typeof reset === 'string' ? Number(reset) : reset;
+  return Number.isInteger(n) ? n : null;
+}
+
+/** True for a 429, a 5xx, or a rate-limit 403 (403 with x-ratelimit-reset header).
+ * Permission 403s (no x-ratelimit-reset) are real denials and fail fast. */
+export function isRetryableStatus(status, resetEpoch) {
+  if (status === 429) return true;
+  if (Number.isInteger(status) && status >= 500 && status <= 599) return true;
+  if (status === 403 && Number.isInteger(resetEpoch)) return true; // rate-limit 403
+  return false;
 }
 
 /** Delay before the retry that follows failed attempt `attempt` (1-based): base * 2^(attempt-1). */
@@ -41,10 +53,12 @@ export function backoffMs(attempt, baseDelayMs = DEFAULT_BASE_DELAY_MS) {
 }
 
 /**
- * Run `fn` (an async GitHub call), retrying a 5xx/429 up to `maxAttempts` attempts in total.
- * Rethrows a non-retryable error at once. When attempts run out, throws an Error whose message
- * names the call, the attempt count and the last status; `.status` and `.cause` carry the last
- * underlying error so callers that branch on status still can.
+ * Run `fn` (an async GitHub API call), retrying a 5xx, 429, or rate-limit 403 up to maxAttempts.
+ * For rate-limit errors (429 or 403 with x-ratelimit-reset), waits until the reset time.
+ * For 5xx, uses exponential backoff.
+ * Permission 403s (no x-ratelimit-reset) fail fast — they're real denials, not transient.
+ * Rethrows non-retryable errors immediately. When retries run out, throws an Error with the
+ * call label, attempt count, last status, and original error as cause.
  */
 export async function withGitHubRetry(label, fn, opts = {}) {
   const {
@@ -59,7 +73,8 @@ export async function withGitHubRetry(label, fn, opts = {}) {
       return await fn();
     } catch (err) {
       const status = statusOf(err);
-      if (!isRetryableStatus(status)) throw err;
+      const resetEpoch = rateLimitResetOf(err);
+      if (!isRetryableStatus(status, resetEpoch)) throw err;
       const msg = err && err.message ? err.message : String(err);
       if (attempt >= maxAttempts) {
         const final = new Error(
@@ -70,8 +85,17 @@ export async function withGitHubRetry(label, fn, opts = {}) {
         final.status = status;
         throw final;
       }
-      const delay = backoffMs(attempt, baseDelayMs);
-      warn(`WARN ${prefix}: ${label} attempt ${attempt}/${maxAttempts} got HTTP ${status} (${msg}) -- retrying in ${delay}ms`);
+      // For rate-limit errors, wait until quota resets; for 5xx, use exponential backoff
+      let delay;
+      if ((status === 429 || status === 403) && Number.isInteger(resetEpoch)) {
+        const nowEpoch = Math.floor(Date.now() / 1000);
+        const delaySeconds = Math.max(1, resetEpoch - nowEpoch + 1); // +1s buffer
+        delay = delaySeconds * 1000;
+      } else {
+        // 5xx: exponential backoff
+        delay = backoffMs(attempt, baseDelayMs);
+      }
+      warn(`WARN ${prefix}: ${label} attempt ${attempt}/${maxAttempts} got HTTP ${status} (${msg}) -- retrying in ${Math.ceil(delay / 1000)}s`);
       await sleep(delay);
     }
   }
