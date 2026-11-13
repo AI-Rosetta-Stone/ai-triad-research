@@ -110,10 +110,19 @@ const _diagnosticsStateBuffer = createLatestValueBuffer<unknown>();
 // surface and `electron.d.ts` could silently diverge (t/3528 postmortem, t/3529). Still
 // invoked INSIDE the try block below, so construction-time errors are caught exactly as
 // before this change.
+function readAppPathArgument(): string | null {
+  const prefix = '--taxonomy-app-path=';
+  const arg = process.argv.find(a => a.startsWith(prefix));
+  return arg ? arg.slice(prefix.length) : null;
+}
+
 function buildElectronApi() {
   return {
   // Synchronous system info — available without IPC round-trip
   processVersions: { ...process.versions },
+  // t/418: the main process passes app.getAppPath() as an argument (main.ts additionalArguments), because
+  // a sandboxed preload cannot import electron's app module. Null when the argument is absent.
+  appPath: readAppPathArgument(),
   osRelease: process.getSystemVersion?.() ?? process.platform,
   osPlatform: process.platform,
   osArch: process.arch,

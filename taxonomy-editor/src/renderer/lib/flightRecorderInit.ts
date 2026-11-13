@@ -18,6 +18,7 @@ import { getClientConfig } from './clientConfig';
 import { getResilienceState } from '../bridge/resilience';
 import { showDumpToast, showDumpErrorToast, showDumpPendingToast } from './dumpToast';
 import { getCurrentPhase } from '@lib/debate/phaseTransitions';
+import { localRunContext } from './flightRecorderAppContext';
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_DATE__: string;
@@ -36,6 +37,7 @@ function getElectronAPI(): {
   osRelease?: string;
   osPlatform?: string;
   osArch?: string;
+  appPath?: string | null; // t/418
   getEmbeddingInfo?: () => Promise<{ backend: string; execution_provider?: string; calibration_version?: number }>;
 } | undefined {
   return (window as unknown as { electronAPI?: ReturnType<typeof getElectronAPI> }).electronAPI;
@@ -747,6 +749,7 @@ function buildContextProvider(recorder: FlightRecorder): () => Record<string, un
           version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined,
           build_date: typeof __BUILD_DATE__ !== 'undefined' ? __BUILD_DATE__ : undefined,
           build_commit_sha: typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : undefined,
+          ...localRunContext(eApi),
           build_fingerprint: `build-${(window as unknown as { __BUILD_FINGERPRINT?: string }).__BUILD_FINGERPRINT ?? 'unknown'}`,
           deployment_mode: getDeploymentMode(),
           vite_target: import.meta.env.VITE_TARGET ?? 'electron',

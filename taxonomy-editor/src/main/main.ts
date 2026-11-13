@@ -180,6 +180,8 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
+      // t/418: the preload reads this to expose appPath (a sandboxed preload cannot call app.getAppPath()).
+      additionalArguments: [`--taxonomy-app-path=${app.getAppPath()}`],
     },
   });
   hardenWindow(mainWindow);
