@@ -274,9 +274,13 @@ export type DirectAnswer = z.infer<typeof DirectAnswerSchema>;
 export const QuestionDriftSchema = z.object({
   /** The topic the debate actually addressed, when it differs from the question. Absent when they match. */
   debatedTopic: z.string().optional(),
-  /** Drift score 0–1 from t/283 A (0 = on the question). Absent until t/283 A supplies it. */
+  /** Drift score 0–1 from t/283 A (0 = on the question). Absent until t/283 A supplies it. Not measured
+   *  today: nothing produces it, so no result carries a drift score. */
   driftScore: z.number().min(0).max(1).optional(),
-  /** True when any camp did not answer the question, or the drift score is over the Debate Engine threshold. */
+  /** True when any camp did not answer the question, or the drift score is over the Debate Engine threshold.
+   *  Provenance: **stipulated** (metric-provenance-register, t/285). Its only live input is the model's
+   *  self-reported `answeredLiteralQuestion`, not a measurement. Do not show it to users until the
+   *  validation sample (t/285, Comp-Linguist) has been run and its rate reported. */
   warning: z.boolean(),
 });
 export type QuestionDrift = z.infer<typeof QuestionDriftSchema>;
