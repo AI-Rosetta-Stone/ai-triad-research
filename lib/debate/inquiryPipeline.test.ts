@@ -47,7 +47,7 @@ function makeSession(id = 'sess-001'): DebateSession {
     created_at: '2026-09-23T00:00:00Z',
     updated_at: '2026-09-23T00:00:00Z',
     phase: 'closed',
-    topic: { original: 'test', refined: null, final: 'test topic' },
+    topic: { original: 'test', refined: null, final: 'What are the risks?' },
     source_type: 'topic',
     source_ref: '',
     source_content: '',
@@ -59,8 +59,9 @@ function makeSession(id = 'sess-001'): DebateSession {
   } as unknown as DebateSession;
 }
 
-function makeConfig(): DebateConfig {
-  return { topic: 'test', rounds: 4 } as unknown as DebateConfig;
+// Mirrors deriveDebateConfig: topic is the request question, and the inquiry turns the reframe off (t/284).
+function makeConfig(question = 'What are the risks?'): DebateConfig {
+  return { topic: question, rounds: 4, wisdomAutoReframe: false } as unknown as DebateConfig;
 }
 
 function makeGrounding() {
@@ -107,10 +108,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   const deriveMock = vi.mocked(deriveDebateConfig);
-  deriveMock.mockReturnValue({
-    config: makeConfig(),
+  deriveMock.mockImplementation((req: InquiryRequest) => ({
+    config: makeConfig(req.question),
     derivation: { fidelity: 'standard', models: { debaters: 'model-a' }, rounds: 4, callBudget: 60 },
-  });
+  }));
 
   vi.mocked(buildGroundingEnvelope).mockResolvedValue({ envelope: makeGrounding() });
   vi.mocked(getRawMetrics).mockReturnValue(makeRawMetrics());
@@ -166,10 +167,15 @@ describe('runInquiryPipeline — happy path', () => {
   });
 
   it('passes the derived config and question to runDebate', async () => {
-    const deps = makeDeps();
+    // The debate runs on the question it was given, so topic.final echoes it (t/284 item 1).
+    const deps = makeDeps({
+      runDebate: vi.fn().mockImplementation(async (_config: unknown, question: string) => ({
+        session: { ...makeSession(), topic: { original: question, refined: null, final: question } },
+      })),
+    });
     await runInquiryPipeline(makeRequest({ question: 'Specific question?' }), deps);
     expect(deps.runDebate).toHaveBeenCalledWith(
-      expect.objectContaining({ topic: 'test' }),
+      expect.objectContaining({ topic: 'Specific question?' }),
       'Specific question?',
       undefined, // t/4711: onProgress is undefined when deps.onDebateProgress isn't supplied
     );
@@ -311,5 +317,20 @@ describe('runInquiryPipeline — synthesizeInquiry fault propagates', () => {
     await expect(runInquiryPipeline(makeRequest(), makeDeps())).rejects.toMatchObject({
       problem: 'bad JSON',
     });
+  });
+});
+
+describe('runInquiryPipeline — pre-flight topic check (t/284 item 1)', () => {
+  it('refuses before grounding or the debate when the config would reframe the question', async () => {
+    vi.mocked(deriveDebateConfig).mockReturnValueOnce({
+      config: { ...makeConfig(), wisdomAutoReframe: true },
+      derivation: { fidelity: 'standard', models: { debaters: 'model-a' }, rounds: 4, callBudget: 60 },
+    });
+    const deps = makeDeps();
+    await expect(runInquiryPipeline(makeRequest({ question: 'What are the risks?' }), deps)).rejects.toMatchObject({
+      problem: expect.stringContaining('wisdomAutoReframe=true'),
+    });
+    expect(deps.runDebate).not.toHaveBeenCalled();
+    expect(buildGroundingEnvelope).not.toHaveBeenCalled();
   });
 });
