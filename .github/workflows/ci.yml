@@ -524,7 +524,9 @@ jobs:
     # t/386: hosted for now. Routing to tl-wsl-SnoverX9 waits for Security to clear the shims below
     # (p/102#59 conditions 1-3) and the fork-PR canary (condition 6). When routed, use the same expression
     # as test-electron (self-hosted, same-repo pull_request, dependabot[bot] excluded).
-    runs-on: ubuntu-latest
+    # t/386 shard 5 only (TL p/9#160, Security p/131#8): the self-hosted runner, for same-repo pull_request runs
+    # from anyone except dependabot[bot] (condition 4). Every other shard stays on ubuntu-latest.
+    runs-on: ${{ (matrix.shard == 5 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') && fromJSON('["self-hosted","linux","trusted-only"]') || fromJSON('["ubuntu-latest"]') }}
     # t/3668: shard the Pester suite across parallel matrix jobs, KEEPING -Force per-file isolation
     # (each shard runs a DISJOINT slice — no import-once, no state bleed; t/3665 close-out chose
     # shard-with-Force over the 84-var reset re-architecture). ci-gate aggregates the shards via
