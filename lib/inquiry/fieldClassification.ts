@@ -133,6 +133,44 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   },
   'campVerdicts.nodes.label': { 'public-share': I('Public-safe node display snapshot (label, not id).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   'campVerdicts.nodes.camp': { 'public-share': I('Public-safe node snapshot (camp code).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
+  // t/285 — whether each camp answered the literal question. Derived from public debate content; no user data.
+  // Column owners (Server Auth, Server Community) confirm on the PR; Shared Lib owns the export column.
+  'campVerdicts.answeredLiteralQuestion': {
+    'public-share': I('Answer-quality flag derived from public debate content; no user data. Lets a public reader see whether a camp answered the question.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'campVerdicts.answerNote': {
+    'public-share': I('One-line note on a camp that did not answer directly; derived from public debate content, no user data (t/285 TL: include on all surfaces).'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  // t/285 — direct answer and question drift. Derived from public debate content; no user data.
+  'directAnswer.text': {
+    'public-share': I('The direct answer to the question, derived from public debate content (t/285 TL: include on all surfaces).'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'directAnswer.agreement': {
+    'public-share': I('Whether camps agree on the direct answer; public-safe enum.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'questionDrift.debatedTopic': {
+    'public-share': I('The topic the debate addressed when it differed from the question; derived from public debate content, no user data.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'questionDrift.driftScore': {
+    'public-share': I('Numeric drift score 0–1; public-safe scalar.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
+  'questionDrift.warning': {
+    'public-share': I('Boolean drift warning; public-safe, and it tells a public reader the answer may be off-topic.'),
+    community: I(COMMUNITY_CORE),
+    export: I(EXPORT_FULL),
+  },
 
   // ── convergences ──
   'convergences.claim': { 'public-share': I(PUBLIC_CORE), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
