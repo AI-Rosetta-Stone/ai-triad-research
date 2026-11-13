@@ -48,17 +48,20 @@ export function resolveDescription(
   if (!node) return { text: '', isGenerating: false };
   if (mode === 'formal') return { text: node.description ?? '', isGenerating: false };
   if (node.plain_description) return { text: node.plain_description, isGenerating: false };
-  return { text: node.description ?? '', isGenerating: true };
+  // No plain text: fall back to the formal text. Nothing is pending, so not "generating" (Design, t/281).
+  return { text: node.description ?? '', isGenerating: false };
 }
 
 interface DescriptionToggleProps {
   mode: DescriptionMode;
   onToggle: (mode: DescriptionMode) => void;
   hasPlainDescription: boolean;
+  globalShortcut?: boolean;
 }
 
-export function DescriptionToggle({ mode, onToggle, hasPlainDescription }: DescriptionToggleProps) {
+export function DescriptionToggle({ mode, onToggle, hasPlainDescription, globalShortcut = true }: DescriptionToggleProps) {
   useEffect(() => {
+    if (!globalShortcut) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.altKey && e.key === 'p') {
         e.preventDefault();
@@ -67,7 +70,7 @@ export function DescriptionToggle({ mode, onToggle, hasPlainDescription }: Descr
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [mode, onToggle]);
+  }, [mode, onToggle, globalShortcut]);
 
   return (
     <div className="description-toggle" role="radiogroup" aria-label="Description style">
@@ -85,12 +88,9 @@ export function DescriptionToggle({ mode, onToggle, hasPlainDescription }: Descr
         onClick={() => onToggle('plain')}
         role="radio"
         aria-checked={mode === 'plain'}
-        title={hasPlainDescription ? 'Show plain-language description (Alt+P)' : 'Plain version generating... (Alt+P)'}
+        title={hasPlainDescription ? 'Show plain-language description (Alt+P)' : 'No plain version for this node; showing the formal text.'}
       >
         Plain
-        {mode === 'plain' && !hasPlainDescription && (
-          <span className="description-toggle-generating" aria-label="generating">…</span>
-        )}
       </button>
     </div>
   );
