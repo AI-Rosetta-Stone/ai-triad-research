@@ -233,6 +233,7 @@ export default defineConfig({
       '../main/**/*.test.ts',
       '../server/__tests__/**/*.test.ts',
       '../../../taxonomy-editor/scripts/__tests__/**/*.test.ts', // t/2973 — generate-notices guard unit tests
+      '../../scripts/chat-regeneration/**/*.test.ts', // t/287 — batch chat regeneration tests
       '../../../taxonomy-editor/eslint-rules/__tests__/**/*.test.ts', // t/3093 — custom ESLint rule RuleTester specs
       '../../../lib/ai-client/**/*.test.ts',
       '../../../lib/chat/**/*.test.ts',
