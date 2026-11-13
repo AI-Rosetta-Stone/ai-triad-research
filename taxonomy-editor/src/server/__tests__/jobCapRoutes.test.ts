@@ -80,6 +80,8 @@ import { listUserJobRecords } from '../storage/jobRecords.js';
 import { getInquiryJobsDir, INQUIRY_HEARTBEAT_STALE_MS, type InquiryJobRecord } from '../storage/inquiryJobStore.js';
 import { getBriefExportJobsDir, BRIEF_EXPORT_HEARTBEAT_STALE_MS, type BriefExportJobRecord } from '../storage/briefExportJobStore.js';
 import { _resetInquiryJobsForTest } from '../inquiryJobs.js';
+import { claimJobSlot, releaseJobSlot } from '../storage/jobSlots.js';
+import { slotHolderLiveness } from '../storage/jobCapChecker.js';
 
 // The cutoff the cap checker applies (jobCapChecker reads these constants): 30s for both kinds.
 const STALE_MS = 30_000;
@@ -140,12 +142,20 @@ const postInquiry = (userId: string, headers: Record<string, string> = {}) =>
 const postExport = (userId: string, debateId = 'deb-1', headers: Record<string, string> = {}) =>
   post('/api/debates/:debateId/exports', `/api/debates/${debateId}/exports`, userId, { preset: 'policymaker', model: 'gemini-2.5-flash' }, headers);
 
+// A record written by "another replica" also occupies a slot (t/400), as a real admitted job does.
+async function holdSlot(jobsDir: string, jobId: string): Promise<void> {
+  const dir = `${jobsDir}/slots`;
+  const used = (await backend.listDirectory(dir)).map(n => /^slot-(\d+)-/.exec(n)).filter(Boolean).map(m => Number(m![1]));
+  const index = used.length ? Math.max(...used) + 1 : 0;
+  await backend.writeFile(`${dir}/slot-${index}-0.json`, JSON.stringify({ jobId, claimedAt: new Date().toISOString() }));
+}
 async function writeInquiryRecord(userId: string, jobId: string, over: Partial<InquiryJobRecord> = {}): Promise<void> {
   const rec: InquiryJobRecord = {
     jobId, userId, bootId: 'other-replica', status: 'debating', lastHeartbeatAt: new Date().toISOString(),
     resultId: null, error: null, debateId: null, startedAt: Date.now(), idempotencyKey: null, ...over,
   };
   await backend.writeFile(path.join(getInquiryJobsDir(userId), `job-${jobId}.json`), JSON.stringify(rec));
+  await holdSlot(getInquiryJobsDir(userId), jobId);
 }
 async function writeExportRecord(userId: string, jobId: string, over: Partial<BriefExportJobRecord> = {}): Promise<void> {
   const rec: BriefExportJobRecord = {
@@ -153,6 +163,7 @@ async function writeExportRecord(userId: string, jobId: string, over: Partial<Br
     exportId: null, startedAt: Date.now(), lastHeartbeatAt: new Date().toISOString(), idempotencyKey: null, ...over,
   };
   await backend.writeFile(path.join(getBriefExportJobsDir(userId), `job-${jobId}.json`), JSON.stringify(rec));
+  await holdSlot(getBriefExportJobsDir(userId), jobId);
 }
 const staleBeat = (over = 1_000) => new Date(Date.now() - STALE_MS - over).toISOString();
 
@@ -160,6 +171,44 @@ describe('jobCapChecker staleness cutoff matches the store constants', () => {
   it('is 30s for both kinds', () => {
     expect(INQUIRY_HEARTBEAT_STALE_MS).toBe(STALE_MS);
     expect(BRIEF_EXPORT_HEARTBEAT_STALE_MS).toBe(STALE_MS);
+  });
+});
+
+describe('slot grace window and unreadable holders (t/400)', () => {
+  const asUser = <T>(u: string, fn: () => Promise<T>) =>
+    runWithUser({ principalName: `${u}@example.com`, idp: 'github', storageUserId: u, isAnonymous: false }, fn);
+  const claimFor = (u: string, jobId: string) => asUser(u, () => claimJobSlot({
+    backend, jobsDir: getInquiryJobsDir(u), cap: 1, jobId, isLive: slotHolderLiveness('inquiry'),
+  }));
+  // A holder with no job record: the claim has been written but the record is not yet.
+  const holderWithoutRecord = async (u: string, claimedAt: number) => {
+    await backend.writeFile(`${getInquiryJobsDir(u)}/slots/slot-0-0.json`,
+      JSON.stringify({ jobId: 'pending-job', claimedAt: new Date(claimedAt).toISOString() }));
+  };
+
+  it('inside the 30s grace (29s old, no record yet) the slot is held: the claim gets null', async () => {
+    const u = newUser();
+    await holderWithoutRecord(u, Date.now() - 29_000);
+    expect(await claimFor(u, 'next-job')).toBeNull();
+  });
+
+  it('past the 30s grace (31s old, no record) the slot is reclaimed at generation 1', async () => {
+    const u = newUser();
+    await holderWithoutRecord(u, Date.now() - 31_000);
+    expect(await claimFor(u, 'next-job')).toMatchObject({ index: 0, generation: 1 });
+  });
+
+  it('an unreadable holder (partial JSON) is held, not reclaimed at once', async () => {
+    const u = newUser();
+    await backend.writeFile(`${getInquiryJobsDir(u)}/slots/slot-0-0.json`, '{"jobId": "par');
+    expect(await claimFor(u, 'next-job')).toBeNull();
+    expect(await backend.readFile(`${getInquiryJobsDir(u)}/slots/slot-0-1.json`)).toBeNull();
+  });
+
+  it('an incomplete holder (jobId but no claimedAt) is held, not reclaimed at once', async () => {
+    const u = newUser();
+    await backend.writeFile(`${getInquiryJobsDir(u)}/slots/slot-0-0.json`, JSON.stringify({ jobId: 'half' }));
+    expect(await claimFor(u, 'next-job')).toBeNull();
   });
 });
 
@@ -228,6 +277,43 @@ describe('POST /api/inquiry — durable idempotency and caps (real records)', ()
     const second = await postInquiry(u);
     expect(second.status).toBe(202);
     expect(second.body.jobId).not.toBe(first.body.jobId);
+  });
+
+  it('two concurrent claims at cap-1 (two replicas, no shared in-process lock): exactly one wins', async () => {
+    // Each claim is a create-only write to the shared backend, so only one replica can hold the slot.
+    // The backend serialises conditional writes within one process, so this proves the create-only
+    // arbitration, not separate processes; the cross-process guarantee rests on link()/wx exclusivity.
+    const u = newUser();
+    const jobsDir = getInquiryJobsDir(u);
+    const isLive = async () => true;
+    const [a, b] = await Promise.all([
+      claimJobSlot({ backend, jobsDir, cap: 1, jobId: 'replica-a', isLive }),
+      claimJobSlot({ backend, jobsDir, cap: 1, jobId: 'replica-b', isLive }),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+  });
+
+  it('a slot whose holder is dead (stale heartbeat) is reclaimed by a create-only write, never overwritten', async () => {
+    const u = newUser();
+    await writeInquiryRecord(u, 'crashed-job', { lastHeartbeatAt: staleBeat() });
+    const jobsDir = getInquiryJobsDir(u);
+    // Liveness reads the record in the caller's user context, as the route does.
+    const claim = await runWithUser({ principalName: `${u}@example.com`, idp: 'github', storageUserId: u, isAnonymous: false },
+      () => claimJobSlot({ backend, jobsDir, cap: 1, jobId: 'fresh-job', isLive: slotHolderLiveness('inquiry') }));
+    expect(claim).toMatchObject({ index: 0, generation: 1 });
+    // The dead holder's generation-0 file is still there, untouched.
+    expect(JSON.parse((await backend.readFile(`${jobsDir}/slots/slot-0-0.json`))!).jobId).toBe('crashed-job');
+  });
+
+  it('a released claim frees its slot at once', async () => {
+    const u = newUser();
+    const jobsDir = getInquiryJobsDir(u);
+    const isLive = async () => true;
+    const first = await claimJobSlot({ backend, jobsDir, cap: 1, jobId: 'x', isLive });
+    expect(first).not.toBeNull();
+    expect(await claimJobSlot({ backend, jobsDir, cap: 1, jobId: 'y', isLive })).toBeNull();
+    await releaseJobSlot(backend, first!);
+    expect(await claimJobSlot({ backend, jobsDir, cap: 1, jobId: 'y', isLive })).not.toBeNull();
   });
 
   it('a create that throws releases the per-user lock: the next POST from that user gets 202', async () => {

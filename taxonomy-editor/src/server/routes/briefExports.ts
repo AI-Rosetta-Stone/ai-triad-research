@@ -23,7 +23,11 @@ import {
   startExportJob, getExportJob, hasExportJob, sweepExportJobs,
   findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
-import { countUserJobRecords, findRunningJobByIdempotencyKey, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { findRunningJobByIdempotencyKey, slotHolderLiveness, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { claimJobSlot, releaseJobSlot } from '../storage/jobSlots.js';
+import { getBriefExportJobsDir } from '../storage/briefExportJobStore.js';
+import { getBriefExportBackend } from '../storage/fileIO.js';
+import { randomUUID } from 'crypto';
 import { isTerminalExportStatus } from '../storage/briefExportJobStore.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
@@ -93,11 +97,14 @@ function resolveExportModels(
 
 /** Start the job and answer 202 { jobId }, or 503 if its durable record can't be created (t/4177).
  *  Extracted from the POST handler to keep it within the file's complexity budget. */
-async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0]): Promise<void> {
+async function startJobAndRespond(
+  res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0], onFailed: () => Promise<void>,
+): Promise<void> {
   try {
     const job = await startExportJob(args);
     json(res, { jobId: job.jobId }, 202);
   } catch (err) {
+    await onFailed();
     // The durable job record could not be created, so no job was started (nothing billed).
     getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export job record could not be created — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     error(res, 'Could not start the export because job storage is unavailable. Nothing was started or charged; try again in a minute.', 503, err);
@@ -165,18 +172,29 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
       );
       if (durable) { json(res, { jobId: durable.jobId }, 202); return; }
 
-      const cap = await countUserJobRecords(userId, 'brief-export', rec => !isTerminalExportStatus(rec.status));
-      if (cap.error) { error(res, 'Job storage is temporarily unavailable; try again shortly', 503); return; }
-      if (cap.count >= MAX_CONCURRENT_EXPORT_JOBS) {
+      // The slot claim is the cross-replica gate (t/400): a free slot is taken with an atomic create-only write.
+      const jobId = randomUUID();
+      let slot: Awaited<ReturnType<typeof claimJobSlot>>;
+      try {
+        slot = await claimJobSlot({
+          backend: getBriefExportBackend(), jobsDir: getBriefExportJobsDir(userId), cap: MAX_CONCURRENT_EXPORT_JOBS,
+          jobId, isLive: slotHolderLiveness('brief-export'),
+        });
+      } catch (err) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export slot claim failed — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+        error(res, 'Job storage is temporarily unavailable; try again shortly', 503);
+        return;
+      }
+      if (slot === null) {
         json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
         return;
       }
       await startJobAndRespond(res, {
-        userId, session, debateId, models,
+        userId, jobId, session, debateId, models,
         request: { preset, skipNarration, framingMeta, allowOpen, templateId },
         toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
         idempotencyKey, adapter: createWebOpEdAdapter(),
-      });
+      }, () => releaseJobSlot(getBriefExportBackend(), slot));
     });
   });
 
