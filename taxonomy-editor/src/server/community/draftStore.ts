@@ -308,6 +308,10 @@ class DraftStoreImpl implements DraftStore {
 
     // t/285 (TL p/77#66): answer substance follows the headline's Condition A gate. On a degraded run, the direct
     // answer and the per-camp answer fields are removed before projection, the same as synthesizedHeadline (t/3742).
+    // KNOWN LIMIT (TL p/77#70, accepted; not a closed gap): isRunDegraded reads calibration trust from the uploaded
+    // payload, which is client-supplied on the anonymous draft path. The server cannot verify the run state here, so
+    // a client that sends verdict 'ok' on a degraded run defeats this gate. The same limit applies to the
+    // synthesizedHeadline gate below. Security review required before #4937 merges (t/185).
     if (isRunDegraded(result as unknown as InquiryResult)) {
       delete result.directAnswer;
       for (const verdict of (result.campVerdicts as Record<string, unknown>[] | undefined) ?? []) {
