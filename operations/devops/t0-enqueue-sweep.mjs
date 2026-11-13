@@ -36,7 +36,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
-import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
@@ -178,6 +178,8 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         const v = checkVerdict(pr.contexts, name);
         if (v !== 'success') { reason = `${name} is ${v}`; break; }
       }
+      const running = pendingCheckNames(pr.contexts);
+      if (!reason && running.length > 0) reason = `${running.length} check(s) still running (${running.join(', ')})`;
       if (!reason) {
         const pushed = headPushedAt(pr.contexts);
         if (pushed == null) reason = 'push time unknown (no check runs with a start time)';
