@@ -12,7 +12,6 @@ import { log } from '../logger.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
-import { isRunDegraded } from '../../../../lib/inquiry/publicShare.js';
 
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 export const DRAFT_GLOBAL_PENDING_CAP = 50;
@@ -306,19 +305,20 @@ class DraftStoreImpl implements DraftStore {
     // (request.question, not result.request.question), so projecting the { result, note } wrapper matched nothing.
     const result = (deep as { result: Record<string, unknown> }).result;
 
-    // t/285 (TL p/77#66): answer substance follows the headline's Condition A gate. On a degraded run, the direct
-    // answer and the per-camp answer fields are removed before projection, the same as synthesizedHeadline (t/3742).
-    // KNOWN LIMIT (TL p/77#70, accepted; not a closed gap): isRunDegraded reads calibration trust from the uploaded
-    // payload, which is client-supplied on the anonymous draft path. The server cannot verify the run state here, so
-    // a client that sends verdict 'ok' on a degraded run defeats this gate. The same limit applies to the
-    // synthesizedHeadline gate below. Security review required before #4937 merges (t/185).
-    if (isRunDegraded(result as unknown as InquiryResult)) {
+    // t/285 (TL p/77#72, Security t185#21): fail closed. The body is client-supplied on the anonymous draft path, and
+    // the degraded-run gate reads client calibration, so it cannot protect answer substance. directAnswer and the
+    // per-camp answer fields (answeredLiteralQuestion, answerNote) are dropped on every anonymous draft, whatever
+    // the body claims, until the server can verify run state. Recorded on t/185.
+    const droppedAnswerPaths: string[] = [];
+    if (result.directAnswer !== undefined) {
       delete result.directAnswer;
-      for (const verdict of (result.campVerdicts as Record<string, unknown>[] | undefined) ?? []) {
-        delete verdict.answeredLiteralQuestion;
-        delete verdict.answerNote;
-      }
+      droppedAnswerPaths.push('directAnswer');
     }
+    for (const verdict of (result.campVerdicts as Record<string, unknown>[] | undefined) ?? []) {
+      if (verdict.answeredLiteralQuestion !== undefined) { delete verdict.answeredLiteralQuestion; droppedAnswerPaths.push('campVerdicts.answeredLiteralQuestion'); }
+      if (verdict.answerNote !== undefined) { delete verdict.answerNote; droppedAnswerPaths.push('campVerdicts.answerNote'); }
+    }
+    droppedAuthFields.push(...new Set(droppedAnswerPaths));
 
     // Project onto community surface. questionDrift.warning is excluded by the community column (t/285).
     const p = projectInquiryFields(result, 'community', '') as Record<string, unknown>;
@@ -338,6 +338,14 @@ class DraftStoreImpl implements DraftStore {
         delete p.synthesizedHeadline;
         log.server.warn('DraftStore: synthesizedHeadline suppressed on degraded-trust inquiry');
       }
+    }
+
+    // calibration is a platform trust badge (fieldClassification.ts:211-213). On the anonymous path the body supplies
+    // it, so it is dropped from the stored projection (TL p/77#72, Security t185#21). It is read above, for the
+    // synthesizedHeadline check, before this drop.
+    if (p.calibration !== undefined) {
+      delete p.calibration;
+      droppedAuthFields.push('calibration');
     }
 
     // Rebuild node refs with canonical values
