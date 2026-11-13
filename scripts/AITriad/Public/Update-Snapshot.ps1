@@ -189,6 +189,13 @@ function Update-Snapshot {
             Write-Utf8NoBom -Path $SnapshotPath -Value $FinalContent  -ErrorAction Stop
             Write-Host "   snapshot.md updated ($([int]$FinalContent.Length) chars)" -ForegroundColor Green
 
+            # t/375: WARN only. Update-Snapshot never rewrites metadata.json, so numeric_gaps is
+            # recorded at import, not here.
+            $NumericGaps = Measure-SnapshotNumericGaps -Text $FinalContent
+            if ($NumericGaps -gt 0) {
+                Write-Warning "[$DocId] snapshot has $NumericGaps numeric gap(s) (figures missing from the converted text); summaries may invent them. Consider OCR or a better source copy."
+            }
+
         } catch {
             $ErrorCount++
             Write-Host "   [$DocId] Snapshot conversion failed for '$($RawFile.FullName)' ($Ext): $($_.Exception.Message)" -ForegroundColor Yellow
