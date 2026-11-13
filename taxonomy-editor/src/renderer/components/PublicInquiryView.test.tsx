@@ -112,8 +112,11 @@ describe('PublicInquiryView (t/3628)', () => {
     expect(screen.getByText(SAMPLE.singleRunCaveat)).toBeInTheDocument();
 
     expect(screen.queryByRole('textbox')).toBeNull();
-    // t/280: the How section adds one disclosure button (expands methods links only). No action buttons.
-    expect(screen.getAllByRole('button').map(b => b.textContent?.trim())).toEqual(['▸How']);
+    // t/280: the How disclosure is a read-only control (it expands methods links only), so it is the one
+    // button this view may show. Matched by role and name, and the list must be exactly that button: any
+    // other button fails here.
+    const howDisclosure = screen.getByRole('button', { name: /How/ });
+    expect(screen.getAllByRole('button')).toEqual([howDisclosure]);
   });
 
   // SO review must-includes (t/3628#2) — omitting these would let a reader unfamiliar with
