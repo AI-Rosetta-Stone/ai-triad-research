@@ -163,3 +163,18 @@ describe('InquiryAnswerPanel TRUNCATED banner names the real cause (t/4753)', ()
     expect(screen.getByText('TRUNCATED').closest('.inquiry-banner')).toHaveTextContent('This run hit its 150-call budget and was cut off');
   });
 });
+
+describe('InquiryAnswerPanel How section (t/280)', () => {
+  it('opens the debate from the How section through the same deleted-debate probe', async () => {
+    mockApi.loadDebateSession.mockResolvedValueOnce({});
+    setResult(BASE_RESULT);
+    render(<InquiryAnswerPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /How/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open the debate that produced this answer' }));
+
+    await waitFor(() => expect(mockApi.loadDebateSession).toHaveBeenCalledWith('debate-1'));
+    expect(mockLoadDebate).toHaveBeenCalledWith('debate-1');
+    expect(mockSetActiveTab).toHaveBeenCalledWith('debate');
+  });
+});
