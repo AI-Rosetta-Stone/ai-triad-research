@@ -12,6 +12,7 @@ import { log } from '../logger.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
+import { isRunDegraded } from '../../../../lib/inquiry/publicShare.js';
 
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 export const DRAFT_GLOBAL_PENDING_CAP = 50;
@@ -301,25 +302,34 @@ class DraftStoreImpl implements DraftStore {
     droppedAuthFields: string[],
   ): Record<string, unknown> {
     const deep = withSanitizeBudget(() => stripSensitiveKeys(JSON.parse(JSON.stringify(payload))));
-    const data = deep as Record<string, unknown>;
+    // The community projection runs on the result itself. Classification paths are relative to the result
+    // (request.question, not result.request.question), so projecting the { result, note } wrapper matched nothing.
+    const result = (deep as { result: Record<string, unknown> }).result;
 
-    // Separate bridging from contract fields
-    const { id, created_at, ...contractFields } = data;
+    // t/285 (TL p/77#66): answer substance follows the headline's Condition A gate. On a degraded run, the direct
+    // answer and the per-camp answer fields are removed before projection, the same as synthesizedHeadline (t/3742).
+    if (isRunDegraded(result as unknown as InquiryResult)) {
+      delete result.directAnswer;
+      for (const verdict of (result.campVerdicts as Record<string, unknown>[] | undefined) ?? []) {
+        delete verdict.answeredLiteralQuestion;
+        delete verdict.answerNote;
+      }
+    }
 
-    // Project onto community surface
-    const p = projectInquiryFields(contractFields, 'community', '') as Record<string, unknown>;
+    // Project onto community surface. questionDrift.warning is excluded by the community column (t/285).
+    const p = projectInquiryFields(result, 'community', '') as Record<string, unknown>;
 
-    // Track dropped auth fields (from the matrix diff)
-    const authPaths = ['calibration', 'derivation', 'synthesizedHeadline', 'grounding.campCoverage', 'singleRunCaveat', 'debateId'];
+    // Track dropped auth fields (from the matrix diff). calibration is kept as content (TL p/77#68).
+    const authPaths = ['derivation', 'synthesizedHeadline', 'grounding.campCoverage', 'singleRunCaveat', 'debateId'];
     for (const ap of authPaths) {
-      if (hasPath(contractFields, ap) && !hasPath(p, ap)) {
+      if (hasPath(result, ap) && !hasPath(p, ap)) {
         droppedAuthFields.push(ap);
       }
     }
 
     // Suppress synthesizedHeadline on degraded runs (t/3742)
     if (p.synthesizedHeadline !== undefined) {
-      const { truncated } = deriveTruncation(payload as unknown as InquiryResult);
+      const { truncated } = deriveTruncation(result as unknown as InquiryResult);
       if (truncated) {
         delete p.synthesizedHeadline;
         log.server.warn('DraftStore: synthesizedHeadline suppressed on degraded-trust inquiry');
