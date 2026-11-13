@@ -2,6 +2,7 @@
   "scenario": "hallucinated-node-id",
   "transcript": [
     "[Yellow]   │  ⚠ Hallucinated node IDs moved to unmapped: safetyist/saf-beliefs-999, skeptic/skp-desires-404",
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 3 (2 unmapped)  factual: 0  new_concepts: 2",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -62,7 +63,8 @@
       "    \"finish_reason\": null,",
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
-      "    \"camp_bridge_dropped\": 0",
+      "    \"camp_bridge_dropped\": 0,",
+      "    \"numeric_ungrounded_dropped\": null",
       "  },",
       "  \"context_rot\": null,",
       "  \"pov_summaries\": {",

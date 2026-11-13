@@ -1,6 +1,7 @@
 {
   "scenario": "summary-write-fails",
   "transcript": [
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
     "[Red]   └─ ✗ Failed to write summary: disk full writing summaries/doc-1.json"
   ],

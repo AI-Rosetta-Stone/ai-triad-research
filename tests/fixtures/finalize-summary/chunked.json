@@ -1,6 +1,7 @@
 {
   "scenario": "chunked",
   "transcript": [
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0 (3 chunks)",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -63,6 +64,7 @@
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
       "    \"camp_bridge_dropped\": 0,",
+      "    \"numeric_ungrounded_dropped\": null,",
       "    \"chunked\": true,",
       "    \"chunk_count\": 3",
       "  },",
