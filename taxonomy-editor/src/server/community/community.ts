@@ -774,6 +774,186 @@ function projectInquiryFields(value: unknown, surface: Surface, path: string): u
   return undefined;
 }
 
+/** Project a ChatEntry onto community-safe fields.
+ *  Includes raw_prompt and raw_response per PI decision (t/345): submitted chats' raw fields are public. */
+function projectChatEntry(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const e = entry as Record<string, unknown>;
+  return {
+    id: e.id,
+    timestamp: e.timestamp,
+    speaker: e.speaker,
+    content: e.content,
+    taxonomy_refs: e.taxonomy_refs,
+    ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
+    ...(e.metadata !== undefined ? { metadata: e.metadata } : {}),
+    ...(e.url_context_metadata !== undefined ? { url_context_metadata: e.url_context_metadata } : {}),
+    // t/345: raw_prompt and raw_response are public — submitted chats' context is community-readable
+    ...(e.raw_prompt !== undefined ? { raw_prompt: e.raw_prompt } : {}),
+    ...(e.raw_response !== undefined ? { raw_response: e.raw_response } : {}),
+  };
+}
+
+/** Entry-level metadata keys that the community renderer reads (StatementCard, ClarificationPanel,
+ *  DebateWorkspace). Anything else in metadata (moderator_trace, injection_manifest, key_assumptions,
+ *  and every engine key with no reader) is owner-only (t/196#25 item 3). */
+const COMMUNITY_TRANSCRIPT_METADATA_KEYS: ReadonlySet<string> = new Set([
+  'policy_refs', 'probing_questions', 'fact_check', 'qbaf_net_delta', 'turn_symbols',
+  'vocabulary_resolutions', 'questions',
+]);
+
+/** Project a DebateTranscriptEntry onto community-safe fields (t/196#25 item 3).
+ *  Dropped with no community reader: intervention_metadata, provider_model, degraded, addressing, and
+ *  `model` (a model id, owner-only by analogy with debate model ids, t/196#25 item 6). errorMessage is
+ *  kept (DebateWorkspace shows it). Never carries raw_prompt or raw_response (debate entries never do). */
+function projectTranscriptEntry(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const e = entry as Record<string, unknown>;
+  const meta = e.metadata && typeof e.metadata === 'object' ? (e.metadata as Record<string, unknown>) : undefined;
+  const narrowedMeta = meta
+    ? Object.fromEntries(Object.entries(meta).filter(([k]) => COMMUNITY_TRANSCRIPT_METADATA_KEYS.has(k)))
+    : undefined;
+  return {
+    id: e.id,
+    timestamp: e.timestamp,
+    type: e.type,
+    speaker: e.speaker,
+    content: e.content,
+    taxonomy_refs: e.taxonomy_refs,
+    ...(e.policy_refs !== undefined ? { policy_refs: e.policy_refs } : {}),
+    ...(narrowedMeta !== undefined ? { metadata: narrowedMeta } : {}),
+    ...(e.summaries !== undefined ? { summaries: e.summaries } : {}),
+    ...(e.display_tier !== undefined ? { display_tier: e.display_tier } : {}),
+    ...(e.caveats !== undefined ? { caveats: e.caveats } : {}),
+    ...(e.status !== undefined ? { status: e.status } : {}),
+    ...(e.errorMessage !== undefined ? { errorMessage: e.errorMessage } : {}),
+  };
+}
+
+/** Keys of a NeutralEvaluation that the community renderer reads. The three diagnostics_* keys
+ *  (prompt, raw response, timing) and any future key are owner-only (t/196#25 item 1). evaluation_invalid
+ *  and invalid_reason have no community reader (Security, t/196 p/238#2), so they are owner-only. */
+const COMMUNITY_NEUTRAL_EVALUATION_KEYS: ReadonlySet<string> = new Set([
+  'checkpoint', 'timestamp', 'cruxes', 'claims', 'overall_assessment',
+]);
+
+/** Crux keys the community renderer reads. Crux.embedding (a 384-dim vector of the description) is
+ *  owner-only: no community reader (Security, t/196 p/238#2). */
+const COMMUNITY_CRUX_KEYS: ReadonlySet<string> = new Set([
+  'id', 'description', 'disagreement_type', 'speakers_involved', 'status', 'confidence',
+]);
+
+/** Structural projection of one neutral evaluation (t/196#25 item 1, p/238#2 blocker). */
+function projectNeutralEvaluation(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const evaluation = Object.fromEntries(Object.entries(entry as Record<string, unknown>).filter(([k]) => COMMUNITY_NEUTRAL_EVALUATION_KEYS.has(k)));
+  if (Array.isArray(evaluation.cruxes)) {
+    evaluation.cruxes = evaluation.cruxes
+      .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+      .map(c => Object.fromEntries(Object.entries(c).filter(([k]) => COMMUNITY_CRUX_KEYS.has(k))));
+  }
+  return evaluation;
+}
+
+/** Structural projection of adaptive_staging (t/196#25 item 4): enabled, step_mode, and the phase only. */
+function projectAdaptiveStaging(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const a = value as Record<string, unknown>;
+  const phase = a.phase_state && typeof a.phase_state === 'object'
+    ? { current_phase: (a.phase_state as Record<string, unknown>).current_phase }
+    : undefined;
+  return {
+    enabled: a.enabled,
+    ...(a.step_mode !== undefined ? { step_mode: a.step_mode } : {}),
+    ...(phase !== undefined ? { phase_state: phase } : {}),
+  };
+}
+
+/** Module-level allowlist for community projection (t/196).
+ *  Each submission type's allowlist is explicitly defined below. Owner-only fields
+ *  (source_content, config, etc.) are intentionally excluded. New fields added to a type
+ *  must be explicitly allowed here; unknown fields default to dropped (default-deny).
+ *  Debate: source_content/source_ref are owner-only (TL ruling t/196#23, fail closed).
+ *  - Inquiry: handled separately via fieldClassification matrix (t/3648) */
+const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<string>> = {
+  chat: new Set([
+    'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
+    'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
+  ]),
+  // Debate: the 13 keys ruled in t/196#25 (Security re-review). Transcript, neutral_evaluations and
+  // adaptive_staging are projected structurally (projectTranscriptEntry, projectNeutralEvaluation,
+  // projectAdaptiveStaging). Everything else is owner-only, including stages (t/196#19, reverses t/171),
+  // prompt_config, origin, metadata, diagnostics, position_drift, convergence_signals, and model ids
+  // (debate_model, speaker_models, model_tier, protocol_id: t/196#25 item 6, not covered by t/345).
+  // community_metadata is set server-side after projection, so it is not listed here.
+  debate: new Set([
+    'id', 'title', 'created_at', 'updated_at', 'topic', 'phase', 'audience', 'active_povers',
+    'transcript', 'argument_network', 'neutral_evaluations', 'source_type', 'adaptive_staging'
+  ]),
+  oped: new Set(['id', 'topic', 'params', 'opeds', 'camps', 'voice_count', 'outlet', 'tag', 'created_at', 'updated_at', 'community_metadata', 'set_id', 'schema_version']),
+  inquiry: new Set(), // inquiry handled separately via fieldClassification
+};
+
+/** Per-key value projection for an allowlisted key. Returns undefined to omit the key. Structural
+ *  projections (transcript entries, neutral_evaluations, adaptive_staging) run here; all other values
+ *  pass through unchanged. */
+function projectAllowedValue(type: Submission['type'], key: string, value: unknown): unknown {
+  if (key === 'transcript' && Array.isArray(value)) {
+    if (type === 'chat') return value.map(e => projectChatEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+    if (type === 'debate') return value.map(e => projectTranscriptEntry(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+    return undefined;
+  }
+  if (type === 'debate' && key === 'neutral_evaluations' && Array.isArray(value)) {
+    return value.map(e => projectNeutralEvaluation(e)).filter((e): e is Record<string, unknown> => e !== undefined);
+  }
+  if (type === 'debate' && key === 'adaptive_staging') return projectAdaptiveStaging(value);
+  return value;
+}
+
+/** t/196: allowlist-project a value onto a subset of community-safe fields, dropping unknowns.
+ *  Each submission type carries different fields; the allowlist keeps the surface stable when
+ *  new fields are added. Structural projection for nested transcript entries excludes owner-only
+ *  fields (raw_prompt/raw_response). Per-type, with WARN on dropped fields (log-only in prod, test assertion).
+ *  The pattern mirrors @lib/inquiry/fieldClassification (t/3648) — explicit positive projection
+ *  beats an ever-growing denylist for security. */
+function projectToCommunityAllowlist(
+  data: Record<string, unknown> | undefined,
+  type: Submission['type'],
+): Record<string, unknown> {
+  if (!data) return {};
+  if (type === 'inquiry') return data; // inquiry is handled separately via fieldClassification
+
+  const allowlist = COMMUNITY_PROJECTION_ALLOWLIST[type];
+  const out: Record<string, unknown> = {};
+  const droppedFields: string[] = [];
+
+  for (const [key, value] of Object.entries(data)) {
+    if (allowlist.has(key)) {
+      const projected = projectAllowedValue(type, key, value);
+      if (projected !== undefined) out[key] = projected;
+    } else {
+      droppedFields.push(key);
+    }
+  }
+
+  // t/196: DEBUG log dropped fields in prod (fields added but not allowlisted — producer oversight we need to catch)
+  if (droppedFields.length > 0) {
+    if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+      log.server.warn(
+        { type, droppedFields: droppedFields.slice(0, 20) },
+        `sanitizeForCommunity: dropped ${droppedFields.length} unknown field(s) from ${type} submission (t/196 — check if these should be allowlisted)`,
+      );
+    } else {
+      log.server.debug(
+        { type, fieldCount: droppedFields.length },
+        `sanitizeForCommunity: dropped ${droppedFields.length} field(s) from ${type} (prod — debug only)`,
+      );
+    }
+  }
+
+  return out;
+}
+
 function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submission['type']): unknown {
   // t/2031: bound the ENTIRE recursive strip/sanitize walk under one wall-time
   // budget so a many-field crafted submission can't amplify per-field sanitize cost
@@ -783,8 +963,14 @@ function sanitizeForCommunity(data: unknown, submittedBy: string, type: Submissi
   let d = withSanitizeBudget(
     () => stripSensitiveKeys(JSON.parse(JSON.stringify(data))),
   ) as Record<string, unknown>;
+
+  // t/196: allowlist-project per submission type (top-level keys only)
+  d = projectToCommunityAllowlist(d, type);
+
   // t/171: an op-ed's per-stage prompts carry the user's source material; never publish them.
+  // This is now part of the allowlist-based filtering but needs special handling for nested arrays.
   if (type === 'oped') d = stripOpEdStagesForCommunity(d);
+
   if (type === 'inquiry') {
     // t/3651: `id`/`created_at` are community-projection-owned bridging fields stamped by
     // submitToCommunity (t/3621), not part of InquiryResultSchema — the matrix classifies only
