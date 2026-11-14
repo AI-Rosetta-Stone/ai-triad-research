@@ -368,6 +368,7 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
 
               <p className="support-form-hint-text">
                 Paste screenshots with Ctrl+V. Max 10 MB per file, 50 MB total.
+                Include Diagnostics attaches the redacted flight recorder dump. Files you add yourself are sent as they are.
               </p>
 
               {attachError && (
