@@ -16,14 +16,17 @@ import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { extractDocumentText } from '../../../../lib/extraction/index.js';
+import { detectFormat } from '../../../../lib/extraction/format.js';
 import { extractionErrorStatus, type DocumentExtractionCode } from '../../../../lib/extraction/types.js';
 
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024; // 10 MB, the same cap as the extractor
 const MAX_NAME_CHARS = 255;
 
 const PDF_MAGIC = Buffer.from('%PDF-');
-/** t/393: PDF extraction moves into a worker with a hard kill. Until that lands, PDFs are refused on this route. */
+/** t/393: PDF and DOCX extraction move into an isolated child with XML budgets and a hard kill. Until that lands,
+ *  both are refused on this route. Security (t/274#8) found DOCX parsing runs mammoth in the server process. */
 const PDF_PENDING = 'PDF_PENDING_T393';
+const DOCX_PENDING = 'DOCX_PENDING_T393';
 
 function sendError(res: ServerResponse, status: number, code: string, message: string): void {
   if (status === 413) res.setHeader('Connection', 'close'); // the unread rest of an oversize upload is discarded
@@ -40,6 +43,23 @@ async function readCapped(req: IncomingMessage): Promise<Buffer | null> {
     chunks.push(chunk as Buffer);
   }
   return Buffer.concat(chunks);
+}
+
+/** The detected format, or undefined when detection fails (the extractor then reports UNSUPPORTED_FORMAT). */
+function safeFormat(bytes: Uint8Array): string | undefined {
+  try { return detectFormat(bytes); } catch { /* telemetry — silent by design: an unreadable header is a client error, answered by the extractor */ return undefined; }
+}
+
+/** Refusals decided before any parser runs. PDF and DOCX parsing wait for t/393's isolated child. */
+function refusalFor(bytes: Uint8Array): { status: number; code: string; message: string } | null {
+  if (bytes.length === 0) return { status: 400, code: 'BAD_REQUEST', message: 'The upload is empty' };
+  if (bytes.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)) {
+    return { status: 415, code: PDF_PENDING, message: 'PDF upload is not available yet. Upload a TXT, MD or HTML file instead.' };
+  }
+  if (safeFormat(bytes) === 'docx') {
+    return { status: 415, code: DOCX_PENDING, message: 'DOCX upload is not available yet. Upload a TXT, MD or HTML file instead.' };
+  }
+  return null;
 }
 
 function decodeName(raw: string | undefined): string | null {
@@ -67,11 +87,8 @@ export function registerDocumentsRoutes(r: Router, _ctx: ServerCtx): void {
     try {
       const bytes = await readCapped(req);
       if (bytes === null) { sendError(res, 413, 'SIZE_LIMIT_EXCEEDED', 'Document exceeds the 10 MB limit'); return; }
-      if (bytes.length === 0) { sendError(res, 400, 'BAD_REQUEST', 'The upload is empty'); return; }
-      if (bytes.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)) {
-        sendError(res, 415, PDF_PENDING, 'PDF upload is not available yet. Upload a DOCX, TXT, MD or HTML file instead.');
-        return;
-      }
+      const refusal = refusalFor(bytes);
+      if (refusal) { sendError(res, refusal.status, refusal.code, refusal.message); return; }
 
       const result = await extractDocumentText(new Uint8Array(bytes), name);
       log.api.info({ component: 'api', route: 'documents-extract', name, size: bytes.length, format: result.format }, 'document extracted');

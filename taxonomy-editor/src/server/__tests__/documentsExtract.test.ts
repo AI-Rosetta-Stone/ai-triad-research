@@ -101,6 +101,13 @@ describe('POST /api/documents/extract (t/274)', () => {
     expect(r.body.code).toBe('PDF_PENDING_T393');
   });
 
+  it('refuses a DOCX with 415 DOCX_PENDING_T393 before any parsing until t/393 lands', async () => {
+    const docx = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(40, 0x00), Buffer.from('[Content_Types].xml'), Buffer.alloc(64, 0x00)]);
+    const r = await post({ body: docx, headers: named('report.docx') });
+    expect(r.status).toBe(415);
+    expect(r.body.code).toBe('DOCX_PENDING_T393');
+  });
+
   it('extracts a plain-text upload: 200 with text, format, words and warnings', async () => {
     const r = await post({ body: Buffer.from('Alpha beta gamma.\n\nDelta epsilon.'), headers: named('essay.txt') });
     expect(r.status).toBe(200);
