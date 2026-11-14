@@ -18,6 +18,11 @@ import { runNarrativeVoicing, finalizeNarrativeReference } from './narrativeVoic
 
 // ── Phase: Opening statements ──────────────────────────────
 
+// t/284 item 3: the literal question an inquiry opening must answer (anchorToResolution gate).
+function anchorQuestionFor(engine: DebateEngineInternals): string | undefined {
+  return engine.config.anchorToResolution ? engine.session.topic.final : undefined;
+}
+
 export async function runOpeningStatements(engine: DebateEngineInternals): Promise<void> {
   engine.session.phase = 'opening';
 
@@ -116,6 +121,8 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
       taxonomyContext: fullContext,
       priorStatements: priorBlock,
       isFirst: priorStatements.length === 0,
+      // t/284 item 3: inquiry openings answer the user's literal question (anchorToResolution gate).
+      anchorQuestion: anchorQuestionFor(engine),
       priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
       sourceContent: engine.session.document_analysis ? undefined : engine.config.sourceContent,
       documentAnalysis: engine.session.document_analysis,
