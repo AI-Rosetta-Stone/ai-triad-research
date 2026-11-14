@@ -131,7 +131,7 @@ describe('DOCX zip-bomb guard with patched sizes', () => {
 
     expect(err.message).toContain('Zip bomb detected');
     expect(elapsed).toBeLessThan(5000);
-  });
+  }, 60_000); // builds a 400 MB archive in-process; the default 5 s is too tight under full-suite load (t/419)
 
   it('refuses a bomb with 64 bytes prepended, before any inflation', async () => {
     const deflated = await deflateZeros(400 * 1024 * 1024);
@@ -149,7 +149,7 @@ describe('DOCX zip-bomb guard with patched sizes', () => {
     expect(err.code).toBe('CORRUPT_DOCUMENT');
     expect(err.problem).toContain('ambiguous');
     expect(elapsed).toBeLessThan(1000);
-  });
+  }, 60_000); // builds a 400 MB archive in-process (t/419)
 
   it('refuses a bomb with a fake end-of-central-directory record earlier in the file', async () => {
     const deflated = await deflateZeros(400 * 1024 * 1024);
@@ -169,7 +169,7 @@ describe('DOCX zip-bomb guard with patched sizes', () => {
     expect(err.code).toBe('CORRUPT_DOCUMENT');
     expect(err.problem).toContain('ambiguous');
     expect(elapsed).toBeLessThan(1000);
-  });
+  }, 60_000); // builds a 400 MB archive in-process (t/419)
 });
 
 describe('DOCX XML parsing', () => {
