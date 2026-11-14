@@ -187,6 +187,21 @@ export async function readLatestFromGhcr(fetchImpl = fetch) {
   }
 }
 
+/**
+ * PURE. The $GITHUB_OUTPUT lines for `check` (t/377). latest_* and branch= come from GHCR's
+ * response, and later steps feed them to `git push`/`gh pr create`; a newline in one would add
+ * an output line (duplicate keys: last wins, so even `verdict=` could be overridden). They are
+ * emitted only when the tag is YYYY-MM-DD and the digest is exactly sha256:<64 hex>, and every
+ * line is dropped if it still contains a CR/LF.
+ */
+export function checkOutputLines(verdictOutputs, latest, pin) {
+  const lines = Object.entries(verdictOutputs).map(([k, val]) => `${k}=${val}`);
+  const validLatest = latest && !latest.error && DATE_TAG.test(String(latest.tag)) && DIGEST.test(String(latest.digest));
+  if (validLatest) lines.push(`latest_tag=${latest.tag}`, `latest_digest=${latest.digest}`, `branch=${repinBranch(latest)}`);
+  if (pin) lines.push(`pinned_tag=${pin.tag}`, `pinned_digest=${pin.digest}`);
+  return lines.filter((l) => !/[\r\n]/.test(l));
+}
+
 function appendFile(envName, text) {
   const target = process.env[envName];
   if (target) fs.appendFileSync(target, text);
@@ -203,13 +218,15 @@ async function check(dockerfilePath) {
   const latest = await readLatestFromGhcr();
   const v = evaluateDrift({ pin, latest });
 
-  const out = formatVerdictOutputs(v);
-  const lines = Object.entries(out).map(([k, val]) => `${k}=${val}`);
-  if (latest && !latest.error) {
-    lines.push(`latest_tag=${latest.tag}`, `latest_digest=${latest.digest}`, `branch=${repinBranch(latest)}`);
-  }
-  if (pin) lines.push(`pinned_tag=${pin.tag}`, `pinned_digest=${pin.digest}`);
+  const lines = checkOutputLines(formatVerdictOutputs(v), latest, pin);
   appendFile('GITHUB_OUTPUT', `${lines.join('\n')}\n`);
+  // t/377 (Security residual 1): a dropped line means a value carried CR/LF. Fail the run
+  // rather than hand the workflow a missing output (its steps key on verdict == FAIL/PASS).
+  const dropped = !lines.some((l) => l.startsWith('verdict=')) || (pin && !lines.some((l) => l.startsWith('pinned_digest=')));
+  if (dropped) {
+    console.log(`::error::${GATE}: an output value contained a line break and was dropped; failing closed (t/377).`);
+    return 1;
+  }
   appendFile('GITHUB_STEP_SUMMARY', `${formatVerdictSummary(v)}\n`);
 
   console.log(`${GATE}: ${v.verdict}${v.reason ? ` (${v.reason})` : ''}`);
