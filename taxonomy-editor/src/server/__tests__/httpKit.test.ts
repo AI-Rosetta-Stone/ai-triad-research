@@ -265,3 +265,35 @@ describe('concatChunked — yields during assembly, not just during stringify (t
     expect(stats.slices).toBe(1);
   });
 });
+
+// t/376 — no response body carries a stack trace (CodeQL js/stack-trace-exposure, httpKit.ts json()).
+describe('httpKit json() strips stack fields (t/376)', () => {
+  const bodyOf = (res: ServerResponse): string =>
+    (res.end as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+  const frames = 'Error: boom\n    at handler (/srv/app/routes/x.ts:10:5)\n    at run (/srv/app/y.ts:3:1)';
+
+  it('drops a top-level stack key and keeps the other fields', () => {
+    const res = fakeRes();
+    json(res, { ok: false, stack: frames, requestId: 'r1' }, 500);
+    const body = bodyOf(res);
+    expect(JSON.parse(body)).toEqual({ ok: false, requestId: 'r1' });
+    expect(body).not.toMatch(/\bat \w+ \(|\.ts:\d+:\d+/);
+  });
+
+  it('drops stack keys nested inside arrays and objects', () => {
+    const res = fakeRes();
+    json(res, { items: [{ id: 1, stack: frames }], detail: { stack: frames, code: 'X' } }, 200);
+    const body = bodyOf(res);
+    expect(JSON.parse(body)).toEqual({ items: [{ id: 1 }], detail: { code: 'X' } });
+    expect(body).not.toMatch(/\.ts:\d+:\d+/);
+  });
+
+  it('error() never returns a stack in the body, even when the caller passes one in extra', () => {
+    const res = fakeRes();
+    error(res, 'failed', 400, undefined, { stack: frames, field: 'name' });
+    const body = bodyOf(res);
+    expect(JSON.parse(body)).toMatchObject({ field: 'name' });
+    expect(body).not.toMatch(/\.ts:\d+:\d+/);
+    expect(body).not.toContain('"stack"');
+  });
+});
