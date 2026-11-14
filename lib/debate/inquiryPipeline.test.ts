@@ -334,3 +334,38 @@ describe('runInquiryPipeline — pre-flight topic check (t/284 item 1)', () => {
     expect(buildGroundingEnvelope).not.toHaveBeenCalled();
   });
 });
+
+describe('runInquiryPipeline — question relevance (t/284 item 5)', () => {
+  const debaterSession = (): DebateSession => ({
+    ...makeSession(),
+    topic: { original: 'What are the risks?', refined: null, final: 'What are the risks?' },
+    transcript: [
+      { id: 'e1', timestamp: '', type: 'statement', speaker: 'accelerationist', content: 'Risks are small.', taxonomy_refs: [] },
+      { id: 'e2', timestamp: '', type: 'statement', speaker: 'safetyist', content: 'Risks are large.', taxonomy_refs: [] },
+    ],
+  } as unknown as DebateSession);
+
+  it('stores per-turn similarity to the question on the session', async () => {
+    const embed = vi.fn().mockResolvedValue([[1, 0], [1, 0], [0, 1]]);
+    const deps = makeDeps({
+      embed,
+      runDebate: vi.fn().mockResolvedValue({ session: debaterSession() }),
+    });
+    const session = debaterSession();
+    deps.runDebate = vi.fn().mockResolvedValue({ session });
+    await runInquiryPipeline(makeRequest({ question: 'What are the risks?' }), deps);
+    expect(session.relevance?.question_similarity.map(t => t.entry_id)).toEqual(['e1', 'e2']);
+    expect(session.relevance?.mean).toBeCloseTo(0.5);
+  });
+
+  it('records the metric as unavailable and WARNs when embedding fails (no fake value)', async () => {
+    const deps = makeDeps({
+      embed: vi.fn().mockRejectedValue(new Error('embedder down')),
+    });
+    const session = debaterSession();
+    deps.runDebate = vi.fn().mockResolvedValue({ session });
+    await runInquiryPipeline(makeRequest({ question: 'What are the risks?' }), deps);
+    expect(session.relevance?.mean).toBeNull();
+    expect(session.relevance?.unavailable_reason).toContain('embedder down');
+  });
+});

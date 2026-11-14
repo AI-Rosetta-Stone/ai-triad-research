@@ -25,6 +25,7 @@ import { getGlobalRecorder } from '../flight-recorder/index.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { AIAdapter } from './aiAdapter.js';
 import type { DebateSession } from './types/session.js';
+import { debaterTurns, scoreTurns, relevanceResult } from './inquiryRelevance.js';
 import type { DebateConfig } from './debateEngine/internals.js';
 import type { InquiryRequest, InquiryResult } from '../inquiry/schema.js';
 import type { TerminationReason } from './calibrationLogger/extract.js';
@@ -75,6 +76,40 @@ export interface InquiryPipelineDeps {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+/**
+ * t/284 item 5: score each debater turn against the question and store the result on the session.
+ * If embedding fails or the counts do not line up, store "unavailable" and WARN. Never a fake value.
+ */
+async function recordQuestionRelevance(
+  session: DebateSession,
+  question: string,
+  embed: (texts: string[]) => Promise<number[][]>,
+): Promise<void> {
+  const entries = debaterTurns(session.transcript ?? []);
+  if (entries.length === 0) {
+    session.relevance = { question_similarity: [], mean: null, drift_warning: false, unavailable_reason: 'no debater turns' };
+    return;
+  }
+  try {
+    const [questionVector, ...turnVectors] = await embed([question, ...entries.map(e => e.content)]);
+    if (!questionVector || turnVectors.length !== entries.length) {
+      throw new ActionableError({
+        goal: 'Score debater turns against the literal question',
+        problem: `embedding count mismatch: ${turnVectors.length} vectors for ${entries.length} turns`,
+        location: 'inquiryPipeline.ts › recordQuestionRelevance',
+        nextSteps: ['Check that the embedding adapter returns one vector per input text'],
+      });
+    }
+    session.relevance = relevanceResult(scoreTurns(entries, turnVectors, questionVector));
+    if (session.relevance.drift_warning) {
+      warn(`inquiry relevance drift (session ${session.id ?? 'unknown'}): ${session.relevance.drift_reason}`);
+    }
+  } catch (err) {
+    session.relevance = { question_similarity: [], mean: null, drift_warning: false, unavailable_reason: String(err) };
+    warn(`inquiry relevance unavailable (session ${session.id ?? 'unknown'}): ${String(err)}`);
+  }
+}
 
 function warn(message: string): void {
   getGlobalRecorder()?.record({
@@ -228,6 +263,9 @@ export async function runInquiryPipeline(
     ? createDebateProgressTracker(deps.onDebateProgress)
     : undefined;
   const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
+
+  // t/284 item 5: per-turn similarity to the literal question, stored on the session.
+  await recordQuestionRelevance(session, request.question, deps.embed);
 
   // ── Stage 4: project trust ─────────────────────────────────────────────────
   deps.onStage?.('projecting');

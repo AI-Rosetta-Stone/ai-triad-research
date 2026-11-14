@@ -76,6 +76,8 @@ export interface TaxonomyRef {
   primary?: boolean;
 }
 
+import type { RelevanceResult } from '../inquiryRelevance.js';
+
 export interface TranscriptEntry {
   id: string;
   timestamp: string;
@@ -326,6 +328,8 @@ export type TagSelection = { tag: string; mode: TagMode };
 
 export interface DebateSession {
   id: string;
+  /** Inquiry relevance to the literal question (t/284 item 5). Absent for non-inquiry debates. */
+  relevance?: RelevanceResult;
   /** Execution run — regenerated each time the debate loop starts or resumes. */
   run_id?: string;
   title: string;
