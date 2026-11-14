@@ -71,6 +71,24 @@ describe('POST /api/documents/extract (t/274)', () => {
     expect(r.body.code).toBe('SIZE_LIMIT_EXCEEDED');
   });
 
+  it('stops reading at the cap: a 100 MB stream is abandoned early, not consumed whole', async () => {
+    let consumed = 0;
+    async function* hugeUpload() {
+      for (let i = 0; i < 100; i++) { consumed++; yield Buffer.alloc(MB, 0x61); }
+    }
+    const out: { status?: number; text?: string } = {};
+    const res = {
+      writeHead: (s: number) => { out.status = s; }, end: (t?: string) => { out.text = t; },
+      setHeader: () => {}, writableEnded: false, headersSent: false,
+    } as unknown as ServerResponse;
+    const stream = Readable.from(hugeUpload()) as unknown as IncomingMessage;
+    Object.assign(stream, { method: 'POST', url: '/api/documents/extract', headers: named('huge.txt') });
+    await handler(stream, res, null);
+    expect(out.status).toBe(413);
+    // Readable.from pulls a few chunks ahead of the consumer (its buffer), so the count is a bit over 11 MB.
+    expect(consumed).toBeLessThanOrEqual(20);
+  });
+
   it('refuses an empty upload with 400', async () => {
     const r = await post({ body: [], headers: named('a.txt') });
     expect(r.status).toBe(400);
