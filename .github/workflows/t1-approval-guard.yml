@@ -50,7 +50,7 @@ name: t1-approval-guard
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, edited, labeled]
+    types: [opened, reopened, synchronize, edited, labeled]
   issue_comment:
     types: [created, edited]
   pull_request_review:
