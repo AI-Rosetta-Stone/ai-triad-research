@@ -15,7 +15,8 @@ import { clientSafeMessage } from './security/accessControl.js';
 
 export type Handler = (req: IncomingMessage, res: ServerResponse, body: unknown) => Promise<void> | void;
 
-/** t/376 (CodeQL js/stack-trace-exposure, Security): no response body carries a `stack` key, at any depth.
+/** t/376 (CodeQL js/stack-trace-exposure, Security): json() and error() responses carry no `stack` key, at any depth.
+ *  jsonStringifyChunked is NOT covered: it serializes trusted taxonomy data and has no error stacks in it.
  *  Stacks are opt-in per route: only GET /api/admin/errors/:id passes `keepStack`. */
 function dropStackFields(key: string, value: unknown): unknown {
   return key === 'stack' ? undefined : value;
