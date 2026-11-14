@@ -295,7 +295,7 @@ describe('inquiryHandlers — saves the debate session for My Debates (t/4682)',
     const session = fakeSession('sess-42');
     (runHeadlessDebate as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ session, terminationReason: undefined });
     runInquiryPipeline.mockImplementation(async (request: unknown, deps: { runDebate: (c: unknown, q: string) => Promise<unknown> }) => {
-      await deps.runDebate({}, (request as { question: string }).question);
+      await deps.runDebate({ topic: (request as { question: string }).question }, (request as { question: string }).question);
       return fakeResult();
     });
 
@@ -312,7 +312,7 @@ describe('inquiryHandlers — saves the debate session for My Debates (t/4682)',
     const session = fakeSession('sess-43');
     (runHeadlessDebate as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ session, terminationReason: undefined });
     runInquiryPipeline.mockImplementation(async (request: unknown, deps: { runDebate: (c: unknown, q: string) => Promise<unknown> }) => {
-      await deps.runDebate({}, (request as { question: string }).question);
+      await deps.runDebate({ topic: (request as { question: string }).question }, (request as { question: string }).question);
       return fakeResult();
     });
     saveDebateSession.mockRejectedValue(new Error('disk full'));
@@ -322,6 +322,19 @@ describe('inquiryHandlers — saves the debate session for My Debates (t/4682)',
 
     expect(job.status).toBe('done');
     expect(job.result).toBeTruthy();
+  });
+
+  it('t/284 item 6: fails the job before any debate runs when config.topic diverges from the question', async () => {
+    runInquiryPipeline.mockImplementation(async (_request: unknown, deps: { runDebate: (c: unknown, q: string) => Promise<unknown> }) => {
+      await deps.runDebate({ topic: 'a different topic' }, 'Should AI be paused?');
+      return fakeResult();
+    });
+
+    const h = handlers();
+    const { job } = await createAndWait(h);
+
+    expect(job.status).toBe('failed');
+    expect(runHeadlessDebate).not.toHaveBeenCalled();
   });
 
   it('never calls saveDebateSession when the pipeline never invokes deps.runDebate (no regression on the non-inquiry path shape)', async () => {
