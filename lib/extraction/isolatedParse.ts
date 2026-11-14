@@ -116,7 +116,56 @@ export function runChildForTests(
   return runChild(childPath, kind, bytes, options);
 }
 
+/** The most isolated children that may run at once, across all callers in this process (t/274, Security p/232#22). */
+export const MAX_CONCURRENT_CHILDREN = 2;
+/** The most parses that may wait for a slot. Beyond this a parse is refused with EXTRACTION_BUSY, not queued. */
+export const MAX_QUEUED_PARSES = 8;
+
+let activeChildren = 0;
+const waitingParses: Array<() => void> = [];
+
+/**
+ * Wait for a child slot. The grant is shared by every caller in this process, so the cap holds across callers.
+ * Returns the release function, which must be called exactly once when the child is gone.
+ */
+function acquireChildSlot(): Promise<() => void> {
+  return new Promise((resolvePromise, reject) => {
+    const grant = () => {
+      activeChildren++;
+      let released = false;
+      resolvePromise(() => {
+        if (released) return;
+        released = true;
+        activeChildren--;
+        waitingParses.shift()?.();
+      });
+    };
+    if (activeChildren < MAX_CONCURRENT_CHILDREN) {
+      grant();
+    } else if (waitingParses.length < MAX_QUEUED_PARSES) {
+      waitingParses.push(grant);
+    } else {
+      reject(isolatedError('EXTRACTION_BUSY', 'too many extractions are running at once; try again in a moment'));
+    }
+  });
+}
+
+/** Children running and parses waiting, for tests and diagnostics. */
+export function childSlotStats(): { active: number; queued: number } {
+  return { active: activeChildren, queued: waitingParses.length };
+}
+
 function runChild(
+  childPath: string,
+  kind: 'pdf' | 'docx',
+  bytes: Uint8Array,
+  options: IsolatedParseOptions,
+): Promise<IsolatedParseResult> {
+  return acquireChildSlot().then((release) => spawnChild(childPath, kind, bytes, options).finally(release));
+}
+
+// The child itself. The 15 s timer starts here, once the parse holds its slot, so time spent waiting is not charged.
+function spawnChild(
   childPath: string,
   kind: 'pdf' | 'docx',
   bytes: Uint8Array,
@@ -214,13 +263,16 @@ function mapChildError(code: string, message: string): ActionableError {
   return isolatedError('EXTRACTION_FAILED', message);
 }
 
-function isolatedError(code: 'EXTRACTION_FAILED' | 'EXTRACTION_TIMEOUT' | 'EXTRACTION_MEMORY_LIMIT', problem: string): ActionableError {
+function isolatedError(
+  code: 'EXTRACTION_FAILED' | 'EXTRACTION_TIMEOUT' | 'EXTRACTION_MEMORY_LIMIT' | 'EXTRACTION_BUSY',
+  problem: string,
+): ActionableError {
   return new ActionableError({
     goal: 'Extract text from document',
     problem,
     location: 'lib/extraction:parseIsolated',
     nextSteps: ['Try a smaller document', 'Export the document as plain text or DOCX'],
     code,
-    httpStatus: 422,
+    httpStatus: code === 'EXTRACTION_BUSY' ? 429 : 422,
   });
 }
