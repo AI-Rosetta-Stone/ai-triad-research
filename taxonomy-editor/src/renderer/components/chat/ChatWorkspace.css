@@ -193,40 +193,6 @@
   color: var(--text-primary);
 }
 
-.taxonomy-pill {
-  /* t/4651: native <button> reset — margin/line-height vary by UA default stylesheet; everything
-     else here (background/border/padding/font) already overrides the button chrome. */
-  margin: 0;
-  line-height: normal;
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-2xs);
-  font-family: monospace;
-  background: var(--chip-bg);
-  color: var(--text-secondary);
-  border: 1px solid transparent;
-  transition: background 0.15s, border-color 0.15s;
-  cursor: pointer;
-  user-select: none;
-}
-
-.taxonomy-pill:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
-}
-
-.taxonomy-pill:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
-.taxonomy-pill.selected {
-  border-color: var(--focus-ring);
-  background: color-mix(in srgb, var(--focus-ring) 15%, transparent);
-  font-weight: 600;
-}
-
 .chat-loading,
 .chat-empty {
   display: flex;
@@ -629,46 +595,6 @@
   font-size: var(--text-md);
 }
 
-/* ─── Chat Taxonomy Refs (t/4627: always-visible per-reply BDI grounding list) ──── */
-
-.chat-taxonomy-refs {
-  margin-top: 6px;
-}
-
-/* t/165: no-grounding line, styled like the How panel's "not recorded" text. */
-.chat-why-empty {
-  margin: 6px 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.chat-taxonomy-reasoning {
-  margin-top: 6px;
-  padding: 6px 8px;
-  background: var(--bg-hover);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-}
-
-.chat-taxonomy-reasoning-item {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 3px 0;
-}
-
-.chat-reasoning-label {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.chat-reasoning-text {
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
 /* ─── Chat Generating Indicator ──────────────────────── */
 
 .chat-generating {
@@ -827,7 +753,8 @@
   text-align: right;
 }
 
-.chat-message-user .chat-taxonomy-refs {
+/* The Why grounding under a user message reads left-aligned, not with the right-aligned body. */
+.chat-message-user .chat-why {
   text-align: left;
 }
 
@@ -1045,12 +972,6 @@
 .camp-speaker-acc { color: var(--color-acc); }
 .camp-speaker-saf { color: var(--color-saf); }
 .camp-speaker-skp { color: var(--color-skp); }
-
-/* ── Taxonomy pill cursor (hoist from inline) ────────── */
-
-.taxonomy-pill[data-clickable] {
-  cursor: pointer;
-}
 
 /* ── Reference detail pane (shared DetailPane, t/1777) ── */
 /* Resizable host: width driven by useResizableRightPanel; DetailPane fills it. */
