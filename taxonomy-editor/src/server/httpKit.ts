@@ -16,12 +16,12 @@ import { clientSafeMessage } from './security/accessControl.js';
 export type Handler = (req: IncomingMessage, res: ServerResponse, body: unknown) => Promise<void> | void;
 
 /** t/376 (CodeQL js/stack-trace-exposure, Security): no response body carries a `stack` key, at any depth.
- *  An Error's stack is never serialized on purpose; this drops any `stack` field a caller passes through. */
+ *  Stacks are opt-in per route: only GET /api/admin/errors/:id passes `keepStack`. */
 function dropStackFields(key: string, value: unknown): unknown {
   return key === 'stack' ? undefined : value;
 }
 
-export function json(res: ServerResponse, data: unknown, status = 200): void {
+export function json(res: ServerResponse, data: unknown, status = 200, opts: { keepStack?: boolean } = {}): void {
   // t/1515: idempotent write. A second response (a handler replying after a client
   // abort, or after the endpoint timeout guard already answered) would throw
   // ERR_STREAM_WRITE_AFTER_END and crash the request. No-op with a trace instead.
@@ -30,7 +30,7 @@ export function json(res: ServerResponse, data: unknown, status = 200): void {
     return;
   }
   res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(data, dropStackFields));
+  res.end(JSON.stringify(data, opts.keepStack ? undefined : dropStackFields));
 }
 
 const OPEN_BRACKET = Buffer.from('[');

@@ -266,34 +266,32 @@ describe('concatChunked — yields during assembly, not just during stringify (t
   });
 });
 
-// t/376 — no response body carries a stack trace (CodeQL js/stack-trace-exposure, httpKit.ts json()).
-describe('httpKit json() strips stack fields (t/376)', () => {
+// t/376 — no response body carries a stack trace, except the admin error detail (opt-in keepStack).
+describe('httpKit t/376 stack handling', () => {
   const bodyOf = (res: ServerResponse): string =>
     (res.end as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
   const frames = 'Error: boom\n    at handler (/srv/app/routes/x.ts:10:5)\n    at run (/srv/app/y.ts:3:1)';
 
-  it('drops a top-level stack key and keeps the other fields', () => {
+  it('json() drops a top-level and a nested stack key by default, keeping the other fields', () => {
     const res = fakeRes();
-    json(res, { ok: false, stack: frames, requestId: 'r1' }, 500);
+    json(res, { ok: false, stack: frames, items: [{ id: 1, stack: frames }], requestId: 'r1' }, 500);
     const body = bodyOf(res);
-    expect(JSON.parse(body)).toEqual({ ok: false, requestId: 'r1' });
-    expect(body).not.toMatch(/\bat \w+ \(|\.ts:\d+:\d+/);
-  });
-
-  it('drops stack keys nested inside arrays and objects', () => {
-    const res = fakeRes();
-    json(res, { items: [{ id: 1, stack: frames }], detail: { stack: frames, code: 'X' } }, 200);
-    const body = bodyOf(res);
-    expect(JSON.parse(body)).toEqual({ items: [{ id: 1 }], detail: { code: 'X' } });
+    expect(JSON.parse(body)).toEqual({ ok: false, items: [{ id: 1 }], requestId: 'r1' });
     expect(body).not.toMatch(/\.ts:\d+:\d+/);
   });
 
-  it('error() never returns a stack in the body, even when the caller passes one in extra', () => {
+  it('error() drops a stack passed in extra, at any depth', () => {
     const res = fakeRes();
-    error(res, 'failed', 400, undefined, { stack: frames, field: 'name' });
+    error(res, 'failed', 400, undefined, { stack: frames, field: 'name', details: [{ stack: frames }] });
     const body = bodyOf(res);
-    expect(JSON.parse(body)).toMatchObject({ field: 'name' });
-    expect(body).not.toMatch(/\.ts:\d+:\d+/);
+    expect(JSON.parse(body)).toMatchObject({ field: 'name', details: [{}] });
     expect(body).not.toContain('"stack"');
+    expect(body).not.toMatch(/\.ts:\d+:\d+/);
+  });
+
+  it('json() with keepStack passes the stack through (the admin error detail opt-in)', () => {
+    const res = fakeRes();
+    json(res, { entry: { stack: frames } }, 200, { keepStack: true });
+    expect(JSON.parse(bodyOf(res)).entry.stack).toBe(frames);
   });
 });
