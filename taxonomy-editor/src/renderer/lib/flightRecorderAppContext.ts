@@ -11,6 +11,16 @@ export interface AppPathFields {
   app_path: string | null;
 }
 
+// Security (t/418, p/246#2): dumps go to support attachments, so the Windows or POSIX home prefix
+// (C:\\Users<name>, /home/<name>, /Users/<name>) is replaced with a placeholder, in every path field
+// (dev and packaged alike). The rest of the path is kept, so the worktree stays identifiable.
+export function redactHomePath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return path
+    .replace(/^[A-Za-z]:[\\/]+Users[\\/][^\\/]+/i, '%USERPROFILE%')
+    .replace(/^\/(?:home|Users)\/[^/]+/, '%USERPROFILE%');
+}
+
 export function appPathFields(input: {
   isElectron: boolean;
   buildRoot: string | null | undefined;
@@ -19,9 +29,9 @@ export function appPathFields(input: {
 }): AppPathFields {
   if (!input.isElectron) return { build_root: null, git_branch: null, app_path: null };
   return {
-    build_root: input.buildRoot ?? null,
+    build_root: redactHomePath(input.buildRoot),
     git_branch: input.gitBranch ?? null,
-    app_path: input.appPath ?? null,
+    app_path: redactHomePath(input.appPath),
   };
 }
 

@@ -5,7 +5,7 @@
 // and null in web/container builds, so server paths never reach a downloadable dump.
 
 import { describe, it, expect } from 'vitest';
-import { appPathFields } from './flightRecorderAppContext';
+import { appPathFields, redactHomePath } from './flightRecorderAppContext';
 
 const LOCAL = {
   buildRoot: 'C:/repos/ai-triad-research/.worktrees/ux-integration/taxonomy-editor',
@@ -36,5 +36,33 @@ describe('appPathFields — t/418 local run context', () => {
       git_branch: null,
       app_path: null,
     });
+  });
+});
+
+// Security (t/418, p/246#2): the home prefix never reaches a dump; the rest of the path stays.
+describe('redactHomePath — t/418 home-prefix placeholder', () => {
+  it('replaces a Windows home prefix and keeps the worktree path', () => {
+    expect(redactHomePath('C:\\Users\\jsnov\\repos\\ai-triad-research\\.worktrees\\t417-lazy\\taxonomy-editor'))
+      .toBe('%USERPROFILE%\\repos\\ai-triad-research\\.worktrees\\t417-lazy\\taxonomy-editor');
+  });
+
+  it('replaces a POSIX home prefix', () => {
+    expect(redactHomePath('/home/jsnov/src/app')).toBe('%USERPROFILE%/src/app');
+    expect(redactHomePath('/Users/jsnov/src/app')).toBe('%USERPROFILE%/src/app');
+  });
+
+  it('redacts a packaged app path under the user profile the same way as a dev path', () => {
+    expect(redactHomePath('C:\\Users\\jsnov\\AppData\\Local\\Programs\\@interweavedesktop\\resources\\app.asar'))
+      .toBe('%USERPROFILE%\\AppData\\Local\\Programs\\@interweavedesktop\\resources\\app.asar');
+  });
+
+  it('leaves a path outside the user profile unchanged, and null stays null', () => {
+    expect(redactHomePath('D:\\build\\taxonomy-editor')).toBe('D:\\build\\taxonomy-editor');
+    expect(redactHomePath(null)).toBeNull();
+  });
+
+  it('applies the placeholder to build_root and app_path in Electron', () => {
+    expect(appPathFields({ isElectron: true, buildRoot: 'C:\\Users\\jsnov\\x', gitBranch: 'b', appPath: 'C:\\Users\\jsnov\\y' }))
+      .toEqual({ build_root: '%USERPROFILE%\\x', git_branch: 'b', app_path: '%USERPROFILE%\\y' });
   });
 });
