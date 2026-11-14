@@ -675,6 +675,9 @@ async function buildOpeningContextForSpeaker(
     topic, taxonomyContext: taxonomyBlock, priorStatements: priorBlock,
     isFirst: priorStatements.length === 0,
     priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
+    // t/284 item 3: the literal question an inquiry opening must answer. Declared on OpeningPipelineInput
+    // (type only, bf2a05906); not set here yet, so no behaviour change.
+    anchorQuestion: undefined,
     sourceContent: activeDebate.document_analysis ? undefined : (activeDebate.source_content || undefined),
     documentAnalysis: activeDebate.document_analysis,
     audience: activeDebate.audience,
