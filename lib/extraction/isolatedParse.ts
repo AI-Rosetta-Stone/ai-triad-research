@@ -50,11 +50,9 @@ export interface IsolatedParseResult {
   childRss?: number;
 }
 
-export interface IsolatedParseOptions {
-  /** Override the hard-kill timeout (tests). Defaults to ISOLATED_TIMEOUT_MS. */
+interface IsolatedParseOptions {
+  /** The hard-kill timeout. Production always uses ISOLATED_TIMEOUT_MS; only runChildForTests changes it. */
   timeoutMs?: number;
-  /** Run a different child entry (tests: a child that hangs, exhausts its heap, or probes its sandbox). */
-  childPath?: string;
 }
 
 /** The environment the child gets: nothing from the server, except SYSTEMROOT on Windows (Node needs it to start). */
@@ -95,15 +93,39 @@ export function childPermissionArgs(): string[] {
  * @param kind   'pdf' or 'docx' (DOCX bytes must already be bounded by the caller)
  * @param bytes  the document bytes
  */
-export function parseIsolated(
+/**
+ * Parse a PDF or DOCX in the sandboxed child process, with the heap ceiling and the hard kill. This is the only entry
+ * production code uses: the child is always the one in this module, and the timer is always ISOLATED_TIMEOUT_MS.
+ * @param kind   'pdf' or 'docx' (DOCX bytes must already be bounded by the caller)
+ * @param bytes  the document bytes
+ */
+export function parseIsolated(kind: 'pdf' | 'docx', bytes: Uint8Array): Promise<IsolatedParseResult> {
+  return runChild(CHILD_PATH, kind, bytes, {});
+}
+
+/**
+ * TESTS ONLY. Runs a different child script (a probe, a hang, an out-of-memory test child) through the same sandbox and
+ * the same fork options. Production code must not call this; it exists so the tests can exercise the boundary.
+ */
+export function runChildForTests(
+  childPath: string,
   kind: 'pdf' | 'docx',
   bytes: Uint8Array,
   options: IsolatedParseOptions = {},
 ): Promise<IsolatedParseResult> {
+  return runChild(childPath, kind, bytes, options);
+}
+
+function runChild(
+  childPath: string,
+  kind: 'pdf' | 'docx',
+  bytes: Uint8Array,
+  options: IsolatedParseOptions,
+): Promise<IsolatedParseResult> {
   return new Promise((resolvePromise, reject) => {
     // An empty working directory for this parse only. It is removed once the child is gone.
     const workDir = mkdtempSync(join(tmpdir(), 't393-'));
-    const child = fork(options.childPath ?? CHILD_PATH, [], {
+    const child = fork(childPath, [], {
       execArgv: [...childPermissionArgs(), `--max-old-space-size=${CHILD_HEAP_MB}`],
       env: childEnvironment(),
       cwd: workDir,

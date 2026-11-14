@@ -12,7 +12,7 @@ import JSZip from 'jszip';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { parseIsolated, resolveFromModule, CHILD_HEAP_MB, ISOLATED_TIMEOUT_MS } from './isolatedParse.js';
+import { parseIsolated, runChildForTests, resolveFromModule, CHILD_HEAP_MB, ISOLATED_TIMEOUT_MS } from './isolatedParse.js';
 import { extractDocumentText } from './extractDocumentText.js';
 
 const SPIN_CHILD = resolveFromModule('./isolated/__fixtures__/spin-child.mjs');
@@ -89,7 +89,7 @@ describe('isolated parse (t/393)', () => {
   }, 120_000);
 
   it('3. a child that runs out of memory yields EXTRACTION_MEMORY_LIMIT, and the parent stays up', async () => {
-    const err = await parseIsolated('pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46]), { childPath: OOM_CHILD }).catch((e) => e);
+    const err = await runChildForTests(OOM_CHILD, 'pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46])).catch((e) => e);
     // Reaching this line means the parent survived the child's out-of-memory death.
     expect(err.code).toBe('EXTRACTION_MEMORY_LIMIT');
   }, 120_000);
@@ -97,7 +97,7 @@ describe('isolated parse (t/393)', () => {
   it('4. a parse that never returns is killed at about 15 s', async () => {
     expect(ISOLATED_TIMEOUT_MS).toBe(15_000);
     const started = performance.now();
-    const err = await parseIsolated('pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46]), { childPath: SPIN_CHILD }).catch((e) => e);
+    const err = await runChildForTests(SPIN_CHILD, 'pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46])).catch((e) => e);
     const elapsed = performance.now() - started;
     expect(err.code).toBe('EXTRACTION_TIMEOUT');
     expect(elapsed).toBeGreaterThan(14_000);
@@ -114,7 +114,7 @@ describe('isolated parse sandbox (Security p/102#81)', () => {
   it('the child gets no server environment: a sentinel variable is unreachable', async () => {
     process.env.T393_SENTINEL = 'server-secret';
     try {
-      const { text } = await parseIsolated('pdf', new TextEncoder().encode(join(tmpdir(), 'no-such-file')), { childPath: PROBE_CHILD });
+      const { text } = await runChildForTests(PROBE_CHILD, 'pdf', new TextEncoder().encode(join(tmpdir(), 'no-such-file')));
       const report = JSON.parse(text);
       expect(report.sentinelSeen).toBe(false);
       // The child gets only what the OS adds to a child with an empty environment (on Windows). None of the server's
@@ -133,7 +133,7 @@ describe('isolated parse sandbox (Security p/102#81)', () => {
   }, 60_000);
 
   it('the child runs in an empty temporary directory of its own, not the server working directory', async () => {
-    const { text } = await parseIsolated('pdf', new TextEncoder().encode(join(tmpdir(), 'no-such-file')), { childPath: PROBE_CHILD });
+    const { text } = await runChildForTests(PROBE_CHILD, 'pdf', new TextEncoder().encode(join(tmpdir(), 'no-such-file')));
     const report = JSON.parse(text);
     expect(report.cwd.startsWith(tmpdir())).toBe(true);
     expect(basename(report.cwd).startsWith('t393-')).toBe(true);
@@ -146,15 +146,32 @@ describe('isolated parse sandbox (Security p/102#81)', () => {
     const outside = join(tmpdir(), `t393-outside-${process.pid}-${Date.now()}.txt`);
     writeFileSync(outside, 'server-only contents');
     try {
-      const { text } = await parseIsolated('pdf', new TextEncoder().encode(outside), { childPath: PROBE_CHILD });
+      const { text } = await runChildForTests(PROBE_CHILD, 'pdf', new TextEncoder().encode(outside));
       expect(JSON.parse(text).outsideReadable).toBe(false);
     } finally {
       rmSync(outside, { force: true });
     }
   }, 60_000);
 
+  // Security p/232#18: the child must not write, spawn a process, or open a network connection.
+  it('the child cannot write a file, spawn a process, or open a network connection', async () => {
+    const ESCAPE_CHILD = resolveFromModule('./isolated/__fixtures__/escape-probe-child.mjs');
+    const target = join(tmpdir(), `t393-escape-${process.pid}-${Date.now()}.txt`);
+    try {
+      const { text } = await runChildForTests(ESCAPE_CHILD, 'pdf', new TextEncoder().encode(target));
+      const report = JSON.parse(text);
+      expect(report.write).toBe('ERR_ACCESS_DENIED');
+      expect(report.writeCwd).toBe('ERR_ACCESS_DENIED');
+      expect(report.spawn).toBe('ERR_ACCESS_DENIED');
+      expect(report.net).toBe('ERR_ACCESS_DENIED');
+      expect(existsSync(target)).toBe(false);
+    } finally {
+      rmSync(target, { force: true });
+    }
+  }, 60_000);
+
   it('a reply over the text limit is refused by the parent', async () => {
-    const err = await parseIsolated('pdf', new Uint8Array([0x25]), { childPath: OVERSIZE_CHILD }).catch((e) => e);
+    const err = await runChildForTests(OVERSIZE_CHILD, 'pdf', new Uint8Array([0x25])).catch((e) => e);
     expect(err.code).toBe('EXTRACTION_FAILED');
     expect(err.problem).toMatch(/more text than the limit/);
   }, 60_000);
