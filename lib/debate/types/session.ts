@@ -373,6 +373,8 @@ export interface DebateSession {
     suggested_critique?: import('../topicCritique.js').TopicCritique;
     /** Structured scope extracted from topic string for alignment enforcement (t/336). */
     scope?: TopicScope;
+    /** Named entities in the question (t/284 item 4), carried into scope.explicit_qualifiers for inquiry. */
+    entities?: string[];
   };
   source_type: DebateSourceType;
   /** For document: file path; for url: the URL; for topic: empty */
