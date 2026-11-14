@@ -35,6 +35,7 @@ import { getModelRegistry } from './ai/aiBackends.js';
 import * as ai from './ai/aiBackends.js';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 import { saveDebateSession } from './storage/debateStore.js';
 
 // Camp code (contract) → taxonomy pov-file name (what readTaxonomyFile/getAssembledCorpus key on).
@@ -186,11 +187,25 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
       // t/4025: inject soulResolver so server inquiry debates record soul_provenance.
       // t/4917: relay the pipeline's raw onProgress to the engine. Dropping it left hosted Ask runs
       // with no debate events, so the poll sat at the 15% debate floor with no stage detail.
-      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
+      // t/284 item 6: the question must be the debate's topic. deriveDebateConfig sets topic = request.question,
+      // so a mismatch means the config was built from something else. Refuse before the debate spends anything.
+      runDebate: async (config, question, onProgress) => {
+        if (config.topic !== question) {
+          throw new ActionableError({
+            goal: 'Run the inquiry debate on the question the user asked',
+            problem: `debate topic "${config.topic}" does not match the inquiry question`,
+            location: 'inquiryPipelineDeps.buildInquiryRunPipeline runDebate',
+            nextSteps: ['Build the debate config with deriveDebateConfig(request) so topic = request.question'],
+            httpStatus: 500,
+            code: 'INQUIRY_TOPIC_MISMATCH',
+          });
+        }
+        return runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
         .then(async (r) => {
           await persistInquiryDebateSession(r.session, ctx.jobId); // t/4338
           return { session: r.session, terminationReason: r.terminationReason };
-        }),
+        });
+      },
       adapter,
       onStage: (stage: InquiryStage) => mapStage(stage, ctx),
       // The pipeline maps raw events to monotonic {fraction, detail} updates before calling this.

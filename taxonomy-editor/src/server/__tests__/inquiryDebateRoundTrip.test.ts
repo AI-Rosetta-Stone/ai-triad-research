@@ -100,7 +100,7 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
   it('runDebate persists the session, and GET /api/debates/:id then returns 200 with it', async () => {
     await userContext.runWithUser(USER_CTX, async () => {
       await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-1' });
-      const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+      const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
       await h.capturedDeps!.runDebate(config, 'q');
     });
 
@@ -126,7 +126,7 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
       expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
 
       await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-2' });
-      const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+      const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
       await h.capturedDeps!.runDebate(config, 'q');
 
       expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
@@ -153,7 +153,7 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
         expect(before.allowed).toBe(false); // genuinely at quota
 
         await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-3' });
-        const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+        const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
         // Must not throw the 429 a normal save would at this point.
         await expect(h.capturedDeps!.runDebate(config, 'q')).resolves.toBeDefined();
       });
