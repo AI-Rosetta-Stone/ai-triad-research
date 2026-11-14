@@ -116,6 +116,14 @@ function readAppPathArgument(): string | null {
   return arg ? arg.slice(prefix.length) : null;
 }
 
+// t/418: the exact user profile path (USERPROFILE), passed by main.ts beside app-path. Empty means unknown.
+function readUserProfileArgument(): string | null {
+  const prefix = '--taxonomy-user-profile=';
+  const arg = process.argv.find(a => a.startsWith(prefix));
+  const value = arg ? arg.slice(prefix.length) : '';
+  return value.length > 0 ? value : null;
+}
+
 function buildElectronApi() {
   return {
   // Synchronous system info — available without IPC round-trip
@@ -123,6 +131,8 @@ function buildElectronApi() {
   // t/418: the main process passes app.getAppPath() as an argument (main.ts additionalArguments), because
   // a sandboxed preload cannot import electron's app module. Null when the argument is absent.
   appPath: readAppPathArgument(),
+  // t/418: the exact profile path for redacting redirected profiles from dumps (null when USERPROFILE was unset).
+  userProfile: readUserProfileArgument(),
   osRelease: process.getSystemVersion?.() ?? process.platform,
   osPlatform: process.platform,
   osArch: process.arch,

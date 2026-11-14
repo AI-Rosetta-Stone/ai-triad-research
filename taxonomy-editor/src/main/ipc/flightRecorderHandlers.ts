@@ -67,7 +67,7 @@ export function registerFlightRecorderHandlers(): void {
     const filePath = path.join(dumpDir, `flight-recorder-${ts}.jsonl`);
     // t/418: main-process stack traces reach the written dump too, so redact the whole text here
     // (the renderer redacts before sending; this covers any caller that does not).
-    fs.writeFileSync(filePath, redactDumpText(ndjson), 'utf-8');
+    fs.writeFileSync(filePath, redactDumpText(ndjson, process.env.USERPROFILE ?? null), 'utf-8');
 
     // Retention: keep last 20 files, max 50 MB
     const MAX_FILES = 20;

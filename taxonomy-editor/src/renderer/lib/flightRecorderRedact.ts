@@ -18,9 +18,28 @@ const UNC_SHARE = /(^|["'\s(=])(?:\\\\\\\\|\\\\)[^\\/"'\s<>]+[\\/]+[^\\/"'\s<>]+
 // after a UNC share (\home\<name>). The leading separator is kept.
 const PROFILE_SEGMENT = new RegExp(`([\\\\/]+)(?:home|Users)[\\\\/]+${NAME}`, 'gi');
 
-/** Redacts user-profile paths and UNC shares from a dump's text. Order matters: drive profiles first. */
-export function redactDumpText(text: string): string {
-  return text
+// The exact profile path from the main process (USERPROFILE), for redirected profiles that the shapes
+// above cannot recognise. Each separator run in the path matches any run of slashes or backslashes, so
+// the JSON-doubled form matches too. Empty or missing means no exact path to redact.
+function exactProfilePattern(userProfile: string | null | undefined): RegExp | null {
+  const parts = (userProfile ?? '').split(/[\\/]+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`${escaped.join('[\\\\/]+')}(?=[\\\\/"'\\s<>()]|$)`, 'gi');
+}
+
+/** The current app's user profile, from the preload's argv hand-off. Null when unavailable (tests, web). */
+export function currentUserProfile(): string | null {
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { electronAPI?: { userProfile?: string | null } }).electronAPI?.userProfile ?? null;
+}
+
+/** Redacts user-profile paths and UNC shares from a dump's text. Order matters: the exact profile first,
+ *  then drive profiles. */
+export function redactDumpText(text: string, userProfile: string | null | undefined = currentUserProfile()): string {
+  const exact = exactProfilePattern(userProfile);
+  const exactRedacted = exact ? text.replace(exact, '%USERPROFILE%') : text;
+  return exactRedacted
     .replace(PROFILE_WIN, '%USERPROFILE%')
     .replace(UNC_SHARE, (_m, lead: string) => `${lead}%UNC_SHARE%`)
     .replace(PROFILE_SEGMENT, (_m, sep: string) => `${sep}%USERPROFILE%`);

@@ -48,4 +48,20 @@ describe('redactDumpText — t/418 dump-wide profile redaction', () => {
     expect(redactDumpText('C:\\Program Files\\app')).toBe('C:\\Program Files\\app');
     expect(redactDumpText('/var/log/app.log')).toBe('/var/log/app.log');
   });
+
+  it('redacts a redirected profile from the exact USERPROFILE, in JSON and raw forms', () => {
+    const profile = 'D:\\Profiles\\alice';
+    expect(redactDumpText('{"stack":"at D:\\\\Profiles\\\\alice\\\\app\\\\main.js"}', profile))
+      .toBe('{"stack":"at %USERPROFILE%\\\\app\\\\main.js"}');
+    expect(redactDumpText('D:/Profiles/alice/x', profile)).toBe('%USERPROFILE%/x');
+  });
+
+  it('does not match a longer name that merely starts with the profile', () => {
+    expect(redactDumpText('D:\\Profiles\\alice2\\x', 'D:\\Profiles\\alice')).toBe('D:\\Profiles\\alice2\\x');
+  });
+
+  it('is a no-op for an empty or missing USERPROFILE', () => {
+    expect(redactDumpText('D:\\Profiles\\alice\\x', '')).toBe('D:\\Profiles\\alice\\x');
+    expect(redactDumpText('D:\\Profiles\\alice\\x', null)).toBe('D:\\Profiles\\alice\\x');
+  });
 });
