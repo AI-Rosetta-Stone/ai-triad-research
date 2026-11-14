@@ -296,3 +296,10 @@ describe('deriveDebateConfig — no silent reframe (t/284 item 1)', () => {
     expect(config.wisdomAutoReframe).toBe(false);
   });
 });
+
+describe('deriveDebateConfig — ArCo anchoring (t/284 item 2)', () => {
+  it('sets anchorToResolution: true so resolution anchoring runs for every inquiry', () => {
+    const { config } = deriveDebateConfig(makeRequest(), makeRegistry());
+    expect(config.anchorToResolution).toBe(true);
+  });
+});
