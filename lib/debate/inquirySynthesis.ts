@@ -20,8 +20,10 @@ import type {
   NodeRef,
   CampVerdict,
   Convergence,
+  DirectAnswer,
+  QuestionDrift,
 } from '../inquiry/schema.js';
-import { INQUIRY_SCHEMA_VERSION, HEADLINE_MAX_CHARS } from '../inquiry/schema.js';
+import { INQUIRY_SCHEMA_VERSION, HEADLINE_MAX_CHARS, DirectAnswerSchema } from '../inquiry/schema.js';
 import { parseInquiryResult } from '../inquiry/parse.js';
 import { ActionableError } from './errors.js';
 import { parseAIJson } from './helpers.js';
@@ -42,7 +44,14 @@ interface LlmCampVerdict {
   camp: string;
   verdict: string;
   nodeIds?: string[];
+  answeredLiteralQuestion?: boolean;
+  answerNote?: string;
 }
+
+/** Drift score at or above which the question-drift warning is raised (t/284). A Debate Engine policy
+ *  constant, deliberately not in the schema. */
+export const DRIFT_WARN_THRESHOLD = 0.3;
+const ANSWER_NOTE_MAX_CHARS = 300;
 
 interface LlmConvergence {
   claim: string;
@@ -68,6 +77,7 @@ interface LlmSynthesisOutput {
   unresolvedGaps: LlmUnresolvedGap[];
   singleRunCaveat?: string;
   synthesizedHeadline?: string;
+  directAnswer?: { text?: string; agreement?: string };
 }
 
 // ── Figure token post-check (t/4303) ─────────────────────────────────────────
@@ -215,6 +225,69 @@ function buildHeadlineField(
   return {};
 }
 
+/**
+ * Return a partial object carrying directAnswer, or {} when the model omitted it or it fails the schema.
+ * Like the headline, an invalid answer is omitted with a WARN, never fabricated or truncated (t/285).
+ */
+export function buildDirectAnswerField(raw: LlmSynthesisOutput['directAnswer']): { directAnswer?: DirectAnswer } {
+  if (raw === undefined || raw === null) {
+    warn('synthesizeInquiry: directAnswer missing from LLM output — omitted');
+    return {};
+  }
+  const parsed = DirectAnswerSchema.safeParse(raw);
+  if (!parsed.success) {
+    warn('synthesizeInquiry: directAnswer failed schema (text 1–1000 chars, agreement consensus|split) — omitted');
+    return {};
+  }
+  return { directAnswer: parsed.data };
+}
+
+/** The debated topic, when the session's final topic differs from the question as asked; else undefined (t/285). */
+export function debatedTopicOf(question: string, sessionFinalTopic: string | undefined): string | undefined {
+  const final = sessionFinalTopic?.trim();
+  if (!final) return undefined;
+  const same = final.toLowerCase() === question.trim().toLowerCase();
+  return same ? undefined : final;
+}
+
+/** Session wrapper for debatedTopicOf. Kept out of synthesizeInquiry so its complexity budget stays put (t/285). */
+export function debatedTopicOfSession(question: string, session: DebateSession): string | undefined {
+  return debatedTopicOf(question, session.topic?.final);
+}
+
+/**
+ * Build the per-camp answer flags, keeping only well-formed values. An over-long answerNote is omitted with a WARN,
+ * since the schema caps it at 300 and truncation would misstate what the camp said (t/285).
+ */
+export function campAnswerFields(cv: LlmCampVerdict): { answeredLiteralQuestion?: boolean; answerNote?: string } {
+  const out: { answeredLiteralQuestion?: boolean; answerNote?: string } = {};
+  if (typeof cv.answeredLiteralQuestion === 'boolean') out.answeredLiteralQuestion = cv.answeredLiteralQuestion;
+  if (typeof cv.answerNote === 'string' && cv.answerNote.length > 0) {
+    if (cv.answerNote.length <= ANSWER_NOTE_MAX_CHARS) out.answerNote = cv.answerNote;
+    else warn(`synthesizeInquiry: answerNote for ${cv.camp} over bound (${cv.answerNote.length} > ${ANSWER_NOTE_MAX_CHARS}) — omitted`);
+  }
+  return out;
+}
+
+/**
+ * The question-drift block (t/285). Always present on a new result, so absence keeps meaning "not analyzed".
+ * `warning` is true when any camp did not answer the question as asked, or the drift score is at or over
+ * DRIFT_WARN_THRESHOLD. A camp with no answer flag does not raise the warning: unknown is not false.
+ */
+export function buildQuestionDrift(input: {
+  debatedTopic?: string;
+  campVerdicts: Array<{ answeredLiteralQuestion?: boolean }>;
+  driftScore?: number;
+}): QuestionDrift {
+  const anyNotAnswered = input.campVerdicts.some((cv) => cv.answeredLiteralQuestion === false);
+  const overThreshold = input.driftScore !== undefined && input.driftScore >= DRIFT_WARN_THRESHOLD;
+  return {
+    ...(input.debatedTopic !== undefined && { debatedTopic: input.debatedTopic }),
+    ...(input.driftScore !== undefined && { driftScore: input.driftScore }),
+    warning: anyNotAnswered || overThreshold,
+  };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -247,11 +320,14 @@ export async function synthesizeInquiry(
   const anSummary = summarizeArgumentNetwork(anNodes, anEdges);
   const groundingContext = formatGroundingContext(grounding.nodesByCamp, grounding.campCoverage);
 
+  const debatedTopic = debatedTopicOfSession(request.question, session);
+
   const prompt = inquirySynthesisPrompt(
     request.question,
     transcriptHighlights,
     anSummary,
     groundingContext,
+    debatedTopic,
   );
 
   // 2. LLM call
@@ -284,6 +360,7 @@ export async function synthesizeInquiry(
     camp: cv.camp as CampVerdict['camp'],
     verdict: cv.verdict ?? '',
     nodes: resolveNodeRefs(cv.nodeIds ?? [], nodeRefMap),
+    ...campAnswerFields(cv),
   }));
 
   const convergences: Convergence[] = (parsed.convergences ?? []).map((c) => ({
@@ -302,6 +379,8 @@ export async function synthesizeInquiry(
     unresolvedGaps: parsed.unresolvedGaps ?? [],
     singleRunCaveat: parsed.singleRunCaveat || SINGLE_RUN_CAVEAT,
     ...buildHeadlineField(parsed.synthesizedHeadline),
+    ...buildDirectAnswerField(parsed.directAnswer),
+    questionDrift: buildQuestionDrift({ debatedTopic, campVerdicts }),
     calibration,
     derivation,
     grounding,

@@ -7,6 +7,7 @@ import {
   inquiryToMarkdown,
   inquiryToPrintHtml,
   inquiryExportFilename,
+  exportableResult,
 } from './inquiryExport.js';
 import type { InquiryResult } from './schema.js';
 import { CLASSIFICATION, dispositionFor, includedFields } from './fieldClassification.js';
@@ -157,21 +158,29 @@ describe('inquiryExport', () => {
     });
   });
 
-  describe('export is by-decision, not pass-through (t/3648 part 3 / t/3624)', () => {
-    it('the export surface includes EVERY classified leaf — inquiryToJson\'s full-fidelity embed is safe by decision', () => {
-      // LIVE-DERIVED from CLASSIFICATION (TL condition 1, p/342#397) — NOT a frozen "no excludes" list,
-      // which would stop catching matrix growth, the exact failure part 1's exhaustiveness gate prevents.
-      // inquiryToJson embeds the whole InquiryResult; that is correct ONLY while export includes everything.
+  describe('export is by-decision, not pass-through (t/3648 part 3 / t/3624; t/285 TL p/35#86)', () => {
+    it('the export surface excludes exactly the gated leaves, and the download is the projection of the matrix', () => {
+      // LIVE-DERIVED from CLASSIFICATION, not a frozen list, so matrix growth is caught. The export is a projection now
+      // (exportableResult), so an exclusion is allowed only when the projection removes it. The expected set is
+      // explicit: a new export exclusion must be added here on purpose, with the projection updated to match.
       const allClassified = Object.keys(CLASSIFICATION).sort();
       const exportIncluded = includedFields('export').sort();
-      // The failure message CARRIES THE FIX (TL condition 2) — whoever trips this just marked a field
-      // export-EXCLUDE and doesn't know this test exists; a bare "40 !== 39" gets "fixed" by editing a number.
       const nowExcluded = allClassified.filter((p) => !exportIncluded.includes(p));
       const instruction =
-        `export is no longer all-include (newly excluded: ${nowExcluded.join(', ')}) — inquiryToJson must ` +
-        'switch from its wholesale `result` embed to a matrix-derived constructive projector ' +
-        '(build it the way toPublicInquiryShare in publicShare.ts constructs the public projection).';
-      expect(exportIncluded, instruction).toEqual(allClassified);
+        `export exclusions changed (now: ${nowExcluded.join(', ')}). Update exportableResult in inquiryExport.ts ` +
+        'to strip each newly excluded leaf, then list it here.';
+      expect(nowExcluded, instruction).toEqual(['questionDrift.warning']);
+    });
+
+    it('the download omits the gated warning but keeps the drift topic and score (t/285, TL p/35#86)', () => {
+      const result = makeResult({
+        questionDrift: { debatedTopic: 'Other topic', driftScore: 0.4, warning: true },
+      } as Partial<InquiryResult>);
+      const parsed = JSON.parse(inquiryToJson(result, { exportedAt: EXPORTED_AT }));
+      expect(parsed.result.questionDrift).toEqual({ debatedTopic: 'Other topic', driftScore: 0.4 });
+      expect(exportableResult(result).questionDrift).not.toHaveProperty('warning');
+      // The stored result itself is not mutated.
+      expect((result as { questionDrift?: { warning?: boolean } }).questionDrift?.warning).toBe(true);
     });
 
     it('a sanity spot-check: known fields are export-included (debateId INCLUDE — the worked example)', () => {
