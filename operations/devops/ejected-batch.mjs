@@ -37,11 +37,18 @@ export function queueRunsForPR(runs, prNumber, base = 'main') {
 
 // PURE core: decide from the latest queue run and its readers. Readers are injected so tests
 // can fake them. Any thrown read -> 'unknown' (fail open).
-export function ejectedBatchVerdict({ prNumber, runs, base = 'main', readJobs, readLog }) {
+// pushedAt (epoch ms, the PR's last push) makes the skip one-shot: an EJECTED run that predates
+// the last push is about an old head, so it must not block the fixed head (SO t/423#12). With no
+// push time, a run cannot be shown to be newer, so it does not skip.
+export function ejectedBatchVerdict({ prNumber, runs, base = 'main', pushedAt = null, readJobs, readLog }) {
   const latest = queueRunsForPR(runs, prNumber, base)[0];
   if (!latest) return { verdict: 'not_ejected', reason: 'no merge-queue run for this PR' };
   if (latest.status && latest.status !== 'completed') {
     return { verdict: 'not_ejected', runId: latest.id, reason: 'latest queue run still running' };
+  }
+  const runAt = Date.parse(latest.created_at ?? '');
+  if (pushedAt == null || Number.isNaN(runAt) || runAt <= pushedAt) {
+    return { verdict: 'not_ejected', runId: latest.id, reason: 'latest queue run is not newer than the last push' };
   }
   let jobs;
   try {

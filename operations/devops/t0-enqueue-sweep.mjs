@@ -458,16 +458,16 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
     // every PR below fails open to 'unknown' (WARN, not skipped).
     let mergeGroupRuns;
     try { mergeGroupRuns = { runs: listMergeGroupRuns(repo, gh) }; } catch (err) { mergeGroupRuns = { error: err }; }
-    const ejectedCheck = (prNumber) => {
+    const ejectedCheck = (prNumber, prContexts) => {
       if (mergeGroupRuns.error) return { verdict: 'unknown', reason: `could not list merge_group runs: ${mergeGroupRuns.error.message ?? mergeGroupRuns.error}` };
-      return ejectedBatchVerdict({ prNumber, runs: mergeGroupRuns.runs, readJobs: (id) => listRunJobs(repo, id, gh), readLog: (id) => readJobLog(repo, id, gh) });
+      return ejectedBatchVerdict({ prNumber, runs: mergeGroupRuns.runs, pushedAt: headPushedAt(prContexts), readJobs: (id) => listRunJobs(repo, id, gh), readLog: (id) => readJobLog(repo, id, gh) });
     };
 
     for (const pr of enqueue) {
       if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
       // t/423: skip only a confirmed exit-3 (EJECTED) on this PR's latest queue run. Anything else
       // proceeds as before, with a WARN when the state could not be read (fail open).
-      const eject = ejectedCheck(pr.number);
+      const eject = ejectedCheck(pr.number, pr.contexts);
       if (eject.verdict === 'ejected') {
         console.log(`skip #${pr.number}: its merge-queue batch was ejected (run ${eject.runId}, t/423); not enqueuing`);
         continue;

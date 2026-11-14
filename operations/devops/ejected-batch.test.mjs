@@ -38,6 +38,7 @@ test('queueRunsForPR: keeps only this PR\'s merge_group runs, newest first', () 
 test('SKIP: latest queue run has a failing job that printed the EJECTED exit-3 line', () => {
   const v = ejectedBatchVerdict({
     prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
     runs: [run(10, 42, '2026-11-14T12:00:00Z')],
     readJobs: () => [{ id: 100, conclusion: 'failure' }],
     readLog: () => EJECT_LOG,
@@ -49,6 +50,7 @@ test('SKIP: latest queue run has a failing job that printed the EJECTED exit-3 l
 test('NOT skipped: latest queue run failed for an ordinary reason', () => {
   const v = ejectedBatchVerdict({
     prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
     runs: [run(10, 42, '2026-11-14T12:00:00Z')],
     readJobs: () => [{ id: 100, conclusion: 'failure' }],
     readLog: () => PLAIN_FAIL_LOG,
@@ -60,6 +62,7 @@ test('NOT skipped: only an OLDER run was ejected and the latest run is clean', (
   const runs = [run(10, 42, '2026-11-14T10:00:00Z'), run(11, 42, '2026-11-14T12:00:00Z')];
   const v = ejectedBatchVerdict({
     prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
     runs,
     readJobs: (id) => (id === 10 ? [{ id: 100, conclusion: 'failure' }] : [{ id: 200, conclusion: 'success' }]),
     readLog: () => EJECT_LOG,
@@ -71,6 +74,7 @@ test('NOT skipped: only an OLDER run was ejected and the latest run is clean', (
 test('NOT skipped: latest queue run still running (not a confirmed exit 3)', () => {
   const v = ejectedBatchVerdict({
     prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
     runs: [run(10, 42, '2026-11-14T12:00:00Z', { status: 'in_progress' })],
     readJobs: () => { throw new Error('must not read jobs of a running run'); },
     readLog: () => EJECT_LOG,
@@ -88,6 +92,7 @@ test('FAIL OPEN: the run list cannot be read (verdict unknown, never a skip)', (
   // (ejectedCheck) and yields 'unknown'. Here we check the job read failing mid-way.
   const v = ejectedBatchVerdict({
     prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
     runs: [run(10, 42, '2026-11-14T12:00:00Z')],
     readJobs: () => { throw new Error('HTTP 502'); },
     readLog: () => EJECT_LOG,
@@ -99,6 +104,7 @@ test('FAIL OPEN: the run list cannot be read (verdict unknown, never a skip)', (
 test('FAIL OPEN: the log read fails (verdict unknown, never a skip)', () => {
   const v = ejectedBatchVerdict({
     prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
     runs: [run(10, 42, '2026-11-14T12:00:00Z')],
     readJobs: () => [{ id: 100, conclusion: 'failure' }],
     readLog: () => { throw new Error('logs expired'); },
@@ -141,4 +147,40 @@ test('real get-merge-group-prs.sh EJECTED output is matched by isEjectedLog (t/4
   assert.equal(run.status, 3, `the real script must exit 3 on EJECTED, got ${run.status}: ${out.slice(0, 300)}`);
   assert.equal(isEjectedLog(out, 42), true, 'the match must catch the real script output');
   assert.equal(isEjectedLog(out, 7), false, 'and must not match another PR');
+});
+
+test("NOT skipped: the ejected run is OLDER than the PR's last push (fixed head is not blocked)", () => {
+  const pushedAt = Date.parse('2026-11-14T13:00:00Z');
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    runs: [run(10, 42, '2026-11-14T12:00:00Z')],
+    pushedAt,
+    readJobs: () => [{ id: 100, conclusion: 'failure' }],
+    readLog: () => EJECT_LOG,
+  });
+  assert.equal(v.verdict, 'not_ejected');
+  assert.match(v.reason, /not newer than the last push/);
+});
+
+test('SKIP: the ejected run is NEWER than the last push', () => {
+  const pushedAt = Date.parse('2026-11-14T11:00:00Z');
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    runs: [run(10, 42, '2026-11-14T12:00:00Z')],
+    pushedAt,
+    readJobs: () => [{ id: 100, conclusion: 'failure' }],
+    readLog: () => EJECT_LOG,
+  });
+  assert.equal(v.verdict, 'ejected');
+});
+
+test('NOT skipped: no push time, so the run cannot be shown newer', () => {
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    runs: [run(10, 42, '2026-11-14T12:00:00Z')],
+    pushedAt: null,
+    readJobs: () => [{ id: 100, conclusion: 'failure' }],
+    readLog: () => EJECT_LOG,
+  });
+  assert.equal(v.verdict, 'not_ejected');
 });
