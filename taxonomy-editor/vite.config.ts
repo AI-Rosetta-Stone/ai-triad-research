@@ -258,6 +258,7 @@ export default defineConfig({
       '../../../lib/search/**/*.test.ts',
       '../../../lib/entities/**/*.test.ts',
       '../../../lib/sanitize/**/*.test.ts',
+      '../../../lib/flight-recorder/**/*.test.ts', // t/418 — dump redaction (shared, moved from renderer)
       '../../../lib/extraction/**/*.test.ts', // t/273 — document extraction (TL-authorized one-line include)
       // t/720 consolidation: the shared SSRF-guarded fetcher backs POST /api/fetch-url,
       // so its suite must gate CI. It was absent from this list since t/2482 landed.

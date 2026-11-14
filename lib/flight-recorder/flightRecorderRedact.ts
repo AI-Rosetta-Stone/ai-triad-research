@@ -28,15 +28,9 @@ function exactProfilePattern(userProfile: string | null | undefined): RegExp | n
   return new RegExp(`${escaped.join('[\\\\/]+')}(?=[\\\\/"'\\s<>()]|$)`, 'gi');
 }
 
-/** The current app's user profile, from the preload's argv hand-off. Null when unavailable (tests, web). */
-export function currentUserProfile(): string | null {
-  if (typeof window === 'undefined') return null;
-  return (window as unknown as { electronAPI?: { userProfile?: string | null } }).electronAPI?.userProfile ?? null;
-}
-
 /** Redacts user-profile paths and UNC shares from a dump's text. Order matters: the exact profile first,
  *  then drive profiles. */
-export function redactDumpText(text: string, userProfile: string | null | undefined = currentUserProfile()): string {
+export function redactDumpText(text: string, userProfile: string | null | undefined = null): string {
   const exact = exactProfilePattern(userProfile);
   const exactRedacted = exact ? text.replace(exact, '%USERPROFILE%') : text;
   return exactRedacted
