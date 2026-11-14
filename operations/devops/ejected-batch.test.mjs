@@ -106,3 +106,39 @@ test('FAIL OPEN: the log read fails (verdict unknown, never a skip)', () => {
   assert.equal(v.verdict, 'unknown');
   assert.notEqual(v.verdict, 'ejected');
 });
+
+// t/423 condition (Quality t/423#7): test the match against the REAL get-merge-group-prs.sh output,
+// not a copied string. The script runs with a fake gh that returns an empty queue, which is the
+// EJECTED path (exit 3). It needs jq and the part A wording (PR #5149). Until part A is on main,
+// the script has no EJECTED branch and this test is skipped, so the skip never fires (fail safe).
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REAL_SCRIPT = resolve(HERE, 'get-merge-group-prs.sh');
+const scriptHasEjected = existsSync(REAL_SCRIPT) && readFileSync(REAL_SCRIPT, 'utf8').includes('EJECTED');
+const jqPresent = (() => { try { execFileSync('jq', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
+const gitBash = ['C:/Program Files/Git/bin/bash.exe', '/bin/bash'].find((p) => existsSync(p));
+
+test('real get-merge-group-prs.sh EJECTED output is matched by isEjectedLog (t/423)', {
+  skip: !scriptHasEjected ? 'part A (PR #5149, EJECTED branch) is not on main yet'
+    : !jqPresent ? 'jq is not installed on this host (Linux CI has it)'
+    : !gitBash ? 'no bash found' : false,
+}, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ejected-real-'));
+  // Fake gh: the script's only gh call is the mergeQueue GraphQL read; an empty queue is EJECTED.
+  const fakeGh = join(dir, 'gh');
+  writeFileSync(fakeGh, '#!/usr/bin/env bash\necho "[]"\n');
+  chmodSync(fakeGh, 0o755);
+  const run = spawnSync(gitBash, [REAL_SCRIPT, 'AI-Rosetta-Stone/ai-triad-research', 'refs/heads/gh-readonly-queue/main/pr-42-abcdef', 'abc123'], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir },
+    encoding: 'utf8',
+  });
+  const out = `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  assert.equal(run.status, 3, `the real script must exit 3 on EJECTED, got ${run.status}: ${out.slice(0, 300)}`);
+  assert.equal(isEjectedLog(out, 42), true, 'the match must catch the real script output');
+  assert.equal(isEjectedLog(out, 7), false, 'and must not match another PR');
+});
