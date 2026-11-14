@@ -65,6 +65,8 @@ export interface OpeningPipelineInput {
   isFirst: boolean;
   /** Labels of speakers who have already given their opening, in order. */
   priorSpeakerLabels?: string[];
+  /** t/284 item 3: the literal question an inquiry opening must answer. */
+  anchorQuestion?: string;
   sourceContent?: string;
   documentAnalysis?: DocumentAnalysis;
   audience?: import('../types.js').DebateAudience;

@@ -41,6 +41,8 @@ export interface OpeningStagePromptInput {
   soul: PovInfo;
   /** Resolved souls for the other speakers (t/3988). Keys are SpeakerId. */
   opponentSouls?: Partial<Record<SpeakerId, PovInfo>>;
+  /** t/284 item 3: the literal question an inquiry opening must answer. */
+  anchorQuestion?: string;
 }
 
 export function briefOpeningStagePrompt(input: OpeningStagePromptInput): string {
