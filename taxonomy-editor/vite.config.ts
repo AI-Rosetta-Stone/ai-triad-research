@@ -77,6 +77,15 @@ function getGitVersion(): string {
   }
 }
 
+// t/418: the branch the bundle was built from, for the flight-recorder context. Local/Electron only.
+function getGitBranch(): string | null {
+  try {
+    return execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function getGitSha(): string {
   // Container builds (Docker) inject the commit as BUILD_SHA — the build context has no
   // .git, so git exec would fall through to 'unknown' (t/2434). Prefer it when set; local
@@ -163,6 +172,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(getGitVersion()),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
     __BUILD_SHA__: JSON.stringify(getGitSha()),
+    // t/418: which worktree produced this bundle. Null for web/container builds so server paths never ship.
+    __BUILD_ROOT__: JSON.stringify(isWeb ? null : import.meta.dirname),
+    __BUILD_BRANCH__: JSON.stringify(isWeb ? null : getGitBranch()),
     __CHANGELOG_MD__: JSON.stringify(
       fs.readFileSync(path.resolve(import.meta.dirname, '../CHANGELOG.md'), 'utf-8')
     ),
@@ -246,6 +258,7 @@ export default defineConfig({
       '../../../lib/search/**/*.test.ts',
       '../../../lib/entities/**/*.test.ts',
       '../../../lib/sanitize/**/*.test.ts',
+      '../../../lib/flight-recorder/**/*.test.ts', // t/418 — dump redaction (shared, moved from renderer)
       '../../../lib/extraction/**/*.test.ts', // t/273 — document extraction (TL-authorized one-line include)
       // t/720 consolidation: the shared SSRF-guarded fetcher backs POST /api/fetch-url,
       // so its suite must gate CI. It was absent from this list since t/2482 landed.

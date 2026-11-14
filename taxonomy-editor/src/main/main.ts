@@ -180,6 +180,12 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
+      // t/418: the preload reads this to expose appPath (a sandboxed preload cannot call app.getAppPath()).
+      // t/418: the exact profile path, so the renderer can redact a redirected profile (not just C:\Users\<name>).
+      additionalArguments: [
+        `--taxonomy-app-path=${app.getAppPath()}`,
+        `--taxonomy-user-profile=${process.env.USERPROFILE ?? ''}`,
+      ],
     },
   });
   hardenWindow(mainWindow);
