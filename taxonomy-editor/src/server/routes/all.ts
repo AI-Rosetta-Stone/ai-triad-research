@@ -32,6 +32,7 @@ import { registerDebateShareRoutes } from './debateShare.js';
 import { registerDiagnosticsRoutes } from './diagnostics.js';
 import { registerCommunityRoutes } from './community.js';
 import { registerOpedRoutes } from './oped.js';
+import { registerDocumentsRoutes } from './documents.js';
 import { registerBriefExportsRoutes } from './briefExports.js';
 import { registerInquiryRoutes } from './inquiry.js';
 import { registerTemplatesRoutes } from './templates.js';
@@ -72,6 +73,7 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerDiagnosticsRoutes(router, ctx);
   registerCommunityRoutes(router, ctx);
   registerOpedRoutes(router, ctx);
+  registerDocumentsRoutes(router, ctx); // t/274 — POST /api/documents/extract (streams its own capped body)
   registerBriefExportsRoutes(router, ctx);
   registerInquiryRoutes(router, ctx); // t/3581 — POST /api/inquiry (202) + GET /api/inquiry/:jobId. Unique prefix; order-independent.
   registerTemplatesRoutes(router, ctx);
