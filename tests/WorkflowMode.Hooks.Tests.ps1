@@ -22,10 +22,17 @@ Describe 'workflow-mode switch — fail-safe parse + hooks (t/3638)' -Tag 'devop
     BeforeAll {
         $script:HooksDir = (Resolve-Path "$PSScriptRoot/../.githooks").Path
         $script:Helper   = "$script:HooksDir/read-workflow-mode.sh"
-        $script:Sh = (Get-Command sh -ErrorAction SilentlyContinue)?.Source
-        if (-not $script:Sh) {
-            $c = "$env:ProgramFiles/Git/usr/bin/sh.exe"; if (Test-Path $c) { $script:Sh = $c }
-        }
+        # Prefer Git for Windows' sh. $env:ProgramFiles can be unset in a scrubbed session, so fall back to
+        # the standard install path. A PATH 'sh' is used only if nothing else exists.
+        $script:Sh = @(
+            $env:ProgramFiles ? "$env:ProgramFiles/Git/usr/bin/sh.exe" : $null
+            'C:/Program Files/Git/usr/bin/sh.exe'
+            (Get-Command sh -ErrorAction SilentlyContinue)?.Source
+        ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+        # The helper calls sed and git; a PowerShell-started sh.exe has no usr/bin on PATH, so sed is
+        # missing ('sed: command not found' -> worktree). Put the sh directory first on PATH.
+        $script:OriginalPath = $env:PATH
+        if ($script:Sh) { $env:PATH = "$(Split-Path $script:Sh);$env:PATH" }
 
         # Build a throwaway git repo with the real .githooks installed + a given mode-file body.
         # $ModeBody $null => omit the file entirely (the "missing" case).
@@ -154,5 +161,10 @@ Describe 'workflow-mode switch — fail-safe parse + hooks (t/3638)' -Tag 'devop
         It 'REFUSED in direct mode too (the switch does not govern this)' {
             $r = script:New-ModeRepo "direct`n"; try { (script:Test-DetachedWorktreeCommitPermitted $r) | Should -BeFalse } finally { Remove-Item -LiteralPath $r -Recurse -Force -EA SilentlyContinue }
         }
+    }
+
+    # Restore PATH: BeforeAll prepends the Git sh directory, which must not leak to later test files.
+    AfterAll {
+        if ($script:OriginalPath) { $env:PATH = $script:OriginalPath }
     }
 }

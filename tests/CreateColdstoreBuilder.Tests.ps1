@@ -15,8 +15,12 @@
 Describe 'create-coldstore-builder.sh' -Tag 'devops' {
 
     BeforeAll {
-        $script:Bash = (Get-Command bash -ErrorAction SilentlyContinue).Source
-        if (-not $script:Bash -and (Test-Path 'C:\Program Files\Git\bin\bash.exe')) { $script:Bash = 'C:\Program Files\Git\bin\bash.exe' }
+        # Prefer Git for Windows' bash. On Windows, a PATH 'bash' can be the WSL launcher
+        # (C:\Windows\System32\bash.exe), which has no distro and exits 127, so it is not used here.
+        $script:Bash = @(
+            'C:\Program Files\Git\bin\bash.exe'
+            (Get-Command bash -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike '*\System32\bash.exe' })?.Source
+        ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
         $script:Script = (Resolve-Path (Join-Path $PSScriptRoot '../operations/devops/create-coldstore-builder.sh')).Path
 
         $script:StubDir = Join-Path ([System.IO.Path]::GetTempPath()) ("coldstore-stub-" + [guid]::NewGuid().ToString('N'))
