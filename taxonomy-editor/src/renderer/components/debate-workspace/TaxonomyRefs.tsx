@@ -19,6 +19,7 @@ import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type Pars
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import './TaxonomyRefs.css';
 
 // Prevents a TheoryLink click inside a <summary> from toggling its parent <details>
@@ -644,7 +645,14 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
 }) {
-  const label = getNodeLabel(taxRef.node_id);
+  // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
+  const resolved = getNodeLabel(taxRef.node_id);
+  const isMissing = !taxRef.label && resolved === taxRef.node_id;
+  const label = taxRef.label || resolved;
+  // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
+  const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
   return (
     <div className="debate-reasoning-item">
@@ -657,7 +665,9 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
       >
         {taxRef.node_id}
       </button>
-      <span className="debate-reasoning-label">{label}</span>
+      {isMissing
+        ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
+        : <span className="debate-reasoning-label">{label}</span>}
       <span className="debate-reasoning-text">{taxRef.relevance}</span>
     </div>
   );
