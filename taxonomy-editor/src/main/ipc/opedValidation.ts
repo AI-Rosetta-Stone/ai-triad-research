@@ -17,6 +17,35 @@ export interface CreateOpEdValidationInput {
   voices?: readonly unknown[];
 }
 
+const MAX_DOCUMENT_CHARS = 500_000; // t/273#4 item 3: the renderer applies it too; re-validated here
+
+function invalid(problem: string, nextSteps: string[]): ActionableError {
+  return new ActionableError({
+    goal: 'Create op-ed set',
+    problem,
+    location: 'opedHandlers create-oped-set',
+    nextSteps,
+  });
+}
+
+/** t/275: validate an uploaded document source. Checks run in order: text, size, name, bare name. */
+function validateDocumentSource(doc: { text: string; name: string }): ActionableError | null {
+  if (!doc.text?.trim()) {
+    return invalid('uploaded document is empty', ['Upload a document with content']);
+  }
+  if (doc.text.length > MAX_DOCUMENT_CHARS) {
+    return invalid(`extracted text exceeds 500k character limit (${doc.text.length} chars)`, ['Use a smaller document or section']);
+  }
+  if (!doc.name?.trim()) {
+    return invalid('uploaded document is missing a name', ['Ensure the document has a valid file name']);
+  }
+  // Bare file name only (no path separators or parent refs per the t/275 spec).
+  if (doc.name.includes('/') || doc.name.includes('\\') || doc.name.includes('..')) {
+    return invalid('document name must be a file name, not a path', ['Use only the file name (e.g., "document.pdf"), not the full path']);
+  }
+  return null;
+}
+
 /**
  * Validate a create-oped-set payload. Returns an {@link ActionableError} to throw when
  * invalid, or `null` when the payload is acceptable. Valid iff a non-blank source
@@ -24,56 +53,28 @@ export interface CreateOpEdValidationInput {
  */
 export function validateCreateOpEdPayload(input: CreateOpEdValidationInput): ActionableError | null {
   const { topic, url, documentSource, voices } = input;
-  
-  // t/275: Validate document source if provided (check specifics before generic source check)
+
+  // t/275: a document source is checked for specifics before the generic source check.
   if (documentSource) {
-    if (!documentSource.text?.trim()) {
-      return new ActionableError({
-        goal: 'Create op-ed set',
-        problem: 'uploaded document is empty',
-        location: 'opedHandlers create-oped-set',
-        nextSteps: ['Upload a document with content'],
-      });
-    }
-    // t/273#4 item 3: enforce 500k char limit (renderer already applies, but re-validate at handler)
-    if (documentSource.text.length > 500_000) {
-      return new ActionableError({
-        goal: 'Create op-ed set',
-        problem: `extracted text exceeds 500k character limit (${documentSource.text.length} chars)`,
-        location: 'opedHandlers create-oped-set',
-        nextSteps: ['Use a smaller document or section'],
-      });
-    }
-    if (!documentSource.name?.trim()) {
-      return new ActionableError({
-        goal: 'Create op-ed set',
-        problem: 'uploaded document is missing a name',
-        location: 'opedHandlers create-oped-set',
-        nextSteps: ['Ensure the document has a valid file name'],
-      });
-    }
-    // Validate bare file name (no path separators or parent refs per t/275 spec)
-    if (documentSource.name.includes('/') || documentSource.name.includes('\\') || documentSource.name.includes('..')) {
-      return new ActionableError({
-        goal: 'Create op-ed set',
-        problem: 'document name must be a file name, not a path',
-        location: 'opedHandlers create-oped-set',
-        nextSteps: ['Use only the file name (e.g., "document.pdf"), not the full path'],
-      });
-    }
+    const docError = validateDocumentSource(documentSource);
+    if (docError) return docError;
   }
-  
+
   // Check that a source is provided: topic OR url OR document
   const hasSource = (topic?.trim() || url?.trim() || (documentSource?.text?.trim()));
-  
+
   if (!hasSource || !voices?.length) {
-    return new ActionableError({
-      goal: 'Create op-ed set',
-      problem: 'a topic, a web-page URL, or an uploaded document, and at least one voice, are required',
-      location: 'opedHandlers create-oped-set',
-      nextSteps: ['Provide a topic, web-page URL, or upload a document', 'Select at least one voice'],
-    });
+    return invalid(
+      'a topic, a web-page URL, or an uploaded document, and at least one voice, are required',
+      ['Provide a topic, web-page URL, or upload a document', 'Select at least one voice'],
+    );
   }
 
   return null;
+}
+
+/** Throws the validation error for an invalid create-oped-set payload; otherwise returns. */
+export function assertCreateOpEdPayload(input: CreateOpEdValidationInput): void {
+  const error = validateCreateOpEdPayload(input);
+  if (error) throw error;
 }
