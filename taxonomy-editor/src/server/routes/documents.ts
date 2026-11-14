@@ -53,7 +53,7 @@ function safeFormat(bytes: Uint8Array): string | undefined {
 /** Refusals decided before any parser runs. PDF and DOCX parsing wait for t/393's isolated child. */
 function refusalFor(bytes: Uint8Array): { status: number; code: string; message: string } | null {
   if (bytes.length === 0) return { status: 400, code: 'BAD_REQUEST', message: 'The upload is empty' };
-  if (bytes.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)) {
+  if (Buffer.from(bytes.subarray(0, PDF_MAGIC.length)).equals(PDF_MAGIC)) {
     return { status: 415, code: PDF_PENDING, message: 'PDF upload is not available yet. Upload a TXT, MD or HTML file instead.' };
   }
   if (safeFormat(bytes) === 'docx') {
