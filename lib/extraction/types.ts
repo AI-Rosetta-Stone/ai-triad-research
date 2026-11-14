@@ -15,12 +15,14 @@ export type DocumentExtractionCode =
   | 'CORRUPT_DOCUMENT'
   | 'EXTRACTION_FAILED'
   | 'EXTRACTION_TIMEOUT'
-  | 'EXTRACTION_MEMORY_LIMIT';
+  | 'EXTRACTION_MEMORY_LIMIT'
+  | 'EXTRACTION_BUSY';
 
 /**
  * HTTP status codes for extraction errors.
  * - 413 Payload Too Large: SIZE_LIMIT_EXCEEDED
  * - 415 Unsupported Media Type: UNSUPPORTED_FORMAT
+ * - 429 Too Many Requests: EXTRACTION_BUSY (the isolated-child slots and queue are full; t/274)
  * - 422 Unprocessable Entity: all others (ENCRYPTED, EMPTY, CORRUPT, EXTRACTION_FAILED, and the isolated-parse
  *   TIMEOUT and MEMORY_LIMIT codes from t/393)
  */
@@ -33,4 +35,5 @@ export const extractionErrorStatus: Record<DocumentExtractionCode, number> = {
   EXTRACTION_FAILED: 422,
   EXTRACTION_TIMEOUT: 422,
   EXTRACTION_MEMORY_LIMIT: 422,
+  EXTRACTION_BUSY: 429,
 };
