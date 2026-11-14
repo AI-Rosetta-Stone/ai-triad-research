@@ -19,6 +19,7 @@ import { getResilienceState } from '../bridge/resilience';
 import { showDumpToast, showDumpErrorToast, showDumpPendingToast } from './dumpToast';
 import { getCurrentPhase } from '@lib/debate/phaseTransitions';
 import { localRunContext } from './flightRecorderAppContext';
+import { redactDumpText } from './flightRecorderRedact';
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_DATE__: string;
@@ -168,7 +169,8 @@ async function persistDump(
   const dumpId = crypto.randomUUID();
 
   try {
-    const result = await api.dumpFlightRecorder(ndjson, dumpId);
+    // t/418: dumps go to support attachments, so profile paths are redacted from the whole text.
+    const result = await api.dumpFlightRecorder(redactDumpText(ndjson), dumpId);
     console.log(`[flight-recorder] Dump saved: ${result.filePath} (dumpId=${dumpId})`);
 
     // In web mode the server writes its own dump correlated by dumpId inside the dump POST
@@ -960,7 +962,7 @@ function initPopupDumpRelay(recorder: FlightRecorder): void {
   if (!eApi?.onTriggerDump || !eApi?.sendDumpResult) return;
   eApi.onTriggerDump(() => {
     const { ndjson } = recorder.buildDump('manual');
-    void api.dumpFlightRecorder(ndjson).then(result => {
+    void api.dumpFlightRecorder(redactDumpText(ndjson)).then(result => {
       eApi.sendDumpResult!({ filePath: result.filePath });
       console.log(`[flight-recorder] Dump triggered by popup, saved: ${result.filePath}`);
     }).catch(err => {
