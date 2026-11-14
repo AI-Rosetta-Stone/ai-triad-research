@@ -94,19 +94,19 @@ describe('POST /api/documents/extract (t/274)', () => {
     expect(r.status).toBe(400);
   });
 
-  it('refuses a PDF with 415 PDF_PENDING_T393 until t/393 lands, even when the name says .txt', async () => {
-    const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from('renamed .txt')]);
+  it('sends a corrupt PDF to the isolated extractor: a 422 extraction error, not a refusal', async () => {
+    const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from('not really a pdf')]);
     const r = await post({ body: pdf, headers: named('renamed.txt') });
-    expect(r.status).toBe(415);
-    expect(r.body.code).toBe('PDF_PENDING_T393');
-  });
+    expect(r.status).toBe(422);
+    expect(r.body.code).not.toMatch(/PENDING/);
+  }, 60_000);
 
-  it('refuses a DOCX with 415 DOCX_PENDING_T393 before any parsing until t/393 lands', async () => {
+  it('sends a corrupt DOCX to the isolated extractor: a 422 extraction error, not a refusal', async () => {
     const docx = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(40, 0x00), Buffer.from('[Content_Types].xml'), Buffer.alloc(64, 0x00)]);
     const r = await post({ body: docx, headers: named('report.docx') });
-    expect(r.status).toBe(415);
-    expect(r.body.code).toBe('DOCX_PENDING_T393');
-  });
+    expect(r.status).toBe(422);
+    expect(r.body.code).not.toMatch(/PENDING/);
+  }, 60_000);
 
   it('extracts a plain-text upload: 200 with text, format, words and warnings', async () => {
     const r = await post({ body: Buffer.from('Alpha beta gamma.\n\nDelta epsilon.'), headers: named('essay.txt') });
