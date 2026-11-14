@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/418 (Security residuals, TL p/10#175): profile paths in the whole dump text are redacted, including
-// main-process stack traces embedded in JSON strings.
+// t/418 (Security residuals, TL p/10#175; Security p/246#6): profile paths in the whole dump text are
+// redacted, including main-process stack traces embedded in JSON strings.
 
 import { describe, it, expect } from 'vitest';
 import { redactDumpText } from './flightRecorderRedact';
@@ -18,12 +18,25 @@ describe('redactDumpText — t/418 dump-wide profile redaction', () => {
     expect(redactDumpText('E:/Users/bob/x')).toBe('%USERPROFILE%/x');
   });
 
+  it('redacts a user name that contains a space', () => {
+    expect(redactDumpText('C:\\Users\\John Smith\\repos\\app')).toBe('%USERPROFILE%\\repos\\app');
+  });
+
   it('redacts POSIX home paths anywhere in the text', () => {
-    expect(redactDumpText('at /home/carol/src/a.js')).toBe('at %USERPROFILE%/src/a.js');
-    expect(redactDumpText('path=/Users/dave/x')).toBe('path=%USERPROFILE%/x');
+    expect(redactDumpText('at /home/carol/src/a.js')).toBe('at /%USERPROFILE%/src/a.js');
+    expect(redactDumpText('path=/Users/dave/x')).toBe('path=/%USERPROFILE%/x');
+  });
+
+  it('redacts the user segment of a file:/// URL', () => {
+    expect(redactDumpText('file:///home/erin/app.js')).toBe('file:///%USERPROFILE%/app.js');
+  });
+
+  it('redacts the home segment of a WSL UNC path, not only the share', () => {
+    expect(redactDumpText('\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\jsnov\\\\x')).toBe('%UNC_SHARE%\\\\%USERPROFILE%\\\\x');
   });
 
   it('redacts a UNC host and share, including inside JSON, and keeps the rest of the path', () => {
+    // The share is "home" here, so it is consumed with the host; "eve" is not a home segment.
     expect(redactDumpText('"\\\\\\\\fileserver\\\\home\\\\eve\\\\x"')).toBe('"%UNC_SHARE%\\\\eve\\\\x"');
   });
 
