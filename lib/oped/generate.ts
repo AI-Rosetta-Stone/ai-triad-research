@@ -1205,7 +1205,7 @@ export async function* generateOpEdSet(
   // topic run (a URL pasted into the topic box → no source fetched → no claims) is
   // distinguishable from the file alone. url mode also carries the fetched URL and the
   // comprehension-pass claim count (0 = brief failed/unreadable/empty). document mode
-  // carries the file name (without path) from extractDocumentText.
+  // carries the file name (without path) from extractDocumentText, and the same claim count.
   const isUrlMode = !!request.sourceMaterial && !request.sourceName;
   const isDocumentMode = !!request.sourceMaterial && !!request.sourceName;
   const set: OpEdSet = {
@@ -1218,7 +1218,8 @@ export async function* generateOpEdSet(
     source_mode: isDocumentMode ? 'document' : (isUrlMode ? 'url' : 'topic'),
     ...(isUrlMode && request.sourceUrl ? { source_url: request.sourceUrl } : {}),
     ...(isDocumentMode && request.sourceName ? { source_name: request.sourceName } : {}),
-    ...(isUrlMode ? { source_key_claims_count: sourceBrief?.key_claims?.length ?? 0 } : {}),
+    // The comprehension pass runs for document sources as well as URL sources (t/273, TL item 6), so both count.
+    ...(isUrlMode || isDocumentMode ? { source_key_claims_count: sourceBrief?.key_claims?.length ?? 0 } : {}),
   };
 
   yield { type: 'complete', set };

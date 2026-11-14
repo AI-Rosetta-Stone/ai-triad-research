@@ -386,6 +386,20 @@ describe('generateOpEdSet — source provenance + reflection observability (t/28
     expect(set.source_key_claims_count).toBe(0);
   });
 
+  it('document-mode set reads source_mode:"document", source_name, and the key-claims count (t/273, TL item 6)', async () => {
+    const adapter = {
+      generateText: async (p: string) => (p === 'source-brief-prompt' ? BRIEF_JSON : p === 'refl' ? REFL_JSON : ESSAY_JSON),
+    };
+    const set = await collect(
+      { set_id: 't-doc', topic: 'AI safety', params: { model: 'm', wordCount: 800, outlet: 'nyt', newsHook: '', thesis: '' }, povs: ['accelerationist'], sourceMaterial: 'Document text', sourceName: 'report.pdf' },
+      { adapter, promptsDir: PROMPTS, repoRoot: REPO_ROOT },
+    );
+    expect(set.source_mode).toBe('document');
+    expect(set.source_name).toBe('report.pdf');
+    expect(set.source_url).toBeUndefined();
+    expect(set.source_key_claims_count).toBe(2);
+  });
+
   it('source_brief_done carries keyClaimsCount', async () => {
     const adapter = {
       generateText: async (p: string) => (p === 'source-brief-prompt' ? BRIEF_JSON : p === 'refl' ? REFL_JSON : ESSAY_JSON),
