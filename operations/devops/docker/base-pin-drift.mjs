@@ -220,6 +220,13 @@ async function check(dockerfilePath) {
 
   const lines = checkOutputLines(formatVerdictOutputs(v), latest, pin);
   appendFile('GITHUB_OUTPUT', `${lines.join('\n')}\n`);
+  // t/377 (Security residual 1): a dropped line means a value carried CR/LF. Fail the run
+  // rather than hand the workflow a missing output (its steps key on verdict == FAIL/PASS).
+  const dropped = !lines.some((l) => l.startsWith('verdict=')) || (pin && !lines.some((l) => l.startsWith('pinned_digest=')));
+  if (dropped) {
+    console.log(`::error::${GATE}: an output value contained a line break and was dropped; failing closed (t/377).`);
+    return 1;
+  }
   appendFile('GITHUB_STEP_SUMMARY', `${formatVerdictSummary(v)}\n`);
 
   console.log(`${GATE}: ${v.verdict}${v.reason ? ` (${v.reason})` : ''}`);
