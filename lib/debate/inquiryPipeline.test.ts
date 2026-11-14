@@ -369,3 +369,13 @@ describe('runInquiryPipeline — question relevance (t/284 item 5)', () => {
     expect(session.relevance?.unavailable_reason).toContain('embedder down');
   });
 });
+
+describe('runInquiryPipeline — empty transcript relevance (t/284 item 5, CL note 2)', () => {
+  it('stores unavailable with a reason, never a clean no-drift reading', async () => {
+    const session = { ...makeSession(), transcript: [] } as unknown as DebateSession;
+    const deps = makeDeps({ runDebate: vi.fn().mockResolvedValue({ session }) });
+    await runInquiryPipeline(makeRequest({ question: 'What are the risks?' }), deps);
+    expect(session.relevance?.unavailable_reason).toBe('no debater turns');
+    expect(session.relevance?.mean).toBeNull();
+  });
+});
