@@ -13,7 +13,7 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
-import { loadDataConfig, resolveDataPath, getDataRoot, getProjectRoot, getSourcesRoot, STORAGE_MODE } from '../config.js';
+import { loadDataConfig, resolveDataPath, getDataRoot, getProjectRoot, getSourcesRoot, getStateRoot, STORAGE_MODE } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { POV_KEYS } from '../../../../lib/debate/types.js';
 import type { StorageBackend, WriteIfAbsentResult } from './storageBackend.js';
@@ -53,7 +53,13 @@ export type { RunControlRecord, RunStatus, VoiceState as OpedVoiceState } from '
 // which falls back to `backend` when not separately configured (Electron /
 // filesystem mode). In production, `userContentBackend` is an AzureBlobBackend
 // while `backend` stays on GitHubAPIBackend.
-let backend: StorageBackend = new FilesystemBackend();
+// t/223: rooted at the configured data root so the path guard is live in production. The sources
+// and state roots are configured independently and may sit outside the data root, so they are allowed too.
+// Roots are read per call (getters), not captured here, so config set after import is the one enforced.
+let backend: StorageBackend = new FilesystemBackend({
+  root: () => getDataRoot(),
+  extraRoots: () => [getSourcesRoot(), getStateRoot()],
+});
 let userContentBackend: StorageBackend | null = null;
 let briefExportBackend: StorageBackend | null = null;
 

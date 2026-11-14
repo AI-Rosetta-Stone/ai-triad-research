@@ -183,7 +183,8 @@ async function main(): Promise<void> {
   let shutdownSource: () => void = () => {};
   if (sourceMode === 'filesystem') {
     const { FilesystemBackend } = await import('../storage/filesystemBackend.js');
-    source = new FilesystemBackend();
+    // t/223: root is required; the script's filesystem source is cwd-relative by design.
+    source = new FilesystemBackend({ root: process.cwd() });
     log.server.info({ cwd: process.cwd() }, 'Migration source: filesystem (cwd-relative)');
   } else {
     const { GitHubAPIBackend } = await import('../storage/githubAPIBackend.js');
