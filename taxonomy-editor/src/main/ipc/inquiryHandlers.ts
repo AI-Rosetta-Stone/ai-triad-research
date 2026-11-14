@@ -425,11 +425,24 @@ async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
       // lacks one. Add it here so Electron-run debates record soul_provenance like cli.ts does.
       // t/4713: onProgress is forwarded straight through to runHeadlessDebate's own param — the
       // debate-progress → fraction mapping lives entirely in debateProgressMapping.ts (onDebateProgress below).
-      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
-        .then(r => {
-          debateSession = r.session;
-          return { session: r.session, terminationReason: r.terminationReason };
-        }),
+      // t/284 item 6: the question must reach the debate unchanged. deriveDebateConfig sets
+      // config.topic = request.question, so a mismatch means the topic was altered upstream.
+      // Fail before the debate spends anything, rather than silently running a different topic.
+      runDebate: (config, question, onProgress) => {
+        if (config.topic !== question) {
+          throw new ActionableError({
+            goal: 'Run an inquiry debate',
+            problem: `Debate topic does not match the inquiry question (topic="${config.topic}")`,
+            location: 'ipc/inquiryHandlers.ts → runJob → runDebate',
+            nextSteps: ['Check deriveDebateConfig: config.topic must equal request.question'],
+          });
+        }
+        return runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
+          .then(r => {
+            debateSession = r.session;
+            return { session: r.session, terminationReason: r.terminationReason };
+          });
+      },
       adapter,
       onStage: (stage: InquiryStage) => setStatus(job, mapStage(stage)),
       // t/4710/t/4713: fine-grained Debate-stage progress — stageProgress('debating', fraction)
