@@ -6,12 +6,13 @@
 // (the hard kill, the heap ceiling) is in isolatedParse.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { parsePdf, MAX_PDF_PAGES, PDF_TIME_BUDGET_MS, ParseError } from './isolated/parseCore.mjs';
+import { parsePdf, MAX_PDF_PAGES, PDF_TIME_BUDGET_MS, PDF_MEMORY_BUDGET_BYTES, ParseError } from './isolated/parseCore.mjs';
 import { extractDocumentText } from './extractDocumentText.js';
 
 /** A stub pdfjs document with `numPages` pages whose text is "page <n>". */
 function stubDocument(numPages: number) {
   return {
+    memory: () => 0, // the test process's own memory is not the parse's; the memory check has its own test below
     getDocument: () => ({
       promise: Promise.resolve({
         numPages,
@@ -51,8 +52,16 @@ describe('PDF page logic (parseCore)', () => {
     expect(PDF_TIME_BUDGET_MS).toBe(15_000);
   });
 
+  it('fails with a MEMORY ParseError when the parse holds more than the memory budget between pages', async () => {
+    const err = await parsePdf(pdfBytes(), { ...stubDocument(50), memory: () => PDF_MEMORY_BUDGET_BYTES + 1 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ParseError);
+    expect(err.code).toBe('MEMORY');
+    expect(err.message).toMatch(/MB/);
+  });
+
   it('rethrows a PasswordException so an encrypted PDF is recognised', async () => {
     const encrypted = {
+      memory: () => 0,
       getDocument: () => ({
         promise: Promise.reject(Object.assign(new Error('No password given'), { name: 'PasswordException' })),
       }),
@@ -63,6 +72,7 @@ describe('PDF page logic (parseCore)', () => {
 
   it('turns a failing page into a warning and keeps the other pages', async () => {
     const flaky = {
+      memory: () => 0,
       getDocument: () => ({
         promise: Promise.resolve({
           numPages: 2,

@@ -9,6 +9,9 @@
 
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { parseIsolated, resolveFromModule, CHILD_HEAP_MB, ISOLATED_TIMEOUT_MS } from './isolatedParse.js';
 import { extractDocumentText } from './extractDocumentText.js';
 
@@ -99,5 +102,60 @@ describe('isolated parse (t/393)', () => {
     expect(err.code).toBe('EXTRACTION_TIMEOUT');
     expect(elapsed).toBeGreaterThan(14_000);
     expect(elapsed).toBeLessThan(20_000);
+  }, 60_000);
+});
+
+// Security p/102#81: the child runs untrusted files, so it must not see the server's environment, must work in an empty
+// directory, and must not read files outside its sandbox. The probe child reports what it can see.
+describe('isolated parse sandbox (Security p/102#81)', () => {
+  const PROBE_CHILD = resolveFromModule('./isolated/__fixtures__/probe-child.mjs');
+  const OVERSIZE_CHILD = resolveFromModule('./isolated/__fixtures__/oversize-child.mjs');
+
+  it('the child gets no server environment: a sentinel variable is unreachable', async () => {
+    process.env.T393_SENTINEL = 'server-secret';
+    try {
+      const { text } = await parseIsolated('pdf', new TextEncoder().encode(join(tmpdir(), 'no-such-file')), { childPath: PROBE_CHILD });
+      const report = JSON.parse(text);
+      expect(report.sentinelSeen).toBe(false);
+      // The child gets only what the OS adds to a child with an empty environment (on Windows). None of the server's
+      // variables crosses, and no key with a secret-looking name appears at all.
+      const WINDOWS_DEFAULTS = [
+        'HOMEDRIVE', 'HOMEPATH', 'LOGONSERVER', 'PATH', 'SYSTEMDRIVE', 'SYSTEMROOT', 'TEMP', 'TMP', 'USERDOMAIN',
+        'USERNAME', 'USERPROFILE', 'WINDIR',
+      ];
+      const allowed = process.platform === 'win32' ? WINDOWS_DEFAULTS : [];
+      const unexpected = report.envKeys.filter((k: string) => !allowed.includes(k));
+      expect(unexpected).toEqual([]);
+      expect(report.envKeys.filter((k: string) => /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^AI_|^T393_/i.test(k))).toEqual([]);
+    } finally {
+      delete process.env.T393_SENTINEL;
+    }
+  }, 60_000);
+
+  it('the child runs in an empty temporary directory of its own, not the server working directory', async () => {
+    const { text } = await parseIsolated('pdf', new TextEncoder().encode(join(tmpdir(), 'no-such-file')), { childPath: PROBE_CHILD });
+    const report = JSON.parse(text);
+    expect(report.cwd.startsWith(tmpdir())).toBe(true);
+    expect(basename(report.cwd).startsWith('t393-')).toBe(true);
+    expect(report.cwd).not.toBe(process.cwd());
+    // The working directory is removed after the parse.
+    expect(existsSync(report.cwd)).toBe(false);
+  }, 60_000);
+
+  it('a file outside the sandbox is unreachable from the child (permission model)', async () => {
+    const outside = join(tmpdir(), `t393-outside-${process.pid}-${Date.now()}.txt`);
+    writeFileSync(outside, 'server-only contents');
+    try {
+      const { text } = await parseIsolated('pdf', new TextEncoder().encode(outside), { childPath: PROBE_CHILD });
+      expect(JSON.parse(text).outsideReadable).toBe(false);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  }, 60_000);
+
+  it('a reply over the text limit is refused by the parent', async () => {
+    const err = await parseIsolated('pdf', new Uint8Array([0x25]), { childPath: OVERSIZE_CHILD }).catch((e) => e);
+    expect(err.code).toBe('EXTRACTION_FAILED');
+    expect(err.problem).toMatch(/more text than the limit/);
   }, 60_000);
 });

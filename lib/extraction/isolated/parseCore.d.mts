@@ -5,11 +5,15 @@
 
 export const MAX_PDF_PAGES: number;
 export const PDF_TIME_BUDGET_MS: number;
+export const PDF_MEMORY_BUDGET_BYTES: number;
+export const MAX_REPLY_CHARS: number;
+
+export function defaultMemory(): number;
 
 /** An error with a code the parent maps to an ActionableError. */
 export class ParseError extends Error {
-  readonly code: 'TIMEOUT' | 'FAILED';
-  constructor(code: 'TIMEOUT' | 'FAILED', message: string);
+  readonly code: 'TIMEOUT' | 'MEMORY' | 'FAILED';
+  constructor(code: 'TIMEOUT' | 'MEMORY' | 'FAILED', message: string);
 }
 
 export interface ParseResult {
@@ -19,7 +23,11 @@ export interface ParseResult {
 
 export function parsePdf(
   bytes: Uint8Array,
-  deps: { getDocument: (opts: { data: Uint8Array }) => { promise: Promise<any> }; now?: () => number },
+  deps: {
+    getDocument: (opts: { data: Uint8Array }) => { promise: Promise<any> };
+    now?: () => number;
+    memory?: () => number;
+  },
 ): Promise<ParseResult>;
 
 export function parseDocx(
