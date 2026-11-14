@@ -38,6 +38,9 @@ export interface DebateConfig {
   rounds: number;
   responseLength: 'brief' | 'medium' | 'detailed';
   enableClarification?: boolean;
+  /** t/284 item 2 (ArCo): run resolution clause decomposition and anchor embedding after scope
+   *  extraction even when clarification is off. Inquiry sets it true. Off by default. */
+  anchorToResolution?: boolean;
   enableProbing?: boolean;
   probingInterval?: number;
   temperature?: number;

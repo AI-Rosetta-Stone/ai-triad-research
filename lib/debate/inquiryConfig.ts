@@ -131,6 +131,8 @@ export function deriveDebateConfig(
     // t/284 item 1: no silent reframe. The user's literal question stays topic.final; the
     // critique rewrite is advisory only.
     wisdomAutoReframe: false,
+    // t/284 item 2: ArCo anchoring for every inquiry, without clarification.
+    anchorToResolution: true,
     stageModels: { evaluator: evaluatorModel },
     ...(profile.phaseBoundsOverride ? { phaseBoundsOverride: profile.phaseBoundsOverride } : {}),
     ...(soulResolver ? { soulResolver } : {}),

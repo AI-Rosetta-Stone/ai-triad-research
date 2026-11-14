@@ -428,6 +428,11 @@ export class TopicPipeline {
       taxonomy_refs: [],
     });
 
+    await this.runResolutionAnchoring();
+  }
+
+  /** ArCo anchoring (t/284 item 2): clause decomposition, then anchor embeddings, on topic.final. */
+  async runResolutionAnchoring(): Promise<void> {
     await this.decomposeResolutionIntoClauses();
     await this.embedResolutionAnchors();
   }
