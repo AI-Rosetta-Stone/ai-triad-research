@@ -6,6 +6,7 @@ import { api } from '@bridge';
 import type { SupportCaseCreatePayload } from '../../bridge/types';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useDialog } from '../shared/useDialog'; // t/4909
+import { redactDumpForSharing } from '../../lib/dumpRedaction';
 import './SupportCaseForm.css';
 
 declare const __APP_VERSION__: string;
@@ -163,7 +164,8 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
     }
     try {
       const { ndjson } = recorder.buildDump('manual');
-      const file = new File([ndjson], 'flight-recorder-dump.jsonl', { type: 'application/json' });
+      // t/418: support attachments leave the machine, so the dump text is redacted first (Quality t/418#12).
+      const file = new File([redactDumpForSharing(ndjson)], 'flight-recorder-dump.jsonl', { type: 'application/json' });
       validateAndAddFiles([file]);
     } catch (err) {
       getGlobalRecorder()?.record({
@@ -366,6 +368,7 @@ export function SupportCaseForm({ onClose, onSubmitted }: SupportCaseFormProps) 
 
               <p className="support-form-hint-text">
                 Paste screenshots with Ctrl+V. Max 10 MB per file, 50 MB total.
+                Include Diagnostics attaches the redacted flight recorder dump. Files you add yourself are sent as they are.
               </p>
 
               {attachError && (
