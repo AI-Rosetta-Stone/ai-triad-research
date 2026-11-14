@@ -314,6 +314,8 @@ export const api: AppAPI = {
   // t/3258 (T3): packaged Electron has no embedded server, so this delegates to a main-process
   // handler that mirrors routes/relevantNodes.ts via the SAME shared lib (parity by construction).
   fetchRelevantNodes: (payload) => window.electronAPI.fetchRelevantNodes(payload),
+  // t/348: main-process handler (ElectronMain, #5125) — packaged Electron has no embedded server.
+  chatSyntheticStatements: (payload) => window.electronAPI.chatSyntheticStatements(payload),
   // t/3316: packaged Electron has no server → delegates to a main handler (t/3322) computing
   // attribution from the LOCAL corpus via the SAME pure fn (parity by construction, per-build).
   fetchClaimAttribution: (payload) => window.electronAPI.computeAttribution(payload),
