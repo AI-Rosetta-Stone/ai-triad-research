@@ -48,7 +48,9 @@ describe('sourcesIndexReader (t/4334#18)', () => {
 
     const result = await loadSourcesIndex();
     expect(result).toEqual(expected);
-  });
+    // First test in the file pays the cold module import (and, on Windows, a cold pwsh start is
+    // 3-6s), which exceeds vitest's 5s default; an explicit per-test timeout instead of a global bump.
+  }, 30_000);
 
   it('returns null and WARNs when the file is missing', async () => {
     const { loadSourcesIndex } = await import('../storage/sourcesIndexReader.js');

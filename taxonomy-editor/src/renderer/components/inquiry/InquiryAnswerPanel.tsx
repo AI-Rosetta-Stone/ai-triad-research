@@ -11,6 +11,7 @@ import { CAMP_LABELS, isZeroResult } from './inquiryDisplay';
 import { InquiryExportDropdown } from './InquiryExportDropdown';
 import { InquiryShareControl } from './InquiryShareControl';
 import { GroundingSection } from './GroundingSection';
+import { InquiryHowSection } from './InquiryHowSection';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './InquiryTab.css';
 
@@ -308,6 +309,8 @@ export function InquiryAnswerPanel() {
       {/* t/4591: Grounding replaces Calibration on this page — calibration data itself stays in
        *  the result and the export, this only removes it from the page. */}
       <InquiryGrounding grounding={result.grounding} />
+      {/* t/280: How sits directly below Why. */}
+      <InquiryHowSection debateId={result.debateId} onOpenDebate={(id) => void handleViewRawRun(id)} />
 
       {/* Adjacency-by-construction (t/3734, SO condition via t/3667#6): the headline is the most
        *  quotable element of the answer, and singleRunCaveat is what keeps it from reading as a

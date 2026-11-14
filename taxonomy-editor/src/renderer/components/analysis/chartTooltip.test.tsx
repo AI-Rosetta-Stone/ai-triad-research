@@ -27,7 +27,8 @@ describe('chartTooltip (t/894)', () => {
     render(<ChartTooltipLayer tip={{ x: 500, y: 10, content: 'x' }} />);
     const el = screen.getByRole('tooltip');
     expect(el.style.top).toBe('26px'); // y(10) + 16 when flipped below
-    expect(el.style.transform).toBe('translate(-50%, 0)');
+    // jsdom 30 serializes the 0 y-offset; jsdom 31 drops it
+    expect(el.style.transform).toMatch(/^translate\(-50%(, 0(px)?)?\)$/);
   });
 
   it('shows on showTip and clears on hideTip (no stuck tooltip)', () => {

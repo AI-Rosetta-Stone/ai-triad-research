@@ -47,6 +47,8 @@ export interface BriefExportJobRecord {
   startedAt: number;
   /** ISO timestamp of the last write by the owning process; gates the staleness check. */
   lastHeartbeatAt: string;
+  /** t/182: Idempotency key for de-duplication. null if the request didn't provide one (no idempotency). */
+  idempotencyKey: string | null;
 }
 
 export const isTerminalExportStatus = (s: ExportJobState): boolean => s === 'done' || s === 'failed';

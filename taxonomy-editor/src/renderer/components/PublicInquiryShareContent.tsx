@@ -13,6 +13,7 @@ import type { PublicInquiryShare } from '@lib/inquiry';
 import { CAMP_LABELS, FIDELITY_LABELS, trustVerdictLabel } from './inquiry/inquiryDisplay';
 import { InquiryTagScope } from './InquiryTagScope';
 import { PublicGroundingSection } from './inquiry/PublicGroundingSection';
+import { InquiryHowSection } from './inquiry/InquiryHowSection';
 import './PublicInquiryView.css';
 
 /** ADR-001 graceful-empty: a terminal share with no substantive content needs its own
@@ -135,6 +136,8 @@ export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) 
           {/* t/4591: Grounding replaces Calibration's badge-card UI on this page — calibration
            *  data itself stays in the result, this only removes the cards from the page. */}
           <PublicInquiryGrounding grounding={doc.grounding} />
+          {/* t/280: the public share has no debate link (debateId is excluded from public-share). */}
+          <InquiryHowSection />
         </>
       )}
 

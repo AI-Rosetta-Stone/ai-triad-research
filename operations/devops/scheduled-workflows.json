@@ -6,6 +6,7 @@
     { "file": "cache-cleanup.yml",            "maxSilentHours": 348 },
     { "file": "check-base-pin-drift.yml",     "maxSilentHours": 60  },
     { "file": "ci.yml",                       "maxSilentHours": 60  },
+    { "file": "cancel-superseded-runs.yml", "maxSilentHours": 12  },
     { "file": "cleanup-session-branches.yml", "maxSilentHours": 60  },
     { "file": "cluster-conflicts.yml",        "maxSilentHours": 348 },
     { "file": "codeql.yml",                   "maxSilentHours": 348 },

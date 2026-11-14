@@ -37,6 +37,17 @@ export function isBadByte(b) {
   return (b <= 0x08) || b === 0x0b || b === 0x0c || (b >= 0x0e && b <= 0x1f) || b === 0x7f
 }
 
+/**
+ * Pure. How to fix one finding. t/335 (Second Opinion on #5048): 0x1B is almost always an ANSI colour code
+ * from pasted terminal output (gh run view --log, test runners), so say that and how to strip it.
+ */
+export function fixHint(hex) {
+  if (hex === '0x1B') {
+    return `ANSI escape (0x1B), most likely pasted terminal output with colour codes. Strip them, e.g. sed -i 's/\\x1b\\[[0-9;]*[A-Za-z]//g' <file>, or re-copy the output with colour off (NO_COLOR=1, --color=never). Or allowlist the file with a reason in ${ALLOWLIST_PATH}.`
+  }
+  return `control byte ${hex}; invisible in PR diffs. Use an escape (e.g. \\b, \\x08) instead of the raw byte, or allowlist the file with a reason in ${ALLOWLIST_PATH}.`
+}
+
 /** Pure. Every rejected byte in a buffer: [{ line, col, hex }], 1-based, col counted in bytes. */
 export function findControlChars(buf) {
   const out = []
@@ -97,10 +108,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     ? readFileSync(0, 'utf8').split('\0').filter(Boolean)
     : (args.length ? args : null)
   const { findings, problems, scanned } = scan(root, paths)
-  for (const p of problems) console.log(`::warning::check-control-chars: ${p}`)
+  // t/335: ::error, now that the step blocks (t/130).
+  for (const p of problems) console.log(`::error::check-control-chars: ${p}`)
   for (const f of findings) {
-    console.log(`::warning file=${f.path},line=${f.line},col=${f.col}::check-control-chars (t/128): control byte ${f.hex}; invisible in PR diffs. Use an escape (e.g. \\b, \\x08) instead of the raw byte, or allowlist the file with a reason in ${ALLOWLIST_PATH}.`)
-    console.log(`${f.path}:${f.line}:${f.col}: ${f.hex}`)
+    console.log(`::error file=${f.path},line=${f.line},col=${f.col}::check-control-chars (t/128): ${fixHint(f.hex)}`)
+    console.log(`${f.path}:${f.line}:${f.col}: ${f.hex}${f.hex === '0x1B' ? ' (ANSI escape)' : ''}`)
   }
   if (findings.length || problems.length) {
     console.log(`check-control-chars: ${findings.length} control byte(s) in ${new Set(findings.map((f) => f.path)).size} file(s), ${problems.length} allowlist problem(s); ${scanned} file(s) scanned (t/128)`)

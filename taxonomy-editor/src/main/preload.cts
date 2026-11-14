@@ -284,6 +284,10 @@ function buildElectronApi() {
   computeAttribution: (payload: FetchClaimAttributionPayload): Promise<ClaimAttributionResponse> =>
     ipcRenderer.invoke('compute-attribution', payload),
 
+  // t/348: read-only. One statement text (or null for description fallback) per nodeId.
+  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }): Promise<Record<string, string | null>> =>
+    ipcRenderer.invoke('chat-synthetic-statements', payload),
+
   computeEmbeddings: (texts: string[], ids?: string[]): Promise<{ vectors: number[][] }> =>
     ipcRenderer.invoke('compute-embeddings', texts, ids),
 
@@ -864,6 +868,9 @@ function buildElectronApi() {
     /** t/4710/t/4713: fine-grained Debate-stage detail line. Present only while debating. */
     stageDetail?: string;
     terminationReason: string | null; resultId: string | null; error: string | null;
+    /** t/327: Timing information for the inquiry pipeline stages (grounding/debating/judging/synthesizing).
+     *  Each stage records Unix timestamps (ms) for when it started and ended. Always sent; a stage not yet entered has no startedAt/endedAt. */
+    stageTimings?: Record<'grounding' | 'debating' | 'judging' | 'synthesizing', { startedAt?: number; endedAt?: number }>;
     result?: InquiryResult;
   } | null> =>
     ipcRenderer.invoke('get-inquiry', jobId),

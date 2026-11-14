@@ -521,7 +521,7 @@ jobs:
     # cancels on main (t/3663 area); the durable fix is trimming/parallelizing the suite (t/3665,
     # PowerShell scope) off its ~14-min edge.
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # t/386: stays hosted. Shards 3, 5 need Azure CLI (az); shard 6 needs xdg-open; shards 1, 2, 4, 7, 8 never ran on the runner.
     # t/3668: shard the Pester suite across parallel matrix jobs, KEEPING -Force per-file isolation
     # (each shard runs a DISJOINT slice — no import-once, no state bleed; t/3665 close-out chose
     # shard-with-Force over the 84-var reset re-architecture). ci-gate aggregates the shards via
@@ -1277,7 +1277,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.test-electron-vitest.result != 'skipped' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # t/386: stays hosted. Never ran on the runner (needs all vitest shards).
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1413,9 +1413,64 @@ jobs:
           restore-keys: |
             ms-playwright-${{ runner.os }}-
 
+      # Cache of the apt packages Playwright's `--with-deps` installed on the last live run (t/394).
+      # packages.txt is the list of packages that run added; *.deb are their archives. Keyed like the
+      # browser cache above. A miss means the install step below goes to the live mirrors as before.
+      - name: Cache Playwright apt deps (t/394)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}/apt-playwright
+          key: apt-playwright-${{ runner.os }}-${{ hashFiles('taxonomy-editor/pnpm-lock.yaml') }}
+          restore-keys: |
+            apt-playwright-${{ runner.os }}-
+
+      # `--with-deps` apt-installs Chromium's system libraries and fonts. When the runners can't reach
+      # the Ubuntu mirrors (2026-11-11: `Temporary failure resolving 'security.ubuntu.com'` on every
+      # merge group, which blocked the queue repo-wide), the install comes from the apt cache above with
+      # no `apt-get update` and no mirror access (t/394). The apt packages come from that cache only. The
+      # browser binary (`playwright install chromium`) is not cached by this step and may still download
+      # from Playwright's CDN on that arm. If the cache is a miss, retry the live install once after
+      # a back-off, then fall back to the Chromium binary alone, with a WARN (ubuntu-latest already ships
+      # Chrome's runtime libraries). No masking: every arm ends with a real headless launch, which fails
+      # this step loudly if a library is missing, and the smoke step below is unchanged and still has to
+      # pass. RENDER_SMOKE_SIMULATE_APT_FAILURE=1 forces the live install and fallback arms, for proving
+      # them; it can only make the install harder, never the gate easier.
       - name: Install Chromium (Playwright, pinned @playwright/test 1.60.0)
         working-directory: taxonomy-editor
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          APT_CACHE="$RUNNER_TEMP/apt-playwright"
+          mkdir -p "$APT_CACHE"
+          verify_launch() {
+            node -e "require('@playwright/test').chromium.launch().then(b => b.close()).then(() => console.log('render-smoke: Chromium launches')).catch(e => { console.error('::error::render-smoke: Chromium cannot launch: ' + e.message); process.exit(1) })"
+          }
+          # Cache arm: the apt packages come from the cached .debs, with no mirror access. The browser binary
+          # (`playwright install chromium`) may still download from Playwright's CDN. Any miss falls through.
+          from_cache() {
+            if [ "${RENDER_SMOKE_SIMULATE_APT_FAILURE:-}" = "1" ]; then return 1; fi
+            [ -s "$APT_CACHE/packages.txt" ] || return 1
+            sudo cp "$APT_CACHE"/*.deb /var/cache/apt/archives/ || return 1
+            sudo apt-get install -y --no-download --no-install-recommends $(cat "$APT_CACHE/packages.txt") || return 1
+            pnpm exec playwright install chromium
+          }
+          # Live arm: Playwright's own install. On success, record what it added and keep the .debs for the cache.
+          with_deps() {
+            if [ "${RENDER_SMOKE_SIMULATE_APT_FAILURE:-}" = "1" ]; then echo "simulated apt failure"; return 1; fi
+            dpkg-query -W -f='${Package}\n' | sort > "$RUNNER_TEMP/pkgs-before.txt"
+            pnpm exec playwright install --with-deps chromium || return 1
+            dpkg-query -W -f='${Package}\n' | sort > "$RUNNER_TEMP/pkgs-after.txt"
+            comm -13 "$RUNNER_TEMP/pkgs-before.txt" "$RUNNER_TEMP/pkgs-after.txt" > "$APT_CACHE/packages.txt"
+            cp /var/cache/apt/archives/*.deb "$APT_CACHE/" 2>/dev/null || true
+          }
+          if from_cache && verify_launch; then echo "render-smoke: apt deps restored from cache (t/394)"; exit 0; fi
+          echo "render-smoke: apt cache miss or cached install failed; trying live apt"
+          if with_deps; then exit 0; fi
+          echo "render-smoke: playwright install --with-deps failed; retrying once in 20 s"
+          sleep 20
+          if with_deps; then exit 0; fi
+          echo "::warning::render-smoke: apt deps unavailable (playwright install --with-deps chromium failed twice); using bundled Chromium only"
+          pnpm exec playwright install chromium
+          # Prove the fallback browser actually launches. Missing libraries fail here, loudly.
+          node -e "require('@playwright/test').chromium.launch().then(b => b.close()).then(() => console.log('render-smoke: fallback Chromium launches')).catch(e => { console.error('::error::render-smoke: fallback Chromium cannot launch: ' + e.message); process.exit(1) })"
 
       - name: Build prod web artifact + server (build:container)
         working-directory: taxonomy-editor
@@ -1900,6 +1955,10 @@ jobs:
       - name: shared-input coverage workflow crash-path suite
         run: node --test operations/devops/ci-shared-input-coverage-workflow.test.mjs
 
+      # t/357: pr-triage's last-activity clock counts the latest push (the head commit date).
+      - name: pr-triage activity-facts suite
+        run: node --test operations/devops/pr-triage-activity.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
@@ -1915,6 +1974,15 @@ jobs:
       # copy, and its script records or WARNs without ever failing.
       - name: guard rate-limit snapshot step suite
         run: node --test operations/devops/rate-limit-snapshot-step.test.mjs
+
+      # t/391: what the superseded-run canceller may cancel (never merge_group/push/_target runs).
+      - name: superseded-run canceller suite
+        run: node --test operations/devops/cancel-superseded-runs.test.mjs
+
+      # t/369: consult-hold-guard and joint-gv-guard read the PR over REST through one inline helper;
+      # it stays identical to its canonical copy and classifies rate-limit, 5xx and other 4xx apart.
+      - name: guard PR-read (REST + rate-limit classification) suite
+        run: node --test operations/devops/guard-pr-read.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -2123,7 +2191,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # t/386: needs Docker (hadolint container action); the WSL runner has none
     timeout-minutes: 30  # longest green run 13.0m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2576,7 +2644,7 @@ jobs:
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # t/386: stays hosted. Not yet green on the runner.
     timeout-minutes: 10  # longest green run under 5m (25 runs to 2026-11-06); 2x, min 10 (p/331#2639)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
