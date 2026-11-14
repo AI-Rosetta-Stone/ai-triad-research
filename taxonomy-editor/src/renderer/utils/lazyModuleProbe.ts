@@ -6,8 +6,6 @@
 
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
-const MODULE_FETCH_ERROR_RE = /Failed to fetch dynamically imported module:?s*(S+)/i;
-
 // t/417: the module URL alone can look healthy (HTTP 200) while one of its own imports fails
 // (a dep that Vite re-optimised mid-session). This re-imports the lazy module under a fresh query,
 // so the browser re-evaluates it and reports the import that actually fails.

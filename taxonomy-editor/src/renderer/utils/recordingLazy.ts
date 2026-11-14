@@ -96,10 +96,11 @@ export async function recordModuleFetchFailure(err: unknown): Promise<void> {
  */
 // `any` mirrors React.lazy's own generic constraint (ComponentType<any>); the project's
 // eslint base config does not enable no-explicit-any, so no disable directive is needed.
-export function recordingLazy<T extends ComponentType<any>>(
+// t/417: the loader wrapper recordingLazy hands to React.lazy. Exported so tests drive the real path.
+export function recordingLoader<T extends ComponentType<any>>(
   loader: () => Promise<{ default: T }>,
-): LazyExoticComponent<T> {
-  return lazy(() =>
+): () => Promise<{ default: T }> {
+  return () =>
     loader().catch(async (err: unknown): Promise<{ default: T }> => {
       await recordModuleFetchFailure(err);
       const message = err instanceof Error ? err.message : String(err);
@@ -108,6 +109,11 @@ export function recordingLazy<T extends ComponentType<any>>(
         window.location.reload();
       }
       throw err;
-    }),
-  );
+    });
+}
+
+export function recordingLazy<T extends ComponentType<any>>(
+  loader: () => Promise<{ default: T }>,
+): LazyExoticComponent<T> {
+  return lazy(recordingLoader(loader));
 }

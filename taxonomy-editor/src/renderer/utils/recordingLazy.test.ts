@@ -8,7 +8,7 @@ vi.mock('@lib/flight-recorder/index', () => ({
   getGlobalRecorder: () => ({ record: recordSpy }),
 }));
 
-import { probeModule, recordModuleFetchFailure, recordingLazy } from './recordingLazy';
+import { probeModule, recordModuleFetchFailure, recordingLazy, recordingLoader } from './recordingLazy';
 import { probeLazyGraph, shouldReloadOnce } from './lazyModuleProbe';
 
 const URL = 'http://127.0.0.1:5173/src/renderer/components/debate/DebateTab.tsx';
@@ -128,19 +128,15 @@ describe('shouldReloadOnce — t/417 reload-once guard', () => {
 });
 
 describe('recordingLazy — t/417 reload once on a failed lazy import', () => {
-  it('reloads the window once for a dynamic-import failure, and not again on the next failure', async () => {
+  it('drives the real loader: reloads the window once for a dynamic-import failure, not again on the next', async () => {
     const reload = vi.fn();
     vi.stubGlobal('location', { ...window.location, reload });
     sessionStorage.clear();
     const failing = () => Promise.reject(new TypeError('Failed to fetch dynamically imported module: ' + URL));
-    const Lazy = recordingLazy(failing as never);
-    expect(Lazy).toBeDefined();
-    // Drive the loader directly: the lazy wrapper runs the same catch path.
-    await expect(failing().catch(async (err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      if (shouldReloadOnce(URL, window.sessionStorage)) window.location.reload();
-      throw err;
-    })).rejects.toThrow();
+    // recordingLoader is the exact function recordingLazy passes to React.lazy.
+    const wrapped = recordingLoader(failing as never);
+    await expect(wrapped()).rejects.toThrow();
+    await expect(wrapped()).rejects.toThrow();
     expect(reload).toHaveBeenCalledTimes(1);
     expect(shouldReloadOnce(URL, window.sessionStorage)).toBe(false);
     vi.unstubAllGlobals();
