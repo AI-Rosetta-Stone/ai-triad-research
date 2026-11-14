@@ -13,13 +13,16 @@ export type DocumentExtractionCode =
   | 'EMPTY_DOCUMENT'
   | 'SIZE_LIMIT_EXCEEDED'
   | 'CORRUPT_DOCUMENT'
-  | 'EXTRACTION_FAILED';
+  | 'EXTRACTION_FAILED'
+  | 'EXTRACTION_TIMEOUT'
+  | 'EXTRACTION_MEMORY_LIMIT';
 
 /**
  * HTTP status codes for extraction errors.
  * - 413 Payload Too Large: SIZE_LIMIT_EXCEEDED
  * - 415 Unsupported Media Type: UNSUPPORTED_FORMAT
- * - 422 Unprocessable Entity: all others (ENCRYPTED, EMPTY, CORRUPT, EXTRACTION_FAILED)
+ * - 422 Unprocessable Entity: all others (ENCRYPTED, EMPTY, CORRUPT, EXTRACTION_FAILED, and the isolated-parse
+ *   TIMEOUT and MEMORY_LIMIT codes from t/393)
  */
 export const extractionErrorStatus: Record<DocumentExtractionCode, number> = {
   SIZE_LIMIT_EXCEEDED: 413,
@@ -28,4 +31,6 @@ export const extractionErrorStatus: Record<DocumentExtractionCode, number> = {
   EMPTY_DOCUMENT: 422,
   CORRUPT_DOCUMENT: 422,
   EXTRACTION_FAILED: 422,
+  EXTRACTION_TIMEOUT: 422,
+  EXTRACTION_MEMORY_LIMIT: 422,
 };
