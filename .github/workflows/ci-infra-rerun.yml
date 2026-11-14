@@ -226,7 +226,8 @@ jobs:
           # head_branch remains the correct source here).
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "${{ github.event.workflow_run.head_branch }}"             "${{ github.event.workflow_run.head_sha }}")
+            "${{ github.event.workflow_run.head_branch }}" \
+            "${{ github.event.workflow_run.head_sha }}")
           echo "group PRs: $PRS_JSON"
           echo "prs_json=$(echo "$PRS_JSON" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
