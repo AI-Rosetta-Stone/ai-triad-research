@@ -192,6 +192,7 @@ Describe 'The POV summarizer reads snapshots with data URIs stripped (t/4386)' -
         $files = 'Private/Invoke-DocumentSummary.ps1', 'Private/InvokePOVSummarySteps.ps1' |
             ForEach-Object { Get-Content -Raw "$PSScriptRoot/../scripts/AITriad/$_" }
         ($files -join "`n") | Should -Not -Match 'SnapshotText\s*=\s*Get-Content'
-        ([regex]::Matches(($files -join "`n"), 'Read-SnapshotForModel -Path')).Count | Should -Be 3
+        # 4th: Finalize-Summary's t/375 numeric-grounding fallback reads the snapshot when no -SnapshotText was passed. It goes through the helper, so it strips like the rest.
+        ([regex]::Matches(($files -join "`n"), 'Read-SnapshotForModel -Path')).Count | Should -Be 4
     }
 }

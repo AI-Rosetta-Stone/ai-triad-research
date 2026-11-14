@@ -81,9 +81,9 @@ Describe 'Finalize-Summary records numeric_ungrounded_dropped (t/375)' -Tag 'sum
 
     It 'is the drop count when a snapshot is passed, and null with a WARN when none is available' {
         InModuleScope AITriad {
-            $mi = New-SummaryModelInfo -Model 'm' -Temperature 0.1 -TaxonomyJson '' -ChunkCount 0 -FireStats $null -NumericUngroundedDropped 3
+            $mi = New-SummaryModelInfo -Model 'gemini-3.5-flash-lite' -Temperature 0.1 -TaxonomyJson '' -ChunkCount 0 -FireStats $null -NumericUngroundedDropped 3
             $mi['numeric_ungrounded_dropped'] | Should -Be 3
-            $mi2 = New-SummaryModelInfo -Model 'm' -Temperature 0.1 -TaxonomyJson '' -ChunkCount 0 -FireStats $null
+            $mi2 = New-SummaryModelInfo -Model 'gemini-3.5-flash-lite' -Temperature 0.1 -TaxonomyJson '' -ChunkCount 0 -FireStats $null
             $mi2['numeric_ungrounded_dropped'] | Should -BeNullOrEmpty
         }
     }

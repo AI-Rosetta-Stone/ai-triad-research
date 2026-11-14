@@ -58,7 +58,8 @@ Describe 'Finalize-Summary: the key_point "anchors" field (t/4482)' -Tag 'summar
             $warnText = [string](Get-Content -Raw -LiteralPath $wf -ErrorAction SilentlyContinue)
 
             $r.Success | Should -BeTrue
-            $warnText | Should -Not -Match 'anchors'
+            # Match a field-missing warning only. The t/375 fallback WARN echoes the doc id, which contains 'anchors'.
+            $warnText | Should -Not -Match 'missing[^\r\n]*anchors'
         }
     }
 }
