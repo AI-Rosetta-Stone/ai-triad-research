@@ -10,6 +10,7 @@ import { app, ipcMain, BrowserWindow, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { PROJECT_ROOT } from '../fileIO.js';
+import { redactDumpText } from '../../../../lib/flight-recorder/flightRecorderRedact.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 export function registerFlightRecorderHandlers(): void {
@@ -64,7 +65,9 @@ export function registerFlightRecorderHandlers(): void {
     // Filesystem-safe ISO timestamp
     const ts = new Date().toISOString().replace(/:/g, '-');
     const filePath = path.join(dumpDir, `flight-recorder-${ts}.jsonl`);
-    fs.writeFileSync(filePath, ndjson, 'utf-8');
+    // t/418: main-process stack traces reach the written dump too, so redact the whole text here
+    // (the renderer redacts before sending; this covers any caller that does not).
+    fs.writeFileSync(filePath, redactDumpText(ndjson, process.env.USERPROFILE ?? null), 'utf-8');
 
     // Retention: keep last 20 files, max 50 MB
     const MAX_FILES = 20;

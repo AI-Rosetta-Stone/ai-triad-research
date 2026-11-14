@@ -51,6 +51,10 @@ export interface ElectronAPI {
    *  `string` would satisfy preload→declared assignability but fail the reverse (mutual)
    *  direction, since not every string is a valid NodeJS.Platform/Architecture literal. */
   osPlatform: NodeJS.Platform;
+  /** t/418: app.getAppPath() of the running main process (the code actually executing), or null. */
+  appPath: string | null;
+  /** t/418: USERPROFILE of the running main process, for redacting redirected profiles from dumps; null when unset. */
+  userProfile: string | null;
   osArch: NodeJS.Architecture;
   /** t/2766: performance.now() stamp from when contextBridge.exposeInMainWorld ran. */
   preloadTimestamp: number;

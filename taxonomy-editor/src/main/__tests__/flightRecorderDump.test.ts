@@ -76,3 +76,17 @@ describe('dump-flight-recorder retention-cleanup failure recording (t/2026)', ()
     }
   });
 });
+
+describe('dump-flight-recorder profile redaction (t/418)', () => {
+  it('writes the dump with user-profile paths redacted, including in main-process stack traces', () => {
+    // A main-process stack frame carries the raw profile path; the dump on disk must not.
+    const ndjson = JSON.stringify({
+      type: 'system.error',
+      error: { stack: 'Error: boom\n    at C:\\Users\\jsnov\\repos\\app\\main.ts:12:3' },
+    });
+    const { filePath } = invoke('dump-flight-recorder', ndjson) as { filePath: string };
+    const written = fs.readFileSync(filePath, 'utf-8');
+    expect(written).not.toContain('jsnov');
+    expect(written).toContain('%USERPROFILE%');
+  });
+});
