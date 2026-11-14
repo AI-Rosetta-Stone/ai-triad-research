@@ -3555,8 +3555,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Run F4 shim test
         run: |
-          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh
+          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh operations/devops/test-get-merge-group-prs-ejected.sh
           operations/devops/test-get-merge-group-prs-f4.sh
+          operations/devops/test-get-merge-group-prs-ejected.sh
       - name: Run C5 liveness lookup-failure shim test (SO P2)
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
@@ -4026,7 +4027,8 @@ jobs:
           chmod +x operations/devops/get-merge-group-prs.sh
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "${{ github.ref }}")
+            "${{ github.ref }}" \
+            "${{ github.event.merge_group.head_sha }}")
           echo "group PRs and labels: $PRS_JSON"
           HELD=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("consult-hold"))] | map(.number) | join(",")')
           if [ -n "$HELD" ]; then
@@ -4096,7 +4098,8 @@ jobs:
           chmod +x operations/devops/get-merge-group-prs.sh
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "${{ github.ref }}")
+            "${{ github.ref }}" \
+            "${{ github.event.merge_group.head_sha }}")
           echo "group PRs and labels: $PRS_JSON"
           # t/4580: joint-gv PRs never enter the queue at all (merged manually after the joint
           # review) -- so ANY joint-gv label on ANY PR in a group is a fail, unconditionally,
@@ -4216,7 +4219,7 @@ jobs:
 
             execSync(`chmod +x ${JSON.stringify(enumeratorPath)}`, { cwd: process.env.GITHUB_WORKSPACE });
             const groupJson = execSync(
-              `${JSON.stringify(enumeratorPath)} ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)}`,
+              `${JSON.stringify(enumeratorPath)} ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)} ${JSON.stringify(context.payload.merge_group?.head_sha ?? '')}`,
               { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' },
             );
             const group = JSON.parse(groupJson);
