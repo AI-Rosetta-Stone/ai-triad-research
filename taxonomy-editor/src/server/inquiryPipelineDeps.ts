@@ -35,6 +35,7 @@ import { getModelRegistry } from './ai/aiBackends.js';
 import * as ai from './ai/aiBackends.js';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 import { saveDebateSession } from './storage/debateStore.js';
 
 // Camp code (contract) → taxonomy pov-file name (what readTaxonomyFile/getAssembledCorpus key on).
@@ -195,7 +196,21 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
       // with no debate events, so the poll sat at the 15% debate floor with no stage detail.
       // t/476 (t/284 item 5): the session is NOT saved here. It is saved by persistSession, after the pipeline
       // records the question relevance, so the stored session carries the relevance metric.
-      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress),
+      // t/284 item 6: the question must be the debate's topic. deriveDebateConfig sets topic = request.question,
+      // so a mismatch means the config was built from something else. Refuse before the debate spends anything.
+      runDebate: async (config, question, onProgress) => {
+        if (config.topic !== question) {
+          throw new ActionableError({
+            goal: 'Run the inquiry debate on the question the user asked',
+            problem: `debate topic "${config.topic}" does not match the inquiry question`,
+            location: 'inquiryPipelineDeps.buildInquiryRunPipeline runDebate',
+            nextSteps: ['Build the debate config with deriveDebateConfig(request) so topic = request.question'],
+            httpStatus: 500,
+            code: 'INQUIRY_TOPIC_MISMATCH',
+          });
+        }
+        return runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress);
+      },
       // t/476: called once by the pipeline, after relevance is recorded, with the same session object.
       persistSession: async (session) => { if (!(await persistInquiryDebateSession(session, ctx.jobId))) debateSaveFailed = true; }, // t/4338
       adapter,

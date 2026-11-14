@@ -126,7 +126,7 @@ describe('t/4289/t/4290 — server inquiry adapter wires computeQueryEmbedding',
 describe('t/4338 + t/476 — the debate session is saved by persistSession, not inside runDebate', () => {
   it('persistSession saves with mustNotExist:true, listedButExempt:true, and the typed origin marker', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
-    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     await h.capturedDeps!.runDebate(config, 'q');
     expect(h.saveDebateSessionSpy).not.toHaveBeenCalled(); // t/476: runDebate no longer saves
 
@@ -140,9 +140,16 @@ describe('t/4338 + t/476 — the debate session is saved by persistSession, not 
     expect(opts).toEqual({ mustNotExist: true, listedButExempt: true });
   });
 
+  it('refuses to run the debate when the config topic is not the inquiry question (t/284 item 6), before any spend', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const config = { model: 'test-model', topic: 'a different topic' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    await expect(h.capturedDeps!.runDebate(config, 'q')).rejects.toThrow(/does not match the inquiry question/);
+    expect(h.runHeadlessDebateMock).not.toHaveBeenCalled();
+  });
+
   it('runDebate still returns the session/terminationReason to the pipeline', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
-    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     const result = await h.capturedDeps!.runDebate(config, 'q');
     expect(result.session).toEqual({ id: 'session-1' });
   });
@@ -163,7 +170,7 @@ describe('t/4338 + t/476 — the debate session is saved by persistSession, not 
 // onDebateProgress, so no debate event reached the job and the poll sat at the 15% floor with no
 // stageDetail (observed live on prod 4b8d8830). These fail on that wiring.
 describe('t/4917 — debate progress reaches the job through the prod wiring', () => {
-  const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+  const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
 
   it('runDebate relays the pipeline-supplied onProgress to runHeadlessDebate', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
