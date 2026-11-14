@@ -21,6 +21,7 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({
 import { loadDictionary, setBackend } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { FilesystemBackend } from '../storage/filesystemBackend.js';
+import * as os from 'node:os';
 
 // ── Helpers ──
 
@@ -39,7 +40,7 @@ describe('loadDictionary — Fallback-Path Logging (t/3289)', () => {
   });
 
   afterEach(() => {
-    setBackend(new FilesystemBackend());
+    setBackend(new FilesystemBackend({ root: os.tmpdir() }));
   });
 
   it('emits WARN with cause=dir-missing when standardized dir listing throws ENOENT', async () => {

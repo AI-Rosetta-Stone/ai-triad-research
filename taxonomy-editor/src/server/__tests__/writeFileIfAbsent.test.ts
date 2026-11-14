@@ -70,7 +70,7 @@ describe('FilesystemBackend.writeFileIfAbsent (t/181)', () => {
   afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
 
   it('first create → created with the content; second → exists and the file is untouched', async () => {
-    const backend = new FilesystemBackend();
+    const backend = new FilesystemBackend({ root: dir });
     const file = path.join(dir, 'sub', 'job-a.json');
     expect(await backend.writeFileIfAbsent(file, '{"v":1}')).toBe('created');
     expect(await backend.writeFileIfAbsent(file, '{"v":2}')).toBe('exists');
@@ -80,21 +80,21 @@ describe('FilesystemBackend.writeFileIfAbsent (t/181)', () => {
   it('a file created out-of-band (another process) reads as exists', async () => {
     const file = path.join(dir, 'job-b.json');
     await fs.writeFile(file, 'theirs');
-    expect(await new FilesystemBackend().writeFileIfAbsent(file, 'mine')).toBe('exists');
+    expect(await new FilesystemBackend({ root: dir }).writeFileIfAbsent(file, 'mine')).toBe('exists');
     expect(await fs.readFile(file, 'utf-8')).toBe('theirs');
   });
 
   it('concurrent creates across instances: exactly one created, and the file holds the winner\'s content', async () => {
     const file = path.join(dir, 'job-c.json');
     const results = await Promise.all(
-      Array.from({ length: 6 }, (_, i) => new FilesystemBackend().writeFileIfAbsent(file, `writer-${i}`)),
+      Array.from({ length: 6 }, (_, i) => new FilesystemBackend({ root: dir }).writeFileIfAbsent(file, `writer-${i}`)),
     );
     expect(results.filter(r => r === 'created')).toHaveLength(1);
     expect(await fs.readFile(file, 'utf-8')).toBe(`writer-${results.indexOf('created')}`);
   });
 
   it('leaves no temp files behind, on either outcome', async () => {
-    const backend = new FilesystemBackend();
+    const backend = new FilesystemBackend({ root: dir });
     const file = path.join(dir, 'job-d.json');
     await backend.writeFileIfAbsent(file, '1');
     await backend.writeFileIfAbsent(file, '2');
@@ -104,7 +104,7 @@ describe('FilesystemBackend.writeFileIfAbsent (t/181)', () => {
   it('a real failure throws — it is never reported as exists', async () => {
     const blocker = path.join(dir, 'not-a-dir');
     await fs.writeFile(blocker, 'x');
-    await expect(new FilesystemBackend().writeFileIfAbsent(path.join(blocker, 'job-e.json'), '{}')).rejects.toThrow();
+    await expect(new FilesystemBackend({ root: dir }).writeFileIfAbsent(path.join(blocker, 'job-e.json'), '{}')).rejects.toThrow();
   });
 });
 
