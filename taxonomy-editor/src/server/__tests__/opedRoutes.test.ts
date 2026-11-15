@@ -374,6 +374,80 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(capturedReq?.sourceMaterial).toBe('# Fetched article\nBody.');
   });
 
+  // t/276 (t/274#2 contract): an uploaded document arrives as extracted text plus its file name. The text is the
+  // generator's source material (source_mode 'document' in lib/oped); the server does not fetch anything.
+  describe('document source (t/276)', () => {
+    it('document source: the text and name reach the generator; nothing is fetched; generation runs', async () => {
+      let capturedReq: { sourceMaterial?: string; sourceName?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'The report says X.', sourceName: 'report.docx' });
+      expect(fetchUrlContent).not.toHaveBeenCalled();
+      expect(res._status).toBe(200);
+      expect(capturedReq?.sourceMaterial).toBe('The report says X.');
+      expect(capturedReq?.sourceName).toBe('report.docx');
+    });
+
+    it('document text without a sourceName is a 400, before generation', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a sourceName without document text is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, sourceName: 'report.docx' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a document and a URL together are a 400: two sources, not one', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, url: 'https://example.com/a', documentText: 'text', sourceName: 'r.txt' });
+      expect(res._status).toBe(400);
+      expect(fetchUrlContent).not.toHaveBeenCalled();
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('document text over the 500,000-character cap is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'a'.repeat(500_001), sourceName: 'big.txt' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a sourceName over 255 characters is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text', sourceName: 'n'.repeat(256) });
+      expect(res._status).toBe(400);
+    });
+
+    it('control characters are stripped from the document text before it reaches the generator', async () => {
+      let capturedReq: { sourceMaterial?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'a\u0000b\u0007c keep', sourceName: 'r.txt' });
+      expect(res._status).toBe(200);
+      expect(capturedReq?.sourceMaterial).toBe('abc keep');
+    });
+
+    it('a document that is only whitespace or control characters is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: '   \u0001 ', sourceName: 'r.txt' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+  });
+
   // t/172: the route is a pass-through for the generator's per-member `stages` (t/171) — the SSE
   // frames carry it to the client and the completed set is persisted with it.
   it('t/172: a generated member\'s stages reach the client over SSE and are handed to finalizeOpedSet', async () => {
