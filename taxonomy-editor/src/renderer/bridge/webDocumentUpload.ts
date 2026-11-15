@@ -7,14 +7,15 @@
 // The transport is passed in so this module does not import web-bridge (no cycle).
 
 export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
-const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md'];
+// html/htm stay accepted: the server still extracts them, and the old picker offered them.
+const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'html', 'htm', 'txt', 'md'];
 
 /** Opens the browser file picker. Resolves null when the user cancels. */
 export function pickBrowserDocument(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown';
+    input.accept = '.pdf,.docx,.html,.htm,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/html,text/plain,text/markdown';
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();

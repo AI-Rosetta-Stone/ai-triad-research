@@ -68,8 +68,20 @@ describe('web-bridge pickDocumentFile (t/276)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each(['page.html', 'page.htm'])('accepts %s, as the old picker did, and uploads its bytes', async (name) => {
+    const file = new File(['<p>hello</p>'], name, { type: 'text/html' });
+    stubPicker(file);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ text: 'hello' }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.pickDocumentFile()).resolves.toEqual({ cancelled: false, filePath: name, content: 'hello' });
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBe(file);
+  });
+
   it('refuses an unsupported file type before any upload', async () => {
-    stubPicker(new File(['<html></html>'], 'page.html', { type: 'text/html' }));
+    stubPicker(new File(['1,2'], 'sheet.csv', { type: 'text/csv' }));
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
