@@ -135,15 +135,67 @@ function ConvertTo-NumericGroundingKey {
     $d.ToString('G29', [cultureinfo]::InvariantCulture)
 }
 
+# t/384: four tightenings of the numeric guard, each behind a flag so it can be measured on its own
+# against the corpus (CL's rule: a tightening that mostly adds false drops isn't worth adopting).
+#   Percent:    a claim's "5%" must appear in percent form in the source ("5%", "5 percent", "5 per cent").
+#   Scale:      "75K", "2.3 billion" and "1.2 trillion" are their full values, which a claim "75,000" can match.
+#   LeadingDot: ".5" is 0.5, not 5.
+#   Superscript: "10^26" is grounded by the concatenation "1026", which is how the PDF text reads.
+# With every flag off, the keys are the t/375 keys.
+$script:NumericGroundingFeatures = @{ Percent = $false; Scale = $false; LeadingDot = $false; Superscript = $false }
+$script:NumericScaleWords = @{ 'k' = 1e3; 'thousand' = 1e3; 'm' = 1e6; 'million' = 1e6; 'bn' = 1e9; 'b' = 1e9; 'billion' = 1e9; 'trillion' = 1e12; 'tn' = 1e12 }
+
 function Get-NumericGroundingKeys {
     # Every number in $Text as a comparison key. A range ("0.5-0.7", "0.5–0.7") yields both endpoints,
     # because the regex matches each number on its own.
-    param([string]$Text)
+    param([string]$Text, [switch]$AsClaim)
     $keys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     if ([string]::IsNullOrEmpty($Text)) { return , $keys }
-    foreach ($m in [regex]::Matches($Text, '\d+(?:,\d{3})*(?:\.\d+)?%?')) {
-        $k = ConvertTo-NumericGroundingKey -Token $m.Value
-        if ($null -ne $k) { [void]$keys.Add($k) }
+    $F = $script:NumericGroundingFeatures
+    if (-not ($F.Percent -or $F.Scale -or $F.LeadingDot -or $F.Superscript)) {
+        foreach ($m in [regex]::Matches($Text, '\d+(?:,\d{3})*(?:\.\d+)?%?')) {
+            $k = ConvertTo-NumericGroundingKey -Token $m.Value
+            if ($null -ne $k) { [void]$keys.Add($k) }
+        }
+        return , $keys
+    }
+    $Pattern = '(?<![\p{L}\d])(\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)(?:(%)|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
+    foreach ($m in [regex]::Matches($Text, $Pattern, 'IgnoreCase')) {
+        $Num = $m.Groups[1].Value
+        $Base = ConvertTo-NumericGroundingKey -Token $(if ($F.LeadingDot -and $Num.StartsWith('.')) { '0' + $Num } else { $Num })
+        if ($null -eq $Base) { continue }
+        $Pct = $m.Groups[2].Success -or $m.Groups[3].Success
+        $Suffix = if ($m.Groups[4].Success) { $m.Groups[4].Value } elseif ($m.Groups[5].Success) { $m.Groups[5].Value } else { $null }
+        $Exp = if ($m.Groups[6].Success) { $m.Groups[6].Value } else { $null }
+        if ($Pct) {
+            if ($F.Percent) {
+                # A percent claim is keyed "5%" and grounded only by the percent form. A plain source "5" still grounds a plain claim.
+                [void]$keys.Add("$Base%")
+                if (-not $AsClaim) { [void]$keys.Add($Base) }
+            } else { [void]$keys.Add($Base) }
+            continue
+        }
+        if ($Suffix -and $F.Scale) {
+            $Scale = $script:NumericScaleWords[$Suffix.ToLowerInvariant()]
+            $Full = [decimal]::Parse($Num.Replace(',', ''), [cultureinfo]::InvariantCulture) * [decimal]$Scale
+            $FullKey = $Full.ToString('G29', [cultureinfo]::InvariantCulture)
+            if ($AsClaim) {
+                # A claim "75K" is grounded by the source's full value or its plain number, either one.
+                [void]$keys.Add("$FullKey|$Base")
+            } else {
+                # A source "75K" carries both its full value and its plain number.
+                [void]$keys.Add($FullKey); [void]$keys.Add($Base)
+            }
+            continue
+        }
+        if ($Exp -and $F.Superscript) {
+            $Concat = ConvertTo-NumericGroundingKey -Token (($Num.Replace(',', '')) + $Exp)
+            if ($null -ne $Concat) { [void]$keys.Add($Concat) }
+            # A claim "10^26" is grounded by "1026" alone; the source also keeps its parts.
+            if (-not $AsClaim) { [void]$keys.Add($Base); [void]$keys.Add((ConvertTo-NumericGroundingKey -Token $Exp)) }
+            continue
+        }
+        [void]$keys.Add($Base)
     }
     , $keys
 }
@@ -167,8 +219,12 @@ function Remove-NumericallyUngroundedClaims {
         $text = ''
         if ($null -ne $c -and (Test-SummaryField $c 'claim')) { $text = [string](Get-SummaryField $c 'claim') }
         # Assign first: the function returns `, $keys`, so piping its call would pass the whole set as one item.
-        $claimKeys = Get-NumericGroundingKeys -Text $text
-        $missing = @($claimKeys | Where-Object { -not $grounded.Contains($_) })
+        $claimKeys = Get-NumericGroundingKeys -Text $text -AsClaim
+        # A key "a|b" is grounded by either alternative (t/384 scale suffixes); every other key must be present.
+        $missing = @($claimKeys | Where-Object {
+            if ($_.Contains('|')) { -not (@($_.Split('|')) | Where-Object { $grounded.Contains($_) }) }
+            else { -not $grounded.Contains($_) }
+        })
         if ($missing.Count -gt 0) {
             $dropped++
             $preview = if ($text.Length -gt 100) { $text.Substring(0, 100) + '…' } else { $text }
