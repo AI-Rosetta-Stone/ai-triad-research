@@ -149,7 +149,7 @@ describe('Debate community allowlist: what the committed code allows (t/196#25, 
     data.argument_network = {
       nodes: [{
         id: 'c1', text: 'Claim one', speaker: 'skeptic', source_entry_id: 't1', taxonomy_refs: [], turn_number: 1,
-        embedding: [0.11, 0.22], attribution_embedding: [0.33, 0.44],
+        embedding: [0.11, 0.22], attribution_embedding: [0.33, 0.44], verification_evidence: 'VERIFICATION_TEXT',
         evidence_graph: {
           evidence_items: [{ id: 'e1', source_doc_id: 'doc1', text: 'EVIDENCE_TEXT', relation: 'support', similarity: 0.9 }],
           computed_strength: 0.7, qbaf_iterations: 3,
@@ -165,11 +165,14 @@ describe('Debate community allowlist: what the committed code allows (t/196#25, 
     expect(an.nodes[0]).toMatchObject({ id: 'c1', text: 'Claim one', speaker: 'skeptic' });
     expect(Object.prototype.hasOwnProperty.call(an.nodes[0], 'embedding')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(an.nodes[0], 'attribution_embedding')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(an.nodes[0], 'verification_evidence')).toBe(false);
     expect(an.nodes[0].evidence_graph).toEqual({
       computed_strength: 0.7, qbaf_iterations: 3,
-      evidence_items: [{ id: 'e1', source_doc_id: 'doc1', relation: 'support', similarity: 0.9 }],
+      evidence_items: [{ id: 'e1', relation: 'support', similarity: 0.9 }],
     });
     expect(JSON.stringify(copy)).not.toContain('EVIDENCE_TEXT');
+    expect(JSON.stringify(copy)).not.toContain('VERIFICATION_TEXT');
+    expect(JSON.stringify(copy)).not.toContain('doc1');
     expect(an.mutations).toBeUndefined();
     expect(an.edges).toEqual([{ id: 'e-1', source: 'c1', target: 'c2', type: 'supports', strength: 'decisive' }]);
     expect(JSON.stringify(copy)).not.toContain('WARRANT_TEXT');

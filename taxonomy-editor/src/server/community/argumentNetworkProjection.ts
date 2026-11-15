@@ -5,13 +5,14 @@
 // copy. Used by the debate branch of projectAllowedValue in community.ts.
 
 /** Argument-network node keys the community renderer reads. Excluded as owner-only: embedding and
- *  attribution_embedding (384-dim vectors, as Crux.embedding), and the item text inside evidence_graph
- *  (projectArgumentNode keeps its scores and ids only). */
+ *  attribution_embedding (384-dim vectors, as Crux.embedding), verification_evidence (no community reader),
+ *  and the item text and source_doc_id inside evidence_graph (projectArgumentNode keeps scores, ids,
+ *  relation and similarity only). Security p/238#15. */
 const COMMUNITY_AN_NODE_KEYS: ReadonlySet<string> = new Set([
   'id', 'text', 'attribution_text_genus', 'canonical_proposition', 'speaker', 'source_entry_id',
   'taxonomy_refs', 'turn_number', 'extraction_confidence', 'base_strength', 'computed_strength',
   'scoring_method', 'bdi_sub_scores', 'bdi_confidence', 'bdi_category', 'specificity', 'steelman_of',
-  'steelman_check', 'verification_status', 'verification_evidence', 'evidence_graph',
+  'steelman_check', 'verification_status', 'evidence_graph',
   'claim_taxonomy_attribution', 'vocabulary_tags', 'political_salience', 'topic_relevance',
 ]);
 
@@ -41,7 +42,7 @@ function projectArgumentNode(node: unknown): Record<string, unknown> | undefined
       evidence_items: Array.isArray(g.evidence_items)
         ? g.evidence_items
             .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object')
-            .map(i => ({ id: i.id, source_doc_id: i.source_doc_id, relation: i.relation, similarity: i.similarity }))
+            .map(i => ({ id: i.id, relation: i.relation, similarity: i.similarity }))
         : undefined,
     };
   }
