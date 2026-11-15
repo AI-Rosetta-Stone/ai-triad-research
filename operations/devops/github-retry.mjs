@@ -25,9 +25,10 @@
 export const MAX_ATTEMPTS = 3;
 export const DEFAULT_BASE_DELAY_MS = 2000;
 // A rate-limit reset within this window is waited for; a later reset fails at once (t/125).
-// 30 s, not 180 s: tier-check and t1-approval-guard run in 1-minute jobs (timeout-minutes: 1), so a
-// longer wait would be cancelled mid-wait. Several rate-limited calls could still stack past 1 minute;
-// raising those job timeouts is a T2 workflow change, for the TL to decide.
+// 30 s, not 180 s: the rate-limit probe step in tier-check.yml and t1-approval-guard.yml has
+// timeout-minutes: 1 (a step timeout, not the job's). A longer wait could be cut mid-wait. Several
+// rate-limited calls in one run can stack past that minute; the job then fails closed and the
+// re-run is the recovery. Known limit, TL decision (t/236). No job timeouts are raised here.
 export const MAX_RATE_WAIT_MS = 30000;
 
 /** HTTP status of an Octokit RequestError (or anything shaped like one), else null. */
