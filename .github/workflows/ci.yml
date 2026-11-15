@@ -1984,6 +1984,15 @@ jobs:
       - name: guard PR-read (REST + rate-limit classification) suite
         run: node --test operations/devops/guard-pr-read.test.mjs
 
+      # t/73 (Second Opinion on #4795, 2026-11-15): BLOCKING, and deliberately not part of the
+      # warn-first "Enqueue sweep unit suites" step in the complexity-budget job. This is the
+      # pre-merge proof that the T0 sweep's rules still run in main's order (407 cases against a
+      # fixture generated from main's selectT0Candidates). enqueue-sweep.yml runs it too, but only
+      # main's copy, after merge, where a red result stops the sweep. No continue-on-error here:
+      # this job has no `if:` or paths filter and is in ci-gate's `needs`, so a failure fails ci-gate.
+      - name: T0 enqueue-sweep rule-order suite (blocking)
+        run: node --test operations/devops/t0-rule-order.test.mjs
+
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
   doc-accuracy:
@@ -3396,7 +3405,7 @@ jobs:
         # the next sweep failing. Running them here checks the change before merge. WARN-FIRST:
         # flip by removing continue-on-error after >=1 green cycle (SO + TL GV), like its neighbors.
         continue-on-error: true
-        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t0-rule-order.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
 
       - name: Vitest shard-blob count check arms (WARN-FIRST)
         # test-electron-coverage refuses to merge unless all 3 shard blobs arrived. That refusal
