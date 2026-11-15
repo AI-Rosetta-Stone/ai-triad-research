@@ -60,7 +60,49 @@ const MAX_CONCURRENT_OPED_RUNS = 1;          // per user, P1 (TL Q1)
 const OPED_HEARTBEAT_MS = 15_000;
 
 // ── create-request parsing (FromTopic + FromSource-URL) ──
-interface ParsedOpEdCreate { topic: string; povs: string[]; params: OpEdParams; url?: string }
+interface ParsedOpEdCreate { topic: string; povs: string[]; params: OpEdParams; url?: string; documentText?: string; sourceName?: string }
+
+// t/276 (t/274#2 contract): an uploaded document arrives as extracted text plus its file name. Same text cap as the
+// extractor (lib/extraction TEXT_LIMIT_CHARS), so a document can't exceed what the extractor would have produced.
+const MAX_DOCUMENT_TEXT_CHARS = 500_000;
+const MAX_SOURCE_NAME_CHARS = 255;
+
+/** The generator fields for a document source: the name travels with the text (lib/oped sets source_mode 'document'). */
+function documentSourceFields(documentText: string | undefined, sourceName: string | undefined): { sourceName?: string } {
+  return documentText ? { sourceName } : {};
+}
+
+/** A document is sent as a pair: the text and the name it came from. Either without the other is an error. */
+function documentPairError(b: { documentText?: unknown; sourceName?: unknown }): string | null {
+  const hasText = b.documentText !== undefined;
+  const hasName = b.sourceName !== undefined;
+  if (!hasText && !hasName) return null;
+  if (!hasText || typeof b.documentText !== 'string') return 'documentText (string) is required with sourceName';
+  if (typeof b.sourceName !== 'string' || !b.sourceName.trim()) return 'sourceName is required with documentText';
+  return null;
+}
+
+/** Control characters out, as the extractor does (NUL and the C0 controls other than tab, LF and CR), then the caps. */
+function normalizeDocument(text: string, name: string): { ok: true; value: { documentText: string; sourceName: string } } | { ok: false; message: string } {
+  const documentText = text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim();
+  if (!documentText) return { ok: false, message: 'documentText is empty' };
+  if (documentText.length > MAX_DOCUMENT_TEXT_CHARS) return { ok: false, message: `documentText exceeds ${MAX_DOCUMENT_TEXT_CHARS} characters` };
+  const sourceName = name.trim();
+  if (sourceName.length > MAX_SOURCE_NAME_CHARS) return { ok: false, message: `sourceName exceeds ${MAX_SOURCE_NAME_CHARS} characters` };
+  // The desktop's bare-name rule (t/275): no path separators and no parent references.
+  if (/[\\/]/.test(sourceName) || sourceName.includes('..')) return { ok: false, message: 'sourceName must be a bare file name: no path separators and no ".."' };
+  return { ok: true, value: { documentText, sourceName } };
+}
+
+/** The document source, when present. Mutually exclusive with `url`. */
+function parseDocumentSource(b: { url?: unknown; documentText?: unknown; sourceName?: unknown }):
+  { ok: true; value?: { documentText: string; sourceName: string } } | { ok: false; message: string } {
+  const pairError = documentPairError(b);
+  if (pairError) return { ok: false, message: pairError };
+  if (b.documentText === undefined) return { ok: true };
+  if (b.url !== undefined && b.url !== null && b.url !== '') return { ok: false, message: 'a document and a URL are two sources: send one' };
+  return normalizeDocument(b.documentText as string, b.sourceName as string);
+}
 
 // t/3858: outlet is OPTIONAL (absent/empty → band default), but if supplied it must be a known key.
 // Extracted to keep parseOpEdCreate under the complexity budget.
@@ -70,8 +112,22 @@ function validateOutlet(outlet: string | undefined): string | null {
   return `params.outlet "${outlet}" is not a known outlet. Valid: ${Object.keys(OUTLET_BANDS).join(', ')}`;
 }
 
+/** The create body: the topic, voices and params (parseOpEdCreate), plus an optional document source. */
+function parseOpEdCreateRequest(body: unknown): ReturnType<typeof parseOpEdCreate> {
+  const b = (body ?? {}) as { topic?: unknown; url?: unknown; documentText?: unknown; sourceName?: unknown };
+  const doc = parseDocumentSource(b);
+  if (!doc.ok) return { ok: false, status: 400, message: doc.message };
+  // t/276: a document can arrive without a topic (the web bridge sends documentText and sourceName only).
+  // The file name stands in as the topic, so the set has a label. A topic that is sent is used as sent.
+  const hasTopic = typeof b.topic === 'string' && b.topic.trim().length > 0;
+  const withTopic = doc.value && !hasTopic ? { ...b, topic: doc.value.sourceName } : b;
+  const base = parseOpEdCreate(withTopic);
+  if (!base.ok) return base;
+  return { ok: true, value: { ...base.value, ...(doc.value ?? {}) } };
+}
+
 function parseOpEdCreate(body: unknown): { ok: true; value: ParsedOpEdCreate } | { ok: false; status: number; message: string } {
-  const b = (body ?? {}) as { topic?: unknown; params?: OpEdParams; povs?: unknown; url?: unknown; source?: unknown };
+  const b = (body ?? {}) as { topic?: unknown; params?: OpEdParams; povs?: unknown; url?: unknown; source?: unknown; documentText?: unknown; sourceName?: unknown };
   // t/2807: `url` sources are now supported on web — fetched via the SSRF-hardened
   // fileIO.fetchUrlContent (the same path debates use). `source` (file/PDF/DOCX
   // uploads) still requires the desktop DocConverters path — keep blocking it here
@@ -239,9 +295,9 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   post('/api/oped-sets', async (req, res, body) => {
     // ── Pre-start gate (JSON errors — must precede the SSE headers, TL condition 4) ──
     if (isAnonymousUser()) { error(res, 'Sign in to create op-eds', 403); return; }
-    const parsed = parseOpEdCreate(body);
+    const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
-    const { topic, povs, params, url } = parsed.value;
+    const { topic, povs, params, url, documentText, sourceName } = parsed.value;
     // Tier-backend entitlement via the shared helper (t/2635 — folds op-ed onto the ONE
     // entitlement path in routes/generationContext.ts, replacing the local resolveOpEdModel
     // mirror). Free tier's model is pinned; a free/restricted caller can't reach a premium
@@ -274,7 +330,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // unentitled or over-quota caller can never use this endpoint as a fetch trigger,
     // and BEFORE the SSE stream commits so a fetch failure returns a clean HTTP error
     // instead of a mid-stream frame — never proceed with empty sourceMaterial (t/2722). (TL MUST)
-    let sourceMaterial: string | undefined;
+    let sourceMaterial: string | undefined = documentText; // t/276: an extracted document is the source, no fetch
     if (url) {
       const fetched = await fetchUrlContent(url);
       if (fetched.error || !fetched.content) {
@@ -307,7 +363,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
 
     writeFrame({ type: 'run_started', runId });
     // Generate with the entitlement-resolved (free-tier-pinned) model, not the raw request.
-    const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, signal: ac.signal };
+    const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, ...documentSourceFields(documentText, sourceName), signal: ac.signal };
     await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone);
   });
 
