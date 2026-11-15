@@ -516,14 +516,18 @@ class DraftStoreImpl implements DraftStore {
 
   private async writeSubmissionAndMarker(draftId: string, record: any, principal: DraftPrincipal): Promise<void> {
     const submissionPath = `community/_submissions/sub-${draftId}.json`;
+    // B5: the same Submission shape submitToCommunity writes (community.ts), so the per-user and
+    // global caps on both paths count every pending submission, and the approval flow reads it.
+    const projection = record.projection as Record<string, unknown>;
     const submission = {
-      id: `sub-${draftId}`,
-      draftId,
-      submittedBy: { id: principal.storageUserId, name: principal.displayName },
-      payload: record.projection,
-      note: record.note,
+      id: draftId,
+      type: 'inquiry',
+      originalId: typeof projection.id === 'string' ? projection.id : draftId,
+      submittedBy: principal.storageUserId,
+      submittedAt: new Date(this.now()).toISOString(),
       status: 'pending',
-      createdAt: new Date(this.now()).toISOString(),
+      note: record.note,
+      data: projection,
     };
 
     try {
@@ -651,8 +655,16 @@ class DraftStoreImpl implements DraftStore {
           if (new Date(rec.expiresAt).getTime() >= this.now()) count++;
         }
       }
-    } catch {
-      /* telemetry — silent by design (best-effort count, continue with 0) */
+    } catch (err) {
+      // B2: a count failure must refuse, never admit. A partial count would let a draft past the cap.
+      log.server.error(`countPendingDrafts: list/read failed: ${(err as any)?.message} (failing closed)`);
+      throw new ActionableError({
+        goal: 'Count pending drafts',
+        problem: 'Failed to list/read drafts directory (fail-closed for cap check)',
+        location: 'draftStore.countPendingDrafts',
+        nextSteps: ['Check storage backend health'],
+        httpStatus: 503,
+      });
     }
     return count;
   }
@@ -666,7 +678,7 @@ class DraftStoreImpl implements DraftStore {
         const data = await this.backend.readFile(`community/_submissions/${file}`);
         if (data !== null) {
           const rec = JSON.parse(data);
-          if (rec.submittedBy?.id === userId && rec.status === 'pending') count++;
+          if (rec.submittedBy === userId && rec.status === 'pending') count++;
         }
       }
     } catch (err) {

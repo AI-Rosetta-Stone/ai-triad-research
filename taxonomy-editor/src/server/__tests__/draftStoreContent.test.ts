@@ -8,8 +8,27 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { StorageBackend } from '../storage/storageBackend.js';
-import { makeValidResult, makeDriftedResult } from '../../../../lib/inquiry/__fixtures__/validResult.js';
+import { makeValidResult } from '../../../../lib/inquiry/__fixtures__/validResult.js';
 import type { InquiryPayload } from '../../../../lib/inquiry/index.js';
+
+// A drifted result with a direct answer, per-camp answer fields and question drift. Local to this file:
+// the shared fixture's makeDriftedResult lives with the t/285 inquiry work, not on this branch.
+function makeDriftedResult(): Record<string, unknown> {
+  return {
+    ...makeValidResult(),
+    directAnswer: { text: 'No consensus answer: the camps disagree on what counts as harm.', agreement: 'split' },
+    campVerdicts: [
+      {
+        camp: 'acc',
+        verdict: 'The debate focused on regulatory process, not on harm.',
+        nodes: [{ nodeId: 'acc-beliefs-004', label: 'Regulatory process', camp: 'acc' }],
+        answeredLiteralQuestion: false,
+        answerNote: 'Focused on regulatory process instead of harm.',
+      },
+    ],
+    questionDrift: { debatedTopic: 'How should AI regulation be designed?', warning: true },
+  };
+}
 
 const files = new Map<string, string>();
 const normalize = (p: string) => p.replace(/\\/g, '/');
