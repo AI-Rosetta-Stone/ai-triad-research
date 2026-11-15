@@ -228,6 +228,17 @@ describe('community item rename (t/4894)', () => {
 });
 
 describe('renaming a community Op-Ed refreshes its existing public share (t/4894 follow-up, t/4894#4)', () => {
+  // t/235: this block gets its own temp data root; the block above clears its root in afterAll.
+  let ownRoot = '';
+  beforeAll(() => {
+    ownRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'commrn2-'));
+    process.env.AI_TRIAD_DATA_ROOT = ownRoot;
+  });
+  afterAll(() => {
+    fs.rmSync(ownRoot, { recursive: true, force: true });
+    delete process.env.AI_TRIAD_DATA_ROOT;
+  });
+
   // This describe is a sibling of the first one above, not nested inside it, so it does NOT
   // inherit that block's beforeEach — a fresh backend per test needs its own reset here.
   beforeEach(() => {

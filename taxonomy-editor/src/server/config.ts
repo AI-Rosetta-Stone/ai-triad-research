@@ -12,6 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -91,9 +92,27 @@ export function loadDataConfig(): AiTriadConfig {
   return _configCache;
 }
 
+// t/235: set once this process has seen AI_TRIAD_DATA_ROOT. Under vitest, a root that was set and then cleared
+// means a test's afterAll ran, so a late (orphaned) write must be refused, not sent to the real data root.
+let dataRootWasSetInProcess = false;
+
 export function getDataRoot(): string {
   const envRoot = process.env.AI_TRIAD_DATA_ROOT;
-  if (envRoot) return path.resolve(envRoot);
+  if (envRoot) {
+    dataRootWasSetInProcess = true;
+    return path.resolve(envRoot);
+  }
+
+  if (process.env.VITEST && dataRootWasSetInProcess) {
+    throw new ActionableError({
+      goal: 'Resolve the data root for a test write',
+      problem: 'AI_TRIAD_DATA_ROOT is unset during a test, so the real data root would be used',
+      location: 'config.getDataRoot',
+      nextSteps: ['Set AI_TRIAD_DATA_ROOT to the test temp root before the write (the test likely outlived afterAll)'],
+      code: 'DATA_ROOT_UNSET_IN_TEST',
+      httpStatus: 500,
+    });
+  }
 
   const config = loadDataConfig();
   return path.isAbsolute(config.data_root)
