@@ -31,6 +31,32 @@ test('checkVerdict: a successful rerun after a failure counts as success', () =>
   assert.equal(checkVerdict(runs, 'ci-gate'), 'success');
 });
 
+// t/449 (b): the verdict is the LATEST run's, not 'any run passed'.
+test('t/449 (b): a superseded failure does not block: an earlier failure, then a later success, is success', () => {
+  const runs = [
+    { name: 'ci-gate', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: '2026-11-15T10:00:00Z' },
+    { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: '2026-11-15T11:00:00Z' },
+  ];
+  assert.equal(checkVerdict(runs, 'ci-gate'), 'success');
+});
+
+test('t/449 (b): a newer failure blocks even after an older success', () => {
+  const runs = [
+    { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: '2026-11-15T10:00:00Z' },
+    { name: 'ci-gate', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: '2026-11-15T11:00:00Z' },
+  ];
+  assert.equal(checkVerdict(runs, 'ci-gate'), 'failed');
+});
+
+test('t/449 (b): start times, not array order, pick the latest run', () => {
+  // The newest run is listed first here; the verdict must still come from it.
+  const runs = [
+    { name: 'ci-gate', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: '2026-11-15T11:00:00Z' },
+    { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: '2026-11-15T10:00:00Z' },
+  ];
+  assert.equal(checkVerdict(runs, 'ci-gate'), 'failed');
+});
+
 test('checkVerdict: a rerun still in progress is pending even if an earlier run passed', () => {
   const runs = [
     { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS' },

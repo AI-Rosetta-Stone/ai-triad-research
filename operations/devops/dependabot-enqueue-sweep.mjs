@@ -28,9 +28,12 @@ import { allContextsFor } from './pr-contexts.mjs';
 export const REQUIRED_GREEN = ['ci-gate', 'CodeQL Analysis'];
 
 /**
- * PURE. Reduces a PR's check contexts to a per-name verdict: 'success' when at least one
- * run of that name succeeded and none is still pending, 'pending' when any run is not yet
- * complete, otherwise 'failed'; 'missing' when no run of that name exists.
+ * PURE. Reduces a PR's check contexts to a per-name verdict, judged by the LATEST run of that
+ * name on the head (t/449 (b)): 'pending' when any run is not yet complete, otherwise 'success'
+ * when the latest run succeeded and 'failed' when it did not; 'missing' when no run of that name
+ * exists. An older failure that a later run superseded does not block. A newer failure does
+ * block, even after an older success. Latest = greatest startedAt; with no start times (commit
+ * statuses), the later array entry.
  */
 export function checkVerdict(contexts, name) {
   const runs = (contexts ?? []).filter((c) => (c.name ?? c.context) === name);
@@ -38,7 +41,15 @@ export function checkVerdict(contexts, name) {
   const result = (c) => (c.conclusion ?? c.state ?? '').toUpperCase();
   if (runs.some((c) => c.status && c.status.toUpperCase() !== 'COMPLETED')) return 'pending';
   if (runs.some((c) => result(c) === 'PENDING' || result(c) === 'EXPECTED')) return 'pending';
-  return runs.some((c) => result(c) === 'SUCCESS') ? 'success' : 'failed';
+  return result(latestRun(runs)) === 'SUCCESS' ? 'success' : 'failed';
+}
+
+/** PURE. The run with the greatest startedAt; ties and missing times fall to the later entry. */
+function latestRun(runs) {
+  const at = (c) => { const t = Date.parse(c.startedAt ?? ''); return Number.isNaN(t) ? -Infinity : t; };
+  let best = runs[0];
+  for (const c of runs.slice(1)) if (at(c) >= at(best)) best = c;
+  return best;
 }
 
 /**
