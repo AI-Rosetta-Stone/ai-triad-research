@@ -41,8 +41,10 @@ export function selectChatCandidates(
   const bdi = poolOrder(pool.filter(n => (CHAT_BDI_CATEGORIES as readonly string[]).includes(n.category)), boostIds);
   const picked = new Set<string>();
   const out: ScoredChatNode[] = [];
+  // A cap below 3 × CHAT_RESERVED_PER_CATEGORY can't reserve the full floor: reserve what fits.
+  const perCategory = Math.min(CHAT_RESERVED_PER_CATEGORY, Math.floor(cap / CHAT_BDI_CATEGORIES.length));
   for (const category of CHAT_BDI_CATEGORIES) {
-    for (const node of bdi.filter(n => n.category === category).slice(0, CHAT_RESERVED_PER_CATEGORY)) {
+    for (const node of bdi.filter(n => n.category === category).slice(0, perCategory)) {
       picked.add(node.nodeId);
       out.push(node);
     }

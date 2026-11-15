@@ -43,6 +43,12 @@ describe('selectChatCandidates — cap and BDI floor', () => {
     expect(selectChatCandidates(pool())).not.toContain('o1');
   });
 
+  it('a cap below the BDI floor returns exactly the cap, never more', () => {
+    expect(selectChatCandidates(pool(), new Set(), 4)).toHaveLength(4);
+    expect(selectChatCandidates(pool(), new Set(), 5)).toHaveLength(5);
+    expect(selectChatCandidates(pool(), new Set(), 2)).toHaveLength(2);
+  });
+
   it('keeps every BDI node when the pool is smaller than the cap', () => {
     const small: ScoredChatNode[] = [
       { nodeId: 'b0', category: 'Beliefs', score: 0.5 },
