@@ -765,6 +765,21 @@ function Finalize-Summary {
         }
     }
 
+    # -- Verbatim grounding (t/389): keep each key_point quote in the source text, snap or drop the rest --
+    # Same fallback as the numeric guard: no snapshot text means no guard, and the counts stay null.
+    $VerbatimSnapped = $null
+    $VerbatimDropped = $null
+    if ([string]::IsNullOrWhiteSpace($SnapshotText)) {
+        Write-Warning "Finalize-Summary: $ThisDocId : no snapshot text available; verbatim-grounding guard skipped (t/389)"
+    } else {
+        $VerbatimResult = Repair-SummaryKeyPointVerbatim -SummaryObject $SummaryObject -SnapshotText $SnapshotText -ThisDocId $ThisDocId
+        $VerbatimSnapped = $VerbatimResult.Snapped
+        $VerbatimDropped = $VerbatimResult.Dropped
+        if ($VerbatimSnapped -gt 0 -or $VerbatimDropped -gt 0) {
+            Write-Host "  │  verbatim-grounding: $VerbatimSnapped snapped, $VerbatimDropped dropped" -ForegroundColor DarkYellow
+        }
+    }
+
     $SoProps = $SummaryObject.PSObject.Properties
     if ($SoProps['factual_claims'] -and $null -ne $SummaryObject.factual_claims) { $FactualClaims = $SummaryObject.factual_claims } else { $FactualClaims = @() }
     if ($SoProps['unmapped_concepts'] -and $null -ne $SummaryObject.unmapped_concepts) { $UnmappedConcs = $SummaryObject.unmapped_concepts } else { $UnmappedConcs = @() }
@@ -786,7 +801,8 @@ function Finalize-Summary {
     $ModelInfo = New-SummaryModelInfo -Model $Model -Temperature $Temperature -TaxonomyJson $TaxonomyJson `
         -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens `
         -JsonRepaired $JsonRepaired -Truncated $Truncated -OutputTokens $OutputTokens `
-        -CampBridgeDropped $CampBridgeDropped -NumericUngroundedDropped $NumericUngroundedDropped
+        -CampBridgeDropped $CampBridgeDropped -NumericUngroundedDropped $NumericUngroundedDropped `
+        -VerbatimSnapped $VerbatimSnapped -VerbatimDropped $VerbatimDropped
 
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)

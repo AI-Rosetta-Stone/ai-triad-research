@@ -612,7 +612,8 @@ function New-SummaryModelInfo {
     #>
     param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats,
           [object]$MaxTokens = $null, [object]$JsonRepaired = $false, [object]$Truncated = $null,
-          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0, [object]$NumericUngroundedDropped = $null)
+          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0, [object]$NumericUngroundedDropped = $null,
+          [object]$VerbatimSnapped = $null, [object]$VerbatimDropped = $null)
     $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
     $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
@@ -649,6 +650,9 @@ function New-SummaryModelInfo {
         camp_bridge_dropped = $CampBridgeDropped
         # t/375: forensic/additive, nothing branches on it; $null when the guard couldn't run (no snapshot).
         numeric_ungrounded_dropped = $NumericUngroundedDropped
+        # t/389: forensic/additive, nothing branches on them; $null when the guard couldn't run (no snapshot).
+        verbatim_snapped           = $VerbatimSnapped
+        verbatim_dropped           = $VerbatimDropped
     }
 
     if ($UsedFire) {
