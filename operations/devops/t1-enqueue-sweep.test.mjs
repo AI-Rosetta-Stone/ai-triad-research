@@ -9,8 +9,9 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  selectT1Candidates, declaresT1, headBoundApprover, sweep, postGuardNudge, GUARD_APPROVED_SUMMARY, GUARD_NUDGE_MARKER,
+  selectT1Candidates, declaresT1, headBoundApprover, sweep, postGuardNudge, parseCliArgs, GUARD_APPROVED_SUMMARY, GUARD_NUDGE_MARKER,
 } from './t1-enqueue-sweep.mjs';
+import { readFileSync } from 'node:fs';
 import { selectT0Candidates } from './t0-enqueue-sweep.mjs';
 import { fetchGuardRun } from './t1-approval-at-head.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
@@ -369,7 +370,7 @@ test('shim: an approved T1 PR is enqueued once, pinned to the approved head (exp
   const mocks = quiet();
   try {
     const { calls, deps } = harness({ listed: [pr()], live: { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: HEAD } });
-    const out = await sweep('o/r', { deps });
+    const out = await sweep('o/r', { enqueueEnabled: true, deps });
     assert.deepEqual(out, { 1: 'enqueued' });
     assert.deepEqual(calls.enqueue, [{ n: 1, opts: { expectedHeadOid: HEAD } }]);
     assert.deepEqual(calls.guard, [HEAD]);
@@ -380,7 +381,7 @@ test('shim idempotency: a second sweep after the PR is queued makes no enqueue c
   const mocks = quiet();
   try {
     const { calls, deps } = harness({ listed: [pr({ isInMergeQueue: true })], live: null });
-    assert.deepEqual(await sweep('o/r', { deps }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), {});
     assert.equal(calls.enqueue.length, 0);
   } finally { mocks.forEach((m) => m.mock.restore()); }
 });
@@ -393,7 +394,7 @@ test('shim idempotency: search lag says unqueued but the live read says merged o
       { state: 'OPEN', isInMergeQueue: true, isDraft: false, headRefOid: HEAD },
     ]) {
       const { calls, deps } = harness({ listed: [pr()], live });
-      assert.deepEqual(await sweep('o/r', { deps }), { 1: 'skipped' });
+      assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), { 1: 'skipped' });
       assert.equal(calls.enqueue.length, 0);
     }
   } finally { mocks.forEach((m) => m.mock.restore()); }
@@ -403,7 +404,7 @@ test('shim: head moved between listing and enqueue -> no enqueue', async () => {
   const mocks = quiet();
   try {
     const { calls, deps } = harness({ listed: [pr()], live: { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: 'newhead' } });
-    assert.deepEqual(await sweep('o/r', { deps }), { 1: 'skipped' });
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), { 1: 'skipped' });
     assert.equal(calls.enqueue.length, 0);
   } finally { mocks.forEach((m) => m.mock.restore()); }
 });
@@ -414,19 +415,135 @@ test('shim: a guard that never ran on an approved head is nudged once and not en
     const { calls, deps } = harness({ listed: [pr()], live: null });
     const nudged = [];
     const withNudge = { ...deps, fetchGuard: () => ({ run: null, lookupError: false }), nudge: (repo, n, x) => nudged.push({ n, ...x }) };
-    assert.deepEqual(await sweep('o/r', { deps: withNudge }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps: withNudge }), {});
     assert.deepEqual(nudged, [{ n: 1, headRefOid: HEAD }]);
     assert.equal(calls.enqueue.length, 0);
-    assert.deepEqual(await sweep('o/r', { dryRun: true, deps: withNudge }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, dryRun: true, deps: withNudge }), {});
     assert.equal(nudged.length, 1);
   } finally { mocks.forEach((m) => m.mock.restore()); }
+});
+
+// ---- the enqueue gate (Second Opinion's condition on #4795): ships off, fail safe ----
+// Every shim test above passes `enqueueEnabled: true` on purpose. These cover the gate itself.
+// `gateHarness` also counts live re-reads, which the gate must not make either.
+function gateHarness(listed) {
+  const live = { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: HEAD };
+  const { calls, deps } = harness({ listed, live });
+  calls.readLive = 0;
+  calls.nudged = [];
+  deps.enqueueDeps.readLive = () => { calls.readLive++; return live; };
+  deps.nudge = (repo, n, x) => calls.nudged.push({ n, ...x });
+  const logs = [];
+  const mocks = [mock.method(console, 'log', (l) => logs.push(String(l))), mock.method(console, 'warn', () => {})];
+  return { calls, deps, logs, restore: () => mocks.forEach((m) => m.mock.restore()) };
+}
+const armedPr = () => pr({ autoMergeRequest: { enabledAt: 't' } }); // armed: enqueueOne would disarm it first
+
+test('gate OFF BY DEFAULT: an approved, green T1 PR gets no enqueue, no disarm and no live re-read, only an [enqueue off] line', async () => {
+  // Only the boolean `true` turns it on: a string from a careless caller ('off', 'false', 'on') does not.
+  for (const opts of [{}, { enqueueEnabled: false }, { enqueueEnabled: undefined }, { enqueueEnabled: 'off' }, { enqueueEnabled: 'false' }, { enqueueEnabled: 'on' }, { enqueueEnabled: 1 }]) {
+    const h = gateHarness([armedPr()]);
+    try {
+      assert.deepEqual(await sweep('o/r', { ...opts, deps: h.deps }), {}, JSON.stringify(opts));
+    } finally { h.restore(); }
+    assert.deepEqual(h.calls.enqueue, [], 'no enqueue call');
+    assert.deepEqual(h.calls.gh, [], 'no disarm call');
+    assert.equal(h.calls.readLive, 0, 'no live re-read');
+    assert.deepEqual(h.calls.guard, [HEAD], 'the guard is still looked up');
+    assert.ok(h.logs.includes(`[enqueue off] would enqueue #1 at ${HEAD}`), h.logs.join('\n'));
+    assert.ok(h.logs.some((l) => /^T1 sweep: enqueue is OFF/.test(l)), h.logs.join('\n'));
+    assert.ok(!h.logs.some((l) => /^enqueued #/.test(l)));
+  }
+});
+
+test('gate OFF: a head the guard never evaluated is still nudged, and skip reasons are still logged', async () => {
+  // #1: approved, guard never ran. #2: draft. #3: approved with a guard success, so it qualifies.
+  const READY = 'head9999';
+  const h = gateHarness([pr(), pr({ number: 2, isDraft: true }), pr({ number: 3, headRefOid: READY, reviews: [approvalAt(READY)] })]);
+  h.deps.fetchGuard = (repo, sha) => (sha === READY ? guardOk() : { run: null, lookupError: false });
+  try {
+    assert.deepEqual(await sweep('o/r', { deps: h.deps }), {});
+  } finally { h.restore(); }
+  assert.deepEqual(h.calls.nudged, [{ n: 1, headRefOid: HEAD }]);
+  assert.deepEqual(h.calls.enqueue, []);
+  assert.equal(h.calls.readLive, 0);
+  assert.ok(h.logs.includes(`[enqueue off] would enqueue #3 at ${READY}`), h.logs.join('\n'));
+  assert.ok(h.logs.some((l) => /^skip #1: WARN: t1-approval-guard never evaluated this head/.test(l)), h.logs.join('\n'));
+  assert.ok(h.logs.includes('skip #2: draft'), h.logs.join('\n'));
+});
+
+test('gate ON: the same PR is enqueued (disarmed first, pinned to its head), with no [enqueue off] line', async () => {
+  const h = gateHarness([armedPr()]);
+  try {
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps: h.deps }), { 1: 'enqueued' });
+  } finally { h.restore(); }
+  assert.deepEqual(h.calls.enqueue, [{ n: 1, opts: { expectedHeadOid: HEAD } }]);
+  assert.deepEqual(h.calls.gh, [['pr', 'merge', '1', '-R', 'o/r', '--disable-auto']]);
+  assert.equal(h.calls.readLive, 1);
+  assert.ok(!h.logs.some((l) => l.startsWith('[enqueue off]')));
+  assert.ok(h.logs.some((l) => /^T1 sweep: enqueue is ON/.test(l)));
+});
+
+test('gate ON + dryRun: dry run wins -- nothing enqueued and nothing nudged', async () => {
+  const h = gateHarness([armedPr(), pr({ number: 2 })]);
+  h.deps.fetchGuard = (repo, sha) => (h.calls.guard.push(sha) === 1 ? guardOk() : { run: null, lookupError: false });
+  try {
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, dryRun: true, deps: h.deps }), {});
+  } finally { h.restore(); }
+  assert.deepEqual(h.calls.enqueue, []);
+  assert.deepEqual(h.calls.gh, []);
+  assert.equal(h.calls.readLive, 0);
+  assert.deepEqual(h.calls.nudged, []);
+  assert.ok(h.logs.includes(`[dry-run] would enqueue #1 at ${HEAD}`), h.logs.join('\n'));
+  assert.ok(h.logs.includes('[dry-run] would comment on #2: ask t1-approval-guard to re-run'), h.logs.join('\n'));
+});
+
+test('parseCliArgs: enqueue is on only with the exact --enqueue flag', () => {
+  assert.deepEqual(parseCliArgs(['o/r']), { repo: 'o/r', dryRun: false, enqueueEnabled: false });
+  assert.deepEqual(parseCliArgs(['o/r', '--enqueue']), { repo: 'o/r', dryRun: false, enqueueEnabled: true });
+  assert.deepEqual(parseCliArgs(['o/r', '--dry-run']), { repo: 'o/r', dryRun: true, enqueueEnabled: false });
+  assert.deepEqual(parseCliArgs(['o/r', '--dry-run', '--enqueue']), { repo: 'o/r', dryRun: true, enqueueEnabled: true });
+  // What the workflow passes while off: an empty $DRY_RUN and $ENQUEUE_FLAG vanish in the shell.
+  for (const off of [['o/r', ''], ['o/r', '--enqueue=false'], ['o/r', '--enqueued'], ['o/r', '-enqueue'], ['o/r', 'enqueue'], ['o/r', '--ENQUEUE']]) {
+    assert.equal(parseCliArgs(off).enqueueEnabled, false, JSON.stringify(off));
+  }
+  assert.equal(parseCliArgs([]).repo, null);
+  assert.equal(parseCliArgs(['--enqueue']).repo, null);
+});
+
+// Flipping T1_ENQUEUE to 'on' arms auto-enqueue on the next sweep. It is a separate, reviewed (T2)
+// commit, and it has to change this test in the same commit.
+test('enqueue-sweep.yml SHIPS WITH ENQUEUE OFF: T1_ENQUEUE is the literal \'off\', and --enqueue is passed only when it is \'on\'', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/enqueue-sweep.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const code = yml.split('\n').filter((l) => !/^\s*#/.test(l)); // comments don't count
+  const stepStart = code.findIndex((l) => /^      - name: T1 sweep \(/.test(l));
+  assert.notEqual(stepStart, -1, 'the T1 step exists and its name does not claim to enqueue');
+  const rest = code.slice(stepStart + 1);
+  const next = rest.findIndex((l) => /^      - /.test(l));
+  const step = [code[stepStart], ...rest.slice(0, next === -1 ? rest.length : next)].filter((l) => l.trim() !== '');
+
+  // The switch: a literal in the step's env, set once in the whole file, never an expression.
+  assert.deepEqual(code.filter((l) => /T1_ENQUEUE\s*:/.test(l)).map((l) => l.trim()), ["T1_ENQUEUE: 'off'"]);
+  assert.ok(step.includes("          T1_ENQUEUE: 'off'"), step.join('\n'));
+  // The run block: the flag exists only behind the 'on' test, and the sweep is called once.
+  const runAt = step.indexOf('        run: |');
+  assert.notEqual(runAt, -1, step.join('\n'));
+  assert.deepEqual(step.slice(runAt + 1).map((l) => l.trim()), [
+    "ENQUEUE_FLAG=''",
+    'if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG=\'--enqueue\'; fi',
+    'node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $ENQUEUE_FLAG',
+  ]);
+  // Nowhere else in the workflow can the flag or the script appear.
+  assert.equal(code.filter((l) => l.includes('--enqueue')).length, 1);
+  assert.equal(code.filter((l) => l.includes('t1-enqueue-sweep.mjs')).length, 1);
+  assert.equal(code.filter((l) => l.includes('ENQUEUE_FLAG=')).length, 2);
 });
 
 test('shim: the guard is fetched only for T1 PRs; T0 PRs are not touched', async () => {
   const mocks = quiet();
   try {
     const { calls, deps } = harness({ listed: [pr({ number: 3, body: 'Tier: T0\nx', guard: undefined })], live: null });
-    assert.deepEqual(await sweep('o/r', { deps }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps }), {});
     assert.deepEqual(calls.guard, []);
     assert.equal(calls.enqueue.length, 0);
   } finally { mocks.forEach((m) => m.mock.restore()); }

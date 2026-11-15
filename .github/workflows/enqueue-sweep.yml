@@ -7,8 +7,12 @@
 #        2. T0 PRs (body starts `Tier: T0`, base main, not draft, no consult-hold / joint-gv /
 #           no-auto-enqueue label) with all required checks green and NOTHING PUSHED FOR 15
 #           MINUTES, since pushing to a queued PR is refused (operations/devops/t0-enqueue-sweep.mjs).
-#        3. T1 PRs (t/73, Orca t/4820), run BEFORE the T0 step so its idle-window wait never
-#           delays them: the same filters as T0 (labels, draft, queue, dequeue hold, conflict,
+#        3. T1 PRs (t/73, Orca t/4820): NOT ENQUEUED YET. The step ships with `T1_ENQUEUE: 'off'`
+#           (see the step below for what must be true before it is turned on). Meanwhile it only
+#           reports the PRs it would enqueue and posts a guard nudge (one comment per head) when
+#           t1-approval-guard never evaluated an approved, green head. Once on, it enqueues, and
+#           it runs BEFORE the T0 step so its idle-window wait never delays T1 PRs. Selection is
+#           the same filters as T0 (labels, draft, queue, dequeue hold, conflict,
 #           review blocks, all required checks green), plus the SAME approval-at-head check
 #           enqueue-pr.mjs refuses on (t1-approval-at-head.mjs: t1-approval-guard success at the
 #           head), plus a reviewer-App `Approved (<role>):` review bound to the head SHA (the
@@ -132,12 +136,27 @@ jobs:
 
       # Runs even if the Dependabot step failed. Before the T0 step, whose idle-window wait can
       # take 16 minutes. No wait here: the approval must already be bound to the head.
-      - name: Enqueue approved, green T1 PRs
+      #
+      # T1_ENQUEUE SHIPS 'off' (Second Opinion's condition on #4795, 2026-11-15). While it is
+      # 'off' this step enqueues NOTHING: it selects, logs each skip reason, posts guard nudges
+      # (one comment per head whose approval the guard never evaluated) and logs
+      # `[enqueue off] would enqueue #N` for each PR that qualifies. It is a literal here, not a
+      # repo variable, so that turning it on is a reviewed commit. Before flipping it to 'on':
+      #   1. #5150 is on main;
+      #   2. one live nudge has been observed end to end on a throwaway PR: one comment, one
+      #      t1-approval-guard run, and no second comment on the next sweep.
+      # Flipping it is its own T2 commit (it arms auto-enqueue on the next sweep), and it must
+      # change t1-enqueue-sweep.test.mjs's "ships with enqueue off" test in the same commit.
+      - name: T1 sweep (guard nudges; enqueues only when T1_ENQUEUE is 'on')
         if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-        run: node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN
+          T1_ENQUEUE: 'off'
+        run: |
+          ENQUEUE_FLAG=''
+          if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG='--enqueue'; fi
+          node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $ENQUEUE_FLAG
 
       # Runs even if an earlier step failed: one stuck PR must not hold back T0 PRs.
       - name: Enqueue green, idle T0 PRs

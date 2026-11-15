@@ -3,6 +3,13 @@
 
 // Enqueue T1 PRs once a valid approval has landed at the current head (t/73, Orca t/4820).
 //
+// SHIPS WITH ENQUEUE OFF (Second Opinion's condition on #4795, 2026-11-15). Enqueueing needs the
+// `--enqueue` flag (`sweep`'s `enqueueEnabled`, default false), and enqueue-sweep.yml does not
+// pass it: its T1 step has the literal `T1_ENQUEUE: 'off'`. Until that is flipped in its own
+// reviewed commit, T1 PRS ARE NOT AUTO-ENQUEUED. The sweep still selects, logs every skip
+// reason, posts guard nudges (below), and logs `[enqueue off] would enqueue #N` for each PR it
+// would have enqueued. The rules below describe the selection, and the enqueue once it is on.
+//
 // WHY: the sweep enqueued only Dependabot and T0 PRs. An approved, green T1 PR waited until a
 // person or agent ran enqueue-pr.mjs by hand (#4725 waited 15 minutes after its guard success;
 // with nobody watching, the wait is unbounded). Design: notes/design-t73-task7-t1-auto-enqueue.md,
@@ -31,7 +38,8 @@
 //
 // Pure core (`selectT1Candidates`) is unit-tested in t1-enqueue-sweep.test.mjs.
 //
-//   GH_TOKEN=<app token> node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run]
+//   GH_TOKEN=<app token> node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--enqueue]
+//     (no flag: nudges only, nothing enqueued; --enqueue: also enqueue; --dry-run: report only, wins over --enqueue)
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -146,12 +154,33 @@ export function postGuardNudge(repo, number, { headRefOid }, { ghFn = gh, nowMs 
   }
 }
 
+/** PURE. The CLI's arguments: `<owner>/<repo> [--dry-run] [--enqueue]`. Enqueue is on only with the exact flag. */
+export function parseCliArgs(argv) {
+  const args = argv ?? [];
+  return {
+    repo: args.find((a) => !a.startsWith('--')) ?? null,
+    dryRun: args.includes('--dry-run'),
+    enqueueEnabled: args.includes('--enqueue'),
+  };
+}
+
 /**
  * One pass. `deps` replaces the listing, the guard lookup and enqueueOne's own deps in tests.
  * Returns the outcome per enqueued PR number.
+ *
+ * `enqueueEnabled` is the enqueue gate and defaults to FALSE, so a caller that forgets it cannot
+ * enqueue. With it off, everything else runs as usual (listing, guard lookup, selection, skip
+ * reasons, guard nudges), but a selected PR is only logged as `[enqueue off] would enqueue`: no
+ * live re-read, no disarm and no enqueue call. `dryRun` wins over it: no nudges and no enqueue.
  */
-export async function sweep(repo, { dryRun = false, deps = {} } = {}) {
+export async function sweep(repo, { dryRun = false, enqueueEnabled = false, deps = {} } = {}) {
   const { list = listOpenPRs, fetchGuard = fetchGuardRun, enqueueDeps, nudge = postGuardNudge } = deps;
+  const enqueueOn = enqueueEnabled === true; // only the boolean: a stray 'off' or 'false' string must not enqueue
+  if (!dryRun) {
+    console.log(enqueueOn
+      ? 'T1 sweep: enqueue is ON (--enqueue).'
+      : 'T1 sweep: enqueue is OFF (no --enqueue). Guard nudges are still posted; PRs that qualify are only reported.');
+  }
   const prs = list(repo);
   for (const pr of prs) {
     if (!declaresT1(pr.body)) continue;
@@ -175,6 +204,7 @@ export async function sweep(repo, { dryRun = false, deps = {} } = {}) {
   const failures = [];
   for (const pr of enqueue) {
     if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+    if (!enqueueOn) { console.log(`[enqueue off] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
     outcomes[pr.number] = await enqueueOne(repo, pr, { enqueueOpts: { expectedHeadOid: pr.headRefOid }, deps: enqueueDeps });
     if (outcomes[pr.number] === 'failed') failures.push(pr.number);
   }
@@ -192,12 +222,12 @@ export async function sweep(repo, { dryRun = false, deps = {} } = {}) {
 
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCliEntry) {
-  const repo = process.argv[2];
+  const { repo, dryRun, enqueueEnabled } = parseCliArgs(process.argv.slice(2));
   if (!repo) {
-    console.error('Usage: node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run]');
+    console.error('Usage: node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--enqueue]');
     process.exit(1);
   }
-  sweep(repo, { dryRun: process.argv.includes('--dry-run') }).then(
+  sweep(repo, { dryRun, enqueueEnabled }).then(
     () => {},
     (err) => { console.error(err.message ?? err); process.exit(1); },
   );
