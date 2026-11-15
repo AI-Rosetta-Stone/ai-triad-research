@@ -2,9 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Keeps the `issue_comment` filter in t1-approval-guard.yml and tier-check.yml in step with the
-// predicates they front. Each workflow runs its job for a PR comment only when the comment body
-// (or, for an edit, its previous body) contains one of a short list of substrings. The list must
-// be a SUPERSET of what the predicate reacts to: a missed run loses an approval or a block.
+// predicates they front. Each workflow runs its job for a created or edited PR comment only when
+// the comment body (or, for an edit, its previous body) contains one of a short list of
+// substrings. The list must be a SUPERSET of what the predicate reacts to: a missed run loses an
+// approval or a block. A DELETED PR comment always runs the job, whatever its body.
 //
 // The REAL predicates are the oracle here, not a copy of their regexes: every candidate body is
 // fed to latestRoleVerdicts / checkR6, and any body they react to must pass the workflow filter.
@@ -66,6 +67,7 @@ function expectedIf(tokens) {
     '(github.event.issue.pull_request || !github.event.issue)',
     '&& (',
     "github.event_name != 'issue_comment'",
+    "|| github.event.action == 'deleted'",
     ...tokens.map((t) => `|| contains(${HAYSTACK}, '${t}')`),
     ')',
     '}}',
@@ -80,6 +82,7 @@ function jobRuns(tokens, event) {
   const isPrOrNotIssue = Boolean(event.issue?.pull_request) || !event.issue;
   if (!isPrOrNotIssue) return false;
   if (event.eventName !== 'issue_comment') return true;
+  if (event.action === 'deleted') return true; // never filtered: the body of a deletion is not relied on
   const haystack = `${event.comment?.body ?? ''} ${event.changes?.body?.from ?? ''}`.toLowerCase();
   return tokens.some((t) => haystack.includes(t.toLowerCase()));
 }
@@ -280,8 +283,9 @@ test('tier-check: comment bodies are read ONLY by checkR6 -- a new reader must e
 //
 // Each row is one event. `guard` / `tier` state whether that workflow's job must RUN (true) or
 // SKIP (false). An edit row matches on one half only (new body or previous body), so the two
-// halves of the searched text are each proven on their own. A deleted comment's event carries
-// the deleted comment's body in `comment.body`, like a created one.
+// halves of the searched text are each proven on their own. A deleted PR comment RUNS both
+// workflows whatever its body (chatter and an empty body included): the lists are not applied to
+// a deletion, because whether the event carries the deleted comment's body is not confirmed.
 
 const SO_CLEARING = `**SO clearing comment (T2, t/4266), head \`${HEAD}\`.**`;
 const onPr = (action, body, from) => ({
@@ -304,9 +308,11 @@ const SHAPES = [
   ['verdict edited into chatter (previous body only)', edited('Approved (Quality): ok', 'Withdrawn, see below.'), true, false],
   ['changes request edited into chatter (previous body only)', edited('**Changes requested (Quality), at abc123**', 'Resolved.'), true, false],
   ['chatter edited into chatter', edited('Head updated to abc123', 'Head updated to abc124'), false, false],
-  ['verdict deleted', deleted('Approved (Quality): ok'), true, false],
-  ['changes request deleted', deleted('Changes requested (Design): no'), true, false],
-  ['chatter deleted', deleted('Head updated to abc123'), false, false],
+  ['verdict deleted (unfiltered: runs both)', deleted('Approved (Quality): ok'), true, true],
+  ['changes request deleted (unfiltered: runs both)', deleted('Changes requested (Design): no'), true, true],
+  ['chatter deleted (unfiltered: RUNS both, by design)', deleted('Head updated to abc123'), true, true],
+  ['deleted with an EMPTY body (unfiltered: RUNS both -- the case the filter could not see)', deleted(''), true, true],
+  ['deleted with no body field at all (unfiltered: RUNS both)', { eventName: 'issue_comment', action: 'deleted', issue: { number: 7, pull_request: {} }, comment: {} }, true, true],
   ['sweep marker', created(`${SWEEP_MARKER} 65ab11a0 -->\nRe-running the guard: its run for this head was lost.`), true, false],
   ['/recheck-guards', created('/recheck-guards'), true, true],
   ['/recheck-guards inside a longer comment', created('Dismissed the stale review.\n\n/recheck-guards\n'), true, true],
@@ -315,14 +321,14 @@ const SHAPES = [
   ['PI approval on a later line', created('Context first.\nApproved (PI): proceeding.'), true, true],
   ['chatter edited into a PI approval (new body only)', edited('Reading.', 'Approved (PI): go ahead.'), true, true],
   ['PI approval edited into chatter (previous body only)', edited('Approved (PI): go ahead.', 'Retracted.'), true, true],
-  ['PI approval deleted', deleted('Approved (PI): go ahead.'), true, true],
+  ['PI approval deleted (unfiltered: runs both)', deleted('Approved (PI): go ahead.'), true, true],
   ['SO clearing created', created(SO_CLEARING), false, true],
   ['chatter edited into an SO clearing (new body only)', edited('Reviewing.', SO_CLEARING), false, true],
   ['SO clearing edited into chatter (previous body only)', edited(SO_CLEARING, 'Clearing withdrawn.'), false, true],
-  ['SO clearing deleted', deleted(SO_CLEARING), false, true],
+  ['SO clearing deleted (unfiltered: runs both)', deleted(SO_CLEARING), true, true],
   ['"SO did not review" created', created('SO did not review within the time-box.'), false, true],
   ['"SO did not review" edited away (previous body only)', edited('SO did not review within the time-box.', 'The SO replied after all.'), false, true],
-  ['"SO did not review" deleted', deleted('SO did not review within the time-box.'), false, true],
+  ['"SO did not review" deleted (unfiltered: runs both)', deleted('SO did not review within the time-box.'), true, true],
   ['markdown-emphasised verdict (bold, comma)', created('**Changes requested (Quality), at abc123, re: the error path.**'), true, false],
   ['markdown-emphasised verdict (underscore)', created('_Approved (Tech Lead)._ fine'), true, false],
   ['odd whitespace: no space before the parenthesis', created('Approved(Quality): ok'), true, false],
@@ -336,7 +342,7 @@ const SHAPES = [
   ['prose that mentions "approved" -- over-triggers the guard, by design', created('Head updated; previously approved by Quality.'), true, false],
   ['empty body', created(''), false, false],
   ['verdict on a plain issue (not a PR)', { eventName: 'issue_comment', action: 'created', issue: { number: 7 }, comment: { body: 'Approved (PI): x /recheck-guards' } }, false, false],
-  ['verdict deleted on a plain issue', { eventName: 'issue_comment', action: 'deleted', issue: { number: 7 }, comment: { body: 'Approved (Quality): ok' } }, false, false],
+  ['verdict deleted on a plain issue (the PR condition still applies)', { eventName: 'issue_comment', action: 'deleted', issue: { number: 7 }, comment: { body: 'Approved (Quality): ok' } }, false, false],
   ['pull_request_review submitted (never filtered)', { eventName: 'pull_request_review', action: 'submitted', pull_request: { number: 7 } }, true, true],
   ['pull_request_review dismissed (never filtered)', { eventName: 'pull_request_review', action: 'dismissed', pull_request: { number: 7 } }, true, true],
   ['pull_request_target synchronize (never filtered)', { eventName: 'pull_request_target', action: 'synchronize', pull_request: { number: 7 } }, true, true],

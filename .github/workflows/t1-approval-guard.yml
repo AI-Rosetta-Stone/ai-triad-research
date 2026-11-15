@@ -47,17 +47,20 @@ name: t1-approval-guard
 # tip, never from the checked-out tree). The self-test suite moved to ci.yml's gate-self-health
 # job (plain pull_request, zero permissions, t/4266) -- this job never executes PR code at all.
 #
-# COMMENT FILTER: a PR comment runs this check only if it (or, for an edit, its previous text)
-# contains a verdict word, the sweep's re-run marker, or `/recheck-guards`. To re-run this check by
-# hand, post a PR comment containing `/recheck-guards`. The list and its reasons are on the job.
+# COMMENT FILTER: a created or edited PR comment runs this check only if it (or, for an edit, its
+# previous text) contains a verdict word, the sweep's re-run marker, or `/recheck-guards`. A
+# DELETED PR comment always runs it. To re-run this check by hand, post a PR comment containing
+# `/recheck-guards`. The list and its reasons are on the job.
 #
 # REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and
 # `pull_request_review: [dismissed]` are triggers, so deleting an approval comment or dismissing an
 # approving review re-evaluates at once. Without them the last `success` check run stayed on the
 # head, and enqueue-pr.mjs reads that check run. The run lists comments and reviews afresh: a
 # deleted comment is no longer in the list, and a dismissed review comes back with state DISMISSED,
-# which the predicate never counts as an approval. A deleted comment passes the same filter as a
-# created one (the event carries the deleted comment's body). LIMIT: GitHub takes a
+# which the predicate never counts as an approval. EVERY deleted PR comment runs the job, whatever
+# its text: filtering a deletion would depend on the event carrying the deleted comment's body,
+# which is not confirmed, and an empty body there would skip a deleted sole approval and leave the
+# stale `success` (Second Opinion on 3ebe74158). One run per deletion is cheap. LIMIT: GitHub takes a
 # `pull_request_review` run's workflow file from the PR side, so a branch cut before `dismissed`
 # was added here does not run on a dismissal until it is rebased onto main.
 
@@ -78,8 +81,9 @@ permissions:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
-    # COMMENT FILTER. An `issue_comment` event runs this job only when the comment could change the
-    # verdict; every other trigger runs as before. Most PR comments are agent status chatter
+    # COMMENT FILTER. A created or edited PR comment runs this job only when the comment could
+    # change the verdict. A deleted PR comment always runs it (`github.event.action == 'deleted'`),
+    # and every other trigger runs as before. Most PR comments are agent status chatter
     # ("Head updated to ...", "Ready for reviewer approval"), and each run they set off re-read the
     # PR's comments, reviews and commits from the shared GITHUB_TOKEN quota without changing anything.
     #
@@ -97,9 +101,8 @@ jobs:
     # contains() ignores case and matches anywhere in the body, so the list is a SUPERSET of the
     # predicate: an extra run is harmless, a missed one loses an approval or a block. The text
     # searched is the comment's new body plus, for an edit, its previous body
-    # (`changes.body.from`, empty on `created` and `deleted`), so a verdict edited AWAY also
-    # re-evaluates. On `deleted` the body is the deleted comment's, so a deleted verdict runs the
-    # job and deleted chatter does not.
+    # (`changes.body.from`, empty on `created`), so a verdict edited AWAY also re-evaluates.
+    # The list is not applied to a deletion at all: see REMOVED APPROVALS in the header.
     # When you change the grammar in role-review-verdicts.mjs, change the list here, in BOTH copies
     # (`if:` and `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ
     # or if a body the predicate reacts to would not run this job.
@@ -119,6 +122,7 @@ jobs:
         (github.event.issue.pull_request || !github.event.issue)
         && (
         github.event_name != 'issue_comment'
+        || github.event.action == 'deleted'
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Changes requested')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Design-exempt')
@@ -134,6 +138,7 @@ jobs:
       (github.event.issue.pull_request || !github.event.issue)
       && (
       github.event_name != 'issue_comment'
+      || github.event.action == 'deleted'
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Changes requested')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Design-exempt')

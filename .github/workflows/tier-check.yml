@@ -18,9 +18,11 @@ name: tier-check
 # that gets approved AFTER its last push would stay red forever once R6 is promoted to blocking
 # (a deadlock). Re-run on the same events t1-approval-guard.yml already triggers on.
 #
-# COMMENT FILTER: a PR comment runs this check only if it contains R6 comment evidence or
-# `/recheck-guards`. To re-run this check by hand, post a PR comment containing `/recheck-guards`.
-# The list and its reasons are on the job.
+# COMMENT FILTER: a created or edited PR comment runs this check only if it (or, for an edit, its
+# previous text) contains R6 comment evidence or `/recheck-guards`. A DELETED PR comment always
+# runs it: filtering a deletion would depend on the event carrying the deleted comment's body,
+# which is not confirmed (Second Opinion on 3ebe74158). To re-run this check by hand, post a PR
+# comment containing `/recheck-guards`. The list and its reasons are on the job.
 #
 # REMOVED EVIDENCE (Second Opinion condition on #5176): R6's evidence can be withdrawn as well as
 # given, so `issue_comment: [edited, deleted]` and `pull_request_review: [dismissed]` are triggers
@@ -46,8 +48,9 @@ jobs:
   tier-check:
     runs-on: ubuntu-latest
     continue-on-error: true
-    # COMMENT FILTER. An `issue_comment` event runs this job only when the comment could change the
-    # verdict; every other trigger runs as before. Most PR comments are agent status chatter, and
+    # COMMENT FILTER. A created or edited PR comment runs this job only when the comment could
+    # change the verdict. A deleted PR comment always runs it (`github.event.action == 'deleted'`),
+    # and every other trigger runs as before. Most PR comments are agent status chatter, and
     # each run they set off re-read the PR's files, comments, reviews and commits from the shared
     # GITHUB_TOKEN quota without changing anything.
     #
@@ -61,8 +64,7 @@ jobs:
     # contains() ignores case and matches anywhere in the body, so the list is a SUPERSET of the
     # predicate: an extra run is harmless, a missed one leaves R6's advisory stale. The text
     # searched is the comment's new body plus, for an edit, its previous body (`changes.body.from`).
-    # The previous body is empty on `created` and `deleted`. On `deleted` the body is the deleted
-    # comment's, so deleted evidence runs the job and deleted chatter does not.
+    # The previous body is empty on `created`. The list is not applied to a deletion at all.
     # `pull_request_review` events (submitted, dismissed) are not filtered: every one runs the job.
     # When you change one of those three patterns, change the list here, in BOTH copies (`if:` and
     # `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ or if a
@@ -83,6 +85,7 @@ jobs:
         (github.event.issue.pull_request || !github.event.issue)
         && (
         github.event_name != 'issue_comment'
+        || github.event.action == 'deleted'
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved (PI):')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO did not review')
         || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO clearing comment')
@@ -97,6 +100,7 @@ jobs:
       (github.event.issue.pull_request || !github.event.issue)
       && (
       github.event_name != 'issue_comment'
+      || github.event.action == 'deleted'
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved (PI):')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO did not review')
       || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'SO clearing comment')
