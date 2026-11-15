@@ -315,7 +315,10 @@ function gateRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPu
 }
 // END INLINED role-review-verdicts.mjs (t/200)
 
-function parseTier(body) {
+// Exported (with normalizeRole) for t1-enqueue-sweep.mjs (t/73), so the sweep reads the tier and
+// the self-approval role exactly as this guard does. Keep this file import-free: the guard and
+// ci.yml copy it alone into a temp dir and import it from there.
+export function parseTier(body) {
   const firstLine = String(body ?? '').trim().split('\n')[0].trim();
   const m = /^Tier:\s*(T[012])\b/i.exec(firstLine);
   return m ? m[1].toUpperCase() : null;
@@ -330,11 +333,11 @@ export function ownerSlugFromBranch(headRefName) {
   return seg.toLowerCase().replace(/[^a-z]/g, '');
 }
 
-function normalizeRole(role) {
+export function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
-export const MISSING_HEAD_SHA_SUMMARY = 'Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post any PR comment or rebase onto main to re-run the guard on main\'s workflow.';
+export const MISSING_HEAD_SHA_SUMMARY = 'Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post a PR comment containing `/recheck-guards` or rebase onto main to re-run the guard on main\'s workflow.';
 
 export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
   const tier = parseTier(body);
