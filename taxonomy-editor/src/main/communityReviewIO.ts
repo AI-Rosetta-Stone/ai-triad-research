@@ -8,6 +8,7 @@ import { ActionableError } from '../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { sanitizeText, type SanitizeWarning } from '../../../lib/sanitize/contentSanitizerCore.js';
 import { stripSensitiveKeys as stripSensitiveKeysShared, SENSITIVE_KEYS } from '../../../lib/sanitize/stripSensitiveKeys.js';
+import { stripOpEdStagesForCommunity } from '../../../lib/oped/communityStrip.js';
 
 let _client: CommunityReviewClient | null = null;
 
@@ -45,6 +46,18 @@ function assertNeverCommunityType(type: never): never {
   throw new Error(`Unhandled community type: ${String(type)}`);
 }
 
+/** t/301: map singular submission types to plural CommunityType for routing via
+ *  communityPrefixFor. Exhaustive switch ensures new types are handled at compile time. */
+function submissionTypeToCommunityType(type: Submission['type']): CommunityType {
+  switch (type) {
+    case 'chat': return 'chats';
+    case 'debate': return 'debates';
+    case 'oped': return 'opeds';
+    case 'inquiry': return 'inquiries';
+    default: return assertNeverCommunityType(type);
+  }
+}
+
 const COMMUNITY_TYPES = new Set<CommunityType>(['chats', 'debates', 'opeds', 'inquiries']);
 
 /** t/4895 (Quality p/664#33): `type`'s TS type is erased at the Electron IPC boundary — a
@@ -74,7 +87,7 @@ function desktopAdminActor(): string {
 
 interface Submission {
   id: string;
-  type: 'chat' | 'debate';
+  type: 'chat' | 'debate' | 'oped' | 'inquiry';
   originalId: string;
   submittedBy: string;
   submittedAt: string;
@@ -480,16 +493,38 @@ class CommunityReviewClient {
     }
   }
 
-  /** Promote one pending submission: merge admin edits, sanitize, publish to the public
-   *  community blob, and mark the submission approved. Extracted from executeAction (t/1914). */
+  /** Promote one pending submission: merge admin edits, sanitize, strip sensitive data per type,
+   *  publish to the public community blob, and mark the submission approved. t/301: routes by
+   *  type using submissionTypeToCommunityType → communityPrefixFor, strips op-ed stages before
+   *  publishing (t/171), refuses inquiries until projection is available (t/3651). Extracted
+   *  from executeAction (t/1914). */
   private async promoteSubmission(submission: Submission, subPath: string, edits: Record<string, unknown> | undefined): Promise<void> {
     const dataToPublish = (edits && typeof edits === 'object' && submission.data && typeof submission.data === 'object')
       ? { ...(submission.data as Record<string, unknown>), ...edits }
       : submission.data;
-    const sanitized = sanitizeForCommunity(dataToPublish, submission.submittedBy);
-    const dir = submission.type === 'chat' ? 'community/chats' : 'community/debates';
-    const prefix = submission.type === 'chat' ? 'chat-' : 'debate-';
-    await this.writeBlob(`${dir}/${prefix}${sanitized.id}.json`, JSON.stringify(sanitized, null, 2));
+    
+    let sanitized = sanitizeForCommunity(dataToPublish, submission.submittedBy);
+    
+    // t/171: strip op-ed stages (prompts + user source material) before publishing to community
+    if (submission.type === 'oped') {
+      sanitized = stripOpEdStagesForCommunity(sanitized);
+    }
+    
+    // t/3651: inquiries use projectInquiryFields projection (mirrors server community.ts:787-790)
+    // For now, reject inquiries until projection is available in desktop context
+    if (submission.type === 'inquiry') {
+      throw new ActionableError({
+        goal: 'Publish inquiry to community',
+        problem: 'Inquiry publication not yet supported on desktop',
+        location: 'communityReviewIO.ts → promoteSubmission',
+        nextSteps: ['Wait for inquiry projection implementation (t/3651)'],
+      });
+    }
+    
+    const communityType = submissionTypeToCommunityType(submission.type);
+    const typeDir = `community/${communityType}`;
+    const prefix = communityPrefixFor(communityType);
+    await this.writeBlob(`${typeDir}/${prefix}${sanitized.id}.json`, JSON.stringify(sanitized, null, 2));
     submission.status = 'approved';
     await this.writeBlob(subPath, JSON.stringify(submission, null, 2));
   }

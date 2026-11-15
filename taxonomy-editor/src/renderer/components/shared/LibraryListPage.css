@@ -50,12 +50,12 @@
 }
 
 .lib-btn-primary {
-  background: var(--lib-accent);
-  border: 1px solid var(--lib-accent);
+  background: var(--danger-fill); /* t/198 S5: white on --lib-accent (--danger) was 3.76 */
+  border: 1px solid var(--danger-fill);
   color: #fff;
   font-weight: 600;
 }
-.lib-btn-primary:hover { background: var(--lib-accent-hover); border-color: var(--lib-accent-hover); }
+.lib-btn-primary:hover { background: var(--danger-fill-hover); border-color: var(--danger-fill-hover); }
 .lib-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* t/54 (Design t/54#2): tokens only, so every theme follows. The old hard-coded light background
@@ -66,7 +66,7 @@
   color: var(--lib-text);
 }
 .lib-btn-secondary:hover { background: var(--lib-row-hover); border-color: var(--lib-text-faded); }
-.lib-btn-secondary.lib-btn-danger { color: var(--lib-accent); border-color: var(--lib-accent); }
+.lib-btn-secondary.lib-btn-danger { color: var(--error-text); border-color: var(--error-text); } /* t/198 S3 */
 .lib-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .lib-editmode-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 8px; }
@@ -122,8 +122,8 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: var(--lib-inactive-badge-bg);
-  color: var(--lib-text-faded);
+  background: var(--bg-tertiary); /* t/198 S1: was 2.97 in harvard */
+  color: var(--text-secondary);
 }
 
 .lib-tab.active .lib-tab-badge {

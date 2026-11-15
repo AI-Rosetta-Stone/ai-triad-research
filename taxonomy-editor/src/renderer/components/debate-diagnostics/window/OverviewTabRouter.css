@@ -19,8 +19,8 @@
 .ovr-label-warning { font-weight: 600; font-size: 0.7rem; margin-bottom: 4px; color: var(--warning); }
 .ovr-label-tight { font-weight: 600; font-size: 0.7rem; margin-bottom: 2px; }
 .ovr-tag-row { display: flex; gap: 4px; flex-wrap: wrap; }
-.ovr-tag-warning { padding: 2px 6px; border-radius: 3px; background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); font-size: var(--text-2xs); }
-.ovr-tag-danger { padding: 2px 6px; border-radius: 3px; background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); font-size: var(--text-2xs); }
+.ovr-tag-warning { padding: 2px 6px; border-radius: 3px; background: var(--warning-bg); color: var(--warning-text); font-size: var(--text-2xs); }
+.ovr-tag-danger { padding: 2px 6px; border-radius: 3px; background: var(--error-bg); color: var(--error-text); font-size: var(--text-2xs); }
 .ovr-tag-neutral { padding: 2px 6px; border-radius: 3px; background: var(--bg-hover); color: var(--text-secondary); font-size: var(--text-2xs); }
 .ovr-ol { margin: 0; padding-left: 20px; font-size: 0.7rem; }
 .ovr-ul { margin: 0; padding-left: 20px; font-size: 0.7rem; list-style: disc; }
@@ -117,7 +117,7 @@ a.vocab-term,
 .ovr-mod-tag { padding: 0 4px; border-radius: 3px; background: var(--bg-hover); color: var(--text-secondary); font-size: var(--text-2xs); font-weight: 600; }
 .ovr-mod-tag-base { padding: 0 4px; border-radius: 3px; font-size: var(--text-2xs); font-weight: 600; }
 .ovr-mod-focus { font-size: var(--text-2xs); color: var(--text-muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ovr-mod-reason { padding: 0 3px; border-radius: 2px; background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); font-size: var(--text-2xs); }
+.ovr-mod-reason { padding: 0 3px; border-radius: 2px; background: var(--error-bg); color: var(--error-text); font-size: var(--text-2xs); }
 .ovr-mod-metric { font-size: var(--text-2xs); color: var(--text-muted); }
 
 /* --- Prompt Diff --- */
@@ -129,7 +129,7 @@ a.vocab-term,
 .ovr-h4-10 { font-size: 0.85rem; margin-bottom: 10px; }
 .ovr-italic-muted { font-size: 0.72rem; color: var(--text-muted); font-style: italic; }
 .ovr-guard-badge { padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 0.72rem; }
-.ovr-clear-banner { padding: 8px 10px; border-radius: 4px; font-size: 0.75rem; background: color-mix(in srgb, var(--success) 8%, transparent); border-left: 3px solid var(--success); color: var(--success); font-weight: 600; }
+.ovr-clear-banner { padding: 8px 10px; border-radius: 4px; font-size: 0.75rem; background: var(--success-bg); border-left: 3px solid var(--success); color: var(--success-text); font-weight: 600; }
 .ovr-mb-12 { margin-bottom: 12px; }
 .ovr-section-title-danger { font-size: 0.72rem; font-weight: 700; color: var(--danger); margin-bottom: 6px; }
 .ovr-section-title-warning { font-size: 0.72rem; font-weight: 700; color: var(--warning); margin-bottom: 6px; }

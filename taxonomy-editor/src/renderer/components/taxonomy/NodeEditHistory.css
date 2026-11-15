@@ -51,10 +51,10 @@
   text-transform: uppercase; letter-spacing: 0.03em;
 }
 .node-edit-history-source-badge.debate-reflection {
-  background: rgba(99, 102, 241, 0.15); color: var(--focus-ring, #6366f1);
+  background: var(--info-bg); color: var(--info-text); /* t/198 S2 */
 }
 .node-edit-history-source-badge.batch-audit {
-  background: rgba(234, 179, 8, 0.15); color: #b45309;
+  background: var(--warning-bg); color: var(--warning-text);
 }
 .node-edit-history-entry-reason {
   font-size: var(--text-md); color: var(--text-primary); margin-top: 4px;

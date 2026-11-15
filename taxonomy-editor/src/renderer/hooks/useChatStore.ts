@@ -34,6 +34,8 @@ import {
 // shell's running signal). Pre-approved call site — see t/4687#1/#3.
 import { registerRun } from '../navigation/runningSignal';
 import type { RunOutcome } from '../navigation/runningSignal';
+import { normalizeSession, type NormalizerContext } from '../utils/chatNormalizer';
+import { getNodeLabel } from '../components/debate-workspace/utils';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -54,6 +56,21 @@ function getConfiguredModel(): string {
  *  fallback doesn't add to generateOpening's/sendMessage's own complexity count. */
 function resolveChatTemperature(chat: Pick<ChatSession, 'temperature' | 'mode'>): number {
   return chat.temperature ?? CHAT_MODE_TEMPERATURE[chat.mode];
+}
+
+/** t/282: normalizer context. Labels resolve through the same lookup the debate Why view uses, so
+ *  superseded nodes resolve too; a taxonomy still loading yields no backfill (see chatNormalizer). */
+function buildNormalizerContext(): NormalizerContext {
+  const taxState = useTaxonomyStore.getState();
+  const taxonomyLoaded = taxState.accelerationist !== null && taxState.safetyist !== null
+    && taxState.skeptic !== null && taxState.situations !== null;
+  return {
+    taxonomyLoaded,
+    lookupLabel: (nodeId: string) => {
+      const label = getNodeLabel(nodeId);
+      return label === nodeId ? null : label;
+    },
+  };
 }
 
 function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
@@ -101,6 +118,10 @@ async function streamChatWithProgress(
     }
   });
   // t/4848: subscribe to generation context for raw prompt and response
+  if (!api.onChatStreamGenerationContext) {
+    // t/169: a bridge without the listener records no raw fields, so the How panel stays empty. Say so.
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: 'WARN: api.onChatStreamGenerationContext is unavailable; this answer will have no raw_prompt/raw_response for the How panel', error: { name: 'MissingBridgeMethod', message: 'onChatStreamGenerationContext is undefined', stack: '' } });
+  }
   const unsubGenContext = api.onChatStreamGenerationContext?.((context) => {
     if (context.raw_prompt) rawFields.raw_prompt = context.raw_prompt;
     if (context.raw_response) rawFields.raw_response = context.raw_response;
@@ -351,6 +372,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const raw = await api.loadChatSession(id);
       const session = raw as ChatSession;
+      
+      // t/282: Normalize old chats — backfill missing ref labels from taxonomy
+      const context = buildNormalizerContext();
+      normalizeSession(session, context);
+      
       set({
         activeChatId: session.id,
         activeChat: session,
@@ -364,18 +390,27 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
+  // t/93: a failed delete rejects (after recording and setting chatError), so ChatTab's bulk
+  // dialog can count it and keep the row selected; it used to resolve and read as a success. The
+  // single-row handleDelete relies on chatError for its message (t/89), so it stays. A refresh
+  // failure after a successful delete only WARNs: the chat is gone, so it must not read as failed.
   deleteChat: async (id) => {
     try {
       await api.deleteChatSession(id);
-      const { activeChatId } = get();
-      if (activeChatId === id) {
-        set({ activeChatId: null, activeChat: null, chatModel: null });
-      }
-      const sessions = await api.listChatSessions();
-      set({ sessions: sessions as ChatSessionSummary[] });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to delete chat session', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ chatError: `Failed to delete chat: ${err}` });
+      throw err;
+    }
+    const { activeChatId } = get();
+    if (activeChatId === id) {
+      set({ activeChatId: null, activeChat: null, chatModel: null });
+    }
+    try {
+      const sessions = await api.listChatSessions();
+      set({ sessions: sessions as ChatSessionSummary[] });
+    } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: `Chat ${id} deleted, but refreshing the session list failed (WARN: the list may be stale until the next refresh)`, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
   },
 
@@ -451,7 +486,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       );
       const userContent = chatOpeningPrompt(activeChat.mode, activeChat.topic);
 
-      const { text: fullText } = await streamChatWithProgress(
+      const { text: fullText, rawFields } = await streamChatWithProgress(
         systemInstruction,
         [{ role: 'user', content: userContent }],
         model,
@@ -467,12 +502,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       const { response, taxonomyRefs } = parseChatResponse(fullText, model);
 
+      // t/169: the opening answer carries raw_prompt/raw_response for the How panel, like sendMessage's (t/4848).
       const entry: ChatEntry = {
         id: generateId(),
         timestamp: nowISO(),
         speaker: activeChat.pover,
         content: response,
         taxonomy_refs: taxonomyRefs,
+        ...rawFields,
       };
 
       const updated = {

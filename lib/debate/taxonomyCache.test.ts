@@ -42,16 +42,21 @@ describe('Taxonomy Cache V2', () => {
     expect(smallCache.get('b')).toBeUndefined();
   });
 
-  it('respects TTL expiration', (done) => {
-    const shortCache = new LRUCache(10, 50);
-    shortCache.set('node-1', 'value-1');
+  it('respects TTL expiration', () => {
+    vi.useFakeTimers();
+    try {
+      const shortCache = new LRUCache(10, 50);
+      shortCache.set('node-1', 'value-1');
 
-    expect(shortCache.get('node-1')).toBe('value-1');
+      expect(shortCache.get('node-1')).toBe('value-1');
 
-    setTimeout(() => {
+      vi.advanceTimersByTime(100);
+
       expect(shortCache.get('node-1')).toBeUndefined();
-      done();
-    }, 100);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it('provides TaxonomyCache wrapper', async () => {

@@ -19,7 +19,7 @@ name: tier-check
 # (a deadlock). Re-run on the same events t1-approval-guard.yml already triggers on.
 on:
   pull_request_target:
-    types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
+    types: [opened, reopened, edited, synchronize, ready_for_review, labeled, unlabeled]
   issue_comment:
     types: [created]
   pull_request_review:
@@ -33,6 +33,10 @@ jobs:
   tier-check:
     runs-on: ubuntu-latest
     continue-on-error: true
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+    if: github.event.issue.pull_request || !github.event.issue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -60,13 +64,41 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const MARKER = '<!-- tier-check:verdict -->';
 
+            // BEGIN github-retry-loader (t/4819): every GitHub call below goes through retry(),
+            // which retries ONLY a 5xx/429 (max 3 attempts, exponential backoff, a WARN per retry)
+            // and rethrows otherwise, so exhausted retries still land in the CANNOT EVALUATE catch.
+            // The helper is loaded from the DEFAULT BRANCH'S LIVE TIP via git show, never the PR
+            // tree, so a PR cannot weaken it (same posture as the predicate below). The default
+            // branch, not pr.base.ref, because pulls.get itself must already be retried and the
+            // base ref is not in an issue_comment payload. If the helper is missing (bootstrap)
+            // or cannot be loaded, calls run once, unretried -- the pre-t/4819 behaviour -- with a WARN.
+            let retry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              retry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 'tier-check',
+              });
+            } catch (err) {
+              core.warning(`WARN tier-check: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
+            }
+            // END github-retry-loader
+
             async function postVerdictComment(body, { createIfAbsent } = { createIfAbsent: true }) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                await retry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body }));
               } else if (createIfAbsent) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                await retry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }));
               }
             }
 
@@ -82,16 +114,22 @@ jobs:
               // TypeError behind a reported "success" for 10 consecutive runs on main).
               const message = err && err.stack ? err.stack : String(err);
               core.error(`tier-check CRASHED: ${message}`);
-              await postVerdictComment([
-                MARKER,
-                '**tier-check: CANNOT EVALUATE**',
-                '',
-                'The check crashed while evaluating this PR. No tier verdict was produced -- this',
-                'is not a pass and not a failure, it is an unknown.',
-                '',
-                `Error: \`${String(err && err.message ? err.message : err)}\``,
-                `Run: ${runUrl}`,
-              ].join('\n'));
+              // t/4819: the comment is best-effort. If GitHub is still down (the usual reason we
+              // are here), posting it throws too -- that must not skip the setFailed below.
+              try {
+                await postVerdictComment([
+                  MARKER,
+                  '**tier-check: CANNOT EVALUATE**',
+                  '',
+                  'The check crashed while evaluating this PR. No tier verdict was produced -- this',
+                  'is not a pass and not a failure, it is an unknown.',
+                  '',
+                  `Error: \`${String(err && err.message ? err.message : err)}\``,
+                  `Run: ${runUrl}`,
+                ].join('\n'));
+              } catch (postErr) {
+                core.error(`tier-check: could not post the CANNOT EVALUATE comment either -- ${String(postErr && postErr.message ? postErr.message : postErr)}`);
+              }
               core.setFailed(`CANNOT EVALUATE: ${String(err && err.message ? err.message : err)}`);
             }
 
@@ -103,7 +141,7 @@ jobs:
             // stale `base.sha` that predates exports the workflow now depends on -- loading from
             // the live tip instead fixes the staleness while keeping the anti-self-narrowing
             // guarantee, since the PR's own commits are never on base's tip regardless).
-            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const { data: pr } = await retry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
             const headSha = pr.head.sha;
             execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
@@ -124,10 +162,15 @@ jobs:
             // of the PR's ref (which would pull untrusted content into this job's working tree).
             async function readFromHead(repoPath) {
               try {
-                const { data } = await github.rest.repos.getContent({ owner, repo, path: repoPath, ref: headSha });
+                const { data } = await retry('repos.getContent', () => github.rest.repos.getContent({ owner, repo, path: repoPath, ref: headSha }));
                 if (Array.isArray(data) || !data.content) return null;
                 return Buffer.from(data.content, data.encoding ?? 'base64').toString('utf8');
-              } catch {
+              } catch (err) {
+                // t/4819: a 404 (file absent at head) is a real answer -> null, as before. A 5xx/429
+                // that outlived its retries is NOT an answer: rethrow so it fails closed as CANNOT
+                // EVALUATE instead of silently degrading to the skew path.
+                const s = err && Number(err.status);
+                if (s === 429 || (s >= 500 && s <= 599)) throw err;
                 return null;
               }
             }
@@ -187,7 +230,7 @@ jobs:
             // END r1-inline
 
             async function r1FallbackCheck(config, reason) {
-              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
               const result = inlineR1Fallback(files, pr.body, config);
               const tier = result.tier;
               if (!result.pass) {
@@ -231,7 +274,7 @@ jobs:
 
             const { evaluateTierCheck, factsFromListFiles } = baseModule;
 
-            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const files = await retry('pulls.listFiles', () => github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const { paths } = factsFromListFiles(files);
 
             // t/4266 P1: R2a/R2c's added/removed lines come from `pulls.listFiles`'s own
@@ -289,14 +332,14 @@ jobs:
             // comment-only paths (Approved (PI): / "SO did not review") have no SHA-binding of
             // their own, so they still need `lastPushAt` freshness (created_at only -- fix 3:
             // never updated_at) or an old one of either would clear every future head forever.
-            const rawComments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+            const rawComments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
             const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
             // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
             // trusts): the TL's T2 approval is a reviewer-App review, not a PI comment alone.
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
-            const rawReviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const rawReviews = await retry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const reviews = rawReviews.map((r) => ({ state: r.state, commitId: r.commit_id, login: r.user?.login, body: r.body }));
-            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const commits = await retry('pulls.listCommits', () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const lastCommit = commits[commits.length - 1];
             const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
@@ -365,3 +408,39 @@ jobs:
 
             await postVerdictComment(body);
             } // end run()
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi

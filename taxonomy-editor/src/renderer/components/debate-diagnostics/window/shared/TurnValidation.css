@@ -129,8 +129,8 @@
   font-size: var(--text-2xs);
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--success) 15%, transparent);
-  color: var(--success);
+  background: var(--success-bg);
+  color: var(--success-text);
   font-weight: 600;
 }
 

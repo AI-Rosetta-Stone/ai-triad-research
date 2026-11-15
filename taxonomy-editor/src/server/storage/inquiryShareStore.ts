@@ -22,6 +22,8 @@ import { resolveDataPath } from '../config.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
 import { loadInquiryResult } from './inquiryResultStore.js';
+import { confirmShareStillRegistered } from './shareRevokeGuard.js';
+import { readShareRegistry as readRegistryFile, updateShareRegistry } from './shareRegistry.js';
 import { toPublicInquiryShare, PublicInquiryShareReadSchema, type PublicInquiryShare } from '../../../../lib/inquiry/index.js';
 import { log } from '../logger.js';
 
@@ -38,13 +40,18 @@ function shareRegistryPath(): string {
   return path.join(resolveDataPath(`users/${getStorageUserId()}`), SHARE_REGISTRY_FILE);
 }
 
-async function readShareRegistry(): Promise<Record<string, string>> {
-  const raw = await getUserContentBackend().readFile(shareRegistryPath());
-  if (raw === null) return {};
-  try { return JSON.parse(raw) as Record<string, string>; } catch { /* telemetry — silent by design */ return {}; }
+function readShareRegistry(): Promise<Record<string, string>> {
+  return readRegistryFile(getUserContentBackend(), shareRegistryPath());
 }
-async function writeShareRegistry(reg: Record<string, string>): Promise<void> {
-  await getUserContentBackend().writeFile(shareRegistryPath(), JSON.stringify(reg, null, 2));
+/** t/117: compare-and-swap registry update — see shareRegistry.ts. */
+function updateRegistry<T>(mutate: (reg: Record<string, string>) => { changed: boolean; result: T }): Promise<T> {
+  return updateShareRegistry(getUserContentBackend(), shareRegistryPath(), 'inquiry', mutate);
+}
+function confirmInquiryShare(jobId: string, shareId: string): Promise<boolean> {
+  return confirmShareStillRegistered({
+    kind: 'inquiry', id: jobId, shareId, publicPath: publicInquiryPath(shareId), readRegistry: readShareRegistry,
+    backend: getUserContentBackend(),
+  });
 }
 
 /**
@@ -65,9 +72,23 @@ export async function publishInquiryShare(jobId: string): Promise<{ shareId: str
   const share: PublicInquiryShare = toPublicInquiryShare(result);
   await getUserContentBackend().writeFile(publicInquiryPath(shareId), JSON.stringify(share, null, 2));
   if (!existing) {
-    reg[jobId] = shareId;
-    await writeShareRegistry(reg);
+    // t/117: add only if still absent — a concurrent publish that minted its own shareId wins,
+    // and the guard below then removes our copy. On give-up, drop the orphan we just wrote.
+    try {
+      await updateRegistry((r) => {
+        if (r[jobId]) return { changed: false, result: undefined };
+        r[jobId] = shareId;
+        return { changed: true, result: undefined };
+      });
+    } catch (err) {
+      await getUserContentBackend().deleteFile(publicInquiryPath(shareId)).catch((delErr) => {
+        log.server.warn({ err: delErr, shareId }, 'inquiry share orphan cleanup after registry failure failed (best-effort)');
+      });
+      throw err;
+    }
   }
+  // t/4937: an unpublish may have raced the write above — never leave a revoked link live.
+  if (!(await confirmInquiryShare(jobId, shareId))) return null;
   return { shareId };
 }
 
@@ -87,7 +108,7 @@ export async function refreshInquiryShareIfShared(jobId: string): Promise<boolea
   if (!result) return false; // defensive; caller already has the result at this point
   const share: PublicInquiryShare = toPublicInquiryShare(result);
   await getUserContentBackend().writeFile(publicInquiryPath(shareId), JSON.stringify(share, null, 2));
-  return true;
+  return confirmInquiryShare(jobId, shareId); // t/4937
 }
 
 /**
@@ -98,14 +119,19 @@ export async function refreshInquiryShareIfShared(jobId: string): Promise<boolea
 export async function unpublishInquiryShare(jobId: string): Promise<boolean> {
   assertSafeId(jobId, 'inquiry job id');
   if (isAnonymousUser()) return false;
-  const reg = await readShareRegistry();
-  const shareId = reg[jobId];
+  // t/4937: registry entry goes FIRST, so a publish/refresh whose write lands after the delete
+  // below re-reads a registry that no longer names this shareId and removes its own copy.
+  // t/117: compare-and-swap, so a concurrent registry write can't put the entry back.
+  const shareId = await updateRegistry((r) => {
+    const current = r[jobId];
+    if (!current) return { changed: false, result: undefined };
+    delete r[jobId];
+    return { changed: true, result: current };
+  });
   if (!shareId) return false;
   await getUserContentBackend().deleteFile(publicInquiryPath(shareId)).catch((err) => {
     log.server.warn({ err, shareId }, 'inquiry share public-copy delete failed (best-effort)');
   });
-  delete reg[jobId];
-  await writeShareRegistry(reg);
   return true;
 }
 

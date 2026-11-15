@@ -21,6 +21,19 @@
     Detection is AST-based (ThrowStatementAst via Parser::ParseFile), never regex, over
     scripts/AITriad/**/*.ps1 and *.psm1.
 
+    SCOPE (Orca t/4321, t/210; measured 2026-11-10 on origin/main 5b351b12): the scan stays on
+    scripts/AITriad. Widened to every tracked *.ps1/*.psm1, it finds 257 bare throws in 125 more
+    files and 20 actionable-no-mode hits:
+      * the bare throws sit mostly in other roles' code: tests/ 161 in 86 files (largely
+        deliberate `throw 'boom'` mock stubs), research/ 31, operations/ 24, deploy/ 3, analyses/ 1;
+        widening a gate onto their paths is their call, not this lint's;
+      * 19 of the 20 no-mode hits are false positives: operations/devops scripts define a LOCAL
+        New-ActionableError that returns the message string, and this lint matches the command by
+        name. Outside the module the name doesn't identify the function, so the rule doesn't hold;
+      * within scripts/ but outside the module, the 37 bare throws are the frozen one-off
+        data-mutation scripts (23), scripts/archive (5) and small CLI scripts.
+    Revisit if a role asks for its tree to be covered: give it its own baseline section.
+
     Counted (an "offender"):
       * throw <string>      -- StringConstantExpressionAst ('x', "x", here-strings)
       * throw "<x $y>"      -- ExpandableStringExpressionAst
@@ -58,19 +71,28 @@
     JSON (`actionable_no_mode`), with the same ratchet, verdict, regen switch, empty-scan guard,
     Blocking toggle and proof arm. The `files` section is the bare-throw category, unchanged.
 
-    Counted (an "offender" of this category):
-      * throw (New-ActionableError ...)   -- ParenExpressionAst holding one CommandAst
-      * throw $(New-ActionableError ...)  -- SubExpressionAst holding one such statement
+    Counted (an "offender" of this category), by USE since Orca t/4319 (t/207, AST-based): every
+    no-mode New-ActionableError call whose result is used, because that result is $null --
+      * thrown:     throw (New-ActionableError ...) / throw $(New-ActionableError ...)
+      * assigned:   $e = New-ActionableError ...   (then `throw $e` -- the t/4155 incident shape)
+      * returned:   return (New-ActionableError ...)
+      * piped on:   New-ActionableError ... | Something
+      * an argument / nested: Cmd -Err (New-ActionableError ...), $PSCmdlet.ThrowTerminatingError((...)),
+        @{ e = (New-ActionableError ...) }, ...
       with no -AsErrorRecord, -PassThru or -Throw (an explicit `-Switch:$false` counts as
       absent). A splatted call (@params) with no explicit switch is counted too: the lint cannot
-      see inside the splat, so spell the mode switch at the call site.
+      see inside the splat, so spell the mode switch at the call site. Reported at the
+      enclosing statement's line.
     Not counted:
-      * the same with any mode switch; a standalone New-ActionableError with no throw (its
-        documented Write-Error default, which callers rely on).
-      * `$e = New-ActionableError ...; throw $e` -- out of scope HERE: `throw $var` is already
-        the bare-throw `variable` kind above (allow-list it when $e holds -AsErrorRecord).
-      * string / variable throws -- they belong to the bare-throw category; the two classifiers
-        are disjoint by construction, so no throw is counted twice.
+      * the same with any mode switch; a STANDALONE New-ActionableError statement whose result
+        is discarded (its documented Write-Error default, which callers rely on).
+      * An EXPLICIT discard is a use, not a discard: `$null = New-ActionableError ...`,
+        `[void](New-ActionableError ...)` and `New-ActionableError ... | Out-Null` are counted
+        (assigned, cast, piped). They gain nothing over the bare statement, so drop the discard
+        and leave the standalone call.
+      * string / variable throws -- they belong to the bare-throw category. `throw $e` itself is
+        the bare-throw `variable` kind; this category reports the no-mode call that FILLED $e,
+        on its own (different) line, so no statement is counted twice.
     Mode-switch names are matched exactly (case-insensitive); an abbreviated switch
     (e.g. -AsErr) would be counted. None exist today -- spell the switch out.
 #>
@@ -171,38 +193,58 @@ BeforeAll {
         }
     }
 
-    # ── Pure classifier, actionable-no-mode (t/4237) ────────────────────────────
-    # Returns 'actionable-no-mode' for `throw (New-ActionableError ...)` / `throw $(...)` with
-    # no -AsErrorRecord / -PassThru / -Throw, else $null. Disjoint from Get-BareThrowKind:
-    # that one only counts string and variable expressions, this one only paren/sub-expressions.
-    function script:Get-ActionableNoModeKind {
-        param([Parameter(Mandatory)][System.Management.Automation.Language.ThrowStatementAst]$Throw)
-        $pipe = $Throw.Pipeline
-        if ($null -eq $pipe -or $pipe -isnot [System.Management.Automation.Language.PipelineAst]) { return $null }
-        if (@($pipe.PipelineElements).Count -ne 1) { return $null }
-        $element = $pipe.PipelineElements[0]
-        if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return $null }
-        $expr = $element.Expression
-        $inner = $null
-        if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
-            $inner = $expr.Pipeline
-        } elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst]) {
-            $stmts = @($expr.SubExpression.Statements)
-            if ($stmts.Count -eq 1) { $inner = $stmts[0] }
-        }
-        if ($null -eq $inner -or $inner -isnot [System.Management.Automation.Language.PipelineAst]) { return $null }
-        if (@($inner.PipelineElements).Count -ne 1) { return $null }
-        $cmd = $inner.PipelineElements[0]
-        if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $null }
-        if ($cmd.GetCommandName() -ne 'New-ActionableError') { return $null }
-        foreach ($p in @($cmd.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] })) {
+    # ── Pure classifier, actionable-no-mode by USE (Orca t/4319, t/207) ─────────
+    # A no-mode New-ActionableError only Write-Errors and returns $null, so its result is only
+    # safe to DISCARD. Every no-mode CommandAst whose result is USED counts: assigned
+    # (`$e = New-ActionableError ...; throw $e`, the t/4155 incident shape), thrown, returned,
+    # piped onward, passed as an argument, or nested in any other expression. A standalone
+    # statement (the documented Write-Error-only use) does not count. Returns one record per
+    # used call: the command and its enclosing statement (for Line/Text).
+    function script:Test-ActionableNoModeCommand {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.CommandAst]$Command)
+        if ($Command.GetCommandName() -ne 'New-ActionableError') { return $false }
+        foreach ($p in @($Command.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] })) {
             if ($p.ParameterName -notin @('AsErrorRecord', 'PassThru', 'Throw')) { continue }
-            # `-AsErrorRecord:$false` is present in the text but switches the mode off.
             $arg = $p.Argument
             if ($arg -is [System.Management.Automation.Language.VariableExpressionAst] -and $arg.VariablePath.UserPath -eq 'false') { continue }
-            return $null
+            return $false
         }
-        'actionable-no-mode'
+        return $true
+    }
+
+    function script:Get-ActionableNoModeUses {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
+        $L = 'System.Management.Automation.Language'
+        $cmds = $Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+        foreach ($cmd in $cmds) {
+            if (-not (script:Test-ActionableNoModeCommand -Command $cmd)) { continue }
+            # Climb through the transparent wrappers. The result is DISCARDED only if we reach a
+            # single-element pipeline that is itself a statement of a block; anything else uses it.
+            $node = $cmd; $used = $false
+            while ($true) {
+                $parent = $node.Parent
+                if ($parent -is [System.Management.Automation.Language.PipelineAst]) {
+                    $elems = @($parent.PipelineElements)
+                    if ($elems.Count -gt 1 -and $elems[-1] -ne $node) { $used = $true; break }   # piped onward
+                    $node = $parent; continue
+                }
+                if ($parent -is [System.Management.Automation.Language.CommandExpressionAst] -or
+                    $parent -is [System.Management.Automation.Language.ParenExpressionAst]) { $node = $parent; continue }
+                if ($parent -is [System.Management.Automation.Language.StatementBlockAst] -and
+                    $parent.Parent -is [System.Management.Automation.Language.SubExpressionAst] -and
+                    @($parent.Statements).Count -eq 1) { $node = $parent.Parent; continue }   # $( ... ) is transparent too
+                if ($parent -is [System.Management.Automation.Language.NamedBlockAst] -or
+                    $parent -is [System.Management.Automation.Language.StatementBlockAst]) {
+                    $used = $false; break   # a bare statement: the result is discarded (legitimate Write-Error use)
+                }
+                $used = $true; break   # assignment, throw, return, argument, array/hashtable member, ...
+            }
+            if (-not $used) { continue }
+            $stmt = $cmd
+            while ($stmt.Parent -and $stmt.Parent -isnot [System.Management.Automation.Language.NamedBlockAst] -and
+                   $stmt.Parent -isnot [System.Management.Automation.Language.StatementBlockAst]) { $stmt = $stmt.Parent }
+            [pscustomobject]@{ Command = $cmd; Statement = $stmt }
+        }
     }
 
     # Pure: every counted throw in one AST, as {File, Line, Kind, Text} records.
@@ -214,13 +256,21 @@ BeforeAll {
             [object[]]$AllowList = @(),
             [ValidateSet('bare', 'actionable-no-mode')][string]$Category = 'bare'
         )
+        if ($Category -eq 'actionable-no-mode') {
+            # Orca t/4319: by USE, not only `throw (...)`; reported at the enclosing statement.
+            foreach ($u in @(script:Get-ActionableNoModeUses -Ast $Ast)) {
+                [pscustomobject]@{
+                    File = $File
+                    Line = $u.Statement.Extent.StartLineNumber
+                    Kind = 'actionable-no-mode'
+                    Text = (($u.Statement.Extent.Text -split "`r?`n")[0]).Trim()
+                }
+            }
+            return
+        }
         $throws = $Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst] }, $true)
         foreach ($t in $throws) {
-            $kind = if ($Category -eq 'bare') {
-                script:Get-BareThrowKind -Throw $t -File $File -AllowList $AllowList
-            } else {
-                script:Get-ActionableNoModeKind -Throw $t
-            }
+            $kind = script:Get-BareThrowKind -Throw $t -File $File -AllowList $AllowList
             if ($kind) {
                 [pscustomobject]@{
                     File = $File
@@ -667,6 +717,16 @@ Describe 'Actionable-no-mode classifier (t/4237)' -Tag 'error-handling' {
         @{ code = "throw (new-actionableerror -Goal g -Problem p -Location l -NextSteps @('x'))" }
         @{ code = "throw (New-ActionableError @splat)" }
         @{ code = "throw (New-ActionableError ``\n    -Goal g ``\n    -Problem p ``\n    -Location l ``\n    -NextSteps @('x'))".Replace('\n', "`n") }
+        # Orca t/4319 (t/207): every USED no-mode result, not only `throw (...)`.
+        @{ code = "`$e = New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x')" }                       # assign
+        @{ code = "`$e = New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'); throw `$e" }           # throw via variable (t/4155)
+        @{ code = "return (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'))" }                   # return
+        @{ code = "return New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x')" }                     # return, bare pipeline
+        @{ code = "Write-Log -Err (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'))" }           # argument
+        @{ code = "Write-Log `$(New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'))" }              # positional argument
+        @{ code = "New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') | Out-File e.txt" }           # piped onward
+        @{ code = "`$h = @{ err = (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x')) }" }         # nested in an expression
+        @{ code = "if (`$x) { `$PSCmdlet.ThrowTerminatingError((New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'))) }" }  # method argument
     ) {
         $hits = script:Get-SnippetActionable -Code $code
         $hits.Count   | Should -Be 1
@@ -685,7 +745,11 @@ Describe 'Actionable-no-mode classifier (t/4237)' -Tag 'error-handling' {
         @{ code = 'try { 1 } catch { throw }' }
         @{ code = 'throw "x"' }
         @{ code = 'throw $msg' }
-        @{ code = "`$e = New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'); throw `$e" }
+        # Discarded results are the legitimate Write-Error-only use (Orca t/4319 negative arm).
+        @{ code = "if (`$x) { New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'); return }" }
+        @{ code = "function f { New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') }" }
+        @{ code = "`$e = New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -AsErrorRecord; throw `$e" }
+        @{ code = "return (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -PassThru)" }
         @{ code = 'throw (Get-Thing)' }
         @{ code = 'throw [System.Exception]::new("x")' }
     ) {
@@ -794,6 +858,24 @@ Describe 'No-mode New-ActionableError throws in scripts/AITriad/ do not grow (t/
             "throw (New-ActionableError -Goal 'g' -Problem 'p' -Location 'l' -NextSteps @('n'))", [ref]$tokens, [ref]$errors)
         @(script:Get-BareThrowOffenders -Ast $canary -File 'canary.ps1' -Category 'actionable-no-mode').Count |
             Should -Be 1 -Because 'a broken classifier would otherwise pass the gate on an empty set'
+        # Orca t/4319: the use-based shapes are live too (assign + throw via variable).
+        $canary2 = [System.Management.Automation.Language.Parser]::ParseInput(
+            "`$e = New-ActionableError -Goal 'g' -Problem 'p' -Location 'l' -NextSteps @('n'); throw `$e", [ref]$tokens, [ref]$errors)
+        @(script:Get-BareThrowOffenders -Ast $canary2 -File 'canary2.ps1' -Category 'actionable-no-mode').Count |
+            Should -Be 1 -Because 'the t/4155 assign-then-throw shape must be caught'
+    }
+
+    It 'fault injection: a file with an assign-then-throw no-mode call fails the BLOCKING gate end to end (Orca t/4319)' {
+        $tokens = $null; $errors = $null
+        $bad = [System.Management.Automation.Language.Parser]::ParseInput(
+            "function f {`n    `$err = New-ActionableError -Goal 'g' -Problem 'p' -Location 'l' -NextSteps @('n')`n    throw `$err`n}", [ref]$tokens, [ref]$errors)
+        $offs = @(script:Get-BareThrowOffenders -Ast $bad -File 'scripts/AITriad/Private/Injected.ps1' -Category 'actionable-no-mode')
+        $offs.Count | Should -Be 1
+        $offs[0].Line | Should -Be 2
+        $counts  = script:Measure-BareThrowCounts -Offenders $offs
+        $verdict = script:Get-BareThrowVerdict -Observed $counts -Baseline $script:ActBaseline -Category 'actionable-no-mode'
+        { script:Assert-BareThrowGate -Verdict $verdict -Offenders $offs -Blocking $true -SkipNotes -Category 'actionable-no-mode' } |
+            Should -Throw -ExpectedMessage '*Injected.ps1:2*New-ActionableError*'
     }
 
     It 'the baseline has an actionable_no_mode section (empty once the sweep is done)' {

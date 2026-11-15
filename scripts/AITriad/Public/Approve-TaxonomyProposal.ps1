@@ -80,6 +80,38 @@ function Approve-TaxonomyProposal {
         'RELABEL' = 'Magenta'
     }
 
+    function _GetPendingProposals {
+        param([PSObject]$ProposalData)
+        $Pending = @()
+        for ($i = 0; $i -lt $ProposalData.proposals.Count; $i++) {
+            $P = $ProposalData.proposals[$i]
+            $HasStatus = $P.PSObject.Properties['status']
+            if (-not $HasStatus -or $P.status -eq 'pending') {
+                $Pending += [PSCustomObject]@{ Index = $i; Proposal = $P }
+            }
+        }
+        return $Pending
+    }
+
+    function _ApplyProposalAndUpdateStatus {
+        param([PSObject]$ProposalData, [int]$Index, [PSObject]$Proposal, [switch]$DryRun)
+        if ($DryRun) {
+            Write-Info "DRY RUN: Would apply $($Proposal.action) for $($Proposal.suggested_id)"
+            $ProposalData.proposals[$Index] | Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
+            return [PSCustomObject]@{ Success = $true; Error = $null }
+        }
+        # Keep ShouldProcess gate at call site; helper is side-effect only when gate passes.
+        $Result = Invoke-ProposalApply -Proposal $Proposal
+        if ($Result.Success) {
+            Write-OK "Applied: $($Proposal.action) $($Proposal.suggested_id)"
+            $ProposalData.proposals[$Index] | Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
+        } else {
+            Write-Fail "Failed: $($Result.Error)"
+            $ProposalData.proposals[$Index] | Add-Member -NotePropertyName 'status' -NotePropertyValue 'failed' -Force
+        }
+        return $Result
+    }
+
     function Show-Proposal {
         param([int]$Idx, [PSObject]$P)
 
@@ -133,14 +165,7 @@ function Approve-TaxonomyProposal {
     }
 
     if ($ApproveAll) {
-        $Pending = @()
-        for ($i = 0; $i -lt $ProposalData.proposals.Count; $i++) {
-            $P = $ProposalData.proposals[$i]
-            $HasStatus = $P.PSObject.Properties['status']
-            if (-not $HasStatus -or $P.status -eq 'pending') {
-                $Pending += [PSCustomObject]@{ Index = $i; Proposal = $P }
-            }
-        }
+        $Pending = _GetPendingProposals -ProposalData $ProposalData
 
         if ($Pending.Count -eq 0) {
             Write-OK 'No pending proposals to approve.'
@@ -157,22 +182,11 @@ function Approve-TaxonomyProposal {
         foreach ($Item in $Pending) {
             Show-Proposal -Idx $Item.Index -P $Item.Proposal
 
-            if ($DryRun) {
-                Write-Info "DRY RUN: Would apply $($Item.Proposal.action) for $($Item.Proposal.suggested_id)"
-                $ProposalData.proposals[$Item.Index] |
-                    Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
-                $ApprovedCount++
-            } elseif ($PSCmdlet.ShouldProcess("Proposal $($Item.Index) ($($Item.Proposal.action) $($Item.Proposal.suggested_id))", 'Apply')) {
-                $Result = Invoke-ProposalApply -Proposal $Item.Proposal
+            if ($PSCmdlet.ShouldProcess("Proposal $($Item.Index) ($($Item.Proposal.action) $($Item.Proposal.suggested_id))", 'Apply')) {
+                $Result = _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Item.Index -Proposal $Item.Proposal -DryRun:$DryRun
                 if ($Result.Success) {
-                    Write-OK "Applied: $($Item.Proposal.action) $($Item.Proposal.suggested_id)"
-                    $ProposalData.proposals[$Item.Index] |
-                        Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
                     $ApprovedCount++
                 } else {
-                    Write-Fail "Failed: $($Result.Error)"
-                    $ProposalData.proposals[$Item.Index] |
-                        Add-Member -NotePropertyName 'status' -NotePropertyValue 'failed' -Force
                     $FailedCount++
                 }
             }
@@ -183,14 +197,7 @@ function Approve-TaxonomyProposal {
 
     } elseif ($Interactive) {
         # Collect pending proposals
-        $Pending = @()
-        for ($i = 0; $i -lt $ProposalData.proposals.Count; $i++) {
-            $P = $ProposalData.proposals[$i]
-            $HasStatus = $P.PSObject.Properties['status']
-            if (-not $HasStatus -or $P.status -eq 'pending') {
-                $Pending += [PSCustomObject]@{ Index = $i; Proposal = $P }
-            }
-        }
+        $Pending = _GetPendingProposals -ProposalData $ProposalData
 
         if ($Pending.Count -eq 0) {
             Write-OK 'No pending proposals to review.'
@@ -211,22 +218,7 @@ function Approve-TaxonomyProposal {
             $Choice = Read-Host '  (a)pprove / (r)eject / (s)kip / (q)uit'
             switch ($Choice.ToLower()) {
                 'a' {
-                    if ($DryRun) {
-                        Write-Info "DRY RUN: Would apply $($Item.Proposal.action) for $($Item.Proposal.suggested_id)"
-                        $ProposalData.proposals[$Item.Index] |
-                            Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
-                    } else {
-                        $Result = Invoke-ProposalApply -Proposal $Item.Proposal
-                        if ($Result.Success) {
-                            Write-OK "Applied: $($Item.Proposal.action) $($Item.Proposal.suggested_id)"
-                            $ProposalData.proposals[$Item.Index] |
-                                Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
-                        } else {
-                            Write-Fail "Failed: $($Result.Error)"
-                            $ProposalData.proposals[$Item.Index] |
-                                Add-Member -NotePropertyName 'status' -NotePropertyValue 'failed' -Force
-                        }
-                    }
+                    _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Item.Index -Proposal $Item.Proposal -DryRun:$DryRun | Out-Null
                     $ApprovedCount++
                 }
                 'r' {
@@ -271,18 +263,8 @@ function Approve-TaxonomyProposal {
         Show-Proposal -Idx $Index -P $P
 
         if ($Approve) {
-            if ($DryRun) {
-                Write-Info "DRY RUN: Would apply $($P.action) for $($P.suggested_id)"
-                $P | Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
-            } elseif ($PSCmdlet.ShouldProcess("Proposal $Index ($($P.action) $($P.suggested_id))", 'Apply')) {
-                $Result = Invoke-ProposalApply -Proposal $P
-                if ($Result.Success) {
-                    Write-OK "Applied: $($P.action) $($P.suggested_id)"
-                    $P | Add-Member -NotePropertyName 'status' -NotePropertyValue 'approved' -Force
-                } else {
-                    Write-Fail "Failed: $($Result.Error)"
-                    $P | Add-Member -NotePropertyName 'status' -NotePropertyValue 'failed' -Force
-                }
+            if ($PSCmdlet.ShouldProcess("Proposal $Index ($($P.action) $($P.suggested_id))", 'Apply')) {
+                _ApplyProposalAndUpdateStatus -ProposalData $ProposalData -Index $Index -Proposal $P -DryRun:$DryRun | Out-Null
             }
         } else {
             $P | Add-Member -NotePropertyName 'status' -NotePropertyValue 'rejected' -Force

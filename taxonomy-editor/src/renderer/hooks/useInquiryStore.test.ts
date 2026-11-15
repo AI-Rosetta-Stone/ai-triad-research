@@ -97,6 +97,59 @@ describe('useInquiryStore', () => {
     expect(useInquiryStore.getState().stageDetail).toBeNull();
   });
 
+  it('records client-observed stage timings from poll transitions, ends the last stage at the terminal status (t/324)', async () => {
+    vi.setSystemTime(1_000_000);
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-t' });
+    mockApi.getInquiry
+      .mockResolvedValueOnce(pollView({ status: 'grounding' }))
+      .mockResolvedValueOnce(pollView({ status: 'grounding' }))
+      .mockResolvedValueOnce(pollView({ status: 'debating' }))
+      .mockResolvedValueOnce(pollView({ status: 'failed', error: 'boom' }));
+
+    await useInquiryStore.getState().startInquiry();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const t = useInquiryStore.getState().stageTimings;
+    expect(t.grounding).toEqual({ startedAt: 1_000_000, endedAt: 1_006_000 });
+    expect(t.debating).toEqual({ startedAt: 1_006_000, endedAt: 1_009_000 });
+    expect(t.judging).toEqual({});
+  });
+
+  it('prefers server stageTimings over client-observed ones when the response carries them (t/324)', async () => {
+    vi.setSystemTime(1_000_000);
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-s' });
+    mockApi.getInquiry.mockResolvedValueOnce(pollView({ status: 'debating', stageTimings: { grounding: { startedAt: 900_000, endedAt: 950_000 }, debating: { startedAt: 950_000 } } }));
+
+    await useInquiryStore.getState().startInquiry();
+    const t = useInquiryStore.getState().stageTimings;
+    expect(t.grounding).toEqual({ startedAt: 900_000, endedAt: 950_000 });
+    expect(t.debating.startedAt).toBe(950_000);
+  });
+
+  it('appends each distinct stageDetail per stage, skips a repeat, and resets on a new job (t/328)', async () => {
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-h' });
+    mockApi.getInquiry
+      .mockResolvedValueOnce(pollView({ status: 'debating', stageDetail: 'A' }))
+      .mockResolvedValueOnce(pollView({ status: 'debating', stageDetail: 'A' }))
+      .mockResolvedValueOnce(pollView({ status: 'debating', stageDetail: 'B' }))
+      .mockResolvedValueOnce(pollView({ status: 'judging' }));
+
+    await useInquiryStore.getState().startInquiry();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(useInquiryStore.getState().stageDetailHistory).toEqual({ debating: ['A'] });
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(useInquiryStore.getState().stageDetailHistory).toEqual({ debating: ['A', 'B'] });
+
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-h2' });
+    mockApi.getInquiry.mockResolvedValue(pollView({ jobId: 'job-h2', status: 'queued' }));
+    await useInquiryStore.getState().startInquiry();
+    expect(useInquiryStore.getState().stageDetailHistory).toEqual({});
+    expect(useInquiryStore.getState().stageTimings.debating).toEqual({});
+  });
+
   it('backs off exponentially on poll errors without treating them as job failure (poll-error ≠ job-failed)', async () => {
     mockApi.startInquiry.mockResolvedValue({ jobId: 'job-2' });
     mockApi.getInquiry

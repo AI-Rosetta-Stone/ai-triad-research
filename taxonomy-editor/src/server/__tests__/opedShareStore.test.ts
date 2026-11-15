@@ -128,6 +128,17 @@ describe('projectPublicOpEd — positive allowlist (info-leak guard, t/2727 + t/
     }
   });
 
+  it('t/172: a member\'s stages (raw prompts/outputs) never reach the public projection', async () => {
+    const base = makeSet();
+    const withStages = { ...base, opeds: [{ ...base.opeds[0], stages: [
+      { stage: 'generation', attempt: 1, model: 'gemini-3.5-flash-lite', prompt: 'PRIVATE-SYSTEM-PROMPT', output: 'RAW-MODEL-OUTPUT' },
+    ] }] } as unknown as OpEdSet;
+    const serialized = JSON.stringify(await projectPublicOpEd(withStages, 'share-xyz'));
+    for (const forbidden of ['stages', 'PRIVATE-SYSTEM-PROMPT', 'RAW-MODEL-OUTPUT']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
   it('carries the public-safe fields verbatim (topic, outlet, essay content)', async () => {
     const pub = await projectPublicOpEd(makeSet(), 'share-xyz');
     expect(pub.topic).toBe('AI liability regimes');

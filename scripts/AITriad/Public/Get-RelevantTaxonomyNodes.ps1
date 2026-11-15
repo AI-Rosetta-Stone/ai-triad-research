@@ -64,7 +64,7 @@ function Get-RelevantTaxonomyNodes {
         Number of top bi-encoder candidates to re-rank when -CrossEncoderRerank is
         set. Default: 10. Nodes beyond this keep their bi-encoder order.
     .PARAMETER RerankerModel
-        Cross-encoder model for re-ranking. Default: cross-encoder/ms-marco-MiniLM-L-6-v2.
+        Cross-encoder model for re-ranking. Default: cross-encoder/ms-marco-MiniLM-L6-v2.
     .EXAMPLE
         Get-RelevantTaxonomyNodes -Query "AI regulation and liability frameworks"
     .EXAMPLE
@@ -148,7 +148,7 @@ function Get-RelevantTaxonomyNodes {
         [ValidateRange(1, 100)]
         [int]$RerankTopN = 10,
 
-        [string]$RerankerModel = 'cross-encoder/ms-marco-MiniLM-L-6-v2'  # model-lint:allow-pin reranker cross-encoder model, not an ai-models.json LLM backend
+        [string]$RerankerModel = 'cross-encoder/ms-marco-MiniLM-L6-v2'  # model-lint:allow-pin reranker cross-encoder model, not an ai-models.json LLM backend
     )
 
     Set-StrictMode -Version Latest

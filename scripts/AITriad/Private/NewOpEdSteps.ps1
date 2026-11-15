@@ -381,6 +381,32 @@ function Get-OpEdReadabilityLimit {
     [pscustomobject]@{ FkMax = [double]$ReadTarget.fkMax; SentWords = [int]$ReadTarget.maxSentWords; ParaWords = [int]$ReadTarget.maxParaWords }
 }
 
+function Get-OpEdEditStyle {
+    # The house-style strings the readability-edit prompt quotes (t/202): the outlet's own `style`
+    # field, else styleDefaults, field by field, the same as lib/oped assembleReadabilityEditPrompt.
+    param($OutletInfo)
+    $Own = if ($OutletInfo.Entry.PSObject.Properties['style']) { $OutletInfo.Entry.style } else { $null }
+    $Defaults = $OutletInfo.Data.styleDefaults
+    $Pick = {
+        param([string]$Field)
+        $Value = if ($Own -and $Own.PSObject.Properties[$Field]) { [string]$Own.$Field } else { '' }
+        if ([string]::IsNullOrWhiteSpace($Value) -and $Defaults.PSObject.Properties[$Field]) { $Value = [string]$Defaults.$Field }
+        if ([string]::IsNullOrWhiteSpace($Value)) {
+            throw (New-ActionableError -PassThru `
+                -Goal 'Build the op-ed readability-edit prompt' `
+                -Problem "outlets.json has no '$Field' for this outlet or in styleDefaults." `
+                -Location 'Get-OpEdEditStyle' `
+                -NextSteps "Add styleDefaults.$Field to lib/oped/outlets.json.")
+        }
+        $Value
+    }
+    [pscustomobject]@{
+        Sentence  = & $Pick 'sentenceMechanics'
+        Paragraph = & $Pick 'paragraphMechanics'
+        Jargon    = & $Pick 'jargonGuidance'
+    }
+}
+
 function Get-OpEdSyllableCount {
     param([string]$Word)
     $c = $Word.ToLower() -replace '[^a-z]', ''
@@ -437,6 +463,24 @@ function Get-OpEdRevertedMeta {
     [PSCustomObject]@{ edited = $false; fk_before = $Checks.FkGrade; fk_after = $Checks.FkGrade; checks_failed_after = @(); reverted_reason = $Reason }
 }
 
+function Get-OpEdEditPrompt {
+    # The readability-edit prompt, with its rules filled from the SAME targets that triggered the edit
+    # and built its violations line (t/202; lib/oped assembleReadabilityEditPrompt is the TS twin).
+    # Numbers render culture-invariant, as JS String(n) does: 16, 10.5, never "16,0".
+    param($Ctx)
+    $Inv = [cultureinfo]::InvariantCulture
+    Get-Prompt -Name 'op-ed-readability-edit' -PromptsDir $Ctx.PromptsDir -Replacements @{
+        BODY            = $Ctx.Body
+        VIOLATIONS      = $Ctx.Violations
+        FK_MAX          = ([double]$Ctx.Limits.FkMax).ToString($Inv)
+        MAX_SENT_WORDS  = ([int]$Ctx.Limits.SentWords).ToString($Inv)
+        MAX_PARA_WORDS  = ([int]$Ctx.Limits.ParaWords).ToString($Inv)
+        STYLE_SENTENCE  = $Ctx.Style.Sentence
+        STYLE_PARAGRAPH = $Ctx.Style.Paragraph
+        STYLE_JARGON    = $Ctx.Style.Jargon
+    }
+}
+
 function Invoke-OpEdEditAttempt {
     # One readability-edit call. Returns the candidate body, or $null when the reply is empty or
     # collapses below 60% of the original word count.
@@ -450,8 +494,7 @@ function Invoke-OpEdEditAttempt {
         }
         required = @('body_markdown', 'changed', 'edit_notes')
     }
-    $EP = Get-Prompt -Name 'op-ed-readability-edit' -PromptsDir $Ctx.PromptsDir `
-        -Replacements @{ BODY = $Ctx.Body; VIOLATIONS = $Ctx.Violations }
+    $EP = Get-OpEdEditPrompt -Ctx $Ctx
     $ER = Invoke-AIApi -Prompt $EP -Model $Ctx.Model -Temperature $Temperature `
         -MaxTokens $Ctx.MaxTokens -JsonMode -ResponseSchema $EditSchema
     if (-not $ER -or [string]::IsNullOrWhiteSpace($ER.Text)) { return $null }
@@ -553,7 +596,7 @@ function Invoke-OpEdEditSelection {
 
 function Invoke-OpEdReadabilityEdit {
     # Readability edit pass. Returns { FinalBody; EditingMeta } ($null EditingMeta when no edit ran).
-    param([string]$Body, $Limits, [string]$Model, [int]$MaxTokens, [string]$PromptsDir)
+    param([string]$Body, $Limits, $Style, [string]$Model, [int]$MaxTokens, [string]$PromptsDir)
     $State = [pscustomobject]@{ FinalBody = $Body; EditingMeta = $null }
     if ([string]::IsNullOrWhiteSpace($Body)) { return $State }
 
@@ -567,6 +610,8 @@ function Invoke-OpEdReadabilityEdit {
         BodyLower     = $Body.ToLower()
         Violations    = Get-OpEdReadabilityViolation -Checks $Checks -Limits $Limits
         OrigWordCount = @($Body -split '\s+' | Where-Object { $_ -ne '' }).Count
+        Limits        = $Limits
+        Style         = $Style
         Model         = $Model
         MaxTokens     = $MaxTokens
         PromptsDir    = $PromptsDir

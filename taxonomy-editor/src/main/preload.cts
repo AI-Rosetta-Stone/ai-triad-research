@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import type { OpEdSet, OpEdSetSummary } from '../../../lib/oped/types.js';
 import type { StopReason, ProviderCallDiagnostics } from '../../../lib/ai-client/index.js';
 import type { ExportJobState, ExportErrorCode, BriefPreset, BriefArtifactName } from '../../../lib/brief/types.js';
@@ -110,10 +110,29 @@ const _diagnosticsStateBuffer = createLatestValueBuffer<unknown>();
 // surface and `electron.d.ts` could silently diverge (t/3528 postmortem, t/3529). Still
 // invoked INSIDE the try block below, so construction-time errors are caught exactly as
 // before this change.
+function readAppPathArgument(): string | null {
+  const prefix = '--taxonomy-app-path=';
+  const arg = process.argv.find(a => a.startsWith(prefix));
+  return arg ? arg.slice(prefix.length) : null;
+}
+
+// t/418: the exact user profile path (USERPROFILE), passed by main.ts beside app-path. Empty means unknown.
+function readUserProfileArgument(): string | null {
+  const prefix = '--taxonomy-user-profile=';
+  const arg = process.argv.find(a => a.startsWith(prefix));
+  const value = arg ? arg.slice(prefix.length) : '';
+  return value.length > 0 ? value : null;
+}
+
 function buildElectronApi() {
   return {
   // Synchronous system info — available without IPC round-trip
   processVersions: { ...process.versions },
+  // t/418: the main process passes app.getAppPath() as an argument (main.ts additionalArguments), because
+  // a sandboxed preload cannot import electron's app module. Null when the argument is absent.
+  appPath: readAppPathArgument(),
+  // t/418: the exact profile path for redacting redirected profiles from dumps (null when USERPROFILE was unset).
+  userProfile: readUserProfileArgument(),
   osRelease: process.getSystemVersion?.() ?? process.platform,
   osPlatform: process.platform,
   osArch: process.arch,
@@ -284,6 +303,10 @@ function buildElectronApi() {
   computeAttribution: (payload: FetchClaimAttributionPayload): Promise<ClaimAttributionResponse> =>
     ipcRenderer.invoke('compute-attribution', payload),
 
+  // t/348: read-only. One statement text (or null for description fallback) per nodeId.
+  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }): Promise<Record<string, string | null>> =>
+    ipcRenderer.invoke('chat-synthetic-statements', payload),
+
   computeEmbeddings: (texts: string[], ids?: string[]): Promise<{ vectors: number[][] }> =>
     ipcRenderer.invoke('compute-embeddings', texts, ids),
 
@@ -365,6 +388,16 @@ function buildElectronApi() {
   closeDiagnosticsWindow: (): Promise<void> => ipcRenderer.invoke('close-diagnostics-window'),
   // t/4642/t/4663: bring an already-open diagnostics popout to the front on a repeat card click.
   focusDiagnosticsWindow: (): Promise<'focused' | 'not-open'> => ipcRenderer.invoke('focus-diagnostics-window'),
+
+  // t/163: one zoom model. The renderer's zoomLevel drives the page zoom (scales px and vh
+  // sizes too, unlike the old root font-size), and the View menu asks the renderer to zoom
+  // instead of changing webContents.zoomLevel itself, so the two can't compound.
+  setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor),
+  onZoomCommand: (callback: (command: 'in' | 'out' | 'reset') => void) => {
+    const listener = (_event: unknown, command: 'in' | 'out' | 'reset') => callback(command);
+    ipcRenderer.on('zoom-command', listener);
+    return () => { ipcRenderer.removeListener('zoom-command', listener); };
+  },
 
   // Chat popout window
   openChatWindow: (chatId: string, source?: 'my' | 'community'): Promise<{ atCap: true } | void> => ipcRenderer.invoke('open-chat-window', chatId, source),
@@ -702,7 +735,7 @@ function buildElectronApi() {
     ipcRenderer.invoke('submit-ask-to-community', baseUrl, result, note),
 
   // File picker
-  pickDocumentFile: (): Promise<{ cancelled: boolean; filePath?: string; content?: string }> =>
+  pickDocumentFile: (): Promise<{ cancelled: boolean; filePath?: string; fileName?: string; content?: string; format?: string }> =>
     ipcRenderer.invoke('pick-document-file'),
 
   // Taxonomy proposals (for batch approve UI)
@@ -783,7 +816,7 @@ function buildElectronApi() {
     ipcRenderer.invoke('admin-rename-community-item', type, id, title, reason),
 
   // Op-Ed Studio (t/2575, t/2591)
-  createOpEdSet: (payload: { topic: string; url?: string; params: unknown; voices: string[] }): Promise<{ set_id: string }> =>
+  createOpEdSet: (payload: { topic: string; url?: string; documentSource?: { text: string; name: string }; params: unknown; voices: string[] }): Promise<{ set_id: string }> =>
     ipcRenderer.invoke('create-oped-set', payload),
   cancelOpEdSet: (setId: string): void =>
     void ipcRenderer.invoke('cancel-oped-set', setId),
@@ -854,6 +887,9 @@ function buildElectronApi() {
     /** t/4710/t/4713: fine-grained Debate-stage detail line. Present only while debating. */
     stageDetail?: string;
     terminationReason: string | null; resultId: string | null; error: string | null;
+    /** t/327: Timing information for the inquiry pipeline stages (grounding/debating/judging/synthesizing).
+     *  Each stage records Unix timestamps (ms) for when it started and ended. Always sent; a stage not yet entered has no startedAt/endedAt. */
+    stageTimings?: Record<'grounding' | 'debating' | 'judging' | 'synthesizing', { startedAt?: number; endedAt?: number }>;
     result?: InquiryResult;
   } | null> =>
     ipcRenderer.invoke('get-inquiry', jobId),

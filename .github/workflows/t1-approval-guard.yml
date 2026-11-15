@@ -50,7 +50,7 @@ name: t1-approval-guard
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, edited, labeled]
+    types: [opened, reopened, synchronize, edited, labeled]
   issue_comment:
     types: [created, edited]
   pull_request_review:
@@ -64,6 +64,10 @@ permissions:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+    if: github.event.issue.pull_request || !github.event.issue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -87,39 +91,55 @@ jobs:
             // PR #3487 blocking 2: restrict the bot-review arm to this exact login, not any App).
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
 
-            async function withRetry(label, fn) {
-              let lastErr;
-              for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                  return await fn();
-                } catch (err) {
-                  lastErr = err;
-                  core.warning(`t1-approval-guard: ${label} attempt ${attempt}/3 failed — ${err.message} — retrying`);
-                  await new Promise((r) => setTimeout(r, attempt * 3000));
-                }
-              }
-              throw lastErr;
+            // BEGIN github-retry-loader (t/4819): withRetry is the shared helper
+            // operations/devops/github-retry.mjs (also used by tier-check.yml). It retries ONLY a
+            // 5xx/429 (max 3 attempts, exponential backoff, a WARN per retry) and rethrows
+            // otherwise, so exhausted retries still land in the CANNOT EVALUATE catch. It replaces
+            // the old inline loop, which also retried 4xx. Loaded from the DEFAULT BRANCH'S LIVE TIP
+            // via git show, never the PR tree, so a PR cannot weaken it. If it is missing
+            // (bootstrap) or cannot be loaded, calls run once, unretried, with a WARN.
+            let withRetry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              withRetry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 't1-approval-guard',
+              });
+            } catch (err) {
+              core.warning(`WARN t1-approval-guard: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
             }
+            // END github-retry-loader
 
             async function postVerdictComment(prNumber, body) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const comments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                await withRetry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body }));
               } else {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                await withRetry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }));
               }
             }
 
             // Explicitly posts the PR-visible check, pinned to the PR's own head SHA, for every
             // trigger type uniformly (the fix this comment block's header explains). conclusion
-            // is 'success', 'failure', or 'neutral' (CANNOT EVALUATE -- an unknown, not a pass).
+            // is 'success' or 'failure'. CANNOT EVALUATE also concludes 'failure', NEVER 'neutral':
+            // GitHub counts a neutral check run as satisfying a required check, so a neutral
+            // CANNOT EVALUATE would let an API outage that exhausts the retries PASS the gate
+            // (fail-open). t/4819, TL condition p/12#44.
             async function postCheckRun(headSha, conclusion, title, summary) {
               if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
-              await github.rest.checks.create({
+              await withRetry('checks.create', () => github.rest.checks.create({
                 owner, repo, name: 't1-approval-guard', head_sha: headSha,
                 status: 'completed', conclusion, output: { title, summary },
-              });
+              }));
             }
 
             function resolvePrNumber() {
@@ -135,18 +155,33 @@ jobs:
               const prNumber = resolvePrNumber();
               core.error(`t1-approval-guard CRASHED: ${err && err.stack ? err.stack : String(err)}`);
               if (prNumber) {
-                await postVerdictComment(prNumber, [
-                  MARKER,
-                  '**t1-approval-guard: CANNOT EVALUATE**',
-                  '',
-                  'The check crashed while evaluating this PR — not a pass, not a failure, an unknown.',
-                  `Error: \`${String(err && err.message ? err.message : err)}\``,
-                ].join('\n'));
+                // t/4819: best-effort. If GitHub is still down (the usual reason we are here),
+                // posting throws too -- that must not skip the check run and setFailed below.
+                try {
+                  await postVerdictComment(prNumber, [
+                    MARKER,
+                    '**t1-approval-guard: CANNOT EVALUATE**',
+                    '',
+                    'The check crashed while evaluating this PR — not a pass, not a failure, an unknown.',
+                    `Error: \`${String(err && err.message ? err.message : err)}\``,
+                  ].join('\n'));
+                } catch (postErr) {
+                  core.error(`t1-approval-guard: could not post the CANNOT EVALUATE comment either — ${postErr.message}`);
+                }
                 // Best-effort: re-resolve the head SHA independently of run()'s own progress, so a
                 // crash anywhere in run() still gets an explicit, PR-visible check posted.
                 try {
-                  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                  await postCheckRun(pr.head.sha, 'neutral', 't1-approval-guard: CANNOT EVALUATE', String(err && err.message ? err.message : err));
+                  const { data: pr } = await withRetry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
+                  // BEGIN cannot-evaluate-conclusion (t/4819, TL p/12#44): 'failure', never 'neutral'.
+                  await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: GATE-UNREADABLE (CANNOT EVALUATE)', [
+                    'GATE-UNREADABLE: the guard could not read what it needs to decide this PR, so no verdict was produced.',
+                    'This is not a pass. The check fails closed until a run can evaluate the PR.',
+                    '',
+                    `Error: ${String(err && err.message ? err.message : err)}`,
+                    '',
+                    'Next step: if the error is a GitHub 5xx/429 that outlived its retries, re-run this workflow once the API recovers.',
+                  ].join('\n'));
+                  // END cannot-evaluate-conclusion
                 } catch (postErr) {
                   core.error(`t1-approval-guard: could not post the explicit check run either — ${postErr.message}`);
                 }
@@ -185,6 +220,10 @@ jobs:
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-'));
             const predicatePath = path.join(tmpDir, 't1-approval-guard-predicate.mjs');
             fs.writeFileSync(predicatePath, basePredicateText);
+            // t/116: the predicate imports ./role-review-verdicts.mjs (latestRoleVerdicts), so the
+            // same base tip's copy goes in the same temp dir. Same file list as ci.yml's merge_group arm.
+            const baseVerdictsText = execSync(`git show ${baseTipSha}:operations/devops/role-review-verdicts.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            fs.writeFileSync(path.join(tmpDir, 'role-review-verdicts.mjs'), baseVerdictsText);
             const { evaluateT1ApprovalGuard } = await import(pathToFileURL(predicatePath).href);
 
             const commits = await withRetry('pulls.listCommits', () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }));
@@ -192,26 +231,41 @@ jobs:
             const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
 
             const rawComments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
-            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at }));
+            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at, login: c.user?.login }));
 
-            // t/4096 Reviewer switch-over: during the transition, a real bot review also satisfies
-            // the gate (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment.
-            // Fetch every bot review's body too -- the predicate applies the same owner-slug
-            // self-approval check to it that it applies to a comment (TL review, PR #3487
-            // blocking 1: a human-authored PR, reviewed by ANY agent running as the reviewer App,
-            // is not self-approval-safe by GitHub identity alone).
+            // t/4096 Reviewer switch-over: a real reviewer-App review also satisfies the gate
+            // (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment; the
+            // predicate applies the same owner-slug self-approval check to both (TL review, PR
+            // #3487 blocking 1).
+            // t/116: EVERY review is passed (human ones too, with commit_id): the predicate binds
+            // each to the head SHA, and any outstanding changes-request at the head -- another
+            // role through the shared App, or a human -- blocks. Only the reviewer App's role-tagged
+            // body can approve. Same mapping as ci.yml's merge_group arm (keep them identical).
             const rawReviews = await withRetry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
-            const botReviews = rawReviews
-              .filter((r) => r.user?.type === 'Bot')
-              .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body }));
+            const botReviews = rawReviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id }));
 
-            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
-            core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}`);
+            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, headSha: pr.head.sha, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
+            core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}${result.blockers ? ' blockers=' + JSON.stringify(result.blockers) : ''}`);
 
             if (result.pass) {
               const okSummary = result.reason === 'not-t1' ? 'not a T1 PR' : 'approved after the latest push';
               await postVerdictComment(prNumber, `${MARKER}\nt1-approval-guard: OK — ${okSummary}.`);
               await postCheckRun(pr.head.sha, 'success', 't1-approval-guard: OK', okSummary);
+              return;
+            }
+
+            if (result.reason === 'changes-requested-outstanding') {
+              const who = result.blockers.map((b) => `\`${b.role}\` (${b.at})`).join(', ');
+              await postVerdictComment(prNumber, [
+                MARKER,
+                `**t1-approval-guard: FAILING** — a changes-request is still outstanding from ${who}.`,
+                '',
+                'An outstanding changes-request blocks a T1 PR, whatever other roles approved, and a new push does NOT clear it (t/116, TL p/12#58). It clears only when the same role posts a later `Approved (<role>):` (the same human approves, for a human review), or when the review is dismissed. A request with no recognizable role clears only by dismissing that review (or editing or deleting that comment).',
+                '',
+                '_This check is warn-only (not yet a required context) — see t/4247._',
+              ].join('\n'));
+              await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
+              core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
               return;
             }
 
@@ -223,6 +277,42 @@ jobs:
               '',
               '_This check is warn-only (not yet a required context) — see t/4247._',
             ].join('\n'));
-            await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has no post-push approval.`);
-            core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has no post-push approval.`);
+            await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has no post-push approval (${result.reason}).`);
+            core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has no post-push approval (${result.reason}).`);
             } // end run()
+
+      # t/314 (t/313 observability): CANONICAL COPY of this step lives in
+      # operations/devops/rate-limit-snapshot-step.yml; operations/devops/rate-limit-snapshot-step.test.mjs
+      # fails if a guard's copy drifts. Some guards have no checkout, so the step is inline.
+      # Records the repo-wide GITHUB_TOKEN installation quota (REST core + GraphQL) as it stands at
+      # the end of this job: a snapshot of the shared pool, not this job's own usage, and App tokens
+      # are not in it. GET /rate_limit does not count against the PRIMARY limit but can count against
+      # the secondary one (GitHub REST rate-limits doc). Never fails the job; timeout-minutes bounds a
+      # hung call, since continue-on-error does not (Second-Opinion, #5029).
+      - name: Rate-limit snapshot (t/314)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Comma-joined, read with IFS=, (not whitespace), so an empty field can't shift the
+          # later values; each value must be a number on its own (Quality, #5028 review).
+          allnum() { for v in "$@"; do [[ "$v" =~ ^[0-9]+$ ]] || return 1; done; }
+          if out=$(gh api rate_limit --jq '[.resources.core.used, .resources.core.remaining, .resources.core.limit, .resources.core.reset, .resources.graphql.used, .resources.graphql.remaining, .resources.graphql.limit] | map(tostring) | join(",")' 2>&1) \
+            && IFS=, read -r cu cr cl creset gu gr gl extra <<<"$out" && [ -z "$extra" ] && allnum "$cu" "$cr" "$cl" "$creset" "$gu" "$gr" "$gl"; then
+            reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
+            echo "t/314 rate-limit: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu remaining=$cr limit=$cl reset=$reset graphql used=$gu remaining=$gr limit=$gl"
+            {
+              echo "### GITHUB_TOKEN rate limit at end of job (t/314)"
+              echo ""
+              echo "| API | used | remaining | limit |"
+              echo "|---|---|---|---|"
+              echo "| REST core | $cu | $cr | $cl |"
+              echo "| GraphQL | $gu | $gr | $gl |"
+              echo ""
+              echo "REST core window resets at $reset."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
+          fi

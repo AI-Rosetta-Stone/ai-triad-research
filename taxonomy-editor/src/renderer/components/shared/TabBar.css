@@ -38,9 +38,9 @@
   font-weight: 600;
 }
 
-.tab-bar button[data-tab="accelerationist"].active { border-bottom-color: var(--color-acc); color: var(--color-acc); background: var(--tint-acc); }
-.tab-bar button[data-tab="safetyist"].active       { border-bottom-color: var(--color-saf); color: var(--color-saf); background: var(--tint-saf); }
-.tab-bar button[data-tab="skeptic"].active          { border-bottom-color: var(--color-skp); color: var(--color-skp); background: var(--tint-skp); }
+.tab-bar button[data-tab="accelerationist"].active { border-bottom-color: var(--color-acc); color: var(--color-acc); background: var(--color-acc-bg); }
+.tab-bar button[data-tab="safetyist"].active       { border-bottom-color: var(--color-saf); color: var(--color-saf); background: var(--color-saf-bg); }
+.tab-bar button[data-tab="skeptic"].active          { border-bottom-color: var(--color-skp); color: var(--color-skp); background: var(--color-skp-bg); }
 .tab-bar button[data-tab="situations"].active    { border-bottom-color: var(--color-sit);  color: var(--color-sit); background: var(--tint-sit); }
 .tab-bar button[data-tab="conflicts"].active        { border-bottom-color: var(--color-conflicts); color: var(--color-conflicts); }
 .tab-bar button[data-tab="debate"].active           { border-bottom-color: var(--text-primary); color: var(--text-primary); }

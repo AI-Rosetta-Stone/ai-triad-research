@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { AIAdapter, ExtendedAIAdapter } from './aiAdapter.js';
 import type { LoadedTaxonomy } from './taxonomyLoader.js';
+import { loadSourceEvidenceIndex, loadDocTitles } from './evidenceIndexLoader.js';
 import type {
   DebateSession,
   DebateSourceType,
@@ -1337,52 +1338,27 @@ export class DebateEngine {
   private _sourceEvidenceIndex?: import('./evidenceFromSummaries.js').SourceEvidenceIndex;
   private _docTitles?: import('./evidenceFromSummaries.js').DocMetaMap;
 
+  /** Load source evidence index from configured taxonomy directory. Returns undefined if not found. */
+  private loadSourceEvidenceIndex(): import('./evidenceFromSummaries.js').SourceEvidenceIndex | undefined {
+    return loadSourceEvidenceIndex(this.session?.id);
+  }
+
   private get sourceEvidenceIndex(): import('./evidenceFromSummaries.js').SourceEvidenceIndex | undefined {
     if (this._sourceEvidenceIndex !== undefined) return this._sourceEvidenceIndex;
-    try {
-      const __dir = path.dirname(fileURLToPath(import.meta.url));
-      const root = resolveRepoRoot(__dir);
-      const dataRoot = resolveDataRoot(root);
-      const indexPath = path.join(dataRoot, 'taxonomy', 'source_evidence_index.json');
-      if (fs.existsSync(indexPath)) {
-        this._sourceEvidenceIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-        return this._sourceEvidenceIndex;
-      }
-    } catch (err) { getGlobalRecorder()?.record({ type: 'state.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Source evidence index unavailable', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); }
-    this._sourceEvidenceIndex = undefined as unknown as import('./evidenceFromSummaries.js').SourceEvidenceIndex;
-    return undefined;
+    this._sourceEvidenceIndex = this.loadSourceEvidenceIndex() as unknown as import('./evidenceFromSummaries.js').SourceEvidenceIndex;
+    return this._sourceEvidenceIndex;
+  }
+
+  /** Load document metadata map from configured sources directory. Returns undefined if not found. */
+  private loadDocTitles(): import('./evidenceFromSummaries.js').DocMetaMap | undefined {
+    return loadDocTitles(this.session?.id);
   }
 
   /** Map of doc_id → source metadata with title, URL, provenance (lazy). */
   private get docTitles(): import('./evidenceFromSummaries.js').DocMetaMap | undefined {
     if (this._docTitles !== undefined) return this._docTitles;
-    try {
-      const __dir = path.dirname(fileURLToPath(import.meta.url));
-      const root = resolveRepoRoot(__dir);
-      const configPath = path.join(root, '.aitriad.json');
-      if (!fs.existsSync(configPath)) return undefined;
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const sourcesRoot = config.sources_root ? path.resolve(root, config.sources_root) : null;
-      if (!sourcesRoot || !fs.existsSync(sourcesRoot)) return undefined;
-      const metaMap: Record<string, { title: string; resolved_url?: string; provenance_label?: string }> = {};
-      for (const entry of fs.readdirSync(sourcesRoot, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const metaPath = path.join(sourcesRoot, entry.name, 'metadata.json');
-        if (!fs.existsSync(metaPath)) continue;
-        try {
-          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-          if (meta.title) {
-            const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
-            if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
-            if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
-            if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
-            metaMap[entry.name] = docMeta;
-          }
-        } catch { /* telemetry — silent by design: per-file meta parse is best-effort */ }
-      }
-      this._docTitles = Object.keys(metaMap).length > 0 ? metaMap : undefined;
-      return this._docTitles;
-    } catch (err) { getGlobalRecorder()?.record({ type: 'state.error', component: 'debate-engine', level: 'warn', debate_id: this.session?.id, message: 'Doc titles loading failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); return undefined; }
+    this._docTitles = this.loadDocTitles();
+    return this._docTitles;
   }
 
   /** Post-turn summarization (DT-2): generate brief + medium summaries. Non-blocking — failure is logged, not thrown. */

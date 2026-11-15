@@ -137,18 +137,18 @@
 }
 
 .data-update-file-status-M {
-  background: rgba(234, 179, 8, 0.18);
-  color: #b45309;
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .data-update-file-status-A {
-  background: rgba(34, 197, 94, 0.18);
-  color: #15803d;
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .data-update-file-status-D {
-  background: rgba(239, 68, 68, 0.18);
-  color: #dc2626;
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .data-update-file-path {
@@ -173,11 +173,11 @@
 
 .data-update-file-diff-btn:hover,
 .data-update-file-diff-btn.active {
-  background: rgba(37, 99, 235, 0.1);
-  color: var(--focus-ring, #2563eb);
-  border-color: var(--focus-ring, #2563eb);
+  background: var(--info-bg); /* t/198 S2 */
+  color: var(--info-text);
+  border-color: var(--info-text);
 }
 
-.data-update-diff-content .diff-add { color: #22863a; background: #f0fff4; }
-.data-update-diff-content .diff-del { color: #cb2431; background: #ffeef0; }
+.data-update-diff-content .diff-add { color: var(--success-text); background: var(--success-bg); } /* t/198: themed, was light-only */
+.data-update-diff-content .diff-del { color: var(--error-text); background: var(--error-bg); }
 .data-update-diff-content .diff-hunk { color: #6f42c1; }

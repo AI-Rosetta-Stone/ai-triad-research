@@ -1,0 +1,4 @@
+{
+  "_comment": "t/4935: env changes a deploy is EXPECTED to make, read by the warn-only container-env snapshot diff in deploy-azure.yml and deploy-staging.yml (Invoke-ContainerEnvSnapshot.ps1). Add an entry in the SAME PR as the main.bicep / Sync-StagingEnv / --set-env-vars change that causes the env change, and remove it once that change has deployed to both apps. Each entry: name (exact env var name), change (added | removed | changed | any), ticket (t/KEY), reason, expires (yyyy-MM-dd, inclusive UTC; an expired entry allows nothing and is reported). DEPLOY_SHA, DEPLOY_TAG, IMAGE_DIGEST and IMAGE_DEPLOYED_AT are built in (changed or added, never removed) and need no entry. Values never go here, only names.",
+  "expectedChanges": []
+}

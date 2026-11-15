@@ -11,10 +11,10 @@
   font-weight: 600;
   white-space: nowrap;
 }
-.qbaf-strong { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
-.qbaf-moderate { background: rgba(37, 99, 235, 0.15); color: #2563eb; }
-.qbaf-weak { background: rgba(217, 119, 6, 0.15); color: #d97706; }
-.qbaf-very-weak { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
+.qbaf-strong { background: var(--success-bg); color: var(--success-text); }
+.qbaf-moderate { background: var(--info-bg); color: var(--info-text); }
+.qbaf-weak { background: var(--warning-bg); color: var(--warning-text); }
+.qbaf-very-weak { background: var(--error-bg); color: var(--error-text); }
 .qbaf-delta {
   font-size: var(--text-2xs);
   font-weight: 400;

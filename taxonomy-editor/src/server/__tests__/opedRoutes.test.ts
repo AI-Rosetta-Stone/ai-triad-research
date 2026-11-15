@@ -155,6 +155,16 @@ describe('/api/oped-sets routes (t/2573)', () => {
     expect(JSON.parse(res._body!)).toEqual(set);
   });
 
+  it('t/172: GET /api/oped-sets/:id returns a stored member\'s stages untouched (reload path)', async () => {
+    const stages = [{ stage: 'coherence-judge', attempt: 1, model: 'm', prompt: 'P', output: 'O' }];
+    const set = { schema_version: 1, set_id: 'set-1', topic: 'T', params: {}, created_at: 'c',
+      opeds: [{ pov: 'acc', status: 'complete', headline: 'H', subtitle: '', body: 'B', wordCount: 800, grounding: [], stages }] };
+    loadOpedSet.mockResolvedValue(set);
+    const res = fakeRes();
+    await handlers['GET /api/oped-sets/:id'](fakeReq('/api/oped-sets/set-1'), res, undefined);
+    expect(JSON.parse(res._body!).opeds[0].stages).toEqual(stages);
+  });
+
   it('GET /api/oped-sets/:id returns 404 when the set is absent', async () => {
     loadOpedSet.mockResolvedValue(null);
     const res = fakeRes();
@@ -362,6 +372,24 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(fetchUrlContent).toHaveBeenCalledWith('https://example.com/article');
     expect(res._status).toBe(200); // SSE committed → generation ran
     expect(capturedReq?.sourceMaterial).toBe('# Fetched article\nBody.');
+  });
+
+  // t/172: the route is a pass-through for the generator's per-member `stages` (t/171) — the SSE
+  // frames carry it to the client and the completed set is persisted with it.
+  it('t/172: a generated member\'s stages reach the client over SSE and are handed to finalizeOpedSet', async () => {
+    const stages = [{ stage: 'generation', attempt: 1, model: 'gemini-2.5-flash', prompt: 'SYS\n\n---\n\nUSER', output: 'RAW' }];
+    const member = { pov: 'accelerationist', status: 'complete', headline: 'H', subtitle: '', body: 'B', wordCount: 800, grounding: [], stages };
+    generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown }) {
+      yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [member] } };
+    });
+    finalizeOpedSet.mockResolvedValue(undefined);
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(200);
+    const frames = (res.write as unknown as { mock: { calls: string[][] } }).mock.calls.map(c => c[0]).filter(f => f.startsWith('data: '));
+    const complete = frames.map(f => JSON.parse(f.slice(6))).find(f => f.event?.type === 'complete');
+    expect(complete.event.set.opeds[0].stages).toEqual(stages);
+    expect(finalizeOpedSet.mock.calls[0][0].opeds[0].stages).toEqual(stages);
   });
 
   // t/2807 MUST: a fetch failure returns a clean HTTP error and NEVER proceeds with

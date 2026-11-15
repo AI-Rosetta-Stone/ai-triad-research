@@ -1,0 +1,131 @@
+{
+  "ticket": "t/292 data fix 1 (TL decision t/292#3)",
+  "target": "ai-triad-data summaries/*.json factual_claims[].linked_taxonomy_nodes",
+  "operation": "drop the repeated node id from each frozen claim, keeping the first occurrence; nothing else changes",
+  "cause": "one-off t/3595 repoint, data 9241c64b (2026-09-24)",
+  "data_commit": "d098f445f0fea2a27de8826d42ee85f134f83afc",
+  "hash_basis": "sha256-lf",
+  "serializer": "json.dumps(indent=2, ensure_ascii=False) + the file's own trailing whitespace; round-trips all inputs",
+  "writes": [
+    {
+      "doc_id": "adversarial-ai-threat-modeling-framework-aatmf-v3-2026",
+      "claim_index": 3,
+      "node": "saf-beliefs-200",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-200",
+        "saf-beliefs-200"
+      ],
+      "linked_after": [
+        "saf-beliefs-200"
+      ],
+      "pre_sha256": "6415ad23c072e59c49dee99573f41d678a8bd61dfa392d7d753716d5139c9df5",
+      "post_sha256": "0bca82904d608d2e7781094806ab06d3eac5242a726f330030d3a085fc30d7a7"
+    },
+    {
+      "doc_id": "adversarialaithreatmodelingframework-aatmfv3-kaiaizen-2026-1",
+      "claim_index": 2,
+      "node": "saf-beliefs-200",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-200",
+        "saf-beliefs-200"
+      ],
+      "linked_after": [
+        "saf-beliefs-200"
+      ],
+      "pre_sha256": "e713612f15bdd0fdc95fe53d86976ae2b90283e095c248212ef164287f9df54c",
+      "post_sha256": "bb3f0644e183956444f4e81ea5aa43f7a47be3e26754bf158a918b48f8cab931"
+    },
+    {
+      "doc_id": "ai-deterrence-by-betrayal-2026",
+      "claim_index": 0,
+      "node": "saf-beliefs-200",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-200",
+        "saf-beliefs-200"
+      ],
+      "linked_after": [
+        "saf-beliefs-200"
+      ],
+      "pre_sha256": "48971d8836c3890295666e60189fa3390bb908c483d70b5d1e1e447d364b210c",
+      "post_sha256": "ef999fc62c094e3c3595d864d6f0b47f576773eb7b9598beaa7abd90fc197712"
+    },
+    {
+      "doc_id": "approach-technical-agi-safety-security-2026",
+      "claim_index": 17,
+      "node": "saf-beliefs-201",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-201",
+        "saf-beliefs-201"
+      ],
+      "linked_after": [
+        "saf-beliefs-201"
+      ],
+      "pre_sha256": "ce90cbf989292b826e991572931e92b34956f56c508c18f1b2f8054cf6104f0f",
+      "post_sha256": "050ac97e9925331fa289c05d629fa5f2449a68f9e9822c09053f365adf038c55"
+    },
+    {
+      "doc_id": "article-survey-machine-learning-biases-mitigation-techniques-2026",
+      "claim_index": 5,
+      "node": "skp-intentions-144",
+      "count_before": 2,
+      "linked_before": [
+        "skp-intentions-144",
+        "skp-intentions-144"
+      ],
+      "linked_after": [
+        "skp-intentions-144"
+      ],
+      "pre_sha256": "f87285b423a777ce765b2dfcb4e4065ed68f06eb3a49aec9f675516f981a5160",
+      "post_sha256": "85d8e4da1484ed5384cab89e49c5023e91bc1a17b74c66ee27a310441f4ca460"
+    },
+    {
+      "doc_id": "esrbascreport202512-aiandsystemicrisken-2026-1",
+      "claim_index": 3,
+      "node": "saf-beliefs-201",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-201",
+        "saf-beliefs-201"
+      ],
+      "linked_after": [
+        "saf-beliefs-201"
+      ],
+      "pre_sha256": "1e62d9052ae0b620f9c51e4077ca7c4def28cfd428a2adff042c5f3aef5a1b3a",
+      "post_sha256": "a44ad0a68ea765b350892183efdf0e066ac8dbc3769e948d725b37bfaacde16b"
+    },
+    {
+      "doc_id": "international-ai-safety-report-2026-2026-1",
+      "claim_index": 28,
+      "node": "saf-beliefs-201",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-201",
+        "saf-beliefs-201"
+      ],
+      "linked_after": [
+        "saf-beliefs-201"
+      ],
+      "pre_sha256": "9a9a3ecd25d32e6e74ecc0ccaa20bdb9e0971796bfe49db458b4368a1da788ba",
+      "post_sha256": "153e9afc3b81e55a3ec1f4ddbebf179c36f80ec9e7b5a20f46e53e9ca9eb4e1a"
+    },
+    {
+      "doc_id": "international-ai-safety-report-2026-2026",
+      "claim_index": 27,
+      "node": "saf-beliefs-201",
+      "count_before": 2,
+      "linked_before": [
+        "saf-beliefs-201",
+        "saf-beliefs-201"
+      ],
+      "linked_after": [
+        "saf-beliefs-201"
+      ],
+      "pre_sha256": "35ff7c6a1dc679ae3bb3e22b8b5e5141f5dd8867b67938465e9d5070ddb0dadf",
+      "post_sha256": "1d46dc2fb17a3191142e417f71f7319e96a68c4d5b2640ae9c48f1d1f94aa050"
+    }
+  ]
+}

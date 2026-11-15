@@ -21,15 +21,32 @@ if [ -z "$CEILING" ] || [ "$CEILING" = "undefined" ]; then
 fi
 
 cd "$REPO_ROOT/taxonomy-editor"
-JSON=$(node scripts/check-contrast.mjs --json 2>&1 || true)
-COUNT=$(echo "$JSON" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).findings.length))")
 
-if [ "$COUNT" -gt "$CEILING" ]; then
-  node scripts/check-contrast.mjs 2>&1 || true
-  echo ""
-  echo "FAIL: contrast findings ($COUNT) exceeded ceiling ($CEILING)"
-  echo "The ceiling only goes DOWN. Fix the new violations before merging."
+# t/111: the gate's own tests run first, so CI exercises them (they ran nowhere before): the
+# checker's detection self-test and the verdict predicate's both-arms tests.
+SELFTEST_LOG=$(mktemp)
+if ! node --test scripts/check-contrast.test.mjs scripts/contrast-gate.test.mjs >"$SELFTEST_LOG" 2>&1; then
+  cat "$SELFTEST_LOG"
+  rm -f "$SELFTEST_LOG"
+  echo "GATE UNREADABLE: the contrast checker's self-tests failed (above). Fix them before trusting the count."
   exit 1
 fi
+rm -f "$SELFTEST_LOG"
 
-echo "contrast check: $COUNT / $CEILING findings (OK)"
+# t/111: stdout only (stderr kept apart, never parsed), and the checker's real exit code. The
+# verdict, including every way the output can be unreadable, is contrast-gate.mjs's job; it
+# fails closed. The old `2>&1 || true` plus `[ "" -gt N ]` fell through to OK on a truncated payload.
+OUT=$(mktemp)
+ERR=$(mktemp)
+trap 'rm -f "$OUT" "$ERR"' EXIT
+node scripts/check-contrast.mjs --json >"$OUT" 2>"$ERR"
+CHECKER_EXIT=$?
+
+if ! node scripts/contrast-gate.mjs "$OUT" "$CHECKER_EXIT" "$CEILING"; then
+  if [ -s "$ERR" ]; then
+    echo "--- check-contrast.mjs stderr ---"
+    cat "$ERR"
+  fi
+  node scripts/check-contrast.mjs 2>&1 || true
+  exit 1
+fi

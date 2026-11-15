@@ -20,9 +20,15 @@ import { createWebOpEdAdapter } from '../ai/opedAdapter.js';
 import { resolveExportModel, type ClientModelSource } from './exportModel.js';
 import { enforceBackendAllowed } from './generationContext.js';
 import {
-  startExportJob, getExportJob, hasExportJob, sweepExportJobs, countRunningExportJobs,
+  startExportJob, getExportJob, hasExportJob, sweepExportJobs,
   findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
+import { findRunningJobByIdempotencyKey, slotHolderLiveness, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { claimJobSlot, releaseJobSlot } from '../storage/jobSlots.js';
+import { getBriefExportJobsDir } from '../storage/briefExportJobStore.js';
+import { getBriefExportBackend } from '../storage/fileIO.js';
+import { randomUUID } from 'crypto';
+import { isTerminalExportStatus } from '../storage/briefExportJobStore.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
 import type { DebateSession } from '../../../../lib/debate/types.js';
@@ -91,11 +97,14 @@ function resolveExportModels(
 
 /** Start the job and answer 202 { jobId }, or 503 if its durable record can't be created (t/4177).
  *  Extracted from the POST handler to keep it within the file's complexity budget. */
-async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0]): Promise<void> {
+async function startJobAndRespond(
+  res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0], onFailed: () => Promise<void>,
+): Promise<void> {
   try {
     const job = await startExportJob(args);
     json(res, { jobId: job.jobId }, 202);
   } catch (err) {
+    await onFailed();
     // The durable job record could not be created, so no job was started (nothing billed).
     getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export job record could not be created — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     error(res, 'Could not start the export because job storage is unavailable. Nothing was started or charged; try again in a minute.', 503, err);
@@ -148,24 +157,44 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
     const models = resolveExportModels(req, res, b);
     if (!models) return; // helper already wrote the 400/403
 
-    // Idempotency + concurrency.
+    // Idempotency + concurrency. Check-and-create is serialized per user (concurrent POSTs queue and each
+    // counts the records its predecessors wrote); idempotency and the cap read the shared records.
     sweepExportJobs();
     const userId = getStorageUserId();
     const idempotencyKey = (req.headers['idempotency-key'] as string | undefined) || undefined;
-    const existing = findIdempotentJob(userId, debateId, idempotencyKey);
-    if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
-    if (countRunningExportJobs(userId) >= MAX_CONCURRENT_EXPORT_JOBS) {
-      json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
-      return;
-    }
-
     const framingMeta = b.framingMeta === false ? false : undefined;
     const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;
-    await startJobAndRespond(res, {
-      userId, session, debateId, models,
-      request: { preset, skipNarration, framingMeta, allowOpen, templateId },
-      toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
-      idempotencyKey, adapter: createWebOpEdAdapter(),
+    await withSubmissionLock(userId, 'brief-export', async () => {
+      const existing = findIdempotentJob(userId, debateId, idempotencyKey);
+      if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
+      const durable = await findRunningJobByIdempotencyKey(
+        userId, 'brief-export', idempotencyKey, debateId, rec => !isTerminalExportStatus(rec.status),
+      );
+      if (durable) { json(res, { jobId: durable.jobId }, 202); return; }
+
+      // The slot claim is the cross-replica gate (t/400): a free slot is taken with an atomic create-only write.
+      const jobId = randomUUID();
+      let slot: Awaited<ReturnType<typeof claimJobSlot>>;
+      try {
+        slot = await claimJobSlot({
+          backend: getBriefExportBackend(), jobsDir: getBriefExportJobsDir(userId), cap: MAX_CONCURRENT_EXPORT_JOBS,
+          jobId, isLive: slotHolderLiveness('brief-export'),
+        });
+      } catch (err) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export slot claim failed — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+        error(res, 'Job storage is temporarily unavailable; try again shortly', 503);
+        return;
+      }
+      if (slot === null) {
+        json(res, { error: 'concurrency_limit', message: 'An export is already running; wait for it to finish.', limit: MAX_CONCURRENT_EXPORT_JOBS }, 429);
+        return;
+      }
+      await startJobAndRespond(res, {
+        userId, jobId, session, debateId, models,
+        request: { preset, skipNarration, framingMeta, allowOpen, templateId },
+        toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
+        idempotencyKey, adapter: createWebOpEdAdapter(),
+      }, () => releaseJobSlot(getBriefExportBackend(), slot));
     });
   });
 

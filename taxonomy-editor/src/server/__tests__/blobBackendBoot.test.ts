@@ -4,7 +4,7 @@
  * t/4756 (t/4738 prevention, step 5): fail-closed boot validation for Azure blob container config.
  *
  * In a hosted profile (NODE_ENV=production), if AZURE_STORAGE_ACCOUNT_URL is set but any
- * of the three required container vars is unset, blob backends are not wired and /readyz
+ * of the required container vars (incl. AZURE_ANALYTICS_CONTAINER, t/4954) is unset, blob backends are not wired and /readyz
  * returns 503 so the deploy warm-gate blocks promotion.
  */
 
@@ -40,7 +40,7 @@ describe('blobBackendBoot: fail-closed validation (t/4756)', () => {
     expect(areBlobBackendsWired()).toBe(true);
   });
 
-  it('hosted profile with account URL and all three container vars set: backends wired', async () => {
+  it('hosted profile with account URL and all four container vars set: backends wired', async () => {
     const { validateBlobBackendConfig, areBlobBackendsWired } = await import('../storage/blobBackendBoot.js');
     const env = {
       NODE_ENV: 'production',
@@ -48,6 +48,7 @@ describe('blobBackendBoot: fail-closed validation (t/4756)', () => {
       AZURE_USER_CONTENT_CONTAINER: 'user-content',
       AZURE_COMMUNITY_CONTAINER: 'community',
       AZURE_BRIEF_EXPORTS_CONTAINER: 'brief-exports',
+      AZURE_ANALYTICS_CONTAINER: 'analytics',
     };
     const missing = validateBlobBackendConfig(env);
     expect(missing).toEqual([]);
@@ -61,6 +62,7 @@ describe('blobBackendBoot: fail-closed validation (t/4756)', () => {
       AZURE_STORAGE_ACCOUNT_URL: 'https://example.blob.core.windows.net',
       AZURE_USER_CONTENT_CONTAINER: 'user-content',
       AZURE_COMMUNITY_CONTAINER: 'community',
+      AZURE_ANALYTICS_CONTAINER: 'analytics',
       // AZURE_BRIEF_EXPORTS_CONTAINER missing
     };
     const missing = validateBlobBackendConfig(env);
@@ -73,12 +75,13 @@ describe('blobBackendBoot: fail-closed validation (t/4756)', () => {
     const env = {
       NODE_ENV: 'production',
       AZURE_STORAGE_ACCOUNT_URL: 'https://example.blob.core.windows.net',
-      // All three container vars missing
+      // All container vars missing
     };
     const missing = validateBlobBackendConfig(env);
     expect(missing).toContain('AZURE_USER_CONTENT_CONTAINER');
     expect(missing).toContain('AZURE_COMMUNITY_CONTAINER');
     expect(missing).toContain('AZURE_BRIEF_EXPORTS_CONTAINER');
+    expect(missing).toContain('AZURE_ANALYTICS_CONTAINER');
     expect(areBlobBackendsWired()).toBe(false);
   });
 
@@ -92,8 +95,45 @@ describe('blobBackendBoot: fail-closed validation (t/4756)', () => {
       AZURE_USER_CONTENT_CONTAINER: 'prod-user-content',
       AZURE_COMMUNITY_CONTAINER: 'prod-community',
       AZURE_BRIEF_EXPORTS_CONTAINER: 'prod-brief-exports',
+      AZURE_ANALYTICS_CONTAINER: 'analytics',
     };
     const missing = validateBlobBackendConfig(env);
     expect(missing).toEqual([]);
+  });
+
+  // ─── t/4954 (t/96): AZURE_ANALYTICS_CONTAINER is required in hosted mode ───
+
+  const HOSTED_WITHOUT_ANALYTICS = {
+    NODE_ENV: 'production',
+    AZURE_STORAGE_ACCOUNT_URL: 'https://example.blob.core.windows.net',
+    AZURE_USER_CONTENT_CONTAINER: 'staging-user-content',
+    AZURE_COMMUNITY_CONTAINER: 'staging-community',
+    AZURE_BRIEF_EXPORTS_CONTAINER: 'staging-brief-exports',
+  };
+
+  it('hosted + account URL + AZURE_ANALYTICS_CONTAINER unset: reported missing, backends not wired (readyz 503)', async () => {
+    const { validateBlobBackendConfig, areBlobBackendsWired } = await import('../storage/blobBackendBoot.js');
+    expect(validateBlobBackendConfig(HOSTED_WITHOUT_ANALYTICS)).toEqual(['AZURE_ANALYTICS_CONTAINER']);
+    expect(areBlobBackendsWired()).toBe(false);
+  });
+
+  it('hosted + account URL + AZURE_ANALYTICS_CONTAINER empty string: treated as unset', async () => {
+    const { validateBlobBackendConfig, areBlobBackendsWired } = await import('../storage/blobBackendBoot.js');
+    expect(validateBlobBackendConfig({ ...HOSTED_WITHOUT_ANALYTICS, AZURE_ANALYTICS_CONTAINER: '' }))
+      .toEqual(['AZURE_ANALYTICS_CONTAINER']);
+    expect(areBlobBackendsWired()).toBe(false);
+  });
+
+  it('hosted + account URL + AZURE_ANALYTICS_CONTAINER set: nothing missing, backends wired', async () => {
+    const { validateBlobBackendConfig, areBlobBackendsWired } = await import('../storage/blobBackendBoot.js');
+    expect(validateBlobBackendConfig({ ...HOSTED_WITHOUT_ANALYTICS, AZURE_ANALYTICS_CONTAINER: 'staging-analytics' })).toEqual([]);
+    expect(areBlobBackendsWired()).toBe(true);
+  });
+
+  it('local mode: AZURE_ANALYTICS_CONTAINER not required (non-production, or no account URL)', async () => {
+    const { validateBlobBackendConfig, areBlobBackendsWired } = await import('../storage/blobBackendBoot.js');
+    expect(validateBlobBackendConfig({ ...HOSTED_WITHOUT_ANALYTICS, NODE_ENV: 'development' })).toEqual([]);
+    expect(validateBlobBackendConfig({ NODE_ENV: 'production' })).toEqual([]);
+    expect(areBlobBackendsWired()).toBe(true);
   });
 });

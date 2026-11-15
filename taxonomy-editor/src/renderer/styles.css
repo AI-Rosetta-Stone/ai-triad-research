@@ -31,7 +31,7 @@
   /* Text */
   --text-primary: #1e293b;
   --text-secondary: #475569;
-  --text-muted: #64748b;  /* was #94a3b8 — slate-400 = 2.56:1, below WCAG 1.4.11 non-text floor for help icons (t/2358) */
+  --text-muted: #5f6e84;  /* t/123 (Design t/123#3): was #64748b, 4.34 on hover; was #94a3b8 before t/2358 */
   --border-color: #e2e8f0;
 
   /* Category detail backgrounds */
@@ -48,7 +48,9 @@
   --error: var(--danger); /* alias — single source of truth for "the red" (t/2566) */
   --success: #22c55e; --success-text: #15803d; /* AA green TEXT on --bg-primary; --success stays fill (t/2260) */
   --warning: #a16207;
-  --focus-ring: #3b82f6;
+  --focus-ring: #2563eb;  /* t/123: was #3b82f6, white text on it 3.68 */
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #ffffff;
   /* t/2569 Batch 1+3 — genuinely-missing tokens, Design-blessed per-theme */
   --border-subtle: #E9EDF2; /* decorative/non-essential dividers ONLY; essential UI borders stay --border-color (≥3:1) */
   --info: #2563EB;
@@ -65,6 +67,20 @@
   --error-color: var(--danger); /* generic error red — alias, single source like --error */
   --error-text: #B42318; /* foreground; AA on --bg-primary (paired w/ --success-text) AND on --error-bg */
   --error-bg: #FDECEC;
+  --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #b91c1c;  /* t/198: .btn-danger hover, white 6.47 */
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #a16207;
+  --success-bg: #eff6f1;
+  --info-bg: #edf1fc;
+  --info-text: #1d4ed8;
+  --violet-bg: #f3edfd;
+  --violet-text: #7c3aed;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #faf3ee;
+  --color-saf-bg: #f0f4f9;
+  --color-skp-bg: #f6f3f9;
+  --input-border: #85909f;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #F3C0C0;
   --bar: #3b82f6; /* data-blue share-bar fill; was undefined → hardcoded fallback (t/2565) */
 
@@ -86,7 +102,7 @@
   /* POV colors — orange/blue/violet triad (Phase 2, WCAG AA verified) */
   --color-acc: #e89450;
   --color-saf: #7da3d6;
-  --color-skp: #a888c8;
+  --color-skp: #b69bd1;  /* t/48: was #a888c8 (4.06 on hover); same hue, lifted */
   --color-sit: #2dd4bf;
   --color-conflicts: #95a5a6;
   --tint-acc: rgba(232, 148, 80, 0.12);
@@ -104,12 +120,13 @@
   --bg-secondary: #1f2937; --bg-tertiary: #2b3544; /* tertiary surface (t/2261) */
   --bg-panel: #293548;
   --bg-input: #111827;
-  --bg-hover: #374151;
+  --bg-hover: #313b4c;  /* t/123: was #374151, so muted can pass on hover */
 
   /* Text */
   --text-primary: #f3f4f6;
   --text-secondary: #b0b8c4;
-  --text-muted: #8b93a1;
+  /* t/123 (Design t/123#3): AA on primary/secondary/tertiary/hover. */
+  --text-muted: #a0a7b3;
   --border-color: #374151;
 
   /* Category detail backgrounds */
@@ -127,6 +144,8 @@
   --success: #22c55e; --success-text: #22c55e; /* reuses fill; AA on dark bg (t/2260) */
   --warning: #f59e0b;
   --focus-ring: #60a5fa;
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #111827;
   /* t/2569 Batch 1+3 */
   --border-subtle: #303A49;
   --info: #60A5FA;
@@ -143,6 +162,20 @@
   --error-color: var(--danger);
   --error-text: #FCA5A5; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2A1616;
+  --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #b91c1c;  /* t/198: .btn-danger hover, white 6.47 */
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #f59e0b;
+  --success-bg: #143430;
+  --info-bg: #1e2f49;
+  --info-text: #60a5fa;
+  --violet-bg: #292a49;
+  --violet-text: #a78bfa;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #332c2e;
+  --color-saf-bg: #222e43;
+  --color-skp-bg: #292a41;
+  --input-border: #6a7381;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #4D2424;
   --bar: #60a5fa; /* data-blue share-bar fill (t/2565) */
 
@@ -164,7 +197,7 @@
   /* POV colors — orange/blue/violet triad (Phase 2, WCAG AA verified) */
   --color-acc: #cc7e45;
   --color-saf: #6d94c2;
-  --color-skp: #a882be;
+  --color-skp: #b18fc5;  /* t/48: was #a882be (4.13 on hover); same hue, lifted (Design p/25#47) */
   --color-sit: #2bb8a4;
   --color-conflicts: #7a6a82;
   --tint-acc: rgba(204, 126, 69, 0.12);
@@ -187,7 +220,8 @@
   /* Text */
   --text-primary: #e8e0e8;
   --text-secondary: #a89ab0;
-  --text-muted: #7a6a82;
+  /* t/123 (Design t/123#3): AA on primary/secondary/tertiary/hover. */
+  --text-muted: #a196a7;
   --border-color: #4d3a4e;
 
   /* Category detail backgrounds */
@@ -205,6 +239,8 @@
   --success: #00ff4c; --success-text: #00ff4c; /* reuses fill; AA on dark bg (t/2260) */
   --warning: #d9a441;
   --focus-ring: #4d7a8b;
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #ffffff;
   /* t/2569 Batch 1+3 */
   --border-subtle: #403141;
   --info: #6D94C2;
@@ -221,6 +257,20 @@
   --error-color: var(--danger);
   --error-text: #FF9B9B; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #2E1A1C;
+  --danger-fill: #dc2626;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #b91c1c;  /* t/198: .btn-danger hover, white 6.47 */
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #d9a441;
+  --success-bg: #1a4326;
+  --info-bg: #2b3239;
+  --info-text: #799dc7;
+  --violet-bg: #37333e;
+  --violet-text: #b79be0;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #2d2722;
+  --color-saf-bg: #25282c;
+  --color-skp-bg: #2a272c;
+  --input-border: #78677c;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #4D2428;
   --bar: #6a9fd4; /* data-blue share-bar fill (t/2565) */
 
@@ -263,7 +313,8 @@
   /* Text */
   --text-primary: #1C1C1C;
   --text-secondary: #4A4541;
-  --text-muted: #8A8278;
+  /* t/123 (Design t/123#3): AA on primary/secondary/tertiary/hover. */
+  --text-muted: #68625b;
   --border-color: #D6CFC5;
 
   /* Category detail backgrounds */
@@ -281,6 +332,8 @@
   --success: #2D6A4F; --success-text: #2D6A4F; /* reuses forest green; already AA (t/2260) */
   --warning: #8B6508;
   --focus-ring: #A51C30;
+  /* t/123: text on a --focus-ring fill (selected/active states). */
+  --text-on-focus-ring: #ffffff;
   /* t/2569 Batch 1+3 */
   --border-subtle: #E3DCD1;
   --info: #275498;
@@ -297,6 +350,20 @@
   --error-color: var(--danger);
   --error-text: #A5182A; /* foreground; AA on --bg-primary AND on --error-bg */
   --error-bg: #F5E2E2;
+  --danger-fill: #A5182A;  /* t/198: solid danger fill under white text (>= 4.83), e.g. .btn-danger */
+  --danger-fill-hover: #7f1d1d;  /* t/198: .btn-danger hover, white 10.0 */
+  /* t/154 semantic tint pairs (docs/ux/semantic-tint-tokens.md): solid -bg, -text >= 4.5 on -bg/primary/secondary */
+  --warning-text: #876208;
+  --success-bg: #e8ebe6;
+  --info-bg: #e7e9ed;
+  --info-text: #275498;
+  --violet-bg: #ece7ec;
+  --violet-text: #5e3a8c;
+  /* t/154 camp tints: camp text keeps --color-*, only the tint behind it is tokenised */
+  --color-acc-bg: #f1e7de;
+  --color-saf-bg: #e5e8ec;
+  --color-skp-bg: #ece6eb;
+  --input-border: #8d8780;  /* t/66: 1px input/select/textarea edge, >= 3:1 (--border-color stays for dividers) */
   --error-border: #D9A5A5;
   --bar: #3f6fae; /* data-blue share-bar fill (t/2565) */
 
@@ -1392,13 +1459,14 @@ body {
 }
 
 .btn-danger {
-  background: var(--danger);
-  border-color: var(--danger);
+  background: var(--danger-fill);
+  border-color: var(--danger-fill);
   color: #fff;
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--danger-fill-hover);
+  border-color: var(--danger-fill-hover);
 }
 
 .btn-sm {

@@ -16,11 +16,11 @@
 .ovw-warning { color: var(--warning); }
 .ovw-success { color: var(--success); }
 .ovw-muted-color { color: var(--text-muted); }
-.ovw-badge-danger { font-size: var(--text-2xs); background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
-.ovw-badge-danger-default { font-size: var(--text-2xs); background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); cursor: default; }
-.ovw-badge-danger-ml4 { font-size: var(--text-2xs); background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); margin-left: 4px; }
-.ovw-badge-success-default { font-size: var(--text-2xs); background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); cursor: default; }
-.ovw-badge-success-ml4 { font-size: var(--text-2xs); background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); margin-left: 4px; }
+.ovw-badge-danger { font-size: var(--text-2xs); background: var(--error-bg); color: var(--error-text); }
+.ovw-badge-danger-default { font-size: var(--text-2xs); background: var(--error-bg); color: var(--error-text); cursor: default; }
+.ovw-badge-danger-ml4 { font-size: var(--text-2xs); background: var(--error-bg); color: var(--error-text); margin-left: 4px; }
+.ovw-badge-success-default { font-size: var(--text-2xs); background: var(--success-bg); color: var(--success-text); cursor: default; }
+.ovw-badge-success-ml4 { font-size: var(--text-2xs); background: var(--success-bg); color: var(--success-text); margin-left: 4px; }
 .ovw-badge-secondary { font-size: var(--text-2xs); background: color-mix(in srgb, var(--text-secondary) 15%, transparent); color: var(--text-secondary); }
 .ovw-badge-secondary-ml4 { font-size: var(--text-2xs); background: color-mix(in srgb, var(--text-secondary) 15%, transparent); color: var(--text-secondary); margin-left: 4px; }
 .ovw-toolbar-mb4 { display: flex; justify-content: flex-end; margin-bottom: 4px; }
@@ -60,7 +60,7 @@
 .ovw-2xs-muted-italic { font-size: var(--text-2xs); color: var(--text-muted); font-style: italic; }
 .ovw-opp-sims { display: flex; gap: 8px; font-size: var(--text-2xs); padding-left: 8px; }
 .ovw-empty-note { font-size: 0.72rem; color: var(--text-muted); font-style: italic; padding: 4px 0; }
-.ovw-all-clear { padding: 6px 8px; border-radius: 4px; background: color-mix(in srgb, var(--success) 8%, transparent); border-left: 3px solid var(--success); font-size: 0.72rem; color: var(--success); font-weight: 600; }
+.ovw-all-clear { padding: 6px 8px; border-radius: 4px; background: var(--success-bg); border-left: 3px solid var(--success); font-size: 0.72rem; color: var(--success-text); font-weight: 600; }
 .ovw-sm { font-size: 0.72rem; }
 .ovw-summary-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .ovw-summary-chip { padding: 3px 6px; border-radius: 3px; font-weight: 600; font-size: var(--text-2xs); }

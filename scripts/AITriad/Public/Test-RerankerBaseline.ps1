@@ -15,7 +15,7 @@ function Test-RerankerBaseline {
     .PARAMETER TopK
         Number of bi-encoder candidates to rerank per claim (default: 10).
     .PARAMETER RerankerModel
-        Cross-encoder model name (default: cross-encoder/ms-marco-MiniLM-L-6-v2).
+        Cross-encoder model name (default: cross-encoder/ms-marco-MiniLM-L6-v2).
     .PARAMETER GoldenSetPath
         Path to the golden test set JSON. Defaults to research/comp-linguist/_golden_test_set.json.
     .EXAMPLE
@@ -41,7 +41,7 @@ function Test-RerankerBaseline {
         [ValidateRange(1, 100)]
         [int]$TopK = 10,
 
-        [string]$RerankerModel = 'cross-encoder/ms-marco-MiniLM-L-6-v2',  # model-lint:allow-pin reranker cross-encoder model, not an ai-models.json LLM backend
+        [string]$RerankerModel = 'cross-encoder/ms-marco-MiniLM-L6-v2',  # model-lint:allow-pin reranker cross-encoder model, not an ai-models.json LLM backend
 
         [string]$GoldenSetPath
     )

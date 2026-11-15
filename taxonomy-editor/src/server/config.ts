@@ -12,6 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -91,9 +92,27 @@ export function loadDataConfig(): AiTriadConfig {
   return _configCache;
 }
 
+// t/235: set once this process has seen AI_TRIAD_DATA_ROOT. Under vitest, a root that was set and then cleared
+// means a test's afterAll ran, so a late (orphaned) write must be refused, not sent to the real data root.
+let dataRootWasSetInProcess = false;
+
 export function getDataRoot(): string {
   const envRoot = process.env.AI_TRIAD_DATA_ROOT;
-  if (envRoot) return path.resolve(envRoot);
+  if (envRoot) {
+    dataRootWasSetInProcess = true;
+    return path.resolve(envRoot);
+  }
+
+  if (process.env.VITEST && dataRootWasSetInProcess) {
+    throw new ActionableError({
+      goal: 'Resolve the data root for a test write',
+      problem: 'AI_TRIAD_DATA_ROOT is unset during a test, so the real data root would be used',
+      location: 'config.getDataRoot',
+      nextSteps: ['Set AI_TRIAD_DATA_ROOT to the test temp root before the write (the test likely outlived afterAll)'],
+      code: 'DATA_ROOT_UNSET_IN_TEST',
+      httpStatus: 500,
+    });
+  }
 
   const config = loadDataConfig();
   return path.isAbsolute(config.data_root)
@@ -223,7 +242,7 @@ const ENV_KEY_NAMES: Record<AIBackend, string> = {
 
 // Imported after AIBackend is defined (keyStore depends on the type).
 import { getKeyStore, type KeyRotationResult } from './security/keyStore.js';
-import { getCurrentUserId } from './security/userContext.js';
+import { getCurrentUserId, isAnonymousUser } from './security/userContext.js';
 import { resolveGenericFallbackKey, assertKeyForBackend, isKeyRoutingRefusal, LISTING_WARN, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../lib/ai-client/apiKeyFallback.js';
 
 /** The backend's OWN key: its env var, then the keyStore. Never the AI_API_KEY fallback. */
@@ -278,6 +297,28 @@ export async function getApiKeyForListing(backend: AIBackend = 'gemini'): Promis
     if (!isKeyRoutingRefusal(err, 'AIApiKeyGeminiOnlyRefused')) throw err;
     log.server.warn({ backend }, `${LISTING_WARN}: reporting '${backend}' as not configured`);
     return null;
+  }
+}
+
+/**
+ * t/204: the signed-in caller's own stored Settings keys for `backend`, checked BEFORE the free pool.
+ * Key precedence on the free-pool paths is: (1) a key sent with the request, (2) these stored keys,
+ * (3) the free pool, (4) the paid fallback, only on a free-pool 429. A user with their own key must
+ * not spend the shared, capped pool or be held to its geo gate. Deliberately skips getApiKeys' env
+ * and AI_API_KEY steps: those are server keys, not the user's choice. Anonymous callers have no
+ * stored key. An unreadable key store is NOT fatal: it WARNs and returns [], so the caller falls
+ * through to the free pool exactly as before t/204.
+ */
+export async function getStoredUserKeysBeforeFreePool(backend: AIBackend): Promise<string[]> {
+  if (isAnonymousUser()) return [];
+  try {
+    const stored = await getKeyStore(getStateRoot).getKeys(backend, getCurrentUserId());
+    for (const k of stored) assertKeyForBackend(k, backend, 'stored'); // t/4105 C5, same as getApiKeys
+    return stored;
+  } catch (err) {
+    if (isKeyRoutingRefusal(err)) throw err; // a refusal is not a key-store failure; never swallow it
+    log.server.warn({ backend, err }, 'Stored BYOK key unreadable — falling back to the free pool (t/204)');
+    return [];
   }
 }
 

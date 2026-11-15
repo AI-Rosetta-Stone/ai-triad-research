@@ -25,7 +25,7 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: var(--warning);
+  background: var(--warning-bg);
   border: none;
   cursor: pointer;
   display: flex;
@@ -33,7 +33,7 @@
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   font-size: 1.2rem;
-  color: #000;
+  color: var(--warning-text);
 }
 
 .diag-chat-header {
@@ -117,8 +117,8 @@
   border-radius: 12px;
   font-size: var(--text-2xs);
   cursor: pointer;
-  background: color-mix(in srgb, var(--warning) 8%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
   transition: background 0.15s;
 }

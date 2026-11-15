@@ -23,6 +23,10 @@ The full rules behind root `AGENTS.md` → "Change Tiers and Decision Rights". T
 - adding or removing roles;
 - repo and branch-protection settings.
 
+**PI delegations (2026-11-11, t/337):**
+- **AI spend up to $10 per experiment** (evals, pilots, re-validation runs on temp roots, no corpus write): the TL approves on the ticket and lists it in the next PI digest. Above $10, or any corpus write, stays with the PI.
+- **UX polish within a PI-approved spec:** Design decides and records it on the ticket with screenshots; the PI sees it in the digest. New features or direction changes stay with the PI.
+
 Everything else is decided by the owning role, or the TL if roles disagree, and recorded on the ticket.
 
 **Asks to the PI** go in one daily TL digest. Each ask carries a recommendation and a default that takes effect by a stated time. **Defaults never apply to T2 approvals, anything on the PI-only list, or active security incidents.** Those wait for an explicit answer and are re-raised in each digest until answered.

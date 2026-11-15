@@ -157,6 +157,11 @@ function Get-AICallLog {
             Model       = if ($rec.PSObject.Properties['Model'])       { [string]$rec.Model }       else { '' }
             Backend     = if ($rec.PSObject.Properties['Backend'])     { [string]$rec.Backend }     else { '' }
             KeySource   = if ($rec.PSObject.Properties['KeySource'])   { [string]$rec.KeySource }   else { '' }
+            # t/107 optional token fields; absent reads as $null (unknown spend), never 0.
+            InputTokens       = if ($rec.PSObject.Properties['InputTokens'])       { [int]$rec.InputTokens }       else { $null }
+            OutputTokens      = if ($rec.PSObject.Properties['OutputTokens'])      { [int]$rec.OutputTokens }      else { $null }
+            CachedInputTokens = if ($rec.PSObject.Properties['CachedInputTokens']) { [int]$rec.CachedInputTokens } else { $null }
+            CacheCreationInputTokens = if ($rec.PSObject.Properties['CacheCreationInputTokens']) { [int]$rec.CacheCreationInputTokens } else { $null }
         }
     }
 }

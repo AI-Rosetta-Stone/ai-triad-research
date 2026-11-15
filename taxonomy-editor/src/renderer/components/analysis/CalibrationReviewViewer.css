@@ -39,9 +39,9 @@
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger);
-  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-border);
 }
 
 .crv-toast {
@@ -150,13 +150,13 @@
 }
 
 .crv-badge-conflict {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--error-text);
+  background: var(--error-bg);
 }
 
 .crv-badge-new {
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success-text);
+  background: var(--success-bg);
 }
 
 .crv-badge-edited {

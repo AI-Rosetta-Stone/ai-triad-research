@@ -89,16 +89,17 @@ param stagingLoadTestSize bool = false
 // apply (t/4728, p/868#31 — exactly what happened on 2026-10-31), because the deploy re-applies
 // this template's declared value. Declaring it here means an apply KEEPS the override instead of
 // silently reverting it.
-// t/4732: the t/4677 AC3/AC4 low-cap staging proof (ticket Done, 2026-11-02) closed, but
-// restoring the code default (1500) here would NOT be safe -- SO (e/419) found that prod and
-// staging share one Gemini free-tier key pool (same `free-tier-gemini-key` secret, see
-// freeTierSecretName below), so 1500 (staging) + 1500 (prod) risks exhausting the provider's real
-// daily quota, which this repo doesn't document. TL recommendation (p/404#172, PI's decision
-// pending): an interim cap of '200' -- enough for staging's smoke/acceptance runs, well under
-// prod's budget -- until staging gets its own free-tier key in its own GCP project (t/4587's
-// pattern, tracked separately). Revisit once that lands or the PI sets a different number.
-@description('FREE_POOL_DAILY_CALLS_CAP override for staging. INTERIM value (t/4732/e/419) while staging shares the prod Gemini free-tier key pool -- not the code default (1500), which would risk exhausting the shared provider quota. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
-param freePoolDailyCallsCapStaging string = '200'
+// t/4732: until 2026-11-10 prod and staging shared one Gemini free-tier key pool (SO e/419), so
+// staging ran an interim cap of '200'. The PI then chose a dedicated staging key
+// (freeTierGeminiKeyStaging, secret free-tier-gemini-key-staging). Staging's calls now draw on its
+// own pool, not prod's. The cap is '300': room for staging's smoke/acceptance runs, still well under
+// the code default (1500), and a bound on the staging key's own spend (the PI owns this number).
+// If freeTierGeminiKeyStaging is empty, staging falls back to the shared pool (the deploy WARNs).
+// The cap then has to protect prod's quota again, so stagingFreePoolCap below drops back to the
+// interim '200' (SO condition 1, t/261). Test-StagingEnvCliDrift compares against this param's
+// default, so in that fallback arm it reports a Mismatch, a deliberate visible signal.
+@description('FREE_POOL_DAILY_CALLS_CAP override for staging (t/4732). Staging has its own Gemini free-tier key; this bounds that key\'s daily calls. A staging-only value goes here, in Bicep, never by CLI (t/4728).')
+param freePoolDailyCallsCapStaging string = '300'
 
 // ── Staging blob-container isolation (t/4738 incident) ──
 // PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
@@ -237,6 +238,10 @@ param githubWebhookSecret string = ''
 param freeTierGeminiKey string = ''
 
 @secure()
+@description('Staging-only Gemini free-tier key (t/4732, PI decision 2026-11-10), in its own pool so staging no longer draws on prod\'s. When set, ONLY the staging app gets it, as secret free-tier-gemini-key-staging. Empty falls back to the shared freeTierGeminiKey, and the deploy logs a WARN.')
+param freeTierGeminiKeyStaging string = ''
+
+@secure()
 @description('Paid Gemini API key for fallback when user has no key and free tier is exhausted. Omit to disable paid fallback.')
 param geminiPaidKey string = ''
 
@@ -272,6 +277,10 @@ var githubTokenProvided = !empty(githubToken)
 var githubWebhookSecretProvided = !empty(githubWebhookSecret)
 var freeTierEnabled = !empty(freeTierGeminiKey)
 var freeTierSecretName = 'free-tier-gemini-key'
+var freeTierStagingKeyProvided = !empty(freeTierGeminiKeyStaging)
+var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
+// t/4732 SO condition 1: the higher cap applies only on staging's own key. On the shared-pool fallback it's the interim 200.
+var stagingFreePoolCap = freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
 var oauthSecrets = concat(
@@ -283,6 +292,11 @@ var oauthSecrets = concat(
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
+// t/4732: the staging app's secrets are prod's plus its own free-tier key. Prod's `secrets:` stays
+// oauthSecrets, so prod can never reference free-tier-gemini-key-staging
+// (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
+var stagingSecrets = concat(oauthSecrets,
+  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : [])
 
 // ── Log Analytics ──
 
@@ -752,6 +766,12 @@ var stagingEnvOverrides = [
   { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
+  // t/77 / t/406: staging writes only to its own data repo, never prod's. Staging starts empty
+  // (PI-confirmed, option B). Prod's baseEnv keeps GITHUB_REPO = prod.
+  { name: 'GITHUB_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
+  { name: 'STAGING_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
+  // t/406: the staging App ID, for the staging boot guard. Same value as GITHUB_APP_ID on staging.
+  { name: 'STAGING_APP_ID', value: stagingGithubAppId }
   // Isolated cache dir only — AI_TRIAD_DATA_ROOT=/mnt/shared inherited from baseEnv
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
@@ -768,9 +788,9 @@ var stagingEnvOverrides = [
   // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
   { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
   // t/4728: staging's free-pool calls cap, declared so it survives a prod Bicep apply instead
-  // of drifting via CLI. t/4732: the t/4677 low-cap proof closed, but the shared-key-pool risk
-  // (e/419) keeps this at an interim 200, not prod's 1500 default -- see the param above.
-  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
+  // of drifting via CLI. t/4732: staging has its own free-tier key now; the cap bounds that key's
+  // daily calls -- see the param above.
+  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: stagingFreePoolCap }
   // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
   // (near freePoolDailyCallsCapStaging) for the incident history and rationale.
   { name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }
@@ -803,8 +823,10 @@ var stagingBaseEnv = concat(
   stagingEnvOverrides
 )
 // Same secret entries as prod, so staging stays a faithful pre-prod proxy (same oauth/ai
-// secrets, different write path).
-var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, extraFreeTier, extraPaidTier)
+// secrets, different write path). The one exception (t/4732) is FREE_TIER_GEMINI_KEY, which points
+// at staging's own key when one is provided. Empty keeps the shared prod pool key.
+var stagingExtraFreeTier = freeTierStagingKeyProvided ? [ { name: 'FREE_TIER_GEMINI_KEY', secretRef: freeTierStagingSecretName } ] : extraFreeTier
+var stagingContainerEnv = concat(stagingBaseEnv, extraGithubToken, extraGithubWebhook, stagingExtraFreeTier, extraPaidTier)
 
 // API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
 resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
@@ -996,7 +1018,7 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
           ? [ { latestRevision: true, weight: 100 } ]
           : [ { revisionName: trafficPinRevisionNameStaging, weight: 100 } ]
       }
-      secrets: oauthSecrets
+      secrets: stagingSecrets
     }
     template: {
       containers: [
@@ -1457,6 +1479,100 @@ resource imagePullFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-1
             | summarize Count = count() by RevisionName_s
             | where Count > 0
           '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+// ── Stuck-replica cost alerts (t/266 option a, TL ruling t/264#3 / t/266#5) ──
+// After a deploy, revisions were found holding a replica for hours with ZERO requests and no KEDA
+// events (t/264#2, t/266#4: c21fd5d, 60570a8, bd493e9 ...), putting billed vCPU-h over the 48/day
+// budget on 4 consecutive days (t/260#6). #4995 now retires the previous revision after a green soak;
+// these alerts catch the stall itself, whatever its cause, for any revision (serving or not).
+//
+// Not metric alerts: traffic weight is not a metric dimension, and unsplit `Replicas` AVERAGES across
+// revisions instead of summing (it read 24 replica-h on 11-07 against a true 48). Both rules use the
+// server's own `event-loop` heartbeat, which every running replica logs every ~5-25s and an idle,
+// scaled-to-zero replica does not.
+//
+// Replay against real logs (t/266, 2026-11-11), before #4995 went live:
+//   - stuckRevisionQuery fired on 11 episodes in 8 days, each one a real stuck revision (0 requests);
+//     0 firings since #4995 (~04Z 11-11); quiet in a normal deploy hour.
+//   - replicaHoursQuery: 48.1 / 40.2 / 38.4 on 11-07 / 11-09 / 11-10 (fire), 19.9 on 11-04, 4.3 in 8h
+//     after #4995 (quiet). One revision awake all day is 24, so > 30 means more than one.
+var stuckRevisionQuery = replace('''
+  ContainerAppConsoleLogs_CL
+  | where ContainerAppName_s == "__APP_NAME__"
+  | summarize AwakeMinutes = dcountif(bin(TimeGenerated, 1m), Log_s has "event-loop"), Requests = countif(Log_s has "requestId") by RevisionName_s
+  | where AwakeMinutes >= 50 and Requests == 0
+''', '__APP_NAME__', containerApp.name)
+
+var replicaHoursQuery = replace('''
+  ContainerAppConsoleLogs_CL
+  | where ContainerAppName_s == "__APP_NAME__" and Log_s has "event-loop"
+  | extend Replica = extract('"hostname":"([^"]+)"', 1, Log_s)
+  | where isnotempty(Replica)
+  | summarize Replicas = dcount(Replica) by bin(TimeGenerated, 5m)
+  | summarize ReplicaHours = sum(Replicas) * 5.0 / 60.0
+  | where ReplicaHours > 30
+''', '__APP_NAME__', containerApp.name)
+
+resource stuckRevisionAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-stuck-revision-replica'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'taxonomy-editor PROD — revision awake 1h with zero requests (stuck replica)'
+    description: 'A prod revision logged its heartbeat in >= 50 of the last 60 minutes but served ZERO requests: an idle replica that never scaled to zero (t/264, t/266). Usually the 0%-traffic previous revision after a deploy. Check `az containerapp revision list -n taxonomy-editor -g ai-triad`; deactivate a stuck 0%-traffic revision, or roll back with operations/devops/Invoke-GatedRollback.ps1 if it is the serving one.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    // One page per episode, not one every 15 min while it lasts.
+    autoMitigate: false
+    muteActionsDuration: 'PT6H'
+    criteria: {
+      allOf: [
+        {
+          query: stuckRevisionQuery
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+resource replicaHoursAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-replica-hours-24h'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'taxonomy-editor PROD — over 30 replica-hours in 24h'
+    description: 'Prod ran more than 30 replica-hours (about 45 billed vCPU-h at 1.5 vCPU) in the last 24h, summed across revisions from the heartbeat. One revision awake all day is 24, so this means more than one replica was up for a long time. Budget is 48 vCPU-h/day (t/260). Catches a stalled serving revision the stuck-revision alert can miss (t/264#3).'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'P1D'
+    autoMitigate: false
+    muteActionsDuration: 'PT12H'
+    criteria: {
+      allOf: [
+        {
+          query: replicaHoursQuery
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0

@@ -198,16 +198,9 @@ function Invoke-AIByUsage {
         foreach ($e in $logEntries) {
             # Fail-safe: an audit-log write must never break the AI call it audits.
             try {
-                $ctx = $e.Context
-                $ctxModel     = if ($ctx -and $ctx.PSObject.Properties['Model'])     { [string]$ctx.Model }     else { '' }
-                $ctxBackend   = if ($ctx -and $ctx.PSObject.Properties['Backend'])   { [string]$ctx.Backend }   else { '' }
-                $ctxKeySource = if ($ctx -and $ctx.PSObject.Properties['KeySource']) { [string]$ctx.KeySource } else { '' }
-                if (-not $ctx) {
-                    Write-Warning "Invoke-AIByUsage: Invoke-AIApi passed no call context; logging Model/Backend/KeySource as '' (t/4088)."
-                }
-                Write-AICallLogEntry -Scenario $logScenario -PromptID $UsageId `
-                    -PromptStart $logPromptStart -RetryCount $e.RetryCount -Status $e.Status `
-                    -Model $ctxModel -Backend $ctxBackend -KeySource $ctxKeySource
+                # t/107: the shared context→record mapping (tokens included) the default logger uses too.
+                Write-AICallLogFromContext -Scenario $logScenario -PromptID $UsageId `
+                    -PromptStart $logPromptStart -RetryCount $e.RetryCount -Status $e.Status -Context $e.Context
             }
             catch { Write-Warning "Invoke-AIByUsage: AI call-log write failed ($($_.Exception.Message)); continuing." }
         }

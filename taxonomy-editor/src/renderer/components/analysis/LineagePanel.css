@@ -55,7 +55,7 @@
 
 .lineage-panel-item.selected {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .lineage-panel-item-indented {

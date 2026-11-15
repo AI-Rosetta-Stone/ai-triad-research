@@ -95,7 +95,9 @@ def load_taxonomy_nodes(taxonomy_dir: Path) -> dict:
 
 
 def load_source_evidence(data_root: Path) -> dict:
-    path = data_root / "taxonomy" / "source_evidence_index.json"
+    # t/296: the maintained index lives under taxonomy/Origin (regenerated t/290; copy-folded
+    # facts carry `via`). taxonomy/source_evidence_index.json is a stale June copy.
+    path = data_root / "taxonomy" / "Origin" / "source_evidence_index.json"
     if not path.exists():
         log(f"WARNING: {path} not found")
         return {}
@@ -544,9 +546,11 @@ def main():
 
     # Phase 1: Real passages from snapshots
     if not args.skip_passages:
-        from sentence_transformers import SentenceTransformer
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from embed_model_pins import load_sentence_transformer  # t/152: pinned revision
         log(f"Loading model {config['model_name']}...")
-        model = SentenceTransformer(config["model_name"])
+        model = load_sentence_transformer(config["model_name"])
+        log(f"  resolved_revision={model.resolved_revision}")
 
         passage_pairs = extract_passages(
             model, sources_root, evidence_index,

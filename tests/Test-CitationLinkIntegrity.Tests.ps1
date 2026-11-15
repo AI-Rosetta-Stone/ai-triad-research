@@ -64,6 +64,16 @@ BeforeAll {
                 pov_summaries = @{ saf = @{ key_points = @(@{ taxonomy_node_id='saf-beliefs-201'; verbatim='qz' }) } }
             }
         }
+        # Optional defect: a claim that links the same live node twice (leg-d arm, t/292)
+        if ($Opts.ContainsKey('DuplicateLink') -and $Opts.DuplicateLink) {
+            script:WriteJson (Join-Path $sum 'doc-dup.json') @{
+                doc_id = 'src-alpha'
+                factual_claims = @(
+                    @{ claim='once'; linked_taxonomy_nodes=@('acc-beliefs-010') }
+                    @{ claim='twice'; linked_taxonomy_nodes=@('saf-beliefs-201','acc-beliefs-010','saf-beliefs-201') }
+                )
+            }
+        }
         # Optional: a summary whose doc_id is one of the REAL t/3743 accepted-baseline ids, with
         # no source dir — proves the allowlist against the actual hardcoded list, not an injected one.
         if ($Opts.ContainsKey('AllowlistedDangle') -and $Opts.AllowlistedDangle) {
@@ -122,6 +132,27 @@ Describe 'Test-CitationLinkIntegrity (t/3598)' -Tag 'config' {
         (script:Leg $r 'a').pass | Should -BeTrue
         (script:Leg $r 'b').pass | Should -BeTrue   # src-beta-3 → src-beta resolves
         (script:Leg $r 'c').pass | Should -BeTrue
+    }
+
+    It 'LEG D passes on the clean corpus' {
+        $f = script:New-CliFixture; $script:Fixtures.Add($f.Fx)
+        $d = script:Leg (script:RunCli $f) 'd'
+        $d.pass | Should -BeTrue
+        @($d.offenders).Count | Should -Be 0
+    }
+
+    It 'LEG D FAILS on a claim that links one node twice, naming the doc, claim and node (t/292)' {
+        $f = script:New-CliFixture @{ DuplicateLink = $true }; $script:Fixtures.Add($f.Fx)
+        $r = script:RunCli $f
+        $d = script:Leg $r 'd'
+        $d.pass | Should -BeFalse
+        @($d.offenders).Count | Should -Be 1
+        $d.offenders[0].docId      | Should -Be 'src-alpha'
+        $d.offenders[0].claimIndex | Should -Be 1
+        $d.offenders[0].ref        | Should -Be 'saf-beliefs-201'
+        $d.offenders[0].count      | Should -Be 2
+        # The repeated id is live, so leg a still passes: leg d is the only signal.
+        (script:Leg $r 'a').pass | Should -BeTrue
     }
 
     It 'LEG C carries liveKeysChecked, the live-node key-set size its staleness check runs against (t/4444)' {

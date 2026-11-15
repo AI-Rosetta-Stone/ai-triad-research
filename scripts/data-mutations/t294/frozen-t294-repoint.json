@@ -1,0 +1,23 @@
+{
+  "ticket": "t/294 (t/218 option 2; PI t/218#6)",
+  "operation": "re-point, as t/217 v3: url := to; resolved_url := to; provenance := [{scheme: url, id: to, confidence: verified}] + (entries whose id != from)",
+  "evidence": "snapshot.md front matter: 'For more information on this publication, visit www.rand.org/t/RRA4266-1'; RAND landing page title and authors (Romanosky, Treyger, Alhajjar) match metadata; rand.org returns 403 to scripts (verified by search, as the t/217 403 cases)",
+  "sources_commit": "2380dfb2041698618afac23c077d2476d1f093c2",
+  "hash_basis": "sha256-lf",
+  "serializer": "json.dumps(indent=2, ensure_ascii=False) + LF, CRLF preserved per file; round-trips the input",
+  "writes": [
+    {
+      "doc_id": "legal-policy-approaches-mitigate-catastrophic-harms-from-ai-2026",
+      "disposition": "re-point",
+      "from": "https://www.rand.org/pubs/authors/r/romanosky_sasha.html",
+      "to": "https://www.rand.org/pubs/research_reports/RRA4266-1.html",
+      "fields": [
+        "provenance",
+        "resolved_url",
+        "url"
+      ],
+      "pre_sha256": "e2ea3f29ddd5408e96bde1ac12edfc5c181307f8540126716cec1d7ced5d3b77",
+      "post_sha256": "9cfdb5808de75ecaa149828a8853c9920fa82ae175de800524212118523ddbd3"
+    }
+  ]
+}

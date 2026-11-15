@@ -50,11 +50,11 @@
 .evid-parse-error {
   padding: 4px 6px;
   margin-bottom: 6px;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  background: var(--error-bg);
   border-left: 3px solid var(--danger);
   border-radius: 3px;
   font-size: var(--text-2xs);
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .evid-cards-row {
@@ -152,9 +152,9 @@
 
 .evid-empty-cite {
   font-size: var(--text-2xs);
-  color: var(--danger);
+  color: var(--error-text);
   padding: 4px 6px;
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  background: var(--error-bg);
   border-radius: 3px;
 }
 
@@ -278,8 +278,8 @@
   font-size: var(--text-2xs);
   padding: 1px 6px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
   font-weight: 600;
 }
 

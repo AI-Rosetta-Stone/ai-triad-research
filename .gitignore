@@ -37,6 +37,7 @@ secrets.json
 # Build output
 /build/
 taxonomy-editor/release/
+taxonomy-editor/test-results/
 scripts/AITriad/Provider/bin/
 
 # Research data artifacts — moved to ai-triad-data/research-artifacts/comp-linguist (t/1289).
@@ -167,6 +168,8 @@ tmp/
 # Orca overlay repo (private config tracked separately)
 .orca-git/
 .orca-gitignore
+# Interweave team config: private, tracked in the overlay like .orca/ (TL p/7#45, t/245)
+.interweave/
 
 # Real-debate fixtures (generated locally via RUN_SLOW=1, not committed)
 lib/debate/__tests__/fixtures/real/

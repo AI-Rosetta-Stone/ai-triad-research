@@ -109,3 +109,108 @@ Describe 'Get-ServingImage' {
         $v.Message | Should -Match 'staging-deac973=100%'
     }
 }
+
+# t/4496 worked example: the three-state gate verdict, end to end through Test-ProdStagingDigestParity
+# with only the az boundary (Invoke-AzCapture) mocked. Asserts what lands in the step outputs and the
+# step summary, which is what a workflow (and a promotion reviewer) actually reads.
+Describe 'Test-ProdStagingDigestParity gate verdict (t/4496)' {
+    BeforeAll {
+        $script:X = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:5b0aa967'
+        $script:Y = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:f6649470'
+        # A real az 403 shape (Reader role missing on the container app).
+        $script:Az403 = "ERROR: (AuthorizationFailed) The client 'a1b2' with object id 'a1b2' does not have authorization to perform action 'Microsoft.App/containerApps/read' over scope '/subscriptions/0000/resourceGroups/ai-triad/providers/Microsoft.App/containerApps/taxonomy-editor-staging' or the scope is invalid.`nCode: AuthorizationFailed"
+
+        # Fixture table: "<app>|show" or "<app>|rev|<revision>" -> az result.
+        function New-AzOk([string]$Stdout) { [PSCustomObject]@{ ExitCode = 0; Stdout = $Stdout; Stderr = '' } }
+        function New-AzShow([string]$Rev) {
+            New-AzOk (@{ traffic = @(@{ revisionName = $Rev; weight = 100 }); latest = $Rev } | ConvertTo-Json -Depth 5)
+        }
+        function Set-AzFixtures([string]$StagingImage, [switch]$Staging403) {
+            $script:AzFixtures = @{
+                'taxonomy-editor|show'                         = (New-AzShow 'taxonomy-editor--a')
+                'taxonomy-editor|rev|taxonomy-editor--a'       = (New-AzOk $script:X)
+                'taxonomy-editor-staging|show'                 = (New-AzShow 'taxonomy-editor-staging--b')
+                'taxonomy-editor-staging|rev|taxonomy-editor-staging--b' = (New-AzOk $StagingImage)
+            }
+            if ($Staging403) {
+                $script:AzFixtures['taxonomy-editor-staging|show'] = [PSCustomObject]@{ ExitCode = 1; Stdout = ''; Stderr = $script:Az403 }
+            }
+        }
+        function Invoke-Gate {
+            Test-ProdStagingDigestParity -ProdApp 'taxonomy-editor' -StagingApp 'taxonomy-editor-staging' `
+                -ResourceGroup 'ai-triad' -SuppressAnnotations
+        }
+    }
+
+    BeforeEach {
+        # Never write into the real CI step output / summary: point both at temp files.
+        $script:SavedOutput = $env:GITHUB_OUTPUT
+        $script:SavedSummary = $env:GITHUB_STEP_SUMMARY
+        $env:GITHUB_OUTPUT = Join-Path $TestDrive 'output.txt'
+        $env:GITHUB_STEP_SUMMARY = Join-Path $TestDrive 'summary.md'
+        Remove-Item $env:GITHUB_OUTPUT, $env:GITHUB_STEP_SUMMARY -ErrorAction SilentlyContinue
+
+        Mock Invoke-AzCapture {
+            $app = $AzArgs[[array]::IndexOf($AzArgs, '-n') + 1]
+            $key = if ($AzArgs[1] -eq 'revision') { "$app|rev|$($AzArgs[[array]::IndexOf($AzArgs, '--revision') + 1])" } else { "$app|show" }
+            if (-not $script:AzFixtures.ContainsKey($key)) { throw "no az fixture for '$key'" }
+            $script:AzFixtures[$key]
+        }
+    }
+
+    AfterEach {
+        $env:GITHUB_OUTPUT = $script:SavedOutput
+        $env:GITHUB_STEP_SUMMARY = $script:SavedSummary
+    }
+
+    It 'PASS: a readable clean target (same serving digest) -> verdict=PASS in outputs and summary' {
+        Set-AzFixtures -StagingImage $script:X
+        $v = Invoke-Gate
+        $v.GateVerdict | Should -Be 'PASS'
+        $v.Match | Should -Be $true
+        $out = Get-Content $env:GITHUB_OUTPUT
+        $out | Should -Contain 'verdict=PASS'
+        $out | Should -Contain 'gate=prod-staging-digest-parity'
+        Get-Content $env:GITHUB_STEP_SUMMARY -Raw | Should -Match '\*\*PASS\*\*'
+    }
+
+    It 'FAIL: a readable bad target (different serving digests) -> verdict=FAIL, not PASS or UNREADABLE' {
+        Set-AzFixtures -StagingImage $script:Y
+        $v = Invoke-Gate
+        $v.GateVerdict | Should -Be 'FAIL'
+        $v.Determinable | Should -Be $true
+        $out = Get-Content $env:GITHUB_OUTPUT
+        $out | Should -Contain 'verdict=FAIL'
+        ($out | Where-Object { $_ -like 'reason=*' }) | Should -Match 'DIFFERENT images'
+    }
+
+    It 'GATE-UNREADABLE: a simulated 403 on the staging read -> verdict=GATE-UNREADABLE with a 403 reason, never PASS' {
+        Set-AzFixtures -StagingImage $script:X -Staging403
+        $v = Invoke-Gate
+        $v.GateVerdict | Should -Be 'GATE-UNREADABLE'
+        $out = Get-Content $env:GITHUB_OUTPUT
+        $out | Should -Contain 'verdict=GATE-UNREADABLE'
+        $out | Should -Not -Contain 'verdict=PASS'
+        $reason = ($out | Where-Object { $_ -like 'reason=*' })
+        $reason | Should -Match 'access denied \(403\)'
+        $reason | Should -Match 'AuthorizationFailed'
+        @($out | Where-Object { $_ -like 'reason=*' }).Count | Should -Be 1   # multi-line stderr stayed one line
+        Get-Content $env:GITHUB_STEP_SUMMARY -Raw | Should -Match 'could NOT read the target'
+    }
+
+    It 'GATE-UNREADABLE: a 403 on the serving REVISION read carries the classified reason too' {
+        Set-AzFixtures -StagingImage $script:X
+        $script:AzFixtures['taxonomy-editor-staging|rev|taxonomy-editor-staging--b'] = [PSCustomObject]@{ ExitCode = 1; Stdout = ''; Stderr = $script:Az403 }
+        $v = Invoke-Gate
+        $v.GateVerdict | Should -Be 'GATE-UNREADABLE'
+        (Get-Content $env:GITHUB_OUTPUT | Where-Object { $_ -like 'reason=*' }) | Should -Match "revision show 'taxonomy-editor-staging--b' failed \(exit 1\): access denied \(403\)"
+    }
+}
+
+Describe 'ConvertTo-DigestParityGateVerdict (t/4496)' {
+    It 'maps match -> PASS, mismatch -> FAIL, undeterminable -> GATE-UNREADABLE' {
+        (ConvertTo-DigestParityGateVerdict (Get-DigestParityVerdict -ProdImage 'a' -StagingImage 'a')).Verdict | Should -Be 'PASS'
+        (ConvertTo-DigestParityGateVerdict (Get-DigestParityVerdict -ProdImage 'a' -StagingImage 'b')).Verdict | Should -Be 'FAIL'
+        (ConvertTo-DigestParityGateVerdict (Get-DigestParityVerdict -ProdImage 'a' -StagingImage '')).Verdict | Should -Be 'GATE-UNREADABLE'
+    }
+}

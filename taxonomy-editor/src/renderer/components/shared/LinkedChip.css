@@ -51,20 +51,20 @@
 }
 
 .chip-content:hover .chip-id {
-  color: var(--focus-ring);
+  color: var(--info-text); /* t/198 S3 */
 }
 
 .chip button {
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-secondary); /* t/198 S1: muted was 4.21 on the chip */
   cursor: pointer;
   font-size: var(--text-sm);
   padding: 0 2px;
 }
 
 .chip button:hover {
-  color: var(--danger);
+  color: var(--error-text); /* t/198 S3 */
 }
 
 .chip-expanded {

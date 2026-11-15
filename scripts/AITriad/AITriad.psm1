@@ -8,22 +8,14 @@ Set-StrictMode -Version Latest
 # Module root paths
 # Supports both dev layout (scripts/AITriad/) and PSGallery install (flat module dir)
 # ─────────────────────────────────────────────────────────────────────────────
-$script:ModuleRoot = $PSScriptRoot
-
-# Detect if we're in a dev repo (scripts/AITriad/) or a PSGallery install
-$_resolvedParent = Resolve-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') -ErrorAction SilentlyContinue
-if ($_resolvedParent) { $_candidateRepoRoot = $_resolvedParent.Path } else { $_candidateRepoRoot = $null }
-if ($_candidateRepoRoot -and (Test-Path (Join-Path $_candidateRepoRoot '.aitriad.json'))) {
-    $script:RepoRoot = $_candidateRepoRoot
-    $script:IsDevInstall = $true
-} elseif ($_candidateRepoRoot -and (Test-Path (Join-Path $_candidateRepoRoot 'CLAUDE.md'))) {
-    $script:RepoRoot = $_candidateRepoRoot
-    $script:IsDevInstall = $true
-} else {
-    # PSGallery or standalone install — module root IS the root
-    $script:RepoRoot = $PSScriptRoot
-    $script:IsDevInstall = $false
-}
+# One detection shared with AIEnrich.psm1 (t/153). Dot-sourced here, ahead of everything that
+# reads the roots; the Private/ loop below loads the same file again, which only redefines it.
+. (Join-Path $PSScriptRoot 'Private' 'Get-AITriadModuleRoot.ps1')
+$_roots = Get-AITriadModuleRoot -AITriadDir $PSScriptRoot
+$script:ModuleRoot   = $_roots.ModuleRoot
+$script:RepoRoot     = $_roots.RepoRoot
+$script:IsDevInstall = $_roots.IsDevInstall
+Remove-Variable _roots
 
 # Sentinel for an ambiguous (backend, apiModelId) pricing-key pair (t/3951):
 # Get-AICostPricing's ApiModelIdMap stores this instead of either candidate
@@ -321,6 +313,7 @@ class StaleImageCleanupResult {
     [string]  $Owner
     [int]     $TotalUntagged
     [int]     $KeptCount
+    [int]     $ProtectedCount   # t/4966: candidates spared as known-good or a tagged index's child
     [int]     $DeletedCount
     [long[]]  $DeletedIds
     [string[]] $Failures
@@ -618,6 +611,11 @@ class AICallLogEntry {
     [string]   $Model        # registry id actually called; '' on lines written before t/4088
     [string]   $Backend      # ai-models.json backend of that model; '' on pre-t/4088 lines
     [string]   $KeySource    # where the key came from (closed vocabulary), never the key; '' if unknown
+    # t/107: provider-reported usage; $null when the line has none (unknown spend, never 0).
+    [Nullable[int]] $InputTokens
+    [Nullable[int]] $OutputTokens
+    [Nullable[int]] $CachedInputTokens          # cache-read subset of InputTokens (Gemini, Claude)
+    [Nullable[int]] $CacheCreationInputTokens   # cache-write subset of InputTokens (Claude)
 }
 
 # One batch entry for Set-PovNodeTags (t/3969, TL t/3969#2 cond B.1). A [string[]] property —
@@ -741,6 +739,13 @@ foreach ($_name in @('DocConverters', 'AIEnrich')) {
     if (-not $_loaded) {
         Write-Verbose "${_name}.psm1 not found — related features will be unavailable."
     }
+}
+
+# t/107 → t/150: AIEnrich registers its OWN default call logger at import (logging is a property of
+# Invoke-AIApi, whatever the import order — TL p/37#25), so AITriad no longer registers one; it only
+# checks. Invoke-AIByUsage still passes its own logger, which replaces the default for that call.
+if (-not (Get-Command Test-AIDefaultCallLoggerRegistered -ErrorAction SilentlyContinue) -or -not (Test-AIDefaultCallLoggerRegistered)) {
+    Write-Warning 'AITriad: the loaded AIEnrich has no default AI call logger; direct Invoke-AIApi calls will not be AI-call-logged (t/150). Test-AICallLogReady reports this.'
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1013,6 +1018,7 @@ Export-ModuleMember -Function @(
     'Get-TaxEditorImage'
     'Deploy-TaxEditorImage'
     'Set-TaxEditorKnownGood'
+    'Set-TaxEditorPinnedTag'
     'Restore-TaxEditorKnownGood'
     'Test-TaxEditorInfra'
     'Deploy-TaxEditorInfra'
@@ -1102,6 +1108,10 @@ Export-ModuleMember -Function @(
     'Get-ViteDevStatus'
     # t/3869 — resolves the true main-checkout root from inside any worktree (nested or sibling)
     'Get-WorktreeMainRoot'
+    # t/150 — Invoke-AIApi re-exported from the nested AIEnrich (the instance that logs), and a
+    # spend-guard preflight that reports whether calls will reach the AI call log
+    'Invoke-AIApi'
+    'Test-AICallLogReady'
     # t/2330 — Debate session state diagnostic
     'Get-DebateSessionState'
     # t/2335 — Debate index field-type integrity check (per-session files)

@@ -9,9 +9,11 @@ script pulled every file in both repos unauthenticated, ~5.4 GB (ONNX, OpenVINO,
 TF, rust and pytorch_model.bin copies we never load). Three changes:
 
 - Each model is pinned to a commit, so the CI cache key is stable and an upstream
-  re-upload can't silently move the drift baseline. Bump a pin deliberately (and
-  re-check embed_reference.json); the workflow's cache key hashes this file, so a
-  bump rotates the cache.
+  re-upload can't silently move the drift baseline. The pins live in
+  scripts/embed_model_pins.json (t/62), the same file prod embed_taxonomy.py loads
+  from, so CI and prod can't drift. Bump a pin there deliberately (and re-check
+  embed_reference.json); the workflow's cache key hashes it, so a bump rotates the
+  cache.
 - ALLOW_PATTERNS fetches only what sentence-transformers loads (~660 MB total).
 - refs/main is pointed at the pinned commit, so name-only loaders running with
   HF_HUB_OFFLINE=1 (assert_embed_stability.py, check_composition_drift.py)
@@ -20,6 +22,7 @@ TF, rust and pytorch_model.bin copies we never load). Three changes:
 With HF_HUB_OFFLINE=1 (set by ci.yml on a cache hit) this makes no network calls
 and fails fast if the cache is incomplete. Online, it retries with backoff.
 """
+import json
 import os
 import sys
 import time
@@ -27,10 +30,8 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-MODELS = {
-    "sentence-transformers/all-MiniLM-L6-v2": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
-    "cross-encoder/nli-deberta-v3-small": "fa2804872c3b4bd748f38c0185cc85775361e735",
-}
+PINS_FILE = Path(__file__).resolve().parents[2] / "scripts" / "embed_model_pins.json"
+MODELS = json.loads(PINS_FILE.read_text(encoding="utf-8"))["models"]
 # fnmatch-style; '*' also matches '/', so '*.json' covers 1_Pooling/config.json.
 ALLOW_PATTERNS = ["*.json", "*.txt", "*.model", "model.safetensors", "README.md"]
 ATTEMPTS = 3

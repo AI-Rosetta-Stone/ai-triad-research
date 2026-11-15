@@ -1,4 +1,4 @@
-You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow, at roughly a 10th-grade reading level, WITHOUT changing what it argues or how it sounds.
+You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
 
 THE DRAFT:
 {{BODY}}
@@ -6,12 +6,12 @@ THE DRAFT:
 MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
 {{VIOLATIONS}}
 
-RULES FOR YOUR EDIT:
-- Reading level: aim for Flesch-Kincaid grade ~10, no higher than 11.
-- Sentences: no sentence over 30 words; average under 18. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
-- Paragraphs: no paragraph over ~90 words or four sentences. Split long paragraphs at a natural break; give each resulting paragraph one point.
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than {{FK_MAX}}.
+- Sentences: no sentence over {{MAX_SENT_WORDS}} words. House style: {{STYLE_SENTENCE}} When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~{{MAX_PARA_WORDS}} words. House style: {{STYLE_PARAGRAPH}} Split long paragraphs at a natural break; give each resulting paragraph one point.
 - Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
-- Plain words over jargon and abstract-noun pileups.
+- Vocabulary: {{STYLE_JARGON}}
 
 HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
 - Do NOT change the argument, the thesis, the stance, or any claim.

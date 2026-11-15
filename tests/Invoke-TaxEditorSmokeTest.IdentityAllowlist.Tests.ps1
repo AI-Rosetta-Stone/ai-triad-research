@@ -1,4 +1,4 @@
-# Tag: health (t/4505 AC3, t/4516)
+﻿# Tag: health (t/4505 AC3, t/4516)
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
@@ -145,6 +145,47 @@ Describe 'Invoke-SmokeIdentityAllowlistPhase (unit-level, t/4516)' -Tag 'health'
             $r = Invoke-SmokeIdentityAllowlistPhase -BaseUrl 'https://stub' -TimeoutSec 5 6>$null
             $r.Status | Should -Be 'unreachable'
             $r.Count  | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'identityAllowlistUnreachable = <Label> → unknown (DEGRADED/unreachable, Count $null) with a WARN, never ok (t/120)' -TestCases @(
+        @{ Label = 'null';           Value = $null }
+        @{ Label = "string '1'";     Value = '1' }
+        @{ Label = 'negative (-1)';  Value = -1 }
+        @{ Label = 'fractional 1.5'; Value = 1.5 }
+    ) {
+        param($Label, $Value)
+        InModuleScope AITriad -Parameters @{ Value = $Value } {
+            param($Value)
+            Mock Invoke-RemoteCheck -MockWith {
+                [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 5
+                    Body = [PSCustomObject]@{ status = 'ok'; identityAllowlistUnreachable = $Value }
+                    ContentType = 'application/json'; RawBody = ''; Error = $null }
+            }.GetNewClosure()
+            # A plain function (no -WarningVariable): split the warning stream off the output.
+            $out = @(Invoke-SmokeIdentityAllowlistPhase -BaseUrl 'https://stub' -TimeoutSec 5 3>&1 6>$null)
+            $w = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $r = @($out | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
+            $r.Status | Should -Be 'unreachable' -Because 'a value that is not a count is unknown; [int]$null = 0 used to read as ok'
+            $r.Count  | Should -BeNullOrEmpty
+            @($w | Where-Object { "$_" -match 'not a count' }).Count | Should -Be 1
+        }
+    }
+
+    It 'a JSON-parsed integer count (Int64) within the pending list is still ok, with no WARN (quiet arm)' {
+        InModuleScope AITriad {
+            Mock Invoke-RemoteCheck -MockWith {
+                [PSCustomObject]@{ Success = $true; StatusCode = 200; ResponseMs = 5
+                    Body = ('{"status":"ok","identityAllowlistUnreachable":1}' | ConvertFrom-Json)
+                    ContentType = 'application/json'; RawBody = ''; Error = $null }
+            }
+            # A plain function (no -WarningVariable): split the warning stream off the output.
+            $out = @(Invoke-SmokeIdentityAllowlistPhase -BaseUrl 'https://stub' -TimeoutSec 5 3>&1 6>$null)
+            $w = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $r = @($out | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
+            $r.Status | Should -Be 'ok'
+            $r.Count  | Should -Be 1
+            @($w | Where-Object { "$_" -match 'not a count' }).Count | Should -Be 0
         }
     }
 

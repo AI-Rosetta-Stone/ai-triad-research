@@ -108,7 +108,33 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 ## Rollback
 
-If post-deploy issues are found after traffic shift:
+**Gated one-command rollback (t/266).** Every prod deploy prints the previous revision's name and this command in its run's job summary ("Rollback target"), so no lookup is needed. After AC2 passes and a 15-minute green soak, the `retire-previous-revision` job **deactivates** the previous revision, because an active 0%-traffic rollback target was found holding a replica for hours (t/264, t/266#4). Roll back with:
+
+```bash
+./operations/devops/Invoke-GatedRollback.ps1 -RevisionName <previous-revision>
+```
+
+It activates the revision, waits until it is **Provisioned** and **healthy + `/readyz` warm on its own FQDN** (the deploy's own pre-shift standard), and only then shifts 100% traffic and verifies weight 100 + `/health`. If the revision fails to provision, stays cold, or reports a definitive `/readyz` failure, it **refuses and shifts nothing** (exit 1). Never shift traffic onto a just-activated revision by hand without that wait: a cold or still-provisioning revision at 100% is an outage. Activating a still-active revision is a no-op, so the same command works whether or not it was retired. **Measured (staging drill, 2026-11-11, `-MeasureOnly`, t/266):** activate → Provisioned in 4.8–6.5s, and activate → healthy + `/readyz` warm in **45–47s** (2 samples, staging-295ad67 and staging-e326e9a, 0.25 vCPU). Budget **about 1–2 minutes** end to end, including the traffic shift and verification. Prod (1.5 vCPU) should warm no slower, but hasn't been drilled. The script's own timeouts are 300s to provision and 420s to warm, after which it refuses.
+
+**Manual fallback** (only if the script itself can't run, e.g. no checkout at hand). Do the same steps by hand, and **don't shift until `/readyz` says ready**:
+
+```bash
+az containerapp revision activate --name taxonomy-editor -g ai-triad --revision <previous-revision>
+FQDN=$(az containerapp revision show --name taxonomy-editor -g ai-triad --revision <previous-revision> --query properties.fqdn -o tsv)
+# repeat until it returns {"status":"ready",...} with HTTP 200 (about 45s on staging); a {"status":"failed"} means STOP, don't shift
+curl -s -w ' %{http_code}\n' "https://$FQDN/readyz"
+az containerapp ingress traffic set --name taxonomy-editor -g ai-triad --revision-weight "<previous-revision>=100"
+```
+
+A just-activated revision can read `Stopped` for a few polls; the script treats that as transient until its timeout. Only `Failed` refuses at once.
+
+Then deactivate the broken revision (step 3 below).
+
+**When the soak fails:** the previous revision is **not** retired (it stays active), known-good is **not** moved to the new image, and an ops-alert issue (`prod-soak-alert`) is opened. The run itself stays green (CD and the known-good liveness check read successful runs only); the alert is the signal. Decide whether to roll back with the command above.
+
+**Cancelling `retire-previous-revision` is safe.** It only ever deactivates the previous revision after a green soak; cancelling it leaves the previous revision active (today's pre-t/266 state), frees the deploy queue (the run holds the `deploy-production` concurrency group and makes `deploy-staging.yml` wait), and skips known-good tagging for that run.
+
+If post-deploy issues are found after traffic shift and the job summary isn't at hand:
 
 1. List revisions and identify the previous good one:
    ```bash
@@ -155,6 +181,8 @@ All alerts route to the `ag-aitriad-restart-alert` action group, which emails `A
 | `alert-fallback-active` | 1 (Error) | App serving from fallback data | 5min / 5min |
 | `alert-paid-fallback-overflow` | 2 (Warning) | Paid Gemini fallback key served a request (free pool exhausted → billable overflow; expect ~0) | 15min / 60min |
 | `alert-branch-divergence` | 3 (Info) | Session branch 10+ commits behind | 15min / 15min |
+| `alert-stuck-revision-replica` | 2 (Warning) | A prod revision logged its heartbeat in 50+ of 60 minutes with **zero** requests: a replica that never scaled to zero (t/264, t/266). Usually the 0%-traffic previous revision; deactivate it, or roll back with `Invoke-GatedRollback.ps1` if it's the serving one. Mutes 6h | 15min / 60min |
+| `alert-replica-hours-24h` | 2 (Warning) | Over 30 replica-hours (about 45 billed vCPU-h) in 24h, summed across revisions from the heartbeat. The budget is 48 vCPU-h/day (t/260). Mutes 12h | 60min / 24h |
 
 ### External Availability Probe (GitHub Actions)
 

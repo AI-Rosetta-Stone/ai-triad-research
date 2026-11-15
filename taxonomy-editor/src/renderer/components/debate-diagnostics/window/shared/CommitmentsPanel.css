@@ -57,7 +57,7 @@
   padding: 0 4px;
   border-radius: 3px;
   margin-right: 4px;
-  background: color-mix(in srgb, var(--color-saf) 12%, transparent);
+  background: var(--color-saf-bg);
   color: var(--color-saf);
   font-size: var(--text-2xs);
   font-weight: 700;

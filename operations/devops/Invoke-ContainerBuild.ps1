@@ -99,13 +99,19 @@ if ($Sha.Length -lt 40) {
 # 'cancelled'/'failure' while ci-gate itself is green — which used to fail this script
 # closed on a condition that doesn't actually block merges (t/4796 evidence: run
 # 41622024606 on commit 483f0340, ci-gate=success, overall run=cancelled).
+#
+# t/78 (Interweave): ask the API for ci-gate by name (`check_name=ci-gate`) with
+# per_page=100. The unfiltered endpoint returns only page 1 (30 runs); main and
+# merge-queue commits carry 100+ check runs, so a green ci-gate on a later page was invisible and
+# the poll timed out (evidence: commit 295ad67b had 135 runs, the green ci-gate was
+# not on page 1).
 Write-Host "Checking ci-gate check-run for $Sha..."
 
 $deadline   = (Get-Date).AddMinutes($WaitTimeoutMinutes)
 $conclusion = ''
 $status     = ''
 do {
-    $checkRuns = gh api "repos/$Repo/commits/$Sha/check-runs" --jq '[.check_runs[] | select(.name == "ci-gate")]' | ConvertFrom-Json
+    $checkRuns = gh api "repos/$Repo/commits/$Sha/check-runs?check_name=ci-gate&per_page=100" --jq '[.check_runs[] | select(.name == "ci-gate")]' | ConvertFrom-Json
     $gate      = $checkRuns | Sort-Object -Property started_at -Descending | Select-Object -First 1
 
     if (-not $gate) {
@@ -139,7 +145,7 @@ if ($conclusion -ne 'success') {
          -Location 'Invoke-ContainerBuild.ps1 step 2 (CI not green)' `
          -NextSteps @(
              "Fix failing CI jobs, push a fix commit, and retry with the new SHA",
-             "Inspect the ci-gate run: gh api repos/$Repo/commits/$Sha/check-runs --jq '.check_runs[] | select(.name == `"ci-gate`")'"
+             "Inspect the ci-gate run: gh api 'repos/$Repo/commits/$Sha/check-runs?check_name=ci-gate&per_page=100' --jq '.check_runs[] | select(.name == `"ci-gate`")'"
          )
 }
 

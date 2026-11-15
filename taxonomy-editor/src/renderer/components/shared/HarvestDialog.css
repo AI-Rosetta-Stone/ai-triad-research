@@ -134,8 +134,8 @@
   font-size: var(--text-xs);
   padding: 2px 8px;
   border-radius: var(--radius-md);
-  background: rgba(139, 92, 246, 0.12);
-  color: #8b5cf6;
+  background: var(--violet-bg);
+  color: var(--violet-text);
   margin-left: 6px;
   vertical-align: middle;
   font-family: monospace;

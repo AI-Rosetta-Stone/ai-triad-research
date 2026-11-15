@@ -102,6 +102,87 @@ function Repair-SummaryFactualClaims {
     $FC = @($FC)
     if ($SummaryObject -is [System.Collections.IDictionary]) { $SummaryObject['factual_claims'] = $FC }
     else { $SummaryObject.factual_claims = $FC }
+    Repair-SummaryClaimDuplicateNodeIds -Claims $FC
+}
+
+function Repair-SummaryClaimDuplicateNodeIds {
+    # One claim links a node once (t/292). A model that repeats an id in linked_taxonomy_nodes would
+    # otherwise put the same fact under that node twice in source_evidence_index.json, which spec
+    # source-identity 7.4 deliberately keeps ("including repeats"). Order-preserving; WARNs per claim.
+    param([object[]]$Claims)
+    for ($i = 0; $i -lt $Claims.Count; $i++) {
+        $Claim = $Claims[$i]
+        if ($null -eq $Claim -or -not (Test-SummaryField $Claim 'linked_taxonomy_nodes')) { continue }
+        # Assign, then @(): Get-SummaryField returns `, $value`, so @(Get-SummaryField ...) would nest it.
+        $Linked = Get-SummaryField $Claim 'linked_taxonomy_nodes'
+        $Linked = @($Linked)
+        $Seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $Unique = @($Linked | Where-Object { $null -eq $_ -or $_ -isnot [string] -or $Seen.Add($_) })
+        if ($Unique.Count -eq $Linked.Count) { continue }
+        Write-Warning "Finalize-Summary: factual_claims[$i] repeated $($Linked.Count - $Unique.Count) node id(s) in linked_taxonomy_nodes; kept the first of each (t/292)"
+        if ($Claim -is [System.Collections.IDictionary]) { $Claim['linked_taxonomy_nodes'] = $Unique }
+        else { $Claim.linked_taxonomy_nodes = $Unique }
+    }
+}
+
+function ConvertTo-NumericGroundingKey {
+    # A number's comparison key (t/375): thousands commas dropped, trailing '%' dropped, then the decimal
+    # value in invariant form, so "4.0%" and "4" and "1,000" and "1000" compare equal. $null if not a number.
+    param([string]$Token)
+    $t = ($Token -replace ',', '').TrimEnd('%')
+    $d = [decimal]0
+    if (-not [decimal]::TryParse($t, [System.Globalization.NumberStyles]::Number, [cultureinfo]::InvariantCulture, [ref]$d)) { return $null }
+    $d.ToString('G29', [cultureinfo]::InvariantCulture)
+}
+
+function Get-NumericGroundingKeys {
+    # Every number in $Text as a comparison key. A range ("0.5-0.7", "0.5–0.7") yields both endpoints,
+    # because the regex matches each number on its own.
+    param([string]$Text)
+    $keys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    if ([string]::IsNullOrEmpty($Text)) { return , $keys }
+    foreach ($m in [regex]::Matches($Text, '\d+(?:,\d{3})*(?:\.\d+)?%?')) {
+        $k = ConvertTo-NumericGroundingKey -Token $m.Value
+        if ($null -ne $k) { [void]$keys.Add($k) }
+    }
+    , $keys
+}
+
+function Remove-NumericallyUngroundedClaims {
+    # t/375: a factual claim whose numbers aren't in the source text was invented. This happens when a
+    # PDF's text layer lacks the figures (rendered as images or glyphs): the snapshot reads "less than of
+    # all work tasks" and the model fills in "5%". Any claim with a number absent from the snapshot is
+    # dropped, with a WARN naming the missing number. The rule (any ungrounded number drops the claim) is
+    # stipulated by CL (t/375). Returns the count dropped.
+    param([object]$SummaryObject, [string]$SnapshotText, [string]$ThisDocId)
+    if (-not (Test-SummaryField $SummaryObject 'factual_claims')) { return 0 }
+    # Assign, then @(): Get-SummaryField returns `, $value`, so @(Get-SummaryField ...) would nest it.
+    $claims = Get-SummaryField $SummaryObject 'factual_claims'
+    $claims = @($claims)
+    if ($claims.Count -eq 0) { return 0 }
+    $grounded = Get-NumericGroundingKeys -Text $SnapshotText
+    $kept = [System.Collections.Generic.List[object]]::new()
+    $dropped = 0
+    foreach ($c in $claims) {
+        $text = ''
+        if ($null -ne $c -and (Test-SummaryField $c 'claim')) { $text = [string](Get-SummaryField $c 'claim') }
+        # Assign first: the function returns `, $keys`, so piping its call would pass the whole set as one item.
+        $claimKeys = Get-NumericGroundingKeys -Text $text
+        $missing = @($claimKeys | Where-Object { -not $grounded.Contains($_) })
+        if ($missing.Count -gt 0) {
+            $dropped++
+            $preview = if ($text.Length -gt 100) { $text.Substring(0, 100) + '…' } else { $text }
+            Write-Warning "Finalize-Summary: $ThisDocId dropped a factual claim whose number(s) [$($missing -join ', ')] are not in the snapshot (t/375): $preview"
+            continue
+        }
+        $kept.Add($c)
+    }
+    if ($dropped -gt 0) {
+        $arr = $kept.ToArray()
+        if ($SummaryObject -is [System.Collections.IDictionary]) { $SummaryObject['factual_claims'] = $arr }
+        else { $SummaryObject.factual_claims = $arr }
+    }
+    $dropped
 }
 
 function Repair-SummaryUnmappedConcepts {
@@ -531,7 +612,7 @@ function New-SummaryModelInfo {
     #>
     param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats,
           [object]$MaxTokens = $null, [object]$JsonRepaired = $false, [object]$Truncated = $null,
-          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0)
+          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0, [object]$NumericUngroundedDropped = $null)
     $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
     $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
@@ -566,6 +647,8 @@ function New-SummaryModelInfo {
         output_tokens     = $OutputTokens
         density_retries   = 0
         camp_bridge_dropped = $CampBridgeDropped
+        # t/375: forensic/additive, nothing branches on it; $null when the guard couldn't run (no snapshot).
+        numeric_ungrounded_dropped = $NumericUngroundedDropped
     }
 
     if ($UsedFire) {

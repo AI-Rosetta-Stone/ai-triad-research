@@ -51,7 +51,7 @@
 .node-tree-parent-count {
   font-size: var(--text-2xs);
   font-weight: 400;
-  color: var(--text-muted);
+  color: var(--text-secondary); /* t/198 S1: muted was 4.21 on --bg-panel */
   background: var(--bg-panel);
   padding: 0 5px;
   border-radius: var(--radius-md);

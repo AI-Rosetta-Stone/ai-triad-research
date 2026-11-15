@@ -27,10 +27,60 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # t/315 (t/313 P4): docker updates arm only when every changed FROM keeps the same image:tag
+      # and only the @sha256: digest changes. #5015 (python 3.12 -> 3.15) was armed as
+      # semver-minor and broke the dev image. The decision is Docker's pure predicate, loaded from
+      # the trusted default branch (never the PR head); any failure leaves the PR unarmed.
+      - name: Check out the docker gate from the default branch (t/315)
+        if: steps.meta.outputs.package-ecosystem == 'docker'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            operations/devops/dependabot-docker-gate.mjs
+            operations/devops/docker/docker-digest-only.mjs
+
+      - name: Docker digest-only gate (t/315)
+        id: docker_gate
+        if: steps.meta.outputs.package-ecosystem == 'docker'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            let verdict;
+            try {
+              const { dockerAutoMergeVerdict, dockerGateComment, DOCKER_GATE_MARKER } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/dependabot-docker-gate.mjs`).href);
+              let files = null;
+              try {
+                files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number, per_page: 100 });
+              } catch (e) {
+                core.warning(`t/315: could not list changed files (${e.message}); not arming.`);
+              }
+              // GitHub caps pulls.listFiles at 3000 files; at the cap the list may be incomplete.
+              verdict = dockerAutoMergeVerdict({ files, truncated: Array.isArray(files) && files.length >= 3000 });
+              if (!verdict.arm) {
+                const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number, per_page: 100 });
+                const marker = `${DOCKER_GATE_MARKER}${pr.head.sha} -->`;
+                if (!comments.some((c) => (c.body ?? '').includes(marker))) {
+                  await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body: dockerGateComment({ headSha: pr.head.sha, reason: verdict.reason }) });
+                }
+              }
+            } catch (e) {
+              verdict = { arm: false, reason: `gate error: ${e.message}` };
+              core.warning(`t/315: docker gate failed (${e.message}); not arming (fail closed).`);
+            }
+            core.info(`t/315 docker gate: arm=${verdict.arm} (${verdict.reason})`);
+            core.setOutput('arm', verdict.arm ? 'true' : 'false');
+
       - name: Arm auto-merge for minor/patch bumps
         if: >-
-          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
-          steps.meta.outputs.update-type == 'version-update:semver-patch'
+          (steps.meta.outputs.update-type == 'version-update:semver-minor' ||
+           steps.meta.outputs.update-type == 'version-update:semver-patch') &&
+          (steps.meta.outputs.package-ecosystem != 'docker' || steps.docker_gate.outputs.arm == 'true')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

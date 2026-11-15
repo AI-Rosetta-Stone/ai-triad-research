@@ -245,3 +245,63 @@ Describe 'Get-ContinuousDeployVerdict' {
         $v.Action | Should -Be 'hold-batch-timestamp-unknown'
     }
 }
+
+# Alert #4787 (DevOps Lead, p/648#402): the verdict step had no explicit `exit 0` at the end of
+# its `run:` block. GitHub's pwsh wrapper mirrors the step's own process exit code from whatever
+# $LASTEXITCODE last held, with no explicit exit. Run 42735389626: the verdict correctly computed
+# `hold-kill-switch` (fail-closed, as designed), but the STEP still reported failed, because an
+# EARLIER native-command call (`gh api commits/.../check-runs`) hit an installation rate limit,
+# was caught and logged via Write-Warning (not re-thrown), and left its exit code (1) sitting in
+# $LASTEXITCODE all the way to the end of the script -- same class as t/4252/t/4932.
+Describe 'continuous-deploy.yml workflow wiring (alert #4787)' {
+    BeforeAll {
+        $Script:Workflow = Get-Content (Join-Path $PSScriptRoot '..' '.github' 'workflows' 'continuous-deploy.yml') -Raw
+
+        function Invoke-SimulatedGhaPwshStep([string]$UserScript, [bool]$HasExplicitExit) {
+            $wrapped = if ($HasExplicitExit) { $UserScript } else { "$UserScript`nexit `$LASTEXITCODE" }
+            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "t4787-$([guid]::NewGuid()).ps1"
+            Set-Content -Path $tmp -Value $wrapped
+            try {
+                pwsh -NoProfile -File $tmp | Out-Null
+                return $LASTEXITCODE
+            } finally {
+                Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        $Script:UserScript = @'
+git merge-base --is-ancestor 0000000000000000000000000000000000beef HEAD 2>$null
+if ($LASTEXITCODE -ne 0) { Write-Warning "handled failure, not re-thrown (exit $LASTEXITCODE)" }
+Write-Host "verdict computed successfully despite the earlier failure"
+'@
+    }
+
+    It 'the "verdict" step ends with an explicit exit 0 after the GITHUB_STEP_SUMMARY write' {
+        $stepStart = $Script:Workflow.IndexOf('id: verdict')
+        $stepStart | Should -BeGreaterThan -1
+        $nextStepIdx = $Script:Workflow.IndexOf("`n      - name:", $stepStart)
+        $stepBody = $Script:Workflow.Substring($stepStart, $nextStepIdx - $stepStart)
+        $summaryIdx = $stepBody.LastIndexOf('GITHUB_STEP_SUMMARY')
+        $summaryIdx | Should -BeGreaterThan -1
+        $exitIdx = $stepBody.IndexOf('exit 0', $summaryIdx)
+        $exitIdx | Should -BeGreaterThan -1
+    }
+
+    # Live reproduction of GitHub Actions' OWN mechanism for a `shell: pwsh` step (per the Lead's
+    # description: "GitHub's pwsh wrapper does exit $LASTEXITCODE"). Plain `pwsh -File` does NOT
+    # do this on its own -- GHA generates a wrapper around the step's script that appends an
+    # implicit `exit $LASTEXITCODE` when the script has no explicit exit, which is the actual
+    # mechanism that turned a handled, logged failure into a red step. Simulated via
+    # Invoke-SimulatedGhaPwshStep (BeforeAll above), for both the "no fix" and "fixed" shapes.
+    It 'LIVE REPRODUCTION: with the fix''s explicit exit 0, a handled earlier native-command failure does not leak into the step''s exit code' {
+        $fixedScript = "$Script:UserScript`nexit 0"
+        Invoke-SimulatedGhaPwshStep -UserScript $fixedScript -HasExplicitExit $true | Should -Be 0
+    }
+
+    # FAULT CHECK: the SAME script, but relying on GHA's implicit `exit $LASTEXITCODE` wrapper
+    # (no explicit exit in the user script) -- reproduces the actual incident (run 42735389626)
+    # and proves this test would have caught the regression, not just confirmed an unrelated pass.
+    It 'FAULT CHECK: WITHOUT an explicit exit, GHA''s implicit exit $LASTEXITCODE DOES leak the earlier failure''s code (reproduces run 42735389626)' {
+        Invoke-SimulatedGhaPwshStep -UserScript $Script:UserScript -HasExplicitExit $false | Should -Not -Be 0
+    }
+}

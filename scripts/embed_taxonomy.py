@@ -25,6 +25,7 @@ JSON output goes to stdout.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -37,9 +38,30 @@ from typing import Optional
 import numpy as np
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name):
+    # By path, not `import name`: research/ tools load this file via spec_from_file_location
+    # with scripts/ NOT on sys.path, and the shared pin loader must still resolve (t/110).
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_DIR / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+embed_model_pins = _load_sibling("embed_model_pins")
 _FALLBACK_TAXONOMY_DIR = _SCRIPT_DIR.parent / "taxonomy" / "Origin"
 MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_REPO = "sentence-transformers/all-MiniLM-L6-v2"
 NLI_MODEL_NAME = "cross-encoder/nli-deberta-v3-small"
+# t/62: both models load at the commit pinned here -- the same file CI's
+# fetch_embed_models.py reads (t/55), so an upstream re-upload can't move prod
+# embeddings without CI seeing it. MODEL_NAME stays the short name for the
+# embeddings.json envelope.
+MODEL_PINS_FILE = embed_model_pins.PINS_FILE
 # t/4572 (SO C1, t/4572#1): a hardcoded column order here is exactly the class of bug that
 # shipped -- NLI_LABELS used to assume [entailment, neutral, contradiction], but the real
 # checkpoint's config.id2label is {0: contradiction, 1: entailment, 2: neutral}. Different
@@ -185,12 +207,15 @@ def _resolve_taxonomy_dir(override=None, conflicts_override=None):
     return TAXONOMY_DIR
 
 
-def _load_model():
-    """Load the sentence-transformer model (downloads on first run)."""
-    from sentence_transformers import SentenceTransformer
+# t/110: the pin reader is shared (embed_model_pins.py), not a copy per script.
+_model_revision = embed_model_pins.pinned_revision
 
-    print(f"Loading model '{MODEL_NAME}'...", file=sys.stderr)
-    return SentenceTransformer(MODEL_NAME, trust_remote_code=False)
+
+def _load_model():
+    """Load the sentence-transformer model at its pinned revision (downloads on first run)."""
+    revision = _model_revision(MODEL_REPO)
+    print(f"Loading model '{MODEL_NAME}'@{revision[:7]}...", file=sys.stderr)
+    return embed_model_pins.load_sentence_transformer(MODEL_REPO)
 
 
 def _nli_label_order_error(problem):
@@ -215,10 +240,9 @@ def _load_nli_model():
     expected labels -- fails loudly here instead of silently mislabeling every
     verdict downstream.
     """
-    from sentence_transformers import CrossEncoder
-
-    print(f"Loading NLI model '{NLI_MODEL_NAME}'...", file=sys.stderr)
-    model = CrossEncoder(NLI_MODEL_NAME, trust_remote_code=False)
+    revision = _model_revision(NLI_MODEL_NAME)
+    print(f"Loading NLI model '{NLI_MODEL_NAME}'@{revision[:7]}...", file=sys.stderr)
+    model = embed_model_pins.load_cross_encoder(NLI_MODEL_NAME)
 
     id2label = getattr(getattr(model, "config", None), "id2label", None)
     if not id2label:

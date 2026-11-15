@@ -18,6 +18,7 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { allNodesById, povOfNode } from '../../hooks/useTaxonomyStore/superseded';
 import { NodeDetail } from '../taxonomy/NodeDetail';
 import { SituationDetail } from '../debate/SituationDetail';
+import { OpEdHowPanel } from './OpEdHowPanel';
 import './OpEdReader.css';
 
 function prefersReducedMotion(): boolean {
@@ -140,9 +141,19 @@ function ClaimsSection({ claims }: { claims: { text: string; paragraph: number }
 // Grounding section (collapsible table + inline expand)
 // ──────────────────────────────────────────────
 
+/** How many used elements Why shows before the "Other (N)" expander (t/173). */
+export const WHY_TOP = 4;
+
+/** Highest `relevance` first; stable, and a non-numeric score sorts last (t/173). */
+export function sortByRelevance(refs: OpEdGroundingRef[]): OpEdGroundingRef[] {
+  const score = (g: OpEdGroundingRef) => { const n = parseFloat(g.relevance); return Number.isFinite(n) ? n : -Infinity; };
+  return refs.map((g, i) => ({ g, i })).sort((a, b) => score(b.g) - score(a.g) || a.i - b.i).map(x => x.g);
+}
+
 function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]; claims?: { text: string; paragraph: number }[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showUnused, setShowUnused] = useState(false);
+  const [showOther, setShowOther] = useState(false);
 
   useEffect(() => {
     if (!expandedId) return;
@@ -156,10 +167,15 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
   }
 
   // t/2703: elements the AI judged 'not directly used' are noise by default — partition
-  // them out and reveal on demand via the toggle below. Used rows keep their (relevance) order.
-  const used = grounding.filter(g => g.how_reflected !== 'not directly used');
+  // them out and reveal on demand via the toggle below.
+  // t/173: the used rows show the top WHY_TOP by `relevance` (the retrieval score, highest first;
+  // stored grounding is ordered by BDI category, not one ranking — t/170#5), the rest behind a
+  // collapsed "Other (N)".
+  const used = sortByRelevance(grounding.filter(g => g.how_reflected !== 'not directly used'));
   const unused = grounding.filter(g => g.how_reflected === 'not directly used');
-  const visible = showUnused ? [...used, ...unused] : used;
+  const top = used.slice(0, WHY_TOP);
+  const other = used.slice(WHY_TOP);
+  const visible = [...top, ...(showOther ? other : []), ...(showUnused ? unused : [])];
 
   // Only a visible row can stay expanded — hiding the unused set closes any card it owned.
   const expandedRef = visible.find(g => g.node_id === expandedId) ?? null;
@@ -204,10 +220,20 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
           </tbody>
         </table>
       </div>
+      {other.length > 0 && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-expanded={showOther}
+          onClick={() => setShowOther(v => !v)}
+        >
+          {showOther ? `Hide other (${other.length})` : `Other (${other.length})`}
+        </button>
+      )}
       {unused.length > 0 && (
         <button
           type="button"
-          className="oped-grounding-toggle-unused"
+          className="btn btn-ghost btn-sm"
           aria-expanded={showUnused}
           onClick={() => setShowUnused(v => !v)}
         >
@@ -260,6 +286,7 @@ function OpEdArticle({ member, outlet }: { member: OpEdMember; outlet?: string }
           </div>
           {member.claims && member.claims.length > 0 && <ClaimsSection claims={member.claims} />}
           <GroundingSection grounding={member.grounding} claims={member.claims} />
+          <OpEdHowPanel stages={member.stages} />
 
           {member.rhetorical_meta && (
             <section className="oped-rhetorical-meta" aria-label="What this op-ed did">

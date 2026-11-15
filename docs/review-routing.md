@@ -58,6 +58,17 @@ Style, tone, and formatting are explicitly out of scope.
   nothing blocks batch *preparation*. Batches with only previously-skimmed, re-worded entries
   may note that and take an expedited confirm.
 
+## Delta re-stamp (t/397, PI-approved 2026-11-11)
+
+An approval binds to a head, so any push after approval needs a new stamp. When that push is **delta-only**, the reviewer re-stamps against the delta, not the whole PR. A delta-only push is a lockfile refresh, a comment or test-name change, or a fix the reviewer asked for. This is what makes fixing review findings in the same PR cheap (`docs/pr-landing.md` § PR Budget and Batching).
+
+1. **The author** pushes, verifies the new head (`gh pr view <N> --json headRefOid`), and pings the reviewer with:
+   - the approved head and the new head;
+   - `git diff --stat <approved-head>..<new-head>`;
+   - one line on what changed and why.
+2. **The reviewer** reads only `git diff <approved-head>..<new-head>`. If it is delta-only and correct, they post `Approved (<role>):` at the new head, saying in the body that it's a delta re-stamp from `<approved-head>`.
+3. **Not delta-only** (new behaviour, new files, or a rebase that changed the code under review): the reviewer says so and does a full review. A rebase with no content change counts as delta-only when `git range-diff` shows no change in the PR's own commits; the author pastes that output.
+
 ## Async Review (implement-then-review)
 
 For **low-risk tickets** — single-scope, no new public API, no data model changes, follows a known pattern — agents MAY implement first without waiting for design approval, then submit to a Quality reviewer after the verify gate passes. This lets the agent pick up their next ticket while review is in flight.

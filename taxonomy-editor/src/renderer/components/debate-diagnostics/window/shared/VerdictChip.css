@@ -10,23 +10,23 @@
 }
 
 .verdict-chip--pass {
-  background: color-mix(in srgb, var(--success) 15%, transparent);
-  color: var(--success);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 /* Distinct from --flag (amber) and --pass (green): partially-accurate reads as
    a warm "caution" without being mistaken for a clean pass. */
 .verdict-chip--caveat {
-  background: color-mix(in srgb, var(--focus-ring, #f97316) 15%, transparent);
-  color: var(--focus-ring, #f97316);
+  background: var(--info-bg);
+  color: var(--info-text);
 }
 
 .verdict-chip--flag {
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .verdict-chip--fail {
-  background: color-mix(in srgb, var(--danger) 15%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
 }

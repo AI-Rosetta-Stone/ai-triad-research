@@ -20,7 +20,7 @@
 .plan-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-skp) 20%, transparent);
+  background: var(--color-skp-bg);
   color: var(--color-skp);
   font-weight: 600;
 }
@@ -28,21 +28,21 @@
 .plan-parse-error {
   padding: 6px 8px;
   margin: 6px 0;
-  background: rgba(220,38,38,0.1);
+  background: var(--error-bg);
   border-left: 3px solid var(--danger);
   border-radius: 4px;
   font-size: 0.72rem;
-  color: var(--danger);
+  color: var(--error-text);
 }
 
 .plan-empty-warning {
   padding: 6px 8px;
   margin: 6px 0;
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  background: var(--warning-bg);
   border-left: 3px solid var(--warning);
   border-radius: 4px;
   font-size: 0.72rem;
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .plan-oi-summary {
@@ -58,8 +58,8 @@
 .plan-oi-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--danger) 15%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -94,8 +94,8 @@
 .plan-directive-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--warning) 20%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -154,7 +154,7 @@
   display: inline-block;
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-skp) 20%, transparent);
+  background: var(--color-skp-bg);
   color: var(--color-skp);
   font-size: 0.7rem;
   font-weight: 600;

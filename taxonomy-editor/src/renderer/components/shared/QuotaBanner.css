@@ -16,20 +16,20 @@
 }
 
 .quota-banner--info {
-  background: rgba(74, 158, 255, 0.1);
-  border-bottom: 1px solid rgba(74, 158, 255, 0.25);
+  background: var(--info-bg); /* t/198 */
+  border-bottom: 1px solid var(--info-text);
   color: var(--text-secondary, #475569);
 }
 
 .quota-banner--warning {
-  background: rgba(217, 119, 6, 0.12);
-  border-bottom: 1px solid rgba(217, 119, 6, 0.3);
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
   color: var(--text-secondary, #475569);
 }
 
 .quota-banner--error {
-  background: rgba(239, 68, 68, 0.12);
-  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--error-bg);
+  border-bottom: 1px solid var(--error-border);
   color: var(--text-secondary, #475569);
 }
 
@@ -40,15 +40,15 @@
 }
 
 .quota-banner--info .quota-banner-icon {
-  color: var(--focus-ring, #4a9eff);
+  color: var(--info-text);
 }
 
 .quota-banner--warning .quota-banner-icon {
-  color: var(--warning, #d97706);
+  color: var(--warning-text);
 }
 
 .quota-banner--error .quota-banner-icon {
-  color: var(--danger, #ef4444);
+  color: var(--error-text);
 }
 
 .quota-banner-text {

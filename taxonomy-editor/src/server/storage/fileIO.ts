@@ -13,10 +13,10 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
-import { loadDataConfig, resolveDataPath, getDataRoot, getProjectRoot, getSourcesRoot, STORAGE_MODE } from '../config.js';
+import { loadDataConfig, resolveDataPath, getDataRoot, getProjectRoot, getSourcesRoot, getStateRoot, STORAGE_MODE } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { POV_KEYS } from '../../../../lib/debate/types.js';
-import type { StorageBackend } from './storageBackend.js';
+import type { StorageBackend, WriteIfAbsentResult } from './storageBackend.js';
 import { log } from '../logger.js';
 import { FilesystemBackend } from './filesystemBackend.js';
 import { getGlobalRecorder, redactRecord } from '../../../../lib/flight-recorder/index.js';
@@ -53,7 +53,13 @@ export type { RunControlRecord, RunStatus, VoiceState as OpedVoiceState } from '
 // which falls back to `backend` when not separately configured (Electron /
 // filesystem mode). In production, `userContentBackend` is an AzureBlobBackend
 // while `backend` stays on GitHubAPIBackend.
-let backend: StorageBackend = new FilesystemBackend();
+// t/223: rooted at the configured data root so the path guard is live in production. The sources
+// and state roots are configured independently and may sit outside the data root, so they are allowed too.
+// Roots are read per call (getters), not captured here, so config set after import is the one enforced.
+let backend: StorageBackend = new FilesystemBackend({
+  root: () => getDataRoot(),
+  extraRoots: () => [getSourcesRoot(), getStateRoot()],
+});
 let userContentBackend: StorageBackend | null = null;
 let briefExportBackend: StorageBackend | null = null;
 
@@ -272,6 +278,26 @@ export async function readFileWithVersionOrFallback(
   if (backend.readFileWithVersion) return backend.readFileWithVersion(filePath, opts);
   const content = await backend.readFile(filePath, opts);
   return content === null ? null : { content, version: '' };
+}
+
+/** t/4216 (t/181): the call site for an atomic create-only write. `writeFileIfAbsent` is optional on
+ *  the interface only so typed test doubles compile; every production backend implements it. A
+ *  backend without it fails CLOSED here — never a non-atomic exists-check-then-write, which would
+ *  silently drop the guarantee that callers (cross-replica job idempotency, draft claims) rely on. */
+export function writeFileIfAbsentStrict(
+  target: StorageBackend, filePath: string, content: string, opts?: { ref?: string },
+): Promise<WriteIfAbsentResult> {
+  if (!target.writeFileIfAbsent) {
+    throw new ActionableError({
+      goal: `Create ${filePath} only if absent`,
+      problem: `Storage backend '${target.backendName}' has no atomic create-only write (writeFileIfAbsent)`,
+      location: 'storage/fileIO.ts writeFileIfAbsentStrict',
+      nextSteps: ['Implement StorageBackend.writeFileIfAbsent on this backend', 'In a test, add writeFileIfAbsent to the fake backend'],
+      httpStatus: 500,
+      code: 'CREATE_ONLY_UNSUPPORTED',
+    });
+  }
+  return target.writeFileIfAbsent(filePath, content, opts);
 }
 
 /** t/4499: `backend.readFilesBatch` is optional (only GitHubAPIBackend

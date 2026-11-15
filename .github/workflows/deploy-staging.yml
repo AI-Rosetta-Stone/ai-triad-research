@@ -344,6 +344,25 @@ jobs:
             Write-Host "Prior revision (rollback target): '$($Top.Name)'"
           }
 
+      - name: Snapshot serving revision env before the env sync (warn-only, t/4935)
+        # t/4935: mirror of deploy-azure.yml. Snapshot the serving revision's env as (name, secretRef,
+        # HMAC-SHA256 of the value under a per-run key in RUNNER_TEMP) — never a raw value — BEFORE
+        # Sync-StagingEnv rewrites the template, so "Diff container env" below can compare it with the
+        # new revision before traffic is promoted. WARN-ONLY: read-only az, the script always exits 0,
+        # plus continue-on-error and a timeout, so it can never block or alter the deploy.
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SERVING_REVISION: ${{ steps.current_revision.outputs.revision }}
+        run: |
+          ./operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1 `
+            -AppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -RevisionName $env:SERVING_REVISION `
+            -OutFile (Join-Path $env:RUNNER_TEMP 't4935-env-before.json') `
+            -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
+
       - name: Sync Bicep baseEnv to staging template (t/2630)
         shell: pwsh
         run: |
@@ -449,6 +468,31 @@ jobs:
             exit 1
           }
           Write-Host "t/3679 assert OK: staging revision digest-pinned to '$($env:EXPECTED_REF)' (value-equal)."
+
+      - name: Diff container env, serving vs new revision (warn-only, t/4935)
+        # t/4935: mirror of deploy-azure.yml. Snapshot the new 0%-traffic revision and diff it with the
+        # pre-sync snapshot by name; undeclared differences (see
+        # operations/devops/azure/container-env-expected-changes.json) print a ::warning:: with names and
+        # hash prefixes only. Runs before "Promote traffic to new revision". WARN-ONLY: never blocks or
+        # alters the deploy. !cancelled(): also run after an earlier step failed; the step only reads.
+        if: ${{ !cancelled() && steps.new_revision.outputs.revision != '' }}
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          NEW_REVISION: ${{ steps.new_revision.outputs.revision }}
+        run: |
+          ./operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1 `
+            -AppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -RevisionName $env:NEW_REVISION `
+            -OutFile (Join-Path $env:RUNNER_TEMP 't4935-env-after.json') `
+            -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
+          ./operations/devops/azure/Invoke-ContainerEnvSnapshot.ps1 -Diff `
+            -BeforeFile (Join-Path $env:RUNNER_TEMP 't4935-env-before.json') `
+            -AfterFile (Join-Path $env:RUNNER_TEMP 't4935-env-after.json') `
+            -ExpectedChangesFile ./operations/devops/azure/container-env-expected-changes.json `
+            -Label '${{ env.CONTAINER_APP_NAME }}'
 
       - name: Smoke test new revision (pre-traffic gate)
         id: smoke

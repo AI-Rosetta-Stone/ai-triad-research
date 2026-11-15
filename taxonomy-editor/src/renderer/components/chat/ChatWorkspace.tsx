@@ -10,7 +10,6 @@ import { POVER_INFO } from '../../types/debate';
 import type { TaxonomyRef } from '../../types/debate';
 import type { ChatEntry, ChatMode } from '../../types/chat';
 import { CHAT_MODE_INFO } from '../../types/chat';
-import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { DetailPane } from '../shared/DetailPane';
 import { remarkLinkifyRefs, REF_LINK_CLASS } from '../shared/refLinkifyPlugin';
 import { parseEntityRef } from '@lib/entities/types';
@@ -29,10 +28,11 @@ import { CampGlyph, povToCamp } from '../shared/CampGlyph';
 import { SpeakerIdentity } from '../shared/SpeakerIdentity';
 import { EmptyState } from '../shared/EmptyState';
 import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/ChatBubble';
-import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
+import { HowPanel } from '../shared/HowPanel';
+import { BdiGroundingView } from '../debate-workspace/TaxonomyRefs';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -44,9 +44,11 @@ function speakerLabel(speaker: string): string {
   return info?.label || speaker;
 }
 
-function nodeIdToTab(nodeId: string): string {
-  return nodePovFromId(nodeId) ?? 'unknown';
-}
+// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
+const CHAT_HOW_METHODS_LINKS = [
+  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
+  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
+];
 
 // ── Taxonomy ref pills ───────────────────────────────────
 
@@ -78,61 +80,15 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
   };
 }
 
-function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; selected?: boolean; onClick?: () => void }) {
-  const tab = nodeIdToTab(taxRef.node_id);
-  // t/4651 (Design's a11y pass, t/4651#3): was a <span onClick> — no role, no tabIndex, no key
-  // handler, so keyboard/screen-reader users couldn't open a ref's detail at all (WCAG 2.1.1),
-  // and closing the detail had no focusable trigger to return to (fell back to <body>). A real
-  // button fixes both for free — focus return is TaxNodeDetail's existing restore-to-opener
-  // logic (t/4651), which needs document.activeElement to be an actual element, not a span.
-  return (
-    <button
-      type="button"
-      className={`taxonomy-pill tab-${tab}${selected ? ' selected' : ''}`}
-      title={taxRef.relevance || taxRef.node_id}
-      onClick={onClick}
-      aria-expanded={onClick ? selected === true : undefined}
-      data-clickable={onClick ? '' : undefined}
-    >
-      {taxRef.node_id}
-    </button>
-  );
-}
 
 /**
- * t/4627: always-visible per-reply BDI grounding list. Each item is clickable; clicking opens
- * that node's detail inline below the list (one open per reply, click again to hide, clicking a
- * different item switches). This state is local to the reply — separate from the chat-wide
- * `selectedRef`/`onSelectRef` that still drives `ChatDetailPane` for in-text ref links
- * (`makeRefLinkSpan`), which this component does not touch. pol-* and sit-* ids flow through the
- * same `TaxNodeDetail` unchanged — it already resolves policy/situation PinnedData variants.
+ * Why grounding for an answer (t/167): the shared BdiGroundingView from debate, grouped by BDI.
+ * Only answers get Chat's empty line (t/4862); a user message with no refs renders nothing.
  */
-export function TaxonomyRefsSection({ refs }: { refs: TaxonomyRef[] }) {
-  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
-  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
-
-  if (!refs || refs.length === 0) return null;
-
-  return (
-    <div className="chat-taxonomy-refs">
-      <div className="chat-taxonomy-reasoning">
-        {refs.map((r) => (
-          <div key={r.node_id} className="chat-taxonomy-reasoning-item">
-            <TaxonomyPill
-              taxRef={r}
-              selected={selectedBdiNodeId === r.node_id}
-              onClick={() => toggleBdiNode(r.node_id)}
-            />
-            {r.label && <span className="chat-reasoning-label">{r.label}</span>}
-            {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
-          </div>
-        ))}
-      </div>
-      {selectedBdiNodeId && (
-        <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />
-      )}
-    </div>
-  );
+export function TaxonomyRefsSection({ refs, emptyText }: { refs: TaxonomyRef[] | undefined; emptyText?: string }) {
+  const list = refs ?? [];
+  if (list.length === 0 && !emptyText) return null;
+  return <div className="chat-why"><BdiGroundingView refs={list} emptyText={emptyText} /></div>;
 }
 
 // ── Chat message ─────────────────────────────────────────
@@ -187,93 +143,12 @@ function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (r
         <MessageBubble role={isUser ? 'user' : 'assistant'} className="chat-message-content markdown-body prose">
           <Markdown remarkPlugins={[remarkGfm, remarkColorizePov, remarkLinkifyRefs]} components={mdComponents}>{entry.content}</Markdown>
         </MessageBubble>
-        <TaxonomyRefsSection refs={entry.taxonomy_refs} />
+        <TaxonomyRefsSection refs={entry.taxonomy_refs} emptyText={isUser ? undefined : 'No taxonomy grounding recorded for this answer.'} />
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
-        {!isUser && <ChatHowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} />}
+        {!isUser && <HowPanel rawPrompt={entry.raw_prompt} rawResponse={entry.raw_response} methodsLinks={CHAT_HOW_METHODS_LINKS} />}
       </div>
-    </div>
-  );
-}
-
-// ── "How" panel (t/4824) ─────────────────────────────────
-
-// t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
-const CHAT_HOW_METHODS_LINKS = [
-  { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
-  { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
-];
-
-function ChatHowMethodsLink({ label, url }: { label: string; url: string }) {
-  return (
-    <button
-      type="button"
-      className="btn-ghost chat-how-methods-link"
-      onClick={() => {
-        void api.openExternal(url).catch((err: unknown) => {
-          getGlobalRecorder()?.record({
-            type: 'system.error', component: 'chat-how-panel', level: 'error',
-            message: 'Failed to open methods link',
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-        });
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ChatHowSection({ title, defaultExpanded, children }: { title: string; defaultExpanded: boolean; children: React.ReactNode }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  return (
-    <div className="chat-how-section">
-      <button type="button" className="chat-how-section-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
-        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
-        {title}
-      </button>
-      {expanded && <div className="chat-how-section-body">{children}</div>}
-    </div>
-  );
-}
-
-/** Raw Prompt/Response content: the real text in a ~15-visible-line scroll box when the server has
- *  captured it (t/4848), or the "not available" message when it hasn't — a missing value for an
- *  older/in-flight turn never reads as a rendering bug. */
-function ChatHowRawContent({ value, label }: { value: string | undefined; label: string }) {
-  if (!value) return <p className="chat-how-unavailable">Not available for this response yet.</p>;
-  // t/4856 (Design): tabIndex + aria-label so the scrollable box is keyboard-reachable and its
-  // content is announced, matching the section title it sits under.
-  return <pre className="chat-how-textbox" tabIndex={0} aria-label={label}>{value}</pre>;
-}
-
-/** Collapsed by default, below each POV response (t/4824). */
-function ChatHowPanel({ rawPrompt, rawResponse }: { rawPrompt: string | undefined; rawResponse: string | undefined }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="chat-how-panel">
-      <button type="button" className="chat-how-toggle" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>
-        <span className={`chat-how-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">▸</span>
-        How
-      </button>
-      {expanded && (
-        <div className="chat-how-body">
-          <ChatHowSection title="Raw Prompt" defaultExpanded>
-            <ChatHowRawContent value={rawPrompt} label="Raw Prompt" />
-          </ChatHowSection>
-          <ChatHowSection title="Raw Response" defaultExpanded={false}>
-            <ChatHowRawContent value={rawResponse} label="Raw Response" />
-          </ChatHowSection>
-          <ChatHowSection title="Methods" defaultExpanded={false}>
-            <ul className="chat-how-methods-list">
-              {CHAT_HOW_METHODS_LINKS.map(link => (
-                <li key={link.url}><ChatHowMethodsLink label={link.label} url={link.url} /></li>
-              ))}
-            </ul>
-          </ChatHowSection>
-        </div>
-      )}
     </div>
   );
 }

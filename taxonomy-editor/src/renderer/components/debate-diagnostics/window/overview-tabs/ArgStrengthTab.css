@@ -308,10 +308,9 @@
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
   white-space: nowrap;
-  opacity: 0.9;
 }
 
 /* t/3303: Debate-Tested tier badge — second axis, inline before each argument row */

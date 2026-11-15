@@ -55,11 +55,11 @@
 
 .prompts-panel-item.selected {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .prompts-panel-item.selected .prompts-panel-item-source {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .prompts-panel-research {

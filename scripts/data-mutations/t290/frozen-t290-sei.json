@@ -1,0 +1,27 @@
+{
+  "ticket": "t/290 (follow-up to t/231)",
+  "target": "ai-triad-data:taxonomy/Origin/source_evidence_index.json",
+  "operation": "whole-file replacement of a derived artifact with the builder's output",
+  "writer": "scripts/build-evidence-index.py --data-root <clean export> --sources-root <clean export> --out <temp>",
+  "builder_commit": "636fb3842c7552a96d8563949a5d873c00104826",
+  "inputs": {
+    "data_commit": "2a1d6d28d4de97381499f68140a39d6cac93f1b2",
+    "sources_commit": "2380dfb2041698618afac23c077d2476d1f093c2",
+    "how": "git archive of each commit into an empty directory; the shared checkouts carry uncommitted summaries that must not leak into the index"
+  },
+  "hash_basis": "sha256-lf",
+  "pre_sha256": "da416e5961ce2d4dc3ce202870ff01688d4bb9869e11a24cfa59e848840a128d",
+  "pre_blob": "08c4ffb855eb1883ad8fdb9e4bac693cf8b482d7",
+  "candidate_sha256": "cbcec02f5342f7ddf9ee5c344d22edb0365ae87b627c2a5f625e5e821d7ad2c0",
+  "candidate_bytes": 9374742,
+  "counts": {
+    "pre": { "nodes": 556, "facts": 2446, "keyPoints": 6429 },
+    "candidate": { "nodes": 998, "facts": 5290, "keyPoints": 11174, "summaries": 888, "marked_copies_folded": 182, "via_entries": 2557, "invalid_marks": 0 }
+  },
+  "determinism": "two builds from the same exports are byte-identical",
+  "rollback": {
+    "preferred": "git -C ai-triad-data revert <write commit>",
+    "independent_of_write_commit": "git -C ai-triad-data show 08c4ffb855eb1883ad8fdb9e4bac693cf8b482d7 > ai-triad-data/taxonomy/Origin/source_evidence_index.json, then a single-pathspec commit; verify sha256-lf equals pre_sha256"
+  },
+  "delta_explanation": "t/231#3, less the 5 uncommitted summaries that build included (16 facts, 19 key points); see t/290"
+}

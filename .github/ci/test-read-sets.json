@@ -11,6 +11,8 @@
     "scripts/requirements.txt",
     "scripts/embed_taxonomy.py",
     ".github/ci/fetch_embed_models.py",
+    "scripts/embed_model_pins.json",
+    "scripts/embed_model_pins.py",
     ".github/ci/assert_embed_stability.py",
     ".github/ci/embed_reference.json",
     ".github/actions/checkout-ai-triad-data/**",
@@ -31,6 +33,7 @@
     "deploy/azure/smoke-healthz.sh"
   ],
   "electron": [
+    ".github/ci/data-root-guard-report.sh",
     "taxonomy-editor/**",
     "poviewer/**",
     "summary-viewer/**",
@@ -65,6 +68,8 @@
   "embeddings": [
     "lib/embeddings/**",
     "taxonomy-editor/package.json",
-    "taxonomy-editor/pnpm-lock.yaml"
+    "taxonomy-editor/pnpm-lock.yaml",
+    "deploy/azure/Dockerfile.base",
+    "taxonomy-editor/Dockerfile"
   ]
 }

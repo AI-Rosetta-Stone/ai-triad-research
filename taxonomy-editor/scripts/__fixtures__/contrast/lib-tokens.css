@@ -1,0 +1,10 @@
+/* t/143: a second token sheet, like LibraryTheme.css. Its :root tokens must reach the checker. */
+:root {
+  --fx-lib-fill: var(--fill-light);
+}
+
+/* A component rule under a theme scope is not a token sheet: --fill-light must stay as
+   theme-tokens.css defines it. */
+[data-theme="dark"] .fx-lib-scope {
+  --fill-light: #000000;
+}

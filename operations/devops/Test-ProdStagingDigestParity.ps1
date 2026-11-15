@@ -19,12 +19,16 @@
     its previous revision, so a template read reported PARITY-OK after every prod deploy no matter
     what staging served — blind to the exact t/4194 shape (template current, traffic pinned old).
 
-    Gate proof arms:
-      Fire (mismatch): different digests -> ::warning:: annotation, exit 0 (never blocks the deploy).
-      Pass (match): same digest -> a plain "parity OK" line, exit 0.
+    Gate verdict (t/4496, operations/devops/GateVerdict.ps1): the step reports one of three verdicts
+    in its step summary and as step outputs (gate=, verdict=, reason=):
+      PASS (match): same digest -> a plain GATE-VERDICT line, exit 0.
+      FAIL (mismatch): different digests -> ::warning:: annotation, exit 0 (never blocks the deploy).
+      GATE-UNREADABLE: an az read failed (403, 404, auth) or the serving image can't be resolved
+        (e.g. a traffic split across images) -> ::warning:: with the classified reason, exit 0.
+        Not a pass: before t/4496 this looked the same in CI as a clean run (t/4390 class).
 
 .PARAMETER SuppressAnnotations
-    When set, emits plain PARITY- lines instead of ::warning:: workflow annotations. Use in test
+    When set, emits plain GATE-VERDICT lines instead of ::warning:: workflow annotations. Use in test
     subprocess calls to avoid polluting the CI log with annotations that look like real drift.
 #>
 [CmdletBinding()]
@@ -38,10 +42,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Write-ParityWarning([string]$msg) {
-    if ($SuppressAnnotations) { Write-Host "PARITY-WARN: $msg" }
-    else { Write-Host "::warning::$msg" }
-}
+. (Join-Path $PSScriptRoot 'GateVerdict.ps1')
+
+$script:DigestParityGateName = 'prod-staging-digest-parity'
 
 <#
 .SYNOPSIS
@@ -135,37 +138,77 @@ function Get-DigestParityVerdict {
     }
 }
 
+<#
+.SYNOPSIS
+    Pure (t/4496): map a Get-DigestParityVerdict result onto the three-state gate verdict.
+    Determinable=false is GATE-UNREADABLE (no verdict), never PASS: that is the t/4390 class, where a
+    gate that could not read its target looked the same as a clean run.
+#>
+function ConvertTo-DigestParityGateVerdict {
+    param([Parameter(Mandatory)] [pscustomobject] $ParityVerdict)
+    $state = if (-not $ParityVerdict.Determinable) { 'GATE-UNREADABLE' }
+             elseif ($ParityVerdict.Match) { 'PASS' }
+             else { 'FAIL' }
+    return New-GateVerdict -Gate $script:DigestParityGateName -Verdict $state -Reason $ParityVerdict.Message
+}
+
+<#
+.SYNOPSIS
+    The one az boundary: run az, return @{ ExitCode; Stdout; Stderr }. Stderr is KEPT (it used to go
+    to 2>$null), so a 403 / 404 / auth failure reaches the GATE-UNREADABLE reason. Mocked in tests.
+#>
+function Invoke-AzCapture {
+    param([Parameter(Mandatory)] [string[]] $AzArgs)
+    $raw = @(& az @AzArgs 2>&1)
+    $code = $LASTEXITCODE
+    $err = @($raw | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() })
+    $out = @($raw | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+    return [PSCustomObject]@{ ExitCode = $code; Stdout = ($out -join "`n"); Stderr = ($err -join "`n") }
+}
+
 function Test-ProdStagingDigestParity {
     param(
         [string]$ProdApp,
         [string]$StagingApp,
-        [string]$ResourceGroup
+        [string]$ResourceGroup,
+        [switch]$SuppressAnnotations
     )
     # Live query: the app's ingress traffic + latestRevisionName, then each weighted revision's own
-    # image. Any az failure yields Image=$null with a reason, which the predicate reports as UNKNOWN.
+    # image. Any az failure yields Image=$null with a classified reason (Get-GateReadFailureReason),
+    # which the predicate reports as UNKNOWN and the gate verdict as GATE-UNREADABLE.
     function Get-LiveServingImage([string]$App) {
         try {
-            $json = az containerapp show -n $App -g $ResourceGroup `
-                --query "{traffic: properties.configuration.ingress.traffic, latest: properties.latestRevisionName}" -o json 2>$null
-            if ($LASTEXITCODE -ne 0 -or -not $json) {
-                return [PSCustomObject]@{ Image = $null; Revisions = @(); Reason = "az containerapp show failed for '$App'" }
+            $show = Invoke-AzCapture -AzArgs @('containerapp', 'show', '-n', $App, '-g', $ResourceGroup,
+                '--query', '{traffic: properties.configuration.ingress.traffic, latest: properties.latestRevisionName}', '-o', 'json')
+            if ($show.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($show.Stdout)) {
+                $why = Get-GateReadFailureReason -ErrorText $show.Stderr
+                return [PSCustomObject]@{ Image = $null; Revisions = @(); Reason = "az containerapp show failed for '$App' (exit $($show.ExitCode)): $why" }
             }
             # Not `$app`: PowerShell names are case-insensitive, so it would overwrite [string]$App.
-            $info = ($json -join "`n") | ConvertFrom-Json
+            $info = $show.Stdout | ConvertFrom-Json
             $traffic = @($info.traffic)
             $images = @{}
+            $revisionReadErrors = [System.Collections.Generic.List[string]]::new()
             foreach ($t in $traffic) {
                 if (-not $t -or [int]$t.weight -le 0) { continue }
                 $hasName = $t.PSObject.Properties.Name -contains 'revisionName' -and $t.revisionName
                 $rev = if ($hasName) { [string]$t.revisionName } else { [string]$info.latest }
                 if ([string]::IsNullOrWhiteSpace($rev) -or $images.ContainsKey($rev)) { continue }
-                $img = az containerapp revision show -n $App -g $ResourceGroup --revision $rev `
-                    --query "properties.template.containers[0].image" -o tsv 2>$null
-                if ($LASTEXITCODE -eq 0 -and $img) { $images[$rev] = ($img -join '').Trim() }
+                $revShow = Invoke-AzCapture -AzArgs @('containerapp', 'revision', 'show', '-n', $App, '-g', $ResourceGroup,
+                    '--revision', $rev, '--query', 'properties.template.containers[0].image', '-o', 'tsv')
+                if ($revShow.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($revShow.Stdout)) {
+                    $images[$rev] = $revShow.Stdout.Trim()
+                } else {
+                    $revisionReadErrors.Add("az containerapp revision show '$rev' failed (exit $($revShow.ExitCode)): $(Get-GateReadFailureReason -ErrorText $revShow.Stderr)")
+                }
             }
-            return Get-ServingImage -Traffic $traffic -LatestRevisionName ([string]$info.latest) -RevisionImages $images
+            $serving = Get-ServingImage -Traffic $traffic -LatestRevisionName ([string]$info.latest) -RevisionImages $images
+            if ($null -eq $serving.Image -and $revisionReadErrors.Count -gt 0) {
+                $serving.Reason = "$($serving.Reason); $($revisionReadErrors -join '; ')"
+            }
+            return $serving
         } catch {
-            return [PSCustomObject]@{ Image = $null; Revisions = @(); Reason = "live query for '$App' threw: $($_.Exception.Message)" }
+            return [PSCustomObject]@{ Image = $null; Revisions = @(); Reason = "live query for '$App' threw: $(Get-GateReadFailureReason -ErrorText $_.Exception.Message)" }
         }
     }
     $prod = Get-LiveServingImage $ProdApp
@@ -173,14 +216,15 @@ function Test-ProdStagingDigestParity {
     $verdict = Get-DigestParityVerdict -ProdImage $prod.Image -StagingImage $staging.Image `
         -ProdRevisions ($prod.Revisions -join ', ') -StagingRevisions ($staging.Revisions -join ', ') `
         -ProdReason ([string]$prod.Reason) -StagingReason ([string]$staging.Reason)
-    if (-not $verdict.Determinable -or -not $verdict.Match) {
-        Write-ParityWarning $verdict.Message
-    } else {
-        Write-Host "PARITY-OK: $($verdict.Message)"
-    }
+    # Step summary + step outputs (gate=, verdict=, reason=) + one console/annotation line.
+    $gateVerdict = ConvertTo-DigestParityGateVerdict -ParityVerdict $verdict
+    Write-GateVerdict -Verdict $gateVerdict -SuppressAnnotations:$SuppressAnnotations
+    # Additive: callers that read .Determinable / .Match / .Message (health-monitor.yml) are unchanged.
+    $verdict | Add-Member -NotePropertyName GateVerdict -NotePropertyValue $gateVerdict.Verdict -Force
     return $verdict
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Test-ProdStagingDigestParity -ProdApp $ProdApp -StagingApp $StagingApp -ResourceGroup $ResourceGroup | Out-Null
+    Test-ProdStagingDigestParity -ProdApp $ProdApp -StagingApp $StagingApp -ResourceGroup $ResourceGroup `
+        -SuppressAnnotations:$SuppressAnnotations | Out-Null
 }

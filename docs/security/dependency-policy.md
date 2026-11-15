@@ -93,6 +93,14 @@ Hard-won from t/3440, t/3442, and t/3443. For a **transitive** npm dependency (t
 
 **Acceptance is "verified on origin/main," not "PR merged".** Confirm the lockfile grep is clean AND the alerts actually close or dismiss.
 
+### Editing `.github/dependabot.yml` (Actions cost)
+
+Every merge that edits `.github/dependabot.yml` re-runs Dependabot for every entry. **Each grouped Dependabot PR that is open gets regenerated (force-pushed and renamed) even when nothing upstream changed**, and `rebase-strategy: disabled` doesn't prevent it. While grouped PRs are open, that costs **about 70–105 workflow runs** within 15 minutes of the merge. #5023 cost 105 and #5034 cost 72 (t/313#23, t/317#4). So:
+
+1. **Batch** `dependabot.yml` changes into one PR. Don't land several small edits.
+2. **Land it between 05:00 and 06:00 UTC**, the quietest Actions hour. Use `no-auto-enqueue` until the window opens.
+3. **Put a run-count prediction in the PR body**: new PRs per entry against its `open-pull-requests-limit`, plus about 30 runs for each open grouped PR, plus about 10 update jobs. After the merge, post the actual count on the ticket.
+
 ## Code Scanning Alert Triage
 
 GitHub's Security → Code scanning tab holds two unrelated queues under one number. Triage them separately; the combined total is not a meaningful metric.

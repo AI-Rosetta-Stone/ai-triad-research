@@ -40,11 +40,11 @@
 
 /* --- badges --- */
 .ev-badge-hover { font-size: var(--text-2xs); background: var(--bg-hover); color: var(--text-secondary); }
-.ev-badge-warning { font-size: var(--text-2xs); background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+.ev-badge-warning { font-size: var(--text-2xs); background: var(--warning-bg); color: var(--warning-text); }
 .ev-badge-secondary { background: color-mix(in srgb, var(--text-secondary) 15%, transparent); color: var(--text-secondary); }
-.ev-impl-challenge-badge { font-size: var(--text-2xs); font-weight: 700; background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); padding: 2px 6px; border-radius: 3px; }
+.ev-impl-challenge-badge { font-size: var(--text-2xs); font-weight: 700; background: var(--error-bg); color: var(--error-text); padding: 2px 6px; border-radius: 3px; }
 .ev-mini-badge { padding: 0 3px; border-radius: 3px; font-size: var(--text-2xs); font-weight: 600; }
-.ev-badge-muted12 { background: color-mix(in srgb, var(--text-muted) 12%, transparent); color: var(--text-muted); }
+.ev-badge-muted12 { background: var(--bg-tertiary); color: var(--text-secondary); }
 .ev-pref-crit-badge { font-size: var(--text-2xs); font-weight: 700; padding: 1px 5px; border-radius: 3px; }
 .ev-ns-badge { font-size: var(--text-2xs); color: var(--text-muted); opacity: 0.5; }
 

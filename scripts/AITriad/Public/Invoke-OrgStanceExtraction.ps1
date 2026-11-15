@@ -14,7 +14,9 @@ function Invoke-OrgStanceExtraction {
 
         Claims come back as structured JSON:
           { text, canonical_proposition, polarity, extraction_confidence }
-        keyed to (org_id, source_id). Persisted to
+        keyed to (org_id, source_id). Each stored claim also records
+        extracted_at, extraction_model and extraction_prompt_sha (sha256 of
+        the prompt template, t/228). Persisted to
         organization_stance_claims.json under the taxonomy origin, with
         an idempotence guard on (org_id, source_id) — re-runs skip
         already-extracted pairs unless -Force.
@@ -206,6 +208,9 @@ function Invoke-OrgStanceExtraction {
     # ── Pre-render prompts in the outer runspace (Get-Prompt is Private,
     # invisible in -Parallel workers — same fix as t/1550 aphorism). ────
     $moduleRoot = $script:ModuleRoot
+    # sha256 of the template file before substitution (t/228). *.prompt is eol=lf in .gitattributes, so
+    # the bytes, and the hash, are the same on every checkout.
+    $promptSha = (Get-FileHash -LiteralPath (Join-Path $moduleRoot 'Prompts' 'org-stance-extraction.prompt') -Algorithm SHA256).Hash.ToLowerInvariant()
     $promptSubs = [System.Collections.Generic.List[PSObject]]::new()
     foreach ($item in $workItems) {
         # Inline base64 images stripped BEFORE truncating, or the window can be mostly base64 and the
@@ -326,6 +331,10 @@ function Invoke-OrgStanceExtraction {
                             extraction_confidence = [double]$c.extraction_confidence
                             extracted_at          = (Get-Date).ToString('o')
                             extraction_model      = if ($ai.PSObject.Properties['Model']) { $ai.Model } else { 'gemini-3.5-flash-lite' }
+                            # extraction_prompt_sha (t/228): FORENSIC/ADDITIVE, NO consumer branches on it yet; it
+                            # separates confidences from before and after #4897 re-anchored the bands. THE EXEMPTION
+                            # LAPSES the moment any code path reads it to make a decision (see lib/ai-client/types.ts).
+                            extraction_prompt_sha = $promptSha
                         })
                     }
                 } else {
@@ -350,6 +359,7 @@ function Invoke-OrgStanceExtraction {
             $CompRef   = $using:Completed
             $TotalCnt  = $using:Total
             $ProgId    = $using:ProgressId
+            $PromptSha = $using:promptSha
 
             # t/4702: these imports used to run unguarded, ahead of the try/catch below. A failure
             # here (e.g. concurrent-reimport file contention under load) threw before $FailBag could
@@ -432,6 +442,10 @@ function Invoke-OrgStanceExtraction {
                             extraction_confidence = [double]$c.extraction_confidence
                             extracted_at          = (Get-Date).ToString('o')
                             extraction_model      = if ($ai.PSObject.Properties['Model']) { $ai.Model } else { 'gemini-3.5-flash-lite' }
+                            # extraction_prompt_sha (t/228): FORENSIC/ADDITIVE, NO consumer branches on it yet; it
+                            # separates confidences from before and after #4897 re-anchored the bands. THE EXEMPTION
+                            # LAPSES the moment any code path reads it to make a decision (see lib/ai-client/types.ts).
+                            extraction_prompt_sha = $PromptSha
                         })
                     }
                 } else {

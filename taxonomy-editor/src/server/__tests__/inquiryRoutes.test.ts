@@ -23,6 +23,10 @@ const h = vi.hoisted(() => ({
   /** Controls the markJobFailedIfStale mock (t/3728 tier-3).
    *  false = null (no record / past window); 'stale' = failed verdict; 'live' = live verdict. */
   markStaleReturn: false as false | 'stale' | 'live',
+  /** Controls durable cap/idempotency mocks (t/182). */
+  capCountError: null as null | { reason: string },
+  capCount: 0,
+  durableIdempotent: null as { jobId: string } | null,
 }));
 
 vi.mock('../security/userContext.js', () => ({
@@ -63,6 +67,22 @@ vi.mock('../inquiryJobs.js', async () => ({
   isTerminalStatus: (await vi.importActual<typeof import('../../../../lib/inquiry/index.js')>('../../../../lib/inquiry/index.js')).isTerminalStatus,
   dropInquiryJob: (jobId: string) => dropInquiryJob(jobId),
 }));
+// The cap is the slot claim (t/400): h.capCount >= 1 means every slot is held by a live job.
+vi.mock('../storage/jobSlots.js', () => ({
+  claimJobSlot: async () => {
+    if (h.capCountError) throw new Error('storage down');
+    return h.capCount >= 1 ? null : { index: 0, generation: 1, dir: 'slots' };
+  },
+  releaseJobSlot: async () => {},
+}));
+vi.mock('../storage/jobCapChecker.js', () => ({
+  slotHolderLiveness: () => async () => true,
+  findRunningJobByIdempotencyKey: async (_userId: string, _kind: string, idempotencyKey: string | undefined, _debateId: string | undefined, _isRunning: (r: unknown) => boolean) => {
+    if (!idempotencyKey) return null;
+    return h.durableIdempotent;
+  },
+  withSubmissionLock: async (_userId: string, _kind: string, fn: () => Promise<unknown>) => fn(), // serialization is covered by jobCapRoutes.test.ts
+}));
 const renameInquiryResult = vi.fn(async (jobId: string, title: string) => { h.persisted.set(jobId, { ...(h.persisted.get(jobId) as object ?? {}), title }); });
 const deleteInquiryResult = vi.fn(async (jobId: string) => { h.persisted.delete(jobId); });
 vi.mock('../storage/inquiryResultStore.js', () => ({
@@ -99,6 +119,7 @@ const VALID = { question: 'What counts as an AI harm?', fidelity: 'standard' };
 beforeEach(() => {
   h.user = AUTHED; h.storageUserId = 'alice'; h.rpmAllowed = true; h.backendBlocked = false;
   h.registered = true; h.running = 0; h.idempotent = null; h.markStaleReturn = false;
+  h.capCountError = null; h.capCount = 0; h.durableIdempotent = null;
   h.jobById.clear(); h.hasById.clear(); h.persisted.clear(); h.summaries = [];
   startInquiryJob.mockClear();
   recordMock.mockClear();
@@ -137,9 +158,16 @@ describe('t/3581 — POST /api/inquiry', () => {
   });
 
   it('429 when the concurrency cap is already reached', async () => {
-    h.running = 1;
+    h.capCount = 1;
     const r = res(); await post()(req('/api/inquiry'), r, VALID);
     expect(r.statusCode).toBe(429);
+    expect(startInquiryJob).not.toHaveBeenCalled();
+  });
+
+  it('5xx when the slot claim cannot be written (fail-closed: nothing starts)', async () => {
+    h.capCountError = { reason: 'list_failed' };
+    const r = res(); await post()(req('/api/inquiry'), r, VALID);
+    expect(r.statusCode).toBeGreaterThanOrEqual(500);
     expect(startInquiryJob).not.toHaveBeenCalled();
   });
 
@@ -150,7 +178,7 @@ describe('t/3581 — POST /api/inquiry', () => {
   });
 
   it('idempotency: returns the in-window jobId without starting a new job', async () => {
-    h.idempotent = { jobId: 'job-existing' };
+    h.durableIdempotent = { jobId: 'job-existing' };
     const r = res(); await post()(req('/api/inquiry', { 'idempotency-key': 'k1' }), r, VALID);
     expect(r.statusCode).toBe(202);
     expect(JSON.parse(r.body)).toEqual({ jobId: 'job-existing' });
@@ -175,7 +203,7 @@ describe('t/3581 — POST /api/inquiry', () => {
   });
 
   it('t/3724 — does NOT record inquiry.created when the request is rejected before starting a job', async () => {
-    h.running = 1; // 429 concurrency cap
+    h.capCount = 1; // 429 concurrency cap
     const r = res(); await post()(req('/api/inquiry'), r, VALID);
     expect(r.statusCode).toBe(429);
     expect(recordMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'inquiry.created' }));

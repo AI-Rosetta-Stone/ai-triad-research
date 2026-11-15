@@ -92,7 +92,7 @@ function Set-TaxEditorKnownGood {
     # ── Find previous known-good (for reporting) ─────────────────────────
     $PreviousKnownGood = '(none)'
     try {
-        $Images = @(Get-TaxEditorImage -Last 100 -Package $Package)
+        $Images = @(Get-TaxEditorImage -Tag 'known-good' -Package $Package)   # t/4966: not -Last, which misses older images
         $KnownGoodImages = @($Images | Where-Object { $_.IsKnownGood })
         if (@($KnownGoodImages).Count -gt 0) {
             $OtherTags = @($KnownGoodImages[0].Tags | Where-Object { $_ -ne 'known-good' })

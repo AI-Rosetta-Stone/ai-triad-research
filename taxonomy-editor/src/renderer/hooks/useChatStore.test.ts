@@ -428,6 +428,31 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().activeChatId).toBe('chat-keep');
     });
+
+    // t/93: it used to swallow this, so ChatTab's bulk dialog counted a failed delete as a success.
+    it('a failed delete rejects, records the error and sets chatError', async () => {
+      useChatStore.setState({ chatError: null, activeChatId: 'chat-x', activeChat: makeChatSession({ id: 'chat-x' }) as never });
+      mockRecord.mockClear();
+      mockApi.deleteChatSession.mockRejectedValueOnce(new Error('HTTP 500'));
+
+      await expect(useChatStore.getState().deleteChat('chat-x')).rejects.toThrow('HTTP 500');
+
+      expect(useChatStore.getState().chatError).toContain('Failed to delete chat');
+      expect(useChatStore.getState().activeChatId).toBe('chat-x');
+      expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'error', message: 'Failed to delete chat session' }));
+    });
+
+    it('a refresh failure after a successful delete WARNs and resolves (the chat is gone)', async () => {
+      useChatStore.setState({ chatError: null, activeChatId: 'chat-y', activeChat: makeChatSession({ id: 'chat-y' }) as never });
+      mockRecord.mockClear();
+      mockApi.listChatSessions.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(useChatStore.getState().deleteChat('chat-y')).resolves.toBeUndefined();
+
+      expect(useChatStore.getState().activeChatId).toBeNull();
+      expect(useChatStore.getState().chatError).toBeNull();
+      expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: expect.stringContaining('refreshing the session list failed') }));
+    });
   });
 
   describe('duplicate request guard (t/1453)', () => {
@@ -648,6 +673,54 @@ describe('useChatStore', () => {
       const last = useChatStore.getState().activeChat!.transcript.at(-1)!;
       expect('raw_prompt' in last).toBe(false);
       expect('raw_response' in last).toBe(false);
+    });
+  });
+
+  // t/169: the opening answer dropped rawFields, so every chat's first How panel was empty (t/165).
+  describe('generateOpening — How panel raw fields (t/169)', () => {
+    const raw = { raw_prompt: 'System: s | User: open', raw_response: '{"response":"hello"}' };
+    const withListener = () => {
+      (mockApi as Record<string, unknown>).onChatStreamGenerationContext = vi.fn((cb: (c: typeof raw) => void) => {
+        cb(raw);
+        return () => {};
+      });
+    };
+    const warned = () => mockRecord.mock.calls.some(([e]) => e.level === 'warn' && /onChatStreamGenerationContext/.test(e.message));
+    afterEach(() => { delete (mockApi as Record<string, unknown>).onChatStreamGenerationContext; });
+
+    it('stores the raw prompt and response on the opening entry and saves them', async () => {
+      withListener();
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      const opening = useChatStore.getState().activeChat!.transcript[0];
+      expect(opening).toMatchObject(raw);
+      const saved = mockApi.saveChatSession.mock.calls.at(-1)![0] as { transcript: Array<Record<string, unknown>> };
+      expect(saved.transcript[0]).toMatchObject(raw);
+    });
+
+    it('keeps the raw fields through a save/load round trip', async () => {
+      withListener();
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      const saved = mockApi.saveChatSession.mock.calls.at(-1)![0];
+      mockApi.loadChatSession.mockResolvedValueOnce(JSON.parse(JSON.stringify(saved)));
+      await useChatStore.getState().loadChat('chat-1');
+      expect(useChatStore.getState().activeChat!.transcript[0]).toMatchObject(raw);
+    });
+
+    it('records a WARN when the bridge has no generation-context listener, and adds no empty keys', async () => {
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      expect(warned()).toBe(true);
+      const opening = useChatStore.getState().activeChat!.transcript[0];
+      expect('raw_prompt' in opening).toBe(false);
+    });
+
+    it('does not WARN when the listener exists', async () => {
+      withListener();
+      useChatStore.setState({ activeChat: makeChatSession() as never });
+      await useChatStore.getState().generateOpening();
+      expect(warned()).toBe(false);
     });
   });
 });

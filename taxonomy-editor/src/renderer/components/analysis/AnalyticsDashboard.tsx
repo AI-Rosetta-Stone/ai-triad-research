@@ -133,6 +133,14 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
+/** Format duration in milliseconds as whole seconds for session event timeline (t/5012, Design t/337).
+ * Sub-second durations (0 < ms < 500) display as (<1s); exactly 0 displays as (0s). */
+export function fmtEventDurationSeconds(ms: number): string {
+  if (ms === 0) return '0s';
+  if (ms < 500) return '<1s';
+  return `${Math.round(ms / 1000)}s`;
+}
+
 function fmtNumber(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
@@ -430,7 +438,7 @@ function SessionExplorer({ from, to, selectedUser, categoryFilter }: {
                   {detailStr}
                 </span>
                 {evt.duration_ms != null && (
-                  <span className="adash-event-duration">({evt.duration_ms}ms)</span>
+                  <span className="adash-event-duration">({fmtEventDurationSeconds(evt.duration_ms)})</span>
                 )}
               </div>
             );
@@ -456,15 +464,7 @@ function ExclusionToggle({ label, title, active, onClick }: {
       disabled={!EXCLUSION_TOGGLES_ENABLED}
       title={title}
       aria-pressed={active}
-      className="adash-exclusion-btn"
-      /* eslint-disable-next-line local/no-inline-style -- dynamic: active/disabled colors, same pattern as preset/compare buttons above */
-      style={{
-        background: active ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
-        color: active ? '#fff' : 'var(--text-muted)',
-        border: `1px solid ${active ? 'transparent' : 'var(--border-color)'}`,
-        opacity: EXCLUSION_TOGGLES_ENABLED ? 1 : 0.5,
-        cursor: EXCLUSION_TOGGLES_ENABLED ? 'pointer' : 'not-allowed',
-      }}>
+      className="adash-chip adash-exclusion-btn">
       {label}
     </button>
   );
@@ -630,25 +630,15 @@ export function AnalyticsDashboard() {
         <div className="adash-preset-group">
           {(['1d', '7d', '30d', '90d'] as DatePreset[]).map(p => (
             <button key={p} onClick={() => { setPreset(p); setSelectedUser(null); setCategoryFilter(null); }}
-              className="adash-preset-btn"
-              /* eslint-disable-next-line local/no-inline-style -- dynamic: active-preset colors/border */
-              style={{
-                background: preset === p ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
-                color: preset === p ? '#fff' : 'var(--text-muted)',
-                border: `1px solid ${preset === p ? 'transparent' : 'var(--border-color)'}`,
-              }}>
+              aria-pressed={preset === p}
+              className="adash-chip adash-preset-btn">
               {p === '1d' ? 'Today' : `${p.replace('d', '')} days`}
             </button>
           ))}
           <button onClick={() => setCompare(c => !c)}
             title="Compare each metric with the previous period of equal length"
-            className="adash-compare-btn"
-            /* eslint-disable-next-line local/no-inline-style -- dynamic: active-compare colors/border */
-            style={{
-              background: compare ? 'var(--color-acc, #3b82f6)' : 'var(--bg-secondary)',
-              color: compare ? '#fff' : 'var(--text-muted)',
-              border: `1px solid ${compare ? 'transparent' : 'var(--border-color)'}`,
-            }}>
+            aria-pressed={compare}
+            className="adash-chip adash-compare-btn">
             vs. previous
           </button>
         </div>

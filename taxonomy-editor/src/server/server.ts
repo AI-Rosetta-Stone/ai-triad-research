@@ -26,6 +26,7 @@ import { startEmbedQueueDepthMonitor } from './embedQueueDepthMonitor.js';
 import { startGroundingSweep } from './groundingSweepScheduler.js';
 import { enforceReadOnlyGuard, getReadOnlyPrincipalEntries } from './readOnlyGuard.js';
 import { logUnreachableAllowlistEntriesAtBoot } from './identityAllowlistCheck.js';
+import { resolveAnalyticsBootPlan } from './analyticsBootConfig.js';
 
 const require = createRequire(import.meta.url);
 
@@ -373,6 +374,8 @@ function matchRoute(method: string, pathname: string): { handler: Handler; route
 type RawBodyReq = http.IncomingMessage & { __rawBody?: string; __rawBodyBuffer?: Buffer };
 
 const MAX_BODY_BYTES = 50 * 1024 * 1024; // 50 MB — debate sessions can reach 10+ MB at 14 rounds
+// t/274: routes that read their own capped stream. readBody would buffer the whole upload first, so these skip it.
+const STREAMED_BODY_ROUTES = new Set<string>(['/api/documents/extract']);
 
 async function readBody(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -954,7 +957,8 @@ async function dispatchMatchedRoute(req: http.IncomingMessage, res: http.ServerR
     return;
   }
   try {
-    const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method!) ? await readBody(req) : {};
+    const body = STREAMED_BODY_ROUTES.has(route.routePath) ? null
+      : ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method!) ? await readBody(req) : {};
     await route.handler(req, res, body);
   } catch (err) {
     getGlobalRecorder()?.record({
@@ -1423,14 +1427,18 @@ server.listen(PORT, BIND_HOST, () => {
 
   // Initialize analytics storage — uses Azure Append Blobs in container
   // deployments, local NDJSON files in Electron/dev.
-  const analyticsBlobUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  const analyticsContainer = process.env.AZURE_ANALYTICS_CONTAINER || 'analytics';
-  analytics.initAnalytics(
-    getStateRoot(), // t/2643: analytics NDJSON is class-A writable state — isolate the fs-fallback root by construction (not by AZURE_STORAGE_ACCOUNT_URL being set). No-op on prod (stateRoot===dataRoot).
-    analyticsBlobUrl ? { accountUrl: analyticsBlobUrl, container: analyticsContainer } : undefined,
-    // t/2704: reportStartupProbe logs "initialized" then probes the store, so a broken/empty pipeline is observable at boot (would have surfaced t/2699) instead of as a silent empty dashboard.
-  ).then(() => analytics.reportStartupProbe(analyticsBlobUrl ? 'azure-blob' : 'filesystem', analyticsContainer))
-    .catch((e) => { /* telemetry — silent by design */ log.analytics.warn({ err: e }, 'Analytics init failed'); });
+  // t/4954: no `|| 'analytics'` fallback in hosted mode — a missing AZURE_ANALYTICS_CONTAINER
+  // leaves analytics uninitialized (records no-op) instead of writing into prod's container.
+  const analyticsPlan = resolveAnalyticsBootPlan();
+  if (analyticsPlan.kind !== 'disabled') {
+    const analyticsContainer = analyticsPlan.kind === 'azure-blob' ? analyticsPlan.container : '';
+    analytics.initAnalytics(
+      getStateRoot(), // t/2643: analytics NDJSON is class-A writable state — isolate the fs-fallback root by construction (not by AZURE_STORAGE_ACCOUNT_URL being set). No-op on prod (stateRoot===dataRoot).
+      analyticsPlan.kind === 'azure-blob' ? { accountUrl: analyticsPlan.accountUrl, container: analyticsPlan.container } : undefined,
+      // t/2704: reportStartupProbe logs "initialized" then probes the store, so a broken/empty pipeline is observable at boot (would have surfaced t/2699) instead of as a silent empty dashboard.
+    ).then(() => analytics.reportStartupProbe(analyticsPlan.kind, analyticsContainer))
+      .catch((e) => { /* telemetry — silent by design */ log.analytics.warn({ err: e }, 'Analytics init failed'); });
+  }
 
   if (githubBackend) {
     // Initialize GitHubAPIBackend (token + cache check) AFTER health check is

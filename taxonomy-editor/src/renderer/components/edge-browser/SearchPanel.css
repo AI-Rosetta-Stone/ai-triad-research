@@ -201,13 +201,13 @@
 
 .search-panel-result-item.selected {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .search-panel-result-item.selected .search-panel-result-id,
 .search-panel-result-item.selected .search-panel-result-score,
 .search-panel-result-item.selected .search-panel-result-label {
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 
@@ -247,7 +247,7 @@
 
 .search-panel-result-label mark {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   padding: 0 2px;
   border-radius: var(--radius-sm);
 }

@@ -27,7 +27,13 @@ export interface UnreachableAllowlistEntry {
  */
 function adminUserUnreachableReason(name: string): string | null {
   if (!name.includes(':')) return 'bare entry with no idp: prefix; isAdminStableId never matches it (t/4328)';
-  if (!canProduceStableId(name)) return 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+  if (!canProduceStableId(name)) {
+    // t/47: say which shape was wrong — a login or a bare oid is the likely operator slip.
+    const idp = name.slice(0, name.indexOf(':')).toLowerCase();
+    if (idp === 'github') return 'github: id must be the numeric GitHub user id, not a login; no sign-in records this stableId';
+    if (idp === 'aad') return 'aad: id must be <tenant-guid>-<object-guid>; no sign-in records this stableId';
+    return 'idp-qualified, but no sign-in records this stableId (expected github:<id> or aad:<tid>-<oid>)';
+  }
   return null;
 }
 

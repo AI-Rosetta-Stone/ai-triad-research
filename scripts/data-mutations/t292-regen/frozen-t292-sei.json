@@ -1,0 +1,39 @@
+{
+  "ticket": "t/292 (regeneration after data fixes 1 and 2; TL p/37#76, p/37#81)",
+  "target": "ai-triad-data:taxonomy/Origin/source_evidence_index.json",
+  "operation": "whole-file replacement with the builder output; the builder is unchanged since t/290",
+  "writer": "scripts/build-evidence-index.py --data-root <clean export> --sources-root <clean export> --out <temp>",
+  "builder_commit": "636fb3842c7552a96d8563949a5d873c00104826",
+  "inputs": {
+    "data_commit": "b607a617",
+    "sources_commit": "9c1320cf",
+    "how": "git archive of each commit into an empty directory"
+  },
+  "hash_basis": "sha256-lf",
+  "pre_sha256": "cbcec02f5342f7ddf9ee5c344d22edb0365ae87b627c2a5f625e5e821d7ad2c0",
+  "candidate_sha256": "344c517d1e64098bff867ab048c964874a0ba303f050bb76c994fd7050b6d525",
+  "counts": {
+    "pre": {
+      "nodes": 998,
+      "facts": 5290,
+      "keyPoints": 11174,
+      "duplicate_groups": {
+        "facts": 7,
+        "keyPoints": 15
+      }
+    },
+    "candidate": {
+      "nodes": 998,
+      "facts": 5283,
+      "keyPoints": 11135,
+      "duplicate_groups": {
+        "facts": 0,
+        "keyPoints": 0
+      },
+      "nodes_changed": 14
+    }
+  },
+  "delta_explanation": "facts -7 and keyPoints -39 are exactly the duplicate entries t/290's SO found; the source data fixes are dad70009 (8 claims) and b607a617 (2 chunk summaries)",
+  "determinism": "two builds from the same exports are byte-identical",
+  "rollback": "git -C ai-triad-data revert <write commit>"
+}

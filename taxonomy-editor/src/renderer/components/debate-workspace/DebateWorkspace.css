@@ -19,7 +19,7 @@
   border-radius: 50%;
   border: none;
   background: var(--focus-ring, #e8a838);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   font-size: var(--text-xl);
   cursor: pointer;
   display: flex;
@@ -371,22 +371,6 @@
   white-space: nowrap;
 }
 
-/* t/4656: match the Text pane's statement body size (.debate-statement-content,
-   StatementCard.css) so the reading prose in Why/How is the same size as Text — only the
-   small meta (ids, chips, section headings) stays at --text-xs. */
-.debate-reasoning-label {
-  font-size: var(--text-md);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.debate-reasoning-text {
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-  line-height: 1.4;
-  font-style: italic;
-}
-
 /* ─── Debate Probing Questions ────────────────────────── */
 
 .debate-probing-questions {
@@ -410,7 +394,7 @@
 
 .debate-probing-question-btn:hover:not(:disabled) {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   border-color: var(--focus-ring);
 }
 

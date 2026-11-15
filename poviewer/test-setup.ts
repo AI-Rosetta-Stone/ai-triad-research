@@ -4,4 +4,4 @@
 // t/4462 (t/4454 Phase 1): WARN (DATA-ROOT-TEST-WRITE) on any poviewer test write under the real ai-triad-data.
 import { installDataRootGuard } from '../lib/test-support/dataRootGuard';
 
-installDataRootGuard({ mode: 'warn' });
+installDataRootGuard(); // lib default mode (warn today; t/162 flips it to block in one place)

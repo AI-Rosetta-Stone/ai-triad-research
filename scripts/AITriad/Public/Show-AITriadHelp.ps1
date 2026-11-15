@@ -171,6 +171,7 @@ function Show-AITriadHelp {
         'Switch-TaxEditorRevision' = 'Deployment & TaxEditor'; 'Get-TaxEditorBlob' = 'Deployment & TaxEditor'
         'Get-TaxEditorDataCommit' = 'Deployment & TaxEditor'; 'Restore-TaxEditorBlob' = 'Deployment & TaxEditor'
         'Restore-TaxEditorKnownGood' = 'Deployment & TaxEditor'; 'Set-TaxEditorKnownGood' = 'Deployment & TaxEditor'
+        'Set-TaxEditorPinnedTag' = 'Deployment & TaxEditor'
         'Sync-TaxEditorData' = 'Deployment & TaxEditor'; 'Undo-TaxEditorDataCommit' = 'Deployment & TaxEditor'
         'Reset-TaxEditorSession' = 'Deployment & TaxEditor'
 

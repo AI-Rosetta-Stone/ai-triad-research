@@ -586,8 +586,8 @@ def _default_embedder(texts):
     the dependency + model load only happen when the same-doc gate is actually used."""
     global _ST_MODEL
     if _ST_MODEL is None:
-        from sentence_transformers import SentenceTransformer  # lazy: heavy import, opt-in path only
-        _ST_MODEL = SentenceTransformer("all-MiniLM-L6-v2", trust_remote_code=False)
+        import embed_model_pins  # lazy: heavy import, opt-in path only. t/110: pinned revision
+        _ST_MODEL = embed_model_pins.load_sentence_transformer("all-MiniLM-L6-v2")
     return _ST_MODEL.encode(list(texts), normalize_embeddings=False)
 
 

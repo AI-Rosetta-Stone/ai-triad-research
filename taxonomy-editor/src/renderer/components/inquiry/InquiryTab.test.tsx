@@ -57,10 +57,15 @@ vi.mock('./InquiryAskPanel', () => ({
 vi.mock('./InquiryRunningPanel', () => ({ InquiryRunningPanel: () => <div>running-screen</div> }));
 vi.mock('./InquiryAnswerPanel', () => ({ InquiryAnswerPanel: () => <div>answer-screen</div> }));
 
+type FilterRow = { id: string; question?: string; title?: string };
 let capturedOnNew: (() => void) | undefined;
+let capturedFilter: ((rows: FilterRow[], q: string) => FilterRow[]) | undefined;
 vi.mock('../shared/LibraryListPage', () => ({
-  LibraryListPage: ({ config, intro }: { config: { onNew?: () => void }; intro?: React.ReactNode }) => {
+  LibraryListPage: ({ config, intro }: {
+    config: { onNew?: () => void; filter?: (rows: FilterRow[], q: string) => FilterRow[] }; intro?: React.ReactNode;
+  }) => {
     capturedOnNew = config.onNew;
+    capturedFilter = config.filter;
     return <div>list-screen{intro}</div>;
   },
 }));
@@ -166,5 +171,26 @@ describe('InquiryTab (t/4562, t/4666)', () => {
     const { unmount } = render(<InquiryTab />);
     unmount();
     expect(mockStopPolling).toHaveBeenCalled();
+  });
+
+  // t/84: search must match a renamed row's displayed title, and still its original question.
+  describe('search filter (t/84)', () => {
+    const renamed: FilterRow = { id: 'r1', question: 'Is AI hype outrunning evidence?', title: 'Hype vs. Evidence' };
+    const other: FilterRow = { id: 'r2', question: 'Will compute keep scaling?' };
+
+    it('finds a renamed row by a substring of its title, case-insensitively', () => {
+      render(<InquiryTab />);
+      expect(capturedFilter?.([renamed, other], 'hype VS')).toEqual([renamed]);
+    });
+
+    it('still finds a renamed row by a substring of its original question', () => {
+      render(<InquiryTab />);
+      expect(capturedFilter?.([renamed, other], 'outrunning')).toEqual([renamed]);
+    });
+
+    it('excludes a renamed row when neither title nor question matches', () => {
+      render(<InquiryTab />);
+      expect(capturedFilter?.([renamed, other], 'compute')).toEqual([other]);
+    });
   });
 });

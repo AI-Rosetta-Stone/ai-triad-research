@@ -100,6 +100,45 @@ describe('token-contrast checker — no false positives', () => {
   });
 });
 
+describe('token-contrast checker — detection gaps closed in t/143', () => {
+  it('measures a color-mix(…, transparent) tint instead of dropping it', () => {
+    const hits = contrastOn('.fx-mix-tint');
+    assert.ok(hits.length > 0, 'a transparent color-mix tint must be evaluated');
+    assert.ok(hits.every((f) => f.ratio > 1 && f.ratio < 4.5), 'composited like rgba(), not raw');
+  });
+
+  it('reports a color-mix it cannot resolve as unmeasured', () => {
+    assert.ok(
+      [...result.unmeasured].some((v) => v.includes('currentColor')),
+      'an unresolvable color-mix must be listed, not silently skipped',
+    );
+  });
+
+  it('composites a translucent chip over its filled ancestor, not the page', () => {
+    assert.equal(contrastOn('.fx-row .fx-chip').length, 0);
+  });
+
+  it('resolves a token from another root token sheet before the var() fallback', () => {
+    assert.ok(contrastOn('.fx-lib').length > 0, '--fx-lib-fill (light) must win over the dark fallback');
+  });
+
+  it('does not read a theme-scoped component rule as a token sheet', () => {
+    // lib-tokens.css sets --fill-light under `[data-theme="dark"] .fx-lib-scope`; if that leaked
+    // into the dark tokens, white over --fill-light would pass in dark.
+    assert.ok(contrastOn('.fx-fail-same-block').some((f) => f.theme === 'dark'));
+  });
+
+  it('treats a non-normalised stylesFile path as the stylesFile', () => {
+    const run = check({ rendererDir: FIXTURES, stylesFile: `${FIXTURES}/./theme-tokens.css` });
+    assert.equal(run.findings.length, result.findings.length);
+    assert.equal(
+      run.findings.filter((f) => f.selector === '.fx-styles-unannotated').length,
+      0,
+      'the stylesFile must still be excluded in default mode',
+    );
+  });
+});
+
 describe('token-contrast checker — annotated selectors in the stylesFile (t/2372)', () => {
   // CI runs the gate without --all, which excludes the stylesFile. An annotated
   // selector there (e.g. .field-help-btn) must still be evaluated; an unannotated

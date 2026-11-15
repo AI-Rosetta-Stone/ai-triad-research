@@ -20,7 +20,7 @@
 .overflow-menu__trigger--active {
   background: var(--bg-primary);
   border-bottom-color: var(--bg-primary);
-  color: var(--focus-ring, #f97316);
+  color: var(--info-text);
   z-index: 2;
   position: relative;
 }

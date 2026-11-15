@@ -7,7 +7,9 @@ has nothing to act on. This tests whether rerank helps once the bias is removed.
 
 Query = canonical_proposition (the field extract-then-match would match on).
 Pool = same POV + same BDI. Bi-encoder top-15, then the cross-encoder
-(cross-encoder/ms-marco-MiniLM-L-6-v2) reranks on "label: description".
+(cross-encoder/ms-marco-MiniLM-L6-v2, loaded at its pin via scripts/embed_model_pins.py, t/149)
+reranks on "label: description". The published results ran under the pre-rename id
+ms-marco-MiniLM-L-6-v2; same weights at the pinned commit 233902d2 (t/146).
 Reference = the LLM-assigned node (not gold; see retrieval_ceiling.py).
 Deterministic, so no replication gate (t/2306 reasoning).
 
@@ -18,9 +20,12 @@ import glob
 import json
 import os
 import re
+import sys
 
 import numpy as np
-from sentence_transformers import CrossEncoder, SentenceTransformer
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "scripts"))
+from embed_model_pins import load_cross_encoder, load_sentence_transformer  # noqa: E402
 
 POV_PREFIX = {"accelerationist": "acc", "safetyist": "saf", "skeptic": "skp"}
 NODE_RE = re.compile(r"^(acc|saf|skp)-(beliefs|desires|intentions)-\d+$")
@@ -60,11 +65,12 @@ def main():
                 if nid in idx and cp and nid in node_text:
                     items.append((POV_PREFIX[camp], str(kp.get("category") or "").lower(), nid, cp))
 
-    bi = SentenceTransformer(emb.get("model", "all-MiniLM-L6-v2"), trust_remote_code=False)
+    bi = load_sentence_transformer(emb.get("model", "all-MiniLM-L6-v2"))  # t/152: pinned revision
     q = bi.encode([it[3] for it in items], normalize_embeddings=True, batch_size=128,
                   show_progress_bar=False).astype(np.float32)
     sims = q @ node_mat.T
-    ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    ce = load_cross_encoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+    print(f"cross-encoder resolved_revision={ce.resolved_revision}", file=sys.stderr)
 
     bi_rank, ce_rank, in_top = [], [], 0
     pairs, spans = [], []

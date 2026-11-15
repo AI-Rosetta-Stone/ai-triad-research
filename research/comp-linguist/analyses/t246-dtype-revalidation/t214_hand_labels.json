@@ -1,0 +1,16 @@
+{
+  "_doc": "CL hand labels for the 9 t/214 backfill targets (sit-484, 485, 487-493; sit-486 excluded as PI-approved retirement). Offered as the source for the t/214 disagreement_type write while the classifier fails re-validation (t/246 runs 1 and 2). Labelled from description + per-POV summary, rubric §2 + §2.2, broad structural with the one-dissenting-camp guard (PI 2026-11-11). The corpus write still needs PI sign-off under /data-mutation.",
+  "data_origin_main": "06cfbb9f",
+  "provenance": "human-validated (CL hand label, rubric-anchored); not classifier output",
+  "labels": [
+    {"id": "sit-484", "disagreement_type": "interpretive", "confidence": "high", "why": "Shared object (AI proposes, humans select); split on its value and risks."},
+    {"id": "sit-485", "disagreement_type": "interpretive", "confidence": "high", "why": "acc and saf accept the loop and split on response; skeptic's deflation is single (same shape as seed sit-001)."},
+    {"id": "sit-487", "disagreement_type": "structural", "confidence": "high", "why": "The situation is the determinism frame; acc adopts it, while saf and skeptic reject inevitability framing as the wrong lens."},
+    {"id": "sit-488", "disagreement_type": "interpretive", "confidence": "high", "why": "Shared question of whether to reclassify incidents; split on the policy response."},
+    {"id": "sit-489", "disagreement_type": "interpretive", "confidence": "high", "why": "Shared mismatch; split on whether friction is a bottleneck or a safeguard."},
+    {"id": "sit-490", "disagreement_type": "interpretive", "confidence": "high", "why": "Shared legal form; split on conditions for supporting it."},
+    {"id": "sit-491", "disagreement_type": "structural", "confidence": "medium", "why": "saf adopts dignity-under-uncertainty as the governing lens; acc (premature anthropomorphism) and skeptic (smokescreen) reject it as the right frame."},
+    {"id": "sit-492", "disagreement_type": "interpretive", "confidence": "high", "why": "Shared phenomenon; split on resource vs harm vs exploitation."},
+    {"id": "sit-493", "disagreement_type": "interpretive", "confidence": "high", "why": "Shared rights question; split on how much to restrict."}
+  ]
+}

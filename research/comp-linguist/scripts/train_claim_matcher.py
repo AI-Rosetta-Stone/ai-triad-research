@@ -41,6 +41,8 @@ ARTIFACTS_DIR = REPO_ROOT.parent / "ai-triad-data" / "research-artifacts" / "com
 
 sys.path.insert(0, str(SCRIPT_DIR))
 from _model_release import LOCAL_MODEL_ROOT, report_release_steps  # noqa: E402
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from embed_model_pins import load_sentence_transformer  # noqa: E402  (t/152)
 
 MODEL_NAME = "all-MiniLM-L6-v2"
 
@@ -293,7 +295,8 @@ def main():
 
     # Load model
     log(f"Loading model {MODEL_NAME}...")
-    model = SentenceTransformer(MODEL_NAME)
+    model = load_sentence_transformer(MODEL_NAME)
+    print(f"base model resolved_revision={model.resolved_revision}", file=sys.stderr)
 
     # Build training examples
     log("Building training examples...")

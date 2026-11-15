@@ -55,8 +55,8 @@
   border-radius: 3px;
   font-size: var(--text-2xs);
   font-weight: 600;
-  background: color-mix(in srgb, var(--danger) 15%, transparent);
-  color: var(--danger);
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .det-muted-2xs {
@@ -153,7 +153,7 @@
 .det-skp-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-skp) 15%, transparent);
+  background: var(--color-skp-bg);
   color: var(--color-skp);
   font-size: var(--text-2xs);
   font-weight: 600;
@@ -211,8 +211,8 @@
   border-radius: 3px;
   font-size: var(--text-2xs);
   font-weight: 600;
-  background: color-mix(in srgb, var(--warning) 18%, transparent);
-  color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .det-primary-7-mb4 {
@@ -223,10 +223,10 @@
 
 .det-suppressed-reason {
   font-size: 0.7rem;
-  color: var(--warning);
+  color: var(--warning-text);
   padding: 5px 10px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  background: var(--warning-bg);
   margin-bottom: 4px;
   border-left: 3px solid var(--warning);
 }
@@ -251,7 +251,7 @@
   display: inline-block;
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-saf) 20%, transparent);
+  background: var(--color-saf-bg);
   color: var(--color-saf);
   font-size: 0.7rem;
   font-weight: 600;

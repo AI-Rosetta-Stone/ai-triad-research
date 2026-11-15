@@ -13,7 +13,11 @@ const POV_NODES = [
   { id: 'acc-beliefs-003', label: 'Chain start', description: 'merged twice', superseded_by: 'acc-beliefs-002' },
   { id: 'acc-beliefs-004', label: 'Plain', description: 'kept' },
 ];
-const SIT_NODES = [{ id: 'cc-001', label: 'Situation', description: 'kept' }];
+const SIT_NODES = [
+  { id: 'cc-001', label: 'Situation', description: 'kept' },
+  // t/219: a superseded situation — loadTaxonomy drops it, so the corpus must too.
+  { id: 'cc-002', label: 'Retired situation', description: 'merged', superseded_by: 'cc-001' },
+];
 
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: vi.fn(async (pov: string) => (pov === 'situations' ? { nodes: SIT_NODES } : { nodes: POV_NODES })),
@@ -43,8 +47,10 @@ describe('getAssembledCorpus — selectable POV set only (t/4433)', () => {
     expect(corpus.allNodeIds).not.toContain('acc-beliefs-003');
   });
 
-  it('leaves situation nodes untouched', async () => {
+  it('t/219: drops a superseded situation and keeps the live one, matching loadTaxonomy', async () => {
     const corpus = await getAssembledCorpus('accelerationist');
     expect(corpus.situationNodes.map(n => n.id)).toEqual(['cc-001']);
+    expect(corpus.allNodeIds).not.toContain('cc-002');
+    expect(corpus.nodeEmbeddings).not.toHaveProperty('cc-002');
   });
 });

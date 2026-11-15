@@ -8,7 +8,7 @@
 // asserted here; a new unclassified status is a COMPILE error at this single site.
 
 import { describe, it, expect } from 'vitest';
-import { isTerminalStatus, deriveTruncation, TRUNCATION_REASONS } from './jobStatus.js';
+import { isTerminalStatus, deriveTruncation, TRUNCATION_REASONS, advanceStageTimings } from './jobStatus.js';
 import type { InquiryResult } from './schema.js';
 
 /** Minimal InquiryResult carrying only the calibration trust states deriveTruncation reads. */
@@ -57,5 +57,50 @@ describe('deriveTruncation', () => {
 
   it('returns not-truncated for an empty calibration array', () => {
     expect(deriveTruncation(resultWithTrust([]))).toEqual({ truncated: false });
+  });
+});
+
+describe('advanceStageTimings', () => {
+  function newTimings() {
+    return {
+      grounding: {},
+      debating: {},
+      judging: {},
+      synthesizing: {},
+    };
+  }
+
+  it('records startedAt when entering the first stage from queued', () => {
+    const timings = newTimings();
+    advanceStageTimings(timings, undefined, 'grounding', 1000);
+    expect(timings.grounding.startedAt).toBe(1000);
+    expect(timings.grounding.endedAt).toBeUndefined();
+    expect(timings.debating.startedAt).toBeUndefined();
+  });
+
+  it('records endedAt on prev stage and startedAt on next stage when advancing', () => {
+    const timings = newTimings();
+    advanceStageTimings(timings, undefined, 'grounding', 1000);
+    advanceStageTimings(timings, 'grounding', 'debating', 2000);
+    expect(timings.grounding.endedAt).toBe(2000);
+    expect(timings.debating.startedAt).toBe(2000);
+  });
+
+  it('advances through all four stages correctly', () => {
+    const timings = newTimings();
+    advanceStageTimings(timings, undefined, 'grounding', 1000);
+    advanceStageTimings(timings, 'grounding', 'debating', 2000);
+    advanceStageTimings(timings, 'debating', 'judging', 3000);
+    advanceStageTimings(timings, 'judging', 'synthesizing', 4000);
+    expect(timings.grounding).toEqual({ startedAt: 1000, endedAt: 2000 });
+    expect(timings.debating).toEqual({ startedAt: 2000, endedAt: 3000 });
+    expect(timings.judging).toEqual({ startedAt: 3000, endedAt: 4000 });
+    expect(timings.synthesizing).toEqual({ startedAt: 4000 });
+  });
+
+  it('returns the updated timings object', () => {
+    const timings = newTimings();
+    const result = advanceStageTimings(timings, undefined, 'grounding', 1000);
+    expect(result).toBe(timings);
   });
 });

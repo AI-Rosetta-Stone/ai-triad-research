@@ -93,13 +93,13 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #81 | [Build] | `/land-from-worktree` Sync-Back Leaves Files Staged in the Shared Index — Manufactures ADR-005 Sweep-Bait | lines 1879-1896 |
 | #82 | [Process] | Rule-Exists-But-Not-Applied — a Point-of-Use Failure Class (not a coverage gap) | lines 1897-1922 |
 | #83 | [Build] | Commit-by-Pathspec Is File-Granular — In a Live Working Tree It Sweeps Foreign HUNKS Inside Your File (ADR-005 Insufficient) | lines 1923-1942 |
-| #84 | [Process] | Background-Task Gate Wrapper Swallows the Real Exit Code — False-Green from `&& echo PASS || echo FAIL` | lines 1943-1961 |
+| #84 | [Process] | Background-Task Gate Wrapper Swallows the Real Exit Code — False-Green from `&& echo PASS \|\| echo FAIL` | lines 1943-1961 |
 | #85 | [Process] | Stale Barrel-Path Citations After ADR-007 Splits Fail SILENTLY (grep-empty, never a broken build) | lines 1962-1980 |
 | #86 | [Process] | win32 "Task Stopped" Kills the Wrapper, Not Detached Child Trees — Relaunch Races a Surviving Writer | lines 1981-1999 |
 | #87 | [Build] | `npm run build` Exits Non-Zero on an Interactive Prompt in a Non-Essential Trailing Step (No TTY) | lines 2000-2018 |
 | #88 | [Build] | Local `npm run verify` Hangs on a LIVE AI Backend When Keys Are Set — Keyless CI Never Hits It | lines 2019-2037 |
 | #89 | [Process] | Subagent "Completed" Is Process-Bookkeeping, Not Deliverable-Existence — Verify Artifacts Independently | lines 2038-2056 |
-| #90 | [Process] | `verify | tail` (Any Pipe) Masks the Real Exit Code — Silent False-Green at the Primary Gate | lines 2057-2078 |
+| #90 | [Process] | `verify \| tail` (Any Pipe) Masks the Real Exit Code — Silent False-Green at the Primary Gate | lines 2057-2078 |
 | #91 | [Process] | Flaky Shared Gate (lib/debate Suite) Generates False-Reds — Triage WHICH Files Before Assuming a Regression | lines 2079-2097 |
 | #92 | [Data] | File-Type Discrimination by Presence-of-a-Key Admits Look-Alikes — Gate on the CONTRACT, Not the Key | lines 2098-2116 |
 | #93 | [Process] | Shared Local-Main Reconcile (Hard-Reset to origin) Wipes ALL Agents' Local-Only Commits — Recover From reflog, Don't Trust the Reverted Tree | lines 2117-2142 |
@@ -141,7 +141,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #186 | [Process] | Glob False-Negative (Possible cwd Mismatch) Misread as "File Doesn't Exist" → Write Silently Clobbers Tracked File | lines 2905-2927 |
 | #187 | [Process] | `gh pr merge` "Not Mergeable" — main Advanced While PR Was Open; Update Branch and Re-Push | lines 2928-2948 |
 | #188 | [Build] | `git merge --continue --no-edit` Fails — `--no-edit` Is Not a Valid Flag for `git merge --continue`; Use `GIT_EDITOR=true git merge --continue` | lines 2949-2968 |
-| #189 | [Build] | `gh api … | base64 -d` — API Error JSON Surfaces as Decoder Error, Pointing at the Wrong Stage; Validate First with `--jq .content` | lines 2969-2996 |
+| #189 | [Build] | `gh api … \| base64 -d` — API Error JSON Surfaces as Decoder Error, Pointing at the Wrong Stage; Validate First with `--jq .content` | lines 2969-2996 |
 | #190 | [Process] | `git log` Is Newest-First — A Consecutive-Commit Delta Loop Computes Deltas in Reverse; Additions Read as Deletions | lines 2997-3018 |
 | #118 | [Build] | A Platform Feature Can Be AVAILABLE While a Specific MODE/Tier of It Is Plan-Gated — Verify the Exact MODE Empirically Before Designing Around It | lines 3019-3039 |
 | #119 | [Build] | A Build-Only Container CI Gate Never RUNS the Image — a Startup/Readiness Crash Passes Green (build ≠ runs); P1 Prod Outage | lines 3040-3065 |
@@ -206,7 +206,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #203 | [Build] | `GIT_DIR` Exported by Git to Hooks Overrides `-C` — Cross-Repo Calls Silently Read the Wrong Repo | lines 4343-4363 |
 | #204 | [Build] | `git worktree add` Fails on Stale Directory or Stale Branch — Two Separate Failures, Same Recreate Path | lines 4364-4383 |
 | #205 | [Build] | GitHub PR API Lags a Push by Seconds — `headRefOid` Stale Immediately After Push | lines 4384-4402 |
-| #206 | [Build] | `||`-Fallback Short-Circuits When Primary Succeeds — Reader Uses Fallback Path That Was Never Written | lines 4403-4420 |
+| #206 | [Build] | `\|\|`-Fallback Short-Circuits When Primary Succeeds — Reader Uses Fallback Path That Was Never Written | lines 4403-4420 |
 | #207 | [Process] | Draft + Ticket-Relation Blockers Is Not a Gate — `consult-hold` Required for Any Cross-Ticket Hold | lines 4421-4448 |
 | #208 | [Build] | Two Git/Windows Path Traps: `core.quotePath` Escapes Non-ASCII, and 269-Char Paths Exceed MAX_PATH | lines 4449-4466 |
 | #209 | [Test] | Test Pins "Today's" Config Contents — Rots When the Next Config Lands | lines 4467-4484 |
@@ -350,7 +350,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #358 | [Build] | `xargs` Exits 123 When a Sub-Invocation Returns Non-Zero — Informational When the Sub-Command Is `grep` | lines 7344-7363 |
 | #359 | [Build] | `find … -maxdepth N -iname … -o -iname …` Without Grouping Parens Produces a Malformed Expression — Use `\( … \)` or Two Separate `find` Calls | lines 7364-7383 |
 | #360 | [Research] | Over-Broad Quoted-String Regex Matches Windows Paths — Anchor Extraction Patterns to the ID Shape | lines 7384-7403 |
-| #361 | [Process] | `gh pr create` Partial Success — PR Created but Flags (--body-file, --reviewer) Not Applied; `|| true` Masks the Failure | lines 7404-7424 |
+| #361 | [Process] | `gh pr create` Partial Success — PR Created but Flags (--body-file, --reviewer) Not Applied; `\|\| true` Masks the Failure | lines 7404-7424 |
 | #362 | [Build] | `sed` Range Terminator on Exact Heading Literal Overruns When Heading Has Annotations — Use Prefix Match | lines 7425-7444 |
 | #363 | [Build] | Script Exit 1 From Benign Child-Process Stderr Noise Does Not Invalidate Complete Output — Verify Content, Not Just Exit Code | lines 7445-7464 |
 | #364 | [Research] | `None` Field Value Before `in` Check Raises `TypeError: argument of type 'NoneType' is not iterable` — Guard With `or ''` | lines 7465-7484 |
@@ -396,7 +396,7 @@ One line per entry in `docs/LessonsLearned.md`. Do not open that file whole (abo
 | #404 | [Process] | A `grep -qv <sentinel>` Poll Loop False-Positives on Any Output Not Containing the Sentinel — Including Transient Garbage, Not Just a Real Value | lines 8292-8310 |
 | #405 | [Process] | A `gh pr view --jq .mergedAt` Poll Compared Against the String `"null"` in Bash Is Unreliable — Mechanism Unverified, Distinct From #404 | lines 8311-8328 |
 | #406 | [Environment] | PowerShell 7 Dropped Off the Bash PATH (and in One Case the PowerShell Tool Itself) Mid-Session, Correlated With an Account/Login Switch — PI-Only Fix | lines 8329-8350 |
-| #407 | [Build] | Chaining Two Separate `pwsh -Command` Invocations Across Bash's `|` Misparses the Second Command's Leading Pipe | lines 8351-8370 |
+| #407 | [Build] | Chaining Two Separate `pwsh -Command` Invocations Across Bash's `\|` Misparses the Second Command's Leading Pipe | lines 8351-8370 |
 | #408 | [Process] | `gh pr merge --auto --squash --match-head-commit` on a Merge-Queue-Protected Branch Doesn't Reliably Confirm Its Own Enqueue — Verify via GraphQL, Don't Trust the CLI's Apparent Effect | lines 8371-8390 |
 | #409 | [Build] | `git branch -d` Refuses a Squash-Merged Branch as "Not Fully Merged" Even Though Its Content Landed | lines 8391-8408 |
 | #410 | [Build] | `gh pr diff` Does Not Accept a Pathspec Argument — Unlike `git diff` | lines 8409-8425 |

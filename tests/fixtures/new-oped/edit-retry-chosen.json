@@ -40,7 +40,7 @@
     {
       "call": "ai",
       "kind": "edit",
-      "prompt": "<<op-ed-readability-edit @ oped/prompts>>\n{{BODY}}=Frontier laboratories keep shipping larger systems while regulators wait for evidence that only arrives after the damage is done and the public is left to absorb the costs of a gamble it never agreed to take on behalf of companies that profit from speed.\n\nWe should require independent audits before release.\n{{VIOLATIONS}}=Flesch-Kincaid grade: 13.8 (target: no higher than 8)\nLongest paragraph: 44 words (target: at most ~40 words)\nLongest sentence: 44 words (target: no sentence over 20 words)",
+      "prompt": "<<op-ed-readability-edit @ oped/prompts>>\n{{BODY}}=Frontier laboratories keep shipping larger systems while regulators wait for evidence that only arrives after the damage is done and the public is left to absorb the costs of a gamble it never agreed to take on behalf of companies that profit from speed.\n\nWe should require independent audits before release.\n{{FK_MAX}}=8\n{{MAX_PARA_WORDS}}=40\n{{MAX_SENT_WORDS}}=20\n{{STYLE_JARGON}}=precise\n{{STYLE_PARAGRAPH}}=up to 120\n{{STYLE_SENTENCE}}=disciplined\n{{VIOLATIONS}}=Flesch-Kincaid grade: 13.8 (target: no higher than 8)\nLongest paragraph: 44 words (target: at most ~40 words)\nLongest sentence: 44 words (target: no sentence over 20 words)",
       "system": null,
       "model": "gemini-3.7-flash",
       "temperature": 0.3,
@@ -69,7 +69,7 @@
     {
       "call": "ai",
       "kind": "edit",
-      "prompt": "<<op-ed-readability-edit @ oped/prompts>>\n{{BODY}}=Frontier laboratories keep shipping larger systems while regulators wait for evidence that only arrives after the damage is done and the public is left to absorb the costs of a gamble it never agreed to take on behalf of companies that profit from speed.\n\nWe should require independent audits before release.\n{{VIOLATIONS}}=Flesch-Kincaid grade: 13.8 (target: no higher than 8)\nLongest paragraph: 44 words (target: at most ~40 words)\nLongest sentence: 44 words (target: no sentence over 20 words)",
+      "prompt": "<<op-ed-readability-edit @ oped/prompts>>\n{{BODY}}=Frontier laboratories keep shipping larger systems while regulators wait for evidence that only arrives after the damage is done and the public is left to absorb the costs of a gamble it never agreed to take on behalf of companies that profit from speed.\n\nWe should require independent audits before release.\n{{FK_MAX}}=8\n{{MAX_PARA_WORDS}}=40\n{{MAX_SENT_WORDS}}=20\n{{STYLE_JARGON}}=precise\n{{STYLE_PARAGRAPH}}=up to 120\n{{STYLE_SENTENCE}}=disciplined\n{{VIOLATIONS}}=Flesch-Kincaid grade: 13.8 (target: no higher than 8)\nLongest paragraph: 44 words (target: at most ~40 words)\nLongest sentence: 44 words (target: no sentence over 20 words)",
       "system": null,
       "model": "gemini-3.7-flash",
       "temperature": 0.2,

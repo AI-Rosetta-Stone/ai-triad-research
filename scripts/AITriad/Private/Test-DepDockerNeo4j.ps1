@@ -16,7 +16,10 @@ function Test-DepDockerNeo4j {
         [Parameter(Mandatory)][string]$Platform
     )
 
-    Write-DepSection 'DOCKER & NEO4J (optional — graph database)'
+    # Orca t/4757 (t/206): Docker is REQUIRED for the Taxonomy Editor container (Show-TaxonomyEditor container
+    # mode) and only optional for the Neo4j graph database; the old "optional — graph database" label told a
+    # container-only user they could skip it.
+    Write-DepSection 'DOCKER & NEO4J (Docker required for the Taxonomy Editor container; optional if only using Neo4j)'
 
     # NEO4J_URI pointing at a non-local host means Neo4j is managed externally
     # (e.g. a sibling `neo4j` container via docker compose) — same signal

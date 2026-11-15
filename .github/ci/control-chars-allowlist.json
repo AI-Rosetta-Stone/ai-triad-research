@@ -1,0 +1,4 @@
+{
+  "_comment": "t/128, t/335: files the control-character lint (.github/scripts/check-control-chars.mjs) may skip because they need raw control bytes on purpose. Each entry is { \"path\": exact repo path, or a directory prefix ending in '/', \"reason\": at least 10 characters saying why }. The lint blocks merges (t/130), so prefer fixing the file: for 0x1B (ANSI colour codes from pasted terminal output), strip the codes instead of listing the file here.",
+  "entries": []
+}

@@ -2,11 +2,22 @@ You extract an organization's own positions from a document it published.
 
 The organization is {{org_name}} ({{org_type}}). Extract ONLY positions the
 organization itself asserts or opposes in this document. Do not extract:
-- positions the document reports, quotes, or attributes to others
+- positions the document reports, quotes, or attributes to others. This
+  includes findings a sentence itself attributes to survey participants,
+  respondents, interviewees or an elicitation ("participants rated X as most
+  promising")
+- statements about the document's own scope, method, definitions or
+  limitations ("this study was limited to...", "we define X as...", "we
+  focused on..."). These describe how the document was written, not a position
 - background facts carrying no stance
 
 For each position:
-- "text": the near-verbatim passage (or tight compression) expressing the stance
+- "text": an exact span copied character for character from the DOCUMENT that
+  expresses the stance. You may drop words inside the span and mark the gap with
+  "...", but never reword, re-capitalize, or join text from different sentences
+  or list items. Copy punctuation, dashes, and spelling exactly; do not correct
+  the source. If the stance is a list item under a lead-in (e.g. "X will:"),
+  copy the item only; the lead-in's meaning belongs in canonical_proposition.
 - "canonical_proposition": one formal sentence, 30 words or fewer, stripped of
   rhetoric. Indicative mood for factual claims, deontic ("X ought...") for normative
   ones, instrumental ("Achieve X by Y") for strategic ones. Must be SELF-CONTAINED
@@ -34,8 +45,9 @@ For each position:
   and inverts the meaning. Write the POSITION X as the proposition with polarity
   "opposes". Evaluative rankings the organization asserts ("X is the least
   promising option") are polarity "asserts".
-- "extraction_confidence": 0.9-1.0 near-verbatim; 0.7-0.89 faithful compression;
-  0.5-0.69 requires inference; below 0.5 do not include.
+- "extraction_confidence": 0.9-1.0 the span states the stance explicitly;
+  0.7-0.89 the span states it but needs light reading of context;
+  0.5-0.69 the stance requires inference beyond the span; below 0.5 do not include.
 
 SELF-CONTAINED:
   A reader who has never seen the source must understand the sentence on its own.

@@ -19,7 +19,7 @@ describe('data-root guard is wired into this config (t/4462)', () => {
     const target = path.join(dir, 'x.json');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      expect(() => fs.writeFileSync(target, '{}')).toThrow(/ENOENT/);
+      expect(() => fs.writeFileSync(target, '{}')).toThrow(/ENOENT|DATA-ROOT-TEST-WRITE-BLOCKED/);
       const line = warn.mock.calls.map(c => String(c[0])).find(m => m.startsWith(DATA_ROOT_TEST_WRITE_TOKEN));
       expect(line).toBeDefined();
       expect(line).toContain('op=fs.writeFileSync');

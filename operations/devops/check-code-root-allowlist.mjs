@@ -18,7 +18,7 @@
  *      must not be able to narrow the allowlist to exempt its own stray root by editing a file
  *      that this check would otherwise read from its own head.
  */
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
@@ -26,20 +26,30 @@ import {
   extractRootOption, resolveIncludeGlobs,
 } from './code-root-allowlist-predicate.mjs';
 
-const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+
+const SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+function validateSha(sha) {
+  if (!SHA_PATTERN.test(sha)) {
+    throw new Error(`Invalid SHA format: ${sha}`);
+  }
+  return sha;
+}
 
 function resolveBaseSha() {
-  if (process.env.BASE_SHA) return process.env.BASE_SHA;
-  execSync('git fetch origin main', { cwd: repoRoot, stdio: 'pipe' });
-  return execSync('git rev-parse origin/main', { cwd: repoRoot, encoding: 'utf8' }).trim();
+  if (process.env.BASE_SHA) return validateSha(process.env.BASE_SHA);
+  execFileSync('git', ['fetch', 'origin', 'main'], { cwd: repoRoot, stdio: 'pipe' });
+  const sha = execFileSync('git', ['rev-parse', 'origin/main'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+  return validateSha(sha);
 }
 
 const baseSha = resolveBaseSha();
 
-const allowlistRoots = execSync(`git ls-tree -d --name-only ${baseSha}`, { cwd: repoRoot, encoding: 'utf8' })
+const allowlistRoots = execFileSync('git', ['ls-tree', '-d', '--name-only', baseSha], { cwd: repoRoot, encoding: 'utf8' })
   .split('\n').map((l) => l.trim()).filter(Boolean);
 
-const changedPaths = execSync(`git diff --name-only --diff-filter=ACMR ${baseSha}...HEAD`, { cwd: repoRoot, encoding: 'utf8' })
+const changedPaths = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', `${baseSha}...HEAD`], { cwd: repoRoot, encoding: 'utf8' })
   .split('\n').map((l) => l.trim()).filter(Boolean);
 
 // ── Arm 1: root allowlist ──

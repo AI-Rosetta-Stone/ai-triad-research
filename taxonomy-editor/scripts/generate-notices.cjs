@@ -209,6 +209,10 @@ function main() {
   //   @img/sharp-libvips-*  → LGPL-3.0-or-later  (libvips native C library)
   //   @img/sharp-*          → Apache-2.0           (sharp platform binary shim)
   const SHARP_RE = /^@img\/sharp-/;
+  // @napi-rs/canvas is an optional native-binary family (pulled by pdfjs-dist's optionalDependencies).
+  // Normalized the same way as sharp, so the notices don't depend on which platform generated them (t/273).
+  // License: MIT for every variant.
+  const CANVAS_RE = /^@napi-rs\/canvas/;
   // Pre-populate spdxTextCache from installed packages before stripping sharp.
   // Apache-2.0 is always available via sharp@0.35.x (installed on every OS).
   // LGPL-3.0-or-later falls back to the SPDX identifier when libvips is not
@@ -272,7 +276,7 @@ function main() {
       if (inPkgs && curPkg && isRestricted) platformIds.add(curPkg);
       const unexpected = unique.filter(r => {
         const name = r.id.lastIndexOf('@') > 0 ? r.id.slice(0, r.id.lastIndexOf('@')) : r.id;
-        return platformIds.has(r.id) && !SHARP_RE.test(name);
+        return platformIds.has(r.id) && !SHARP_RE.test(name) && !CANVAS_RE.test(name);
       });
       if (unexpected.length > 0) {
         console.error(`generate-notices: platform-specific prod dep(s) outside the @img/sharp-* ` +
@@ -292,10 +296,20 @@ function main() {
         sharpAll.push({ id, dir: '', spdx });
       }
     }
+    // Same for every @napi-rs/canvas variant in the lock (all MIT).
+    const canvasRe = /^\s+'(@napi-rs\/canvas[^']*)@([^']+)':/gm;
+    const seenCanvas = new Set();
+    while ((m = canvasRe.exec(lockContent)) !== null) {
+      const id = `${m[1]}@${m[2]}`;
+      if (!seenCanvas.has(id)) {
+        seenCanvas.add(id);
+        sharpAll.push({ id, dir: '', spdx: 'MIT' });
+      }
+    }
   }
-  // Replace platform-installed @img/sharp-* with the canonical cross-platform set.
+  // Replace platform-installed @img/sharp-* and @napi-rs/canvas-* with the canonical cross-platform set.
   const resolvedRows = sharpAll.length > 0
-    ? [...unique.filter(r => !SHARP_RE.test(r.id)), ...sharpAll]
+    ? [...unique.filter(r => !SHARP_RE.test(r.id) && !CANVAS_RE.test(r.id)), ...sharpAll]
     : unique;
 
   // Group packages that share identical license text into one block.

@@ -66,8 +66,9 @@ def build():
     manifest = {
         "_doc": "t/3350 demotion-set manifest (t/3633). The genuine-conflict gate in "
                 "consolidate_conflicts.py keys against this so a regen never re-emits these "
-                "432 standalone facts as conflicts. A candidate matching a claim_id OR an "
-                "assertion_sig here is emitted demoted, not as a conflict. Built by "
+                "432 standalone facts as conflicts. A single-instance candidate matching a "
+                "claim_id OR an assertion_sig here is emitted demoted, not as a conflict; a "
+                "multi-instance candidate is never demoted (README, AC4). Built by "
                 "build_demotion_manifest.py from the live conflicts.json markers.",
         "provenance": {"data_of_record": DATA_OF_RECORD, "ticket": "t/3350", "classification": "t/3339#6",
                        "reason": DEMOTION_REASON, "gate_ticket": "t/3633"},

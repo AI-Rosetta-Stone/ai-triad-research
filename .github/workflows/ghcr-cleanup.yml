@@ -2,7 +2,8 @@
 # What:  Deletes untagged container images older than 30 days from GHCR to
 #        control storage costs. Keeps the 5 most recent untagged images.
 # Before: Runs weekly on Sunday at 04:00 UTC or manually. No prerequisites.
-# After:  Old untagged images are deleted. Tagged images (releases) are preserved.
+# After:  Old untagged images are deleted. Tagged images (releases) are preserved, and so
+#         are known-good and the untagged child manifests of every tagged index (t/4966).
 
 name: GHCR Cleanup
 
@@ -37,6 +38,7 @@ jobs:
           $Result = Remove-StaleContainerImages -Owner "${{ env.OWNER }}" -Package "${{ matrix.package }}" -OlderThanDays 30 -KeepLatest 5 -Confirm:$false
           $Result
           if ($Result.Failures.Count -gt 0) {
-            Write-Host "::warning::$($Result.Failures.Count) version(s) failed to delete (may require admin scope)"
+            Write-Host "::warning::$($Result.Failures.Count) failure(s): $($Result.Failures -join ' | ')"
           }
+          Write-Host "Protected (known-good or a tagged index's child): $($Result.ProtectedCount)"
           Write-Host "Done — deleted $($Result.DeletedCount) untagged versions"

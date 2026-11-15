@@ -1,0 +1,244 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`readability-edit prompt follows the outlet (t/202) > ForeignAffairs: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > Generic: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > NYTimes: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > Politico: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > Regional: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > TechPolicyPress: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 16.
+- Sentences: no sentence over 40 words. House style: average under ~24 words; no sentence over 40 words. Vary length; after a long sentence, a short one. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~120 words. House style: at most ~120 words per paragraph. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Use the precise policy/technical vocabulary your expert audience expects; define only genuinely obscure terms. Do NOT flatten specialized terms into lay paraphrase.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > USAToday: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > WallStreetJournal: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;
+
+exports[`readability-edit prompt follows the outlet (t/202) > WashingtonPost: its own targets and house style, no unfilled slot 1`] = `
+"You are a newspaper copy editor preparing a guest op-ed for publication. The argument, the author's voice, and every fact are FINAL and correct. Your ONLY job is to make the piece easy to read and easy to follow at the reading level this outlet targets, WITHOUT changing what it argues or how it sounds.
+
+THE DRAFT:
+BODY
+
+MEASURED PROBLEMS TO FIX (these are the specific reasons it reads as too dense):
+VIOLATIONS
+
+RULES FOR YOUR EDIT (this outlet's targets):
+- Reading level: Flesch-Kincaid grade no higher than 11.
+- Sentences: no sentence over 30 words. House style: average under 18 words per sentence; NO sentence over 30 words. One idea per sentence. When a sentence carries two or three claims, split it into two or three sentences. Long, clause-chained sentences are the main reason these essays read as hard. When a sentence carries two or three claims, split it into separate sentences. This is the main fix.
+- Paragraphs: no paragraph over ~90 words. House style: at most four sentences AND at most ~90 words per paragraph. The word cap matters as much as the sentence count, four long sentences is still a wall. Break a longer paragraph in two. Split long paragraphs at a natural break; give each resulting paragraph one point.
+- Coherence: each paragraph makes ONE point. Every back-reference ("that number," "this shift," "such measures") must point to something already stated earlier; if it dangles, name the thing.
+- Vocabulary: Eliminate jargon and specialized acronyms. Translate every technical term into plain language without losing its meaning (e.g., "new governmental restrictions," not "legislative encroachment"; "federal engineers," not "USACE"). If a term is not universally understood by a general reader, replace it. Avoid abstract-noun pileups ("sociotechnical complexity reduced to a frictionless slogan"); say it plainly.
+
+HARD CONSTRAINTS (violating any of these is worse than leaving the draft as-is):
+- Do NOT change the argument, the thesis, the stance, or any claim.
+- Do NOT change any fact, number, name, quote, or the piece's point of view / voice. Keep the author's distinctive phrasing and rhetorical moves.
+- Do NOT add or remove evidence. Do NOT introduce transitions like "Furthermore," "Moreover," "In conclusion," "Ultimately," or "It is important to note."
+- Preserve every reference to a source or a named entity exactly.
+- Keep the length within about 10% of the original word count. Splitting sentences and paragraphs does not mean cutting content.
+
+Return ONLY a JSON object: { "body_markdown": "<the edited essay>", "changed": <true|false>, "edit_notes": "<one sentence on what you changed>" }. If the draft already meets the rules, return it unchanged with "changed": false.
+"
+`;

@@ -68,7 +68,7 @@
 
 .debate-source-similar-item.active {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 .debate-source-similar-score {
@@ -91,7 +91,7 @@
 
 .debate-source-highlight.active {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   padding: 0 2px;
   border-radius: var(--radius-sm);
 }

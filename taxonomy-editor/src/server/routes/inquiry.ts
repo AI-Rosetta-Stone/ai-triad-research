@@ -30,6 +30,11 @@ import {
   findIdempotentInquiryJob, deriveTruncation, markJobFailedIfStale, buildPollView, isTerminalStatus,
   MAX_CONCURRENT_INQUIRY_JOBS, type InquiryJob, type InquiryPollProjection,
 } from '../inquiryJobs.js';
+import { findRunningJobByIdempotencyKey, slotHolderLiveness, withSubmissionLock } from '../storage/jobCapChecker.js';
+import { claimJobSlot, releaseJobSlot } from '../storage/jobSlots.js';
+import { getInquiryJobsDir } from '../storage/inquiryJobStore.js';
+import { getUserContentBackend } from '../storage/fileIO.js';
+import { randomUUID } from 'crypto';
 import { loadInquiryResult, listInquiryResults, renameInquiryResult, deleteInquiryResult } from '../storage/inquiryResultStore.js';
 import { publishInquiryShare, unpublishInquiryShare } from '../storage/inquiryShareStore.js';
 import { isSafeId } from '../storage/fileIO.js';
@@ -108,23 +113,47 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
       const userId = getStorageUserId();
       const idempotencyKey = idempotencyKeyOf(req);
 
-      // Idempotency: an in-window job for the same (user, key) returns its jobId (no second run).
-      const existing = findIdempotentInquiryJob(userId, idempotencyKey);
-      if (existing) { json(res, { jobId: existing.jobId }, 202); return; }
+      // Check-and-create is serialized per user (concurrent POSTs queue, each counting the records its
+      // predecessors wrote). Idempotency + cap read the shared records (cross-replica); the Map is the fast path.
+      const admitted = await withSubmissionLock(userId, 'inquiry', async () => {
+        const local = findIdempotentInquiryJob(userId, idempotencyKey);
+        if (local) return { status: 202 as const, jobId: local.jobId };
+        const byKey = await findRunningJobByIdempotencyKey(
+          userId, 'inquiry', idempotencyKey, undefined, rec => !isTerminalStatus(rec.status),
+        );
+        if (byKey) return { status: 202 as const, jobId: byKey.jobId };
 
-      // Per-user concurrency cap — an inquiry is expensive; one at a time.
-      if (countRunningInquiryJobs(userId) >= MAX_CONCURRENT_INQUIRY_JOBS) {
+        // The slot claim is the cross-replica gate (t/400): a free slot is taken with an atomic create-only write.
+        const jobId = randomUUID();
+        const slot = await claimJobSlot({
+          backend: getUserContentBackend(), jobsDir: getInquiryJobsDir(userId), cap: MAX_CONCURRENT_INQUIRY_JOBS,
+          jobId, isLive: slotHolderLiveness('inquiry'),
+        });
+        if (slot === null) return { status: 429 as const };
+
+        let job: InquiryJob;
+        try {
+          job = await startInquiryJob({ userId, jobId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
+        } catch (err) {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'inquiry', level: 'error', message: 'Inquiry job start failed — slot released',
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          await releaseJobSlot(getUserContentBackend(), slot);
+          throw err;
+        }
+        getGlobalRecorder()?.record({
+          type: 'inquiry.created', component: 'inquiry', level: 'info',
+          message: `Inquiry job created: ${job.jobId}`,
+          data: { jobId: job.jobId, fidelity: request.fidelity, hasIdempotencyKey: !!idempotencyKey },
+        });
+        return { status: 202 as const, jobId: job.jobId };
+      });
+      if (admitted.status === 429) {
         error(res, 'An inquiry is already running — wait for it to finish before starting another', 429);
         return;
       }
-
-      const job = await startInquiryJob({ userId, request, idempotencyKey, runPipeline: buildInquiryRunPipeline() });
-      getGlobalRecorder()?.record({
-        type: 'inquiry.created', component: 'inquiry', level: 'info',
-        message: `Inquiry job created: ${job.jobId}`,
-        data: { jobId: job.jobId, fidelity: request.fidelity, hasIdempotencyKey: !!idempotencyKey },
-      });
-      json(res, { jobId: job.jobId }, 202);
+      json(res, { jobId: admitted.jobId }, 202);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'inquiry', level: 'error', message: 'POST /api/inquiry failed',

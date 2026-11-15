@@ -68,14 +68,15 @@
 }
 .fallacy-panel-item.selected {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 .fallacy-panel-item.selected .fallacy-panel-item-desc {
-  color: rgba(255,255,255,0.85);
+  color: var(--text-on-focus-ring, #fff);
 }
 .fallacy-panel-item.selected .fallacy-panel-item-cat {
-  color: #fff;
-  background: rgba(255,255,255,0.2);
+  color: var(--text-on-focus-ring, #fff);
+  background: transparent;
+  border: 1px solid var(--text-on-focus-ring, #fff);
   font-weight: 600;
 }
 
@@ -94,7 +95,7 @@
   padding: 1px 7px;
   border-radius: var(--radius-md);
   background: var(--focus-ring, #2563eb);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   font-weight: 700;
   min-width: 20px;
   text-align: center;
@@ -107,13 +108,9 @@
   font-weight: 500;
 }
 .fallacy-panel-item.selected .fallacy-panel-item-count {
-  background: #fff;
+  background: var(--text-on-focus-ring, #fff);
   color: var(--focus-ring, #2563eb);
   box-shadow: none;
-}
-.fallacy-panel-item.selected .fallacy-panel-item-count.zero {
-  background: rgba(255,255,255,0.85);
-  color: var(--text-secondary);
 }
 .fallacy-panel-item-cat {
   font-size: var(--text-2xs);

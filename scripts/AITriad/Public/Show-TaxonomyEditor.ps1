@@ -132,80 +132,8 @@ function Show-TaxonomyEditor {
 
     # Only check Windows prerequisites if Docker isn't already working
     if (-not $DockerReady -and $IsWindows) {
-        # 1. Windows Containers feature must be enabled first
-        $ContainersEnabled = $false
-        try {
-            $Feature = Get-WindowsOptionalFeature -Online -FeatureName Containers -ErrorAction SilentlyContinue
-            if ($Feature -and $Feature.State -eq 'Enabled') { $ContainersEnabled = $true }
-        }
-        catch { }
-
-        if (-not $ContainersEnabled) {
-            Write-Warn 'The Windows Containers feature is not enabled. This is required before WSL or Docker can be installed.'
-            $Choice = $Host.UI.PromptForChoice(
-                'Enable Containers',
-                'Would you like to enable the Windows Containers feature now? (requires admin privileges and a restart)',
-                @('&Yes', '&No'),
-                0
-            )
-            if ($Choice -eq 0) {
-                Write-Step 'Enabling Windows Containers feature'
-                try {
-                    Enable-WindowsOptionalFeature -Online -FeatureName Containers -All -NoRestart 2>&1 | ForEach-Object { Write-Info "$_" }
-                    Write-OK 'Containers feature enabled'
-                    Write-Warn 'A restart is required. After restarting, run: Show-TaxonomyEditor'
-                }
-                catch {
-                    Write-Fail "Failed to enable Containers feature: $_"
-                    Write-Info 'Try running from an elevated (Admin) terminal:'
-                    Write-Info '  Enable-WindowsOptionalFeature -Online -FeatureName Containers -All'
-                }
-            }
-            else {
-                Write-Info 'Enable it manually from an Admin terminal:'
-                Write-Info '  Enable-WindowsOptionalFeature -Online -FeatureName Containers -All'
-            }
-        }
-
-        # 2. WSL must be installed
-        $WslReady = $false
-        try {
-            $WslOutput = wsl --status 2>&1
-            if ($LASTEXITCODE -eq 0) { $WslReady = $true }
-        }
-        catch { }
-
-        if (-not $WslReady) {
-            Write-Warn 'WSL (Windows Subsystem for Linux) is required for Docker Desktop on Windows.'
-            $Choice = $Host.UI.PromptForChoice(
-                'Install WSL',
-                'Would you like to install WSL now? (requires admin privileges and a restart)',
-                @('&Yes', '&No'),
-                0
-            )
-            if ($Choice -eq 0) {
-                Write-Step 'Installing WSL'
-                try {
-                    wsl --install --no-distribution 2>&1 | ForEach-Object { Write-Info $_ }
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-OK 'WSL installed'
-                        Write-Warn 'A restart may be required before Docker can use WSL 2.'
-                        Write-Info 'After restarting, run: Show-TaxonomyEditor'
-                    }
-                    else {
-                        Write-Fail 'WSL installation returned a non-zero exit code.'
-                        Write-Info 'Try running "wsl --install" from an elevated (Admin) terminal.'
-                    }
-                }
-                catch {
-                    Write-Fail "WSL installation failed: $_"
-                    Write-Info 'Try running "wsl --install" from an elevated (Admin) terminal.'
-                }
-            }
-            else {
-                Write-Info 'WSL is required for Docker. Install it with: wsl --install'
-            }
-        }
+        _EnsureWindowsContainersFeature
+        _EnsureWindowsWslInstalled
     }
 
     if (-not $DockerReady) {
@@ -352,6 +280,93 @@ function Show-TaxonomyEditor {
     # ── Launch container ─────────────────────────────────────────────────────
     Start-ContainerMode -Port $Port -DataPath $DataPath -NoBrowser:$NoBrowser `
         -Pull:$Pull -Detach:$Detach
+}
+
+# ── Private helpers ─────────────────────────────────────────────────────────
+
+function _EnsureWindowsContainersFeature {
+    <#
+    .SYNOPSIS
+        Ensures Windows Containers feature is enabled. Prompts if not.
+    #>
+    $ContainersEnabled = $false
+    try {
+        $Feature = Get-WindowsOptionalFeature -Online -FeatureName Containers -ErrorAction SilentlyContinue
+        if ($Feature -and $Feature.State -eq 'Enabled') { $ContainersEnabled = $true }
+    }
+    catch { }
+
+    if (-not $ContainersEnabled) {
+        Write-Warn 'The Windows Containers feature is not enabled. This is required before WSL or Docker can be installed.'
+        $Choice = $Host.UI.PromptForChoice(
+            'Enable Containers',
+            'Would you like to enable the Windows Containers feature now? (requires admin privileges and a restart)',
+            @('&Yes', '&No'),
+            0
+        )
+        if ($Choice -eq 0) {
+            Write-Step 'Enabling Windows Containers feature'
+            try {
+                Enable-WindowsOptionalFeature -Online -FeatureName Containers -All -NoRestart 2>&1 | ForEach-Object { Write-Info "$_" }
+                Write-OK 'Containers feature enabled'
+                Write-Warn 'A restart is required. After restarting, run: Show-TaxonomyEditor'
+            }
+            catch {
+                Write-Fail "Failed to enable Containers feature: $_"
+                Write-Info 'Try running from an elevated (Admin) terminal:'
+                Write-Info '  Enable-WindowsOptionalFeature -Online -FeatureName Containers -All'
+            }
+        }
+        else {
+            Write-Info 'Enable it manually from an Admin terminal:'
+            Write-Info '  Enable-WindowsOptionalFeature -Online -FeatureName Containers -All'
+        }
+    }
+}
+
+function _EnsureWindowsWslInstalled {
+    <#
+    .SYNOPSIS
+        Ensures Windows Subsystem for Linux is installed. Prompts if not.
+    #>
+    $WslReady = $false
+    try {
+        $WslOutput = wsl --status 2>&1
+        if ($LASTEXITCODE -eq 0) { $WslReady = $true }
+    }
+    catch { }
+
+    if (-not $WslReady) {
+        Write-Warn 'WSL (Windows Subsystem for Linux) is required for Docker Desktop on Windows.'
+        $Choice = $Host.UI.PromptForChoice(
+            'Install WSL',
+            'Would you like to install WSL now? (requires admin privileges and a restart)',
+            @('&Yes', '&No'),
+            0
+        )
+        if ($Choice -eq 0) {
+            Write-Step 'Installing WSL'
+            try {
+                wsl --install --no-distribution 2>&1 | ForEach-Object { Write-Info $_ }
+                if ($LASTEXITCODE -eq 0) {
+                    Write-OK 'WSL installed'
+                    Write-Warn 'A restart may be required before Docker can use WSL 2.'
+                    Write-Info 'After restarting, run: Show-TaxonomyEditor'
+                }
+                else {
+                    Write-Fail 'WSL installation returned a non-zero exit code.'
+                    Write-Info 'Try running "wsl --install" from an elevated (Admin) terminal.'
+                }
+            }
+            catch {
+                Write-Fail "WSL installation failed: $_"
+                Write-Info 'Try running "wsl --install" from an elevated (Admin) terminal.'
+            }
+        }
+        else {
+            Write-Info 'WSL is required for Docker. Install it with: wsl --install'
+        }
+    }
 }
 
 # ── Private: Legacy Electron mode ─────────────────────────────────────────────

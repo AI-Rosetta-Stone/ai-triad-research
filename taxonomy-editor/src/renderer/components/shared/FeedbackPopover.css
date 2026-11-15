@@ -86,9 +86,9 @@
 }
 
 .feedback-category-chip.active {
-  background: color-mix(in srgb, var(--focus-ring, #3b82f6) 12%, transparent);
-  border-color: var(--focus-ring, #3b82f6);
-  color: var(--focus-ring, #3b82f6);
+  background: var(--info-bg); /* t/198 S2 */
+  border-color: var(--info-text);
+  color: var(--info-text);
 }
 
 .feedback-textarea {
@@ -142,7 +142,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: var(--focus-ring, #3b82f6);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;

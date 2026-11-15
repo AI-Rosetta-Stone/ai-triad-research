@@ -23,6 +23,12 @@ export const OpEdParamsSchema = z.object({
   authorBio: z.string().optional(),
   model: z.string(),
   tagSelection: TagSelectionSchema.passthrough().optional(),
+  // t/203: generation tuning. Declared so a stored set keeps them; ranges are enforced (clamp + WARN) by
+  // generate.ts at run time, not here, so a stored out-of-range value never makes a set unreadable.
+  maxGroundingNodes: z.number().optional(),
+  maxSituations: z.number().optional(),
+  temperature: z.number().optional(),
+  voiceOnly: z.boolean().optional(),
 });
 
 export const OpEdGroundingRefSchema = z.object({
@@ -33,6 +39,16 @@ export const OpEdGroundingRefSchema = z.object({
   relevance: z.string(),     // snake_case — rejects PS "Relevance"
   how_reflected: z.string(), // snake_case — rejects PS "HowReflected"
   document_claims: z.array(z.string()).optional(),
+});
+
+export const OpEdStageSchema = z.object({
+  stage: z.string(),
+  attempt: z.number().int().min(1),
+  model: z.string(),
+  prompt: z.string(),
+  output: z.string(),
+  error: z.string().optional(),
+  temperature: z.number().optional(),
 });
 
 export const OpEdMemberSchema = z.object({
@@ -60,6 +76,10 @@ export const OpEdMemberSchema = z.object({
       file: v.file.replace(/^lib\/debate\/soul-docs\//, ''),
       hash: v.hash ?? v.sha,
     })).optional(),
+  // t/171: per-stage raw prompt/output for the How panel. Declared so the strip class can't drop it on save
+  // (finalizeOpedSet parses before writing). `stage` stays a plain string: an older reader must never reject
+  // a whole set over a stage name a newer generator added.
+  stages: z.array(OpEdStageSchema).optional(),
 });
 
 export const OpEdSetSchema = z.object({
@@ -71,8 +91,9 @@ export const OpEdSetSchema = z.object({
   opeds: z.array(OpEdMemberSchema),
   // Source provenance (t/2898) — optional/additive so re-parse doesn't strip them
   // (same strip-gap class fixed for document_claims in t/2890). Absent on legacy sets.
-  source_mode: z.enum(['topic', 'url']).optional(),
+  source_mode: z.enum(['topic', 'url', 'document']).optional(),
   source_url: z.string().optional(),
+  source_name: z.string().optional(),
   source_key_claims_count: z.number().int().optional(),
 });
 

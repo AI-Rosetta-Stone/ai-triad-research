@@ -9,7 +9,8 @@ import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { deriveDebateConfig } from '@lib/debate/inquiryConfig';
 import type { InquiryJobStatus, InquiryResult, InquiryStatusResponse, InquiryResultSummary } from '../bridge/types';
-import type { Fidelity } from '@lib/inquiry';
+import type { Fidelity, InquiryPipelineStage } from '@lib/inquiry';
+import { advanceStageTimings, type InquiryStageTimings } from '@lib/inquiry/jobStatus';
 import type { TagSelection } from '@lib/schema/povTags';
 import type { ModelRegistry } from '@lib/ai-client/registry';
 import aiModelsRegistry from '../../../../ai-models.json';
@@ -50,6 +51,12 @@ interface InquiryStoreState {
   /** t/4714: a short human line for the currently-running stage (e.g. "Round 2 of 4 · Skeptic
    *  responding"). Null when the server/Electron build omits it, or the stage has none. */
   stageDetail: string | null;
+  /** t/328: every distinct stageDetail seen per stage, oldest first. Only covers what the poll
+   *  actually saw — a detail that came and went between two polls is not recorded. */
+  stageDetailHistory: Partial<Record<InquiryPipelineStage, string[]>>;
+  /** t/324: per-stage start/end timestamps (ms). Phase 1 is client-observed (Date.now() at the
+   *  poll that saw the transition); server-supplied `stageTimings` on a status response win. */
+  stageTimings: InquiryStageTimings;
   terminationReason: string | null;
   /** Job-level failure (status === 'failed') — distinct from pollError (TL point 3: poll-error ≠
    *  job-failed). A transient network blip while polling must not read as "the inquiry failed". */
@@ -136,11 +143,65 @@ function statusFields(view: InquiryStatusResponse) {
   };
 }
 
+const PIPELINE_STAGES: readonly InquiryPipelineStage[] = ['grounding', 'debating', 'judging', 'synthesizing'];
+
+function asStage(status: InquiryJobStatus | null): InquiryPipelineStage | undefined {
+  return PIPELINE_STAGES.find(s => s === status);
+}
+
+export function emptyStageTimings(): InquiryStageTimings {
+  return { grounding: {}, debating: {}, judging: {}, synthesizing: {} };
+}
+
+/** t/324/t/328: folds one observed status response into the timings and the sub-step history.
+ *  Pure (no store access) so the transition rules are testable on their own. */
+export function observeStatus(
+  prev: { status: InquiryJobStatus | null; stageTimings: InquiryStageTimings; stageDetailHistory: Partial<Record<InquiryPipelineStage, string[]>> },
+  view: InquiryStatusResponse,
+  now: number,
+): { stageTimings: InquiryStageTimings; stageDetailHistory: Partial<Record<InquiryPipelineStage, string[]>> } {
+  const timings = emptyStageTimings();
+  for (const s of PIPELINE_STAGES) timings[s] = { ...prev.stageTimings[s] };
+
+  const prevStage = asStage(prev.status);
+  const nextStage = asStage(view.status);
+  if (nextStage && nextStage !== prevStage) {
+    advanceStageTimings(timings, prevStage, nextStage, now);
+  } else if (!nextStage && prevStage && timings[prevStage].endedAt === undefined) {
+    timings[prevStage].endedAt = now; // terminal status: the last running stage ends here
+  }
+  for (const s of PIPELINE_STAGES) {
+    const server = view.stageTimings?.[s];
+    if (server) timings[s] = { ...timings[s], ...server };
+  }
+
+  let history = prev.stageDetailHistory;
+  const detail = view.stageDetail;
+  if (nextStage && detail) {
+    const steps = history[nextStage] ?? [];
+    if (steps[steps.length - 1] !== detail) history = { ...history, [nextStage]: [...steps, detail] };
+  }
+  return { stageTimings: timings, stageDetailHistory: history };
+}
+
 export const useInquiryStore = create<InquiryStoreState>((set, get) => {
   function schedulePoll(jobId: string): void {
     clearPollTimer();
     const delay = computeBackoffDelay(consecutivePollFailures);
     pollTimer = setTimeout(() => void poll(jobId), delay);
+  }
+
+  /** poll()'s terminal 404 tail (t/3723): stop the loop and, unless superseded, show the
+   *  "no longer available" failure. The record() stays in poll()'s catch (ADR-003). */
+  function handleInquiryNotFound(jobId: string): void {
+    clearPollTimer();
+    if (get().jobId === jobId) {
+      set({
+        status: 'failed',
+        error: 'This inquiry is no longer available. The server restarted while it was running, so the run was lost. Starting a new inquiry will re-run it.',
+        pollError: null,
+      });
+    }
   }
 
   async function poll(jobId: string): Promise<void> {
@@ -175,14 +236,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
           data: { attempt: consecutivePollFailures + 1, backoff_interval_ms: null, is_terminal: true },
         });
-        clearPollTimer();
-        if (get().jobId === jobId) {
-          set({
-            status: 'failed',
-            error: 'This inquiry is no longer available. The server restarted while it was running, so the run was lost. Starting a new inquiry will re-run it.',
-            pollError: null,
-          });
-        }
+        handleInquiryNotFound(jobId);
         return;
       }
 
@@ -207,6 +261,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     consecutivePollFailures = 0;
     set({
       ...statusFields(view),
+      ...observeStatus(get(), view, Date.now()),
       // t/4714: defensive clamp — the lib-side mapping is monotonic by contract, but an
       // out-of-order poll response (retry landing after a newer one) must never visually move
       // the bar backwards.
@@ -233,6 +288,8 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     status: null,
     progressPct: 0,
     stageDetail: null,
+    stageDetailHistory: {},
+    stageTimings: emptyStageTimings(),
     terminationReason: null,
     error: null,
     pollError: null,
@@ -280,7 +337,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
     startInquiry: async () => {
       const { question, fidelity, debaterModel, evaluatorModel, tagSelection, temperature } = get();
-      set({ error: null, pollError: null, result: null, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      set({ error: null, pollError: null, result: null, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null });
       try {
         const { jobId } = await api.startInquiry({
           question,
@@ -314,7 +371,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
       clearPollTimer();
       consecutivePollFailures = 0;
       set({
-        jobId: null, communityResultId: null, status: null, progressPct: 0, stageDetail: null, terminationReason: null,
+        jobId: null, communityResultId: null, status: null, progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null,
         error: null, pollError: null, result: null, viewingList: false,
       });
     },
@@ -382,10 +439,10 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     openFromHistory: async (jobId: string) => {
       clearPollTimer();
       consecutivePollFailures = 0;
-      set({ viewingList: false, error: null, pollError: null, result: null, jobId, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId, communityResultId: null, status: 'queued', progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null });
       try {
         const view = await api.getInquiry(jobId);
-        set(statusFields(view));
+        set({ ...statusFields(view), ...observeStatus(get(), view, Date.now()) });
       } catch (err) {
         getGlobalRecorder()?.record({
           type: 'system.error',
@@ -401,7 +458,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     openCommunityResult: async (id: string) => {
       clearPollTimer();
       consecutivePollFailures = 0;
-      set({ viewingList: false, error: null, pollError: null, result: null, jobId: null, communityResultId: id, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId: null, communityResultId: id, status: 'queued', progressPct: 0, stageDetail: null, stageDetailHistory: {}, stageTimings: emptyStageTimings(), terminationReason: null });
       try {
         const result = await api.loadCommunityInquiry(id);
         set({ status: 'done', progressPct: 100, result });

@@ -66,7 +66,8 @@ function Restore-TaxEditorKnownGood {
     $CallerName = 'Restore-TaxEditorKnownGood'
 
     # ── Resolve known-good image ─────────────────────────────────────────
-    $Images = @(Get-TaxEditorImage -Last 100 -Package $Package)
+    # -Tag pages the whole package. -Last 100 missed known-good after ~20 builds (t/4966).
+    $Images = @(Get-TaxEditorImage -Tag 'known-good' -Package $Package)
     $KnownGoodImages = @($Images | Where-Object { $_.IsKnownGood })
 
     if (@($KnownGoodImages).Count -eq 0) {

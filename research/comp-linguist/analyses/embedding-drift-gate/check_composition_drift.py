@@ -183,8 +183,10 @@ def main():
         print("::warning::embeddings.json envelope has no field_weights to check against — skipping", file=sys.stderr)
         sys.exit(0)
 
-    from sentence_transformers import SentenceTransformer  # local import: heavy
-    model = SentenceTransformer(emb.get("model", "all-MiniLM-L6-v2"))
+    # t/152: load at the pin, the same revision scripts/embed_taxonomy.py encodes with (local import: heavy).
+    sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+    from embed_model_pins import load_sentence_transformer
+    model = load_sentence_transformer(emb.get("model", "all-MiniLM-L6-v2"))
     nodes = [p[0] for p in picks]
     shipped = [p[1] for p in picks]
 

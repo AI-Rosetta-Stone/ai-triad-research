@@ -1,0 +1,259 @@
+name: t1-approval-guard
+
+# Prevention (t/4247): #3343 and #3364 both auto-merged on 10-17 as T1 PRs with no `Approved
+# (<role>):` comment — root AGENTS.md's PR-Flow line ("arm auto-merge at PR creation for T1")
+# and Change Tiers' rule (T1 needs the reviewer's approval first) conflicted, and nothing
+# mechanical enforced the approval. This checks that conflict mechanically. Modeled on
+# tier-check.yml (github-script orchestration, predicate loaded from the BASE tip so a PR can't
+# narrow its own gate, e/291 C1) and consult-hold-guard.yml (genuinely fails red rather than
+# swallowing via continue-on-error; non-required until promoted — this workflow only computes and
+# reports, branch protection decides blocking, same STATUS-INDEPENDENT framing).
+#
+# ROUTE TABLE (t/4247 AC2):
+#   - manual merge / GitHub server-side auto-merge / admin-token merge -> all covered identically
+#     once this becomes a required context (a required context binds every merge path alike,
+#     same reasoning as consult-hold-guard's own header comment).
+#   - merges into an epic branch -> excluded: this workflow's pull_request trigger is scoped to
+#     base `main`, and the script skips entirely if `pull_request.base.ref` isn't `main`.
+#   - an approval added by EDITING an older comment in place -> covered: the predicate uses the
+#     comment's effective time (`updatedAt ?? createdAt`), and `issue_comment: [edited]` re-runs
+#     this check so the PR isn't stuck red waiting for a new comment.
+#   - t/4096 Reviewer switch-over: a real bot APPROVED review -> covered by `pull_request_review:
+#     [submitted]`, so the check re-runs the moment the reviewer App leaves its review, same as a
+#     new comment does. The legacy `Approved (<role>):` comment path is unchanged during the
+#     transition; both forms satisfy the predicate (t1-approval-guard-predicate.mjs).
+#
+# ROLLOUT: ships warn-only (not a required context) for >=1 green cycle against real T1 PRs.
+# Promotion to required is a separate T2 PR (branch-protection-adjacent).
+#
+# t/4247 (TL, 2026-10-20): the check went stale 6x in one day after an approval arrived -- the
+# issue_comment/pull_request_review triggers above were already in place, but a workflow run
+# triggered by either event does NOT attach its check-run to the PR's head SHA (`context.sha`
+# resolves to the default branch's tip for those events, not `pr.head.sha` -- a documented
+# GitHub Actions limitation). The job's own implicit pass/fail only updates the PR's displayed
+# check for `pull_request`-triggered runs; for the other two, the PR kept showing the stale
+# check-run from its last `synchronize` event. Fixed by explicitly posting a Checks API run
+# pinned to `pr.head.sha` for every trigger, uniformly -- see postCheckRun() below. The job id
+# is renamed (`t1-approval-guard` -> `evaluate`) so GitHub's own implicit per-job check (named
+# after the job id) doesn't collide with the explicit one, which keeps the canonical name
+# `t1-approval-guard` everywhere already documented (this file's own comments, t/4247, a future
+# required-context promotion).
+#
+# t/4266 P1 (TL p/331#2585): `pull_request` -> `pull_request_target`, same as tier-check.yml and
+# for the same reason -- GitHub sources THIS FILE from `main`, so a PR can no longer disable or
+# weaken evaluation by editing t1-approval-guard.yml itself. `issue_comment`/`pull_request_review`
+# are unaffected (those events have no "target" variant and never implied a PR-ref checkout to
+# begin with -- this job already only ever reads the predicate from `main`'s explicitly-fetched
+# tip, never from the checked-out tree). The self-test suite moved to ci.yml's gate-self-health
+# job (plain pull_request, zero permissions, t/4266) -- this job never executes PR code at all.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, edited, labeled]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  pull-requests: write
+  contents: read
+  checks: write
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          persist-credentials: false  # never leave a git credential lying around for anything run later in this job
+
+      - name: Evaluate T1 approval
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const os = require('os');
+            const path = require('path');
+
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const MARKER = '<!-- t1-approval-guard:verdict -->';
+            // Gate Co-Location: this MUST match the reviewer App's slug in
+            // operations/devops/AgentAppToken.psm1 ($script:AgentApps.reviewer.Slug) + GitHub's
+            // own "[bot]" suffix convention. If that App is ever renamed, update both (TL review,
+            // PR #3487 blocking 2: restrict the bot-review arm to this exact login, not any App).
+            const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
+
+            // BEGIN github-retry-loader (t/4819): withRetry is the shared helper
+            // operations/devops/github-retry.mjs (also used by tier-check.yml). It retries ONLY a
+            // 5xx/429 (max 3 attempts, exponential backoff, a WARN per retry) and rethrows
+            // otherwise, so exhausted retries still land in the CANNOT EVALUATE catch. It replaces
+            // the old inline loop, which also retried 4xx. Loaded from the DEFAULT BRANCH'S LIVE TIP
+            // via git show, never the PR tree, so a PR cannot weaken it. If it is missing
+            // (bootstrap) or cannot be loaded, calls run once, unretried, with a WARN.
+            let withRetry = (label, fn) => fn();
+            try {
+              const defaultBranch = context.payload.repository?.default_branch || 'main';
+              execSync(`git fetch origin ${JSON.stringify(defaultBranch)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+              const helperText = execSync(`git show ${helperSha}:operations/devops/github-retry.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const helperDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-retry-'));
+              const helperPath = path.join(helperDir, 'github-retry.mjs');
+              fs.writeFileSync(helperPath, helperText);
+              const { withGitHubRetry } = await import(pathToFileURL(helperPath).href);
+              withRetry = (label, fn) => withGitHubRetry(label, fn, {
+                warn: (m) => core.warning(m),
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                prefix: 't1-approval-guard',
+              });
+            } catch (err) {
+              core.warning(`WARN t1-approval-guard: retry helper not loadable from the default branch tip (${String(err && err.message ? err.message : err).split('\n')[0]}) -- GitHub calls in this run are NOT retried.`);
+            }
+            // END github-retry-loader
+
+            async function postVerdictComment(prNumber, body) {
+              const comments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
+              const existing = comments.find((c) => c.body?.includes(MARKER));
+              if (existing) {
+                await withRetry('issues.updateComment', () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body }));
+              } else {
+                await withRetry('issues.createComment', () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }));
+              }
+            }
+
+            // Explicitly posts the PR-visible check, pinned to the PR's own head SHA, for every
+            // trigger type uniformly (the fix this comment block's header explains). conclusion
+            // is 'success' or 'failure'. CANNOT EVALUATE also concludes 'failure', NEVER 'neutral':
+            // GitHub counts a neutral check run as satisfying a required check, so a neutral
+            // CANNOT EVALUATE would let an API outage that exhausts the retries PASS the gate
+            // (fail-open). t/4819, TL condition p/12#44.
+            async function postCheckRun(headSha, conclusion, title, summary) {
+              if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
+              await withRetry('checks.create', () => github.rest.checks.create({
+                owner, repo, name: 't1-approval-guard', head_sha: headSha,
+                status: 'completed', conclusion, output: { title, summary },
+              }));
+            }
+
+            function resolvePrNumber() {
+              if (context.payload.pull_request) return context.payload.pull_request.number;
+              if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
+              return null;
+            }
+
+            try {
+              await run();
+            } catch (err) {
+              // A crash must never read as a pass (t/4103's own lesson on tier-check, PR #3155).
+              const prNumber = resolvePrNumber();
+              core.error(`t1-approval-guard CRASHED: ${err && err.stack ? err.stack : String(err)}`);
+              if (prNumber) {
+                // t/4819: best-effort. If GitHub is still down (the usual reason we are here),
+                // posting throws too -- that must not skip the check run and setFailed below.
+                try {
+                  await postVerdictComment(prNumber, [
+                    MARKER,
+                    '**t1-approval-guard: CANNOT EVALUATE**',
+                    '',
+                    'The check crashed while evaluating this PR — not a pass, not a failure, an unknown.',
+                    `Error: \`${String(err && err.message ? err.message : err)}\``,
+                  ].join('\n'));
+                } catch (postErr) {
+                  core.error(`t1-approval-guard: could not post the CANNOT EVALUATE comment either — ${postErr.message}`);
+                }
+                // Best-effort: re-resolve the head SHA independently of run()'s own progress, so a
+                // crash anywhere in run() still gets an explicit, PR-visible check posted.
+                try {
+                  const { data: pr } = await withRetry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
+                  // BEGIN cannot-evaluate-conclusion (t/4819, TL p/12#44): 'failure', never 'neutral'.
+                  await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: GATE-UNREADABLE (CANNOT EVALUATE)', [
+                    'GATE-UNREADABLE: the guard could not read what it needs to decide this PR, so no verdict was produced.',
+                    'This is not a pass. The check fails closed until a run can evaluate the PR.',
+                    '',
+                    `Error: ${String(err && err.message ? err.message : err)}`,
+                    '',
+                    'Next step: if the error is a GitHub 5xx/429 that outlived its retries, re-run this workflow once the API recovers.',
+                  ].join('\n'));
+                  // END cannot-evaluate-conclusion
+                } catch (postErr) {
+                  core.error(`t1-approval-guard: could not post the explicit check run either — ${postErr.message}`);
+                }
+              }
+              core.setFailed(`t1-approval-guard: CANNOT EVALUATE — ${String(err && err.message ? err.message : err)}`);
+            }
+
+            async function run() {
+            const prNumber = resolvePrNumber();
+            if (!prNumber) {
+              core.info('t1-approval-guard: not a PR event (a plain issue comment) — nothing to do.');
+              return;
+            }
+
+            const { data: pr } = await withRetry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
+
+            if (pr.base.ref !== 'main') {
+              core.info(`t1-approval-guard: base is '${pr.base.ref}', not main — skipped (epic-branch PRs aren't gated here).`);
+              return;
+            }
+
+            // Predicate loaded from the BASE branch's live tip, never the PR's own HEAD (e/291 C1
+            // precedent via tier-check.yml): a T1 PR must not be able to weaken the very check
+            // that's supposed to gate it, by editing the predicate in the same change.
+            execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            const baseTipSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+
+            let basePredicateText;
+            try {
+              basePredicateText = execSync(`git show ${baseTipSha}:operations/devops/t1-approval-guard-predicate.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            } catch {
+              core.info('t1-approval-guard: predicate not yet on main\'s tip (bootstrap) — skipped.');
+              return;
+            }
+
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 't1-approval-guard-'));
+            const predicatePath = path.join(tmpDir, 't1-approval-guard-predicate.mjs');
+            fs.writeFileSync(predicatePath, basePredicateText);
+            const { evaluateT1ApprovalGuard } = await import(pathToFileURL(predicatePath).href);
+
+            const commits = await withRetry('pulls.listCommits', () => github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: prNumber, per_page: 100 }));
+            const lastCommit = commits[commits.length - 1];
+            const lastPushAt = lastCommit ? (lastCommit.commit.committer?.date || lastCommit.commit.author?.date) : pr.created_at;
+
+            const rawComments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
+            const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at }));
+
+            // t/4096 Reviewer switch-over: during the transition, a real bot review also satisfies
+            // the gate (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment.
+            // Fetch every bot review's body too -- the predicate applies the same owner-slug
+            // self-approval check to it that it applies to a comment (TL review, PR #3487
+            // blocking 1: a human-authored PR, reviewed by ANY agent running as the reviewer App,
+            // is not self-approval-safe by GitHub identity alone).
+            const rawReviews = await withRetry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
+            const botReviews = rawReviews
+              .filter((r) => r.user?.type === 'Bot')
+              .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body }));
+
+            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
+            core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}`);
+
+            if (result.pass) {
+              const okSummary = result.reason === 'not-t1' ? 'not a T1 PR' : 'approved after the latest push';
+              await postVerdictComment(prNumber, `${MARKER}\nt1-approval-guard: OK — ${okSummary}.`);
+              await postCheckRun(pr.head.sha, 'success', 't1-approval-guard: OK', okSummary);
+              return;
+            }
+
+            await postVerdictComment(prNumber, [
+              MARKER,
+              '**t1-approval-guard: FAILING** — this is a declared `Tier: T1` PR with no `Approved (<role>):` comment posted after the latest push.',
+              '',
+              'Per Change Tiers (root AGENTS.md), a T1 PR needs the owner plus one round-robin reviewer\'s approval before merging — arming auto-merge at PR creation does not satisfy that. Wait for a reviewer to post a comment starting `Approved (<role>):`, then this check re-runs and clears automatically (no push needed, it re-runs on new/edited comments).',
+              '',
+              '_This check is warn-only (not yet a required context) — see t/4247._',
+            ].join('\n'));
+            await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has no post-push approval.`);
+            core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has no post-push approval.`);
+            } // end run()

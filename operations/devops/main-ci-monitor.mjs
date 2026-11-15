@@ -18,6 +18,9 @@ import { execFileSync } from 'node:child_process';
  *
  *   main is RED  ⟺  a `push`-event workflow RUN on the head SHA concluded failure/cancelled.
  *
+ * One exception (t/4795): a CANCELLED `CI` push run is excused when the latest `CI` merge_group run
+ * on the same SHA concluded success (benign supersede race; the merge_group run gated the merge).
+ *
  * Zero trigger-modelling → nothing to drift from the YAML. A workflow's conclusion counts WHEN it
  * runs; there is nothing to wait for when a path filter skips it (skips create no run). New push
  * workflows are covered with no list to maintain. The required-contexts list is OUT of detection —
@@ -72,6 +75,9 @@ const names = (rs) => rs.map((r) => r.name);
  * PURE core. Given the push-event runs on main's head SHA (already deduped to latest-per-workflow),
  * classify main and decide whether/how to alert.
  *   runs           : [{ name, status, conclusion }]  — push-event runs on the head SHA
+ *   mergeGroupRuns : [{ name, status, conclusion, createdAt }] | undefined — merge_group-event runs on
+ *                    the head SHA (t/4795). Only consulted when the health push run is `cancelled`;
+ *                    undefined/null (not fetched or lookup failed) keeps the RED verdict.
  *   healthWorkflow : string  — the designated main-health workflow name (default 'CI')
  *   headAgeMs      : number  — now - head commit time (ms)
  *   deadlineMs     : number
@@ -80,26 +86,46 @@ const names = (rs) => rs.map((r) => r.name);
  *   severity 'notice' → LOW-severity notice (non-CI red; hung CI; CI-absent past deadline).
  *   severity 'none'   → no action (green, or within deadline).
  */
-export function classifyMainCI({ runs, healthWorkflow = HEALTH_WORKFLOW, headAgeMs, deadlineMs = DEADLINE_MS } = {}) {
+export function classifyMainCI({ runs, mergeGroupRuns, healthWorkflow = HEALTH_WORKFLOW, headAgeMs, deadlineMs = DEADLINE_MS } = {}) {
   const list = Array.isArray(runs) ? runs : [];
   const pastDeadline = Number(headAgeMs) > Number(deadlineMs);
   const health = list.filter((r) => r.name === healthWorkflow);
   const others = list.filter((r) => r.name !== healthWorkflow);
-  const healthFailed = health.filter((r) => runState(r) === 'failed');
+  let healthFailed = health.filter((r) => runState(r) === 'failed');
   const otherFailed = others.filter((r) => runState(r) === 'failed');
-  const healthPassed = health.some((r) => runState(r) === 'passed');
+  let healthPassed = health.some((r) => runState(r) === 'passed');
   const healthPending = health.some((r) => runState(r) === 'pending');
+
+  // 0. CANCELLED-PUSH SUPERSEDE (t/4795). A cancelled push run of the health workflow is usually a
+  //    benign supersede race; the merge_group run on the SAME SHA is what actually gated the merge.
+  //    Excused ONLY when every failed health push run is `cancelled` (a genuine failure/timed_out/
+  //    startup_failure always alarms) AND the latest health-workflow merge_group run on the SHA
+  //    concluded exactly `success`. mergeGroupRuns absent (not fetched, or the lookup failed) →
+  //    today's behavior: RED. Never fails open.
+  const healthCancelledOnly = healthFailed.length > 0 && healthFailed.every((r) => String(r.conclusion) === 'cancelled');
+  const mgHealth = Array.isArray(mergeGroupRuns)
+    ? dedupeLatestByWorkflow(mergeGroupRuns).find((r) => r.name === healthWorkflow) : undefined;
+  const mgSucceeded = !!mgHealth && String(mgHealth.status) === 'completed' && String(mgHealth.conclusion) === 'success';
+  const excusedByMergeGroup = healthCancelledOnly && mgSucceeded;
+  if (excusedByMergeGroup) { healthFailed = []; healthPassed = true; }
+  const mgNote = excusedByMergeGroup
+    ? ` (push run cancelled; the merge_group '${healthWorkflow}' run on the same SHA concluded success)` : '';
 
   // 1. CI failed → FULL alert, regardless of age (a concluded failure is definitive).
   if (healthFailed.length) {
+    const cancelNote = !healthCancelledOnly ? ''
+      : !Array.isArray(mergeGroupRuns) ? ' (push run cancelled; merge_group run not available to excuse it)'
+      : !mgHealth ? ` (push run cancelled; no merge_group '${healthWorkflow}' run on the SHA)`
+      : ` (push run cancelled; merge_group '${healthWorkflow}' run is ${mgHealth.status}/${mgHealth.conclusion ?? 'none'}, not success)`;
     return { severity: 'red', state: 'red', alert: true, pastDeadline,
       failedHealth: names(healthFailed), failedOther: names(otherFailed),
       reason: `RED — main-health workflow '${healthWorkflow}' concluded failure on the head SHA: ${names(healthFailed).join(', ')}` +
-        (otherFailed.length ? ` (also failed: ${names(otherFailed).join(', ')})` : '') };
+        cancelNote + (otherFailed.length ? ` (also failed: ${names(otherFailed).join(', ')})` : '') };
   }
   // 2. A non-CI push workflow failed → LOW-severity notice (never silently dropped), whatever CI's state.
   if (otherFailed.length) {
-    const ciState = healthPassed ? `'${healthWorkflow}' itself passed` : healthPending ? `'${healthWorkflow}' still in flight` : `'${healthWorkflow}' absent`;
+    const ciState = excusedByMergeGroup ? `'${healthWorkflow}' passed via merge_group${mgNote}`
+      : healthPassed ? `'${healthWorkflow}' itself passed` : healthPending ? `'${healthWorkflow}' still in flight` : `'${healthWorkflow}' absent`;
     return { severity: 'notice', state: 'other-red', alert: true, pastDeadline,
       failedHealth: [], failedOther: names(otherFailed),
       reason: `LOW NOTICE — non-health push workflow(s) concluded failure: ${names(otherFailed).join(', ')} (${ciState})` };
@@ -107,7 +133,9 @@ export function classifyMainCI({ runs, healthWorkflow = HEALTH_WORKFLOW, headAge
   // 3. CI passed, nothing failed → GREEN.
   if (healthPassed) {
     return { severity: 'none', state: 'green', alert: false, pastDeadline, failedHealth: [], failedOther: [],
-      reason: `green — '${healthWorkflow}' concluded success on the head SHA; no push workflow failed` };
+      reason: excusedByMergeGroup
+        ? `green — benign supersede${mgNote}; no push workflow failed`
+        : `green — '${healthWorkflow}' concluded success on the head SHA; no push workflow failed` };
   }
   // 4. CI CREATED but not concluded → UNRESOLVED; alert past the deadline (guards a hung/stuck run).
   //    This is the one "waiting" state that alerts — a run EXISTS, so we are genuinely waiting on it.
@@ -278,8 +306,24 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('operations/
     const rawRuns = (ghJson(`repos/${repo}/actions/runs?event=push&head_sha=${sha}&per_page=100`).workflow_runs ?? [])
       .map((r) => ({ name: r.name, status: r.status, conclusion: r.conclusion, createdAt: r.created_at }));
     const runs = dedupeLatestByWorkflow(rawRuns);
-    const verdict = classifyMainCI({ runs, headAgeMs });
-    out = { ok: true, sha, headAgeMin: Math.round(headAgeMs / 60000), runObserved: runs.map((r) => `${r.name}:${runState(r)}`), verdict };
+    // t/4795: a CANCELLED health push run may be a benign supersede — fetch the merge_group runs on
+    // the same SHA so the pure classifier can check whether the merge_group CI run succeeded. A lookup
+    // failure WARNs and passes nothing, which keeps the RED verdict (never fails open to green).
+    let mergeGroupRuns;
+    let mergeGroupLookup = 'not-needed';
+    if (runs.some((r) => r.name === HEALTH_WORKFLOW && runState(r) === 'failed' && String(r.conclusion) === 'cancelled')) {
+      try {
+        mergeGroupRuns = (ghJson(`repos/${repo}/actions/runs?event=merge_group&head_sha=${sha}&per_page=100`).workflow_runs ?? [])
+          .map((r) => ({ name: r.name, status: r.status, conclusion: r.conclusion, createdAt: r.created_at }));
+        mergeGroupLookup = 'ok';
+      } catch (e) {
+        mergeGroupLookup = `failed: ${String((e && e.message) || e)}`;
+        process.stderr.write(`WARN: merge_group run lookup for ${sha} failed; keeping the cancelled push run as RED (no fail-open). ${mergeGroupLookup}\n`);
+      }
+    }
+    const verdict = classifyMainCI({ runs, mergeGroupRuns, headAgeMs });
+    out = { ok: true, sha, headAgeMin: Math.round(headAgeMs / 60000), runObserved: runs.map((r) => `${r.name}:${runState(r)}`),
+      mergeGroupLookup, mergeGroupObserved: (mergeGroupRuns ?? []).map((r) => `${r.name}:${runState(r)}`), verdict };
   } catch (e) {
     // CANNOT-EVALUATE → fail LOUD (never silently green). The workflow treats ok:false as an infra
     // alert distinct from a main-red alert (opposite remedies).

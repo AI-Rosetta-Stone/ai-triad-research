@@ -34,7 +34,7 @@
 .mod-tab-decision-reason {
   padding: 1px 6px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-acc) 15%, transparent);
+  background: var(--color-acc-bg);
   color: var(--color-acc);
   font-size: var(--text-2xs);
   font-weight: 600;

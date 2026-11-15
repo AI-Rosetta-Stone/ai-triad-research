@@ -169,14 +169,14 @@
   cursor: help;
 }
 .grounding-testing-contested {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-border);
 }
 .grounding-testing-well-tested {
-  background: rgba(34, 197, 94, 0.12);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: var(--success-bg);
+  color: var(--success-text);
+  border: 1px solid var(--success-text);
 }
 .grounding-testing-cited {
   background: rgba(148, 163, 184, 0.12);

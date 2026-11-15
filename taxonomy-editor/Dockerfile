@@ -7,7 +7,7 @@
 # (see deploy/azure/Dockerfile.base)
 
 # ── Stage 1: Build ──
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS builder
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS builder
 
 WORKDIR /build
 
@@ -98,21 +98,33 @@ RUN REAL_PNPM="$(which pnpm)" && \
 # so onnxEmbedding.ts runs fully offline. Without this, each cold-start downloads
 # from HuggingFace at runtime, hitting the 50s route timeout (t/2784).
 # fp32 is required — quantized output diverges from the stored embeddings.json corpus.
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS onnx-model
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS onnx-model
 # hadolint ignore=DL3008
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+# Pinned to a Xenova commit, never resolve/main (t/79). Must equal
+# deploy/azure/Dockerfile.base's ONNX_MODEL_REVISION: CI's embedding-onnx-equivalence
+# job fails on drift and keys its model cache on this value. The sha256s are the
+# bytes prod has shipped (2026-11-09); a mismatch fails the build.
+ARG ONNX_MODEL_REVISION=751bff37182d3f1213fa05d7196b954e230abad9
 RUN mkdir -p /onnx/all-MiniLM-L6-v2 \
- && curl -fsSL "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx" \
+ && curl -fsSL "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/${ONNX_MODEL_REVISION}/onnx/model.onnx" \
          -o /onnx/all-MiniLM-L6-v2/model.onnx \
- && curl -fsSL "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json" \
+ && curl -fsSL "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/${ONNX_MODEL_REVISION}/tokenizer.json" \
          -o /onnx/all-MiniLM-L6-v2/tokenizer.json \
- && curl -fsSL "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json" \
-         -o /onnx/all-MiniLM-L6-v2/tokenizer_config.json
+ && curl -fsSL "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/${ONNX_MODEL_REVISION}/tokenizer_config.json" \
+         -o /onnx/all-MiniLM-L6-v2/tokenizer_config.json \
+ && printf '%s  %s\n' \
+         759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e /onnx/all-MiniLM-L6-v2/model.onnx \
+         da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0 /onnx/all-MiniLM-L6-v2/tokenizer.json \
+         9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3 /onnx/all-MiniLM-L6-v2/tokenizer_config.json \
+         > /tmp/onnx-model.sha256 \
+ && sha256sum -c /tmp/onnx-model.sha256 \
+ && rm /tmp/onnx-model.sha256
 
 # ── Stage 2: Production dependencies (with build tools for native modules) ──
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS prod-deps
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS prod-deps
 
 # node-pty requires make/g++/python3 for compilation when prebuilds
 # are unavailable. The runtime base image is intentionally slim (no
@@ -167,7 +179,10 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # picked up the fix (1:...-1+deb13u1) via its normal apt-get upgrade; this base tag was
 # just never re-pinned here. Verified live via `docker run ... dpkg-query zlib1g` before
 # bumping — no new base rebuild needed, only this re-pin.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-08@sha256:7856156d55ceb611b05ad56c381d4819c79f42816c6244be6c1bf6094ce7d4b3 AS runtime
+# Bumped to :2026-11-10 (t/156, under t/155) — clears zlib1g CVE-2026-76844 (#6350), which the
+# deployed-image scan still reports for prod. DeployAzure verified the digest carries zlib1g
+# 1:...-1+deb13u1 (t/155#2). npm's bundled-undici alerts don't apply here: step 8 strips npm.
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-15@sha256:99fc7ea878e86812c0450d82786b2e61baece12f3c0125b2f7a568acdb272c39 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"

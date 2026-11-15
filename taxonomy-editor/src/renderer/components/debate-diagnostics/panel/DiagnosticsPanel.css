@@ -1,8 +1,8 @@
 /* ─── Diagnostics Panel ──────────────────────────────── */
 .debate-diag-btn.active {
-  background: color-mix(in srgb, var(--warning, #f59e0b) 20%, var(--bg-secondary));
+  background: var(--warning-bg);
   border-color: var(--warning, #f59e0b);
-  color: var(--warning, #f59e0b);
+  color: var(--warning-text);
 }
 .diag-selected {
   outline: 2px solid var(--warning, #f59e0b);
@@ -100,8 +100,8 @@
   border-radius: var(--radius-sm);
   font-weight: 600;
 }
-.diag-badge-move { background: color-mix(in srgb, var(--focus-ring, #3b82f6) 20%, var(--bg-primary)); color: var(--focus-ring, #3b82f6); }
-.diag-badge-type { background: color-mix(in srgb, var(--color-skp) 20%, var(--bg-primary)); color: var(--color-skp); }
+.diag-badge-move { background: var(--info-bg); color: var(--info-text); }
+.diag-badge-type { background: var(--color-skp-bg); color: var(--color-skp); }
 .diag-assumption { margin: 4px 0; padding: 4px; border-left: 2px solid var(--border-color); padding-left: 8px; }
 .diag-muted { color: var(--text-muted); font-size: var(--text-xs); }
 .diag-claim { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; margin: 3px 0; font-size: var(--text-xs); }
@@ -152,27 +152,27 @@
 .factcheck-detail-explanation { font-size: var(--text-2xs); line-height: 1.4; white-space: pre-wrap; color: var(--text-primary); }
 
 /* Intervention diagnostics */
-.diag-verification-supported { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); font-size: var(--text-2xs); cursor: default; }
-.diag-verification-disputed { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); font-size: var(--text-2xs); cursor: default; }
-.diag-verification-unverifiable { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-muted); font-size: var(--text-2xs); cursor: default; }
+.diag-verification-supported { background: var(--success-bg); color: var(--success-text); font-size: var(--text-2xs); cursor: default; }
+.diag-verification-disputed { background: var(--error-bg); color: var(--error-text); font-size: var(--text-2xs); cursor: default; }
+.diag-verification-unverifiable { background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--text-2xs); cursor: default; }
 .diag-ledger-entry { margin: 4px 0; padding: 4px 0; border-bottom: 1px solid var(--border-color); }
 .diag-ledger-addressed { opacity: 0.6; }
 .diag-missing-arg { margin: 6px 0; padding: 4px 0; border-bottom: 1px solid var(--border-color); }
 .diag-drift-speaker { margin: 6px 0; }
-.diag-drift-warning { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.diag-drift-warning { background: var(--error-bg); color: var(--error-text); }
 
 /* Taxonomy suggestions */
 .diag-taxo-suggestion { margin: 8px 0; padding: 6px 0; border-bottom: 1px solid var(--border-color); }
 .diag-taxo-before, .diag-taxo-after { margin-top: 4px; }
 .diag-taxo-desc { font-size: var(--text-2xs); padding: 4px 6px; background: var(--bg-secondary); border-radius: var(--radius-sm); margin-top: 2px; line-height: 1.4; }
 .diag-taxo-desc-proposed { background: color-mix(in srgb, var(--success) 8%, transparent); border-left: 2px solid var(--success); }
-.diag-suggestion-narrow { background: color-mix(in srgb, var(--focus-ring, #3b82f6) 15%, transparent); color: var(--focus-ring, #3b82f6); }
-.diag-suggestion-broaden { background: color-mix(in srgb, var(--color-skp) 15%, transparent); color: var(--color-skp); }
-.diag-suggestion-clarify { background: color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent); color: var(--warning, #f59e0b); }
-.diag-suggestion-split { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
-.diag-suggestion-qualify { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
-.diag-suggestion-retire { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-muted); }
-.diag-suggestion-new_node { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.diag-suggestion-narrow { background: var(--info-bg); color: var(--info-text); }
+.diag-suggestion-broaden { background: var(--color-skp-bg); color: var(--color-skp); }
+.diag-suggestion-clarify { background: var(--warning-bg); color: var(--warning-text); }
+.diag-suggestion-split { background: var(--error-bg); color: var(--error-text); }
+.diag-suggestion-qualify { background: var(--error-bg); color: var(--error-text); }
+.diag-suggestion-retire { background: var(--bg-tertiary); color: var(--text-secondary); }
+.diag-suggestion-new_node { background: var(--success-bg); color: var(--success-text); }
 
 
 /* ─── Monolith-extracted styles (diagnostics-panel) (Phase 3 co-location, t/2989) ─── */

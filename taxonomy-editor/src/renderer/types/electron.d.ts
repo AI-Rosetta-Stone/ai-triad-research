@@ -51,6 +51,10 @@ export interface ElectronAPI {
    *  `string` would satisfy preload→declared assignability but fail the reverse (mutual)
    *  direction, since not every string is a valid NodeJS.Platform/Architecture literal. */
   osPlatform: NodeJS.Platform;
+  /** t/418: app.getAppPath() of the running main process (the code actually executing), or null. */
+  appPath: string | null;
+  /** t/418: USERPROFILE of the running main process, for redacting redirected profiles from dumps; null when unset. */
+  userProfile: string | null;
   osArch: NodeJS.Architecture;
   /** t/2766: performance.now() stamp from when contextBridge.exposeInMainWorld ran. */
   preloadTimestamp: number;
@@ -193,6 +197,8 @@ export interface ElectronAPI {
   // t/3316: the renderer's view of the main-process attribution handler ElectronMain implements (t/3322)
   // — computes from the LOCAL corpus via the same pure fn. Contract shared with web via bridge/types.ts.
   computeAttribution: (payload: FetchClaimAttributionPayload) => Promise<ClaimAttributionResponse>;
+  // t/348: read-only chat synthetic-statement lookup (ElectronMain handler, src/main/ipc/taxonomyHandlers.ts).
+  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }) => Promise<Record<string, string | null>>;
   nliClassify: (pairs: Array<{ text_a: string; text_b: string }>) => Promise<{ results: Array<{ nli_label: string; nli_entailment: number; nli_neutral: number; nli_contradiction: number; margin: number }> }>;
 
   // Debate sessions
@@ -275,6 +281,9 @@ export interface ElectronAPI {
   closeDiagnosticsWindow: () => Promise<void>;
   /** t/4642/t/4663: bring an already-open diagnostics popout to the front. */
   focusDiagnosticsWindow: () => Promise<'focused' | 'not-open'>;
+  /** t/163: page zoom driven by the store's zoomLevel; the View menu sends commands back. */
+  setZoomFactor: (factor: number) => void;
+  onZoomCommand: (callback: (command: 'in' | 'out' | 'reset') => void) => () => void;
   sendDiagnosticsState: (state: unknown) => void;
   onDiagnosticsStateUpdate: (callback: (state: unknown) => void) => () => void;
   onDiagnosticsPopoutClosed: (callback: () => void) => () => void;

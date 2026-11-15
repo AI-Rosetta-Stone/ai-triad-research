@@ -216,8 +216,8 @@
   font-size: var(--text-2xs);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, #f59e0b 20%, transparent);
-  color: #b45309;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
 }
 

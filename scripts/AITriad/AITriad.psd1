@@ -179,6 +179,7 @@
         'Get-TaxEditorImage'
         'Deploy-TaxEditorImage'
         'Set-TaxEditorKnownGood'
+        'Set-TaxEditorPinnedTag'
         'Restore-TaxEditorKnownGood'
         'Test-TaxEditorInfra'
         'Deploy-TaxEditorInfra'
@@ -262,6 +263,10 @@
         'Get-ViteDevStatus'
         # t/3869 — resolves the true main-checkout root from inside any worktree (nested or sibling)
         'Get-WorktreeMainRoot'
+        # t/150 — Invoke-AIApi re-exported from the nested AIEnrich (the instance that logs), and a
+        # spend-guard preflight that reports whether calls will reach the AI call log
+        'Invoke-AIApi'
+        'Test-AICallLogReady'
         # t/2330 — Debate session state diagnostic
         'Get-DebateSessionState'
         # t/2335 — Debate index field-type integrity check (per-session files)

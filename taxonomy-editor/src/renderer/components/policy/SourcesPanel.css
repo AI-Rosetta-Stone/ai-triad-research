@@ -68,7 +68,7 @@
 
 .sources-panel-doc-count {
   background: var(--focus-ring, #3b82f6);
-  color: white;
+  color: var(--text-on-focus-ring, #fff);
   font-size: var(--text-xs);
   font-weight: 700;
   padding: 1px 6px;

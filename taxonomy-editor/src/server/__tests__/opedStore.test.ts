@@ -112,6 +112,30 @@ describe('round-trip (t/2572)', () => {
   });
 });
 
+// t/172: per-stage raw prompts/outputs (t/171) must survive save → load; old sets stay unchanged.
+describe('stages persistence (t/172)', () => {
+  const STAGES = [
+    { stage: 'generation', attempt: 1, model: 'claude-sonnet-5', prompt: 'SYS\n\n---\n\nUSER', output: 'RAW' },
+    { stage: 'readability-edit', attempt: 2, model: 'claude-sonnet-5', prompt: 'EDIT', output: '', error: 'timeout' },
+  ];
+
+  it('finalizeOpedSet then loadOpedSet round-trips a member\'s stages, in order, including attempt and error', async () => {
+    const base = makeSet('set-stages');
+    const set = { ...base, opeds: [{ ...base.opeds[0], stages: STAGES }, base.opeds[1]] } as unknown as OpEdSet;
+    await finalizeOpedSet(set);
+    const loaded = await loadOpedSet('set-stages') as OpEdSet;
+    expect((loaded.opeds[0] as { stages?: unknown }).stages).toEqual(STAGES);
+    expect(loaded).toEqual(set);
+  });
+
+  it('a set without stages (pre-t/171) loads unchanged, with no stages key invented', async () => {
+    await finalizeOpedSet(makeSet('set-old'));
+    const loaded = await loadOpedSet('set-old') as OpEdSet;
+    expect(loaded).toEqual(makeSet('set-old'));
+    for (const m of loaded.opeds) expect(m).not.toHaveProperty('stages');
+  });
+});
+
 // ── 2. Partial-set persists ───────────────────────────────────────────────────
 
 describe('partial-set (t/2572)', () => {

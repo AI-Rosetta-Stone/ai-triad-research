@@ -199,6 +199,47 @@
   background: var(--bg-hover);
 }
 
+/* t/382: below 767px each element is a card (ID and element on top, the reflection under it), so the
+   Why table never scrolls sideways at 390px. The headers stay in the DOM for screen readers. */
+@media (max-width: 767px) {
+  .oped-grounding-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .oped-grounding-table,
+  .oped-grounding-table tbody,
+  .oped-grounding-table tr,
+  .oped-grounding-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .oped-grounding-table tr {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    margin-bottom: 8px;
+  }
+
+  .oped-grounding-table td,
+  .oped-grounding-table td:nth-child(2) {
+    border-bottom: none;
+    padding: 0.15rem 0;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .oped-grounding-table td:nth-child(3) {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+  }
+}
+
 /* t/4634: moved from the Element cell to its own ID column — ID style per Design's spec:
    monospace, 13px, current link color, single line (ids are short fixed-format strings, no
    need to wrap). */

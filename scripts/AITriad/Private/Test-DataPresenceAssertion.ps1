@@ -66,10 +66,11 @@ function Test-DataPresenceAssertion {
 
     # 3. Resolve the collection to count.
     if ($CountField) {
-        if (($Body -is [string]) -or ($Body -is [ValueType]) -or -not ($Body.PSObject.Properties[$CountField])) {
+        # Get-JsonField/Test-JsonField read PSCustomObject and Hashtable bodies alike (t/4934).
+        if (-not (Test-JsonField $Body $CountField)) {
             return & $Result 0 $false "Field '$CountField' absent from response body"
         }
-        $Coll = $Body.$CountField
+        $Coll = Get-JsonField $Body $CountField -NoEnumerate   # keep [] (empty) distinct from null
         $What = "Field '$CountField'"
     } else {
         $Coll = $Body
@@ -87,7 +88,10 @@ function Test-DataPresenceAssertion {
     if (($Coll -is [string]) -or ($Coll -is [ValueType])) {
         return & $Result 0 $false "$What is not an array (got $($Coll.GetType().Name))"
     }
-    if ($Coll -is [System.Collections.IEnumerable]) {
+    if ($Coll -is [System.Collections.IDictionary]) {
+        # A Hashtable is one object, not rows: @($h).Count is 1 even for an empty {} (t/4934).
+        $Count = if ($Coll.Count -gt 0) { 1 } else { 0 }
+    } elseif ($Coll -is [System.Collections.IEnumerable]) {
         $Count = @($Coll).Count
     } else {
         $Count = if (@($Coll.PSObject.Properties).Count -gt 0) { 1 } else { 0 }

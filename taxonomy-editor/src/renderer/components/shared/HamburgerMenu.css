@@ -150,7 +150,7 @@
 
 .hamburger-item.active {
   background: var(--focus-ring);
-  color: #fff;
+  color: var(--text-on-focus-ring, #fff);
 }
 
 
