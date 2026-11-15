@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MAX_ATTEMPTS, backoffMs, isRetryableStatus, statusOf, withGitHubRetry,
+  MAX_ATTEMPTS, MAX_RATE_WAIT_MS, backoffMs, isRateLimited, isRetryableStatus, rateLimitResetMs, statusOf, withGitHubRetry,
 } from './github-retry.mjs';
 
 function httpError(status, message = `HTTP ${status}`) {
@@ -116,4 +116,73 @@ test('a 503 then a 404 stops at the 404 (no retry of the 4xx)', async () => {
   const { fn, calls } = scripted(503, 404);
   await assert.rejects(withGitHubRetry('x', fn, h.opts), (err) => err.status === 404);
   assert.equal(calls.n, 2);
+});
+
+// ── t/125: rate-limited 403 (GitHub sends primary and secondary limits as 403) ──
+
+const NOW_MS = Date.parse('2026-11-15T00:00:00Z');
+const rlError = (remaining, resetSecs, message = 'API rate limit exceeded for installation') => {
+  const e = new Error(message);
+  e.status = 403;
+  e.response = { headers: { 'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': String(resetSecs) } };
+  return e;
+};
+const quiet = { warn: () => {}, now: () => NOW_MS };
+
+test('t/125: isRateLimited reads the 403 quota header or a rate-limit message; a plain 403 is not', () => {
+  assert.equal(isRateLimited(rlError('0', 0)), true);
+  assert.equal(isRateLimited(httpError(403, 'API rate limit exceeded')), true, 'a message-only rate limit');
+  assert.equal(isRateLimited(httpError(403, 'Resource not accessible by integration')), false);
+  assert.equal(isRateLimited(httpError(404, 'API rate limit exceeded')), false, 'only 403 and 429 are rate-limited');
+});
+
+test('t/125: a rate-limited 403 with a reset 60 s away waits for the reset, then retries and succeeds', async () => {
+  const waits = [];
+  let calls = 0;
+  const fn = async () => { calls++; if (calls === 1) throw rlError('0', NOW_MS / 1000 + 60); return 'ok'; };
+  const out = await withGitHubRetry('label', fn, { ...quiet, sleep: async (ms) => waits.push(ms) });
+  assert.equal(out, 'ok');
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [61000], 'waits the 60 s to the reset plus 1 s');
+});
+
+test('t/125: a rate-limited 403 whose reset is far off fails at once, naming the re-run time', async () => {
+  let calls = 0;
+  const reset = NOW_MS / 1000 + 3600; // an hour away
+  const fn = async () => { calls++; throw rlError('0', reset); };
+  await assert.rejects(
+    withGitHubRetry('tier-check: pulls.get', fn, { ...quiet, sleep: async () => { throw new Error('must not sleep'); } }),
+    (err) => {
+      assert.match(err.message, /RATE-LIMITED, re-run after \d{2}:\d{2}Z/);
+      assert.equal(err.status, 403, 'the status is kept for callers that branch on it');
+      return true;
+    },
+  );
+  assert.equal(calls, 1, 'no retry when the reset is beyond the wait window');
+  assert.ok(3600 > MAX_RATE_WAIT_MS / 1000);
+});
+
+test('t/125: a rate limit with no reset header fails closed at once (reset time unknown)', async () => {
+  let calls = 0;
+  const fn = async () => { calls++; throw httpError(403, 'You have exceeded a secondary rate limit'); };
+  await assert.rejects(withGitHubRetry('label', fn, quiet), (err) => /RATE-LIMITED, re-run after the API quota resets/.test(err.message));
+  assert.equal(calls, 1);
+});
+
+test('t/125: a plain 403 stays final (one call, the original error)', async () => {
+  let calls = 0;
+  const err = httpError(403, 'Resource not accessible by integration');
+  await assert.rejects(withGitHubRetry('label', async () => { calls++; throw err; }, quiet), (e) => e === err);
+  assert.equal(calls, 1);
+});
+
+test('t/125: a 404 stays final (one call)', async () => {
+  let calls = 0;
+  await assert.rejects(withGitHubRetry('label', async () => { calls++; throw httpError(404, 'Not Found'); }, quiet));
+  assert.equal(calls, 1);
+});
+
+test('t/125: the reset epoch is read from x-ratelimit-reset (seconds to ms)', () => {
+  assert.equal(rateLimitResetMs(rlError('0', 1700000000)), 1700000000000);
+  assert.equal(rateLimitResetMs(httpError(403, 'x')), null);
 });
