@@ -97,7 +97,7 @@ jobs:
 
       - name: Sweep unit tests
         if: steps.cfg.outputs.configured == 'true'
-        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t0-rule-order.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
 
       - name: Mint App token
         id: app
