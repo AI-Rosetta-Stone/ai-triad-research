@@ -76,14 +76,14 @@ export function resolveChatNodes(
   const skipped: string[] = [];
   for (const id of candidates) {
     const chosen = statements[id];
-    if (chosen) {
+    if (chosen?.text) {
       kept.push({ nodeId: id, statement: chosen.text, index: chosen.index });
       continue;
     }
     skipped.push(id);
     const category = byId.get(id)?.category;
     if (!category) continue;
-    const next = ordered.find(n => n.category === category && !used.has(n.nodeId) && statements[n.nodeId]);
+    const next = ordered.find(n => n.category === category && !used.has(n.nodeId) && statements[n.nodeId]?.text);
     if (next) {
       used.add(next.nodeId);
       const backfill = statements[next.nodeId]!;

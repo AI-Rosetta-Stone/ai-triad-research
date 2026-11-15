@@ -111,6 +111,18 @@ describe('resolveChatNodes — skip and backfill', () => {
   });
 });
 
+describe('resolveChatNodes — empty text is not a usable statement', () => {
+  it('a statement with empty text is skipped and its slot backfilled', () => {
+    const ids = selectChatCandidates(pool());
+    const statements: Record<string, ChatStatement | null> = Object.fromEntries(pool().map((n, i) => [n.nodeId, { text: `s-${n.nodeId}`, index: i }]));
+    statements.b0 = { text: '', index: 0 };
+    const { kept, skipped } = resolveChatNodes(pool(), ids, statements);
+    expect(skipped).toEqual(['b0']);
+    expect(kept.map(k => k.nodeId)).toContain('b6');
+    expect(kept.every(k => k.statement.length > 0)).toBe(true);
+  });
+});
+
 describe('formatChatNodeLine', () => {
   it('formats as [id] "label" — statement, never a description', () => {
     expect(formatChatNodeLine({ id: 'acc-bel-001', label: 'Capability gains' }, 'Scaling helps.'))
