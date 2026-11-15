@@ -22,7 +22,7 @@
   },
   "scripts": {
     "lint": "eslint . && node eslint-rules/check-complexity-budget-disables.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p debate/tsconfig.json --noEmit && pnpm run typecheck:brief-nodenext",
     "typecheck:brief-nodenext": "tsc -p brief/tsconfig.nodenext.json"
   }
 }
