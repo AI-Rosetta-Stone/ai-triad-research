@@ -1,10 +1,4 @@
 {
   "_comment": "t/105 (t/4957): reads check-review-state-gating.mjs flags in files that can't carry a `lint:review-state-ok:` comment (T2 paths, root AGENTS.md change tiers). Each entry: path, a substring of the flagged line (contains), and an honest reason. Prefer the inline comment wherever the file is editable.",
-  "entries": [
-    {
-      "path": "operations/devops/tier-check-predicate.mjs",
-      "contains": "r.state === 'APPROVED' &&",
-      "reason": "T2 file (can't be edited outside a T2 round). checkR6's app-approval arm pairs the state with commitId === headSha, the reviewer App login and an `Approved (Tech Lead|PI):` body, so the role verdict is the body. Known gap (t/4957, corrected in t/119): checkR6 doesn't consult CHANGES_REQUESTED at all, so a later CHANGES_REQUESTED from anyone (another role through the same App, or a human) doesn't revoke the approval. t1-approval-guard closed the same gap via latestRoleVerdicts gate mode (#4804, t/116 part a); tier-check R6's migration is t/116 part b (T2)."
-    }
-  ]
+  "entries": []
 }

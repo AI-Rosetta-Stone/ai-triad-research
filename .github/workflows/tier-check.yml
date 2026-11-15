@@ -352,9 +352,17 @@ jobs:
               return;
             }
 
+            // t/116(b): the predicate imports latestRoleVerdicts from role-review-verdicts.mjs, so the base
+            // copy of that module goes into the same temp dir. Without it the import fails.
+            const baseVerdictsText = showFromBase('operations/devops/role-review-verdicts.mjs');
+            if (baseVerdictsText === null) {
+              await r1FallbackCheck(config, 'role-review-verdicts.mjs not yet on the base branch's tip (predicate imports it)');
+              return;
+            }
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
             const predicatePath = path.join(tmpDir, 'tier-check-predicate.mjs');
             fs.writeFileSync(predicatePath, basePredicateText);
+            fs.writeFileSync(path.join(tmpDir, 'role-review-verdicts.mjs'), baseVerdictsText);
             const baseModule = await import(pathToFileURL(predicatePath).href);
 
             // checkApiVersion comes from the BASE module (trusted); the head contributes only a number.

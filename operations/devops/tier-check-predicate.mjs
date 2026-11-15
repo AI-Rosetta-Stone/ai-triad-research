@@ -1,3 +1,5 @@
+import { latestRoleVerdicts } from './role-review-verdicts.mjs';
+
 /**
  * Pure predicate for the advisory tier-declaration check (t/4103, t/4092 SO dissent 2).
  *
@@ -254,11 +256,6 @@ export function checkR5(tier, labels) {
   return !(labels ?? []).includes('consult-hold');
 }
 
-// `Approved (PI):` as a COMMENT remains a valid alternative approval path (the PI sometimes
-// approves by comment, t/4266#3) -- but, like t1-approval-guard's own identity limit, this
-// predicate can prove the marker's presence, never who actually wrote it (every agent posts
-// under one shared identity until t/4096's per-agent rollout finishes).
-const PI_COMMENT_APPROVAL_RE = /^Approved \(PI\):/m;
 const SO_DID_NOT_REVIEW_RE = /\bSO did not review\b/i;
 // The SO's real marker (t/4412, t/4266#13 TL review): "**SO clearing comment ..., head `<sha>`.**"
 // -- matched generically (any text before "head", not a fixed ticket/e-mail reference) and
@@ -301,27 +298,35 @@ export function checkR6(tierOrR1, labels, comments, reviews, headSha, reviewerAp
   if (!tierOrR1) return false;
   if ((labels ?? []).includes('consult-hold')) return false;
 
-  const pushMs = new Date(lastPushAt).getTime();
-  const isFresh = (c) => {
-    const t = new Date(c.createdAt).getTime();
-    return Number.isFinite(t) && Number.isFinite(pushMs) && t >= pushMs;
-  };
-
-  const appApproved = (reviews ?? []).some((r) =>
-    r.state === 'APPROVED' &&
-    r.commitId === headSha &&
-    r.login === reviewerAppLogin &&
-    /^Approved \((Tech Lead|PI)\):/.test(String(r.body ?? '').trim()));
-  const piCommentApproved = (comments ?? []).some((c) => PI_COMMENT_APPROVAL_RE.test(c.body ?? '') && isFresh(c));
-  const approved = appApproved || piCommentApproved;
+  // t/116(b) (TL p/12#58): the approval comes from the shared gate-mode verdicts, not from a review's
+  // state. Approvals are head-bound. A changes-request is sticky across pushes and blocks whatever
+  // other approvals exist. Only reviewer-App reviews and comments clear a role verdict, so a
+  // shared-login comment cannot lift a block (Quality t/116#12, t/116#14).
+  // Any outstanding changes-request blocks, from any reviewer and through any comment path.
+  const blocks = latestRoleVerdicts({ reviews, comments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
+  if ([...blocks.values()].some((v) => v.kind === 'changes_requested')) return true;
+  // Approvals count only from the reviewer App. A shared-login comment can't clear a role (t/116#12).
+  const appComments = (comments ?? []).filter((c) => c.login === reviewerAppLogin);
+  const approvals = latestRoleVerdicts({ reviews, comments: appComments, reviewerAppLogin, headSha, lastPushAt, mode: 'gate' });
+  const approved = [...approvals].some(([role, v]) => v.kind === 'approved' && TL_OR_PI_ROLE_RE.test(role));
 
   const soCleared = (comments ?? []).some((c) => {
     const body = c.body ?? '';
-    if (SO_DID_NOT_REVIEW_RE.test(body)) return isFresh(c);
+    if (SO_DID_NOT_REVIEW_RE.test(body)) return isFreshAfterPush(c, lastPushAt);
     return SO_CLEARING_PREFIX_RE.test(body) && body.includes(headSha);
   });
 
   return !(approved && soCleared);
+}
+
+// The role slots that can clear R6's approval (canonical names, with or without the space).
+const TL_OR_PI_ROLE_RE = /^(tech ?lead|pi)$/i;
+
+// 'SO did not review' has no head SHA of its own, so it must postdate the last push (t/4266#15).
+function isFreshAfterPush(c, lastPushAt) {
+  const t = new Date(c.createdAt).getTime();
+  const pushMs = new Date(lastPushAt).getTime();
+  return Number.isFinite(t) && Number.isFinite(pushMs) && t >= pushMs;
 }
 
 /**
