@@ -65,6 +65,21 @@ on:
 permissions:
   contents: read   # checkout only; all writes use the App token
 
+# DEBOUNCE (t/73, Second Opinion on #4795): this group is what collapses a burst of triggers.
+# With `cancel-in-progress: false`, GitHub keeps at most ONE running and ONE pending run per
+# group; each new trigger cancels the pending run and takes its place. So N CI or
+# t1-approval-guard completions in a burst cost at most the sweep already running plus one more,
+# not N. Measured on main, 2026-11-11 16:18-19:48Z: 145 triggers gave 53 sweeps; the other 92
+# were cancelled while pending without running a step, and no two sweeps overlapped.
+# Nothing is lost by the collapse: the surviving pending run starts after every trigger it
+# replaced, and each sweep reads live PR state when it starts, not the triggering event.
+# Keep it this way:
+#   - never `cancel-in-progress: true`: it would kill a sweep between the enqueue call and its
+#     queue-entry check, and every new trigger would cut off a T0 idle-window wait;
+#   - no per-PR or per-trigger group key: runs would stop collapsing, and two sweeps could
+#     enqueue the same PR at once.
+# Cost of the single lane: a trigger that lands while the T0 step is in its idle-window wait
+# (up to 16 minutes) is not swept until that run ends.
 concurrency:
   group: enqueue-sweep
   cancel-in-progress: false
