@@ -833,3 +833,25 @@
     order: 2;
   }
 }
+
+/* t/4656: match the Text pane's statement body size (.debate-statement-content,
+   StatementCard.css) so the reading prose in Why/How is the same size as Text — only the
+   small meta (ids, chips, section headings) stays at --text-xs. */
+.debate-reasoning-label {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.debate-reasoning-text {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  font-style: italic;
+}
+
+/* t/282 (Design): a missing node reads as text, not its id again. */
+.debate-reasoning-label--missing {
+  color: var(--text-secondary);
+  font-style: italic;
+}
