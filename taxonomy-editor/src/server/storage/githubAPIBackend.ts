@@ -2551,20 +2551,44 @@ export class GitHubAPIBackend implements StorageBackend {
   // ── Path contract ──────────────────────────────────────────────────────
 
   private toRepoPath(filePath: string): string {
-    let p = filePath;
+    const refuse = (problem: string): never => {
+      throw new ActionableError({
+        goal: 'Validate file path',
+        problem,
+        location: 'GitHubAPIBackend.toRepoPath',
+        nextSteps: ['Use a clean path inside the repository data root'],
+        code: 'PATH_OUTSIDE_ROOT',
+        httpStatus: 400,
+      });
+    };
+    if (filePath.includes('\0')) refuse('Path contains a NUL byte');
+
+    let p = filePath.replace(/\\/g, '/');
 
     // Strip the data-root prefix to get the repo-relative path. Use getDataRoot()
     // (the actual source of incoming absolute paths from fileIO.ts) rather than
     // this.cacheDir (the disk-cache write location) — they can diverge when the
     // cache is on a separate mount (e.g. TAXONOMY_CACHE_DIR != AI_TRIAD_DATA_ROOT),
     // which caused staging github-api reads to 404 (t/2670).
-    const dataRoot = getDataRoot();
-    if (p.startsWith(dataRoot)) {
+    // t/223: match on a path-segment boundary (so `<root>-evil/x` is not "inside"
+    // the root), case-insensitively on win32.
+    const dataRoot = getDataRoot().replace(/\\/g, '/').replace(/\/+$/, '');
+    const ci = process.platform === 'win32';
+    const head = ci ? p.toLowerCase() : p;
+    const rootCmp = ci ? dataRoot.toLowerCase() : dataRoot;
+    if (dataRoot && (head === rootCmp || head.startsWith(rootCmp + '/'))) {
       p = p.slice(dataRoot.length);
+    } else if (/^[a-zA-Z]:/.test(p) || p.startsWith('//')) {
+      refuse(`Absolute path outside the data root rejected: "${filePath}"`);
     }
 
     // Strip leading slashes
     p = p.replace(/^\/+/, '');
+
+    // Refuse `..` segments (not substrings: `foo..json` is a valid name) before any API call.
+    const segments = p.split('/');
+    if (segments.includes('..')) refuse(`Path traversal with ".." rejected: "${filePath}"`);
+    p = segments.filter(seg => seg !== '' && seg !== '.').join('/');
 
     // Reject .git paths
     if (p === '.git' || p.startsWith('.git/')) {
@@ -2576,17 +2600,27 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
 
-    // Reject path traversal
-    if (p.includes('..')) {
+    return p;
+  }
+
+  /** t/223: the on-disk cache location of a repo path, confined to cacheDir. Defense in depth
+   *  behind toRepoPath(): refuses anything that resolves outside the cache directory. */
+  private diskPathFor(repoPath: string): string {
+    const root = path.resolve(this.cacheDir);
+    const abs = path.resolve(root, repoPath);
+    const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const r = process.platform === 'win32' ? root.toLowerCase() : root;
+    if (a !== r && !a.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) {
       throw new ActionableError({
-        goal: 'Validate file path',
-        problem: `Path traversal with ".." rejected: "${filePath}"`,
-        location: 'GitHubAPIBackend.toRepoPath',
-        nextSteps: ['Use an absolute or clean relative path'],
+        goal: 'Confine cache access to the cache directory',
+        problem: `Cache path escapes the cache directory: "${repoPath}"`,
+        location: 'GitHubAPIBackend.diskPathFor',
+        nextSteps: ['Use a clean repository-relative path'],
+        code: 'PATH_OUTSIDE_ROOT',
+        httpStatus: 400,
       });
     }
-
-    return p;
+    return abs;
   }
 
   // ── Manifest mutex ───────────────────────────────────────────────────
@@ -2695,7 +2729,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = this.diskPathFor(repoPath);
     try {
       return await fs.readFile(diskPath, 'utf-8');
     } catch (err: unknown) {
@@ -2711,7 +2745,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = this.diskPathFor(repoPath);
     try {
       return await fs.readFile(diskPath);
     } catch (err) {
@@ -2730,7 +2764,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = this.diskPathFor(repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2779,7 +2813,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = this.diskPathFor(repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2823,7 +2857,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async removeFromDiskCache(repoPath: string): Promise<void> {
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = this.diskPathFor(repoPath);
     try {
       await fs.unlink(diskPath);
     } catch {
