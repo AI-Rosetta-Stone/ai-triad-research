@@ -9,6 +9,7 @@ import { getUserContentBackend, writeFileIfAbsentStrict } from '../storage/fileI
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
+import { getConfig } from '../runtimeConfig.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
@@ -194,8 +195,7 @@ class DraftStoreImpl implements DraftStore {
   }
 
   // B6: Check per-client rate limit (prevent one client from exhausting global cap)
-  private async countClientPendingDrafts(clientId: string | undefined): Promise<number> {
-    if (!clientId) return 0; // no client id → can't track per-client (allow through)
+  private async countClientPendingDrafts(clientId: string): Promise<number> {
     let count = 0;
     try {
       const files = await this.backend.listDirectory('community/_drafts');
@@ -283,12 +283,14 @@ class DraftStoreImpl implements DraftStore {
       return 'cap_reached';
     }
 
+    // B6: a draft with no client id cannot be counted against the per-client cap, so it is refused
+    // (fail closed). The route must supply the id; see the t/185 child ticket for that route fix.
+    if (!clientId) return 'cap_reached';
+
     // Check per-client rate limit (B6)
-    if (clientId) {
-      const clientCount = await this.countClientPendingDrafts(clientId);
-      if (clientCount >= DRAFT_PER_CLIENT_CAP) {
-        return 'cap_reached';
-      }
+    const clientCount = await this.countClientPendingDrafts(clientId);
+    if (clientCount >= DRAFT_PER_CLIENT_CAP) {
+      return 'cap_reached';
     }
 
     return 'ok';
@@ -414,15 +416,9 @@ class DraftStoreImpl implements DraftStore {
       return { ok: false, reason: 'not_found' };
     }
 
-    // Check claim marker first
-    try {
-      const claimPath = `community/_drafts/claims/${draftId}.json`;
-      const claim = await this.backend.readFile(claimPath);
-      if (claim !== null) {
-        return { ok: false, reason: 'already_claimed' };
-      }
-    } catch (err) {
-      log.server.warn(`getDraft: failed to check claim: ${(err as any)?.message}`);
+    // Claimed means a claim marker or a finalized submission exists, the same check finalizeDraft uses.
+    if (await this.checkAlreadyClaimed(draftId)) {
+      return { ok: false, reason: 'already_claimed' };
     }
 
     // Read draft
@@ -595,12 +591,12 @@ class DraftStoreImpl implements DraftStore {
     }
     const record = draftResult.record;
 
-    // Check caps
+    // Check caps against the community queue's own limits (B5), so both paths share one cap.
     const userCount = await this.countUserPendingSubmissions(principal.storageUserId);
-    if (userCount >= 50) return { ok: false, reason: 'user_cap_reached' };
+    if (userCount >= getConfig().community.maxPendingPerUser) return { ok: false, reason: 'user_cap_reached' };
 
     const globalCount = await this.countGlobalPendingSubmissions();
-    if (globalCount >= 1000) return { ok: false, reason: 'queue_full' };
+    if (globalCount >= getConfig().community.globalPendingCap) return { ok: false, reason: 'queue_full' };
 
     // Write submission and markers
     await this.writeSubmissionAndMarker(draftId, record, principal);

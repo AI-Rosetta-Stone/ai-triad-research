@@ -37,6 +37,8 @@ vi.mock('../storage/fileIO.js', () => ({
   }),
 }));
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
+// Community caps as the store reads them (getConfig().community). Old hard-coded values, so the existing cap tests keep their meaning.
+vi.mock('../runtimeConfig.js', () => ({ getConfig: () => ({ community: { maxPendingPerUser: 50, globalPendingCap: 1000 } }) }));
 vi.mock('../logger.js', () => ({ log: { server: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } } }));
 vi.mock('../security/contentSanitizer.js', () => ({
   sanitizeUserText: (text: string) => text.trim().slice(0, 2000),

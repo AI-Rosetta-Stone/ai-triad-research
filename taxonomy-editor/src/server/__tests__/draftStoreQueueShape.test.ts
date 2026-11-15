@@ -36,6 +36,8 @@ vi.mock('../storage/fileIO.js', () => ({
 }));
 
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
+// Community caps as the store reads them (getConfig().community). Old hard-coded values, so the existing cap tests keep their meaning.
+vi.mock('../runtimeConfig.js', () => ({ getConfig: () => ({ community: { maxPendingPerUser: 50, globalPendingCap: 1000 } }) }));
 vi.mock('../logger.js', () => ({
   log: { server: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } },
 }));
@@ -111,6 +113,22 @@ describe('DraftStore queue shape and count fail-closed (t/185 B2, B5)', () => {
     });
     await expect(store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-4' }))
       .rejects.toMatchObject({ httpStatus: 503 });
+    expect([...files.keys()].some(k => k.includes('/_drafts/'))).toBe(false);
+  });
+
+  it('getDraft reports a finalized draft as already_claimed (checks the submission path too)', async () => {
+    const store = createDraftStore({ backend: mockBackend, now });
+    const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-6' });
+    const draftId = (created as { draftId: string }).draftId;
+    expect((await store.getDraft(draftId)).ok).toBe(true);
+    await store.finalizeDraft(draftId, { storageUserId: 'user-9', displayName: 'Cy' } as any);
+    expect(await store.getDraft(draftId)).toEqual({ ok: false, reason: 'already_claimed' });
+  });
+
+  it('B6: a draft with no client id is refused (cap_reached) and nothing is written', async () => {
+    const store = createDraftStore({ backend: mockBackend, now });
+    const result = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES });
+    expect(result).toEqual({ ok: false, reason: 'cap_reached' });
     expect([...files.keys()].some(k => k.includes('/_drafts/'))).toBe(false);
   });
 
