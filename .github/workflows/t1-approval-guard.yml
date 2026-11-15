@@ -50,15 +50,25 @@ name: t1-approval-guard
 # COMMENT FILTER: a PR comment runs this check only if it (or, for an edit, its previous text)
 # contains a verdict word, the sweep's re-run marker, or `/recheck-guards`. To re-run this check by
 # hand, post a PR comment containing `/recheck-guards`. The list and its reasons are on the job.
+#
+# REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and
+# `pull_request_review: [dismissed]` are triggers, so deleting an approval comment or dismissing an
+# approving review re-evaluates at once. Without them the last `success` check run stayed on the
+# head, and enqueue-pr.mjs reads that check run. The run lists comments and reviews afresh: a
+# deleted comment is no longer in the list, and a dismissed review comes back with state DISMISSED,
+# which the predicate never counts as an approval. A deleted comment passes the same filter as a
+# created one (the event carries the deleted comment's body). LIMIT: GitHub takes a
+# `pull_request_review` run's workflow file from the PR side, so a branch cut before `dismissed`
+# was added here does not run on a dismissal until it is rebased onto main.
 
 on:
   pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, edited, labeled]
   issue_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
   pull_request_review:
-    types: [submitted]
+    types: [submitted, dismissed]
 
 permissions:
   pull-requests: write
@@ -87,14 +97,14 @@ jobs:
     # contains() ignores case and matches anywhere in the body, so the list is a SUPERSET of the
     # predicate: an extra run is harmless, a missed one loses an approval or a block. The text
     # searched is the comment's new body plus, for an edit, its previous body
-    # (`changes.body.from`, empty on `created`), so a verdict edited AWAY also re-evaluates.
+    # (`changes.body.from`, empty on `created` and `deleted`), so a verdict edited AWAY also
+    # re-evaluates. On `deleted` the body is the deleted comment's, so a deleted verdict runs the
+    # job and deleted chatter does not.
     # When you change the grammar in role-review-verdicts.mjs, change the list here, in BOTH copies
     # (`if:` and `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ
     # or if a body the predicate reacts to would not run this job.
     #
-    # NOT covered, because no comment text marks it: a deleted comment and a dismissed review (not
-    # triggers at all). Until now the next chatter comment happened to re-evaluate after one; now
-    # post `/recheck-guards`.
+    # `pull_request_review` events (submitted, dismissed) are not filtered: every one runs the job.
     #
     # A job skipped here reports as `evaluate` (the job id), on the default branch's tip. It never
     # creates or changes a `t1-approval-guard` check run, so it cannot read as a verdict.

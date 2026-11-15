@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
 import { checkR6 } from './tier-check-predicate.mjs';
@@ -273,4 +274,250 @@ test('tier-check: comment bodies are read ONLY by checkR6 -- a new reader must e
   const usesOfComments = [...code.matchAll(/\bapprovalComments\b/g)].length;
   assert.equal(usesOfComments, 2, 'approvalComments must appear exactly twice in evaluateTierCheck: destructured, then passed to checkR6');
   assert.match(code, /checkR6\(tier === 'T2' \|\| Boolean\(r1\), labels, approvalComments \?\? \[\]/);
+});
+
+// ── One table of comment shapes, run through BOTH workflows' lists (SO condition 3, #5176) ─────
+//
+// Each row is one event. `guard` / `tier` state whether that workflow's job must RUN (true) or
+// SKIP (false). An edit row matches on one half only (new body or previous body), so the two
+// halves of the searched text are each proven on their own. A deleted comment's event carries
+// the deleted comment's body in `comment.body`, like a created one.
+
+const SO_CLEARING = `**SO clearing comment (T2, t/4266), head \`${HEAD}\`.**`;
+const onPr = (action, body, from) => ({
+  eventName: 'issue_comment', action, issue: { number: 7, pull_request: {} }, comment: { body },
+  ...(from === undefined ? {} : { changes: { body: { from } } }),
+});
+const created = (body) => onPr('created', body);
+const edited = (from, to) => onPr('edited', to, from);
+const deleted = (body) => onPr('deleted', body);
+
+const SHAPES = [
+  // name, event, guard runs, tier-check runs
+  ['verdict created (approval)', created('Approved (Quality): ok at abc123'), true, false],
+  ['verdict created (changes request)', created('Changes requested (Design): fix the error path'), true, false],
+  ['verdict created (exemption)', created('Design-exempt (Design): store-only fix'), true, false],
+  ['chatter created', created('Head updated to abc123'), false, false],
+  ['chatter created (ready)', created('Ready for reviewer approval'), false, false],
+  ['chatter created (CI)', created('CI has been green for 37 min'), false, false],
+  ['chatter edited into a verdict (new body only)', edited('Looking now.', 'Approved (Quality): ok'), true, false],
+  ['verdict edited into chatter (previous body only)', edited('Approved (Quality): ok', 'Withdrawn, see below.'), true, false],
+  ['changes request edited into chatter (previous body only)', edited('**Changes requested (Quality), at abc123**', 'Resolved.'), true, false],
+  ['chatter edited into chatter', edited('Head updated to abc123', 'Head updated to abc124'), false, false],
+  ['verdict deleted', deleted('Approved (Quality): ok'), true, false],
+  ['changes request deleted', deleted('Changes requested (Design): no'), true, false],
+  ['chatter deleted', deleted('Head updated to abc123'), false, false],
+  ['sweep marker', created(`${SWEEP_MARKER} 65ab11a0 -->\nRe-running the guard: its run for this head was lost.`), true, false],
+  ['/recheck-guards', created('/recheck-guards'), true, true],
+  ['/recheck-guards inside a longer comment', created('Dismissed the stale review.\n\n/recheck-guards\n'), true, true],
+  ['/RECHECK-GUARDS (mixed case)', created('/Recheck-Guards'), true, true],
+  ['PI approval created', created('Approved (PI): go ahead.'), true, true],
+  ['PI approval on a later line', created('Context first.\nApproved (PI): proceeding.'), true, true],
+  ['chatter edited into a PI approval (new body only)', edited('Reading.', 'Approved (PI): go ahead.'), true, true],
+  ['PI approval edited into chatter (previous body only)', edited('Approved (PI): go ahead.', 'Retracted.'), true, true],
+  ['PI approval deleted', deleted('Approved (PI): go ahead.'), true, true],
+  ['SO clearing created', created(SO_CLEARING), false, true],
+  ['chatter edited into an SO clearing (new body only)', edited('Reviewing.', SO_CLEARING), false, true],
+  ['SO clearing edited into chatter (previous body only)', edited(SO_CLEARING, 'Clearing withdrawn.'), false, true],
+  ['SO clearing deleted', deleted(SO_CLEARING), false, true],
+  ['"SO did not review" created', created('SO did not review within the time-box.'), false, true],
+  ['"SO did not review" edited away (previous body only)', edited('SO did not review within the time-box.', 'The SO replied after all.'), false, true],
+  ['"SO did not review" deleted', deleted('SO did not review within the time-box.'), false, true],
+  ['markdown-emphasised verdict (bold, comma)', created('**Changes requested (Quality), at abc123, re: the error path.**'), true, false],
+  ['markdown-emphasised verdict (underscore)', created('_Approved (Tech Lead)._ fine'), true, false],
+  ['odd whitespace: no space before the parenthesis', created('Approved(Quality): ok'), true, false],
+  ['odd whitespace: newline before the parenthesis', created('Approved\n(Quality): ok'), true, false],
+  ['odd whitespace: leading blank lines and tabs', created('\n\n\t**  Design-exempt\t(Design): docs only'), true, false],
+  ['mixed case: reviewer-App backstop', created('CHANGES REQUESTED (design) -- details to follow'), true, false],
+  ['mixed case: SO did not review', created('so DID NOT review this one'), false, true],
+  ['mixed case: so clearing comment', created(`so CLEARING comment ${HEAD}`), false, true],
+  // Supersets: the lists ignore case, the predicates do not. An extra run is harmless.
+  ['mixed case: approved (pi): -- over-triggers both, by design', created('approved (pi): x'), true, true],
+  ['prose that mentions "approved" -- over-triggers the guard, by design', created('Head updated; previously approved by Quality.'), true, false],
+  ['empty body', created(''), false, false],
+  ['verdict on a plain issue (not a PR)', { eventName: 'issue_comment', action: 'created', issue: { number: 7 }, comment: { body: 'Approved (PI): x /recheck-guards' } }, false, false],
+  ['verdict deleted on a plain issue', { eventName: 'issue_comment', action: 'deleted', issue: { number: 7 }, comment: { body: 'Approved (Quality): ok' } }, false, false],
+  ['pull_request_review submitted (never filtered)', { eventName: 'pull_request_review', action: 'submitted', pull_request: { number: 7 } }, true, true],
+  ['pull_request_review dismissed (never filtered)', { eventName: 'pull_request_review', action: 'dismissed', pull_request: { number: 7 } }, true, true],
+  ['pull_request_target synchronize (never filtered)', { eventName: 'pull_request_target', action: 'synchronize', pull_request: { number: 7 } }, true, true],
+];
+
+for (const [name, event, guardRuns, tierRuns] of SHAPES) {
+  test(`shape: ${name} -> guard ${guardRuns ? 'RUNS' : 'skips'}, tier-check ${tierRuns ? 'RUNS' : 'skips'}`, () => {
+    assert.equal(jobRuns(guard.tokens, event), guardRuns, 't1-approval-guard.yml');
+    assert.equal(jobRuns(tier.tokens, event), tierRuns, 'tier-check.yml');
+  });
+}
+
+test('shapes: every edit row matches on exactly one half, and both halves are exercised for both lists', () => {
+  const half = (tokens, text) => tokens.some((t) => String(text).toLowerCase().includes(t.toLowerCase()));
+  const seen = { guard: { newBody: 0, previous: 0 }, tier: { newBody: 0, previous: 0 } };
+  for (const [name, event] of SHAPES) {
+    if (event.action !== 'edited') continue;
+    for (const [key, tokens] of [['guard', guard.tokens], ['tier', tier.tokens]]) {
+      const inNew = half(tokens, event.comment.body);
+      const inPrev = half(tokens, event.changes.body.from);
+      assert.ok(!(inNew && inPrev), `"${name}" matches ${key} on both halves, so it proves neither`);
+      if (inNew) seen[key].newBody++;
+      if (inPrev) seen[key].previous++;
+    }
+  }
+  for (const key of ['guard', 'tier']) {
+    assert.ok(seen[key].newBody >= 1 && seen[key].previous >= 2, `${key}: ${JSON.stringify(seen[key])}`);
+  }
+});
+
+test('shapes: no row disagrees with the predicates -- anything a predicate reacts to is a RUN row for its workflow', () => {
+  for (const [name, event, guardRuns, tierRuns] of SHAPES) {
+    if (event.eventName !== 'issue_comment' || !event.issue?.pull_request) continue;
+    for (const body of [event.comment.body, event.changes?.body?.from].filter((b) => b !== undefined)) {
+      if (guardReacts(body)) assert.equal(guardRuns, true, `"${name}": the guard reads ${JSON.stringify(body)} as a verdict`);
+      if (tierReacts(body)) assert.equal(tierRuns, true, `"${name}": R6 reads ${JSON.stringify(body)} as evidence`);
+    }
+  }
+});
+
+// ── Removed approvals re-evaluate (SO condition 1, #5176) ───────────────────────────────────────
+
+function triggerTypes(yml, event) {
+  const m = new RegExp(`^  ${event}:\\n(?:    branches: .*\\n)?    types: \\[([^\\]]*)\\]`, 'm').exec(yml.slice(yml.indexOf('\non:\n')));
+  assert.ok(m, `no inline types list for ${event}`);
+  return m[1].split(',').map((s) => s.trim());
+}
+
+for (const [name, yml] of [['t1-approval-guard.yml', guardYml], ['tier-check.yml', tierYml]]) {
+  test(`${name}: a deleted or edited comment and a dismissed review are triggers`, () => {
+    assert.deepEqual(triggerTypes(yml, 'issue_comment'), ['created', 'edited', 'deleted']);
+    assert.deepEqual(triggerTypes(yml, 'pull_request_review'), ['submitted', 'dismissed']);
+  });
+}
+
+// The guard's REAL github-script body, run against a mocked GitHub API, with the payload of each
+// new event. `git show basetip:<path>` serves this checkout's files as main's tip.
+const nodeRequire = createRequire(import.meta.url);
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+const PR_HEAD = 'd'.repeat(40);
+
+function scriptBlock(text) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => /^\s*script:\s*\|\s*$/.test(l));
+  assert.ok(start >= 0, 'no "script: |" block');
+  const body = [];
+  let indent = null;
+  for (const l of lines.slice(start + 1)) {
+    if (l.trim() === '') { body.push(''); continue; }
+    const ind = l.match(/^ */)[0].length;
+    if (indent === null) indent = ind;
+    if (ind < indent) break;
+    body.push(l.slice(indent));
+  }
+  return body.join('\n');
+}
+
+async function runGuard({ payload, comments = [], reviews = [] }) {
+  const log = { info: [], warning: [], error: [], failed: [] };
+  const checks = [];
+  const asked = [];
+  const api = {
+    'pulls.get': (p) => { asked.push(p.pull_number); return {
+      number: 7, body: 'Tier: T1\n\nA change.', created_at: '2026-10-18T00:00:00Z',
+      head: { sha: PR_HEAD, ref: 'devops/comment-filter' }, base: { ref: 'main' },
+    }; },
+    'pulls.listCommits': () => [{ commit: { committer: { date: PUSH_AT } } }],
+    'issues.listComments': () => comments,
+    'pulls.listReviews': () => reviews,
+    'issues.createComment': () => ({}),
+    'issues.updateComment': () => ({}),
+    'checks.create': (p) => { checks.push(p); return {}; },
+  };
+  const rest = {};
+  for (const [key, fn] of Object.entries(api)) {
+    const [ns, m] = key.split('.');
+    rest[ns] ??= {};
+    rest[ns][m] = async (params) => ({ data: fn(params) });
+  }
+  const github = { rest, paginate: async (method, params) => (await method(params)).data };
+  const execSync = (cmd) => {
+    if (/^git fetch origin /.test(cmd)) return '';
+    if (/^git rev-parse FETCH_HEAD$/.test(cmd)) return 'basetip\n';
+    const show = /^git show basetip:(operations\/devops\/[\w.-]+\.mjs)$/.exec(cmd);
+    if (show) return readFileSync(path.join(root, show[1]), 'utf8');
+    throw new Error(`test harness: unexpected command: ${cmd}`);
+  };
+  const fakeRequire = (id) => (id === 'child_process' ? { execSync } : nodeRequire(id));
+  const core = {
+    info: (m) => log.info.push(m), warning: (m) => log.warning.push(m),
+    error: (m) => log.error.push(m), setFailed: (m) => log.failed.push(m),
+  };
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { repository: { default_branch: 'main' }, ...payload } };
+  const prevWs = process.env.GITHUB_WORKSPACE;
+  process.env.GITHUB_WORKSPACE = root;
+  try {
+    await new AsyncFunction('require', 'github', 'context', 'core', 'setTimeout', scriptBlock(guardYml))(fakeRequire, github, context, core, (fn) => { fn(); return 0; });
+  } finally {
+    if (prevWs === undefined) delete process.env.GITHUB_WORKSPACE; else process.env.GITHUB_WORKSPACE = prevWs;
+  }
+  return { log, checks, asked };
+}
+
+const apiComment = (body, at, login = 'jpsnover') => ({ body, created_at: at, updated_at: at, user: { login } });
+const apiReview = (state, body) => ({ state, body, submitted_at: AFTER_PUSH, commit_id: PR_HEAD, user: { login: APP, type: 'Bot' } });
+const commentPayload = (action, body) => ({ action, issue: { number: 7, pull_request: {} }, comment: { body } });
+const reviewPayload = (action, state) => ({ action, pull_request: { number: 7 }, review: { state } });
+
+function assertOneCheck(result, conclusion) {
+  assert.deepEqual(result.asked.slice(0, 1), [7], 'the PR number is resolved from the payload');
+  assert.equal(result.checks.length, 1, `expected one check run; errors: ${JSON.stringify(result.log.error)}`);
+  assert.equal(result.checks[0].name, 't1-approval-guard');
+  assert.equal(result.checks[0].head_sha, PR_HEAD, 'pinned to the PR head read from the API, not the event SHA');
+  assert.equal(result.checks[0].conclusion, conclusion);
+}
+
+test('guard script, issue_comment.deleted: the approval comment is gone from the list -> the head goes back to failure', async () => {
+  const approval = 'Approved (Quality): fine';
+  const before = await runGuard({ payload: commentPayload('created', approval), comments: [apiComment(approval, AFTER_PUSH)] });
+  assertOneCheck(before, 'success');
+  const after = await runGuard({ payload: commentPayload('deleted', approval), comments: [] });
+  assertOneCheck(after, 'failure');
+  assert.match(after.log.failed.join('\n'), /no post-push approval \(no-post-push-approval\)/);
+});
+
+test('guard script, issue_comment.deleted: deleting the only changes-request comment unblocks an approved PR', async () => {
+  const approval = apiComment('Approved (Quality): fine', AFTER_PUSH);
+  const blocked = await runGuard({ payload: commentPayload('created', 'Changes requested (Design): no'), comments: [approval, apiComment('Changes requested (Design): no', '2026-10-19T12:06:00Z')] });
+  assertOneCheck(blocked, 'failure');
+  const cleared = await runGuard({ payload: commentPayload('deleted', 'Changes requested (Design): no'), comments: [approval] });
+  assertOneCheck(cleared, 'success');
+});
+
+test('guard script, pull_request_review.dismissed: a dismissed reviewer-App approval no longer satisfies the gate', async () => {
+  const body = 'Approved (Quality): fine';
+  const before = await runGuard({ payload: reviewPayload('submitted', 'approved'), reviews: [apiReview('APPROVED', body)] });
+  assertOneCheck(before, 'success');
+  const after = await runGuard({ payload: reviewPayload('dismissed', 'dismissed'), reviews: [apiReview('DISMISSED', body)] });
+  assertOneCheck(after, 'failure');
+  assert.match(after.log.failed.join('\n'), /no post-push approval \(no-post-push-approval\)/);
+});
+
+test('guard script, pull_request_review.dismissed: one of two approvals dismissed -> the other still satisfies the gate', async () => {
+  const result = await runGuard({
+    payload: reviewPayload('dismissed', 'dismissed'),
+    reviews: [apiReview('DISMISSED', 'Approved (Quality): fine'), apiReview('APPROVED', 'Approved (Design): fine')],
+  });
+  assertOneCheck(result, 'success');
+});
+
+test('tier-check R6: a dismissed reviewer-App approval stops counting, so a dismissal must re-evaluate', () => {
+  const so = [{ body: SO_CLEARING, createdAt: AFTER_PUSH }];
+  const review = (state) => [{ state, commitId: HEAD, login: APP, body: 'Approved (Tech Lead): T2 approval at this head.' }];
+  assert.equal(checkR6(true, [], so, review('APPROVED'), HEAD, APP, PUSH_AT), false, 'approved + SO cleared: no advisory');
+  assert.equal(checkR6(true, [], so, review('DISMISSED'), HEAD, APP, PUSH_AT), true, 'the advisory is back once the approval is dismissed');
+});
+
+test('tier-check R6: deleting the PI approval or the SO clearing comment brings the advisory back', () => {
+  const pi = { body: 'Approved (PI): go ahead.', createdAt: AFTER_PUSH };
+  const so = { body: SO_CLEARING, createdAt: AFTER_PUSH };
+  assert.equal(checkR6(true, [], [pi, so], [], HEAD, APP, PUSH_AT), false);
+  assert.equal(checkR6(true, [], [so], [], HEAD, APP, PUSH_AT), true, 'PI approval deleted');
+  assert.equal(checkR6(true, [], [pi], [], HEAD, APP, PUSH_AT), true, 'SO clearing deleted');
 });

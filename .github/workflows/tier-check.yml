@@ -21,13 +21,22 @@ name: tier-check
 # COMMENT FILTER: a PR comment runs this check only if it contains R6 comment evidence or
 # `/recheck-guards`. To re-run this check by hand, post a PR comment containing `/recheck-guards`.
 # The list and its reasons are on the job.
+#
+# REMOVED EVIDENCE (Second Opinion condition on #5176): R6's evidence can be withdrawn as well as
+# given, so `issue_comment: [edited, deleted]` and `pull_request_review: [dismissed]` are triggers
+# too. A PI approval or SO clearing comment that is deleted or edited away, or a reviewer-App
+# approval that is dismissed (R6 counts a review only while its state is APPROVED), re-evaluates at
+# once instead of leaving the last advisory in place. The predicate still reads only `created_at`,
+# so an edit cannot make an old comment fresh. LIMIT: GitHub takes a `pull_request_review` run's
+# workflow file from the PR side, so a branch cut before `dismissed` was added does not run on a
+# dismissal until it is rebased onto main.
 on:
   pull_request_target:
     types: [opened, reopened, edited, synchronize, ready_for_review, labeled, unlabeled]
   issue_comment:
-    types: [created]
+    types: [created, edited, deleted]
   pull_request_review:
-    types: [submitted]
+    types: [submitted, dismissed]
 
 permissions:
   pull-requests: write
@@ -52,8 +61,9 @@ jobs:
     # contains() ignores case and matches anywhere in the body, so the list is a SUPERSET of the
     # predicate: an extra run is harmless, a missed one leaves R6's advisory stale. The text
     # searched is the comment's new body plus, for an edit, its previous body (`changes.body.from`).
-    # `edited` is not a trigger here today, so that half is always empty; it is there so that
-    # adding the trigger later cannot miss a clearing comment edited away.
+    # The previous body is empty on `created` and `deleted`. On `deleted` the body is the deleted
+    # comment's, so deleted evidence runs the job and deleted chatter does not.
+    # `pull_request_review` events (submitted, dismissed) are not filtered: every one runs the job.
     # When you change one of those three patterns, change the list here, in BOTH copies (`if:` and
     # `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ or if a
     # body the predicate reacts to would not run this job.

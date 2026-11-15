@@ -27,8 +27,9 @@ test('P1: the PR trigger is pull_request_target, not pull_request (a PR can no l
 });
 
 test('P1: issue_comment and pull_request_review triggers are unaffected (no "target" variant exists for them)', () => {
-  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited\]/m);
-  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted\]/m);
+  // `deleted` and `dismissed` (SO condition on #5176): a removed approval must re-evaluate.
+  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited, deleted\]/m);
+  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
 });
 
 test('P1: checkout never persists credentials, and the predicate is loaded only from the explicitly-fetched BASE tip', () => {
