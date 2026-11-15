@@ -5,8 +5,7 @@ import { ActionableError } from '../debate/errors.js';
 import { detectFormat, type DocumentFormat } from './format.js';
 import { extractPdfText } from './extractPdf.js';
 import { extractDocxText } from './extractDocx.js';
-import { extractPlainText } from './extractPlain.js';
-import { extractHtmlText } from './extractHtml.js';
+import { parseIsolated } from './isolatedParse.js';
 import type { DocumentExtractionResult, DocumentExtractionCode } from './types.js';
 import { extractionErrorStatus } from './types.js';
 
@@ -97,11 +96,12 @@ async function extractByFormat(
       }
       case 'docx':
         return await extractDocxText(bytes);
+      // t/426: TXT, MD and HTML run in the same isolated child as PDF and DOCX.
       case 'txt':
       case 'md':
-        return extractPlainText(bytes);
+        return (await parseIsolated('text', bytes)).text;
       case 'html':
-        return extractHtmlText(bytes);
+        return (await parseIsolated('html', bytes)).text;
       default:
         const _exhaustive: never = format;
         throw new Error(`Unhandled format: ${_exhaustive}`);

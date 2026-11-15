@@ -1,31 +1,15 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+// t/426: the plain-text decoder is plain JavaScript in isolated/textCore.mjs, so the isolated child can run it. This
+// module re-exports it for in-process callers and tests.
+
+import { plainTextFromBytes } from './isolated/textCore.mjs';
+
 /**
- * Extract text from plain text files (TXT, MD).
- * Handles UTF-8 and UTF-16 with BOM detection.
+ * Extract text from plain text files (TXT, MD). Handles UTF-8 and UTF-16 with BOM detection.
+ * Document extraction runs this in the isolated child instead (t/426).
  */
 export function extractPlainText(bytes: Uint8Array): string {
-  // Check for UTF-16 BOM
-  if (bytes.length >= 2) {
-    // UTF-16 LE BOM: 0xFF 0xFE
-    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
-      try {
-        return new TextDecoder('utf-16le').decode(bytes.slice(2));
-      } catch {
-        // Fall through
-      }
-    }
-    // UTF-16 BE BOM: 0xFE 0xFF
-    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
-      try {
-        return new TextDecoder('utf-16be').decode(bytes.slice(2));
-      } catch {
-        // Fall through
-      }
-    }
-  }
-
-  // UTF-8 (with replacement for invalid sequences)
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  return plainTextFromBytes(bytes);
 }
