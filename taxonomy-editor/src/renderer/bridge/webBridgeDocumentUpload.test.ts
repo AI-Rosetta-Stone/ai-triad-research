@@ -1,0 +1,79 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+// t/276: "Upload document" on web. The picked File's bytes go to POST /api/documents/extract.
+// file.text() corrupted PDF and DOCX, so these tests pin that the request body is the File itself.
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => undefined }));
+
+import { api } from './web-bridge';
+
+/** Makes the bridge's hidden file input "pick" the given File as soon as it is clicked. */
+function stubPicker(file: File | null) {
+  const input = {
+    files: file ? [file] : [],
+    onchange: null as (() => void) | null,
+    oncancel: null as (() => void) | null,
+    click() { if (file) this.onchange?.(); else this.oncancel?.(); },
+  };
+  vi.spyOn(document, 'createElement').mockImplementation(() => input as unknown as HTMLElement);
+}
+
+describe('web-bridge pickDocumentFile (t/276)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the File bytes to /api/documents/extract and returns the extracted text', async () => {
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'report.pdf', { type: 'application/pdf' });
+    stubPicker(file);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ text: 'extracted text', format: 'pdf', words: 2, warnings: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await api.pickDocumentFile();
+
+    expect(result).toEqual({ cancelled: false, filePath: 'report.pdf', content: 'extracted text' });
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/documents/extract'));
+    expect(call, 'expected a fetch to POST /api/documents/extract').toBeTruthy();
+    const init = call![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(file);
+    expect((init.headers as Record<string, string>)['X-Document-Name']).toBe('report.pdf');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/octet-stream');
+  });
+
+  it('a cancelled picker resolves cancelled and makes no request', async () => {
+    stubPicker(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.pickDocumentFile()).resolves.toEqual({ cancelled: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a file over 10 MB before any upload (the server cap is authoritative)', async () => {
+    const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'big.pdf', { type: 'application/pdf' });
+    stubPicker(big);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.pickDocumentFile()).rejects.toThrow(/limit is 10 MB/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unsupported file type before any upload', async () => {
+    stubPicker(new File(['<html></html>'], 'page.html', { type: 'text/html' }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.pickDocumentFile()).rejects.toThrow(/isn't a supported file type/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
