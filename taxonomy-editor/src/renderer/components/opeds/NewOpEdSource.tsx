@@ -3,7 +3,7 @@
 
 // t/276: the source selector and the "Document" source for NewOpEdDialog (Design t/272).
 // Kept apart from the dialog so each file stays inside its complexity budget.
-import { useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
@@ -84,6 +84,19 @@ export function DocumentField({ docFile, docState, docError, isAnonymous, onPick
   isAnonymous: boolean; onPick: () => void; onRemove: () => void;
 }) {
   const reading = docState === 'reading';
+  const chooseRef = useRef<HTMLButtonElement>(null);
+  const removingRef = useRef(false);
+  // Removing the chip unmounts its × button, so focus would fall to <body>. Hand it to Choose a file (Design t/272#4).
+  useEffect(() => {
+    if (!docFile && removingRef.current) {
+      removingRef.current = false;
+      chooseRef.current?.focus();
+    }
+  }, [docFile]);
+  const handleRemove = () => {
+    removingRef.current = true;
+    onRemove();
+  };
   return (
     <div>
       <span className="oped-field-label" id="oped-document-label">
@@ -96,14 +109,14 @@ export function DocumentField({ docFile, docState, docError, isAnonymous, onPick
             {reading ? 'Reading document…' : docState === 'ready' ? `~${docFile.words.toLocaleString()} words` : ''}
           </span>
           <button type="button" className="oped-source-toggle" onClick={onPick} disabled={reading || isAnonymous}>Replace</button>
-          <button type="button" className="oped-doc-remove" aria-label={`Remove ${docFile.name}`} onClick={onRemove} disabled={reading}>×</button>
+          <button type="button" className="oped-doc-remove" aria-label={`Remove ${docFile.name}`} onClick={handleRemove} disabled={reading}>×</button>
         </div>
       ) : (
         <div className={`oped-doc-zone${isAnonymous ? ' is-disabled' : ''}`} aria-disabled={isAnonymous || undefined}>
           {reading ? (
             <p className="oped-doc-status" aria-live="polite">Reading document…</p>
           ) : (
-            <button type="button" className="btn" onClick={onPick} disabled={isAnonymous}>
+            <button ref={chooseRef} type="button" className="btn" onClick={onPick} disabled={isAnonymous}>
               Choose a file…
             </button>
           )}

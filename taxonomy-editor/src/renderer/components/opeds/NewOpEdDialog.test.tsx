@@ -15,6 +15,7 @@ const h = vi.hoisted(() => {
   const state: { cb: ((e: ProgressEvent) => void) | null } = { cb: null };
   return {
     state,
+    anonymous: false,
     hasApiKey: vi.fn().mockResolvedValue(true),
     createOpEdSet: vi.fn(),
     pickDocumentFile: vi.fn(),
@@ -43,7 +44,7 @@ vi.mock('@bridge', () => ({
 }));
 
 vi.mock('../../hooks/useAuthStatus', () => ({
-  useAuthStatus: () => ({ user: 'u', anonymous: false, idp: 'github' }),
+  useAuthStatus: () => ({ user: 'u', anonymous: h.anonymous, idp: 'github' }),
 }));
 
 function open(props: Partial<Parameters<typeof NewOpEdDialog>[0]> = {}) {
@@ -56,6 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   hasApiKey.mockResolvedValue(true);
   h.state.cb = null;
+  h.anonymous = false;
 });
 
 describe('NewOpEdDialog — visibility', () => {
@@ -292,6 +294,26 @@ describe('NewOpEdDialog — Document source (t/276)', () => {
     chooseFile();
     await waitFor(() => expect(pickDocumentFile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText('Choose a document')).toBeTruthy());
+  });
+
+  it('anonymous users see the Document zone disabled with the sign-in note, and no picker runs', () => {
+    h.anonymous = true;
+    open();
+    selectDocument();
+    expect(screen.getByText('Sign in to upload a document.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Choose a file…' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Choose a document')).toBeTruthy();
+    expect(pickDocumentFile).not.toHaveBeenCalled();
+  });
+
+  it('Remove moves focus to Choose a file', async () => {
+    pickDocumentFile.mockResolvedValue({ cancelled: false, filePath: 'notes.md', content: 'one two' });
+    open();
+    selectDocument();
+    chooseFile();
+    await waitFor(() => expect(screen.getByText('notes.md')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Remove notes.md' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose a file…' })));
   });
 
   it('Remove returns to the empty zone', async () => {
