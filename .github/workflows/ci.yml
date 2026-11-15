@@ -255,6 +255,8 @@ jobs:
               - '.github/workflows/ci.yml'
               # test-electron-vitest / -coverage run it for the DATA-ROOT report (t/64)
               - '.github/ci/data-root-guard-report.sh'
+              # test-electron-vitest runs it to report tests that passed only on retry
+              - '.github/ci/vitest-retry-report.sh'
               - 'scripts/AITriad/Prompts/**'  # promptCatalog.lint validates this dir; must re-run when prompts change here (t/2915)
               # tests/fixtures/** (t/4367) — lib/sourceIndex/sourceIdentityFixture.test.ts (run by
               # test-electron's vitest) reads tests/fixtures/source-identity-cases.json, a shared
@@ -1229,17 +1231,33 @@ jobs:
         # DATA_ROOT_GUARD_HITS_FILE (t/64): dataRootGuard.ts appends one JSONL record per hit and per
         # install here, and the lib globalSetup teardown summarizes it. Uploaded below for the
         # cross-shard live-fire check and the t/61 offender inventory. Unset, nothing changes.
+        # --retry=1 (CI only; it is a flag on this command, not in vite.config.ts, so local runs
+        # never retry): one flaky test, calibrationLogger's working_tree_state, caused 4 of 6
+        # vitest failures inspected, on unrelated branches and on a merge-queue batch (run
+        # 43650911006). Same policy as Pester's one in-job rerun in test-powershell. A test that
+        # passes only on the retry is marked "(retry x1)" by the default reporter and raised as a
+        # ::warning:: by the retry-report step below, so the flake stays visible.
         env:
           DATA_ROOT_GUARD_HITS_FILE: ${{ runner.temp }}/data-root-guard/hits-${{ matrix.shard }}.jsonl
         run: |
           set -o pipefail
           pnpm exec vitest run --shard=${{ matrix.shard }}/3 \
+            --retry=1 \
             --reporter=default --reporter=blob \
             --outputFile.blob="$RUNNER_TEMP/vitest-blobs/blob-${{ matrix.shard }}.json" \
             --coverage \
             --coverage.thresholds.statements=0 --coverage.thresholds.branches=0 \
             --coverage.thresholds.functions=0 --coverage.thresholds.lines=0 \
             2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
+
+      - name: Report tests that passed only on retry (warn-only)
+        # Reads the tee'd log for the default reporter's "(retry xN)" marker on passing tests and
+        # raises one ::warning:: per test. Warn-only and isolated: it never fails the job, and a
+        # missing log is reported as a warning, not skipped silently.
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: bash .github/ci/vitest-retry-report.sh "$RUNNER_TEMP/vitest-taxonomy-editor.log"
 
       - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
         # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
