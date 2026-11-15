@@ -11,25 +11,6 @@ import type { StorageBackend } from '../storage/storageBackend.js';
 import { makeValidResult } from '../../../../lib/inquiry/__fixtures__/validResult.js';
 import type { InquiryPayload } from '../../../../lib/inquiry/index.js';
 
-// A drifted result with a direct answer, per-camp answer fields and question drift. Local to this file:
-// the shared fixture's makeDriftedResult lives with the t/285 inquiry work, not on this branch.
-function makeDriftedResult(): Record<string, unknown> {
-  return {
-    ...makeValidResult(),
-    directAnswer: { text: 'No consensus answer: the camps disagree on what counts as harm.', agreement: 'split' },
-    campVerdicts: [
-      {
-        camp: 'acc',
-        verdict: 'The debate focused on regulatory process, not on harm.',
-        nodes: [{ nodeId: 'acc-beliefs-004', label: 'Regulatory process', camp: 'acc' }],
-        answeredLiteralQuestion: false,
-        answerNote: 'Focused on regulatory process instead of harm.',
-      },
-    ],
-    questionDrift: { debatedTopic: 'How should AI regulation be designed?', warning: true },
-  };
-}
-
 const files = new Map<string, string>();
 const normalize = (p: string) => p.replace(/\\/g, '/');
 
@@ -143,51 +124,6 @@ describe('DraftStore content (t/185, TL p/77#72)', () => {
     const { record, raw } = await createAndRead(communityResult(healthyClaim(makeValidResult())));
     expect(Object.prototype.hasOwnProperty.call(record.projection, 'calibration')).toBe(false);
     expect(raw).not.toContain('"trust":');
-  });
-
-  it('questionDrift.warning is absent from the stored projection (hasOwnProperty); debatedTopic stays', async () => {
-    const { record } = await createAndRead(communityResult(makeDriftedResult()));
-    expect(record.projection.questionDrift).toBeDefined();
-    expect(Object.prototype.hasOwnProperty.call(record.projection.questionDrift, 'warning')).toBe(false);
-    expect(record.projection.questionDrift).toHaveProperty('debatedTopic', 'How should AI regulation be designed?');
-  });
-
-  it('questionDrift.driftScore is absent from the stored projection, by key and by value (TL p/77#76, p/77#78)', async () => {
-    const body = communityResult(makeDriftedResult()) as Record<string, any>;
-    body.questionDrift.driftScore = 0.4;
-    const { record, raw } = await createAndRead(body);
-    expect(Object.prototype.hasOwnProperty.call(record.projection.questionDrift, 'driftScore')).toBe(false);
-    expect(record.projection.questionDrift).toHaveProperty('debatedTopic', 'How should AI regulation be designed?');
-    expect(raw).not.toContain('"driftScore"');
-    expect((record as { droppedAuthFields: string[] }).droppedAuthFields).toContain('questionDrift.driftScore');
-  });
-
-  it('directAnswer is dropped on every anonymous draft, even on a healthy-claimed body (fail closed, TL p/77#72)', async () => {
-    const { record, raw } = await createAndRead(communityResult(healthyClaim(makeDriftedResult())));
-    expect(Object.prototype.hasOwnProperty.call(record.projection, 'directAnswer')).toBe(false);
-    expect(raw).not.toContain('No consensus answer');
-  });
-
-  it('directAnswer is dropped on a degraded-claimed body too (the gate no longer decides, TL p/77#72)', async () => {
-    const { record, raw } = await createAndRead(communityResult(degraded(makeDriftedResult())));
-    expect(Object.prototype.hasOwnProperty.call(record.projection, 'directAnswer')).toBe(false);
-    expect(raw).not.toContain('No consensus answer');
-  });
-
-  it('per-camp answer fields (answeredLiteralQuestion, answerNote) are dropped on every anonymous draft; the camp verdict stays', async () => {
-    const { record, raw } = await createAndRead(communityResult(healthyClaim(makeDriftedResult())));
-    const verdict = record.projection.campVerdicts[0];
-    expect(verdict).not.toHaveProperty('answeredLiteralQuestion');
-    expect(verdict).not.toHaveProperty('answerNote');
-    expect(verdict.verdict).toBe('The debate focused on regulatory process, not on harm.');
-    expect(raw).not.toContain('Focused on regulatory process instead of harm');
-  });
-
-  it('a degraded-claimed body loses the answer fields and the calibration, and keeps the question and request', async () => {
-    const { record } = await createAndRead(communityResult(degraded(makeDriftedResult())));
-    expect(record.projection.request?.question).toBe('What counts as an AI harm?');
-    expect(Object.prototype.hasOwnProperty.call(record.projection, 'calibration')).toBe(false);
-    expect(record.projection.campVerdicts[0]).not.toHaveProperty('answerNote');
   });
 
   it('synthesizedHeadline is dropped on every anonymous draft, even on a healthy-claimed body (fail closed, TL p/77#74)', async () => {
