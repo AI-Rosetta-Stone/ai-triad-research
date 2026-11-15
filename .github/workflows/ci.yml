@@ -568,11 +568,18 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install Node dependencies (tsx for parity tests) (retry on transient nuget/network failures — t/2975)
+        # PR #5096: an unbounded attempt hung a test-powershell shard here for 30 min (job
+        # 130678491934). Same bound as test-electron-vitest's install (p/331#2639): each attempt is
+        # killed after 4 min and retried; exit 124 is reported as a hang. The step cap covers 3
+        # attempts plus the backoff sleeps.
+        timeout-minutes: 15
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --filter taxonomy-editor && break
+            timeout 4m pnpm install --frozen-lockfile --filter taxonomy-editor && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 4 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -976,11 +983,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --side-effects-cache && break
+            timeout 2m pnpm install --frozen-lockfile --side-effects-cache && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -1293,11 +1306,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --side-effects-cache && break
+            timeout 2m pnpm install --frozen-lockfile --side-effects-cache && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -1389,11 +1408,18 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient failures — t/2968)
+        # PR #5096: an unbounded attempt hung a test-powershell shard here for 30 min (job
+        # 130678491934). Same bound as test-electron-vitest's install (p/331#2639): each attempt is
+        # killed after 4 min and retried; exit 124 is reported as a hang. The step cap covers 3
+        # attempts plus the backoff sleeps.
+        timeout-minutes: 15
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --side-effects-cache && break
+            timeout 4m pnpm install --frozen-lockfile --side-effects-cache && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 4 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -1535,11 +1561,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient nuget/network failures — t/2975)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile && break
+            timeout 2m pnpm install --frozen-lockfile && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -1587,11 +1619,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install Node dependencies (vitest delegation half) (retry on transient nuget/network failures — t/2975)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --filter taxonomy-editor && break
+            timeout 2m pnpm install --frozen-lockfile --filter taxonomy-editor && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -1800,7 +1838,23 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (lockfile for audit)
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
 
       - name: Audit production dependencies (real gate; baselines co-located above)
         working-directory: ${{ matrix.app }}
@@ -1863,7 +1917,23 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install lib dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
 
       - name: Lint (errors gate; warnings advisory — see header)
         working-directory: lib
@@ -2019,7 +2089,19 @@ jobs:
       - name: Check REPO_MAP freshness
         continue-on-error: true
         run: |
-          pnpm install --frozen-lockfile --ignore-scripts > /dev/null 2>&1
+          # Bounded like every other install in this file: 2 min per attempt, exit 124 reported as a hang.
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts > /dev/null 2>&1 && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
           node scripts/depgraph.mjs --repomap > /tmp/repomap-fresh.md
           cd ..
           DRIFT=$(diff REPO_MAP.md /tmp/repomap-fresh.md | wc -l || echo "0")
@@ -2071,7 +2153,23 @@ jobs:
         # job must carry continue-on-error or a failure here hard-gates CI via
         # the container build's ci-gate (bug found on Tier 2's first live run).
         continue-on-error: true
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
 
       - name: Run golden debate evals (Tier 2)
         if: env.GEMINI_API_KEY != ''
@@ -2109,7 +2207,23 @@ jobs:
       - name: Install dependencies (ajv)
         # Never-flip job — every step must carry continue-on-error (t/1329 lesson).
         continue-on-error: true
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
 
       - name: Validate schemas
         continue-on-error: true
@@ -2146,11 +2260,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient nuget/network failures — t/2975)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile --ignore-scripts && break
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -2660,11 +2780,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient nuget/network failures — t/2975)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile && break
+            timeout 2m pnpm install --frozen-lockfile && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -2745,11 +2871,17 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies (retry on transient failures)
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
         run: |
           for i in 1 2 3; do
-            pnpm install --frozen-lockfile && break
+            timeout 2m pnpm install --frozen-lockfile && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
             if [ "$i" -lt 3 ]; then
-              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
               sleep $((i * 15))
             else
               echo "::error::pnpm install failed after $i attempts"
@@ -2985,7 +3117,23 @@ jobs:
           cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        # Bounded like test-electron-vitest's install (p/331#2639), but 2 min per attempt, not 4: this
+        # job's timeout-minutes cannot hold 3 x 4 min. A normal install takes 16-38s. Exit 124 is
+        # reported as a hang; the step cap covers 3 attempts plus the backoff sleeps.
+        timeout-minutes: 8
+        run: |
+          for i in 1 2 3; do
+            timeout 2m pnpm install --frozen-lockfile --ignore-scripts && break
+            rc=$?
+            [ "$rc" -eq 124 ] && echo "::warning::pnpm install attempt $i hung and was killed after 2 minutes"
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed (exit $rc); retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
 
       - name: Fetch base POV-tag registry
         # PR: the base ref's registry. Push: the parent commit's. If the base file doesn't exist
