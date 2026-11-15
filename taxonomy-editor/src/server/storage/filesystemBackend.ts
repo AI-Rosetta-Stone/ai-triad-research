@@ -34,9 +34,111 @@ async function serializeConditionalWrite<T>(filePath: string, fn: () => Promise<
  * Used by default (Electron + local dev) and in the Azure container when
  * the data volume is mounted.  All methods handle missing files/dirs
  * gracefully (no throws for ENOENT).
+ *
+ * t/223: Constructor requires root; all file operations are confined
+ * to it. A path that resolves outside root (incl. via symlink) throws PATH_OUTSIDE_ROOT.
  */
 export class FilesystemBackend implements StorageBackend {
   readonly backendName = 'filesystem';
+  private readonly rootSpec: string | (() => string);
+  private readonly extraSpec: string[] | (() => Array<string | null | undefined>);
+
+  /** `root` is the data root. `extraRoots` are other configured roots (sources, state) this backend
+   *  may read and write. Either may be a getter, so the roots are read per call: a config that is
+   *  set or changed after import (env, tests) is still the one enforced. */
+  constructor(opts: {
+    root: string | (() => string);
+    extraRoots?: string[] | (() => Array<string | null | undefined>);
+  }) {
+    if (!opts?.root) {
+      throw new ActionableError({
+        goal: 'Confine file access to backend root',
+        problem: 'FilesystemBackend was constructed without a root',
+        location: 'FilesystemBackend.constructor',
+        nextSteps: ['Pass the configured data root: new FilesystemBackend({ root: () => getDataRoot() })'],
+        code: 'BACKEND_ROOT_MISSING',
+        httpStatus: 500,
+      });
+    }
+    this.rootSpec = opts.root;
+    this.extraSpec = opts.extraRoots ?? [];
+  }
+
+  /** The allowed roots, absolute. `[0]` is the data root; the rest are extra roots. */
+  private roots(): string[] {
+    const data = typeof this.rootSpec === 'function' ? this.rootSpec() : this.rootSpec;
+    const extra = typeof this.extraSpec === 'function' ? this.extraSpec() : this.extraSpec;
+    return [data, ...extra.filter((r): r is string => !!r)].map((r) => path.resolve(r));
+  }
+
+  private static isWithin(abs: string, rootAbs: string): boolean {
+    const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const r = process.platform === 'win32' ? rootAbs.toLowerCase() : rootAbs;
+    return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  }
+
+  private async realContained(abs: string, realRoot: string, filePath: string): Promise<boolean> {
+    // Realpath the deepest existing ancestor so a symlink inside the root can't lead out.
+    let probe = abs;
+    for (;;) {
+      try {
+        return FilesystemBackend.isWithin(await fs.realpath(probe), realRoot);
+      } catch (err) {
+        const parent = path.dirname(probe);
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) {
+          // Fail closed: anything but "does not exist yet" means containment can't be proven.
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'filesystem-backend', level: 'error',
+            message: `confine: cannot verify containment of ${filePath}`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          return false;
+        }
+        probe = parent;
+      }
+    }
+  }
+
+  private async containedIn(abs: string, root: string, filePath: string): Promise<boolean> {
+    // A root that doesn't exist yet can't contain a symlink, so only the lexical check applies.
+    const realRoot = await fs.realpath(root).catch((err: unknown) => {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'filesystem-backend', level: 'error',
+          message: `confine: realpath(root) failed: ${root}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        return null;
+      }
+      return undefined;
+    });
+    if (realRoot === null) return false;
+    if (realRoot === undefined) return true;
+    return this.realContained(abs, realRoot, filePath);
+  }
+
+  /** t/223: resolve `filePath` against the root and refuse (PATH_OUTSIDE_ROOT) anything that
+   *  lands outside it, lexically or through a symlink. Runs before any fs call and returns the
+   *  absolute path every fs call must use (so relative paths never resolve against the cwd).
+   *  Absolute paths inside the root are allowed. */
+  private async confine(filePath: string): Promise<string> {
+    const roots = this.roots();
+    const abs = path.resolve(roots[0], filePath);
+    // Judged against the first root that lexically contains the path; a symlink that escapes it fails closed.
+    const root = roots.find((r) => FilesystemBackend.isWithin(abs, r));
+    const ok = root !== undefined && await this.containedIn(abs, root, filePath);
+    if (!ok) {
+      throw new ActionableError({
+        goal: 'Confine file access to backend root',
+        problem: `Path escapes root: ${filePath}`,
+        location: 'FilesystemBackend.confine',
+        nextSteps: ['Use only paths within the backend root'],
+        code: 'PATH_OUTSIDE_ROOT',
+        httpStatus: 400,
+      });
+    }
+    return abs;
+  }
 
   private async renameWithRetry(oldPath: string, newPath: string): Promise<void> {
     const maxRetries = 5;
@@ -62,6 +164,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readFile(filePath: string, _opts?: { ref?: string; optional?: boolean; consultOverlayOnPin?: boolean }): Promise<string | null> {
+    filePath = await this.confine(filePath);
     try {
       return await fs.readFile(filePath, 'utf-8');
     } catch (err: unknown) {
@@ -97,6 +200,7 @@ export class FilesystemBackend implements StorageBackend {
    * same directory is still unguarded.
    */
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
+    filePath = await this.confine(filePath);
     if (opts?.baseSha !== undefined) {
       const baseSha = opts.baseSha;
       return serializeConditionalWrite(filePath, () => this.checkedWrite(filePath, content, baseSha));
@@ -128,6 +232,7 @@ export class FilesystemBackend implements StorageBackend {
    * `baseSha` writes. On a filesystem without hard links it falls back to a `'wx'` write (WARN).
    */
   async writeFileIfAbsent(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+    filePath = await this.confine(filePath);
     return serializeConditionalWrite(filePath, () => this.createExclusive(filePath, content));
   }
 
@@ -202,6 +307,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string): Promise<string[]> {
+    dirPath = await this.confine(dirPath);
     try {
       return await fs.readdir(dirPath);
     } catch (err: unknown) {
@@ -220,6 +326,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async deleteFile(filePath: string): Promise<void> {
+    filePath = await this.confine(filePath);
     try {
       await fs.unlink(filePath);
     } catch (err: unknown) {
@@ -236,6 +343,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async fileExists(filePath: string, _opts?: { ref?: string }): Promise<boolean> {
+    filePath = await this.confine(filePath);
     try {
       await fs.access(filePath);
       return true;
@@ -252,6 +360,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async writeBinaryFile(filePath: string, content: Buffer): Promise<void> {
+    filePath = await this.confine(filePath);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = filePath + '.tmp';
     await fs.writeFile(tmpPath, content);
@@ -266,6 +375,7 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   async readBinaryFile(filePath: string, _opts?: { ref?: string }): Promise<Buffer | null> {
+    filePath = await this.confine(filePath);
     try {
       return await fs.readFile(filePath);
     } catch (err: unknown) {

@@ -86,7 +86,8 @@ const STALE_MS = 30_000;
 
 let tmpRoot: string;
 let prevRoot: string | undefined;
-const backend = new FilesystemBackend();
+// Rooted lazily: tmpRoot is created in beforeAll, and FilesystemBackend refuses a missing root (t/223).
+const backend = new FilesystemBackend({ root: () => tmpRoot });
 const handlers = new Map<string, Handler>();
 
 beforeAll(() => {

@@ -30,6 +30,7 @@ import { validateDataRoot, setBackend, getTaxonomyDir } from '../storage/fileIO.
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { FilesystemBackend } from '../storage/filesystemBackend.js';
+import * as os from 'node:os';
 
 // ── Setup ──
 
@@ -72,7 +73,7 @@ describe('validateDataRoot (t/3296 A arm)', () => {
   });
 
   afterEach(() => {
-    setBackend(new FilesystemBackend());
+    setBackend(new FilesystemBackend({ root: os.tmpdir() }));
   });
 
   // ── Filesystem mode ──
