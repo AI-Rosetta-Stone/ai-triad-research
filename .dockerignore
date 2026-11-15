@@ -66,3 +66,8 @@ npm-debug.log*
 .env
 .env.*
 !.env.template
+
+# scripts/archive/ is retired and is not run at runtime. It holds populate_provenance.py, which makes HTTPS
+# calls (python ssl alerts 16, t/155#5), so it must stay out of the image (t/378, t/155#8). The runtime
+# COPY of scripts/ reads from this context, so the exclusion has to be here.
+scripts/archive/

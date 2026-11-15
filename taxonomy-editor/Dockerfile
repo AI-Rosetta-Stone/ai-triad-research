@@ -229,9 +229,7 @@ COPY --chown=aitriad:aitriad ai-models.json ./
 COPY --chown=aitriad:aitriad ai-usages.json ./
 COPY --chown=aitriad:aitriad .aitriad.json ./
 COPY --chown=aitriad:aitriad taxonomy/schemas/ ./taxonomy/schemas/
-# scripts/archive/ is retired and not run at runtime. It holds populate_provenance.py, which makes HTTPS calls
-# (python ssl alerts 16, t/155#5), so it must not ship in the image (t/378, t/155#8). Needs the 1.7 syntax above.
-COPY --chown=aitriad:aitriad --exclude=archive scripts/ ./scripts/
+COPY --chown=aitriad:aitriad scripts/ ./scripts/
 # Op-ed prompt templates (t/2609 relocated them out of scripts/AITriad/Prompts).
 # The op-ed create route resolves promptsDir = getProjectRoot()/lib/oped/prompts
 # (= /app/lib/oped/prompts here); tsc emits no .prompt assets, so copy the source.
