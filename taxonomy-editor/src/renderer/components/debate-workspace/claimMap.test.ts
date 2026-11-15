@@ -26,8 +26,9 @@ describe('parseWorkProduct', () => {
     expect(parsed[1].attack).toMatchObject({
       text: 'Self-regulation fails under pressure',
       targetAnchor: 'skp-beliefs-004',
-      annotationId: 'AN-0',
     });
+    // No annotation id: the plan records no real link to an AN node (t/388).
+    expect(parsed[1].attack).not.toHaveProperty('annotationId');
     expect(parsed[0].attack).toBeUndefined();
   });
 
@@ -57,7 +58,7 @@ describe('parseWorkProduct', () => {
       ],
     });
     expect(parsed[0].attack?.text).toBe('First objection');
-    expect(parsed[0].attack?.annotationId).toBe('AN-0');
+    expect(parsed[0].attack).not.toHaveProperty('annotationId');
     expect(unmappedAttacks.map(a => a.text)).toEqual(['Second objection']);
   });
 
@@ -67,7 +68,7 @@ describe('parseWorkProduct', () => {
       anticipated_challenges: ['ATTACK: A point about funding targeting node pol-xyz-009'],
     });
     expect(unmappedAttacks).toEqual([
-      { text: 'A point about funding', targetAnchor: 'pol-xyz-009', annotationId: 'AN-0' },
+      { text: 'A point about funding', targetAnchor: 'pol-xyz-009' },
     ]);
   });
 
