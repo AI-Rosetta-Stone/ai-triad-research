@@ -136,7 +136,12 @@ async function recoverFromRunStatus(fetchFn: OpEdFetch, runId: string): Promise<
  *  resolve {set_id} on 'complete'. Rejects with an ActionableError (pre-SSE JSON error, a
  *  server 'error' frame, or an unrecoverable stream drop). */
 export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPayload): Promise<{ set_id: string }> {
-  const body = { topic: payload.topic, povs: payload.voices, params: payload.params };
+  // t/276: the server takes exactly one source. A document goes as documentText + sourceName (names must match
+  // the server's contract, or the document is dropped); topic is left out, so there is no url+document 400.
+  const source = payload.documentSource
+    ? { documentText: payload.documentSource.text, sourceName: payload.documentSource.name }
+    : { topic: payload.topic };
+  const body = { ...source, povs: payload.voices, params: payload.params };
   const controller = new AbortController();
   activeAbort = controller;
   getGlobalRecorder()?.record({ type: 'ai.request', component: 'web-bridge', level: 'info', message: 'oped-create request', data: { voiceCount: payload.voices.length, model: payload.params.model } });
