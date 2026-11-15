@@ -15,6 +15,19 @@ const COMMUNITY_AN_NODE_KEYS: ReadonlySet<string> = new Set([
   'claim_taxonomy_attribution', 'vocabulary_tags', 'political_salience', 'topic_relevance',
 ]);
 
+/** Argument-network edge keys the community renderer reads. `warrant` is free text the renderer reads
+ *  only in owner-side diagnostics and the synthesis prompt, so it is excluded (Security p/102#118). */
+const COMMUNITY_AN_EDGE_KEYS: ReadonlySet<string> = new Set([
+  'id', 'source', 'target', 'type', 'attack_type', 'scheme', 'weight', 'argumentation_scheme',
+  'critical_questions_addressed', 'strength',
+]);
+
+/** Structural projection of one argument-network edge. */
+function projectArgumentEdge(edge: unknown): Record<string, unknown> | undefined {
+  if (!edge || typeof edge !== 'object') return undefined;
+  return Object.fromEntries(Object.entries(edge as Record<string, unknown>).filter(([k]) => COMMUNITY_AN_EDGE_KEYS.has(k)));
+}
+
 /** Structural projection of one argument-network node. */
 function projectArgumentNode(node: unknown): Record<string, unknown> | undefined {
   if (!node || typeof node !== 'object') return undefined;
@@ -35,8 +48,8 @@ function projectArgumentNode(node: unknown): Record<string, unknown> | undefined
   return out;
 }
 
-/** Structural projection of argument_network: nodes are projected per node, edges pass through (they
- *  carry no embeddings), and mutations are dropped. */
+/** Structural projection of argument_network: nodes and edges are projected per item, and mutations
+ *  are dropped. */
 export function projectArgumentNetwork(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const an = value as Record<string, unknown>;
@@ -44,7 +57,9 @@ export function projectArgumentNetwork(value: unknown): Record<string, unknown> 
     nodes: Array.isArray(an.nodes)
       ? an.nodes.map(n => projectArgumentNode(n)).filter((n): n is Record<string, unknown> => n !== undefined)
       : [],
-    edges: Array.isArray(an.edges) ? an.edges : [],
+    edges: Array.isArray(an.edges)
+      ? an.edges.map(e => projectArgumentEdge(e)).filter((e): e is Record<string, unknown> => e !== undefined)
+      : [],
   };
 }
 

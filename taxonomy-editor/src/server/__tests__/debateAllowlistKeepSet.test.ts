@@ -155,7 +155,7 @@ describe('Debate community allowlist: what the committed code allows (t/196#25, 
           computed_strength: 0.7, qbaf_iterations: 3,
         },
       }],
-      edges: [{ id: 'e-1', source: 'c1', target: 'c2', type: 'supports' }],
+      edges: [{ id: 'e-1', source: 'c1', target: 'c2', type: 'supports', strength: 'decisive', warrant: 'WARRANT_TEXT' }],
       mutations: [{ op: 'upsert', payload: 'MUTATION_PAYLOAD' }],
     };
     seed('deb-keep', data);
@@ -171,7 +171,8 @@ describe('Debate community allowlist: what the committed code allows (t/196#25, 
     });
     expect(JSON.stringify(copy)).not.toContain('EVIDENCE_TEXT');
     expect(an.mutations).toBeUndefined();
-    expect(an.edges).toEqual([{ id: 'e-1', source: 'c1', target: 'c2', type: 'supports' }]);
+    expect(an.edges).toEqual([{ id: 'e-1', source: 'c1', target: 'c2', type: 'supports', strength: 'decisive' }]);
+    expect(JSON.stringify(copy)).not.toContain('WARRANT_TEXT');
   });
 
   it('topic.background is stripped by default, keeping original and final (Security p/102#112)', async () => {
