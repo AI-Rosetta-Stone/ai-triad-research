@@ -77,7 +77,7 @@ describe('POST /api/taxonomy/chat-synthetic-statements (t/348)', () => {
     h.embed.mockResolvedValue([0.1, 1]); // closer to the y statement
     const r = await post({ pov: 'accelerationist', queryText: 'what about y', nodeIds: ['acc-beliefs-001'] });
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ 'acc-beliefs-001': { text: 'Along y.', index: 1 } });
+    expect(r.body).toEqual({ 'acc-beliefs-001': 'Along y.' });
     expect(JSON.stringify(r.body)).not.toMatch(/0\.1|\[1,|Dropped row/);
   });
 
@@ -85,7 +85,7 @@ describe('POST /api/taxonomy/chat-synthetic-statements (t/348)', () => {
     seedNode();
     h.embed.mockResolvedValue([1, 0]);
     const r = await post({ pov: 'accelerationist', queryText: 'x', nodeIds: ['acc-beliefs-001'] });
-    expect(r.body).toEqual({ 'acc-beliefs-001': { text: 'Along x.', index: 0 } });
+    expect(r.body).toEqual({ 'acc-beliefs-001': 'Along x.' });
   });
 
   it('an embed failure returns null for every node and WARNs once with reason embedding-unavailable (never throws)', async () => {
@@ -109,7 +109,7 @@ describe('POST /api/taxonomy/chat-synthetic-statements (t/348)', () => {
     seedNode();
     h.embed.mockResolvedValue([1, 0]);
     const r = await post({ pov: 'accelerationist', queryText: 'x', nodeIds: ['acc-beliefs-001', 'acc-beliefs-999'] });
-    expect(r.body).toEqual({ 'acc-beliefs-001': { text: 'Along x.', index: 0 }, 'acc-beliefs-999': null });
+    expect(r.body).toEqual({ 'acc-beliefs-001': 'Along x.', 'acc-beliefs-999': null });
     expect(warns('no-usable-statements')).toHaveLength(1);
     expect(warns('no-usable-statements')[0].data).toMatchObject({ nodeId: 'acc-beliefs-999' });
   });

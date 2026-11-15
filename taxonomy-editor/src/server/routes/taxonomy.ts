@@ -26,7 +26,6 @@ import { isLocalDeployment } from '../config.js';
 import * as ai from '../ai/aiBackends.js';
 import { getAssembledCorpus } from './corpusAssemblyCache.js';
 import { bestMatchingSyntheticStatement } from '../../../../lib/debate/syntheticStatementLookup.js';
-import { cosineSimilarity } from '../../../../lib/embeddings/similarity.js';
 
 // ── t/3165: serialize-once cache for /api/taxonomy/synthetic-embeddings ───────────────────────────
 // The synthetic corpus (~4144 vectors, ~400MB) is STATIC, but loadSyntheticEmbeddings() rebuilds it on
@@ -351,7 +350,7 @@ async function chatQueryVector(queryText: string): Promise<number[] | null> {
 function chatNodeStatement(
   nodeId: string, queryVector: number[],
   nodeEmbeddings: Record<string, { vectors?: number[][] }>, statements: Record<string, string[]>,
-): { text: string; index: number } | null {
+): string | null {
   const vectors = nodeEmbeddings[nodeId]?.vectors;
   const texts = statements[nodeId];
   if (!vectors || !texts || vectors.length === 0 || vectors.length !== texts.length) {
@@ -359,25 +358,7 @@ function chatNodeStatement(
     chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
     return null;
   }
-  // t/425: the chosen index, by the same cosine argmax as bestMatchingSyntheticStatement (first maximum wins).
-  // The text is read from that index, so the trace index and the text cannot disagree.
-  let index = 0;
-  let best = -Infinity;
-  for (let i = 0; i < vectors.length; i++) {
-    const sim = cosineSimilarity(queryVector, vectors[i]);
-    if (sim > best) { best = sim; index = i; }
-  }
-  return { text: texts[index], index };
-}
-
-/** t/425: the response for the chat route: { text, index } per node, or null when the node is skipped. */
-function chatStatementsOutput(
-  nodeIds: string[], queryVector: number[], nodeEmbeddings: Record<string, { vectors?: number[][] }>,
-  statements: Record<string, string[]>,
-): Record<string, { text: string; index: number } | null> {
-  const out: Record<string, { text: string; index: number } | null> = {};
-  for (const nodeId of nodeIds) out[nodeId] = chatNodeStatement(nodeId, queryVector, nodeEmbeddings, statements);
-  return out;
+  return bestMatchingSyntheticStatement(nodeId, queryVector, nodeEmbeddings, statements) ?? null;
 }
 
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
@@ -535,7 +516,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
     }
 
     const out: Record<string, string | null> = {};
-    // t/425: per node { text, index } or null, the same shape as the desktop handler (ElectronMain).
-    json(res, chatStatementsOutput(nodeIds, queryVector, nodeEmbeddings, statements));
+    for (const nodeId of nodeIds) out[nodeId] = chatNodeStatement(nodeId, queryVector, nodeEmbeddings, statements);
+    json(res, out);
   });
 }
