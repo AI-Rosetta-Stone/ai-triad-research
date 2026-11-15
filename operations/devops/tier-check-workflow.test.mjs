@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { checkR6 } from './tier-check-predicate.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
@@ -306,4 +307,186 @@ test('CONTROL: tierRequirementsNote returns null for T0 and for an undeclared ti
   assert.equal(fn('T0'), null);
   assert.equal(fn(null), null);
   assert.equal(fn(undefined), null);
+});
+
+// ── t/455 (TL p/9#278): tier-check's comment-filter parity, moved here from
+// comment-filter-workflow.test.mjs. That file read the guard's workflow at load and was removed
+// with the T1 guard; its tier half is kept here, and its guard half is gone.
+//
+// The `issue_comment` filter in tier-check.yml must RUN the job for every PR comment body that
+// checkR6 reads as evidence (its approval half or its SO half), and for a deleted comment always.
+// The REAL predicate is the oracle: every candidate body is fed to checkR6.
+
+const CF_HAYSTACK = "format('{0} {1}', github.event.comment.body, github.event.changes.body.from)";
+const CF_PR_GROUP = '${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}';
+const CF_RECHECK = '/recheck-guards';
+const CF_HEAD = 'c81d7dd8ec596f458dbd199b7e0a697df77ec3dd';
+const CF_APP = 'ai-triad-reviewer-jpsnover[bot]';
+const CF_PUSH_AT = '2026-10-19T12:00:00Z';
+const CF_AFTER_PUSH = '2026-10-19T12:05:00Z';
+
+/** The folded block scalar (`key: >-`) between two marker comment lines, folded to one line. */
+function foldedScalar(yml, beginMarker, endMarker, key) {
+  const lines = yml.split('\n');
+  const begin = lines.findIndex((l) => l.trim() === beginMarker);
+  const end = lines.findIndex((l) => l.trim() === endMarker);
+  assert.ok(begin >= 0 && end > begin, `markers "${beginMarker}" / "${endMarker}" not found in order`);
+  const block = lines.slice(begin + 1, end);
+  assert.equal(block[0].trim(), `${key}: >-`, `the line after "${beginMarker}" must be "${key}: >-"`);
+  const body = block.slice(1);
+  const indents = new Set(body.map((l) => l.length - l.trimStart().length));
+  assert.equal(indents.size, 1, `every line of the "${key}" scalar must have the same indentation`);
+  return body.map((l) => l.trim()).join(' ');
+}
+
+function readFilter(yml) {
+  const ifExpr = foldedScalar(yml, '# BEGIN comment-filter', '# END comment-filter', 'if');
+  const group = foldedScalar(yml, '# BEGIN comment-filter (group copy)', '# END comment-filter (group copy)', 'group');
+  const tokens = [...ifExpr.matchAll(/contains\(format\('\{0\} \{1\}', github\.event\.comment\.body, github\.event\.changes\.body\.from\), '([^']*)'\)/g)].map((m) => m[1]);
+  return { ifExpr, group, tokens };
+}
+
+/** The exact expression a token list must produce. Pins the whole `if:`, not only its strings. */
+function expectedIf(tokens) {
+  return [
+    '${{',
+    '(github.event.issue.pull_request || !github.event.issue)',
+    '&& (',
+    "github.event_name != 'issue_comment'",
+    "|| github.event.action == 'deleted'",
+    ...tokens.map((t) => `|| contains(${CF_HAYSTACK}, '${t}')`),
+    ')',
+    '}}',
+  ].join(' ');
+}
+
+/** The `if:` as JavaScript. Valid only because expectedIf() pins the expression's shape. */
+function jobRuns(tokens, event) {
+  const isPrOrNotIssue = Boolean(event.issue?.pull_request) || !event.issue;
+  if (!isPrOrNotIssue) return false;
+  if (event.eventName !== 'issue_comment') return true;
+  if (event.action === 'deleted') return true; // never filtered: the body of a deletion is not relied on
+  const haystack = `${event.comment?.body ?? ''} ${event.changes?.body?.from ?? ''}`.toLowerCase();
+  return tokens.some((t) => haystack.includes(t.toLowerCase()));
+}
+
+const cfPrComment = (body) => ({ eventName: 'issue_comment', issue: { number: 7, pull_request: {} }, comment: { body } });
+const cfPrCommentEdit = (body, from) => ({ ...cfPrComment(body), changes: { body: { from } } });
+
+const cfTier = readFilter(workflow);
+
+/** Every `body: '...'` literal in a test file, unescaped; `${CF_HEAD}` filled in. */
+function cfHarvestBodies(testFile) {
+  const src = readFileSync(path.join(root, 'operations', 'devops', testFile), 'utf8').replace(/\r\n/g, '\n');
+  const out = [];
+  for (const m of src.matchAll(/\bbody:\s*(['"`])((?:\\[\s\S]|(?!\1)[^\\])*)\1/g)) {
+    let s = m[2].replace(/\$\{HEAD\}/g, CF_HEAD);
+    if (s.includes('${')) continue;
+    s = s.replace(/\\(n|t|[\s\S])/g, (_, c) => (c === 'n' ? '\n' : c === 't' ? '\t' : c));
+    out.push(s);
+  }
+  return out;
+}
+
+/** True when checkR6 reads this comment body as evidence: the approval half or the SO half. */
+function tierReacts(body) {
+  const c = { body, createdAt: CF_AFTER_PUSH };
+  const soHalf = { body: 'SO did not review within the time-box.', createdAt: CF_AFTER_PUSH };
+  const approvalHalf = { body: 'Approved (PI): go ahead.', createdAt: CF_AFTER_PUSH };
+  const asApproval = !checkR6(true, [], [soHalf, c], [], CF_HEAD, CF_APP, CF_PUSH_AT);
+  const asSo = !checkR6(true, [], [approvalHalf, c], [], CF_HEAD, CF_APP, CF_PUSH_AT);
+  return asApproval || asSo;
+}
+
+function tierVariants() {
+  return [
+    'Approved (PI): go ahead.', 'Some context first.\nApproved (PI): proceeding.', 'Approved (PI):',
+    'SO did not review within the time-box.', 'so DID NOT review this one', 'Marked: SO did not review',
+    `**SO clearing comment (T2, t/4266), head \`${CF_HEAD}\`.**`, `so clearing comment ${CF_HEAD}`, `Note.\nSO clearing comment, head ${CF_HEAD}`,
+  ];
+}
+
+const CF_CHATTER = [
+  'Head updated to abc123',
+  'Head updated to 65ab11a02585bcadd6e76dad463ebfbde285d291. Rebased onto main, no content change.',
+  'Ready for reviewer approval',
+  'CI has been green for 37 min',
+  'Pushed a fix for the lint failure; waiting on ci-gate.',
+  'Enqueued pinned at the current head.',
+  '',
+];
+
+test('tier-check.yml: the if: is exactly the PR-comment condition AND (not issue_comment OR a listed substring)', () => {
+  assert.ok(cfTier.tokens.length > 0, 'no filter substrings found');
+  assert.equal(cfTier.ifExpr, expectedIf(cfTier.tokens));
+  for (const t of cfTier.tokens) assert.ok(t.length >= 8, `"${t}" is too short to be distinctive`);
+});
+
+test('tier-check.yml: the concurrency group carries the SAME filter, so a skipped run never shares the PR\'s group', () => {
+  const inner = cfTier.ifExpr.replace(/^\$\{\{ /, '').replace(/ \}\}$/, '');
+  assert.equal(cfTier.group, `${CF_PR_GROUP}-\${{ ( ${inner} ) && 'evaluate' || github.run_id }}`);
+});
+
+test('tier-check.yml: the explicit re-run token runs the job, and the header and docs/pr-landing.md name it', () => {
+  assert.ok(cfTier.tokens.includes(CF_RECHECK));
+  assert.equal(jobRuns(cfTier.tokens, cfPrComment(CF_RECHECK)), true);
+  assert.equal(jobRuns(cfTier.tokens, cfPrComment(`Dismissed the stale review.\n\n${CF_RECHECK}\n`)), true);
+  assert.match(workflow.slice(0, workflow.indexOf('\non:\n')), /\/recheck-guards/, 'the workflow header must document the token');
+  assert.match(readFileSync(path.join(root, 'docs', 'pr-landing.md'), 'utf8'), /\/recheck-guards/);
+});
+
+test('tier-check.yml: status chatter does not run the job', () => {
+  for (const body of CF_CHATTER) assert.equal(jobRuns(cfTier.tokens, cfPrComment(body)), false, `chatter ran the job: ${JSON.stringify(body)}`);
+});
+
+test('tier-check.yml: every other trigger still runs, and a comment on a plain issue never does', () => {
+  assert.equal(jobRuns(cfTier.tokens, { eventName: 'pull_request_target' }), true);
+  assert.equal(jobRuns(cfTier.tokens, { eventName: 'pull_request_review' }), true);
+  const plainIssue = { eventName: 'issue_comment', issue: { number: 7 }, comment: { body: `Approved (PI): x ${CF_RECHECK}` } };
+  assert.equal(jobRuns(cfTier.tokens, plainIssue), false);
+});
+
+test('tier-check.yml: an edit runs the job when EITHER the new or the previous body matches', () => {
+  const verdict = 'Approved (PI): go ahead.';
+  assert.equal(jobRuns(cfTier.tokens, cfPrCommentEdit(verdict, 'Looking now.')), true, 'edited INTO evidence');
+  assert.equal(jobRuns(cfTier.tokens, cfPrCommentEdit('Withdrawn, see below.', verdict)), true, 'evidence edited AWAY must re-evaluate');
+  assert.equal(jobRuns(cfTier.tokens, cfPrCommentEdit('Head updated to abc124', 'Head updated to abc123')), false, 'chatter edited into chatter');
+});
+
+test('tier-check.yml: a deleted or edited comment and a dismissed review are triggers', () => {
+  const types = (event) => {
+    const m = new RegExp(`^  ${event}:\\n(?:    branches: .*\\n)?    types: \\[([^\\]]*)\\]`, 'm').exec(workflow.slice(workflow.indexOf('\non:\n')));
+    assert.ok(m, `no inline types list for ${event}`);
+    return m[1].split(',').map((s) => s.trim());
+  };
+  assert.deepEqual(types('issue_comment'), ['created', 'edited', 'deleted']);
+  assert.deepEqual(types('pull_request_review'), ['submitted', 'dismissed']);
+});
+
+test('tier-check: every body R6 reads as evidence runs the job (its own test fixtures + variants)', () => {
+  const candidates = [...cfHarvestBodies('tier-check-predicate.test.mjs'), ...tierVariants()];
+  const reacting = candidates.filter(tierReacts);
+  assert.ok(reacting.length >= 12, `too few reacting candidates to mean anything (${reacting.length} of ${candidates.length})`);
+  for (const body of reacting) {
+    assert.equal(jobRuns(cfTier.tokens, cfPrComment(body)), true, `R6 reads this as evidence, but the filter would skip it: ${JSON.stringify(body)}`);
+  }
+});
+
+test('tier-check: the oracle is live -- each kind of R6 comment evidence reacts, chatter does not', () => {
+  assert.equal(tierReacts('Approved (PI): go ahead.'), true);
+  assert.equal(tierReacts('SO did not review within the time-box.'), true);
+  assert.equal(tierReacts(`**SO clearing comment, head \`${CF_HEAD}\`.**`), true);
+  assert.equal(tierReacts('Approved (Quality): fine'), false, 'a role approval comment is not R6 evidence');
+  assert.equal(tierReacts('Head updated to abc123'), false);
+});
+
+test('tier-check: comment bodies are read ONLY by checkR6 -- a new reader must extend the filter', () => {
+  const predicate = readFileSync(path.join(root, 'operations', 'devops', 'tier-check-predicate.mjs'), 'utf8');
+  const code = predicate.split('\n').filter((l) => !/^\s*(\/\/|\/?\*)/.test(l)).join('\n');
+  for (const re of ['PI_COMMENT_APPROVAL_RE', 'SO_DID_NOT_REVIEW_RE', 'SO_CLEARING_PREFIX_RE']) {
+    assert.match(code, new RegExp(`const ${re} = `));
+  }
+  const usesOfComments = [...code.matchAll(/\bapprovalComments\b/g)].length;
+  assert.equal(usesOfComments, 2, 'approvalComments must appear exactly twice in evaluateTierCheck: destructured, then passed to checkR6');
+  assert.match(code, /checkR6\(tier === 'T2' \|\| Boolean\(r1\), labels, approvalComments \?\? \[\]/);
 });

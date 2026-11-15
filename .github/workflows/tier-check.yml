@@ -126,7 +126,7 @@ jobs:
 
             const owner = context.repo.owner, repo = context.repo.repo;
             // t/4266 P2 fix 4: issue_comment fires on every issue, not just PRs -- filter to PRs
-            // only (same check t1-approval-guard.yml's resolvePrNumber already applies).
+            // only (the same PR-only check the removed T1 guard used, t/455).
             function resolvePrNumber() {
               if (context.payload.pull_request) return context.payload.pull_request.number;
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
@@ -406,8 +406,8 @@ jobs:
             // never updated_at) or an old one of either would clear every future head forever.
             const rawComments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
             const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
-            // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
-            // trusts): the TL's T2 approval is a reviewer-App review, not a PI comment alone.
+            // Gate Co-Location (t/4266#13 fix 1, the reviewer-App identity this gate trusts):
+            // the TL's T2 approval is a reviewer-App review, not a PI comment alone.
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
             const rawReviews = await retry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const reviews = rawReviews.map((r) => ({ state: r.state, commitId: r.commit_id, login: r.user?.login, body: r.body }));

@@ -133,14 +133,15 @@ jobs:
       # take 16 minutes. No wait here: the required checks must already be green.
       #
       # T1 approval requirement removed (t/455, the PI's decision, 2026-11-15): T1 PRs enqueue
-      # on CI and branch protection alone. T1_ENQUEUE is 'on' as merged. It is a literal here,
-      # not a repo variable, and passes `--enqueue` only when it is exactly 'on'.
+      # on CI and branch protection alone. T1_ENQUEUE ships 'off' (Second-Opinion, p/136#25): it
+      # is flipped to 'on' in its own commit after #5150 is on main. It is a literal here, not a
+      # repo variable, and passes `--enqueue` only when it is exactly 'on'.
       - name: T1 sweep (enqueue on green CI, t/455)
         if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-          T1_ENQUEUE: 'on'
+          T1_ENQUEUE: 'off'
         run: |
           ENQUEUE_FLAG=''
           if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG='--enqueue'; fi
