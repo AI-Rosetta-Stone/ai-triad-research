@@ -79,12 +79,16 @@ Describe 'Get-BicepBaseEnv -ForStaging override merge (t/4794 incident regressio
         $env['NODE_ENV'] | Should -Be 'production'
     }
 
+    # t/77 Option B: the real staging sync always runs with SYNC_GITHUB_APP_ID_STAGING set (deploy-staging.yml).
     It 'Real main.bicep: the three t/4738 container vars resolve to staging-* under -ForStaging (live incident regression)' {
         $realBicep = Join-Path $scriptRoot 'deploy/azure/main.bicep'
-        $env = & $getEnvScript -BicepPath $realBicep -ForStaging
-        $env['AZURE_USER_CONTENT_CONTAINER']  | Should -Be 'staging-user-content'
-        $env['AZURE_COMMUNITY_CONTAINER']     | Should -Be 'staging-community'
-        $env['AZURE_BRIEF_EXPORTS_CONTAINER'] | Should -Be 'staging-brief-exports'
+        $env:SYNC_GITHUB_APP_ID_STAGING = '5503293'
+        try {
+            $env = & $getEnvScript -BicepPath $realBicep -ForStaging
+            $env['AZURE_USER_CONTENT_CONTAINER']  | Should -Be 'staging-user-content'
+            $env['AZURE_COMMUNITY_CONTAINER']     | Should -Be 'staging-community'
+            $env['AZURE_BRIEF_EXPORTS_CONTAINER'] | Should -Be 'staging-brief-exports'
+        } finally { Remove-Item Env:SYNC_GITHUB_APP_ID_STAGING -ErrorAction SilentlyContinue }
     }
 
     It 'FAIL-CLOSED (t/4794#4, TL): an unresolvable override that would shadow a baseEnv literal THROWS, naming the key' {
@@ -104,7 +108,8 @@ Describe 'Get-BicepBaseEnv -ForStaging override merge (t/4794 incident regressio
 
     It 'Real main.bicep: -ForStaging does not throw (every override in production bicep is resolvable or non-shadowing)' {
         $realBicep = Join-Path $scriptRoot 'deploy/azure/main.bicep'
-        { & $getEnvScript -BicepPath $realBicep -ForStaging } | Should -Not -Throw
+        $env:SYNC_GITHUB_APP_ID_STAGING = '5503293'
+        try { { & $getEnvScript -BicepPath $realBicep -ForStaging } | Should -Not -Throw } finally { Remove-Item Env:SYNC_GITHUB_APP_ID_STAGING -ErrorAction SilentlyContinue }
     }
 }
 

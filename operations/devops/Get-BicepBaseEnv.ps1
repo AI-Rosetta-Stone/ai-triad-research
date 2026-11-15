@@ -40,6 +40,9 @@
 param(
     [string]$BicepPath,
     [switch]$ForStaging,
+    # t/77 Option B: the staging SYNC must refuse to run without the staging App id. Checkers that only
+    # read the names or the isolation shape leave it unset, as before.
+    [switch]$RequireStagingAppId,
     [switch]$NamesOnly
 )
 
@@ -162,6 +165,21 @@ if ($ForStaging) {
             }
             if ($rawValue -match '^[A-Za-z_][A-Za-z0-9_]*$' -and $paramDefaults.ContainsKey($rawValue)) {
                 $result[$name] = $paramDefaults[$rawValue]
+                continue
+            }
+            # t/77 Option B (PI decision, 2026-11-15): the staging App id is a deploy-time value, not a literal,
+            # so it cannot be resolved statically. Take it from SYNC_GITHUB_APP_ID_STAGING, which the calling
+            # workflow step passes in, and fail closed when that is empty. STAGING_APP_ID must never be left unset.
+            # STAGING_APP_ID and GITHUB_APP_ID both take the staging App id (t/77 Option B, SO t/77#13).
+            if ($name -in @('STAGING_APP_ID','GITHUB_APP_ID') -and $rawValue -eq 'stagingGithubAppId') {
+                if (-not $env:SYNC_GITHUB_APP_ID_STAGING -and -not $RequireStagingAppId) { continue }  # unresolved, as before
+                if (-not $env:SYNC_GITHUB_APP_ID_STAGING) {
+                    throw (New-ActionableError -Goal 'Resolve stagingEnvOverrides for the staging reconcile' `
+                        -Problem "entry '$name' = stagingGithubAppId, but SYNC_GITHUB_APP_ID_STAGING is empty in this step" `
+                        -Location 'Get-BicepBaseEnv.ps1, -ForStaging override walk' `
+                        -NextSteps 'Set the repo variable SYNC_GITHUB_APP_ID_STAGING and pass it to the sync step in deploy-staging.yml. Staging must not run without its App id.')
+                }
+                $result[$name] = $env:SYNC_GITHUB_APP_ID_STAGING
                 continue
             }
             if ($result.ContainsKey($name)) {
