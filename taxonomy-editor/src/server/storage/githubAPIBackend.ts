@@ -197,7 +197,30 @@ type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds'
  *  is the rawDisabled early-return's own reason (t/4615 — previously
  *  reused `status=503`, conflating with genuine 503 fallbacks in the
  *  stats). */
-type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled';
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path';
+
+/** t/372 (CodeQL #6229, #6230): join a repo-relative path under `base` and refuse, before any
+ *  write, anything that resolves outside `base`. toRepoPath's `..` check does not reach these
+ *  call sites in CodeQL's model, so the cache writes confine their own path. */
+function confineToDir(base: string, rel: string): string {
+  const root = path.resolve(base);
+  const abs = path.resolve(root, rel);
+  const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+  const r = process.platform === 'win32' ? root.toLowerCase() : root;
+  if (a !== r && !a.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) {
+    throw new ActionableError({
+      goal: 'Confine disk cache write to the cache directory',
+      problem: `Path escapes the cache directory: ${rel}`,
+      location: 'githubAPIBackend.confineToDir',
+      nextSteps: ['Use a repo-relative path with no ".." segments'],
+      code: 'PATH_OUTSIDE_ROOT',
+      httpStatus: 400,
+    });
+  }
+  // Return the join, not the resolved absolute path: the read side builds keys with path.join,
+  // so an in-cache write must keep the same string.
+  return path.join(base, rel);
+}
 
 type RawFetchResult =
   | { kind: 'hit'; content: string; sha: string }
@@ -2730,7 +2753,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2779,7 +2802,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2980,6 +3003,11 @@ export class GitHubAPIBackend implements StorageBackend {
    *  any failure becomes `fallback` for the caller to retry via REST. */
   private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
     if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
+    // t/372 (CodeQL #6275): encodeURIComponent leaves '.' and '..', and the URL parser
+    // normalises them, so refuse dot-segments before the URL is built.
+    if (repoPath.split('/').some(seg => seg === '.' || seg === '..')) {
+      return { kind: 'fallback', reason: 'invalid_path' };
+    }
 
     const creds = await this.getCredsCached();
     if (!creds) return { kind: 'fallback', reason: 'network_error' };
