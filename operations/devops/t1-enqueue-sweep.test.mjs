@@ -8,7 +8,9 @@
 // enqueueOne path with only GitHub I/O faked.
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectT1Candidates, declaresT1, headBoundApprover, sweep, GUARD_APPROVED_SUMMARY } from './t1-enqueue-sweep.mjs';
+import {
+  selectT1Candidates, declaresT1, headBoundApprover, sweep, postGuardNudge, GUARD_APPROVED_SUMMARY, GUARD_NUDGE_MARKER,
+} from './t1-enqueue-sweep.mjs';
 import { selectT0Candidates } from './t0-enqueue-sweep.mjs';
 import { fetchGuardRun } from './t1-approval-at-head.mjs';
 
@@ -114,9 +116,83 @@ test('REFUSE: unapproved T1 (guard failure) is not enqueued', () => {
 });
 
 test('REFUSE: guard missing, in progress, or from a non-github-actions App is not enqueued', () => {
-  assert.equal(skipReason(pr({ guard: { run: null, lookupError: false } })), 't1-approval-guard at head is missing');
+  // No head-bound approval here, so these are plain refusals (the approved case is the nudge below).
+  const unapproved = { reviews: [] };
+  assert.equal(skipReason(pr({ ...unapproved, guard: { run: null, lookupError: false } })), 't1-approval-guard at head is missing');
   assert.equal(skipReason(pr({ guard: guardOk({ status: 'in_progress', conclusion: null }) })), 't1-approval-guard at head is in_progress');
-  assert.equal(skipReason(pr({ guard: guardOk({ app: { slug: 'other-app' } }) })), 't1-approval-guard at head is missing');
+  assert.equal(skipReason(pr({ ...unapproved, guard: guardOk({ app: { slug: 'other-app' } }) })), 't1-approval-guard at head is missing');
+});
+
+// ---- guard never ran on an approved head (2026-11-11: runs stuck in `queued` for good) ----
+test('NUDGE: approved at head, green, but the guard has no run there -> skipped with a guardNudge', () => {
+  const { enqueue, skip } = only(pr({ guard: { run: null, lookupError: false } }));
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^WARN: t1-approval-guard never evaluated this head \(missing\)/);
+  assert.deepEqual(skip[0].guardNudge, { headRefOid: HEAD });
+});
+
+test('NUDGE: only ci.yml skipped placeholders at the head (the live #5120 shape) -> guardNudge', () => {
+  const guard = guardFrom([run('skipped', '2026-11-12T00:03:31Z'), run('skipped', '2026-11-14T16:44:31Z')]);
+  const { enqueue, skip } = only(pr({ guard }));
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /never evaluated this head \(skipped\)/);
+  assert.deepEqual(skip[0].guardNudge, { headRefOid: HEAD });
+});
+
+test('NO NUDGE: a real failure, a running guard, a lookup error, or no head-bound approval never nudges', () => {
+  for (const over of [
+    { guard: guardOk({ conclusion: 'failure' }) },
+    { guard: guardOk({ status: 'in_progress', conclusion: null }) },
+    { guard: guardOk({ status: 'queued', conclusion: null }) },
+    { guard: { run: null, lookupError: true } },
+    { guard: { run: null, lookupError: false }, reviews: [approvalAt(OLD_HEAD)] },
+    { guard: { run: null, lookupError: false }, reviews: [approvalAt(HEAD, 'DevOps')] }, // self-approval
+  ]) {
+    const { enqueue, skip } = only(pr(over));
+    assert.deepEqual(enqueue, []);
+    assert.equal(skip[0].guardNudge, undefined, JSON.stringify(over));
+  }
+});
+
+test('NO NUDGE: a PR the shared filters already skip (red ci-gate, draft, consult-hold) is not nudged', () => {
+  for (const over of [{ contexts: green({ 'ci-gate': 'FAILURE' }) }, { isDraft: true }, { labels: ['consult-hold'] }]) {
+    const { skip } = only(pr({ guard: { run: null, lookupError: false }, ...over }));
+    assert.equal(skip[0].guardNudge, undefined, JSON.stringify(over));
+  }
+});
+
+test('postGuardNudge: posts one marker comment per head, and never a second one', () => {
+  const mocks = [mock.method(console, 'log', () => {})];
+  try {
+    const posted = [];
+    let existing = [];
+    const ghFn = (args) => {
+      if (args.includes('-f')) { posted.push(args.at(-1)); return ''; }
+      return JSON.stringify(existing);
+    };
+    assert.equal(postGuardNudge('o/r', 7, { headRefOid: HEAD }, { ghFn }), 'posted');
+    assert.equal(posted.length, 1);
+    assert.ok(posted[0].includes(`${GUARD_NUDGE_MARKER}${HEAD} -->`));
+    // The body must not read as a role verdict to the guard or the sweeps.
+    assert.doesNotMatch(posted[0], /^body=\**(Approved|Changes requested|Design-exempt)/i);
+    assert.doesNotMatch(posted[0], /changes requested/i);
+
+    existing = [{ body: posted[0].replace(/^body=/, ''), created_at: '2026-11-15T10:00:00Z' }];
+    assert.equal(postGuardNudge('o/r', 7, { headRefOid: HEAD }, { ghFn, nowMs: Date.parse('2026-11-15T12:00:00Z') }), 'already');
+    assert.equal(posted.length, 1);
+    // A new head is a new episode.
+    assert.equal(postGuardNudge('o/r', 7, { headRefOid: 'head3333' }, { ghFn }), 'posted');
+    assert.equal(posted.length, 2);
+  } finally { mocks.forEach((m) => m.mock.restore()); }
+});
+
+test('postGuardNudge: a failed API call only WARNs', () => {
+  const logs = [];
+  const m = mock.method(console, 'log', (l) => logs.push(l));
+  try {
+    assert.equal(postGuardNudge('o/r', 7, { headRefOid: HEAD }, { ghFn: () => { throw new Error('HTTP 502'); } }), 'failed');
+    assert.match(logs[0], /^WARN: #7: could not post the guard re-run comment \(HTTP 502\)/);
+  } finally { m.mock.restore(); }
 });
 
 test('REFUSE: a guard lookup error, or no guard read at all, fails closed', () => {
@@ -227,6 +303,20 @@ test('shim: head moved between listing and enqueue -> no enqueue', async () => {
     const { calls, deps } = harness({ listed: [pr()], live: { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: 'newhead' } });
     assert.deepEqual(await sweep('o/r', { deps }), { 1: 'skipped' });
     assert.equal(calls.enqueue.length, 0);
+  } finally { mocks.forEach((m) => m.mock.restore()); }
+});
+
+test('shim: a guard that never ran on an approved head is nudged once and not enqueued; a dry run only reports', async () => {
+  const mocks = quiet();
+  try {
+    const { calls, deps } = harness({ listed: [pr()], live: null });
+    const nudged = [];
+    const withNudge = { ...deps, fetchGuard: () => ({ run: null, lookupError: false }), nudge: (repo, n, x) => nudged.push({ n, ...x }) };
+    assert.deepEqual(await sweep('o/r', { deps: withNudge }), {});
+    assert.deepEqual(nudged, [{ n: 1, headRefOid: HEAD }]);
+    assert.equal(calls.enqueue.length, 0);
+    assert.deepEqual(await sweep('o/r', { dryRun: true, deps: withNudge }), {});
+    assert.equal(nudged.length, 1);
   } finally { mocks.forEach((m) => m.mock.restore()); }
 });
 

@@ -33,6 +33,7 @@
 //
 //   GH_TOKEN=<app token> node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run]
 
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
 import { parseTier, ownerSlugFromBranch, normalizeRole } from './t1-approval-guard-predicate.mjs';
@@ -42,6 +43,19 @@ import { sharedSkipReason, listOpenPRs, enqueueOne, REVIEWER_APP_LOGIN } from '.
 
 // The exact summary t1-approval-guard.yml posts on a real T1 pass (`okSummary`).
 export const GUARD_APPROVED_SUMMARY = 'approved after the latest push';
+
+// Self-heal for a guard that never evaluated an approved head. On 2026-11-11 GitHub left 14
+// t1-approval-guard runs (88 runs repo-wide) in `queued` for good; the approvals that triggered
+// them never got a verdict, so #5120, #5121, #4950, #5101 and #5096 sat approved and green for up
+// to four days until a comment re-ran the guard. `guard_missing` is no run at the head;
+// `guard_skipped` is only ci.yml's merge_group placeholder, which is skipped on every PR run.
+// A real `failure`, an `in_progress` or a `queued` run is never nudged.
+export const GUARD_NEVER_RAN = ['guard_missing', 'guard_skipped'];
+export const GUARD_NUDGE_MARKER = '<!-- t1-sweep-guard-rerun:';
+
+function gh(args) {
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+}
 
 /** PURE. True when the PR body declares Tier: T1, parsed exactly as t1-approval-guard parses it. */
 export function declaresT1(body) {
@@ -75,11 +89,17 @@ export function selectT1Candidates(prs) {
   const skip = [];
   for (const pr of prs) {
     let reason = sharedSkipReason(pr, { declares: declaresT1, tierName: 'T1' });
+    let guardNudge = null;
     if (!reason) {
       const v = approvalAtHeadVerdict({ tier: extractTier(pr.body), isDraft: pr.isDraft, guard: pr.guard });
       const summary = pr.guard?.run?.output?.summary ?? null;
       if (v.reason === 'guard_lookup_error') {
         reason = 'WARN: could not look up t1-approval-guard at the head -- failing closed (the next sweep retries)';
+      } else if (GUARD_NEVER_RAN.includes(v.reason) && headBoundApprover(pr)) {
+        // Approved at this head and otherwise ready, but the guard has no evaluation here at all.
+        reason = `WARN: t1-approval-guard never evaluated this head (${v.reason.replace(/^guard_/, '')}) although a ` +
+          'reviewer-App approval is bound to it -- asking the guard to run again';
+        guardNudge = { headRefOid: pr.headRefOid };
       } else if (!v.allow || v.reason !== 'guard_success') {
         reason = `t1-approval-guard at head is ${v.reason.replace(/^guard_/, '')}`;
       } else if (summary !== GUARD_APPROVED_SUMMARY) {
@@ -88,10 +108,42 @@ export function selectT1Candidates(prs) {
         reason = 'no reviewer-App approval review bound to the current head SHA (stale or comment-only approval)';
       }
     }
-    if (reason) skip.push({ number: pr.number, reason });
+    if (reason) skip.push({ number: pr.number, reason, ...(guardNudge ? { guardNudge } : {}) });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
   }
   return { enqueue, skip };
+}
+
+/**
+ * Asks t1-approval-guard to evaluate a head it never evaluated, by posting one comment (the
+ * guard runs on `issue_comment`; the sweep's App token triggers workflows, GITHUB_TOKEN would
+ * not). At most one comment per head, found by its marker. Best-effort: a failed post only
+ * WARNs, since the PR is skipped either way and the next sweep tries again. Returns 'posted',
+ * 'already' (a nudge for this head exists; the WARN says how long ago) or 'failed'.
+ */
+export function postGuardNudge(repo, number, { headRefOid }, { ghFn = gh, nowMs = Date.now() } = {}) {
+  const marker = `${GUARD_NUDGE_MARKER}${headRefOid} -->`;
+  try {
+    const comments = JSON.parse(ghFn(['api', `repos/${repo}/issues/${number}/comments?per_page=100`, '--jq', '[.[] | {body, created_at}]']));
+    const prior = comments.find((c) => (c.body ?? '').includes(marker));
+    if (prior) {
+      const minutes = Math.round((nowMs - Date.parse(prior.created_at)) / 60000);
+      console.log(`WARN: #${number}: t1-approval-guard was asked to re-run for ${headRefOid.slice(0, 9)} ${minutes}m ago and still has no verdict there; ` +
+        'not asking again (post any comment on the PR to re-run it by hand)');
+      return 'already';
+    }
+    const body = [
+      `**T1 sweep (t/73):** \`t1-approval-guard\` has no verdict at this head (\`${headRefOid.slice(0, 9)}\`), although a reviewer approval is recorded on it and the required checks are green. ` +
+        'Its run for that approval was most likely lost. This comment makes the guard run again; the sweep enqueues the PR once it reports success. No action is needed.',
+      marker,
+    ].join('\n');
+    ghFn(['api', `repos/${repo}/issues/${number}/comments`, '-f', `body=${body}`]);
+    console.log(`commented on #${number}: asked t1-approval-guard to re-run at ${headRefOid.slice(0, 9)}`);
+    return 'posted';
+  } catch (err) {
+    console.log(`WARN: #${number}: could not post the guard re-run comment (${err.message ?? err}); the PR is still skipped`);
+    return 'failed';
+  }
 }
 
 /**
@@ -99,7 +151,7 @@ export function selectT1Candidates(prs) {
  * Returns the outcome per enqueued PR number.
  */
 export async function sweep(repo, { dryRun = false, deps = {} } = {}) {
-  const { list = listOpenPRs, fetchGuard = fetchGuardRun, enqueueDeps } = deps;
+  const { list = listOpenPRs, fetchGuard = fetchGuardRun, enqueueDeps, nudge = postGuardNudge } = deps;
   const prs = list(repo);
   for (const pr of prs) {
     if (!declaresT1(pr.body)) continue;
@@ -110,7 +162,13 @@ export async function sweep(repo, { dryRun = false, deps = {} } = {}) {
     }
   }
   const { enqueue, skip } = selectT1Candidates(prs);
-  for (const s of skip) console.log(`skip #${s.number}: ${s.reason}`);
+  for (const s of skip) {
+    console.log(`skip #${s.number}: ${s.reason}`);
+    if (s.guardNudge) {
+      if (dryRun) console.log(`[dry-run] would comment on #${s.number}: ask t1-approval-guard to re-run`);
+      else nudge(repo, s.number, s.guardNudge);
+    }
+  }
   if (enqueue.length === 0) console.log('no T1 PRs to enqueue.');
 
   const outcomes = {};
