@@ -24,12 +24,18 @@ Describe 'Get-BicepBaseEnv -ForStaging: STAGING_APP_ID from SYNC_GITHUB_APP_ID_S
 
     It 'throws (fail closed) when SYNC_GITHUB_APP_ID_STAGING is empty' {
         $env:SYNC_GITHUB_APP_ID_STAGING = ''
-        { & $getEnvScript -BicepPath $mainBicep -ForStaging } | Should -Throw -ExpectedMessage '*SYNC_GITHUB_APP_ID_STAGING is empty*'
+        { & $getEnvScript -BicepPath $mainBicep -ForStaging -RequireStagingAppId } | Should -Throw -ExpectedMessage '*SYNC_GITHUB_APP_ID_STAGING is empty*'
     }
 
     It 'throws (fail closed) when SYNC_GITHUB_APP_ID_STAGING is not set at all' {
         Remove-Item Env:SYNC_GITHUB_APP_ID_STAGING -ErrorAction SilentlyContinue
-        { & $getEnvScript -BicepPath $mainBicep -ForStaging } | Should -Throw -ExpectedMessage '*SYNC_GITHUB_APP_ID_STAGING is empty*'
+        { & $getEnvScript -BicepPath $mainBicep -ForStaging -RequireStagingAppId } | Should -Throw -ExpectedMessage '*SYNC_GITHUB_APP_ID_STAGING is empty*'
+    }
+
+    It 'a CI checker (no -RequireStagingAppId) with the variable empty does not throw and leaves STAGING_APP_ID unmanaged' {
+        $env:SYNC_GITHUB_APP_ID_STAGING = ''
+        $result = & $getEnvScript -BicepPath $mainBicep -ForStaging
+        $result.ContainsKey('STAGING_APP_ID') | Should -BeFalse
     }
 
     It 'without -ForStaging the App id is not resolved and no throw happens' {
