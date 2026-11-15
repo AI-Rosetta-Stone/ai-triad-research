@@ -126,6 +126,12 @@ export interface FormatContextConfig {
    */
   debateGroundingOverrides?: Map<string, string>;
   /**
+   * Per-node statement text (t/348 chat cap). When it returns a string for a node, that text replaces
+   * the node's description in the prompt line. Absent or undefined = unchanged default. Takes precedence over
+   * debateGroundingOverrides for that node. Never description or plain_description (TL p/140#24).
+   */
+  statementFor?: (nodeId: string) => string | undefined;
+  /**
    * Tagged node IDs with their selection mode (t/3996, chat Prioritize path).
    * When mode is 'prioritize': tagged nodes sort first within each BDI category
    * (secondary to nodeScores when both are present) and receive a ▲ prefix —
@@ -215,6 +221,11 @@ function nodeWeightLabel(node: PovNode, category: string): string {
 }
 
 /** Format taxonomy nodes into a BDI-structured context block for the LLM prompt */
+/** Prompt text for a POV node line: the statement override, else debate_grounding, else description (t/348, t/3366). */
+function nodePromptText(n: PovNode, cfg: FormatContextConfig): string {
+  return cfg.statementFor?.(n.id) ?? cfg.debateGroundingOverrides?.get(n.id) ?? n.description;
+}
+
 export function formatTaxonomyContext(ctx: TaxonomyContext, pov: string, maxNodes?: number, config?: FormatContextConfig): string {
   const cfg = config ?? {};
   const limit = cfg.maxNodes ?? maxNodes ?? 50;
@@ -330,7 +341,7 @@ export function formatTaxonomyContext(ctx: TaxonomyContext, pov: string, maxNode
       if (isPrimary) {
         const weightLabel = nodeWeightLabel(n, cat);
         lines.push(`${prefix}[${n.id}]${weightLabel}`);
-        lines.push(`  "${n.label}" — ${stripExcludes(cfg.debateGroundingOverrides?.get(n.id) ?? n.description)}`);
+        lines.push(`  "${n.label}" — ${stripExcludes(nodePromptText(n, cfg))}`);
         const sv = n.graph_attributes?.steelman_vulnerability;
         if (sv) {
           const svText = typeof sv === 'string' ? sv : Object.values(sv).filter(Boolean).join(' | ');
