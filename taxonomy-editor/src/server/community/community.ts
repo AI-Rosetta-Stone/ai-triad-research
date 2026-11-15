@@ -869,6 +869,57 @@ function projectAdaptiveStaging(value: unknown): Record<string, unknown> | undef
   };
 }
 
+/** Argument-network node keys the community renderer reads (t/196, Security p/102#112). Excluded as
+ *  owner-only: embedding and attribution_embedding (384-dim vectors, as Crux.embedding), and the item
+ *  text inside evidence_graph (projectArgumentNode keeps its scores and ids only). */
+const COMMUNITY_AN_NODE_KEYS: ReadonlySet<string> = new Set([
+  'id', 'text', 'attribution_text_genus', 'canonical_proposition', 'speaker', 'source_entry_id',
+  'taxonomy_refs', 'turn_number', 'extraction_confidence', 'base_strength', 'computed_strength',
+  'scoring_method', 'bdi_sub_scores', 'bdi_confidence', 'bdi_category', 'specificity', 'steelman_of',
+  'steelman_check', 'verification_status', 'verification_evidence', 'evidence_graph',
+  'claim_taxonomy_attribution', 'vocabulary_tags', 'political_salience', 'topic_relevance',
+]);
+
+/** Structural projection of one argument-network node (t/196, Security p/102#112). */
+function projectArgumentNode(node: unknown): Record<string, unknown> | undefined {
+  if (!node || typeof node !== 'object') return undefined;
+  const out = Object.fromEntries(Object.entries(node as Record<string, unknown>).filter(([k]) => COMMUNITY_AN_NODE_KEYS.has(k)));
+  const graph = out.evidence_graph;
+  if (graph && typeof graph === 'object') {
+    const g = graph as Record<string, unknown>;
+    out.evidence_graph = {
+      computed_strength: g.computed_strength,
+      qbaf_iterations: g.qbaf_iterations,
+      evidence_items: Array.isArray(g.evidence_items)
+        ? g.evidence_items
+            .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object')
+            .map(i => ({ id: i.id, source_doc_id: i.source_doc_id, relation: i.relation, similarity: i.similarity }))
+        : undefined,
+    };
+  }
+  return out;
+}
+
+/** Structural projection of argument_network (t/196, Security p/102#112): nodes are projected per
+ *  node, edges pass through (they carry no embeddings), and mutations are dropped. */
+function projectArgumentNetwork(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const an = value as Record<string, unknown>;
+  return {
+    nodes: Array.isArray(an.nodes)
+      ? an.nodes.map(n => projectArgumentNode(n)).filter((n): n is Record<string, unknown> => n !== undefined)
+      : [],
+    edges: Array.isArray(an.edges) ? an.edges : [],
+  };
+}
+
+/** topic.background is owner-only by default (t/196, Security p/102#112). topic is an object
+ *  ({original, final, background}) or a plain string; only the object form carries background. */
+function projectTopic(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([k]) => k !== 'background'));
+}
+
 /** Module-level allowlist for community projection (t/196).
  *  Each submission type's allowlist is explicitly defined below. Owner-only fields
  *  (source_content, config, etc.) are intentionally excluded. New fields added to a type
@@ -880,9 +931,9 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
     'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
     'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
   ]),
-  // Debate: the 13 keys ruled in t/196#25 (Security re-review). Transcript, neutral_evaluations and
-  // adaptive_staging are projected structurally (projectTranscriptEntry, projectNeutralEvaluation,
-  // projectAdaptiveStaging). Everything else is owner-only, including stages (t/196#19, reverses t/171),
+  // Debate: the 13 keys ruled in t/196#25 (Security re-review). Transcript, neutral_evaluations,
+  // adaptive_staging and argument_network are projected structurally (projectTranscriptEntry,
+  // projectNeutralEvaluation, projectAdaptiveStaging, projectArgumentNetwork). Everything else is owner-only, including stages (t/196#19, reverses t/171),
   // prompt_config, origin, metadata, diagnostics, position_drift, convergence_signals, and model ids
   // (debate_model, speaker_models, model_tier, protocol_id: t/196#25 item 6, not covered by t/345).
   // community_metadata is set server-side after projection, so it is not listed here.
@@ -907,6 +958,8 @@ function projectAllowedValue(type: Submission['type'], key: string, value: unkno
     return value.map(e => projectNeutralEvaluation(e)).filter((e): e is Record<string, unknown> => e !== undefined);
   }
   if (type === 'debate' && key === 'adaptive_staging') return projectAdaptiveStaging(value);
+  if (type === 'debate' && key === 'argument_network') return projectArgumentNetwork(value);
+  if (key === 'topic') return projectTopic(value);
   return value;
 }
 
