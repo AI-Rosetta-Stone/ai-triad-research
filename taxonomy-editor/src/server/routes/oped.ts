@@ -112,10 +112,14 @@ function validateOutlet(outlet: string | undefined): string | null {
 
 /** The create body: the topic, voices and params (parseOpEdCreate), plus an optional document source. */
 function parseOpEdCreateRequest(body: unknown): ReturnType<typeof parseOpEdCreate> {
-  const base = parseOpEdCreate(body);
-  if (!base.ok) return base;
-  const doc = parseDocumentSource((body ?? {}) as { url?: unknown; documentText?: unknown; sourceName?: unknown });
+  const b = (body ?? {}) as { topic?: unknown; url?: unknown; documentText?: unknown; sourceName?: unknown };
+  const doc = parseDocumentSource(b);
   if (!doc.ok) return { ok: false, status: 400, message: doc.message };
+  // t/276: a document can arrive without a topic (the web bridge sends documentText and sourceName only).
+  // The file name stands in as the topic, so the set has a label. A topic that is sent is used as sent.
+  const withTopic = doc.value && !b.topic ? { ...b, topic: doc.value.sourceName } : b;
+  const base = parseOpEdCreate(withTopic);
+  if (!base.ok) return base;
   return { ok: true, value: { ...base.value, ...(doc.value ?? {}) } };
 }
 

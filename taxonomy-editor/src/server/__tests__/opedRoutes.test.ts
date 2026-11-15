@@ -392,6 +392,22 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
       expect(capturedReq?.sourceName).toBe('report.docx');
     });
 
+    it('a document with no topic (the web bridge body): the file name is the topic and generation runs', async () => {
+      let capturedReq: { topic?: string; sourceMaterial?: string; sourceName?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      const { topic: _omit, ...noTopic } = validBody;
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...noTopic, documentText: 'The report says X.', sourceName: 'report.docx' });
+      expect(res._status).toBe(200);
+      expect(capturedReq?.topic).toBe('report.docx');
+      expect(capturedReq?.sourceMaterial).toBe('The report says X.');
+      expect(capturedReq?.sourceName).toBe('report.docx');
+    });
+
     it('document text without a sourceName is a 400, before generation', async () => {
       const res = fakeRes();
       await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text' });
