@@ -131,24 +131,25 @@ const quiet = { warn: () => {}, now: () => NOW_MS };
 
 test('t/125: isRateLimited reads the 403 quota header or a rate-limit message; a plain 403 is not', () => {
   assert.equal(isRateLimited(rlError('0', 0)), true);
-  assert.equal(isRateLimited(httpError(403, 'API rate limit exceeded')), true, 'a message-only rate limit');
+  assert.equal(isRateLimited(httpError(403, 'API rate limit exceeded')), true, 'a message-only rate limit, with no quota header');
+  assert.equal(isRateLimited(rlError('4999', NOW_MS / 1000 + 60, 'Rate limit feature is not enabled on this repository')), false, 'a non-quota 403 that mentions a rate limit: quota left, so not a quota hit');
   assert.equal(isRateLimited(httpError(403, 'Resource not accessible by integration')), false);
   assert.equal(isRateLimited(httpError(404, 'API rate limit exceeded')), false, 'only 403 and 429 are rate-limited');
 });
 
-test('t/125: a rate-limited 403 with a reset 60 s away waits for the reset, then retries and succeeds', async () => {
+test('t/125: a rate-limited 403 with a reset 20 s away waits for the reset, then retries and succeeds', async () => {
   const waits = [];
   let calls = 0;
-  const fn = async () => { calls++; if (calls === 1) throw rlError('0', NOW_MS / 1000 + 60); return 'ok'; };
+  const fn = async () => { calls++; if (calls === 1) throw rlError('0', NOW_MS / 1000 + 20); return 'ok'; };
   const out = await withGitHubRetry('label', fn, { ...quiet, sleep: async (ms) => waits.push(ms) });
   assert.equal(out, 'ok');
   assert.equal(calls, 2);
-  assert.deepEqual(waits, [61000], 'waits the 60 s to the reset plus 1 s');
+  assert.deepEqual(waits, [21000], 'waits the 20 s to the reset plus 1 s');
 });
 
-test('t/125: a rate-limited 403 whose reset is far off fails at once, naming the re-run time', async () => {
+test('t/125: a rate-limited 403 whose reset is beyond the 30 s wait fails at once, naming the re-run time', async () => {
   let calls = 0;
-  const reset = NOW_MS / 1000 + 3600; // an hour away
+  const reset = NOW_MS / 1000 + 3600; // an hour away (beyond the 30 s cap)
   const fn = async () => { calls++; throw rlError('0', reset); };
   await assert.rejects(
     withGitHubRetry('tier-check: pulls.get', fn, { ...quiet, sleep: async () => { throw new Error('must not sleep'); } }),
@@ -159,7 +160,7 @@ test('t/125: a rate-limited 403 whose reset is far off fails at once, naming the
     },
   );
   assert.equal(calls, 1, 'no retry when the reset is beyond the wait window');
-  assert.ok(3600 > MAX_RATE_WAIT_MS / 1000);
+  assert.ok(MAX_RATE_WAIT_MS <= 30000, 'the wait stays inside the 1-minute gate job budget');
 });
 
 test('t/125: a rate limit with no reset header fails closed at once (reset time unknown)', async () => {

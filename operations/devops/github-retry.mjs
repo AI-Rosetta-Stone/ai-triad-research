@@ -25,7 +25,10 @@
 export const MAX_ATTEMPTS = 3;
 export const DEFAULT_BASE_DELAY_MS = 2000;
 // A rate-limit reset within this window is waited for; a later reset fails at once (t/125).
-export const MAX_RATE_WAIT_MS = 180000;
+// 30 s, not 180 s: tier-check and t1-approval-guard run in 1-minute jobs (timeout-minutes: 1), so a
+// longer wait would be cancelled mid-wait. Several rate-limited calls could still stack past 1 minute;
+// raising those job timeouts is a T2 workflow change, for the TL to decide.
+export const MAX_RATE_WAIT_MS = 30000;
 
 /** HTTP status of an Octokit RequestError (or anything shaped like one), else null. */
 export function statusOf(err) {
@@ -54,14 +57,16 @@ export function headerOf(err, name) {
 }
 
 /**
- * True for a GitHub rate limit (primary or secondary): a 403 or 429 whose quota headers show
- * `x-ratelimit-remaining: 0`, or whose message names a rate limit. A 403 with no such signal is
- * a real answer and is not rate-limited (t/125).
+ * True for a GitHub rate limit (primary or secondary): a 403 or 429 whose quota header is 0, or, with
+ * no quota header at all, whose message names a rate limit. A 403 with quota left (a header that is
+ * not 0) is a real answer, even if its message mentions a rate limit (t/125).
  */
 export function isRateLimited(err) {
   const status = statusOf(err);
   if (status !== 403 && status !== 429) return false;
   if (headerOf(err, 'x-ratelimit-remaining') === '0') return true;
+  // A quota header that says there is quota left means this is not a quota hit, whatever the message.
+  if (headerOf(err, 'x-ratelimit-remaining') !== null) return false;
   const msg = err && err.message ? String(err.message) : '';
   return /rate limit/i.test(msg);
 }
