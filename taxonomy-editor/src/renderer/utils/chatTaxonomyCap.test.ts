@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  selectChatCandidates, resolveChatNodes, formatChatNodeLine, CHAT_NODE_CAP, type ScoredChatNode,
+  selectChatCandidates, resolveChatNodes, formatChatNodeLine, CHAT_NODE_CAP, type ScoredChatNode, type ChatStatement,
 } from './chatTaxonomyCap';
 
 function pool(): ScoredChatNode[] {
@@ -61,7 +61,7 @@ describe('selectChatCandidates — cap and BDI floor', () => {
 describe('resolveChatNodes — skip and backfill', () => {
   it('keeps every node when each has a statement', () => {
     const ids = selectChatCandidates(pool());
-    const statements = Object.fromEntries(ids.map(id => [id, `s-${id}`]));
+    const statements = Object.fromEntries(ids.map((id, i) => [id, { text: `s-${id}`, index: i }]));
     const { kept, skipped } = resolveChatNodes(pool(), ids, statements);
     expect(kept).toHaveLength(CHAT_NODE_CAP);
     expect(skipped).toEqual([]);
@@ -70,7 +70,7 @@ describe('resolveChatNodes — skip and backfill', () => {
   it('a node with no statement is skipped and its slot is backfilled from the same category', () => {
     const ids = selectChatCandidates(pool());
     // The caller looks up statements for the whole BDI pool, so a backfill has a statement to take.
-    const statements: Record<string, string | null> = Object.fromEntries(pool().map(n => [n.nodeId, `s-${n.nodeId}`]));
+    const statements: Record<string, ChatStatement | null> = Object.fromEntries(pool().map((n, i) => [n.nodeId, { text: `s-${n.nodeId}`, index: i }]));
     statements.b0 = null;
     const { kept, skipped } = resolveChatNodes(pool(), ids, statements);
     expect(skipped).toEqual(['b0']);
@@ -82,11 +82,32 @@ describe('resolveChatNodes — skip and backfill', () => {
 
   it('a backfill never picks a node that is already a candidate', () => {
     const ids = selectChatCandidates(pool());
-    const statements: Record<string, string | null> = Object.fromEntries(pool().map(n => [n.nodeId, `s-${n.nodeId}`]));
+    const statements: Record<string, ChatStatement | null> = Object.fromEntries(pool().map((n, i) => [n.nodeId, { text: `s-${n.nodeId}`, index: i }]));
     statements.b0 = null;
     const { kept } = resolveChatNodes(pool(), ids, statements);
     const keptIds = kept.map(k => k.nodeId);
     expect(new Set(keptIds).size).toBe(keptIds.length);
+  });
+
+  it('carries each chosen statement index into the kept node, for the trace (t/348#4 rule 4)', () => {
+    const ids = selectChatCandidates(pool());
+    const statements: Record<string, ChatStatement | null> = Object.fromEntries(pool().map((n, i) => [n.nodeId, { text: `s-${n.nodeId}`, index: i + 3 }]));
+    const { kept } = resolveChatNodes(pool(), ids, statements);
+    for (const k of kept) {
+      expect(k.index).toBe(statements[k.nodeId]!.index);
+      expect(k.statement).toBe(statements[k.nodeId]!.text);
+    }
+  });
+
+  it('a backfilled node records its own statement index, not the skipped one\'s', () => {
+    const ids = selectChatCandidates(pool());
+    const statements: Record<string, ChatStatement | null> = Object.fromEntries(pool().map((n, i) => [n.nodeId, { text: `s-${n.nodeId}`, index: i + 3 }]));
+    statements.b0 = null;
+    const { kept } = resolveChatNodes(pool(), ids, statements);
+    const backfill = kept.find(k => k.nodeId === 'b6')!;
+    expect(backfill.index).toBe(statements.b6!.index);
+    expect(backfill.statement).toBe('s-b6');
+    expect(kept.find(k => k.nodeId === 'b0')).toBeUndefined();
   });
 });
 

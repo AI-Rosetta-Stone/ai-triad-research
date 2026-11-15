@@ -56,24 +56,28 @@ export function selectChatCandidates(
   return poolOrder(out, boostIds).map(n => n.nodeId);
 }
 
+/** A chosen statement as the host returns it: its text, and its index in the node's statement list
+ *  (the transcript trace records the index, t/348#4 rule 4). */
+export interface ChatStatement { text: string; index: number }
+
 /** Applies the statement rule to the candidates: a candidate with no statement is replaced by the next
- *  unpicked node in its own BDI category, in pool order. Returns the kept node ids with their statements,
- *  and the ids that were skipped (for the WARN). */
+ *  unpicked node in its own BDI category, in pool order. Returns the kept node ids with their statement
+ *  text and index, and the ids that were skipped (for the WARN). */
 export function resolveChatNodes(
   pool: ScoredChatNode[],
   candidates: string[],
-  statements: Record<string, string | null>,
+  statements: Record<string, ChatStatement | null>,
   boostIds: ReadonlySet<string> = new Set(),
-): { kept: { nodeId: string; statement: string }[]; skipped: string[] } {
+): { kept: { nodeId: string; statement: string; index: number }[]; skipped: string[] } {
   const byId = new Map(pool.map(n => [n.nodeId, n]));
   const ordered = poolOrder(pool.filter(n => (CHAT_BDI_CATEGORIES as readonly string[]).includes(n.category)), boostIds);
   const used = new Set(candidates);
-  const kept: { nodeId: string; statement: string }[] = [];
+  const kept: { nodeId: string; statement: string; index: number }[] = [];
   const skipped: string[] = [];
   for (const id of candidates) {
-    const statement = statements[id];
-    if (statement) {
-      kept.push({ nodeId: id, statement });
+    const chosen = statements[id];
+    if (chosen) {
+      kept.push({ nodeId: id, statement: chosen.text, index: chosen.index });
       continue;
     }
     skipped.push(id);
@@ -82,7 +86,8 @@ export function resolveChatNodes(
     const next = ordered.find(n => n.category === category && !used.has(n.nodeId) && statements[n.nodeId]);
     if (next) {
       used.add(next.nodeId);
-      kept.push({ nodeId: next.nodeId, statement: statements[next.nodeId]! });
+      const backfill = statements[next.nodeId]!;
+      kept.push({ nodeId: next.nodeId, statement: backfill.text, index: backfill.index });
     }
   }
   return { kept, skipped };
