@@ -43,6 +43,9 @@ interface RelevantNodesBody {
   topic: string;
   recentTranscript: string;
   threshold?: number;
+  /** t/424: optional pool size. Absent = the selection defaults (3 per category, 35 total), so debate callers are unchanged. */
+  minPerCategory?: number;
+  maxTotal?: number;
   tagSelection?: TagSelection;
   session?: {
     anClaimEmbeddings?: ANClaimInput[];
@@ -58,6 +61,19 @@ interface RelevantNodesBody {
 const queryEmbed = (texts: string[]): Promise<number[][]> =>
   Promise.all(texts.map(t => ai.computeQueryEmbedding(t)));
 
+/** t/424: an optional pool size must be an integer in range. Absent is fine (the defaults apply). */
+function inRange(v: unknown, lo: number, hi: number): boolean {
+  return v === undefined || (Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi);
+}
+
+/** The request's own checks: the topic and transcript strings, then the pool size (t/424, out-of-range refused, not clamped). */
+function requestError(b: { topic?: unknown; recentTranscript?: unknown; minPerCategory?: unknown; maxTotal?: unknown }): string | null {
+  if (typeof b.topic !== 'string' || typeof b.recentTranscript !== 'string') return 'Missing topic/recentTranscript';
+  if (!inRange(b.minPerCategory, 1, 10)) return 'minPerCategory must be a positive integer, at most 10';
+  if (!inRange(b.maxTotal, 1, 500)) return 'maxTotal must be a positive integer, at most 500';
+  return null;
+}
+
 export function registerRelevantNodesRoutes(r: Router, _ctx: ServerCtx): void {
   const { post } = r;
 
@@ -66,7 +82,8 @@ export function registerRelevantNodesRoutes(r: Router, _ctx: ServerCtx): void {
       const b = (body ?? {}) as RelevantNodesBody;
       const { pov, topic, recentTranscript } = b;
       if (!POV_FILE_KEYS.has(pov)) { error(res, `Invalid or missing pov (expected accelerationist|safetyist|skeptic)`, 400); return; }
-      if (typeof topic !== 'string' || typeof recentTranscript !== 'string') { error(res, 'Missing topic/recentTranscript', 400); return; }
+      const requestErr = requestError(b);
+      if (requestErr) { error(res, requestErr, 400); return; }
 
       // ── Corpus (main-pinned + process-memoized): povNodes + situations + synthetic → nodeEmbeddings.
       // Shared with /api/argument-network/attribution. ref:'main' makes base embeddings coherent with
@@ -96,7 +113,7 @@ export function registerRelevantNodesRoutes(r: Router, _ctx: ServerCtx): void {
       const result = await selectRelevantTaxonomy({
         povNodes, situationNodes, policyRegistry, nodeEmbeddings, lineageMapping, doctrinalBoundaries,
         session,
-        params: { pov, topic, recentTranscript, threshold: b.threshold, tagSelection: b.tagSelection },
+        params: { pov, topic, recentTranscript, threshold: b.threshold, tagSelection: b.tagSelection, minPerCategory: b.minPerCategory, maxTotal: b.maxTotal },
         embed: queryEmbed,
       });
 
