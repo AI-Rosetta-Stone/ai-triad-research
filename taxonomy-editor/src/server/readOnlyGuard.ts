@@ -32,9 +32,19 @@ function parseReadOnlyPrincipals(raw: string | undefined): Set<string> {
 }
 const READ_ONLY_PRINCIPALS = parseReadOnlyPrincipals(process.env.READ_ONLY_PRINCIPALS);
 
+/** t/183: Last-known-value cache for tier read-only flags. On a proxy-tiers.json outage,
+ *  serves cached values to maintain containment. Keyed by `${idp}:${principalName}`.
+ *  In-memory only: survives restarts briefly via heartbeat timeouts before cache refresh. */
+const TIER_READ_ONLY_CACHE = new Map<string, boolean>();
+
 /** t/4505: the parsed `idp:name` set, for the boot reachability check — no re-parse. */
 export function getReadOnlyPrincipalEntries(): ReadonlySet<string> {
   return READ_ONLY_PRINCIPALS;
+}
+
+/** t/183: For testing — clear the read-only cache (simulates a restart). */
+export function clearReadOnlyCacheForTesting(): void {
+  TIER_READ_ONLY_CACHE.clear();
 }
 
 /** Pure, I/O-free, cannot throw — the fail-closed half of the read-only flag. */
@@ -50,25 +60,43 @@ export function isMutatingApiRoute(method: string | undefined, reqPath: string, 
   return routeMatched && !!method && MUTATING_METHODS.has(method) && reqPath.startsWith('/api/');
 }
 
-/** Resolves the caller's read-only flag from proxy-tiers.json. A tier-resolution error
- *  defaults to NOT read-only (fail-open on THIS source only — see isEnvReadOnlyPrincipal
- *  above for the fail-closed source) with a WARN, rather than 500ing every write for
- *  every user on a transient proxy-tiers.json read failure. */
+/** Resolves the caller's read-only flag from proxy-tiers.json, with caching (t/183).
+ *  On success: cache the result.
+ *  On failure: return cached value if available (fail-safe via last-known-value),
+ *             else default to NOT read-only (fail-open), with a WARN. */
 function resolveConfigReadOnlyFlag(principalName: string, idp: string): boolean {
+  const cacheKey = `${idp}:${principalName}`.toLowerCase();
   try {
-    return proxyTiers.resolveTier(principalName, idp).readOnly ?? false;
+    const resolved = proxyTiers.resolveTier(principalName, idp).readOnly ?? false;
+    // Cache the successful result.
+    TIER_READ_ONLY_CACHE.set(cacheKey, resolved);
+    return resolved;
   } catch (err) {
-    log.server.warn({ component: 'read-only-guard', err, principalName }, 'Tier resolution failed — defaulting to not-read-only');
+    // Tier resolution failed. Try the cache first (last-known-value).
+    const cached = TIER_READ_ONLY_CACHE.get(cacheKey);
+    if (cached !== undefined) {
+      log.server.warn({ component: 'read-only-guard', err, principalName, cached }, 'Tier resolution failed — serving cached read-only flag');
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'read-only-guard', level: 'warn',
+        message: 'resolveTier failed in resolveConfigReadOnlyFlag — serving cached value',
+        data: { cached, principalName },
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return cached;
+    }
+
+    // Not cached (first request after restart during an outage). Fail open.
+    log.server.warn({ component: 'read-only-guard', err, principalName }, 'Tier resolution failed and no cached value — defaulting to not-read-only');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'read-only-guard', level: 'warn',
-      message: 'resolveTier failed in resolveConfigReadOnlyFlag — defaulting to not-read-only',
+      message: 'resolveTier failed in resolveConfigReadOnlyFlag — no cached value, defaulting to not-read-only',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
     return false;
   }
 }
 
-/** The effective read-only flag: the fail-closed env list OR the fail-open config
+/** The effective read-only flag: the fail-closed env list OR the fail-open/cached config
  *  source. A proxy-tiers.json outage never lifts an env-listed principal's block. */
 export function resolveReadOnlyFlag(principalName: string, idp: string): boolean {
   return isEnvReadOnlyPrincipal(principalName, idp) || resolveConfigReadOnlyFlag(principalName, idp);
