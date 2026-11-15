@@ -15,7 +15,6 @@
  *   npm run regen:batch -- --restore <chat-id>          # Restore chat from archive
  */
 
-import { promises as fs } from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -26,8 +25,13 @@ import { createBackendAdapter } from './backendAdapter.js';
 import type { StorageBackendAdapter } from './backendAdapter.js';
 import type { ChatSession, DryRunReport } from './types.js';
 import { FilesystemBackend } from '../../src/server/storage/filesystemBackend.js';
+import type { StorageBackend } from '../../src/server/storage/storageBackend.js';
+import { resolveCommunityBackend, COMMUNITY_CHATS_DIR } from './hostedBackend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Which store to read: the personal chats on local disk, or the hosted community store (t/287). */
+export type StoreName = 'personal' | 'community';
 
 interface CliOptions {
   dryRun: boolean;
@@ -37,6 +41,7 @@ interface CliOptions {
   restore?: string;
   force: boolean;
   limit?: number;
+  store: StoreName;
 }
 
 function parseArgs(): CliOptions {
@@ -47,6 +52,11 @@ function parseArgs(): CliOptions {
     return idx >= 0 && idx < args.length - 1 ? args[idx + 1] : undefined;
   };
 
+  const storeArg = getSingleValue('--store') ?? 'personal';
+  if (storeArg !== 'personal' && storeArg !== 'community') {
+    throw new Error(`--store must be "personal" or "community", got "${storeArg}"`);
+  }
+
   return {
     dryRun: args.includes('--dry-run'),
     apply: args.includes('--apply'),
@@ -55,22 +65,28 @@ function parseArgs(): CliOptions {
     restore: getSingleValue('--restore'),
     force: args.includes('--force'),
     limit: getSingleValue('--limit') ? parseInt(getSingleValue('--limit')!, 10) : undefined,
+    store: storeArg,
   };
 }
 
-async function loadChatsFromPath(basePath: string): Promise<ChatSession[]> {
+/**
+ * Load every chat in `dir` through the storage backend, so the same code reads the local
+ * personal chats and the hosted community store. Chat files are `chat-<id>.json`.
+ */
+async function loadChatsFromPath(backend: StorageBackend, dir: string): Promise<ChatSession[]> {
   const chats: ChatSession[] = [];
 
   try {
-    const files = await fs.readdir(basePath);
+    const files = await backend.listDirectory(dir);
     for (const file of files) {
       if (file.endsWith('.json') && !file.startsWith('_')) {
-        const content = await fs.readFile(path.join(basePath, file), 'utf-8');
+        const content = await backend.readFile(path.join(dir, file));
+        if (content === null) continue;
         chats.push(JSON.parse(content) as ChatSession);
       }
     }
   } catch (err) {
-    console.error(`Failed to load chats from ${basePath}:`, err);
+    console.error(`Failed to load chats from ${dir}:`, err);
   }
 
   return chats;
@@ -96,29 +112,41 @@ async function main() {
     process.exit(1);
   }
 
-  // Get base path (default to ai-triad-data chats, up to parent repo or env var)
-  let baseDataPath = process.env.AI_TRIAD_DATA_ROOT
+  // Personal chats: the local ai-triad-data chats directory (or AI_TRIAD_DATA_ROOT).
+  // Community store: the hosted store, read through the server's configured backend. The
+  // community path is logical (community/chats); the backend maps it to the container.
+  const localChatsDir = process.env.AI_TRIAD_DATA_ROOT
     ? path.join(process.env.AI_TRIAD_DATA_ROOT, 'chats')
     : path.resolve(__dirname, '../../../../ai-triad-data/chats');
 
   console.log(`📊 Chat Batch Regeneration Tool`);
+  console.log(`Store: ${opts.store}`);
+
+  let storageBackend: StorageBackend;
+  let baseDataPath: string;
+  if (opts.store === 'community') {
+    storageBackend = await resolveCommunityBackend();
+    baseDataPath = COMMUNITY_CHATS_DIR;
+  } else {
+    storageBackend = new FilesystemBackend();
+    baseDataPath = localChatsDir;
+  }
   console.log(`Base path: ${baseDataPath}`);
   console.log('');
 
-  const storageBackend = new FilesystemBackend();
   const backend = createBackendAdapter(storageBackend);
 
   // DRY RUN MODE
   if (opts.dryRun) {
     console.log('🔍 Running dry-run analysis...\n');
 
-    const chats = await loadChatsFromPath(baseDataPath);
+    const chats = await loadChatsFromPath(storageBackend, baseDataPath);
     if (chats.length === 0) {
       console.log('No chats found. Check path and permissions.');
       process.exit(1);
     }
 
-    const report = generateDryRunReport(chats, 'personal', { force: opts.force });
+    const report = generateDryRunReport(chats, opts.store, { force: opts.force });
     console.log(formatDryRunReport(report));
 
     if (report.errors.length > 0) {
@@ -161,7 +189,7 @@ async function main() {
     if (opts.single) {
       console.log(`🎬 Attempting to regenerate single chat: ${opts.single}\n`);
 
-      const chats = await loadChatsFromPath(baseDataPath);
+      const chats = await loadChatsFromPath(storageBackend, baseDataPath);
       const chat = chats.find(c => c.id === opts.single);
 
       if (!chat) {
