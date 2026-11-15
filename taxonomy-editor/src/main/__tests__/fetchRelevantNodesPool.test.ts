@@ -83,14 +83,16 @@ describe('fetch-relevant-nodes IPC: pool sizing (t/424)', () => {
   });
 
   it('chat can request the full pool: minPerCategory and maxTotal reach the lib', async () => {
-    await fetchRelevantNodes({ pov: 'accelerationist', topic: 't', recentTranscript: 'r', minPerCategory: 50, maxTotal: 400 });
-    expect(h.selectCalls[0].minPerCategory).toBe(50);
-    expect(h.selectCalls[0].maxTotal).toBe(400);
+    await fetchRelevantNodes({ pov: 'accelerationist', topic: 't', recentTranscript: 'r', minPerCategory: 10, maxTotal: 500 });
+    expect(h.selectCalls[0].minPerCategory).toBe(10);
+    expect(h.selectCalls[0].maxTotal).toBe(500);
   });
 
   it('refuses a non-positive or non-integer pool size before any selection runs', async () => {
     await expect(fetchRelevantNodes({ pov: 'accelerationist', topic: 't', recentTranscript: 'r', maxTotal: 0 })).rejects.toThrow(/Invalid maxTotal/);
     await expect(fetchRelevantNodes({ pov: 'accelerationist', topic: 't', recentTranscript: 'r', minPerCategory: 2.5 })).rejects.toThrow(/Invalid minPerCategory/);
+    await expect(fetchRelevantNodes({ pov: 'accelerationist', topic: 't', recentTranscript: 'r', minPerCategory: 11 })).rejects.toThrow(/Invalid minPerCategory/);
+    await expect(fetchRelevantNodes({ pov: 'accelerationist', topic: 't', recentTranscript: 'r', maxTotal: 501 })).rejects.toThrow(/Invalid maxTotal/);
     expect(h.selectCalls).toHaveLength(0);
   });
 });
