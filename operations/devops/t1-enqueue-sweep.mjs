@@ -3,12 +3,15 @@
 
 // Enqueue T1 PRs once a valid approval has landed at the current head (t/73, Orca t/4820).
 //
-// SHIPS WITH ENQUEUE OFF (Second Opinion's condition on #4795, 2026-11-15). Enqueueing needs the
-// `--enqueue` flag (`sweep`'s `enqueueEnabled`, default false), and enqueue-sweep.yml does not
-// pass it: its T1 step has the literal `T1_ENQUEUE: 'off'`. Until that is flipped in its own
-// reviewed commit, T1 PRS ARE NOT AUTO-ENQUEUED. The sweep still selects, logs every skip
-// reason, posts guard nudges (below), and logs `[enqueue off] would enqueue #N` for each PR it
-// would have enqueued. The rules below describe the selection, and the enqueue once it is on.
+// SHIPS REPORT-ONLY (Second Opinion's conditions on #4795, 2026-11-15): AS MERGED IT NEITHER
+// ENQUEUES NOR COMMENTS. Enqueueing needs `--enqueue` (`sweep`'s `enqueueEnabled`) and posting a
+// guard nudge needs `--nudge` (`nudgeEnabled`); both default to false, and enqueue-sweep.yml
+// passes neither: its T1 step has the literals `T1_ENQUEUE: 'off'` and `T1_NUDGE: 'off'`. Until
+// those are flipped in reviewed commits, the sweep only selects and logs: every skip reason,
+// `[nudge off] would ask t1-approval-guard to re-run for #N` and `[enqueue off] would enqueue #N`.
+// `--nudge-pr=<N>` allows the nudge for one PR only (the workflow's dispatch-only `nudge_pr`
+// input), to watch the first live nudge on a throwaway PR; it cannot enqueue.
+// The rules below describe the selection, and the enqueue once it is on.
 //
 // WHY: the sweep enqueued only Dependabot and T0 PRs. An approved, green T1 PR waited until a
 // person or agent ran enqueue-pr.mjs by hand (#4725 waited 15 minutes after its guard success;
@@ -38,8 +41,9 @@
 //
 // Pure core (`selectT1Candidates`) is unit-tested in t1-enqueue-sweep.test.mjs.
 //
-//   GH_TOKEN=<app token> node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--enqueue]
-//     (no flag: nudges only, nothing enqueued; --enqueue: also enqueue; --dry-run: report only, wins over --enqueue)
+//   GH_TOKEN=<app token> node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--enqueue] [--nudge] [--nudge-pr=<N>]
+//     (no flag: report only; --nudge: post guard nudges; --nudge-pr=<N>: nudge that PR only;
+//      --enqueue: enqueue; --dry-run: report only, wins over all of them)
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -154,13 +158,19 @@ export function postGuardNudge(repo, number, { headRefOid }, { ghFn = gh, nowMs 
   }
 }
 
-/** PURE. The CLI's arguments: `<owner>/<repo> [--dry-run] [--enqueue]`. Enqueue is on only with the exact flag. */
+/**
+ * PURE. The CLI's arguments: `<owner>/<repo> [--dry-run] [--enqueue] [--nudge] [--nudge-pr=<N>]`.
+ * Each gate is on only with its own exact flag; `--nudge-pr` takes a positive integer or is ignored.
+ */
 export function parseCliArgs(argv) {
   const args = argv ?? [];
+  const nudgePr = args.map((a) => /^--nudge-pr=([1-9]\d{0,8})$/.exec(a)).find(Boolean);
   return {
     repo: args.find((a) => !a.startsWith('--')) ?? null,
     dryRun: args.includes('--dry-run'),
     enqueueEnabled: args.includes('--enqueue'),
+    nudgeEnabled: args.includes('--nudge'),
+    nudgeOnlyPr: nudgePr ? Number(nudgePr[1]) : null,
   };
 }
 
@@ -168,18 +178,28 @@ export function parseCliArgs(argv) {
  * One pass. `deps` replaces the listing, the guard lookup and enqueueOne's own deps in tests.
  * Returns the outcome per enqueued PR number.
  *
- * `enqueueEnabled` is the enqueue gate and defaults to FALSE, so a caller that forgets it cannot
- * enqueue. With it off, everything else runs as usual (listing, guard lookup, selection, skip
- * reasons, guard nudges), but a selected PR is only logged as `[enqueue off] would enqueue`: no
- * live re-read, no disarm and no enqueue call. `dryRun` wins over it: no nudges and no enqueue.
+ * TWO GATES, both default to FALSE and both turn on only for the boolean `true`, so a caller
+ * that forgets one (or passes a string) can neither enqueue nor comment:
+ *   - `enqueueEnabled`: off -> a selected PR is only logged as `[enqueue off] would enqueue`: no
+ *     live re-read, no disarm and no enqueue call.
+ *   - `nudgeEnabled`: off -> a PR that would be nudged is only logged as `[nudge off] would ask
+ *     t1-approval-guard to re-run`: postGuardNudge is not called, so no comment list is read and
+ *     nothing is posted.
+ * `nudgeOnlyPr` (a PR number) allows the nudge for that one PR while `nudgeEnabled` is off. It is
+ * for checking the first live nudge on a throwaway PR, and it cannot enqueue anything.
+ * With both gates off the sweep only reports: listing, guard lookup, selection and skip reasons
+ * run as usual. `dryRun` wins over everything: no nudge and no enqueue.
  */
-export async function sweep(repo, { dryRun = false, enqueueEnabled = false, deps = {} } = {}) {
+export async function sweep(repo, { dryRun = false, enqueueEnabled = false, nudgeEnabled = false, nudgeOnlyPr = null, deps = {} } = {}) {
   const { list = listOpenPRs, fetchGuard = fetchGuardRun, enqueueDeps, nudge = postGuardNudge } = deps;
-  const enqueueOn = enqueueEnabled === true; // only the boolean: a stray 'off' or 'false' string must not enqueue
+  // Only the boolean: a stray 'off' or 'false' string must not enqueue or comment.
+  const enqueueOn = enqueueEnabled === true;
+  const nudgeOn = nudgeEnabled === true;
+  const onlyPr = Number.isInteger(nudgeOnlyPr) && nudgeOnlyPr > 0 ? nudgeOnlyPr : null;
   if (!dryRun) {
-    console.log(enqueueOn
-      ? 'T1 sweep: enqueue is ON (--enqueue).'
-      : 'T1 sweep: enqueue is OFF (no --enqueue). Guard nudges are still posted; PRs that qualify are only reported.');
+    console.log(`T1 sweep: enqueue is ${enqueueOn ? 'ON (--enqueue)' : 'OFF (no --enqueue)'}; ` +
+      `guard nudges are ${nudgeOn ? 'ON (--nudge)' : onlyPr ? `OFF except for #${onlyPr} (--nudge-pr)` : 'OFF (no --nudge)'}.` +
+      (enqueueOn || nudgeOn || onlyPr ? '' : ' This run only reports.'));
   }
   const prs = list(repo);
   for (const pr of prs) {
@@ -195,6 +215,7 @@ export async function sweep(repo, { dryRun = false, enqueueEnabled = false, deps
     console.log(`skip #${s.number}: ${s.reason}`);
     if (s.guardNudge) {
       if (dryRun) console.log(`[dry-run] would comment on #${s.number}: ask t1-approval-guard to re-run`);
+      else if (!nudgeOn && s.number !== onlyPr) console.log(`[nudge off] would ask t1-approval-guard to re-run for #${s.number} at ${s.guardNudge.headRefOid}`);
       else nudge(repo, s.number, s.guardNudge);
     }
   }
@@ -222,12 +243,12 @@ export async function sweep(repo, { dryRun = false, enqueueEnabled = false, deps
 
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCliEntry) {
-  const { repo, dryRun, enqueueEnabled } = parseCliArgs(process.argv.slice(2));
+  const { repo, dryRun, enqueueEnabled, nudgeEnabled, nudgeOnlyPr } = parseCliArgs(process.argv.slice(2));
   if (!repo) {
-    console.error('Usage: node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--enqueue]');
+    console.error('Usage: node operations/devops/t1-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--enqueue] [--nudge] [--nudge-pr=<N>]');
     process.exit(1);
   }
-  sweep(repo, { dryRun, enqueueEnabled }).then(
+  sweep(repo, { dryRun, enqueueEnabled, nudgeEnabled, nudgeOnlyPr }).then(
     () => {},
     (err) => { console.error(err.message ?? err); process.exit(1); },
   );

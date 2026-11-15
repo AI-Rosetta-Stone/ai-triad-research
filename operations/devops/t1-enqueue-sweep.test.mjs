@@ -12,6 +12,7 @@ import {
   selectT1Candidates, declaresT1, headBoundApprover, sweep, postGuardNudge, parseCliArgs, GUARD_APPROVED_SUMMARY, GUARD_NUDGE_MARKER,
 } from './t1-enqueue-sweep.mjs';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { selectT0Candidates } from './t0-enqueue-sweep.mjs';
 import { fetchGuardRun } from './t1-approval-at-head.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
@@ -415,17 +416,18 @@ test('shim: a guard that never ran on an approved head is nudged once and not en
     const { calls, deps } = harness({ listed: [pr()], live: null });
     const nudged = [];
     const withNudge = { ...deps, fetchGuard: () => ({ run: null, lookupError: false }), nudge: (repo, n, x) => nudged.push({ n, ...x }) };
-    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, deps: withNudge }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, nudgeEnabled: true, deps: withNudge }), {});
     assert.deepEqual(nudged, [{ n: 1, headRefOid: HEAD }]);
     assert.equal(calls.enqueue.length, 0);
-    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, dryRun: true, deps: withNudge }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, nudgeEnabled: true, dryRun: true, deps: withNudge }), {});
     assert.equal(nudged.length, 1);
   } finally { mocks.forEach((m) => m.mock.restore()); }
 });
 
-// ---- the enqueue gate (Second Opinion's condition on #4795): ships off, fail safe ----
-// Every shim test above passes `enqueueEnabled: true` on purpose. These cover the gate itself.
-// `gateHarness` also counts live re-reads, which the gate must not make either.
+// ---- the enqueue and nudge gates (Second Opinion's conditions on #4795): both ship off, fail safe ----
+// Every shim test above passes `enqueueEnabled: true` (and `nudgeEnabled: true` where it nudges)
+// on purpose. These cover the gates themselves.
+// `gateHarness` also counts live re-reads, which the enqueue gate must not make either.
 function gateHarness(listed) {
   const live = { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: HEAD };
   const { calls, deps } = harness({ listed, live });
@@ -456,20 +458,107 @@ test('gate OFF BY DEFAULT: an approved, green T1 PR gets no enqueue, no disarm a
   }
 });
 
-test('gate OFF: a head the guard never evaluated is still nudged, and skip reasons are still logged', async () => {
-  // #1: approved, guard never ran. #2: draft. #3: approved with a guard success, so it qualifies.
-  const READY = 'head9999';
-  const h = gateHarness([pr(), pr({ number: 2, isDraft: true }), pr({ number: 3, headRefOid: READY, reviews: [approvalAt(READY)] })]);
+// #1: approved, guard never ran -> would be nudged. #2: draft. #3: approved with a guard success
+// at its own head -> would be enqueued. #4: like #1, at a third head -> would be nudged.
+const READY = 'head9999';
+const LOST = 'head7777';
+function mixedHarness() {
+  const h = gateHarness([
+    pr(), pr({ number: 2, isDraft: true }),
+    pr({ number: 3, headRefOid: READY, reviews: [approvalAt(READY)] }),
+    pr({ number: 4, headRefOid: LOST, reviews: [approvalAt(LOST)] }),
+  ]);
   h.deps.fetchGuard = (repo, sha) => (sha === READY ? guardOk() : { run: null, lookupError: false });
+  h.deps.enqueueDeps.readLive = () => { h.calls.readLive++; return { state: 'OPEN', isInMergeQueue: false, isDraft: false, headRefOid: READY }; };
+  // The real postGuardNudge, with gh faked: counts the comment-list reads and the posts.
+  h.calls.nudgeGh = [];
+  h.deps.nudge = (repo, n, x) => {
+    h.calls.nudged.push({ n, ...x });
+    return postGuardNudge(repo, n, x, { ghFn: (args) => { h.calls.nudgeGh.push(args); return args.includes('-f') ? '' : '[]'; } });
+  };
+  return h;
+}
+const NUDGE_OFF_1 = `[nudge off] would ask t1-approval-guard to re-run for #1 at ${HEAD}`;
+const NUDGE_OFF_4 = `[nudge off] would ask t1-approval-guard to re-run for #4 at ${LOST}`;
+const ENQUEUE_OFF_3 = `[enqueue off] would enqueue #3 at ${READY}`;
+
+test('nudge gate OFF BY DEFAULT: a never-evaluated head gets no nudge call, no comment read and no post, only a [nudge off] line', async () => {
+  // Only the boolean `true` turns it on.
+  for (const opts of [{}, { nudgeEnabled: false }, { nudgeEnabled: undefined }, { nudgeEnabled: 'off' }, { nudgeEnabled: 'on' }, { nudgeEnabled: 1 },
+    { nudgeOnlyPr: null }, { nudgeOnlyPr: '1' }, { nudgeOnlyPr: 0 }, { nudgeOnlyPr: true }, { nudgeOnlyPr: 1.5 }]) {
+    const h = mixedHarness();
+    try {
+      assert.deepEqual(await sweep('o/r', { ...opts, deps: h.deps }), {}, JSON.stringify(opts));
+    } finally { h.restore(); }
+    assert.deepEqual(h.calls.nudged, [], `no nudge call: ${JSON.stringify(opts)}`);
+    assert.deepEqual(h.calls.nudgeGh, [], 'no comment list read and no post');
+    assert.deepEqual(h.calls.enqueue, []);
+    assert.ok(h.logs.includes(NUDGE_OFF_1) && h.logs.includes(NUDGE_OFF_4), h.logs.join('\n'));
+    assert.ok(h.logs.some((l) => /^skip #1: WARN: t1-approval-guard never evaluated this head/.test(l)), h.logs.join('\n'));
+    assert.ok(h.logs.includes('skip #2: draft'), h.logs.join('\n'));
+    assert.ok(h.logs.includes('T1 sweep: enqueue is OFF (no --enqueue); guard nudges are OFF (no --nudge). This run only reports.'), h.logs.join('\n'));
+  }
+});
+
+test('the two gates are independent: each of the four combinations does exactly what its gates allow', async () => {
+  for (const [enqueueEnabled, nudgeEnabled] of [[false, false], [false, true], [true, false], [true, true]]) {
+    const label = `enqueue ${enqueueEnabled}, nudge ${nudgeEnabled}`;
+    const h = mixedHarness();
+    let out;
+    try {
+      out = await sweep('o/r', { enqueueEnabled, nudgeEnabled, deps: h.deps });
+    } finally { h.restore(); }
+    // Enqueue side: #3 only.
+    assert.deepEqual(out, enqueueEnabled ? { 3: 'enqueued' } : {}, label);
+    assert.deepEqual(h.calls.enqueue, enqueueEnabled ? [{ n: 3, opts: { expectedHeadOid: READY } }] : [], label);
+    assert.equal(h.calls.readLive, enqueueEnabled ? 1 : 0, label);
+    assert.equal(h.logs.includes(ENQUEUE_OFF_3), !enqueueEnabled, label);
+    // Nudge side: #1 and #4 only, one comment-list read and one post each.
+    assert.deepEqual(h.calls.nudged, nudgeEnabled ? [{ n: 1, headRefOid: HEAD }, { n: 4, headRefOid: LOST }] : [], label);
+    assert.equal(h.calls.nudgeGh.length, nudgeEnabled ? 4 : 0, label);
+    assert.equal(h.calls.nudgeGh.filter((a) => a.includes('-f')).length, nudgeEnabled ? 2 : 0, label);
+    assert.equal(h.logs.includes(NUDGE_OFF_1), !nudgeEnabled, label);
+    assert.equal(h.logs.includes(NUDGE_OFF_4), !nudgeEnabled, label);
+    assert.ok(h.logs.includes(
+      `T1 sweep: enqueue is ${enqueueEnabled ? 'ON (--enqueue)' : 'OFF (no --enqueue)'}; guard nudges are ${nudgeEnabled ? 'ON (--nudge)' : 'OFF (no --nudge)'}.` +
+      (enqueueEnabled || nudgeEnabled ? '' : ' This run only reports.')), `${label}\n${h.logs.join('\n')}`);
+  }
+});
+
+test('nudgeOnlyPr: with the nudge gate off, exactly that PR is nudged, the other is not, and nothing is enqueued', async () => {
+  const h = mixedHarness();
   try {
-    assert.deepEqual(await sweep('o/r', { deps: h.deps }), {});
+    assert.deepEqual(await sweep('o/r', { nudgeOnlyPr: 4, deps: h.deps }), {});
   } finally { h.restore(); }
-  assert.deepEqual(h.calls.nudged, [{ n: 1, headRefOid: HEAD }]);
+  assert.deepEqual(h.calls.nudged, [{ n: 4, headRefOid: LOST }]);
+  assert.equal(h.calls.nudgeGh.filter((a) => a.includes('-f')).length, 1);
+  assert.ok(h.logs.includes(NUDGE_OFF_1) && !h.logs.includes(NUDGE_OFF_4), h.logs.join('\n'));
+  assert.deepEqual(h.calls.enqueue, [], 'it cannot enqueue');
+  assert.equal(h.calls.readLive, 0);
+  assert.ok(h.logs.includes(ENQUEUE_OFF_3));
+  assert.ok(h.logs.includes('T1 sweep: enqueue is OFF (no --enqueue); guard nudges are OFF except for #4 (--nudge-pr).'), h.logs.join('\n'));
+
+  // A PR that is not a nudge candidate (#3 qualifies for enqueue, #2 is a draft) is not nudged by naming it.
+  for (const n of [2, 3, 99]) {
+    const g = mixedHarness();
+    try { await sweep('o/r', { nudgeOnlyPr: n, deps: g.deps }); } finally { g.restore(); }
+    assert.deepEqual(g.calls.nudged, [], `nudgeOnlyPr ${n}`);
+    assert.deepEqual(g.calls.enqueue, [], `nudgeOnlyPr ${n}`);
+  }
+});
+
+test('dryRun wins over both gates and nudgeOnlyPr: nothing enqueued, nothing nudged, no status line', async () => {
+  const h = mixedHarness();
+  try {
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, nudgeEnabled: true, nudgeOnlyPr: 1, dryRun: true, deps: h.deps }), {});
+  } finally { h.restore(); }
   assert.deepEqual(h.calls.enqueue, []);
   assert.equal(h.calls.readLive, 0);
-  assert.ok(h.logs.includes(`[enqueue off] would enqueue #3 at ${READY}`), h.logs.join('\n'));
-  assert.ok(h.logs.some((l) => /^skip #1: WARN: t1-approval-guard never evaluated this head/.test(l)), h.logs.join('\n'));
-  assert.ok(h.logs.includes('skip #2: draft'), h.logs.join('\n'));
+  assert.deepEqual(h.calls.nudged, []);
+  assert.deepEqual(h.calls.nudgeGh, []);
+  assert.ok(h.logs.includes(`[dry-run] would enqueue #3 at ${READY}`), h.logs.join('\n'));
+  assert.ok(h.logs.includes('[dry-run] would comment on #1: ask t1-approval-guard to re-run'), h.logs.join('\n'));
+  assert.ok(!h.logs.some((l) => l.startsWith('T1 sweep:') || l.startsWith('[nudge off]') || l.startsWith('[enqueue off]')));
 });
 
 test('gate ON: the same PR is enqueued (disarmed first, pinned to its head), with no [enqueue off] line', async () => {
@@ -488,7 +577,7 @@ test('gate ON + dryRun: dry run wins -- nothing enqueued and nothing nudged', as
   const h = gateHarness([armedPr(), pr({ number: 2 })]);
   h.deps.fetchGuard = (repo, sha) => (h.calls.guard.push(sha) === 1 ? guardOk() : { run: null, lookupError: false });
   try {
-    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, dryRun: true, deps: h.deps }), {});
+    assert.deepEqual(await sweep('o/r', { enqueueEnabled: true, nudgeEnabled: true, dryRun: true, deps: h.deps }), {});
   } finally { h.restore(); }
   assert.deepEqual(h.calls.enqueue, []);
   assert.deepEqual(h.calls.gh, []);
@@ -498,22 +587,35 @@ test('gate ON + dryRun: dry run wins -- nothing enqueued and nothing nudged', as
   assert.ok(h.logs.includes('[dry-run] would comment on #2: ask t1-approval-guard to re-run'), h.logs.join('\n'));
 });
 
-test('parseCliArgs: enqueue is on only with the exact --enqueue flag', () => {
-  assert.deepEqual(parseCliArgs(['o/r']), { repo: 'o/r', dryRun: false, enqueueEnabled: false });
-  assert.deepEqual(parseCliArgs(['o/r', '--enqueue']), { repo: 'o/r', dryRun: false, enqueueEnabled: true });
-  assert.deepEqual(parseCliArgs(['o/r', '--dry-run']), { repo: 'o/r', dryRun: true, enqueueEnabled: false });
-  assert.deepEqual(parseCliArgs(['o/r', '--dry-run', '--enqueue']), { repo: 'o/r', dryRun: true, enqueueEnabled: true });
-  // What the workflow passes while off: an empty $DRY_RUN and $ENQUEUE_FLAG vanish in the shell.
-  for (const off of [['o/r', ''], ['o/r', '--enqueue=false'], ['o/r', '--enqueued'], ['o/r', '-enqueue'], ['o/r', 'enqueue'], ['o/r', '--ENQUEUE']]) {
-    assert.equal(parseCliArgs(off).enqueueEnabled, false, JSON.stringify(off));
+test('parseCliArgs: each gate is on only with its own exact flag, independently of the other', () => {
+  const OFF = { repo: 'o/r', dryRun: false, enqueueEnabled: false, nudgeEnabled: false, nudgeOnlyPr: null };
+  assert.deepEqual(parseCliArgs(['o/r']), OFF);
+  assert.deepEqual(parseCliArgs(['o/r', '--enqueue']), { ...OFF, enqueueEnabled: true });
+  assert.deepEqual(parseCliArgs(['o/r', '--nudge']), { ...OFF, nudgeEnabled: true });
+  assert.deepEqual(parseCliArgs(['o/r', '--nudge', '--enqueue']), { ...OFF, nudgeEnabled: true, enqueueEnabled: true });
+  assert.deepEqual(parseCliArgs(['o/r', '--dry-run']), { ...OFF, dryRun: true });
+  assert.deepEqual(parseCliArgs(['o/r', '--dry-run', '--nudge', '--enqueue']), { ...OFF, dryRun: true, nudgeEnabled: true, enqueueEnabled: true });
+  assert.deepEqual(parseCliArgs(['o/r', '--nudge-pr=5170']), { ...OFF, nudgeOnlyPr: 5170 });
+  // Near misses turn nothing on. (An empty $DRY_RUN or flag variable vanishes in the shell.)
+  for (const off of [['o/r', ''], ['o/r', '--enqueue=false'], ['o/r', '--enqueued'], ['o/r', '-enqueue'], ['o/r', 'enqueue'], ['o/r', '--ENQUEUE'],
+    ['o/r', '--nudge=true'], ['o/r', '--nudged'], ['o/r', '-nudge'], ['o/r', 'nudge'], ['o/r', '--NUDGE'], ['o/r', '--nudge-enqueue'],
+    ['o/r', '--nudge-pr'], ['o/r', '--nudge-pr='], ['o/r', '--nudge-pr=0'], ['o/r', '--nudge-pr=-1'], ['o/r', '--nudge-pr=12a'], ['o/r', '--nudge-pr=1 --enqueue'],
+    ['o/r', '--nudge-pr=1.5'], ['o/r', '--nudge-pr=all'], ['o/r', '--nudge-pr=1234567890']]) {
+    assert.deepEqual(parseCliArgs(off), OFF, JSON.stringify(off));
   }
+  // --nudge-pr never implies --nudge or --enqueue, and --nudge never implies --enqueue.
+  assert.equal(parseCliArgs(['o/r', '--nudge-pr=7']).nudgeEnabled, false);
+  assert.equal(parseCliArgs(['o/r', '--nudge-pr=7']).enqueueEnabled, false);
+  assert.equal(parseCliArgs(['o/r', '--nudge']).enqueueEnabled, false);
+  assert.equal(parseCliArgs(['o/r', '--enqueue']).nudgeEnabled, false);
   assert.equal(parseCliArgs([]).repo, null);
-  assert.equal(parseCliArgs(['--enqueue']).repo, null);
+  assert.equal(parseCliArgs(['--enqueue', '--nudge']).repo, null);
 });
 
-// Flipping T1_ENQUEUE to 'on' arms auto-enqueue on the next sweep. It is a separate, reviewed (T2)
-// commit, and it has to change this test in the same commit.
-test('enqueue-sweep.yml SHIPS WITH ENQUEUE OFF: T1_ENQUEUE is the literal \'off\', and --enqueue is passed only when it is \'on\'', () => {
+// Flipping T1_NUDGE to 'on' lets the sweep comment on real PRs; flipping T1_ENQUEUE to 'on' arms
+// auto-enqueue on the next sweep. Each is a separate, reviewed (T2) commit, and it has to change
+// this test in the same commit.
+function t1StepOfWorkflow() {
   const yml = readFileSync(new URL('../../.github/workflows/enqueue-sweep.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const code = yml.split('\n').filter((l) => !/^\s*#/.test(l)); // comments don't count
   const stepStart = code.findIndex((l) => /^      - name: T1 sweep \(/.test(l));
@@ -521,22 +623,89 @@ test('enqueue-sweep.yml SHIPS WITH ENQUEUE OFF: T1_ENQUEUE is the literal \'off\
   const rest = code.slice(stepStart + 1);
   const next = rest.findIndex((l) => /^      - /.test(l));
   const step = [code[stepStart], ...rest.slice(0, next === -1 ? rest.length : next)].filter((l) => l.trim() !== '');
-
-  // The switch: a literal in the step's env, set once in the whole file, never an expression.
-  assert.deepEqual(code.filter((l) => /T1_ENQUEUE\s*:/.test(l)).map((l) => l.trim()), ["T1_ENQUEUE: 'off'"]);
-  assert.ok(step.includes("          T1_ENQUEUE: 'off'"), step.join('\n'));
-  // The run block: the flag exists only behind the 'on' test, and the sweep is called once.
   const runAt = step.indexOf('        run: |');
   assert.notEqual(runAt, -1, step.join('\n'));
-  assert.deepEqual(step.slice(runAt + 1).map((l) => l.trim()), [
+  return { code, step, env: step.slice(step.indexOf('        env:') + 1, runAt).map((l) => l.trim()), run: step.slice(runAt + 1).map((l) => l.trim()) };
+}
+
+test('enqueue-sweep.yml SHIPS REPORT-ONLY: T1_NUDGE and T1_ENQUEUE are the literal \'off\', and each flag is passed only when its switch is \'on\'', () => {
+  const { code, step, env, run } = t1StepOfWorkflow();
+  assert.equal(step[0], "      - name: T1 sweep (report-only unless T1_NUDGE / T1_ENQUEUE is 'on')");
+
+  // Each switch: a literal in the step's env, assigned once in the whole file, never an expression.
+  assert.deepEqual(code.filter((l) => /T1_ENQUEUE\s*:/.test(l)).map((l) => l.trim()), ["T1_ENQUEUE: 'off'"]);
+  assert.deepEqual(code.filter((l) => /T1_NUDGE\s*:/.test(l)).map((l) => l.trim()), ["T1_NUDGE: 'off'"]);
+  // The whole env of the step. NUDGE_PR is read only on workflow_dispatch.
+  assert.deepEqual(env, [
+    'GH_TOKEN: ${{ steps.app.outputs.token }}',
+    "DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}",
+    "NUDGE_PR: ${{ github.event_name == 'workflow_dispatch' && inputs.nudge_pr || '' }}",
+    "T1_NUDGE: 'off'",
+    "T1_ENQUEUE: 'off'",
+  ]);
+  // The whole run block: each flag exists only behind its own test, and the sweep is called once.
+  assert.deepEqual(run, [
+    "NUDGE_FLAG=''",
+    'if [ "$T1_NUDGE" = "on" ]; then NUDGE_FLAG=\'--nudge\'; fi',
+    "NUDGE_PR_FLAG=''",
+    'case "$NUDGE_PR" in \'\'|*[!0-9]*) ;; *) NUDGE_PR_FLAG="--nudge-pr=$NUDGE_PR" ;; esac',
     "ENQUEUE_FLAG=''",
     'if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG=\'--enqueue\'; fi',
-    'node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $ENQUEUE_FLAG',
+    'node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $NUDGE_FLAG $NUDGE_PR_FLAG $ENQUEUE_FLAG',
   ]);
-  // Nowhere else in the workflow can the flag or the script appear.
+  // Nowhere else in the workflow can a flag, the script or the dispatch input appear.
   assert.equal(code.filter((l) => l.includes('--enqueue')).length, 1);
+  assert.equal(code.filter((l) => l.includes('--nudge')).length, 2, '--nudge once, --nudge-pr= once');
+  assert.equal(code.filter((l) => /--nudge'/.test(l)).length, 1);
   assert.equal(code.filter((l) => l.includes('t1-enqueue-sweep.mjs')).length, 1);
   assert.equal(code.filter((l) => l.includes('ENQUEUE_FLAG=')).length, 2);
+  assert.equal(code.filter((l) => /(^|[^_])NUDGE_FLAG=/.test(l)).length, 2);
+  assert.equal(code.filter((l) => l.includes('NUDGE_PR_FLAG=')).length, 2);
+  assert.equal(code.filter((l) => l.includes('inputs.nudge_pr')).length, 1);
+  // The dispatch input: a string that defaults to empty. No dispatch input mentions enqueue.
+  const at = code.indexOf('      nudge_pr:');
+  assert.notEqual(at, -1);
+  assert.deepEqual(code.slice(at + 2, at + 5).map((l) => l.trim()), ['required: false', "default: ''", 'type: string']);
+  const inputsAt = code.indexOf('    inputs:');
+  const inputNames = code.slice(inputsAt + 1, code.indexOf('permissions:')).filter((l) => /^      [a-z_]+:$/.test(l)).map((l) => l.trim());
+  assert.deepEqual(inputNames, ['dry_run:', 'nudge_pr:']);
+});
+
+// The step's shell, really run: the node call is replaced by an echo of its arguments.
+test('enqueue-sweep.yml T1 step shell: as shipped it passes no flag; no NUDGE_PR value can add --enqueue or --nudge', (t) => {
+  const { run } = t1StepOfWorkflow();
+  const probe = spawnSync('sh', ['-c', 'exit 0']);
+  if (probe.status !== 0) {
+    assert.ok(!process.env.GITHUB_ACTIONS, 'sh must exist in CI');
+    t.skip('no sh on this machine; the text of the run block is pinned by the test above');
+    return;
+  }
+  const script = run.join('\n').replace('node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}"', 'printf "[%s]" o/r');
+  assert.ok(!script.includes('${{'), script);
+  const args = (env) => {
+    const r = spawnSync('sh', ['-c', script], { encoding: 'utf8', env: { PATH: process.env.PATH, DRY_RUN: '', NUDGE_PR: '', T1_NUDGE: 'off', T1_ENQUEUE: 'off', ...env } });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.slice(1, -1).split('][');
+  };
+  assert.deepEqual(args({}), ['o/r'], 'as shipped: report-only');
+  assert.deepEqual(args({ DRY_RUN: '--dry-run' }), ['o/r', '--dry-run']);
+  assert.deepEqual(args({ T1_NUDGE: 'on' }), ['o/r', '--nudge']);
+  assert.deepEqual(args({ T1_ENQUEUE: 'on' }), ['o/r', '--enqueue']);
+  assert.deepEqual(args({ T1_NUDGE: 'on', T1_ENQUEUE: 'on' }), ['o/r', '--nudge', '--enqueue']);
+  assert.deepEqual(args({ NUDGE_PR: '5170' }), ['o/r', '--nudge-pr=5170']);
+  // Fails closed on anything other than exactly 'on'.
+  for (const v of ['', 'ON', 'On', 'true', '1', 'yes', 'on ', ' on', 'off', "'on'"]) {
+    assert.deepEqual(args({ T1_NUDGE: v, T1_ENQUEUE: v }), ['o/r'], JSON.stringify(v));
+  }
+  // A NUDGE_PR that is not all digits is dropped whole, so it cannot smuggle in another flag.
+  for (const v of ['1 --enqueue', '--enqueue', '--nudge', '1;--enqueue', '1\n--enqueue', '12a', '-1', '1.5', ' 7', '7 ', '$(echo 7)', '*']) {
+    assert.deepEqual(args({ NUDGE_PR: v }), ['o/r'], JSON.stringify(v));
+  }
+  // Every output of the shell, parsed by the CLI: enqueue is on only when T1_ENQUEUE is 'on'.
+  for (const env of [{}, { T1_NUDGE: 'on' }, { NUDGE_PR: '5170' }, { NUDGE_PR: '1 --enqueue' }, { DRY_RUN: '--dry-run', NUDGE_PR: '9', T1_NUDGE: 'on' }]) {
+    assert.equal(parseCliArgs(args(env)).enqueueEnabled, false, JSON.stringify(env));
+  }
+  assert.deepEqual(parseCliArgs(args({})), { repo: 'o/r', dryRun: false, enqueueEnabled: false, nudgeEnabled: false, nudgeOnlyPr: null });
 });
 
 test('shim: the guard is fetched only for T1 PRs; T0 PRs are not touched', async () => {
