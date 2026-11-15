@@ -124,6 +124,12 @@ export interface ChatSyntheticStatementsPayload {
   nodeIds: string[];
 }
 
+/** t/425: the statement chosen for one node, with its index in the node's corpus (for the trace). */
+export interface ChatSyntheticStatement {
+  text: string;
+  index: number;
+}
+
 /**
  * Payload for `fetchRelevantNodes` (t/3258 T3). Mirrors `SelectRelevantTaxonomyInput['session']` +
  * `params` — ONLY the per-session state the server/main cannot reconstruct crosses the wire; the
@@ -568,7 +574,7 @@ export interface AppAPI {
   // query, or null (the caller then skips and backfills the node; it never falls back to description).
   // Web → POST /api/taxonomy/chat-synthetic-statements; Electron → IPC 'chat-synthetic-statements'.
   // Never returns vectors or corpus.
-  chatSyntheticStatements: (payload: ChatSyntheticStatementsPayload) => Promise<Record<string, string | null>>;
+  chatSyntheticStatements: (payload: ChatSyntheticStatementsPayload) => Promise<Record<string, ChatSyntheticStatement | null>>;
   // t/3316 (t/3297 client half): server/main-side per-claim taxonomy attribution — the debate client
   // stops assembling the corpus for attribution. Both transports run the SAME pure fn
   // (computeClaimTaxonomyAttribution). Web → REST POST /api/argument-network/attribution; Electron →

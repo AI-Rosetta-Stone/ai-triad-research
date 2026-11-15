@@ -194,8 +194,6 @@ export interface ElectronAPI {
   // mirrors routes/relevantNodes.ts via the shared lib (parity by construction). Contract shared with
   // the web transport through bridge/types.ts.
   fetchRelevantNodes: (payload: FetchRelevantNodesPayload) => Promise<RelevantTaxonomyResult>;
-  /** t/348: best synthetic statement per selected node, or null (skip-and-backfill). Read-only. */
-  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }) => Promise<Record<string, string | null>>;
   // t/3316: the renderer's view of the main-process attribution handler ElectronMain implements (t/3322)
   // — computes from the LOCAL corpus via the same pure fn. Contract shared with web via bridge/types.ts.
   computeAttribution: (payload: FetchClaimAttributionPayload) => Promise<ClaimAttributionResponse>;
