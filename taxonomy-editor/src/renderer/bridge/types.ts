@@ -144,6 +144,10 @@ export interface FetchRelevantNodesPayload {
   recentTranscript: string;
   /** Default 0.45 (applied by the lib fn when omitted). */
   threshold?: number;
+  /** t/424: pool sizes. Omitted → the route's debate defaults (3, 35). Chat passes them to keep the full pool;
+   *  the 12-node cap is applied by the chat wrapper after scoring, never here. */
+  minPerCategory?: number;
+  maxTotal?: number;
   session: {
     /** `argument_network.nodes[]` with embeddings — the PRIMARY scoring signal; `text` for provenance. */
     anClaimEmbeddings: ANClaimInput[];
