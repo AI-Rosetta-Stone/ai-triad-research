@@ -2574,16 +2574,39 @@ export class GitHubAPIBackend implements StorageBackend {
   // ── Path contract ──────────────────────────────────────────────────────
 
   private toRepoPath(filePath: string): string {
-    let p = filePath;
+    const refuse = (code: string, problem: string): never => {
+      throw new ActionableError({
+        goal: 'Validate file path',
+        problem,
+        location: 'GitHubAPIBackend.toRepoPath',
+        nextSteps: ['Use a clean repository-relative path inside the data root'],
+        code,
+        httpStatus: 400,
+      });
+    };
+    // t/434: a NUL byte never belongs in a path; refuse before anything else looks at it.
+    if (filePath.includes('\0')) refuse('INVALID_PATH', `Path contains a NUL byte: "${filePath}"`);
+
+    // t/434: backslash is a separator for Windows callers; normalise before any check.
+    let p = filePath.replace(/\\/g, '/');
 
     // Strip the data-root prefix to get the repo-relative path. Use getDataRoot()
     // (the actual source of incoming absolute paths from fileIO.ts) rather than
     // this.cacheDir (the disk-cache write location) — they can diverge when the
     // cache is on a separate mount (e.g. TAXONOMY_CACHE_DIR != AI_TRIAD_DATA_ROOT),
     // which caused staging github-api reads to 404 (t/2670).
-    const dataRoot = getDataRoot();
-    if (p.startsWith(dataRoot)) {
+    // t/434: match on a path-segment boundary (`<root>-evil/x` is not inside the root),
+    // case-insensitively on win32, and refuse absolute, drive-letter and UNC paths outside it.
+    const dataRoot = getDataRoot().replace(/\\/g, '/').replace(/\/+$/, '');
+    const ci = process.platform === 'win32';
+    const head = ci ? p.toLowerCase() : p;
+    const rootCmp = ci ? dataRoot.toLowerCase() : dataRoot;
+    if (dataRoot && (head === rootCmp || head.startsWith(rootCmp + '/'))) {
       p = p.slice(dataRoot.length);
+    } else if (dataRoot && head.startsWith(rootCmp)) {
+      refuse('PATH_OUTSIDE_ROOT', `Path shares the data-root name but is outside it: "${filePath}"`);
+    } else if (/^[a-zA-Z]:/.test(p) || p.startsWith('//')) {
+      refuse('PATH_OUTSIDE_ROOT', `Absolute, drive-letter or UNC path outside the data root rejected: "${filePath}"`);
     }
 
     // Strip leading slashes
@@ -2718,7 +2741,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath, 'utf-8');
     } catch (err: unknown) {
@@ -2734,7 +2757,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath);
     } catch (err) {
@@ -2846,7 +2869,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async removeFromDiskCache(repoPath: string): Promise<void> {
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = confineToDir(this.cacheDir, repoPath);
     try {
       await fs.unlink(diskPath);
     } catch {
