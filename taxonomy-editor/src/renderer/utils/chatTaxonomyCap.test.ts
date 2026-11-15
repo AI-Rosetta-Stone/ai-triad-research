@@ -49,6 +49,10 @@ describe('selectChatCandidates — cap and BDI floor', () => {
     expect(selectChatCandidates(pool(), new Set(), 2)).toHaveLength(2);
   });
 
+  it('a negative cap returns no nodes', () => {
+    expect(selectChatCandidates(pool(), new Set(), -1)).toHaveLength(0);
+  });
+
   it('keeps every BDI node when the pool is smaller than the cap', () => {
     const small: ScoredChatNode[] = [
       { nodeId: 'b0', category: 'Beliefs', score: 0.5 },

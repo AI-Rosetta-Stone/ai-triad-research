@@ -42,7 +42,7 @@ export function selectChatCandidates(
   const picked = new Set<string>();
   const out: ScoredChatNode[] = [];
   // A cap below 3 × CHAT_RESERVED_PER_CATEGORY can't reserve the full floor: reserve what fits.
-  const perCategory = Math.min(CHAT_RESERVED_PER_CATEGORY, Math.floor(cap / CHAT_BDI_CATEGORIES.length));
+  const perCategory = Math.min(CHAT_RESERVED_PER_CATEGORY, Math.floor(Math.max(0, cap) / CHAT_BDI_CATEGORIES.length));
   for (const category of CHAT_BDI_CATEGORIES) {
     for (const node of bdi.filter(n => n.category === category).slice(0, perCategory)) {
       picked.add(node.nodeId);
