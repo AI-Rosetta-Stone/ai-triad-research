@@ -67,7 +67,7 @@ function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
   );
 }
 
-async function streamChatWithProgress(
+export async function streamChatWithProgress(
   systemInstruction: string,
   messages: { role: 'user' | 'model'; content: string }[],
   model: string,
