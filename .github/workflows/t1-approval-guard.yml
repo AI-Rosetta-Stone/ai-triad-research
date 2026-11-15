@@ -46,6 +46,10 @@ name: t1-approval-guard
 # begin with -- this job already only ever reads the predicate from `main`'s explicitly-fetched
 # tip, never from the checked-out tree). The self-test suite moved to ci.yml's gate-self-health
 # job (plain pull_request, zero permissions, t/4266) -- this job never executes PR code at all.
+#
+# COMMENT FILTER: a PR comment runs this check only if it (or, for an edit, its previous text)
+# contains a verdict word, the sweep's re-run marker, or `/recheck-guards`. To re-run this check by
+# hand, post a PR comment containing `/recheck-guards`. The list and its reasons are on the job.
 
 on:
   pull_request_target:
@@ -64,10 +68,70 @@ permissions:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
+    # COMMENT FILTER. An `issue_comment` event runs this job only when the comment could change the
+    # verdict; every other trigger runs as before. Most PR comments are agent status chatter
+    # ("Head updated to ...", "Ready for reviewer approval"), and each run they set off re-read the
+    # PR's comments, reviews and commits from the shared GITHUB_TOKEN quota without changing anything.
+    #
+    # The quoted strings between BEGIN/END comment-filter are THE list. It mirrors what
+    # operations/devops/role-review-verdicts.mjs reacts to in a comment body (the same code is
+    # inlined in t1-approval-guard-predicate.mjs):
+    #   'Approved', 'Changes requested', 'Design-exempt'  -- VERDICT_RE's three verdict words. The
+    #       bare word, not `Approved (`, because VERDICT_RE allows any whitespace, or none, before
+    #       the parenthesis. 'Changes requested' also covers the reviewer App's fail-closed backstop
+    #       (LOOSE_CHANGES_REQUESTED_RE, first line, any case).
+    #   '<!-- t1-sweep-guard-rerun:'  -- the marker of the sweep comment (PR #4795) that is posted
+    #       to make this guard run again when an earlier run was lost.
+    #   '/recheck-guards'  -- the one documented way to re-run this guard and tier-check by hand:
+    #       post a PR comment containing it (docs/pr-landing.md).
+    # contains() ignores case and matches anywhere in the body, so the list is a SUPERSET of the
+    # predicate: an extra run is harmless, a missed one loses an approval or a block. The text
+    # searched is the comment's new body plus, for an edit, its previous body
+    # (`changes.body.from`, empty on `created`), so a verdict edited AWAY also re-evaluates.
+    # When you change the grammar in role-review-verdicts.mjs, change the list here, in BOTH copies
+    # (`if:` and `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ
+    # or if a body the predicate reacts to would not run this job.
+    #
+    # NOT covered, because no comment text marks it: a deleted comment and a dismissed review (not
+    # triggers at all). Until now the next chatter comment happened to re-evaluate after one; now
+    # post `/recheck-guards`.
+    #
+    # A job skipped here reports as `evaluate` (the job id), on the default branch's tip. It never
+    # creates or changes a `t1-approval-guard` check run, so it cannot read as a verdict.
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}
+      # The filter is repeated in the group, so a run this filter skips gets a group of its own
+      # (its run id). If it shared the PR's group, a chatter comment arriving while a verdict
+      # comment's run was in progress could cancel that run and then skip, losing the verdict.
+      # BEGIN comment-filter (group copy)
+      group: >-
+        ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}-${{
+        (
+        (github.event.issue.pull_request || !github.event.issue)
+        && (
+        github.event_name != 'issue_comment'
+        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved')
+        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Changes requested')
+        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Design-exempt')
+        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), '<!-- t1-sweep-guard-rerun:')
+        || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), '/recheck-guards')
+        )
+        ) && 'evaluate' || github.run_id }}
+      # END comment-filter (group copy)
       cancel-in-progress: ${{ github.event_name != 'merge_group' }}
-    if: github.event.issue.pull_request || !github.event.issue
+    # BEGIN comment-filter
+    if: >-
+      ${{
+      (github.event.issue.pull_request || !github.event.issue)
+      && (
+      github.event_name != 'issue_comment'
+      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Approved')
+      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Changes requested')
+      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), 'Design-exempt')
+      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), '<!-- t1-sweep-guard-rerun:')
+      || contains(format('{0} {1}', github.event.comment.body, github.event.changes.body.from), '/recheck-guards')
+      )
+      }}
+    # END comment-filter
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:

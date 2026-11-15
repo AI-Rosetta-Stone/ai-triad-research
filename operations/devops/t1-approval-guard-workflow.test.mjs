@@ -245,7 +245,7 @@ test('t/200 (#4804 semantics, unchanged): the old YAML cannot bind a reviewer-Ap
   assert.equal(result.pass, false);
   assert.equal(result.reason, 'missing-head-sha', 'the machine-readable reason is unchanged');
   assert.match(result.summary, /predates #4804/);
-  assert.match(result.summary, /post any PR comment or rebase onto main/);
+  assert.match(result.summary, /post a PR comment containing `\/recheck-guards` or rebase onto main/);
   assert.match(result.summary, /re-run the guard on main's workflow/);
 });
 

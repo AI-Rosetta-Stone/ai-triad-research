@@ -334,7 +334,7 @@ function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
-export const MISSING_HEAD_SHA_SUMMARY = 'Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post any PR comment or rebase onto main to re-run the guard on main\'s workflow.';
+export const MISSING_HEAD_SHA_SUMMARY = 'Missing head SHA (this PR\'s branch predates #4804, so its own t1-approval-guard.yml cannot bind a review to the head): post a PR comment containing `/recheck-guards` or rebase onto main to re-run the guard on main\'s workflow.';
 
 export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
   const tier = parseTier(body);
