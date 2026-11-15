@@ -392,6 +392,28 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
       expect(capturedReq?.sourceName).toBe('report.docx');
     });
 
+    it('a whitespace-only topic counts as no topic: the file name stands in as the topic', async () => {
+      let capturedReq: { topic?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, topic: '   ', documentText: 'The report says X.', sourceName: 'report.docx' });
+      expect(res._status).toBe(200);
+      expect(capturedReq?.topic).toBe('report.docx');
+    });
+
+    it('a sourceName that is not a bare file name is a 400: separators and parent references are refused', async () => {
+      for (const name of ['folder/report.docx', 'folder\\report.docx', '../report.docx', 'report..docx']) {
+        const res = fakeRes();
+        await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text', sourceName: name });
+        expect(res._status).toBe(400);
+      }
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
     it('a document with no topic (the web bridge body): the file name is the topic and generation runs', async () => {
       let capturedReq: { topic?: string; sourceMaterial?: string; sourceName?: string } | undefined;
       generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {

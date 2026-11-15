@@ -89,6 +89,8 @@ function normalizeDocument(text: string, name: string): { ok: true; value: { doc
   if (documentText.length > MAX_DOCUMENT_TEXT_CHARS) return { ok: false, message: `documentText exceeds ${MAX_DOCUMENT_TEXT_CHARS} characters` };
   const sourceName = name.trim();
   if (sourceName.length > MAX_SOURCE_NAME_CHARS) return { ok: false, message: `sourceName exceeds ${MAX_SOURCE_NAME_CHARS} characters` };
+  // The desktop's bare-name rule (t/275): no path separators and no parent references.
+  if (/[\\/]/.test(sourceName) || sourceName.includes('..')) return { ok: false, message: 'sourceName must be a bare file name: no path separators and no ".."' };
   return { ok: true, value: { documentText, sourceName } };
 }
 
@@ -117,7 +119,8 @@ function parseOpEdCreateRequest(body: unknown): ReturnType<typeof parseOpEdCreat
   if (!doc.ok) return { ok: false, status: 400, message: doc.message };
   // t/276: a document can arrive without a topic (the web bridge sends documentText and sourceName only).
   // The file name stands in as the topic, so the set has a label. A topic that is sent is used as sent.
-  const withTopic = doc.value && !b.topic ? { ...b, topic: doc.value.sourceName } : b;
+  const hasTopic = typeof b.topic === 'string' && b.topic.trim().length > 0;
+  const withTopic = doc.value && !hasTopic ? { ...b, topic: doc.value.sourceName } : b;
   const base = parseOpEdCreate(withTopic);
   if (!base.ok) return base;
   return { ok: true, value: { ...base.value, ...(doc.value ?? {}) } };
