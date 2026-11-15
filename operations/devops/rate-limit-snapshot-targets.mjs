@@ -17,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 export const SNAPSHOT_TARGETS = [
   // t/314: the five per-PR guards.
   ['tier-check.yml', 'tier-check'],
-  ['t1-approval-guard.yml', 'evaluate'],
   ['joint-gv-guard.yml', 'joint-gv-guard'],
   ['consult-hold-guard.yml', 'consult-hold-guard'],
   ['foreign-commit-check.yml', 'check'],
@@ -30,7 +29,6 @@ export const SNAPSHOT_TARGETS = [
   ['ci.yml', 'ci-gate'],
   ['ci.yml', 'consult-hold-guard'],
   ['ci.yml', 'joint-gv-guard'],
-  ['ci.yml', 't1-approval-guard'],
   ['pr-triage.yml', 'triage'],
   ['pr-triage.yml', 'stuck-pr-alert'],
   ['enqueue-sweep.yml', 'sweep'],

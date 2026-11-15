@@ -219,61 +219,12 @@ function t1Api(overrides = {}) {
   };
 }
 
-test('t1-approval-guard PASS ARM: a 503 then success evaluates (OK check run posted) with a WARN', async () => {
-  const { log, calls } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.listReviews': [503, []] }));
-  assert.deepEqual(log.failed, [], `unexpected failure: ${log.failed}`);
-  assert.equal(calls['pulls.listReviews'], 2);
-  assert.ok(log.warning.some((w) => /^WARN t1-approval-guard: pulls\.listReviews attempt 1\/3 got HTTP 503/.test(w)));
-  assert.equal(calls['checks.create'], 1);
-});
-
-test('t1-approval-guard FAIL ARM: a persistent 503 fails closed with CANNOT EVALUATE', async () => {
-  const { log, calls } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.listCommits': [503] }));
-  assert.equal(calls['pulls.listCommits'], 3);
-  assert.match(log.failed[0], /^t1-approval-guard: CANNOT EVALUATE — pulls\.listCommits failed after 3 attempt/);
-});
-
-test('t1-approval-guard: a 404 is no longer retried (the old inline loop retried every error)', async () => {
-  const { log, calls } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.get': [404] }));
-  // run() once, plus the catch's own best-effort re-read for the neutral check run: 2 calls, 0 retries.
-  assert.equal(calls['pulls.get'], 2);
-  assert.ok(!log.warning.some((w) => w.includes('attempt 1/3')));
-  assert.match(log.failed[0], /CANNOT EVALUATE — HTTP 404/);
-});
-
-test('t1-approval-guard: a 429 is retried', async () => {
-  const { log, calls } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.get': [429, PR] }));
-  assert.deepEqual(log.failed, []);
-  assert.equal(calls['pulls.get'], 2);
-  assert.ok(log.warning.some((w) => /pulls\.get attempt 1\/3 got HTTP 429/.test(w)));
-});
-
 // ------------------------------------- CANNOT EVALUATE must fail closed (t/4819, TL p/12#44)
 // GitHub counts a `neutral` check run as satisfying a required check, so a neutral CANNOT
 // EVALUATE would let an outage that exhausts the retries PASS the gate.
 
-test('t1-approval-guard FAIL-CLOSED: exhausted retries post a `failure` check run (GATE-UNREADABLE), never `neutral`', async () => {
-  const { args, log } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.listCommits': [503] }));
-  const runs = args['checks.create'] || [];
-  assert.equal(runs.length, 1, 'exactly one explicit check run, pinned to the head');
-  assert.equal(runs[0].head_sha, 'headsha');
-  assert.equal(runs[0].name, 't1-approval-guard');
-  assert.equal(runs[0].conclusion, 'failure');
-  assert.notEqual(runs[0].conclusion, 'neutral');
-  assert.match(runs[0].output.title, /GATE-UNREADABLE \(CANNOT EVALUATE\)/);
-  assert.match(runs[0].output.summary, /^GATE-UNREADABLE: .*\n.*not a pass/);
-  assert.match(runs[0].output.summary, /pulls\.listCommits failed after 3 attempt/);
-  assert.match(log.failed[0], /CANNOT EVALUATE/);
-});
-
-test('t1-approval-guard FAIL-CLOSED: a non-retryable crash (404) also concludes `failure`', async () => {
-  // pulls.get works for the catch's re-read but run() dies on a 404 from listReviews.
-  const { args } = await runWorkflow('t1-approval-guard.yml', t1Api({ 'pulls.listReviews': [404] }));
-  assert.deepEqual((args['checks.create'] || []).map((r) => r.conclusion), ['failure']);
-});
-
-test('no code line in either gate workflow can conclude `neutral`', () => {
-  for (const wf of ['t1-approval-guard.yml', 'tier-check.yml']) {
+test('no code line in the gate workflow can conclude `neutral` (t/455: t1-approval-guard.yml is gone)', () => {
+  for (const wf of ['tier-check.yml']) {
     const code = extractScript(wf).split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
     assert.ok(!/['"`]neutral['"`]/.test(code), `${wf}: a 'neutral' conclusion would read as a pass on a required check`);
   }

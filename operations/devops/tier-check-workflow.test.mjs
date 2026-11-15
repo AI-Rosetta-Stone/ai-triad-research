@@ -259,12 +259,13 @@ test('C3: inlineR1Fallback agrees with the predicate checkR1 on every r1 entry, 
 // ── t/4343: early visibility into what a declared tier still needs before merge ────────────
 const FIXTURE_CHANGE_TIERS_URL = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/AGENTS.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07';
 
-test('tierRequirementsNote: T1 names the reviewer-App approval (comment accepted during transition) and the enforcing gate', () => {
+// t/455: the T1 approval requirement is removed. The note says so, and no longer asks for an approval.
+test('tierRequirementsNote: T1 says the approval requirement is removed (t/455), with no approval ask', () => {
   const note = loadTierRequirementsNote()('T1', FIXTURE_CHANGE_TIERS_URL);
-  assert.match(note, /Approved \(<role>\):/);
-  assert.match(note, /reviewer-App review/);
-  assert.match(note, /accepted during the transition/);
-  assert.match(note, /t1-approval-guard/);
+  assert.match(note, /t\/455/);
+  assert.match(note, /merges on CI and branch protection alone/);
+  assert.doesNotMatch(note, /Approved \(<role>\)/);
+  assert.doesNotMatch(note, /t1-approval-guard/);
 });
 
 test('tierRequirementsNote: T2 names the TL approval path and the PI-only exception, not a bare "PI"', () => {

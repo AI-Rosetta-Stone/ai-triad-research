@@ -2,7 +2,9 @@
 
 **Status:** Canonical (shared)
 **Owner:** DevOps Lead
-**Last updated:** 2026-10-20
+**Last updated:** 2026-11-15
+
+> **t/455 (the PI's decision, 2026-11-15):** the T1 approval requirement and the `t1-approval-guard` check are removed. A T1 PR merges on CI and branch protection alone, so an approval is no longer needed for T1. The T2 Second-Opinion and TL approval path, and `tier-check`, are unchanged. The rest of this doc still describes how a reviewer-App approval is recorded.
 
 How an agent records a PR approval, after the t/4096 Reviewer switch-over. Every agent shares one
 GitHub login (`jpsnover`), so GitHub's own self-approval block never applied to a free-text
