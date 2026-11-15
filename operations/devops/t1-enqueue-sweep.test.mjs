@@ -13,6 +13,8 @@ import {
 } from './t1-enqueue-sweep.mjs';
 import { selectT0Candidates } from './t0-enqueue-sweep.mjs';
 import { fetchGuardRun } from './t1-approval-at-head.mjs';
+import { latestRoleVerdicts } from './role-review-verdicts.mjs';
+import { evaluateT1ApprovalGuard, latestRoleVerdicts as inlinedLatestRoleVerdicts } from './t1-approval-guard-predicate.mjs';
 
 const HEAD = 'head2222';
 const OLD_HEAD = 'head1111';
@@ -193,6 +195,106 @@ test('postGuardNudge: a failed API call only WARNs', () => {
     assert.equal(postGuardNudge('o/r', 7, { headRefOid: HEAD }, { ghFn: () => { throw new Error('HTTP 502'); } }), 'failed');
     assert.match(logs[0], /^WARN: #7: could not post the guard re-run comment \(HTTP 502\)/);
   } finally { m.mock.restore(); }
+});
+
+// ---- the nudge comment is never a review verdict (Second Opinion, #4795) ----
+// The body-text assertions above are not proof. These feed the EXACT body postGuardNudge posts to
+// the real verdict parsers as a PR comment: role-review-verdicts.mjs (what the sweeps read) and its
+// inlined copy in t1-approval-guard-predicate.mjs (what the guard reads), in the default mode and in
+// `mode: 'gate'`, under every author it could be attributed to. In gate mode a comment from ANY
+// login that matches the strict grammar counts, so a nudge that started `Approved (<role>):` would
+// approve the very PR it is posted on.
+function capturedNudgeBody() {
+  const m = mock.method(console, 'log', () => {});
+  try {
+    const posted = [];
+    const ghFn = (args) => { if (args.includes('-f')) { posted.push(args.at(-1)); return ''; } return '[]'; };
+    assert.equal(postGuardNudge('o/r', 7, { headRefOid: HEAD }, { ghFn }), 'posted');
+    assert.equal(posted.length, 1);
+    assert.match(posted[0], /^body=/);
+    return posted[0].slice('body='.length);
+  } finally { m.mock.restore(); }
+}
+
+const LAST_PUSH = '2026-11-15T10:00:00Z';
+const AFTER_PUSH = '2026-11-15T11:00:00Z';
+// GraphQL gives an App's login without `[bot]` (the sweeps), REST gives it with (the guard).
+const REVIEWER_REST = `${REVIEWER}[bot]`;
+const NUDGE_AUTHORS = [
+  ['the reviewer App (GraphQL login)', REVIEWER],
+  ['the reviewer App (REST login)', REVIEWER_REST],
+  ['the sweep\'s own App (GraphQL login)', 'ai-triad-dependabot-merge'],
+  ['the sweep\'s own App (REST login)', 'ai-triad-dependabot-merge[bot]'],
+  ['the shared human login', 'jpsnover'],
+];
+const PARSERS = [['role-review-verdicts.mjs', latestRoleVerdicts], ['the guard\'s inlined copy', inlinedLatestRoleVerdicts]];
+const MODES = [['default', undefined], ['gate', 'gate']];
+// A comment posted after the last push, so nothing filters it out for being stale.
+const commentBy = (login, body) => ({ body, login, createdAt: AFTER_PUSH, updatedAt: null });
+const verdictsFor = (parse, mode, login, body, reviewerAppLogin) => parse({
+  reviews: [], comments: [commentBy(login, body)], reviewerAppLogin, headSha: HEAD, lastPushAt: LAST_PUSH, mode,
+});
+
+test('nudge body: no verdict is read from it by either parser, in either mode, under any author', () => {
+  const body = capturedNudgeBody();
+  let checked = 0;
+  for (const [parserName, parse] of PARSERS) {
+    for (const [modeName, mode] of MODES) {
+      for (const [who, login] of NUDGE_AUTHORS) {
+        for (const reviewerAppLogin of [REVIEWER, REVIEWER_REST]) {
+          const verdicts = verdictsFor(parse, mode, login, body, reviewerAppLogin);
+          assert.deepEqual([...verdicts.entries()], [], `${parserName}, ${modeName} mode, posted by ${who}, reviewer App = ${reviewerAppLogin}`);
+          checked++;
+        }
+      }
+    }
+  }
+  assert.equal(checked, 2 * 2 * 5 * 2);
+});
+
+test('nudge body control: the same harness DOES read a verdict from a real verdict comment', () => {
+  // Without this, an empty result above could just mean the harness filters everything out.
+  for (const [parserName, parse] of PARSERS) {
+    for (const [modeName, mode] of MODES) {
+      for (const [text, kind] of [['Approved (Quality): looks good', 'approved'], ['Changes requested (Quality): fix it', 'changes_requested']]) {
+        const fromReviewer = verdictsFor(parse, mode, REVIEWER, text, REVIEWER);
+        assert.deepEqual([...fromReviewer.values()].map((v) => v.kind), [kind], `${parserName}, ${modeName} mode, reviewer App: ${text}`);
+      }
+    }
+    // Gate mode also reads a strict-grammar comment from any other login (the shared-login path).
+    const fromSweepApp = verdictsFor(parse, 'gate', 'ai-triad-dependabot-merge[bot]', 'Approved (Quality): looks good', REVIEWER_REST);
+    assert.deepEqual([...fromSweepApp.values()].map((v) => v.kind), ['approved'], `${parserName}, gate mode, another login`);
+  }
+});
+
+test('nudge body: the guard predicate gives the same verdict with and without the nudge comment', () => {
+  const body = capturedNudgeBody();
+  const HEAD40 = 'b'.repeat(40);
+  const guard = (over) => evaluateT1ApprovalGuard({
+    body: 'Tier: T1\n\nA cross-role contract.', headRefName: 'devops/t73-x', headSha: HEAD40, lastPushAt: LAST_PUSH,
+    approvalComments: [], botReviews: [], reviewerAppLogin: REVIEWER_REST, ...over,
+  });
+  const approval = { commitId: HEAD40, state: 'APPROVED', submittedAt: '2026-11-15T10:30:00Z', login: REVIEWER_REST, body: 'Approved (Quality): at the head.' };
+  const block = { commitId: HEAD40, state: 'CHANGES_REQUESTED', submittedAt: '2026-11-15T10:30:00Z', login: REVIEWER_REST, body: 'Changes requested (Quality): fix the error path.' };
+
+  // Unapproved: still fails for lack of approval. The nudge must not approve it.
+  const unapproved = guard({});
+  assert.deepEqual(unapproved, { pass: false, tier: 'T1', reason: 'no-post-push-approval' });
+  // Approved at the head: still passes. The nudge must not block it.
+  const approved = guard({ botReviews: [approval] });
+  assert.equal(approved.pass, true);
+  assert.equal(approved.reason, 'approved-after-push');
+  // A changes-request outstanding: still blocked. The nudge (posted later) must not clear it.
+  const blocked = guard({ botReviews: [block] });
+  assert.equal(blocked.pass, false);
+  assert.equal(blocked.reason, 'changes-requested-outstanding');
+
+  for (const [who, login] of NUDGE_AUTHORS) {
+    const approvalComments = [commentBy(login, body)];
+    assert.deepEqual(guard({ approvalComments }), unapproved, `unapproved, nudge posted by ${who}`);
+    assert.deepEqual(guard({ approvalComments, botReviews: [approval] }), approved, `approved, nudge posted by ${who}`);
+    assert.deepEqual(guard({ approvalComments, botReviews: [block] }), blocked, `changes requested, nudge posted by ${who}`);
+  }
 });
 
 test('REFUSE: a guard lookup error, or no guard read at all, fails closed', () => {
