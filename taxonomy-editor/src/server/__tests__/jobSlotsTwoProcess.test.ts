@@ -31,7 +31,7 @@ describe.skipIf(!process.env.T400_CHILD)('t/405 child (one replica)', () => {
       await new Promise(r => setTimeout(r, 5));
     }
     const slot = await claimJobSlot({
-      backend: new FilesystemBackend(), jobsDir: process.env.T400_JOBS_DIR!, cap: 1,
+      backend: new FilesystemBackend({ root: () => process.env.AI_TRIAD_DATA_ROOT! }), jobsDir: process.env.T400_JOBS_DIR!, cap: 1,
       jobId: process.env.T400_JOB_ID!, isLive: async () => true,
     });
     fs.writeFileSync(outFile, JSON.stringify({ jobId: process.env.T400_JOB_ID, slot }));
