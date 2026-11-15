@@ -365,6 +365,9 @@ jobs:
 
       - name: Sync Bicep baseEnv to staging template (t/2630)
         shell: pwsh
+        env:
+          # t/77 Option B: the staging App id, resolved by Get-BicepBaseEnv -ForStaging (fails closed when empty).
+          SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
         run: |
           $ErrorActionPreference = 'Stop'
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
