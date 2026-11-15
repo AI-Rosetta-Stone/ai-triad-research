@@ -2,8 +2,8 @@
 //
 // t/4296 — SO condition G1 (e/323#2): proxy-tiers.json lives on the Azure Files share
 // both environments mount and resolveConfigReadOnlyFlag's own catch fails OPEN on a
-// read/parse failure — fine for an AI-quota setting, not fine for a containment
-// control. READ_ONLY_PRINCIPALS is a static, no-I/O env list that cannot fail open.
+// read/parse failure. t/183 changed that: an unseen principal now fails closed, and a seen
+// one keeps its cached flag. READ_ONLY_PRINCIPALS is a static, no-I/O env list that cannot fail open.
 //
 // isEnvReadOnlyPrincipal reads process.env.READ_ONLY_PRINCIPALS at MODULE LOAD, so
 // each scenario needs a fresh module instance with the env var set before import —
@@ -36,10 +36,14 @@ async function freshGuard(envValue: string | undefined) {
 }
 
 describe('t/4296 G1 — fail-closed env list stays blocked when proxy-tiers.json resolution throws', () => {
-  it('FAULT ARM — resolveConfigReadOnlyFlag alone (no env entry) fails OPEN when resolveTier throws', async () => {
+  it('an unseen principal fails CLOSED (read-only) when resolveTier throws, with no env entry (t/183)', async () => {
     const { resolveReadOnlyFlag } = await freshGuard(undefined); // no env-listed principals
     resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable (shared mount outage)'); });
-    expect(resolveReadOnlyFlag('ai-triad-smoke', 'github')).toBe(false); // fails open — the exact risk SO flagged
+    expect(resolveReadOnlyFlag('ai-triad-smoke', 'github')).toBe(true);
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'tier-resolve-failed-no-cache' }),
+      expect.stringContaining('failing closed'),
+    );
   });
 
   it('SAFE ARM — an env-listed principal stays blocked even when resolveTier throws', async () => {
@@ -70,5 +74,59 @@ describe('t/4296 G1 — fail-closed env list stays blocked when proxy-tiers.json
   it('an unset env var blocks no one via the env source (proxy-tiers.json is unaffected)', async () => {
     const { isEnvReadOnlyPrincipal } = await freshGuard(undefined);
     expect(isEnvReadOnlyPrincipal('ai-triad-smoke', 'github')).toBe(false);
+  });
+});
+
+describe('t/183 — last-known-value cache and fail-closed for unseen principals', () => {
+  it('a seen read-only principal stays read-only during an outage (cached true is served)', async () => {
+    const { resolveReadOnlyFlag } = await freshGuard(undefined);
+    resolveTierMock.mockReturnValueOnce({ level: 'byok', limits: {}, allowedBackends: [], readOnly: true });
+    expect(resolveReadOnlyFlag('ai-triad-smoke', 'github')).toBe(true);
+    resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable'); });
+    expect(resolveReadOnlyFlag('ai-triad-smoke', 'github')).toBe(true);
+  });
+
+  it('a seen ordinary principal keeps its cached false during an outage', async () => {
+    const { resolveReadOnlyFlag } = await freshGuard(undefined);
+    resolveTierMock.mockReturnValueOnce({ level: 'byok', limits: {}, allowedBackends: [], readOnly: false });
+    expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(false);
+    resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable'); });
+    expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(false);
+  });
+
+  it('documented gap: a principal made read-only after its last successful resolve keeps the stale false during an outage', async () => {
+    const { resolveReadOnlyFlag } = await freshGuard(undefined);
+    resolveTierMock.mockReturnValueOnce({ level: 'byok', limits: {}, allowedBackends: [], readOnly: false });
+    expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(false);
+    // Config now says read-only, but the outage hides it; the cache answers with the last success.
+    resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable'); });
+    expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(false);
+  });
+
+  it('the env list still blocks an env-listed principal while the config source is down, even with a cached false', async () => {
+    const { resolveReadOnlyFlag } = await freshGuard('github:ai-triad-smoke');
+    resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable'); });
+    expect(resolveReadOnlyFlag('ai-triad-smoke', 'github')).toBe(true);
+    expect(resolveReadOnlyFlag('AI-Triad-Smoke', 'github')).toBe(true);
+  });
+
+  it('clearReadOnlyCacheForTesting refuses outside a vitest run', async () => {
+    const { clearReadOnlyCacheForTesting } = await freshGuard(undefined);
+    const saved = process.env.VITEST;
+    delete process.env.VITEST;
+    try {
+      expect(() => clearReadOnlyCacheForTesting()).toThrow(/outside a vitest run/);
+    } finally {
+      process.env.VITEST = saved;
+    }
+  });
+
+  it('clearReadOnlyCacheForTesting empties the cache inside vitest, so the next outage is fail-closed again', async () => {
+    const { resolveReadOnlyFlag, clearReadOnlyCacheForTesting } = await freshGuard(undefined);
+    resolveTierMock.mockReturnValueOnce({ level: 'byok', limits: {}, allowedBackends: [], readOnly: false });
+    expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(false);
+    clearReadOnlyCacheForTesting();
+    resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable'); });
+    expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(true);
   });
 });

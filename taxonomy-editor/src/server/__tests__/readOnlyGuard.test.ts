@@ -8,7 +8,7 @@
 //      is caught; every GET/HEAD and non-/api/* route is not. A new mutating route
 //      is covered automatically because this iterates the live table, not a fixture.
 //   2. resolveReadOnlyFlag — true for a configured read-only user, false otherwise,
-//      and fails open (false) with a WARN + flight-recorder entry when resolveTier throws.
+//      and fails closed (true) with a WARN + flight-recorder entry when resolveTier throws for an unseen principal (t/183).
 //   3. enforceReadOnlyGuard — writes the 403 only when both (1) and (2) hold; a fake
 //      req/res stands in for http.IncomingMessage/ServerResponse (server.ts itself
 //      cannot be imported — it boots an HTTP server at import).
@@ -68,9 +68,9 @@ describe('t/4296 — resolveReadOnlyFlag', () => {
     expect(resolveReadOnlyFlag('jpsnover', 'github')).toBe(false);
   });
 
-  it('defaults to false with a WARN + flight-recorder entry when resolveTier throws', () => {
+  it('fails closed (true) with a WARN + flight-recorder entry when resolveTier throws and the principal is unseen (t/183)', () => {
     resolveTierMock.mockImplementation(() => { throw new Error('proxy-tiers.json unreadable'); });
-    expect(resolveReadOnlyFlag('anyone', 'github')).toBe(false);
+    expect(resolveReadOnlyFlag('anyone', 'github')).toBe(true);
     expect(warnMock).toHaveBeenCalledTimes(1);
     expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn' }));
   });
