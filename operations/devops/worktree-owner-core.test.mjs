@@ -54,17 +54,17 @@ test('extractCdTarget: no cd/-C present → empty (runs at session cwd)', () => 
 
 const ROOT = 'C:/repo';
 
-// t/391: the drive-letter paths below are Windows-only; resolveWorktree treats `C:/...` as absolute
-// only on win32. The full devops suite runs on Linux CI too, so these three skip off Windows.
-const WIN_ONLY = process.platform !== 'win32' && 'drive-letter paths are Windows-only (t/391)';
+// t/391: `C:/...` is absolute only on win32 (path.isAbsolute), so these three use a NATIVE absolute root
+// and run on every platform: Linux CI and any Windows host. The `C:/` expectations above stay as they are.
+const NATIVE_ROOT = path.resolve('/repo');
 
-test('resolveWorktree: under root .worktrees/<name> resolves the name', { skip: WIN_ONLY }, () => {
-  const r = resolveWorktree('C:/repo/.worktrees/foo', ROOT);
+test('resolveWorktree: under root .worktrees/<name> resolves the name', () => {
+  const r = resolveWorktree(path.join(NATIVE_ROOT, '.worktrees', 'foo'), NATIVE_ROOT);
   assert.equal(r.name, 'foo');
 });
 
-test('resolveWorktree: a subpath still resolves to the same worktree', { skip: WIN_ONLY }, () => {
-  const r = resolveWorktree('C:/repo/.worktrees/foo/src/x.ts', ROOT);
+test('resolveWorktree: a subpath still resolves to the same worktree', () => {
+  const r = resolveWorktree(path.join(NATIVE_ROOT, '.worktrees', 'foo', 'src', 'x.ts'), NATIVE_ROOT);
   assert.equal(r.name, 'foo');
 });
 
@@ -73,8 +73,8 @@ test('resolveWorktree: the shared main checkout (not under .worktrees) is exempt
   assert.equal(resolveWorktree('C:/repo/lib/debate', ROOT), null);
 });
 
-test('resolveWorktree: a relative path resolves against the given cwd', { skip: WIN_ONLY }, () => {
-  const r = resolveWorktree('.worktrees/foo', ROOT, ROOT);
+test('resolveWorktree: a relative path resolves against the given cwd', () => {
+  const r = resolveWorktree(path.join('.worktrees', 'foo'), NATIVE_ROOT, NATIVE_ROOT);
   assert.equal(r.name, 'foo');
 });
 
