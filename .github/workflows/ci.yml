@@ -2034,6 +2034,10 @@ jobs:
       # t/391: scoped merge_group CI: fail-safe scope script, ci-gate skip integrity, nightly alert.
       - name: merge_group scope suite
         run: node --test operations/devops/ci-merge-group-scope.test.mjs
+      # t/391 (SO p/59#60): every devops script a CI job runs is covered by a filter that job is gated on,
+      # so a devops-only batch (full=false) cannot skip the job that runs it. Blocking.
+      - name: filter coverage for operations/devops scripts (t/391)
+        run: node --test operations/devops/ci-filter-coverage.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
