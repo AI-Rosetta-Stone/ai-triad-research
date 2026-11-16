@@ -173,6 +173,22 @@ test('parser sanity: the powershell filter covers operations/devops/**, and the 
   assert.ok(gateKeys(cb.ifText).includes('powershell'));
 });
 
+// SO p/59#62: this test parses ci.yml as text, so a reformat could silently drop jobs or rows and
+// the coverage check would still pass. The floors below fail first. They are minimums, not exact
+// counts, so an ordinary job change does not need an edit here; only a shrink does.
+test('floor: ci.yml still parses to at least 47 jobs, with the gate-bearing jobs present', () => {
+  const jobs = Object.keys(parseJobs(ciYml));
+  assert.ok(jobs.length >= 47, `ci.yml parsed to ${jobs.length} jobs, expected at least 47: a reformat may have dropped jobs`);
+  for (const name of ['changes', 'gate-self-health', 'test-powershell', 'complexity-budget', 'test-electron-coverage', 'ci-gate']) {
+    assert.ok(jobs.includes(name), `job "${name}" is missing from the parse`);
+  }
+});
+
+test('floor: at least 60 (job, devops file) rows are checked, so the coverage claim covers the real set', () => {
+  const rows = coverage();
+  assert.ok(rows.length >= 60, `only ${rows.length} (job, devops file) rows were checked, expected at least 60`);
+});
+
 // `node ci-filter-coverage.test.mjs --table` prints the markdown table for the PR body.
 if (process.argv.includes('--table')) {
   const rows = coverage();
