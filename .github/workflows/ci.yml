@@ -266,6 +266,8 @@ jobs:
               - '.github/workflows/ci.yml'
               # test-electron-vitest / -coverage run it for the DATA-ROOT report (t/64)
               - '.github/ci/data-root-guard-report.sh'
+              # test-electron-coverage runs this script (t/391, SO p/59#58): a devops-only change to it must run the consumer
+              - 'operations/devops/check-vitest-shard-blobs.sh'
               - 'scripts/AITriad/Prompts/**'  # promptCatalog.lint validates this dir; must re-run when prompts change here (t/2915)
               # tests/fixtures/** (t/4367) — lib/sourceIndex/sourceIdentityFixture.test.ts (run by
               # test-electron's vitest) reads tests/fixtures/source-identity-cases.json, a shared
