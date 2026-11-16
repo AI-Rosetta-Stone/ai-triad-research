@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "path": "C:\\Users\\jsnov\\repos\\ai-triad-research\\.worktrees\\batch-3\\tests\\fixtures\\debate-baseline.json",
+    "path": "<BASELINE_FIXTURE>",
     "metrics": {
       "header": {
         "topic": "AI Safety Test Case",
@@ -33,7 +33,7 @@
     }
   },
   "treatment": {
-    "path": "C:\\Users\\jsnov\\repos\\ai-triad-research\\.worktrees\\batch-3\\tests\\fixtures\\debate-treatment.json",
+    "path": "<TREATMENT_FIXTURE>",
     "metrics": {
       "header": {
         "topic": "AI Safety Test Case",

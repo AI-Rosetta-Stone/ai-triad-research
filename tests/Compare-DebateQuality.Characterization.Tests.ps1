@@ -71,6 +71,10 @@ Describe "Compare-DebateQuality.Characterization" {
         # Capture actual output
         $result = Compare-DebateQuality -Baseline $script:BaselineFixture -Treatment $script:TreatmentFixture -Format Json
         $actualJson = $result.Trim()
+        # The golden holds fixture paths as tokens, so the comparison doesn't depend on the checkout location.
+        # JSON escapes backslashes, so the escaped absolute path is what appears in the output.
+        $actualJson = $actualJson.Replace($script:BaselineFixture.Replace('\', '\\'), '<BASELINE_FIXTURE>')
+        $actualJson = $actualJson.Replace($script:TreatmentFixture.Replace('\', '\\'), '<TREATMENT_FIXTURE>')
         
         # Normalize line endings (CRLF -> LF) for comparison
         $goldenJson = $goldenJson -replace "`r`n", "`n"
