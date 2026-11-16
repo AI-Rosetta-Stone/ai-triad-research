@@ -4,6 +4,7 @@
     "[Yellow]   │  ⚠ Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001",
     "[Gray]    →  Polarity gate (two-stage): judge_flipped=0 judge_kept=1 self_healed=0 over 2 gated key_point(s), 3 deberta rep-pair(s)",
     "[DarkYellow]   │  excludes-veto: 0 vetoed, 1 ambiguous",
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 5 (1 unmapped)  factual: 5  new_concepts: 2",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -106,7 +107,8 @@
       "    \"finish_reason\": null,",
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
-      "    \"camp_bridge_dropped\": 0",
+      "    \"camp_bridge_dropped\": 0,",
+      "    \"numeric_ungrounded_dropped\": null",
       "  },",
       "  \"context_rot\": {",
       "    \"schema_version\": 1,",

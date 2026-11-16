@@ -10,7 +10,7 @@ import { app, ipcMain, BrowserWindow, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { PROJECT_ROOT } from '../fileIO.js';
-import { redactDumpText } from '../../renderer/lib/flightRecorderRedact.js';
+import { redactDumpText } from '../../../../lib/flight-recorder/flightRecorderRedact.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 export function registerFlightRecorderHandlers(): void {

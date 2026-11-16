@@ -25,7 +25,8 @@ import { generateOpEdSet } from '../../../../lib/oped/generate.js';
 import type { GenerateOpEdRequest, OpEdGeneratorDeps } from '../../../../lib/oped/generate.js';
 import { parseOpEdRequest } from '../../../../lib/oped/schemas.js';
 import { makeElectronAIAdapter } from '../electronAIAdapter.js';
-import { validateCreateOpEdPayload } from './opedValidation.js';
+import { assertCreateOpEdPayload } from './opedValidation.js';
+import { sourceProvenance } from './opedProvenance.js';
 import { parseShimLine, decodeB64Fields, buildConvertStdin, parseShimError } from './opedShimTransport.js';
 
 // Shared prompts dir: op-ed-*.prompt artifacts (relocated to lib/oped/prompts by t/2609).
@@ -259,15 +260,15 @@ export function registerOpEdHandlers(): void {
   ipcMain.handle('create-oped-set', async (event, payload: {
     topic: string;
     url?: string;   // if provided, Get-OpEdSource is hoisted once (Stage A) before generation
+    documentSource?: { text: string; name: string };  // t/275: desktop document upload path
     params: OpEdParams;
     voices: PovKey[];
   }) => {
-    const { topic, url, params, voices } = payload;
+    const { topic, url, documentSource, params, voices } = payload;
 
-    // A create needs a source (topic OR url — FromUrl sends an empty topic) plus a voice.
-    // Guard extracted to a pure, unit-tested validator (t/2910; regression fixed in t/2908).
-    const validationError = validateCreateOpEdPayload({ topic, url, voices });
-    if (validationError) throw validationError;
+    // A create needs a source (topic OR url OR documentSource — FromUrl sends an empty topic) plus a voice.
+    // Guard extracted to a pure, unit-tested validator (t/2910; regression fixed in t/2908; t/275 extended).
+    assertCreateOpEdPayload({ topic, url, documentSource, voices });
     // t/3994: reject an unknown/unregistered tag before Stage A fetch work starts, rather than
     // failing partway through generation (parseOpEdRequest throws ActionableError on its own).
     parseOpEdRequest({ povs: voices, params });
@@ -281,10 +282,18 @@ export function registerOpEdHandlers(): void {
       if (!event.sender.isDestroyed()) event.sender.send('oped-progress', data);
     };
 
-    // Stage A: Node fetches bytes → temp file → PS convert-only (t/3306).
+    // Stage A: Node fetches bytes → temp file → PS convert-only (t/3306), OR document source (t/275).
     // Fail fast if source prep fails — don't fan out to draft on garbage.
     let sourceBrief: string | undefined;
-    if (url) {
+    let sourceName: string | undefined;
+    let isUrlMode = false;
+    if (documentSource) {
+      // t/275: Document source path — skip PS conversion, use extracted text directly
+      send({ set_id: setId, stage: 'preparing-source' });
+      sourceBrief = documentSource.text;
+      sourceName = documentSource.name;
+    } else if (url) {
+      isUrlMode = true;
       send({ set_id: setId, stage: 'preparing-source' });
       let tempPath: string | undefined;
       try {
@@ -316,22 +325,19 @@ export function registerOpEdHandlers(): void {
       }
     }
 
-    // Source provenance (t/2897/t/2899): url mode ⟺ a source brief was fetched — mirror
-    // the lib's own `request.sourceMaterial ? 'url':'topic'` test so the handler-built temp/
-    // partial literals below never disagree with the lib's authoritative `complete` set.
-    const isUrlMode = Boolean(sourceBrief);
+    // Source provenance (t/2897/t/2899 + t/275): source mode can be topic, url, or document.
+    // Mirror the lib's own `request.sourceMaterial ? 'url'/'document':'topic'` test so the
+    // handler-built temp/partial literals below never disagree with the lib's authoritative
+    // `complete` set.
+    const isDocumentMode = Boolean(documentSource);
     // key_claims count from the comprehension pass, captured in-stream (url mode only).
-    let sourceKeyClaimsCount: number | undefined;
+    let sourceKeyClaimsCount = 0;
     // Provenance for the handler-built literals (temp-save + abort partial-finalize). The
     // lib writes these itself on the `complete` set; these two paths bypass the lib, so they
     // carry provenance explicitly. Read at call time — the count is captured mid-stream.
-    // Topic mode omits url + count entirely (absent, not 0) per the t/2898 contract.
-    const provenanceFields = (): {
-      source_mode: 'topic' | 'url'; source_url?: string; source_key_claims_count?: number;
-    } => ({
-      source_mode: isUrlMode ? 'url' : 'topic',
-      ...(isUrlMode && url ? { source_url: url } : {}),
-      ...(isUrlMode ? { source_key_claims_count: sourceKeyClaimsCount ?? 0 } : {}),
+    // Topic mode omits url/source_name + count entirely (absent, not 0) per the t/2898 contract.
+    const provenanceFields = () => sourceProvenance({
+      isUrlMode, isDocumentMode, url, sourceName, keyClaimsCount: sourceKeyClaimsCount,
     });
 
     // Fire queued for each voice — renderer stores set_id for cancellation
@@ -346,6 +352,7 @@ export function registerOpEdHandlers(): void {
       povs: voices,
       sourceMaterial: sourceBrief,
       sourceUrl: url,   // persisted as OpEdSet.source_url by the lib on the `complete` set (url mode)
+      sourceName,  // t/275: persisted as OpEdSet.source_name (document mode); undefined when absent
       signal: controller.signal,
     };
 

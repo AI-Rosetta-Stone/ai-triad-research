@@ -258,6 +258,7 @@ export default defineConfig({
       '../../../lib/search/**/*.test.ts',
       '../../../lib/entities/**/*.test.ts',
       '../../../lib/sanitize/**/*.test.ts',
+      '../../../lib/flight-recorder/**/*.test.ts', // t/418 — dump redaction (shared, moved from renderer)
       '../../../lib/extraction/**/*.test.ts', // t/273 — document extraction (TL-authorized one-line include)
       // t/720 consolidation: the shared SSRF-guarded fetcher backs POST /api/fetch-url,
       // so its suite must gate CI. It was absent from this list since t/2482 landed.
@@ -297,6 +298,10 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['@huggingface/transformers', 'onnxruntime-web', 'virtual:pwa-register/react'],
+    // t/417: ChatTab is a lazy tab, so Vite only discovers these packages when the tab first opens. That
+    // re-optimised deps mid-session and 504'd ChatTab's child imports. Pre-bundling them at startup
+    // keeps the optimiser from running again while the app is in use.
+    include: ['react-markdown', 'remark-gfm', 'unist-util-visit', 'lucide-react'],
   },
   server: {
     host: '127.0.0.1',

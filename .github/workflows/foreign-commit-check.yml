@@ -27,6 +27,14 @@ name: foreign-commit-check
 # OPT-OUT for genuine multi-ticket PRs (or a no-ticket PR that is intentionally ticket-less):
 # add the `multi-ticket` label to the PR. This is a coarse, PR-wide override — it silences the
 # whole check for that PR, not just the specific commit that triggered it.
+#
+# LABEL EVENTS: `labeled` / `unlabeled` are subscribed only so that adding or removing
+# `multi-ticket` re-evaluates the check. GitHub cannot filter label names at the trigger, so the
+# job's `if:` skips every other label change (the `stuck-pr-alert-*` labels a bot adds to most
+# PRs were about a quarter of this workflow's runs). No other label is an input to the predicate.
+# The verdict for that head SHA stays in the log of the earlier run. One side effect is gone: an
+# unrelated label change used to re-read an edited PR title (`edited` is not subscribed); now a
+# title edit is picked up on the next push or `multi-ticket` change.
 
 on:
   pull_request:
@@ -37,6 +45,8 @@ permissions:
 
 jobs:
   check:
+    # Run on every code event, and on a label event only when the label is the opt-out.
+    if: ${{ (github.event.action != 'labeled' && github.event.action != 'unlabeled') || github.event.label.name == 'multi-ticket' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6

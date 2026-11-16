@@ -67,11 +67,16 @@ vi.mock('../inquiryJobs.js', async () => ({
   isTerminalStatus: (await vi.importActual<typeof import('../../../../lib/inquiry/index.js')>('../../../../lib/inquiry/index.js')).isTerminalStatus,
   dropInquiryJob: (jobId: string) => dropInquiryJob(jobId),
 }));
-vi.mock('../storage/jobCapChecker.js', () => ({
-  countUserJobRecords: async (_userId: string, _kind: string, _isRunning: (r: unknown) => boolean) => {
-    if (h.capCountError) return { count: null, error: h.capCountError };
-    return { count: h.capCount, error: null };
+// The cap is the slot claim (t/400): h.capCount >= 1 means every slot is held by a live job.
+vi.mock('../storage/jobSlots.js', () => ({
+  claimJobSlot: async () => {
+    if (h.capCountError) throw new Error('storage down');
+    return h.capCount >= 1 ? null : { index: 0, generation: 1, dir: 'slots' };
   },
+  releaseJobSlot: async () => {},
+}));
+vi.mock('../storage/jobCapChecker.js', () => ({
+  slotHolderLiveness: () => async () => true,
   findRunningJobByIdempotencyKey: async (_userId: string, _kind: string, idempotencyKey: string | undefined, _debateId: string | undefined, _isRunning: (r: unknown) => boolean) => {
     if (!idempotencyKey) return null;
     return h.durableIdempotent;
@@ -159,10 +164,10 @@ describe('t/3581 — POST /api/inquiry', () => {
     expect(startInquiryJob).not.toHaveBeenCalled();
   });
 
-  it('503 when the cap checker backend fails (fail-closed: reject new request)', async () => {
+  it('5xx when the slot claim cannot be written (fail-closed: nothing starts)', async () => {
     h.capCountError = { reason: 'list_failed' };
     const r = res(); await post()(req('/api/inquiry'), r, VALID);
-    expect(r.statusCode).toBe(503);
+    expect(r.statusCode).toBeGreaterThanOrEqual(500);
     expect(startInquiryJob).not.toHaveBeenCalled();
   });
 

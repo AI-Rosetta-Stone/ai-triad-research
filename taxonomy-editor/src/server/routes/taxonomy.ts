@@ -26,6 +26,7 @@ import { isLocalDeployment } from '../config.js';
 import * as ai from '../ai/aiBackends.js';
 import { getAssembledCorpus } from './corpusAssemblyCache.js';
 import { bestMatchingSyntheticStatement } from '../../../../lib/debate/syntheticStatementLookup.js';
+import { cosineSimilarity } from '../../../../lib/embeddings/similarity.js';
 
 // ── t/3165: serialize-once cache for /api/taxonomy/synthetic-embeddings ───────────────────────────
 // The synthetic corpus (~4144 vectors, ~400MB) is STATIC, but loadSyntheticEmbeddings() rebuilds it on
@@ -300,7 +301,7 @@ async function prepareTaxonomyNodeWrite(
 // For each selected BDI node, returns the corpus statement with the highest cosine to the chat's last user
 // message (the same argmax as claim attribution, bestMatchingSyntheticStatement). Null means the renderer keeps
 // the node's description for that turn. The query embed is ai.computeQueryEmbedding, the same embed
-// relevant-nodes gives selectRelevantTaxonomy. Output carries only text or null: no vectors, no corpus.
+// relevant-nodes gives selectRelevantTaxonomy. Output carries only { text, index } or null per node: no vectors, no corpus.
 const CHAT_SYNTH_POV_KEYS: Record<string, string> = { accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp' };
 const CHAT_SYNTH_MAX_NODES = 12;
 const CHAT_SYNTH_QUERY_MAX_CHARS = 1000;
@@ -350,7 +351,7 @@ async function chatQueryVector(queryText: string): Promise<number[] | null> {
 function chatNodeStatement(
   nodeId: string, queryVector: number[],
   nodeEmbeddings: Record<string, { vectors?: number[][] }>, statements: Record<string, string[]>,
-): string | null {
+): { text: string; index: number } | null {
   const vectors = nodeEmbeddings[nodeId]?.vectors;
   const texts = statements[nodeId];
   if (!vectors || !texts || vectors.length === 0 || vectors.length !== texts.length) {
@@ -358,7 +359,25 @@ function chatNodeStatement(
     chatWarn(`Chat synthetic statements: ${nodeId} has no usable statements — description fallback`, { nodeId, reason: 'no-usable-statements' });
     return null;
   }
-  return bestMatchingSyntheticStatement(nodeId, queryVector, nodeEmbeddings, statements) ?? null;
+  // t/425: the chosen index, by the same cosine argmax as bestMatchingSyntheticStatement (first maximum wins).
+  // The text is read from that index, so the trace index and the text cannot disagree.
+  let index = 0;
+  let best = -Infinity;
+  for (let i = 0; i < vectors.length; i++) {
+    const sim = cosineSimilarity(queryVector, vectors[i]);
+    if (sim > best) { best = sim; index = i; }
+  }
+  return { text: texts[index], index };
+}
+
+/** t/425: the response for the chat route: { text, index } per node, or null when the node is skipped. */
+function chatStatementsOutput(
+  nodeIds: string[], queryVector: number[], nodeEmbeddings: Record<string, { vectors?: number[][] }>,
+  statements: Record<string, string[]>,
+): Record<string, { text: string; index: number } | null> {
+  const out: Record<string, { text: string; index: number } | null> = {};
+  for (const nodeId of nodeIds) out[nodeId] = chatNodeStatement(nodeId, queryVector, nodeEmbeddings, statements);
+  return out;
 }
 
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
@@ -516,7 +535,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
     }
 
     const out: Record<string, string | null> = {};
-    for (const nodeId of nodeIds) out[nodeId] = chatNodeStatement(nodeId, queryVector, nodeEmbeddings, statements);
-    json(res, out);
+    // t/425: per node { text, index } or null, the same shape as the desktop handler (ElectronMain).
+    json(res, chatStatementsOutput(nodeIds, queryVector, nodeEmbeddings, statements));
   });
 }

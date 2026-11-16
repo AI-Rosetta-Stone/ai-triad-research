@@ -378,6 +378,12 @@ function Import-AITriadDocument {
             -SourceType  $SourceType `
             -CapturedAt  (Get-Date -Format 'yyyy-MM-dd')
 
+        # -- Numeric gaps (t/375): figures the text layer lost ("less than of all work tasks") --
+        $NumericGaps = Measure-SnapshotNumericGaps -Text $FinalMarkdown
+        if ($NumericGaps -gt 0) {
+            Write-Warning "Snapshot has $NumericGaps numeric gap(s) (figures missing from the converted text, e.g. 'less than of'); summaries may invent them. Consider OCR or a better source copy."
+        }
+
         # -- Content duplicate check (t/4337), BEFORE anything is written -----
         # content_sha256 is over the snapshot text exactly as written (docs/specs/source-identity.md 1.1).
         $ContentHash = Get-SourceContentHash -Text $FinalMarkdown
@@ -461,6 +467,7 @@ function Import-AITriadDocument {
         if ($ContentHash) { $Metadata['content_sha256'] = $ContentHash }
         if ($SameAs)      { $Metadata['same_as']        = $SameAs }
         if ($ParentDocId) { $Metadata['parent_doc_id']  = $ParentDocId }
+        $Metadata['numeric_gaps'] = $NumericGaps
 
         $MetaPath = Join-Path $DocDir 'metadata.json'
         $Metadata | ConvertTo-Json -Depth 5 | Write-Utf8NoBom -Path $MetaPath

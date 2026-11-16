@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkVerdict, selectSweepCandidates, normalizePR } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, selectSweepCandidates, normalizePR, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
 
 const green = [
   { name: 'ci-gate', status: 'COMPLETED', conclusion: 'SUCCESS' },
@@ -126,4 +126,18 @@ test('normalizePR: converts GraphQL __typename to typename and enqueues valid De
   const { enqueue, skip } = selectSweepCandidates([normalized]);
   assert.deepEqual(enqueue, [{ number: 4282, headRefOid: 'abc123' }]);
   assert.deepEqual(skip, []);
+});
+
+test('pendingCheckNames: lists every run not yet finished, required or not (t/403)', () => {
+  assert.deepEqual(pendingCheckNames(green), []);
+  assert.deepEqual(pendingCheckNames([...green, { name: 'Stray File Guard', status: 'IN_PROGRESS', conclusion: null }]), ['Stray File Guard']);
+  assert.deepEqual(pendingCheckNames([{ context: 'docs-lint', state: 'PENDING' }]), ['docs-lint']);
+  assert.deepEqual(pendingCheckNames([{ name: 'x', status: 'QUEUED', conclusion: null }]), ['x']);
+});
+
+test('selectSweepCandidates: a green PR with a non-required check still running is not armed (t/403)', () => {
+  const contexts = [...green, { name: 'Stray File Guard', status: 'IN_PROGRESS', conclusion: null }];
+  const { enqueue, skip } = selectSweepCandidates([pr({ contexts })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^1 check\(s\) still running \(Stray File Guard\)/);
 });

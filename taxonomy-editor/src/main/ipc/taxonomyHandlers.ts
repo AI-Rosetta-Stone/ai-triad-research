@@ -61,6 +61,7 @@ import { resolvePoverInfo } from '../../../../lib/debate/soulDocLoader.js';
 import type { TagSelection } from '../../../../lib/debate/types/session.js';
 import type { SpeakerId } from '../../../../lib/debate/types/phase.js';
 import { computeEmbeddings, computeQueryEmbedding } from '../embeddings.js';
+import { chatSyntheticStatements, groupCorpusStatements, SYNTHETIC_POV_PREFIX, type ChatSyntheticPov } from '../chatSyntheticStatements.js';
 import { computeClaimTaxonomyAttribution } from '../../../../lib/debate/argumentNetwork/attribution.js';
 import type { ArgumentNetworkNode, ClaimTaxonomyAttribution } from '../../../../lib/debate/types.js';
 import { writeNodeDeleteLogEntry } from '../nodeDeleteLog.js';
@@ -817,6 +818,44 @@ export function registerTaxonomyHandlers(): void {
     });
     warnOnLabelDedup(result.injectionManifest);
     return result;
+  });
+
+  // t/348: chat-synthetic-statements — read-only. Returns one statement text (or null) per node,
+  // never vectors or corpus. Pure logic lives in ../chatSyntheticStatements.ts.
+  ipcMain.handle('chat-synthetic-statements', async (_event, payload: unknown) => {
+    const b = (payload ?? {}) as { pov: string; queryText: string; nodeIds: string[] };
+    if (!Object.prototype.hasOwnProperty.call(SYNTHETIC_POV_PREFIX, b.pov)) {
+      throw new Error(`Invalid or missing pov (expected accelerationist|safetyist|skeptic), got: ${String(b.pov)}`);
+    }
+    if (typeof b.queryText !== 'string' || !Array.isArray(b.nodeIds) || !b.nodeIds.every(id => typeof id === 'string')) {
+      throw new Error('Missing queryText/nodeIds (expected string and string[])');
+    }
+    const pov = b.pov as ChatSyntheticPov;
+    // Corpus or vector load failure is fail-soft (t/348#7): every node falls back, one WARN, no throw.
+    let corpus: { entries?: { node_id: string; statement: string; pruned?: boolean }[] } | null;
+    let nodeVectors: Record<string, { vectors?: number[][] }>;
+    try {
+      corpus = loadSyntheticCorpus(SYNTHETIC_POV_PREFIX[pov]) as typeof corpus;
+      nodeVectors = loadSyntheticEmbeddings() ?? {};
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'taxonomy-handlers', level: 'warn',
+        message: `chat-synthetic-statements: reason=corpus-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)})`,
+      });
+      return Object.fromEntries(b.nodeIds.map(id => [id, null]));
+    }
+    const nodeStatements = groupCorpusStatements(corpus?.entries ?? []);
+    return chatSyntheticStatements(
+      { pov, queryText: b.queryText, nodeIds: b.nodeIds },
+      {
+        embed: (texts: string[]) => Promise.all(texts.map(t => computeQueryEmbedding(t))),
+        nodeStatements,
+        nodeVectors,
+        warn: (message: string) => {
+          getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-handlers', level: 'warn', message });
+        },
+      },
+    );
   });
 
   // t/3322: compute-attribution — main-process mirror of server routes/attribution.ts.

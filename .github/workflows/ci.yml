@@ -1965,6 +1965,11 @@ jobs:
       - name: t1-approval-guard predicate + workflow-extraction suites
         run: node --test operations/devops/t1-approval-guard-predicate.test.mjs operations/devops/t1-approval-guard-workflow.test.mjs operations/devops/role-review-verdicts.test.mjs
 
+      # Both workflows above run for a PR comment only when its body contains a listed substring.
+      # This keeps each list a superset of what its predicate reacts to.
+      - name: guard comment-filter suite
+        run: node --test operations/devops/comment-filter-workflow.test.mjs
+
       # t/4819: the shared GitHub 5xx/429 retry both workflows above load from the base tip, plus
       # end-to-end arms that run each workflow's real script against a mocked API.
       - name: github-retry helper + workflow retry suites
@@ -1983,6 +1988,25 @@ jobs:
       # it stays identical to its canonical copy and classifies rate-limit, 5xx and other 4xx apart.
       - name: guard PR-read (REST + rate-limit classification) suite
         run: node --test operations/devops/guard-pr-read.test.mjs
+
+      # t/73 (Second Opinion on #4795, 2026-11-15): BLOCKING, and deliberately not part of the
+      # warn-first "Enqueue sweep unit suites" step in the complexity-budget job. This is the
+      # pre-merge proof that the T0 sweep's rules still run in main's order (407 cases against a
+      # fixture generated from main's selectT0Candidates). enqueue-sweep.yml runs it too, but only
+      # main's copy, after merge, where a red result stops the sweep. No continue-on-error here:
+      # this job has no `if:` or paths filter and is in ci-gate's `needs`, so a failure fails ci-gate.
+      #
+      # The T0 and T1 sweep suites and enqueue-pr's suite run here too, blocking (Second Opinion,
+      # round 2): the T1 suite pins that enqueue-sweep.yml ships with T1_NUDGE and T1_ENQUEUE
+      # 'off'. They were only in the warn-first step, in a job that is skipped unless the
+      # `powershell` paths filter matches. That step keeps the other three suites.
+      # GH_TOKEN/GITHUB_TOKEN are set EMPTY on purpose: enqueue-pr.test.mjs has one live `gh api`
+      # test that skips when neither is set, so this blocking step makes no network call.
+      - name: Enqueue sweep suites -- T0 rule order, T0, T1, enqueue-pr (blocking)
+        env:
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+        run: node --test operations/devops/t0-rule-order.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -3396,7 +3420,7 @@ jobs:
         # the next sweep failing. Running them here checks the change before merge. WARN-FIRST:
         # flip by removing continue-on-error after >=1 green cycle (SO + TL GV), like its neighbors.
         continue-on-error: true
-        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
 
       - name: Vitest shard-blob count check arms (WARN-FIRST)
         # test-electron-coverage refuses to merge unless all 3 shard blobs arrived. That refusal
@@ -3555,8 +3579,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Run F4 shim test
         run: |
-          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh
+          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh operations/devops/test-get-merge-group-prs-ejected.sh
           operations/devops/test-get-merge-group-prs-f4.sh
+          operations/devops/test-get-merge-group-prs-ejected.sh
       - name: Run C5 liveness lookup-failure shim test (SO P2)
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
@@ -4026,7 +4051,8 @@ jobs:
           chmod +x operations/devops/get-merge-group-prs.sh
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "${{ github.ref }}")
+            "${{ github.ref }}" \
+            "${{ github.event.merge_group.head_sha }}")
           echo "group PRs and labels: $PRS_JSON"
           HELD=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("consult-hold"))] | map(.number) | join(",")')
           if [ -n "$HELD" ]; then
@@ -4096,7 +4122,8 @@ jobs:
           chmod +x operations/devops/get-merge-group-prs.sh
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "${{ github.ref }}")
+            "${{ github.ref }}" \
+            "${{ github.event.merge_group.head_sha }}")
           echo "group PRs and labels: $PRS_JSON"
           # t/4580: joint-gv PRs never enter the queue at all (merged manually after the joint
           # review) -- so ANY joint-gv label on ANY PR in a group is a fail, unconditionally,
@@ -4216,7 +4243,7 @@ jobs:
 
             execSync(`chmod +x ${JSON.stringify(enumeratorPath)}`, { cwd: process.env.GITHUB_WORKSPACE });
             const groupJson = execSync(
-              `${JSON.stringify(enumeratorPath)} ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)}`,
+              `${JSON.stringify(enumeratorPath)} ${JSON.stringify(owner + '/' + repo)} ${JSON.stringify(context.ref)} ${JSON.stringify(context.payload.merge_group?.head_sha ?? '')}`,
               { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' },
             );
             const group = JSON.parse(groupJson);
