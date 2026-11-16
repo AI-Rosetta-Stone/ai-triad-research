@@ -93,7 +93,14 @@ Describe "Compare-DebateQuality.Characterization" {
         $goldenTable = (Get-Content $goldenTablePath -Raw).Trim()
         
         # Capture actual output (6>&1 to include host messages)
-        $result = @(Compare-DebateQuality -Baseline $script:BaselineFixture -Treatment $script:TreatmentFixture -Format Table 6>&1)
+        # The golden's dates are en-US (11/1/2026 10:00:00 AM), so pin the culture for the capture: a Linux runner's default culture formats them differently.
+        $PrevCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture
+        try {
+            [System.Threading.Thread]::CurrentThread.CurrentCulture = [cultureinfo]'en-US'
+            $result = @(Compare-DebateQuality -Baseline $script:BaselineFixture -Treatment $script:TreatmentFixture -Format Table 6>&1)
+        } finally {
+            [System.Threading.Thread]::CurrentThread.CurrentCulture = $PrevCulture
+        }
         $actualTable = ($result -join "`n").Trim()
         
         # Normalize line endings (CRLF -> LF) for cross-platform compatibility
