@@ -5,7 +5,9 @@
 // Rule (t/348#4 item 4): 4 situations by score; the top 2 are injected in full (sitPrimary 2),
 // the other 2 abbreviated. Situations take no statement, so they need no fallback.
 
-export const CHAT_SITUATION_CAP = 4;
+// The cap is defined once, in chatTaxonomyCap.ts (#5168), and re-exported here for the selector and its tests.
+import { CHAT_SITUATION_CAP } from './chatTaxonomyCap';
+export { CHAT_SITUATION_CAP };
 export const CHAT_SITUATION_PRIMARY = 2;
 
 export interface ScoredChatSituation {
