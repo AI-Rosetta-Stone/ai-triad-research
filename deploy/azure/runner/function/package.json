@@ -6,7 +6,7 @@
   "engines": { "node": ">=20" },
   "main": "src/functions/*.js",
   "dependencies": {
-    "@azure/functions": "^4.17.0",
+    "@azure/functions": "^4.17.1",
     "@azure/identity": "^4.14.1",
     "@azure/arm-containerinstance": "^9.1.0"
   }
