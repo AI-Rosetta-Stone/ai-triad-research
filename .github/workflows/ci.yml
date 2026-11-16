@@ -2038,6 +2038,14 @@ jobs:
       # so a devops-only batch (full=false) cannot skip the job that runs it. Blocking.
       - name: filter coverage for operations/devops scripts (t/391)
         run: node --test operations/devops/ci-filter-coverage.test.mjs
+      # t/391 (SO p/59#64): the whole operations/devops suite runs on the PR's own CI, not only in a
+      # worktree. The per-suite steps above do not cover every file. Blocking. GH_TOKEN/GITHUB_TOKEN
+      # are empty, as in the other sweep suites, so the live gh tests skip and nothing hits the network.
+      - name: full operations/devops test suite (t/391)
+        env:
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+        run: node --test operations/devops/*.test.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
