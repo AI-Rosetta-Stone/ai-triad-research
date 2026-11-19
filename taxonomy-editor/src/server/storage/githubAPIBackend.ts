@@ -251,9 +251,16 @@ async function realpathWithin(abs: string, root: string): Promise<boolean> {
       }
       // A dangling link is an entry that exists but whose target does not: realpath fails with ENOENT,
       // and a write through it would create the target outside the cache. Refuse it.
-      if (await fs.lstat(probe).then(() => true, () => false)) {
+      try {
+        await fs.lstat(probe);
         log.storage.warn({ probe }, 'confineToDir: dangling link in the cache directory; refusing (t/432)');
         return false;
+      } catch (lerr: unknown) {
+        if ((lerr as NodeJS.ErrnoException).code !== 'ENOENT') {
+          log.storage.warn({ probe, err: String(lerr) }, 'confineToDir: cannot inspect a cache entry; refusing (t/432)');
+          return false;
+        }
+        // telemetry — the entry does not exist at all: an ordinary not-yet-created path
       }
       probe = parent; // telemetry — a not-yet-created ancestor is the normal case
     }

@@ -71,15 +71,35 @@ describe('GitHubAPIBackend disk cache does not follow a symlink out of cacheDir 
     expect(await codeOf(b.readFromDiskCache('link/secret.txt'))).toBe('PATH_OUTSIDE_ROOT');
   });
 
-  it('a cache write through a dangling link (target missing outside) creates nothing outside cacheDir', async () => {
-    // Security (p/228#16): realpath fails on a dangling link, so the containment walk must refuse it
-    // rather than climb to cacheDir and let the write create the target outside.
+  it('a cache write through a dangling link makes no filesystem call under that link (refused before any fs call)', async () => {
+    // Security (p/228#16): realpath fails with ENOENT on a dangling link. Without the lstat check the
+    // containment walk climbs to cacheDir and the write proceeds. The fix must refuse before any fs call,
+    // so no mkdir or writeFile may target a path under the dangling link. The assertion goes red when the
+    // check is disabled, because mkdir then runs on cache/dangle.
     const missing = path.join(tmp, 'missing-target');
     await fs.symlink(missing, path.join(cacheDir, 'dangle'), 'junction');
-    const b = makeBackend();
-    await b.writeToDiskCache('dangle/created.txt', 'attack', 'sha', '');
+    const mkdirSpy = vi.spyOn(fs, 'mkdir');
+    const writeSpy = vi.spyOn(fs, 'writeFile');
+    try {
+      const b = makeBackend();
+      await b.writeToDiskCache('dangle/created.txt', 'attack', 'sha', '');
+      const touched = (spy: typeof mkdirSpy) => spy.mock.calls.some(([p]) => String(p).includes(`${path.sep}dangle`) || String(p).includes('/dangle'));
+      expect(touched(mkdirSpy)).toBe(false);
+      expect(touched(writeSpy as unknown as typeof mkdirSpy)).toBe(false);
+    } finally {
+      mkdirSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
     expect(await exists(missing)).toBe(false);
-    expect(await exists(path.join(missing, 'created.txt'))).toBe(false);
+  });
+
+  it('a cache read through a dangling link is refused with PATH_OUTSIDE_ROOT (Security p/228#18)', async () => {
+    // The read path surfaces the confinement error (the write path only logs it), so the code is assertable.
+    // Without the lstat check the read would climb to cacheDir and fail as a plain cache miss (no code).
+    await fs.symlink(path.join(tmp, 'missing-target'), path.join(cacheDir, 'dangle'), 'junction');
+    const b = makeBackend();
+    b.manifest = { version: 1, generation: 1, lastCommitSha: '', lastUpdated: '', files: { 'dangle/created.txt': { sha: 'x', etag: '', cachedAt: '' } } };
+    expect(await codeOf(b.readFromDiskCache('dangle/created.txt'))).toBe('PATH_OUTSIDE_ROOT');
   });
 
   it('a normal in-cache write still lands in cacheDir (the control)', async () => {
