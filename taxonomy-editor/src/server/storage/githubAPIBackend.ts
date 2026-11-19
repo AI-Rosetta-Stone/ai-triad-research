@@ -202,17 +202,15 @@ type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'sta
 /** t/372 (CodeQL #6229, #6230): join a repo-relative path under `base` and refuse, before any
  *  write, anything that resolves outside `base`. toRepoPath's `..` check does not reach these
  *  call sites in CodeQL's model, so the cache writes confine their own path. */
-function confineToDir(base: string, rel: string): string {
+async function confineToDir(base: string, rel: string): Promise<string> {
   const root = path.resolve(base);
   const abs = path.resolve(root, rel);
-  const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
-  const r = process.platform === 'win32' ? root.toLowerCase() : root;
-  if (a !== r && !a.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) {
+  if (!(isWithinDir(abs, root) && await realpathWithin(abs, root))) {
     throw new ActionableError({
-      goal: 'Confine disk cache write to the cache directory',
+      goal: 'Confine disk cache access to the cache directory',
       problem: `Path escapes the cache directory: ${rel}`,
       location: 'githubAPIBackend.confineToDir',
-      nextSteps: ['Use a repo-relative path with no ".." segments'],
+      nextSteps: ['Use a repo-relative path with no ".." segments, and no symlink inside the cache directory'],
       code: 'PATH_OUTSIDE_ROOT',
       httpStatus: 400,
     });
@@ -220,6 +218,40 @@ function confineToDir(base: string, rel: string): string {
   // Return the join, not the resolved absolute path: the read side builds keys with path.join,
   // so an in-cache write must keep the same string.
   return path.join(base, rel);
+}
+
+/** Lexical containment of `abs` in `root` (case-insensitive on win32). */
+function isWithinDir(abs: string, root: string): boolean {
+  const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+  const r = process.platform === 'win32' ? root.toLowerCase() : root;
+  return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+}
+
+/** t/432: a symlink or junction already inside the cache directory must not lead out. Resolve the
+ *  deepest existing ancestor of `abs` and require it to stay inside the real root. Fails closed on any
+ *  error other than "does not exist yet" (containment cannot be proven). A missing root has no symlinks. */
+async function realpathWithin(abs: string, root: string): Promise<boolean> {
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(root);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return true; // telemetry — a missing root has no symlinks
+    log.storage.warn({ root, err: String(err) }, 'confineToDir: cannot resolve the cache root; refusing the write (t/432)');
+    return false;
+  }
+  let probe = abs;
+  for (;;) {
+    try {
+      return isWithinDir(await fs.realpath(probe), realRoot);
+    } catch (err: unknown) {
+      const parent = path.dirname(probe);
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) {
+        log.storage.warn({ probe, err: String(err) }, 'confineToDir: cannot verify containment; refusing (t/432)');
+        return false;
+      }
+      probe = parent; // telemetry — a not-yet-created ancestor is the normal case
+    }
+  }
 }
 
 type RawFetchResult =
@@ -2742,7 +2774,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = confineToDir(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath, 'utf-8');
     } catch (err: unknown) {
@@ -2758,7 +2790,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = confineToDir(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath);
     } catch (err) {
@@ -2777,7 +2809,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = confineToDir(this.cacheDir, repoPath);
+      const diskPath = await confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2826,7 +2858,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = confineToDir(this.cacheDir, repoPath);
+      const diskPath = await confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2870,7 +2902,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async removeFromDiskCache(repoPath: string): Promise<void> {
-    const diskPath = confineToDir(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       await fs.unlink(diskPath);
     } catch {
