@@ -10,6 +10,7 @@ import { runOpeningPipelineWithRepair, assembleOpeningPipelineResult, type Openi
 import { getModelMinTimeout } from '../../../ai-client/index.js';
 import { resolveModelForSpeaker } from '../modelResolution.js';
 import { accumulateContextManifest } from '../adaptiveStaging.js';
+import { offeredSteelmanRefs } from '../../steelman.js';
 import { enrichTaxonomyRefs, getRelevantTaxonomyContext, formatDebaterEdgeContext } from '../taxonomyContext.js';
 import { getCommitmentContext, getEstablishedPointsContext } from '../context.js';
 import { EMBEDDING_DIM } from '../../constants.js';
@@ -17,6 +18,11 @@ import { narrativeBlockForDebater, extractNarrativeCheck } from '../../narrative
 import { runNarrativeVoicing, finalizeNarrativeReference } from './narrativeVoicing.js';
 
 // ── Phase: Opening statements ──────────────────────────────
+
+// t/388: steelman AN nodes from earlier entries that the plan may cite as attacks.
+function steelmanRefsForPlan(engine: DebateEngineInternals, pov: string) {
+  return offeredSteelmanRefs(engine.session.argument_network?.nodes ?? [], pov, undefined);
+}
 
 export async function runOpeningStatements(engine: DebateEngineInternals): Promise<void> {
   engine.session.phase = 'opening';
@@ -117,6 +123,8 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
       priorStatements: priorBlock,
       isFirst: priorStatements.length === 0,
       priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
+      // t/388: steelman AN nodes from earlier entries, as attack references for this plan.
+      steelmanRefsOffered: steelmanRefsForPlan(engine, info.pov),
       sourceContent: engine.session.document_analysis ? undefined : engine.config.sourceContent,
       documentAnalysis: engine.session.document_analysis,
       audience: engine.config.audience,

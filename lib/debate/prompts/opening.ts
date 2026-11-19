@@ -41,6 +41,15 @@ export interface OpeningStagePromptInput {
   soul: PovInfo;
   /** Resolved souls for the other speakers (t/3988). Keys are SpeakerId. */
   opponentSouls?: Partial<Record<SpeakerId, PovInfo>>;
+  /** t/388: steelman AN nodes offered as attack references. Empty or absent = the prompt is unchanged. */
+  steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
+}
+
+/** t/388: the steelman references block for the plan prompt. Returns '' when none are offered. */
+function steelmanRefsBlock(refs: OpeningStagePromptInput['steelmanRefsOffered']): string {
+  if (!refs || refs.length === 0) return '';
+  const lines = refs.map(r => `  [${r.id}] (steelman of ${r.steelman_of}): ${r.text}`).join('\n');
+  return `=== STEELMAN REFERENCES ===\n${lines}\nWhen an ATTACK answers one of these steelmen, write it as "ATTACK [<id>]: ..." using an id from this list. Never invent an id. If none fits, write a plain "ATTACK: ...".\n\n`;
 }
 
 export function briefOpeningStagePrompt(input: OpeningStagePromptInput): string {
@@ -154,7 +163,7 @@ ANTICIPATED CHALLENGES - forecast where you are actually vulnerable, not where y
   that objection rather than inventing a weaker one. It is the strongest known attack on the
   node; anticipate it, don't dodge it.
 
-Respond ONLY with a JSON object (no markdown, no code fences):
+${steelmanRefsBlock(input.steelmanRefsOffered)}Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "strategic_goal": "1-2 sentences: what your opening should accomplish",
   "core_thesis": "1 sentence: your central claim in this debate",
