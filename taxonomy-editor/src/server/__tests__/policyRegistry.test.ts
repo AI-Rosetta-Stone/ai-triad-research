@@ -57,6 +57,7 @@ vi.mock('../security/userContext.js', () => ({ isAnonymousUser: isAnonymousMock,
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
 vi.mock('fs/promises', () => ({
   default: { open: fsOpenMock, stat: fsStatMock, unlink: fsUnlinkMock },
+    realpath: vi.fn(async (p: string) => p), // t/432: confineToDir resolves real paths
 }));
 
 import type { ServerCtx } from '../routes/context.js';
