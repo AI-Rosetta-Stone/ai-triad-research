@@ -354,8 +354,9 @@ def documents(canonical, docs):
 
 
 def extract_keeps(entry):
-    """R6 (7.6a): entity extraction skips a via fact, keeps a chunk_of fact, and keeps a fact with neither."""
-    return "via" not in entry
+    """R6 (7.6a, as TL ruled on t/373#3 and t/160): entity extraction keeps every kept fact, including via and chunk_of.
+    The spec on main still says skip via; it must be amended first (AI Rosetta Stone, 7.6 and 7.6a)."""
+    return True
 
 
 def _s(*quotes_nodes, pov="accelerationist"):
@@ -461,7 +462,7 @@ def main():
     assert n2[0].get("via") == "c-2026" and "chunk_of" not in n2[0], n2
     assert e["expected_documents"] == 1
     assert [x["quote"] for x in e["expected_extracted"]["n1"]] == ["The US will double down on exporting its tech stack."]
-    assert e["expected_extracted"].get("n2", []) == [], "extraction skips a via fact (the chunk of a copy)"
+    assert [x["quote"] for x in e["expected_extracted"]["n2"]] == ["Only the chunk of the copy found this."], "extraction keeps a via fact (t/373#3)"
     assert [x["quote"] for x in a["expected_extracted"]["n1"]] == ["The US will double down on exporting its tech stack.", "Countries think they must control AI before it controls them."]
 
     path = os.path.join("tests", "fixtures", "evidence-union-cases.json")

@@ -1242,7 +1242,15 @@
             "doc": "d-2026"
           }
         ],
-        "n2": []
+        "n2": [
+          {
+            "node": "n2",
+            "field": "key_point",
+            "quote": "Only the chunk of the copy found this.",
+            "doc": "d-2026",
+            "via": "c-2026"
+          }
+        ]
       }
     }
   ]
