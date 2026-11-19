@@ -275,11 +275,12 @@ The result is keyed by node; node order isn't significant. Within a node, the or
 
 ### 7.6 `via`
 `via` is provenance. It's shown nowhere and never stored over an exact id.
-- **It has exactly one branching reader:** entity extraction skips facts with `via` set, as well as facts whose `doc_id` isn't selectable (TL, e/347#7). Copies' facts stay out of paid extraction.
+- **Entity extraction reads `via` facts like any kept fact.** It doesn't skip them. After the §7.4 near-filter, every kept `via` fact is novel to its node, so skipping one only drops entities (t/373, TL decision; CL measurement, t/373#2). Facts whose `doc_id` isn't selectable are still skipped (TL, e/347#7).
+- **Attribution is unchanged:** a `via` fact's `doc_id` is the canonical, so `source_refs` name resolved docs (6.3).
 - **Any new branching reader of `via` is a contract change to this section.**
 
 ### 7.6a `chunk_of`
-`chunk_of` is provenance, like `via`, but a chunk's text is **distinct** content, not a re-run over identical text. So **entity extraction does NOT skip `chunk_of` facts** (it still skips `via`). A fact carries at most one of `via` and `chunk_of`. Any branching reader of `chunk_of` is a contract change to this section.
+`chunk_of` is provenance, like `via`, but a chunk's text is **distinct** content, not a re-run over identical text. So **entity extraction does NOT skip `chunk_of` facts**. A fact carries at most one of `via` and `chunk_of`. Any branching reader of `chunk_of` is a contract change to this section.
 
 A kept chunk item may also carry **`chunk_generated_at`** and **`chunk_model`**: the chunk summary's own generation time and model, each absent when unknown. They're additive optional provenance. Readers ignore them, and no logic branches on them.
 
