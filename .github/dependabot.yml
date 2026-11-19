@@ -5,11 +5,16 @@ version: 2
 # a 25-PR pile accumulated unnoticed because nothing throttled inflow and no
 # process doc drains it. Retuned so an untriaged week is VISIBLE (ecosystems pin
 # at low limits) instead of being silently absorbed. Aggregate headroom now ~27.
-#   - npm minor/patch are GROUPED (~one PR per dir per week); MAJOR bumps stay
-#     individual so each gets 1:1 review.
+#   - npm minor/patch are GROUPED (~one PR per dir per week). MAJOR bumps are kept OFF the
+#     weekly npm entry and come from the monthly majors-only entry below (t/319, TL p/7#152),
+#     so each still gets 1:1 review.
 #   - Low-churn ecosystems (github-actions, docker base images) moved to monthly.
 #   - Expected steady state with weekly triage: ~5-8 open dependabot PRs.
 # Change the limits here (not by manually closing PRs) if the pile reappears.
+#
+# ── Edit cost (t/313#23, t/317#4, t/319) ──
+# Each edit to this file costs ~70-105 workflow runs, so batch items and land them in one PR
+# inside the off-peak window (05:00-06:00 UTC), with a run prediction in the PR body.
 #
 # ── Incident t/313 (2026-11-11): Actions quota exhausted ──
 # Dependabot auto-rebases every open PR whenever main moves; 4 simultaneous rebases at 02:32
@@ -51,13 +56,32 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
     rebase-strategy: disabled  # t/313
-    open-pull-requests-limit: 3  # t/313: was 6; covers taxonomy-editor majors too
+    open-pull-requests-limit: 3  # t/313: was 6
+    # Majors are off this weekly entry (t/319): they come from the monthly majors-only entry below.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     # undici MAJOR was HELD (t/2053/t/2113/t/2281; #1091) until the pinned Node runtime
     # bundled a newer undici major -- that happened with the t/1990 Node 26 bump (Node 26
     # bundles undici 8.x). The ignore is dropped now that userland undici has moved to ^8.x
     # (landed atomically with ci.yml's node-version bump and the Dockerfiles, t/1990). The
     # assertUndiciMajorInvariant check (githubRestClient.ts) still enforces the alignment
     # going forward -- see undiciInvariant.ts for the mechanism.
+
+  # Monthly majors-only entry for the npm root workspace (t/319, TL p/7#152). Minor and patch
+  # are ignored here, so this entry only proposes major bumps, one PR each, once a month.
+  # Dependabot schedules per entry, which is why this is a separate entry, not a second group.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+      time: '06:10'  # t/319
+      timezone: Etc/UTC
+    rebase-strategy: disabled  # t/313
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
 
   - package-ecosystem: npm
     directory: /lib/debate
@@ -134,6 +158,10 @@ updates:
       timezone: Etc/UTC
     rebase-strategy: disabled  # t/313
     open-pull-requests-limit: 1
+    # check-base-pin-drift.yml owns the ai-triad-base pin (t/255, PI decision 3, t/249). #5031
+    # duplicated the re-pin of #5025, so this entry must not propose it too (Docker, p/134#5; t/319).
+    ignore:
+      - dependency-name: ai-rosetta-stone/ai-triad-base
 
   - package-ecosystem: docker
     directory: /deploy/azure
