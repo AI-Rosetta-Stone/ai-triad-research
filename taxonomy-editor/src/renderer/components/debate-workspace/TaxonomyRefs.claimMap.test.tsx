@@ -217,3 +217,31 @@ describe('How → Plan claim map: motion, stage word, no synthetic ids (t/388)',
     expect(screen.getByRole('group', { name: 'Attack on C1' }).textContent).toContain('Unverified');
   });
 });
+
+describe('claim-map steelman card (t/388)', () => {
+  it('shows a linked steelman on the attack card, with its verdict and the verified term', () => {
+    useDebateStore.setState({
+      activeDebate: {
+        transcript: [{ id: 'entry-2' }],
+        argument_network: {
+          nodes: [{ id: 'AN-7', text: 'Labs will keep their pledges', steelman_of: 'safetyist', steelman_check: { verdict: 'faithful' }, source_entry_id: 'entry-1' }],
+          edges: [],
+        },
+      } as never,
+    });
+    const wp = {
+      ...PLAN_WORK_PRODUCT,
+      steelman_refs_offered: ['AN-7'],
+      anticipated_challenges: ['ATTACK [AN-7]: Pledges erode targeting node acc-B-001'],
+    };
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: wp }];
+    render(<TaxonomyRefsSection refs={[]} entry={{ id: 'entry-2', type: 'statement', speaker: 'skeptic' } as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+    const c1 = screen.getByRole('group', { name: 'Attack on C1' });
+    expect(within(c1).getByText('Labs will keep their pledges')).toBeTruthy();
+    expect(within(c1).getByText(/STEELMAN OF THE SAFETYIST/)).toBeTruthy();
+    expect(within(c1).getByText('Faithful to target')).toBeTruthy();
+    expect(screen.getByText(/1 verified/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain('AN-7');
+    useDebateStore.setState({ activeDebate: null } as never);
+  });
+});
