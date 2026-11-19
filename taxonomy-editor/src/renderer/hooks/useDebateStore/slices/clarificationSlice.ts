@@ -694,6 +694,8 @@ async function buildOpeningContextForSpeaker(
       return voicing ? narrativeBlockForDebater(voicing.narratives, poverId as any) : undefined;
     })(),
     stageTimeoutMs: Math.max(getDefaultTimeout(speakerModel, aiModelsRegistry as unknown as ModelRegistry), getModelMinTimeout(speakerModel, aiModelsRegistry as unknown as ModelRegistry)),
+    // t/388: optional, undefined until the steelman-on-attack refs are wired here (Debate Engine, p/254#4).
+    steelmanRefsOffered: undefined,
   };
   return { input, taxonomyBlock, commitBlock, ctx, resolvedBriefModel, stageGenerate };
 }
