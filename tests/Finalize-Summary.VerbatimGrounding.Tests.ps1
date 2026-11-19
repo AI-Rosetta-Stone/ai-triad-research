@@ -91,6 +91,47 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
         $script:Snapshot.Contains($Stored[1]) | Should -BeTrue
     }
 
+    It 'snaps a quote across a corrupted word (t/389#5 row 44): the source keeps its own corrupted text' {
+        $Src = "We are also investing signi" + [char]0x2229 + [char]0xBC + [char]0xFC + "cantly more compute resources into monitoring."
+        $Quote = 'We are also investing significantly more compute resources into monitoring.'
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
+        $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
+            param($S, $Sum)
+            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-corrupt'
+        }
+        $R.Snapped | Should -Be 1
+        $Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim
+        $Stored | Should -Match 'signi'
+        $Src.Contains($Stored) | Should -BeTrue
+    }
+
+    It 'snaps a quote across PDF-glued words (t/389#5 row 54): the source keeps its glued text' {
+        $Src = 'safety monitors should be flexible, costs should rise only when inputs are difficult to assess, or when morecomputeisavailable. Toachievethis, weintroduce a method.'
+        $Quote = 'or when more compute is available. To achieve this, we introduce a method.'
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
+        $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
+            param($S, $Sum)
+            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-glue'
+        }
+        $R.Snapped | Should -Be 1
+        $Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim
+        $Stored | Should -Match 'morecomputeisavailable'
+        $Src.Contains($Stored) | Should -BeTrue
+    }
+
+    It 'a page footer repeated on every page is not matched as quote text' {
+        $Footer = 'Preprint under review at the venue'
+        $Src = "Body text on page 1 about models.`n$Footer`nBody text on page 2 about models.`n$Footer`nBody text on page 3 about models.`n$Footer`n"
+        $Quote = $Footer
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
+        $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
+            param($S, $Sum)
+            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-footer' 3>$null
+        }
+        $R.Dropped | Should -Be 1
+        $Sum.pov_summaries.accelerationist.key_points[0].verbatim | Should -BeNullOrEmpty
+    }
+
     It 'does nothing to a key point without verbatim' {
         $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'no quote' })
         $R = InModuleScope AITriad -Parameters @{ S = $script:Snapshot; Sum = $Sum } {
