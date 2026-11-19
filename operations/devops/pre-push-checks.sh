@@ -240,11 +240,20 @@ reap_stale_lock() {
   return 0
 }
 
+# t/436 (TL p/9#318): the lock is won by EXCLUSIVE creation of the owner file (set -C, O_EXCL), not by
+# mkdir. mkdir let two concurrent callers both succeed on the same path here (WSL), so two pushes both
+# acquired the lock and their vitest runs overlapped. The directory is only a container; whoever creates
+# the owner file while it does not exist holds the lock.
+lock_try() {
+  mkdir -p "$LOCK_DIR" 2>/dev/null || return 1
+  (set -C; echo "$$ $(date +%s) $ROOT" >"$LOCK_DIR/owner") 2>/dev/null
+}
+
 # Returns 0 holding the lock, 1 after the wait timed out (caller skips vitest with a WARN).
 acquire_vitest_lock() {
   mkdir -p "$(dirname "$LOCK_DIR")" 2>/dev/null
   t0=$(date +%s); next_note=0
-  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+  while ! lock_try; do
     now=$(date +%s); waited=$(( now - t0 ))
     holder=$(cat "$LOCK_DIR/owner" 2>/dev/null); hpid=${holder%% *}
     born=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo "$now")
@@ -266,7 +275,6 @@ acquire_vitest_lock() {
     fi
     sleep 2
   done
-  echo "$$ $(date +%s) $ROOT" >"$LOCK_DIR/owner"
   LOCK_OWNED=1
   waited=$(( $(date +%s) - t0 ))
   [ "$waited" -gt 0 ] && echo "pre-push: got the vitest lock after waiting ${waited}s." >&2
