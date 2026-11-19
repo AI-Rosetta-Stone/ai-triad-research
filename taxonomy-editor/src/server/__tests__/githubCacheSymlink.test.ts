@@ -33,6 +33,8 @@ let tmp: string;
 let cacheDir: string;
 let outside: string;
 
+const exists = (p: string) => fs.lstat(p).then(() => true, () => false);
+
 async function codeOf(p: Promise<unknown>): Promise<string | undefined> {
   return p.then(() => undefined, (e: unknown) => (e as { code?: string }).code);
 }
@@ -67,6 +69,17 @@ describe('GitHubAPIBackend disk cache does not follow a symlink out of cacheDir 
     const b = makeBackend();
     b.manifest = { version: 1, generation: 1, lastCommitSha: '', lastUpdated: '', files: { 'link/secret.txt': { sha: 'x', etag: '', cachedAt: '' } } };
     expect(await codeOf(b.readFromDiskCache('link/secret.txt'))).toBe('PATH_OUTSIDE_ROOT');
+  });
+
+  it('a cache write through a dangling link (target missing outside) creates nothing outside cacheDir', async () => {
+    // Security (p/228#16): realpath fails on a dangling link, so the containment walk must refuse it
+    // rather than climb to cacheDir and let the write create the target outside.
+    const missing = path.join(tmp, 'missing-target');
+    await fs.symlink(missing, path.join(cacheDir, 'dangle'), 'junction');
+    const b = makeBackend();
+    await b.writeToDiskCache('dangle/created.txt', 'attack', 'sha', '');
+    expect(await exists(missing)).toBe(false);
+    expect(await exists(path.join(missing, 'created.txt'))).toBe(false);
   });
 
   it('a normal in-cache write still lands in cacheDir (the control)', async () => {
