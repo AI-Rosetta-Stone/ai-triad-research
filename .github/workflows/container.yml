@@ -272,6 +272,12 @@ jobs:
             # attestation tags — those are NOT per-SHA image tags and do NOT preserve the image
             # (t/3679#9 §4); do not mistake them for this tag.
             type=raw,value=sha-${{ inputs.sha || github.sha }}
+          # The default org.opencontainers.image.revision label is github.sha, the DISPATCH ref
+          # HEAD, so a `sha`-input build labelled itself with a commit it doesn't contain (run
+          # 43760986890: built bd64b28, labelled 571cb72fd; t/445). Same expression as ref:,
+          # BUILD_SHA and the sha- tag above.
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.sha || github.sha }}
 
       - name: Get data repo HEAD (for snapshot cache key)
         id: data_head

@@ -3,6 +3,7 @@
 // node's description. Pure core: the IPC handler injects the embed and the corpus/vector loaders.
 
 import { bestMatchingSyntheticStatement } from '../../../lib/debate/syntheticStatementLookup.js';
+import { cosineSimilarity } from '../../../lib/embeddings/similarity.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 
 export type ChatSyntheticPov = 'accelerationist' | 'safetyist' | 'skeptic';
@@ -43,12 +44,15 @@ export function groupCorpusStatements(
   return out;
 }
 
+/** t/425: the chosen statement with its index in the node's statement list (null = description fallback). */
+export type ChatSyntheticMatch = { text: string; index: number } | null;
+
 export async function chatSyntheticStatements(
   input: ChatSyntheticStatementsInput,
   deps: ChatSyntheticStatementsDeps,
-): Promise<Record<string, string | null>> {
-  const result: Record<string, string | null> = {};
-  const nullAll = (): Record<string, string | null> => {
+): Promise<Record<string, ChatSyntheticMatch>> {
+  const result: Record<string, ChatSyntheticMatch> = {};
+  const nullAll = (): Record<string, ChatSyntheticMatch> => {
     for (const id of input.nodeIds) result[id] = null;
     return result;
   };
@@ -81,7 +85,31 @@ export async function chatSyntheticStatements(
       result[nodeId] = null;
       continue;
     }
-    result[nodeId] = bestMatchingSyntheticStatement(nodeId, queryVector, deps.nodeVectors, deps.nodeStatements) ?? null;
+    result[nodeId] = matchWithIndex(input.pov, nodeId, queryVector, statements, vectors, deps);
   }
   return result;
+}
+
+/** Text from the shared lookup, index from the same first-wins argmax; a disagreement is a null, never a wrong index. */
+function matchWithIndex(
+  pov: string,
+  nodeId: string,
+  queryVector: number[],
+  statements: string[],
+  vectors: number[][],
+  deps: ChatSyntheticStatementsDeps,
+): ChatSyntheticMatch {
+  const text = bestMatchingSyntheticStatement(nodeId, queryVector, deps.nodeVectors, deps.nodeStatements);
+  if (text === undefined) return null;
+  let index = 0;
+  let bestSim = -Infinity;
+  for (let i = 0; i < vectors.length; i++) {
+    const sim = cosineSimilarity(queryVector, vectors[i]);
+    if (sim > bestSim) { bestSim = sim; index = i; }
+  }
+  if (statements[index] !== text) {
+    deps.warn(`chatSyntheticStatements: reason=index-mismatch node=${nodeId} pov=${pov}`);
+    return null;
+  }
+  return { text, index };
 }

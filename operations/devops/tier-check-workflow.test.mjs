@@ -164,8 +164,9 @@ test('P1: R2a/R2c diff lines come from the already-fetched pulls.listFiles patch
 // predicate's test file to always pass cannot influence THIS verdict, because this job never
 // reads any test result and never executes any PR-authored test file in the first place ──────
 test('P2 fix 4 (t/4266#13): issue_comment and pull_request_review are triggers, so R6 re-evaluates once approval arrives (no deadlock)', () => {
-  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created\]/m);
-  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted\]/m);
+  // `edited`, `deleted` and `dismissed` (SO condition on #5176): withdrawn evidence must re-evaluate.
+  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited, deleted\]/m);
+  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
 });
 
 test('P2 fix 4: issue_comment is filtered to PRs via resolvePrNumber, same shape as t1-approval-guard.yml', () => {

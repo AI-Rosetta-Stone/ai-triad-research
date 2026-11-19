@@ -54,13 +54,17 @@ test('extractCdTarget: no cd/-C present → empty (runs at session cwd)', () => 
 
 const ROOT = 'C:/repo';
 
+// t/391: `C:/...` is absolute only on win32 (path.isAbsolute), so these three use a NATIVE absolute root
+// and run on every platform: Linux CI and any Windows host. The `C:/` expectations above stay as they are.
+const NATIVE_ROOT = path.resolve('/repo');
+
 test('resolveWorktree: under root .worktrees/<name> resolves the name', () => {
-  const r = resolveWorktree('C:/repo/.worktrees/foo', ROOT);
+  const r = resolveWorktree(path.join(NATIVE_ROOT, '.worktrees', 'foo'), NATIVE_ROOT);
   assert.equal(r.name, 'foo');
 });
 
 test('resolveWorktree: a subpath still resolves to the same worktree', () => {
-  const r = resolveWorktree('C:/repo/.worktrees/foo/src/x.ts', ROOT);
+  const r = resolveWorktree(path.join(NATIVE_ROOT, '.worktrees', 'foo', 'src', 'x.ts'), NATIVE_ROOT);
   assert.equal(r.name, 'foo');
 });
 
@@ -70,7 +74,7 @@ test('resolveWorktree: the shared main checkout (not under .worktrees) is exempt
 });
 
 test('resolveWorktree: a relative path resolves against the given cwd', () => {
-  const r = resolveWorktree('.worktrees/foo', ROOT, ROOT);
+  const r = resolveWorktree(path.join('.worktrees', 'foo'), NATIVE_ROOT, NATIVE_ROOT);
   assert.equal(r.name, 'foo');
 });
 

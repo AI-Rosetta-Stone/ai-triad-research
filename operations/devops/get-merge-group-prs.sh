@@ -30,11 +30,20 @@
 # with "expected head oid does not match the current head oid" (caught live-fire,
 # F2 double-failure arm, now historical since F1/F2 were removed -- this script's
 # headSha field is still used, purely for naming in the alert-only path's issue body).
-# Exits 1 (fail closed) on ANY problem, with a legible ::error:: line.
+# Optional 3rd arg <head_sha> = github.event.merge_group.head_sha (t/422#20a, SO t/422#41).
+# When the batch's own entry is ABSENT from mergeQueue entries and head_sha is given, the
+# batch was EJECTED from the queue (the t/422#20 cascade: entries drop when a sibling batch fails). The script
+# then exits 3 with an "EJECTED" line, not 0: a non-success result that no required context
+# can pass on. Exit 3 is never a pass; the callers' set -e turns it into a red check. Without
+# head_sha, an absent entry still exits 1 as before. A neutral or skipped check would PASS
+# required contexts (GitHub status-check docs), which is why this is not exit 0.
+# Exits 1 (fail closed) on ANY other problem, with a legible ::error:: line.
 set -euo pipefail
 
 REPO="$1"
 REF="$2"
+HEAD_SHA="${3:-}"
+EJECT_EXIT=3
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
 
@@ -69,6 +78,10 @@ fi
 
 ENTRY_COUNT=$(echo "$ENTRIES_JSON" | jq 'length')
 if [ "$ENTRY_COUNT" -eq 0 ]; then
+  if [ -n "$HEAD_SHA" ]; then
+    echo "::error::get-merge-group-prs: EJECTED -- PR #${SELF_PR_NUM} at merge_group head ${HEAD_SHA}: mergeQueue entries for ${BRANCH} is EMPTY, so this batch's entry was removed from the queue. Exit ${EJECT_EXIT} (non-success, not a pass); the sweep must not re-queue it." >&2
+    exit "$EJECT_EXIT"
+  fi
   echo "::error::get-merge-group-prs: mergeQueue entries for ${BRANCH} is EMPTY -- cannot be a valid merge_group event. FAILING CLOSED." >&2
   exit 1
 fi
@@ -76,6 +89,10 @@ fi
 # ---- 3. find our own position, fail closed if we can't locate ourselves ----
 SELF_POSITION=$(echo "$ENTRIES_JSON" | jq -r --argjson n "$SELF_PR_NUM" '[.[] | select(.pullRequest.number == $n)] | .[0].position // "null"')
 if [ "$SELF_POSITION" = "null" ] || [ -z "$SELF_POSITION" ]; then
+  if [ -n "$HEAD_SHA" ]; then
+    echo "::error::get-merge-group-prs: EJECTED -- PR #${SELF_PR_NUM} at merge_group head ${HEAD_SHA} is not in mergeQueue entries for ${BRANCH}, so this batch's entry was removed from the queue. Exit ${EJECT_EXIT} (non-success, not a pass); the sweep must not re-queue it." >&2
+    exit "$EJECT_EXIT"
+  fi
   echo "::error::get-merge-group-prs: PR #${SELF_PR_NUM} (this entry, per head_ref) was not found in mergeQueue entries -- cannot locate ourselves in the queue. FAILING CLOSED." >&2
   exit 1
 fi

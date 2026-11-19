@@ -304,7 +304,7 @@ function buildElectronApi() {
     ipcRenderer.invoke('compute-attribution', payload),
 
   // t/348: read-only. One statement text (or null for description fallback) per nodeId.
-  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }): Promise<Record<string, string | null>> =>
+  chatSyntheticStatements: (payload: { pov: string; queryText: string; nodeIds: string[] }): Promise<Record<string, { text: string; index: number } | null>> =>
     ipcRenderer.invoke('chat-synthetic-statements', payload),
 
   computeEmbeddings: (texts: string[], ids?: string[]): Promise<{ vectors: number[][] }> =>

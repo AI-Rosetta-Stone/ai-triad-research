@@ -125,7 +125,8 @@ describe('chat-synthetic-statements IPC handler (t/416)', () => {
 
   it('returns the best-matching non-pruned statement per node, text only', async () => {
     const out = await chatSynth({ pov: 'accelerationist', queryText: 'on the axis', nodeIds: ['acc-alpha-001'] });
-    expect(out).toEqual({ 'acc-alpha-001': 'on-axis statement' });
+    // t/425: the index points at the chosen statement in the node's non-pruned list ('off-axis' = 0, 'on-axis' = 1).
+    expect(out).toEqual({ 'acc-alpha-001': { text: 'on-axis statement', index: 1 } });
     expect(h.embedCalls).toEqual([['on the axis']]);
   });
 
@@ -146,7 +147,7 @@ describe('chat-synthetic-statements IPC handler (t/416)', () => {
   it('never returns vectors or corpus fields, only string or null values', async () => {
     const out = await chatSynth({ pov: 'accelerationist', queryText: 'q', nodeIds: ['acc-alpha-001', 'acc-missing-009'] }) as Record<string, unknown>;
     for (const v of Object.values(out)) {
-      expect(v === null || typeof v === 'string').toBe(true);
+      expect(v === null || (typeof v === 'object' && typeof (v as { text: unknown }).text === 'string' && typeof (v as { index: unknown }).index === 'number')).toBe(true);
     }
   });
 });

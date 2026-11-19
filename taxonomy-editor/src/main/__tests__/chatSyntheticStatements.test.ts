@@ -24,7 +24,8 @@ describe('chatSyntheticStatements (t/348)', () => {
   it('returns the statement with the highest cosine to the query embedding', async () => {
     const d = deps();
     const out = await chatSyntheticStatements({ pov: 'accelerationist', queryText: 'axis A question', nodeIds: ['acc-alpha-001'] }, d);
-    expect(out).toEqual({ 'acc-alpha-001': 'about axis A' });
+    // t/425: the chosen statement with its index in the node's statement list (row 0 = 'about axis B', row 1 = 'about axis A').
+    expect(out).toEqual({ 'acc-alpha-001': { text: 'about axis A', index: 1 } });
     expect(d.warn).not.toHaveBeenCalled();
   });
 
