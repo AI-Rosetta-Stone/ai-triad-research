@@ -2031,6 +2031,18 @@ jobs:
           GH_TOKEN: ''
           GITHUB_TOKEN: ''
         run: node --test operations/devops/t0-rule-order.test.mjs operations/devops/t0-enqueue-sweep.test.mjs operations/devops/t1-enqueue-sweep.test.mjs operations/devops/enqueue-pr.test.mjs
+      # t/371: my-prs.mjs ownership precedence (title/branch ticket > body ticket > file owners).
+      - name: my-prs ownership suite
+        run: node --test operations/devops/my-prs.test.mjs
+
+      # t/396: the pre-bulk-loop budget check passes above the floor and fails closed below it or
+      # on an unreadable rate_limit.
+      - name: gh-budget suite
+        run: node --test operations/devops/gh-budget.test.mjs
+
+      # t/385: PR-volume metric pure parts (median size, peak parallel jobs per hour).
+      - name: pr-volume metric suite
+        run: node --test operations/devops/pr-volume-metric.test.mjs
       # t/391: scoped merge_group CI: fail-safe scope script, ci-gate skip integrity, nightly alert.
       - name: merge_group scope suite
         run: node --test operations/devops/ci-merge-group-scope.test.mjs
