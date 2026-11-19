@@ -92,8 +92,17 @@ function allDigits(s: string, hex: boolean): boolean {
 }
 
 const DROPPED_ELEMENTS = new Set(['script', 'style', 'head', 'noscript']);
+// Block-level closers and <br> become line breaks in blockNewlines mode (URL mode), so paragraphs survive.
+const BLOCK_CLOSERS = new Set(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'tr', 'blockquote']);
 
-function stripTags(html: string): string {
+/** True when the tag at `lt` is a line break in blockNewlines mode: a block closer, or <br>. */
+function breaksLine(lower: string, lt: number): boolean {
+  const closing = lower.charCodeAt(lt + 1) === 0x2f; // '/'
+  const name = readTagName(lower, lt + (closing ? 2 : 1));
+  return closing ? BLOCK_CLOSERS.has(name) : name === 'br';
+}
+
+function stripTags(html: string, blockNewlines = false): string {
   // ASCII-only lowercasing keeps indices aligned with `html`; toLowerCase() can change length.
   const lower = html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
   const out: string[] = [];
@@ -113,7 +122,9 @@ function stripTags(html: string): string {
 
     const name = readTagName(lower, lt + 1);
     let end = gt + 1;
+    let separator = blockNewlines && breaksLine(lower, lt) ? '\n' : ' ';
     if (DROPPED_ELEMENTS.has(name) && !elementsWithoutClose.has(name)) {
+      separator = ' ';
       const close = findClosingTag(lower, name, gt + 1);
       if (close === -1) {
         // Unclosed: drop only the opening tag and keep the content, as before.
@@ -124,13 +135,50 @@ function stripTags(html: string): string {
       }
     }
 
-    out.push(html.slice(copyFrom, lt), ' ');
+    out.push(html.slice(copyFrom, lt), separator);
     copyFrom = end;
     pos = end;
   }
 
   out.push(html.slice(copyFrom));
   return out.join('');
+}
+
+/**
+ * HTML to plain text, linear in the input size, for URL mode (t/390). `blockNewlines` keeps paragraph and line breaks
+ * (block closers and <br> become "\n"); without it every tag becomes a space, as for document extraction.
+ * Script, style, head and noscript contents are dropped. Entities are decoded once, after stripping.
+ */
+export function htmlToTextLinear(html: string, options: { blockNewlines?: boolean } = {}): string {
+  if (options.blockNewlines !== true) return collapseWhitespace(decodeEntities(stripTags(html)));
+  const text = decodeEntities(stripTags(html, true));
+  return text
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * The document <title>, linear (t/390): the first "<title ...>text</title>" with no tag inside the text. Entities are
+ * decoded. A title whose text contains a tag is treated as absent, as the regex it replaces did.
+ */
+export function htmlTitleLinear(html: string): string | undefined {
+  const lower = html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+  const open = lower.indexOf('<title');
+  if (open === -1) return undefined;
+  const gt = html.indexOf('>', open + 6);
+  if (gt === -1) return undefined;
+  const close = lower.indexOf('</title', gt + 1);
+  if (close === -1) return undefined;
+  const raw = html.slice(gt + 1, close);
+  if (raw.includes('<')) return undefined;
+  return decodeEntities(raw.trim());
+}
+
+/** Decode character references once (exported for the URL-mode converter; see decodeEntities). */
+export function decodeHtmlEntities(s: string): string {
+  return decodeEntities(s);
 }
 
 function isNameChar(code: number): boolean {
