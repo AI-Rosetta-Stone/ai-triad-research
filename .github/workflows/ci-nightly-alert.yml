@@ -1,0 +1,55 @@
+# t/391 (TL p/9#81 condition 3): the nightly full-suite CI run on main (ci.yml `schedule`, every
+# gated job runs) is the backstop for cross-PR interactions now that merge_group runs are scoped.
+# main-ci-monitor.yml only classifies PUSH-event runs, so a red scheduled run alerted no one.
+# This opens (or comments on) one issue per red nightly run; a green run closes it.
+name: ci-nightly-alert
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: ci-nightly-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    # Only the scheduled full run; push/merge_group runs are main-ci-monitor's and the queue's.
+    if: github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      LABEL: ci-nightly-red
+    steps:
+      - name: Open, update or close the nightly-red issue
+        run: |
+          set -uo pipefail
+          existing=$(gh issue list --repo "$REPO" --label "$LABEL" --state open --json number --jq '.[0].number // empty' || true)
+          if [ "$CONCLUSION" = success ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPO" --comment "Nightly full-suite CI is green again: $RUN_URL (${SHA:0:9})." || echo "::warning::could not close #$existing"
+            fi
+            echo "nightly full suite: success"
+            exit 0
+          fi
+          gh label create "$LABEL" --repo "$REPO" --color B60205 --description "Nightly full-suite CI on main failed (t/391 backstop)" --force >/dev/null 2>&1 || true
+          body="The nightly **full-suite** CI run on main concluded **${CONCLUSION}**: ${RUN_URL} (head ${SHA:0:9}).
+
+          Since t/391, merge_group CI runs only the job families a batch touches, so this run is the backstop for cross-PR interactions. A red here means something on main fails a suite the merge queue may have skipped. Owner: DevOps. Check the failed jobs, then fix forward or revert."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "Nightly full-suite CI on main is red (${SHA:0:9})" --label "$LABEL" --label alert-escalated --body "$body"
+          fi
+          echo "::error::nightly full-suite CI on main: ${CONCLUSION} (${RUN_URL})"

@@ -2,7 +2,10 @@
 # What:  Harvests debate_tested records (backfillDebateTested --write) and commits the
 #        updated taxonomy files to the ai-triad-data repo. Follow-up to the harvest-on-save
 #        model (t/3330); this is the scheduled backstop that catches anything on-save missed.
-# When:  Daily 03:00 UTC + on every merge to main + manual dispatch (TL-approved cadence, t/3331#4).
+# When:  Daily 03:00 UTC + manual dispatch. The run on every merge to main (TL-approved cadence,
+#        t/3331#4) was dropped on the PI's decision, 2026-11-15: harvest-on-save covers the normal
+#        path, the daily run is the backstop, and a merge to main does not change the data this
+#        sweep reads.
 # Gates (all TL conditions, t/3331#4):
 #   - commit ONLY when entriesCreated > 0 (no empty-commit noise)
 #   - post-sweep assert-visible: a dry-run re-read must report lag == 0 (the committed data repo
@@ -15,8 +18,6 @@ name: Debate-Tested Sweep
 on:
   schedule:
     - cron: '0 3 * * *'   # daily 03:00 UTC
-  push:
-    branches: [main]      # also on-merge
   workflow_dispatch:
 
 permissions:

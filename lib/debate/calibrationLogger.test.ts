@@ -5,7 +5,7 @@ import { describe, it, expect, vi, type Mock } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
 import {
   computeExtractionCoverage,
   extractCalibrationData,
@@ -673,7 +673,20 @@ describe('appendCalibrationLog stamps runtime provenance (t/1672)', () => {
     return JSON.parse(lines[lines.length - 1]);
   }
 
-  it('stamps config_revision and working_tree_state onto the persisted entry', () => {
+  // Flake fix. This test ran the real `git status` under production's 2000ms cap, so it
+  // failed whenever the runner's git was slower than that: merge-queue run 43650911006
+  // failed here at 2029ms with 'unknown', and the next test's real call took 1435ms. The
+  // first `git status` after a fresh CI checkout is the slow one. Degrading to 'unknown'
+  // is what production is meant to do (t/4903), so the cap is not what this test checks.
+  // It checks that the entry is stamped and that git works from the resolved cwd (t/2597).
+  // So it still runs the real git with production's own args and cwd, and widens only the
+  // timeout. The 2000ms cap itself is asserted by the 'scopes the git status scan' test.
+  it('stamps config_revision and working_tree_state onto the persisted entry', async () => {
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    (execFileSync as unknown as Mock).mockImplementationOnce(
+      (file: string, args: readonly string[], opts: ExecFileSyncOptions) =>
+        actual.execFileSync(file, args, { ...opts, timeout: 60_000 }),
+    );
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calib-prov-'));
     try {
       const dp = extractCalibrationData(makeMinimalSession(), 'local');
@@ -689,7 +702,7 @@ describe('appendCalibrationLog stamps runtime provenance (t/1672)', () => {
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });
     }
-  });
+  }, 90_000); // above the widened git timeout, so a slow git fails the assertion, not the clock
 
   it('returns unknown and WARNs when git status times out (t/4903)', () => {
     const record = vi.fn<(e: RecordInput) => void>();

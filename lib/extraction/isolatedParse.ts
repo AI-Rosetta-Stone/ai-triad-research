@@ -96,12 +96,15 @@ export function childPermissionArgs(): string[] {
 /**
  * Parse a PDF or DOCX in the sandboxed child process, with the heap ceiling and the hard kill. This is the only entry
  * production code uses: the child is always the one in this module, and the timer is always ISOLATED_TIMEOUT_MS.
- * @param kind   'pdf' or 'docx' (DOCX bytes must already be bounded by the caller)
+ * @param kind   'pdf', 'docx', 'html' or 'text' (DOCX bytes must already be bounded by the caller)
  * @param bytes  the document bytes
  */
-export function parseIsolated(kind: 'pdf' | 'docx', bytes: Uint8Array): Promise<IsolatedParseResult> {
+export function parseIsolated(kind: IsolatedKind, bytes: Uint8Array): Promise<IsolatedParseResult> {
   return runChild(CHILD_PATH, kind, bytes, {});
 }
+
+/** The parses the child runs (t/426 added html and text). */
+export type IsolatedKind = 'pdf' | 'docx' | 'html' | 'text';
 
 /**
  * TESTS ONLY. Runs a different child script (a probe, a hang, an out-of-memory test child) through the same sandbox and
@@ -109,7 +112,7 @@ export function parseIsolated(kind: 'pdf' | 'docx', bytes: Uint8Array): Promise<
  */
 export function runChildForTests(
   childPath: string,
-  kind: 'pdf' | 'docx',
+  kind: IsolatedKind,
   bytes: Uint8Array,
   options: IsolatedParseOptions = {},
 ): Promise<IsolatedParseResult> {
@@ -157,7 +160,7 @@ export function childSlotStats(): { active: number; queued: number } {
 
 function runChild(
   childPath: string,
-  kind: 'pdf' | 'docx',
+  kind: IsolatedKind,
   bytes: Uint8Array,
   options: IsolatedParseOptions,
 ): Promise<IsolatedParseResult> {
@@ -167,7 +170,7 @@ function runChild(
 // The child itself. The 15 s timer starts here, once the parse holds its slot, so time spent waiting is not charged.
 function spawnChild(
   childPath: string,
-  kind: 'pdf' | 'docx',
+  kind: IsolatedKind,
   bytes: Uint8Array,
   options: IsolatedParseOptions,
 ): Promise<IsolatedParseResult> {

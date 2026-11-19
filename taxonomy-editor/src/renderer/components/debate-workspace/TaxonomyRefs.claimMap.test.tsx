@@ -35,6 +35,7 @@ vi.mock('../../utils/humanizeSpeakers', () => ({
 
 import { TaxonomyRefsSection } from './TaxonomyRefs';
 import { usePreferencesStore } from '../../store/preferencesStore';
+import { useDebateStore } from '../../hooks/useDebateStore';
 
 const THESIS = 'Labs can be trusted to self-regulate';
 
@@ -155,5 +156,54 @@ describe('How → Plan claim map (t/331)', () => {
     const { container } = renderPlan({ argument_structure: [{ point: 'Legacy point', evidence: 'e', taxonomy_anchor: 'acc-B-001' }] });
     expect(container.querySelector('.claim-map-layout')).toBeNull();
     expect(screen.getByText('Legacy point')).toBeTruthy();
+  });
+});
+
+describe('How → Plan claim map: motion, stage word, no synthetic ids (t/388)', () => {
+  const MOTION = 'Frontier labs should be legally liable for model harms';
+  const ENTRY = { id: 'entry-1', type: 'opening', speaker: 'skeptic' } as never;
+
+  function renderFor(entry: unknown, activeDebate: unknown) {
+    useDebateStore.setState({ activeDebate } as never);
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: PLAN_WORK_PRODUCT }];
+    return render(<TaxonomyRefsSection refs={[]} entry={entry as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePreferencesStore.setState({ viewMode: 'advanced' });
+  });
+
+  it('shows the session motion when the entry belongs to the active debate', () => {
+    renderFor(ENTRY, { topic: { final: MOTION }, transcript: [{ id: 'entry-1' }] });
+    expect(screen.getByText(`Motion — ${MOTION}`)).toBeTruthy();
+  });
+
+  it('omits the motion line when the entry is not in the active debate', () => {
+    renderFor(ENTRY, { topic: { final: MOTION }, transcript: [{ id: 'other-entry' }] });
+    expect(screen.queryByText(/Motion —/)).toBeNull();
+  });
+
+  it('omits the motion line when there is no active debate', () => {
+    renderFor(ENTRY, null);
+    expect(screen.queryByText(/Motion —/)).toBeNull();
+  });
+
+  it('labels an opening entry as OPENING PLAN, after the speaker camp', () => {
+    const { container } = renderFor(ENTRY, null);
+    expect(container.querySelector('.claim-map-eyebrow')?.textContent).toBe('SKEPTIC · OPENING PLAN');
+  });
+
+  it('does not show the stage as OPENING for a non-opening entry', () => {
+    const { container } = renderFor({ id: 'entry-2', type: 'statement', speaker: 'skeptic' }, null);
+    expect(container.querySelector('.claim-map-eyebrow')?.textContent).toBe('SKEPTIC · PLAN');
+  });
+
+  it('never shows an annotation id on an attack card', () => {
+    const { container } = renderFor(ENTRY, null);
+    expect(container.querySelector('.claim-map-attack-id')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/AN-\d/);
+    // The attack still reads as Unverified.
+    expect(screen.getByRole('group', { name: 'Attack on C1' }).textContent).toContain('Unverified');
   });
 });

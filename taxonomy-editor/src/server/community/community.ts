@@ -13,6 +13,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import path from 'path';
 import { getConfig } from '../runtimeConfig.js';
 import { mintCommunityOpedShare, getCommunityOpedShareEntry, revokeCommunityOpedShare } from './communityOpedShares.js';
+import { projectArgumentNetwork, projectTopic } from './argumentNetworkProjection.js';
 import { writePublicCommunityOpEd, deletePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/communityOpedShareStore.js';
 import {
   loadInquiryResult, listInquiryResults, saveInquiryResult, type InquiryResultSummary,
@@ -880,9 +881,9 @@ const COMMUNITY_PROJECTION_ALLOWLIST: Record<Submission['type'], ReadonlySet<str
     'id', 'title', 'created_at', 'updated_at', 'mode', 'topic', 'pover', 'transcript', 
     'chat_model', 'temperature', 'pov_tag', 'tag_mode', 'community_metadata'
   ]),
-  // Debate: the 13 keys ruled in t/196#25 (Security re-review). Transcript, neutral_evaluations and
-  // adaptive_staging are projected structurally (projectTranscriptEntry, projectNeutralEvaluation,
-  // projectAdaptiveStaging). Everything else is owner-only, including stages (t/196#19, reverses t/171),
+  // Debate: the 13 keys ruled in t/196#25 (Security re-review). Transcript, neutral_evaluations,
+  // adaptive_staging and argument_network are projected structurally (projectTranscriptEntry,
+  // projectNeutralEvaluation, projectAdaptiveStaging, projectArgumentNetwork). Everything else is owner-only, including stages (t/196#19, reverses t/171),
   // prompt_config, origin, metadata, diagnostics, position_drift, convergence_signals, and model ids
   // (debate_model, speaker_models, model_tier, protocol_id: t/196#25 item 6, not covered by t/345).
   // community_metadata is set server-side after projection, so it is not listed here.
@@ -907,6 +908,8 @@ function projectAllowedValue(type: Submission['type'], key: string, value: unkno
     return value.map(e => projectNeutralEvaluation(e)).filter((e): e is Record<string, unknown> => e !== undefined);
   }
   if (type === 'debate' && key === 'adaptive_staging') return projectAdaptiveStaging(value);
+  if (type === 'debate' && key === 'argument_network') return projectArgumentNetwork(value);
+  if (key === 'topic') return projectTopic(value);
   return value;
 }
 
