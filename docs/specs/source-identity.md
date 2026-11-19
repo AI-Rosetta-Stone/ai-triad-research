@@ -290,6 +290,7 @@ A kept chunk item may also carry **`chunk_generated_at`** and **`chunk_model`**:
   - The key sits in the canonical's namespace and names its source, so its text rebuilds from `summaries/<copy>.json`.
   - No `summary:<copy>` key is made, and no existing key changes (6.4).
 - A kept chunk item gets `summary:<C>#chunk-<chunk>-<pov>-kp-<n>` or `summary:<C>#chunk-<chunk>-fc-<n>`, with `<n>` indexing **the chunk's** own array, parallel to the `#via-<copy>-` form. Its text rebuilds from `summaries/<chunk>.json`.
+- A kept item from a chunk of a marked copy `C` (a `via: <C>` link, 7.4 step 3) gets `summary:<D>#via-<C>-chunk-<chunk>-<pov>-kp-<n>` or `summary:<D>#via-<C>-chunk-<chunk>-fc-<n>`, where `<D>` is the canonical and `<n>` indexes **the chunk's** own array. The key sits in the canonical's namespace and names both the copy and the chunk. Its text rebuilds from `summaries/<chunk>.json`. It matches the derived-key pattern below. A chunk of `D` itself keeps the `#chunk-` form above (t/355#19).
 - **These keys are derived.** They appear or disappear when marks or this section change, so **nothing may persist a reference to one.**
   - A derived key matches `^summary:[^#]+#via-`.
   - The index builder drops human mentions on such a key **with a WARN**, never silently.
