@@ -94,3 +94,20 @@ on t/4351, cleaned up after.
 A reviewer-App approval is a **record, not a gate** (t/4096#12 C1, TL ruling): branch protection
 does not require it today. `required_approving_review_count` is a separate, PI-only
 branch-protection decision and is out of scope here.
+
+## Failed `evaluate` rows on a head (t/449 (c))
+
+The guard's job is `evaluate` (t1-approval-guard.yml). While a T1 PR waits for its approval,
+`postCheckRun` posts a **failure** run on the head. Each time the guard re-runs and still has no
+approval, another failure run is added. When the approval lands and the guard passes, the latest
+`evaluate` run is a success, but the earlier failure rows stay on the head.
+
+- **What this does:** GitHub shows the PR as `UNSTABLE` while those superseded failure rows are on
+  the head. `evaluate` is **not** a required check (the required contexts are `ci-gate`,
+  `joint-gv-guard`, `consult-hold-guard` and `CodeQL Analysis`), so the display row does not block
+  a merge or an enqueue.
+- **Who reads what:** the enqueue path (`enqueue-pr.mjs` through `pickAuthoritativeGuardRun`)
+  takes the latest non-skipped run at the live head, so a superseded failure does not block it.
+- **What to do:** nothing. Do not re-run the guard to clear the display row. Do not post the
+  refusal as `neutral` to hide it: that changes the gate's visible result and is a T2 decision.
+  Accepted by the TL on t/449 (p/9#268), with the display row documented here.
