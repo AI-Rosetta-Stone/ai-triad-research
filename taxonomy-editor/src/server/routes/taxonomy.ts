@@ -301,7 +301,7 @@ async function prepareTaxonomyNodeWrite(
 // For each selected BDI node, returns the corpus statement with the highest cosine to the chat's last user
 // message (the same argmax as claim attribution, bestMatchingSyntheticStatement). Null means the renderer keeps
 // the node's description for that turn. The query embed is ai.computeQueryEmbedding, the same embed
-// relevant-nodes gives selectRelevantTaxonomy. Output carries only text or null: no vectors, no corpus.
+// relevant-nodes gives selectRelevantTaxonomy. Output carries only { text, index } or null per node: no vectors, no corpus.
 const CHAT_SYNTH_POV_KEYS: Record<string, string> = { accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp' };
 const CHAT_SYNTH_MAX_NODES = 12;
 const CHAT_SYNTH_QUERY_MAX_CHARS = 1000;

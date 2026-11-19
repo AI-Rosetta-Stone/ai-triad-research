@@ -788,3 +788,29 @@ test('FIRE ARM t/311: an alias cannot be used to self-approve -- `quality-techle
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'no-post-push-approval');
 });
+
+// t/449 (a): the wording reviewers actually post ('Security approval (t/444)...') is refused with
+// the exact form the guard reads, and the refusal quotes the line it did not read.
+test('t/449 (a): an approval-shaped comment the grammar does not read is refused with the expected form', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t449-gate-mechanics',
+    lastPushAt: PUSH,
+    approvalComments: [{ body: 'Security approval (t/444): reviewed, looks fine', createdAt: AFTER_PUSH }],
+  });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
+  assert.match(r.summary, /must start exactly with `Approved \(<role>\):`/);
+  assert.match(r.summary, /Security approval \(t\/444\)/);
+});
+
+test('t/449 (a): a plain comment with no approval wording gets no summary (unchanged refusal)', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t449-gate-mechanics',
+    lastPushAt: PUSH,
+    approvalComments: [{ body: 'Rebased onto main.', createdAt: AFTER_PUSH }],
+  });
+  assert.equal(r.reason, 'no-post-push-approval');
+  assert.equal(r.summary, undefined);
+});

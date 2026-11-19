@@ -17,12 +17,12 @@
     "eslint": "^10.14.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.1",
+    "typescript-eslint": "^8.72.2",
     "zod": "^4.6.7"
   },
   "scripts": {
     "lint": "eslint . && node eslint-rules/check-complexity-budget-disables.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p debate/tsconfig.json --noEmit && pnpm run typecheck:brief-nodenext",
     "typecheck:brief-nodenext": "tsc -p brief/tsconfig.nodenext.json"
   }
 }

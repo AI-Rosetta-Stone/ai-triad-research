@@ -380,5 +380,20 @@ export function evaluateT1ApprovalGuard({ body, headRefName, headSha, lastPushAt
   if (approvals.length > 0) {
     return { pass: true, tier, reason: 'approved-after-push', approver: { role: approvals[0].role, at: approvals[0].at } };
   }
+  // t/449 (a): an approval-shaped comment the grammar does not read (`Security approval (t/444)...`)
+  // used to be silently ignored. Refuse with the exact form the guard reads, and quote the line.
+  const unread = [...(approvalComments || []), ...reviews]
+    .map((c) => String(c?.body ?? '').trim().split('\n')[0])
+    .find((line) => APPROVAL_SHAPE_RE.test(line) && !parseVerdict(line));
+  if (unread) {
+    return {
+      pass: false, tier, reason: 'no-post-push-approval',
+      summary: `No approval at the live head. A comment looks like an approval but the guard does not read it: \`${unread.slice(0, 120)}\`. The first line must start exactly with \`Approved (<role>):\`, for example \`Approved (Quality): <note>\`, and be posted after the latest push.`,
+    };
+  }
   return { pass: false, tier, reason: 'no-post-push-approval' };
 }
+
+// Verdict-shaped only: `Security approval (t/444)...`, `Approval (Quality): ...`. Prose that merely
+// mentions an approval (the sweep's nudge: "a reviewer approval is recorded") does not match.
+const APPROVAL_SHAPE_RE = /^[*_\s]*(?:[\w-]+\s+){0,2}approval\s*\(/i;

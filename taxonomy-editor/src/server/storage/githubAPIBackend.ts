@@ -2622,8 +2622,9 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
 
-    // Reject path traversal
-    if (p.includes('..')) {
+    // Reject path traversal: `..` as a whole segment only (either separator), so a name such as
+    // `foo..json` is a valid file name. confineToDir still keeps any in-root path inside the root.
+    if (p.split(/[\\/]/).includes('..')) {
       throw new ActionableError({
         goal: 'Validate file path',
         problem: `Path traversal with ".." rejected: "${filePath}"`,

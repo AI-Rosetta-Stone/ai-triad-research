@@ -992,7 +992,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.70.0",
+      "version": "1.72.0",
       "license": "ISC"
     },
     {
@@ -1677,7 +1677,7 @@
     },
     {
       "name": "ws",
-      "version": "8.22.1",
+      "version": "8.23.0",
       "license": "MIT"
     },
     {
@@ -3283,7 +3283,7 @@
       "packages": [
         {
           "name": "lucide-react",
-          "version": "1.70.0"
+          "version": "1.72.0"
         }
       ],
       "licenseType": "ISC",
@@ -3849,7 +3849,7 @@
       "packages": [
         {
           "name": "ws",
-          "version": "8.22.1"
+          "version": "8.23.0"
         }
       ],
       "licenseType": "MIT",
