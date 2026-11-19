@@ -60,4 +60,19 @@ describe('htmlToText keeps what URL mode needs', () => {
   it('returns no title when there is none', async () => {
     expect((await htmlToText('<p>no title here</p>')).title).toBeUndefined();
   });
+
+  // t/446 (Security, p/232#37): an element whose name starts with "title" is not the title.
+  it('skips <titlebar> and </titles> and reads the real <title>', async () => {
+    const { title } = await htmlToText('<titlebar>x</titlebar><title>Real</title>');
+    expect(title).toBe('Real');
+  });
+
+  it('keeps a <title> with attributes or a space before ">"', async () => {
+    expect((await htmlToText('<title lang="en">A</title>')).title).toBe('A');
+    expect((await htmlToText('<title >B</title >')).title).toBe('B');
+  });
+
+  it('a 25k run of "<titlebar" with no ">" completes in under 1 s', async () => {
+    expect(await timed(() => htmlToText('<titlebar'.repeat(25_000)))).toBeLessThan(1000);
+  });
 });
