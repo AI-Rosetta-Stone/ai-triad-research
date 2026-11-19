@@ -34,6 +34,7 @@
   ],
   "electron": [
     ".github/ci/data-root-guard-report.sh",
+    ".github/ci/vitest-retry-report.sh",
     "taxonomy-editor/**",
     "poviewer/**",
     "summary-viewer/**",
