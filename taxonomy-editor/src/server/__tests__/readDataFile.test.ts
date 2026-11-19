@@ -19,7 +19,7 @@ vi.mock('../storage/fileIO.js', () => ({
   getBackend: () => ({ readBinaryFile: mockReadBinaryFile }),
 }));
 
-vi.mock('fs/promises', () => ({ default: { readFile: mockFsReadFile } }));
+vi.mock('fs/promises', () => ({ default: { readFile: mockFsReadFile, realpath: vi.fn(async (p: string) => p) } })); // t/432
 
 vi.mock('../config.js', () => ({
   resolveDataPath: (rel: string) => `/data/root/${rel}`,
