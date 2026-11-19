@@ -113,7 +113,9 @@ test('ci.yml: changes runs on merge_group, diffs the batch, and never fails the 
 test("ci.yml: every gated family trims on merge_group only on a positive full=='false'", () => {
   assert.doesNotMatch(CI, /github\.event_name == 'merge_group' \|\| needs\.changes/, 'a bare merge_group clause would still run everything');
   assert.doesNotMatch(CI, /'workflow_dispatch' \|\| github\.event_name == 'merge_group' \|\|/);
-  assert.equal(CI.split("(github.event_name == 'merge_group' && needs.changes.outputs.full != 'false')").length - 1, 26);
+  // 21, not 26: verify-config, dependency-audit, debate-eval, schema-validation and schema-drift are not in
+  // ci-gate's needs and no longer run on merge_group at all (see "never-gating jobs and the merge queue" in ci-gate).
+  assert.equal(CI.split("(github.event_name == 'merge_group' && needs.changes.outputs.full != 'false')").length - 1, 21);
 });
 
 // ── 3. ci-gate's merge_group skip-integrity step, run on needs fixtures ──

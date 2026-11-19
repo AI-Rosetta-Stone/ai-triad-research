@@ -4029,16 +4029,16 @@ jobs:
 
   ci-gate:
     name: ci-gate
+    needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test, gate-self-health]
     # ── never-gating jobs and the merge queue ──
-    # Seven jobs are deliberately NOT in the needs below, so their result cannot hold a
+    # Seven jobs are deliberately NOT in the needs above, so their result cannot hold a
     # merge-queue batch back: verify-config, dependency-audit, pov-tag-orphan-check, schema-drift,
     # schema-validation, debate-eval, action-pin-resolution. They used to run on every merge_group
     # run anyway (ten jobs per batch, counting dependency-audit's four-app matrix, for a result the
     # queue ignores), so each now skips on merge_group. Each still runs on its PR and push
     # conditions and on the nightly schedule. A job promoted to blocking (added to the needs
-    # below) MUST get its merge_group condition back in the same PR, or the queue would treat its
+    # above) MUST get its merge_group condition back in the same PR, or the queue would treat its
     # skip as satisfied.
-    needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test, gate-self-health]
     if: always()
     # lint:skipped-tolerated: yes — path-filtered gated jobs gate on needs.changes.outputs.* and
     #   skip by design on PRs that don't touch their subsystem; a skipped need is expected, not a
