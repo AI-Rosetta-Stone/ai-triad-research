@@ -100,6 +100,7 @@ export async function listUserJobRecords<K extends JobRecordKind>(userId: string
       // t/268 (item 5): a degraded [] must not read as "no records", or a job cap fails open.
       const listing = await backend.listDirectoryDetailed(dir);
       if (listing.degraded) {
+        log.storage.warn({ dir, degraded: listing.degraded, kind }, 'listUserJobRecords: degraded GitHub listing — job cap fails closed (JOB_RECORD_LIST_FAILED, 503) (t/268)');
         throw new ActionableError({
           goal: 'Count job records for a job cap',
           problem: `GitHub listing degraded (${listing.degraded}); cannot confirm the record count`,

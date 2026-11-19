@@ -17,6 +17,18 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
+const { storageWarn } = vi.hoisted(() => ({ storageWarn: vi.fn() }));
+vi.mock('../logger.js', () => ({
+  log: {
+    api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    server: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    storage: { info: vi.fn(), warn: storageWarn, error: vi.fn(), debug: vi.fn() },
+  },
+  getRequestId: () => 'req-test',
+  LOG_MAX_LINE_BYTES: 65536,
+  writeFramedNdjson: vi.fn(),
+}));
+
 vi.mock('../security/githubAppAuth', () => ({
   getCredentials: vi.fn().mockResolvedValue({ repo: 'testowner/testrepo', token: 't', mode: 'pat' }),
   getRepoSlug: vi.fn().mockReturnValue('testowner/testrepo'),
@@ -78,6 +90,11 @@ describe('listUserJobRecords on the GitHub backend fails closed on a degraded li
     setUserContentBackend(makeGitHub({ holder: false }));
     await expect(runWithUser(OWNER, () => listUserJobRecords('owner-1', 'inquiry')))
       .rejects.toMatchObject({ code: 'JOB_RECORD_LIST_FAILED' });
+    // t/268: the 503 is visible: a WARN names the degradation reason.
+    expect(storageWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ degraded: 'non-holder-tree-empty' }),
+      expect.stringContaining('fails closed'),
+    );
   });
 
   it('an open circuit breaker is degraded: the job count is refused', async () => {
