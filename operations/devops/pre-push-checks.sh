@@ -221,6 +221,25 @@ trap release_vitest_lock EXIT
 trap 'release_vitest_lock; exit 130' INT
 trap 'release_vitest_lock; exit 143' TERM HUP
 
+# t/436 (TL p/9#314, option a): take over a lock judged stale WITHOUT deleting a live holder's lock.
+# $1 is the owner we judged stale. Renaming the lock dir is atomic, so after the rename we check the
+# owner of what we moved: if it is still the stale holder, delete it; if a live holder took the lock
+# in the window between our read and our rename, put it back. The race that remains (someone takes
+# the free slot in the instant between our rename and our put-back) is reported with a WARN; the
+# live holder keeps its lock directory under the .reap name and is never deleted by this path.
+reap_stale_lock() {
+  reap="$LOCK_DIR.reap.$$"
+  mv "$LOCK_DIR" "$reap" 2>/dev/null || return 0
+  if [ "$(cat "$reap/owner" 2>/dev/null)" = "$1" ]; then
+    rm -rf "$reap"
+    return 0
+  fi
+  if [ -e "$LOCK_DIR" ] || ! mv "$reap" "$LOCK_DIR" 2>/dev/null; then
+    echo "pre-push: WARN a live vitest lock was taken during a stale takeover; it is kept at $reap" >&2
+  fi
+  return 0
+}
+
 # Returns 0 holding the lock, 1 after the wait timed out (caller skips vitest with a WARN).
 acquire_vitest_lock() {
   mkdir -p "$(dirname "$LOCK_DIR")" 2>/dev/null
@@ -229,9 +248,12 @@ acquire_vitest_lock() {
     now=$(date +%s); waited=$(( now - t0 ))
     holder=$(cat "$LOCK_DIR/owner" 2>/dev/null); hpid=${holder%% *}
     born=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo "$now")
+    # t/436 test hook (unset in production): pause after reading the owner and before judging it
+    # stale, and say so with a marker, so a test can replace the lock inside that window.
+    if [ -n "${AITRIAD_TEST_STALE_PAUSE:-}" ]; then : >"$LOCK_DIR.paused"; sleep "$AITRIAD_TEST_STALE_PAUSE"; fi
     if { [ -n "$hpid" ] && ! kill -0 "$hpid" 2>/dev/null; } || [ $(( now - born )) -gt "$LOCK_STALE" ]; then
       echo "pre-push: WARN removing a stale vitest lock (holder: ${holder:-unknown}, age $(( now - born ))s): its process is gone or it outlived ${LOCK_STALE}s." >&2
-      rm -rf "$LOCK_DIR"
+      reap_stale_lock "$holder"
       continue
     fi
     if [ "$waited" -ge "$LOCK_WAIT" ]; then

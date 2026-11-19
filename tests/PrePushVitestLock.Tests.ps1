@@ -160,6 +160,33 @@ exit 0
         Test-Path $script:LockDir | Should -BeFalse -Because 'the last owner must release the lock'
     }
 
+    # t/436 (TL p/9#314, option a). A waiter judges a dead holder's lock stale, pauses, and meanwhile
+    # the dead holder releases and a live holder takes the lock. The waiter must not delete the live
+    # holder's lock: it must wait behind it. Before the fix it deleted it, and a third push ran at once
+    # (the overlap seen on CI). The pause is the AITRIAD_TEST_STALE_PAUSE hook, which marks the window.
+    It 't436: a stale-judged waiter does not delete a live holder that took the lock in the window' {
+        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value '999999 0 /gone/worktree' -NoNewline
+        $p = Start-Push (New-PushRepo) ($script:Env + @{ AITRIAD_TEST_VITEST_SECS = 0; AITRIAD_TEST_STALE_PAUSE = 3 })
+        $marker = "$script:LockDir.paused"
+        for ($i = 0; $i -lt 600 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 100 }
+        Test-Path $marker | Should -BeTrue -Because 'the waiter must reach the window'
+
+        # The dead holder is gone; a live holder takes the lock inside the window.
+        Remove-Item -Recurse -Force $script:LockDir
+        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+        # The live holder is this test process itself: alive for the whole test, and visible to kill -0
+        # from the waiter. Release it by removing its lock dir, as its own exit trap would.
+        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value "$PID 0 /live" -NoNewline
+        Start-Sleep -Seconds 5
+        Test-Path (Join-Path $script:LockDir 'owner') | Should -BeTrue -Because 'the live lock must survive the waiter'
+        Remove-Item -Recurse -Force $script:LockDir
+        $r = Wait-Push $p
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'waiting for the machine-wide vitest lock' -Because 'the waiter must wait behind the live holder, not remove its lock'
+        @(Get-VitestRuns $script:Log).Count | Should -Be 1
+    }
+
     It 'caps vitest workers: --pool=forks --maxWorkers set to half the cores, at least 1' {
         $r = Wait-Push (Start-Push (New-PushRepo) ($script:Env + @{ AITRIAD_TEST_VITEST_SECS = 0 }))
         $r.Code | Should -Be 0 -Because $r.Out
