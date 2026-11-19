@@ -261,7 +261,7 @@ Both thresholds are integer comparisons, so floating-point rounding can't make t
 For each canonical `C` and each node `n`:
 1. **Keep all of `C`'s own links on `n`,** in order and unchanged, including repeats. They are what 6.3 already shows.
 2. **Then, for each non-canonical member (marked copies, then chunks) in group order** and each of its links on `n` in order, keep the link only if it isn't `near` to any link already kept on `n`. **The canonical wins ties,** because its links are kept first.
-3. **Every kept link is attributed to `C`.** A kept link from a **marked copy** carries `via: <copy id>`. A kept link from a **chunk of `D` itself** carries `chunk_of: <chunk id>`. A kept link from a **chunk of a marked copy** carries **`via: <copy id>`**, not `chunk_of`: it's still copy-derived text, so §7.6 still keeps it out of paid extraction. A link never carries both.
+3. **Every kept link is attributed to `C`.** A kept link from a **marked copy** carries `via: <copy id>`. A kept link from a **chunk of `D` itself** carries `chunk_of: <chunk id>`. A kept link from a **chunk of a marked copy** carries **`via: <copy id>`**, not `chunk_of`, as provenance: its facts are extracted like any other kept fact (§7.6). A link never carries both.
 
 The result is keyed by node; node order isn't significant. Within a node, the order is the order of steps 1 and 2.
 
