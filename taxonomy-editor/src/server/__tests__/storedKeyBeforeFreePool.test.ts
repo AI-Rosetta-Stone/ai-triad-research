@@ -9,10 +9,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const h = vi.hoisted(() => ({
   keys: [] as string[], throwErr: null as Error | null, anonymous: false,
-  warn: vi.fn(),
+  warn: vi.fn(), getKeys: vi.fn(),
 }));
 vi.mock('../security/keyStore.js', () => ({
-  getKeyStore: () => ({ getKeys: async () => { if (h.throwErr) throw h.throwErr; return h.keys; } }),
+  getKeyStore: () => ({ getKeys: (...a: unknown[]) => h.getKeys(...a) }),
 }));
 vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'test-user', isAnonymousUser: () => h.anonymous }));
 vi.mock('../logger.js', async (importOriginal) => {
@@ -25,15 +25,17 @@ import { getStoredUserKeysBeforeFreePool } from '../config.js';
 let savedGemini: string | undefined;
 beforeEach(() => {
   h.keys = []; h.throwErr = null; h.anonymous = false; h.warn.mockClear();
+  h.getKeys.mockReset().mockImplementation(async () => { if (h.throwErr) throw h.throwErr; return h.keys; });
   savedGemini = process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_API_KEY;
 });
 afterEach(() => { if (savedGemini === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = savedGemini; });
 
 describe('getStoredUserKeysBeforeFreePool (t/204)', () => {
-  it('returns the signed-in user\'s stored keys', async () => {
+  it('returns the signed-in user\'s stored keys, read for that user only', async () => {
     h.keys = ['user-gemini-key'];
     expect(await getStoredUserKeysBeforeFreePool('gemini')).toEqual(['user-gemini-key']);
+    expect(h.getKeys).toHaveBeenCalledWith('gemini', 'test-user');
     expect(h.warn).not.toHaveBeenCalled();
   });
 
@@ -53,6 +55,7 @@ describe('getStoredUserKeysBeforeFreePool (t/204)', () => {
     h.anonymous = true;
     h.keys = ['should-not-be-read'];
     expect(await getStoredUserKeysBeforeFreePool('gemini')).toEqual([]);
+    expect(h.getKeys).not.toHaveBeenCalled();
   });
 
   it('ignores server env keys: only the user\'s own stored key counts', async () => {

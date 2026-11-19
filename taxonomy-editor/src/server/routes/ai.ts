@@ -80,7 +80,11 @@ type ResolvedTier = ReturnType<typeof proxyTiers.resolveTier>;
 
 /** Guard branch: enforce access controls and resolve the execution tier.
  *  Returns false if the handler should proceed; true if access was denied (response written). */
-function enforceGenerateAccess(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, backend: AIBackend, debateId: string | undefined, isFree: boolean, limitKey: string): boolean {
+function enforceGenerateAccess(res: http.ServerResponse, tier: ResolvedTier, backend: AIBackend, debateId: string | undefined, isFree: boolean, limitKey: string): boolean {
+  // t/3230: a single anonymous debate drains the shared free Gemini key pool (K=4) → 429 storm
+  // → ~485s retry → user-facing 500. Block free-tier debate generation (reversible via the
+  // `anon-debates` flag) BEFORE any key/provider call — covers debate rounds AND the fact-check
+  // `search` calls (both carry debateId). Authenticated debates + non-debate free-tier untouched.
   if (enforceAnonDebateGate(res, isFree, debateId)) return true;
   if (enforceBackendAllowed(res, tier, backend)) return true;
   if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return true;
@@ -540,7 +544,7 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
       // Enforce access controls: anon debates, backend allowlist, rate limits.
       // Each guard returns true if access was denied (response already written).
-      if (enforceGenerateAccess(req, res, tier, backend, debateId, isFree, limitKey)) return;
+      if (enforceGenerateAccess(res, tier, backend, debateId, isFree, limitKey)) return;
 
       // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
