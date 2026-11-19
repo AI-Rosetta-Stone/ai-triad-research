@@ -317,7 +317,8 @@ export async function getStoredUserKeysBeforeFreePool(backend: AIBackend): Promi
     return stored;
   } catch (err) {
     if (isKeyRoutingRefusal(err)) throw err; // a refusal is not a key-store failure; never swallow it
-    log.server.warn({ backend, err }, 'Stored BYOK key unreadable — falling back to the free pool (t/204)');
+    // Log name and message only: the error can carry a blob URL or SAS token, which must not reach logs.
+    log.server.warn({ backend, err: { name: (err as Error)?.name, message: (err as Error)?.message } }, 'Stored BYOK key unreadable — falling back to the free pool (t/204)');
     return [];
   }
 }

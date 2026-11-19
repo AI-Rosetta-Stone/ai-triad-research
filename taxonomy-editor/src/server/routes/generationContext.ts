@@ -29,8 +29,19 @@ function callerIdentity(): { principalName: string; idp: string } {
   return callerTierIdentity(getCurrentUser());
 }
 
+/** t/201: the key tier that served a request, from the caller's tier level. Anonymous and signed-in free
+ *  callers are served by the free key pool; `byok` uses the caller's own key; `platform` the platform key.
+ *  Only the tier and the anonymous flag are returned: no key material. */
+export function keyTierFields(level: ResolvedTier['level']): { keyTier: 'free-pool' | 'byok' | 'platform'; anonymous: boolean } {
+  if (level === 'anonymous') return { keyTier: 'free-pool', anonymous: true };
+  if (level === 'free') return { keyTier: 'free-pool', anonymous: false };
+  if (level === 'byok') return { keyTier: 'byok', anonymous: false };
+  return { keyTier: 'platform', anonymous: false };
+}
+
 /** Resolve the caller's tier + rate-limit key + effective (pinned-for-free) model +
- *  target backend from the request. Pure setup — sends no response. */
+ *  target backend from the request. Pure setup — sends no response. Logs one `ai-key-tier` line per
+ *  resolution (t/201) with the key tier, the anonymous flag, the backend and the model. */
 export function resolveGenerationContext(req: http.IncomingMessage, model: string | undefined): {
   tier: ResolvedTier; isFree: boolean; limitKey: string; effectiveModel: string | undefined; backend: AIBackend;
 } {
@@ -51,6 +62,10 @@ export function resolveGenerationContext(req: http.IncomingMessage, model: strin
   // here has a blast radius disproportionate to a routing decision that's already prefix-correct
   // for every registered model today. Prefix-only, acknowledged.
   const backend = ai.resolveBackend(effectiveModel || DEFAULT_MODEL, null);
+  // t/201: which key tier serves this request. Fields only: never the key or any part of it.
+  try {
+    log.api.info({ component: 'ai-generate', event: 'ai-key-tier', ...keyTierFields(tier.level), backend, model: effectiveModel ?? null }, 'AI request key tier');
+  } catch { /* telemetry — silent by design: the key-tier line must never fail a generation request */ }
   return { tier, isFree, limitKey, effectiveModel, backend };
 }
 
