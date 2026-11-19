@@ -24,6 +24,7 @@ import { getUserContentBackend, getBriefExportBackend } from './fileIO.js';
 import { getInquiryJobsDir, type InquiryJobRecord } from './inquiryJobStore.js';
 import { getBriefExportJobsDir, type BriefExportJobRecord } from './briefExportJobStore.js';
 import type { StorageBackend } from './storageBackend.js';
+import { GitHubAPIBackend } from './githubAPIBackend.js';
 
 export type JobRecordKind = 'inquiry' | 'brief-export';
 export type JobRecordOf<K extends JobRecordKind> = K extends 'inquiry' ? InquiryJobRecord : BriefExportJobRecord;
@@ -95,7 +96,21 @@ export async function listUserJobRecords<K extends JobRecordKind>(userId: string
   const { backend, dir } = target(userId, kind);
   let names: string[];
   try {
-    names = await backend.listDirectory(dir);
+    if (backend instanceof GitHubAPIBackend) {
+      // t/268 (item 5): a degraded [] must not read as "no records", or a job cap fails open.
+      const listing = await backend.listDirectoryDetailed(dir);
+      if (listing.degraded) {
+        throw new ActionableError({
+          goal: 'Count job records for a job cap',
+          problem: `GitHub listing degraded (${listing.degraded}); cannot confirm the record count`,
+          location: 'jobRecords.listUserJobRecords',
+          nextSteps: ['Retry once the GitHub backend is reachable; the cap fails closed until then'],
+        });
+      }
+      names = listing.names;
+    } else {
+      names = await backend.listDirectory(dir);
+    }
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'job-records', level: 'error', message: `listUserJobRecords: listing failed: ${dir}`,

@@ -222,6 +222,9 @@ function confineToDir(base: string, rel: string): string {
   return path.join(base, rel);
 }
 
+/** t/268: why a directory listing returned [] without a genuine answer. */
+export type DirListingDegradation = 'non-holder-tree-empty' | 'circuit-breaker-open' | 'api-unavailable' | 'no-credentials';
+
 type RawFetchResult =
   | { kind: 'hit'; content: string; sha: string }
   | { kind: 'not_found' }
@@ -1700,7 +1703,18 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string, opts?: { ref?: string }): Promise<string[]> {
+    return (await this.listDirectoryDetailed(dirPath, opts)).names;
+  }
+
+  /**
+   * t/268 (item 5): listDirectory, plus why the listing is degraded. A degraded listing returned []
+   * without a genuine answer (no tree on a non-holder, circuit breaker open, API unavailable, no
+   * credentials). A missing directory (404) is a genuine [] and is not degraded. Callers that count
+   * records (job caps) must fail closed on a degraded listing, not read it as "no records".
+   */
+  async listDirectoryDetailed(dirPath: string, opts?: { ref?: string }): Promise<{ names: string[]; degraded: DirListingDegradation | null }> {
     const repoPath = this.toRepoPath(dirPath);
+    let degraded: DirListingDegradation | null = null;
     const prefix = repoPath ? repoPath + '/' : '';
 
     // Build the base listing (direct children) from the in-memory tree, falling
@@ -1719,13 +1733,15 @@ export class GitHubAPIBackend implements StorageBackend {
         seen.add(rest.split('/')[0]);
       }
     } else if (this.mayFallBackToContentsApi() && !(this.rest.isTripped())) {
-      await this.fetchDirectoryFromAPI(repoPath, opts, seen);
+      degraded = await this.fetchDirectoryFromAPI(repoPath, opts, seen);
     } else if (!this.mayFallBackToContentsApi()) {
+      degraded = 'non-holder-tree-empty';
       // t/4179 R3: a non-holder with an empty tree even after a refill
       // attempt never hits the Contents API per-call — that's the N>1
       // crash-loop pattern t/4201/t/4176 fixed. Degraded [] instead.
       log.server.warn({ dir: repoPath, cause: 'non-holder-tree-empty' }, 'listDirectory returning [] — coordinated non-holder with no tree, avoiding per-call Contents API (t/4179)');
     } else {
+      degraded = 'circuit-breaker-open';
       log.server.warn({ dir: repoPath, cause: 'circuit-breaker-open' }, 'listDirectory returning [] — circuit breaker open, may be false-empty (t/3300)');
     }
 
@@ -1735,7 +1751,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // are invisible to listDirectory() until the overlay is flushed on commit.
     await this.mergeOverlayIntoListing(prefix, seen);
 
-    return [...seen];
+    return { names: [...seen], degraded };
   }
 
   /**
@@ -1778,23 +1794,29 @@ export class GitHubAPIBackend implements StorageBackend {
     return [];
   }
 
+  /** Returns the degradation reason, or null when the listing is genuine (including a 404: the
+   *  directory does not exist, which is a real empty answer). */
   private async fetchDirectoryFromAPI(
     repoPath: string, opts: { ref?: string } | undefined, seen: Set<string>,
-  ): Promise<void> {
+  ): Promise<DirListingDegradation | null> {
     const creds = await this.getCredsCached();
-    if (creds) {
-      const ref = opts?.ref ?? this.getEffectiveRef();
-      const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-      const resp = await this.rest.request(creds, 'GET',
-        `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
-      if (resp.ok && Array.isArray(resp.data)) {
-        for (const e of resp.data as Array<{ name: string }>) seen.add(e.name);
-      } else if (!resp.ok) {
-        log.server.warn({ dir: repoPath, status: (resp as { status?: number }).status, cause: 'api-non-ok' }, 'listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)');
-      }
-    } else {
+    if (!creds) {
       log.server.warn({ dir: repoPath, cause: 'no-credentials' }, 'listDirectory returning [] — no GitHub credentials available, may be false-empty (t/3300)');
+      return 'no-credentials';
     }
+    const ref = opts?.ref ?? this.getEffectiveRef();
+    const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
+    const resp = await this.rest.request(creds, 'GET',
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
+    if (resp.ok && Array.isArray(resp.data)) {
+      for (const e of resp.data as Array<{ name: string }>) seen.add(e.name);
+      return null;
+    }
+    if (resp.ok) return null;
+    const status = (resp as { status?: number }).status;
+    if (status === 404) return null;
+    log.server.warn({ dir: repoPath, status, cause: 'api-non-ok' }, 'listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)');
+    return 'api-unavailable';
   }
 
   /**
