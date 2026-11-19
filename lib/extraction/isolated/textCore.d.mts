@@ -6,3 +6,5 @@
 export function plainTextFromBytes(bytes: Uint8Array): string;
 export function htmlTextFromBytes(bytes: Uint8Array): string;
 export function decodeEntities(s: string): string;
+export function htmlToTextLinear(html: string, options?: { blockNewlines?: boolean }): string;
+export function htmlTitleLinear(html: string): string | undefined;
