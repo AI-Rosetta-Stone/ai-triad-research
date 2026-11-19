@@ -3,7 +3,8 @@
 export interface ParsedAttack {
   text: string;
   targetAnchor?: string; // the node the attack names, from "targeting node X"
-  annotationId: string;
+  // No annotation id: the plan doesn't record a real AN/steelman link yet (t/329#3, Design's (a)).
+  // An id derived from the list index could name a different node, so none is shown.
   verificationStatus?: string; // NLI verdict; undefined until a check has run (wiring: t/388)
 }
 
@@ -103,7 +104,7 @@ export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () 
           warn(`anticipated_challenges[${idx}] is an empty ATTACK; skipped`);
           return;
         }
-        const attack: ParsedAttack = { text, targetAnchor: target, annotationId: `AN-${idx}` };
+        const attack: ParsedAttack = { text, targetAnchor: target };
         const claim = findClaim(claims, target, body);
         if (claim && !claim.attack) {
           claim.attack = attack;
