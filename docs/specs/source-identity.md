@@ -261,7 +261,7 @@ Both thresholds are integer comparisons, so floating-point rounding can't make t
 For each canonical `C` and each node `n`:
 1. **Keep all of `C`'s own links on `n`,** in order and unchanged, including repeats. They are what 6.3 already shows.
 2. **Then, for each non-canonical member (marked copies, then chunks) in group order** and each of its links on `n` in order, keep the link only if it isn't `near` to any link already kept on `n`. **The canonical wins ties,** because its links are kept first.
-3. **Every kept link is attributed to `C`.** A kept link from a **marked copy** carries `via: <copy id>`. A kept link from a **chunk of `D` itself** carries `chunk_of: <chunk id>`. A kept link from a **chunk of a marked copy** carries **`via: <copy id>`**, not `chunk_of`: it's still copy-derived text, so §7.6 still keeps it out of paid extraction. A link never carries both.
+3. **Every kept link is attributed to `C`.** A kept link from a **marked copy** carries `via: <copy id>`. A kept link from a **chunk of `D` itself** carries `chunk_of: <chunk id>`. A kept link from a **chunk of a marked copy** carries **`via: <copy id>`**, not `chunk_of`, as provenance: its facts are extracted like any other kept fact (§7.6). A link never carries both.
 
 The result is keyed by node; node order isn't significant. Within a node, the order is the order of steps 1 and 2.
 
@@ -275,11 +275,12 @@ The result is keyed by node; node order isn't significant. Within a node, the or
 
 ### 7.6 `via`
 `via` is provenance. It's shown nowhere and never stored over an exact id.
-- **It has exactly one branching reader:** entity extraction skips facts with `via` set, as well as facts whose `doc_id` isn't selectable (TL, e/347#7). Copies' facts stay out of paid extraction.
+- **Entity extraction reads `via` facts like any kept fact.** It doesn't skip them. After the §7.4 near-filter, every kept `via` fact is novel to its node, so skipping one only drops entities (t/373, TL decision; CL measurement, t/373#2). Facts whose `doc_id` isn't selectable are still skipped (TL, e/347#7).
+- **Attribution is unchanged:** a `via` fact's `doc_id` is the canonical, so `source_refs` name resolved docs (6.3).
 - **Any new branching reader of `via` is a contract change to this section.**
 
 ### 7.6a `chunk_of`
-`chunk_of` is provenance, like `via`, but a chunk's text is **distinct** content, not a re-run over identical text. So **entity extraction does NOT skip `chunk_of` facts** (it still skips `via`). A fact carries at most one of `via` and `chunk_of`. Any branching reader of `chunk_of` is a contract change to this section.
+`chunk_of` is provenance, like `via`, but a chunk's text is **distinct** content, not a re-run over identical text. So **entity extraction does NOT skip `chunk_of` facts**. A fact carries at most one of `via` and `chunk_of`. Any branching reader of `chunk_of` is a contract change to this section.
 
 A kept chunk item may also carry **`chunk_generated_at`** and **`chunk_model`**: the chunk summary's own generation time and model, each absent when unknown. They're additive optional provenance. Readers ignore them, and no logic branches on them.
 
