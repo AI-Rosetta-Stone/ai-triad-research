@@ -5,10 +5,12 @@
  * Test-run guard against writes to the REAL ai-triad-data root (t/4461, prevention for incident t/4453).
  * Design: t/4454#2 (vitest section). TL conditions: t/4454#3.
  *
- * A vitest `setupFiles` entry calls `installDataRootGuard({ mode: 'warn' })` once per test file. It wraps the
- * `node:fs` / `fs/promises` write paths, and every write whose target resolves under the protected root logs
- * a `DATA-ROOT-TEST-WRITE` WARN (target, op, caller stack) and then proceeds — Phase 1 is warn-only (T1).
- * Phase 2 (`mode: 'block'`) is a T2 change and is refused here until then.
+ * A vitest `setupFiles` entry calls `installDataRootGuard()` once per test file. It wraps the `node:fs` /
+ * `fs/promises` write paths, and every write whose target resolves under the protected root logs a
+ * `DATA-ROOT-TEST-WRITE` WARN (target, op, caller stack) and records the hit. Phase 2 (t/61, T2): the default
+ * mode is `'block'`, so the write is then REFUSED with a `DATA-ROOT-TEST-WRITE-BLOCKED` ActionableError — thrown
+ * by sync ops and `createWriteStream`, passed to the callback (next tick) by callback ops, and returned as a
+ * rejected promise by `fs.promises`. `{ mode: 'warn' }` keeps the Phase 1 behaviour (WARN, then proceed).
  *
  * vitest hides console output from passing tests, so a WARN alone is invisible on a green run (t/59, found in
  * t/57). With `DATA_ROOT_GUARD_HITS_FILE` set, each hit is also appended to that file; the companion
@@ -37,7 +39,10 @@ import { ActionableError } from '../debate/errors.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 
 export const DATA_ROOT_TEST_WRITE_TOKEN = 'DATA-ROOT-TEST-WRITE';
-/** Logged once per process on the first install, so a CI summary can tell "0 hits" from "guard never ran" (t/4464). */
+/**
+ * Logged once per process on the first install, so a CI summary can tell "0 hits" from "guard never ran" (t/4464).
+ * vitest's default pool runs each test file in its own process, so a suite emits one per test file (t/162).
+ */
 export const DATA_ROOT_GUARD_INSTALLED_TOKEN = 'DATA-ROOT-GUARD-INSTALLED';
 /**
  * When set, every hit and the install marker are ALSO appended to this file, one JSON object per line (t/59).
@@ -47,6 +52,8 @@ export const DATA_ROOT_GUARD_INSTALLED_TOKEN = 'DATA-ROOT-GUARD-INSTALLED';
 export const DATA_ROOT_GUARD_HITS_FILE_ENV = 'DATA_ROOT_GUARD_HITS_FILE';
 /** The directory the live-fire wiring tests write under: their hits are the positive control, not offenders. */
 export const DATA_ROOT_LIVEFIRE_DIR = '__guard_livefire__';
+/** In a block-mode refusal's message and `code`; the live-fire tests accept it alongside ENOENT (t/158–t/160). */
+export const DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN = 'DATA-ROOT-TEST-WRITE-BLOCKED';
 export type DataRootGuardMode = 'warn' | 'block';
 
 /** One line of the hits file. `test` is the vitest file running when the write happened (null outside vitest). */
@@ -55,7 +62,7 @@ export type DataRootGuardRecord =
   | { kind: 'hit'; pid: number; op: string; target: string; protectedRoot: string; test: string | null };
 
 export interface DataRootGuardOptions {
-  /** Phase 1 accepts only 'warn'. 'block' is the Phase 2 T2 change (t/4454#3) and throws until then. */
+  /** 'block' (default, Phase 2, t/61) refuses writes under the protected root; 'warn' (Phase 1) lets them proceed. */
   mode?: DataRootGuardMode;
   /** Override the protected root(s) — tests of this module only. */
   protectedRoot?: string | string[];
@@ -217,7 +224,7 @@ const PROMISES: Record<string, number[]> = {
   rm: [0], rmdir: [0], unlink: [0], mkdir: [0], truncate: [0],
 };
 
-interface Installed { roots: string[]; restore: () => void; recordToHitsFile: boolean }
+interface Installed { roots: string[]; restore: () => void; recordToHitsFile: boolean; mode: DataRootGuardMode }
 /** Nesting depth of wrapped calls on this thread (synchronous re-entry only; async hops run later at depth 0). */
 let depth = 0;
 type Registry = { [INSTALLED]?: Installed };
@@ -248,7 +255,36 @@ function report(op: string, target: string, root: string): void {
   if ((globalThis as Registry)[INSTALLED]?.recordToHitsFile) recordToFile({ kind: 'hit', pid: process.pid, op, target, protectedRoot: root, test: currentTestFile() });
 }
 
-function wrapAll(obj: Record<string, unknown>, table: Record<string, number[]>, prefix: string, roots: string[], saved: Array<() => void>): void {
+function blockedError(op: string, target: string, root: string): ActionableError {
+  return new ActionableError({
+    goal: 'Keep test runs from writing to the real ai-triad-data root',
+    problem: `${DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN}: ${op} refused for ${target} (under the protected root ${root})`,
+    location: 'lib/test-support/dataRootGuard.ts (vitest setupFiles guard, t/61)',
+    nextSteps: [
+      'Point the code under test at a temp dir (fs.mkdtempSync) instead of the real data root',
+      'Set AI_TRIAD_DATA_ROOT to that temp dir in the test: the guard ignores it, the loaders honour it',
+      'The DATA-ROOT-TEST-WRITE WARN just logged names the caller stack',
+    ],
+    code: DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN,
+  });
+}
+
+/**
+ * Deliver a block-mode refusal the way the wrapped API reports errors: a rejected promise for `fs.promises`, the
+ * callback (on the next tick, like a real fs error) for callback ops, and a throw for sync ops and createWriteStream.
+ */
+function refuse(err: ActionableError, name: string, promises: boolean, args: unknown[]): unknown {
+  if (promises) return Promise.reject(err);
+  const cb = args[args.length - 1];
+  if (!name.endsWith('Sync') && name !== 'createWriteStream' && typeof cb === 'function') {
+    process.nextTick(cb as (e: Error) => void, err);
+    return undefined;
+  }
+  throw err;
+}
+
+function wrapAll(obj: Record<string, unknown>, table: Record<string, number[]>, prefix: string, roots: string[], mode: DataRootGuardMode, saved: Array<() => void>): void {
+  const promises = prefix === 'fs.promises.';
   for (const [name, idxs] of Object.entries(table)) {
     const orig = obj[name];
     if (typeof orig !== 'function') continue;
@@ -256,12 +292,15 @@ function wrapAll(obj: Record<string, unknown>, table: Record<string, number[]>, 
       // Report only the outermost call: Node implements some ops through other fs exports (on Linux `rmSync` of a
       // file calls `fs.unlinkSync`), and one test write should give one WARN, not one per internal hop.
       if (depth === 0) {
-        outer: for (const i of idxs) {
+        for (const i of idxs) {
           const p = asPath(args[i]);
           if (p === null) continue;
-          for (const root of roots) {
-            if (isUnderRoot(p, root)) { report(prefix + name, path.resolve(p), root); break outer; }
-          }
+          const root = roots.find(r => isUnderRoot(p, r));
+          if (root === undefined) continue;
+          const target = path.resolve(p);
+          report(prefix + name, target, root);
+          if (mode === 'block') return refuse(blockedError(prefix + name, target, root), name, promises, args);
+          break;
         }
       }
       depth++;
@@ -281,16 +320,13 @@ function wrapAll(obj: Record<string, unknown>, table: Record<string, number[]>, 
  * worker) returns the existing installation instead of double-wrapping. Returns a function that uninstalls.
  */
 export function installDataRootGuard(opts: DataRootGuardOptions = {}): () => void {
-  const mode = opts.mode ?? 'warn';
-  if (mode !== 'warn') {
+  const mode = opts.mode ?? 'block';
+  if (mode !== 'warn' && mode !== 'block') {
     throw new ActionableError({
       goal: 'Install the test-run data-root write guard',
-      problem: `mode '${mode}' is not enabled: blocking test writes is Phase 2 of t/4454, a T2 change`,
+      problem: `unknown mode '${String(mode)}'`,
       location: 'lib/test-support/dataRootGuard.ts installDataRootGuard',
-      nextSteps: [
-        "Use mode: 'warn' (Phase 1)",
-        'Enable block only through the t/4454 Phase 2 T2 PR (SO round, consult-hold)',
-      ],
+      nextSteps: ["Use mode: 'block' (the default) or 'warn'"],
     });
   }
   const reg = globalThis as Registry;
@@ -301,8 +337,8 @@ export function installDataRootGuard(opts: DataRootGuardOptions = {}): () => voi
     ? (Array.isArray(opts.protectedRoot) ? opts.protectedRoot : [opts.protectedRoot]).map(canonicalPath)
     : resolveProtectedDataRoots();
   const saved: Array<() => void> = [];
-  wrapAll(fs as unknown as Record<string, unknown>, SYNC_AND_CALLBACK, 'fs.', roots, saved);
-  wrapAll(fs.promises as unknown as Record<string, unknown>, PROMISES, 'fs.promises.', roots, saved);
+  wrapAll(fs as unknown as Record<string, unknown>, SYNC_AND_CALLBACK, 'fs.', roots, mode, saved);
+  wrapAll(fs.promises as unknown as Record<string, unknown>, PROMISES, 'fs.promises.', roots, mode, saved);
   syncBuiltinESMExports(); // named ESM imports (`import { writeFileSync } from 'node:fs'`) see the wrappers too
 
   const restore = () => {
@@ -312,7 +348,7 @@ export function installDataRootGuard(opts: DataRootGuardOptions = {}): () => voi
     delete reg[INSTALLED];
   };
   const recordToHitsFile = opts.recordToHitsFile ?? !opts.protectedRoot;
-  reg[INSTALLED] = { roots, restore, recordToHitsFile };
+  reg[INSTALLED] = { roots, restore, recordToHitsFile, mode };
   // One marker per process, on the same stream as the hits; a later reinstall (after an uninstall) stays quiet.
   const g = globalThis as { [MARKER_EMITTED]?: boolean };
   if (!g[MARKER_EMITTED]) {

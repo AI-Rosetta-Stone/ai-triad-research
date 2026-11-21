@@ -16,8 +16,9 @@ import path from 'node:path';
 import {
   installDataRootGuard, resolveProtectedDataRoot, resolveProtectedDataRoots, protectedDataRoot, isUnderRoot,
   DATA_ROOT_TEST_WRITE_TOKEN, DATA_ROOT_GUARD_INSTALLED_TOKEN, DATA_ROOT_GUARD_HITS_FILE_ENV,
-  type DataRootGuardRecord,
+  DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN, type DataRootGuardRecord,
 } from './dataRootGuard.js';
+import { ActionableError } from '../debate/errors.js';
 
 let base: string;
 let root: string;      // the mocked protected root
@@ -173,12 +174,95 @@ describe('dataRootGuard: install contract', () => {
     expect(JSON.parse(marker.slice(marker.indexOf('roots=') + 'roots='.length))).toEqual([fs.realpathSync.native(root)]);
   });
 
-  it("mode 'block' is refused until the Phase 2 T2 change", () => {
-    expect(() => installDataRootGuard({ mode: 'block' })).toThrow(/Phase 2 of t\/4454/);
+  it('an unknown mode is refused with an ActionableError', () => {
+    uninstall();
+    expect(() => installDataRootGuard({ mode: 'off' as never, protectedRoot: root })).toThrow(/unknown mode 'off'/);
+  });
+
+  it("the default mode is 'block' (Phase 2, t/61)", () => {
+    uninstall();
+    uninstall = installDataRootGuard({ protectedRoot: root });
+    expect(() => fs.writeFileSync(path.join(root, 'default.json'), '{}')).toThrow(DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN);
   });
 
   it('protectedDataRoot() reports the installed root', () => {
     expect(isUnderRoot(protectedDataRoot(), root) && isUnderRoot(root, protectedDataRoot())).toBe(true);
+  });
+});
+
+describe("dataRootGuard: mode 'block' refuses writes under the protected root (t/61)", () => {
+  const blocked = (e: unknown) => e instanceof ActionableError && e.code === DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN
+    && e.message.includes(DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN);
+  beforeEach(() => {
+    uninstall();
+    uninstall = installDataRootGuard({ mode: 'block', protectedRoot: root });
+  });
+
+  it('a sync write throws the BLOCKED ActionableError, writes nothing, and still WARNs first', () => {
+    const target = path.join(root, 'taxonomy', 'blocked-sync.json');
+    let caught: unknown;
+    try { fs.writeFileSync(target, '{}'); } catch (e) { caught = e; }
+    expect(blocked(caught)).toBe(true);
+    expect(String((caught as Error).message)).toContain(`refused for ${target}`);
+    expect(fs.existsSync(target)).toBe(false);
+    expect(hits()).toHaveLength(1);
+  });
+
+  it('a callback write gets the error on its callback, asynchronously, and writes nothing', async () => {
+    const target = path.join(root, 'blocked-cb.json');
+    let sync = true;
+    const err = await new Promise<unknown>(resolve => { fs.writeFile(target, '{}', e => { expect(sync).toBe(false); resolve(e); }); sync = false; });
+    expect(blocked(err)).toBe(true);
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it('a promise write rejects and writes nothing', async () => {
+    const target = path.join(root, 'blocked-promise.json');
+    const err = await fs.promises.writeFile(target, '{}').then(() => null, (e: unknown) => e);
+    expect(blocked(err)).toBe(true);
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it('createWriteStream, a named ESM import, rm and a rename OUT of the root are all refused', () => {
+    const existing = path.join(root, 'keep.json');
+    uninstall();
+    fs.writeFileSync(existing, '{}'); // set up with the guard off
+    uninstall = installDataRootGuard({ mode: 'block', protectedRoot: root });
+    for (const op of [
+      () => fs.createWriteStream(path.join(root, 'stream.txt')),
+      () => namedWriteFileSync(path.join(root, 'named.json'), '{}'),
+      () => fs.rmSync(existing),
+      () => fs.renameSync(existing, path.join(outside, 'moved.json')),
+    ]) {
+      let caught: unknown;
+      try { op(); } catch (e) { caught = e; }
+      expect(blocked(caught)).toBe(true);
+    }
+    expect(fs.existsSync(existing)).toBe(true);
+    expect(fs.existsSync(path.join(root, 'stream.txt'))).toBe(false);
+  });
+
+  it('precision arm: writes outside the root are untouched in block mode', async () => {
+    fs.writeFileSync(path.join(outside, 'ok.json'), '{}');
+    await fs.promises.writeFile(path.join(outside, 'ok2.json'), '{}');
+    fs.writeFileSync(path.join(base, 'ai-triad-data2', 'sibling.json'), '{}');
+    expect(hits()).toHaveLength(0);
+  });
+
+  it('the refused write is still recorded in the hits file', () => {
+    const file = path.join(base, 'block-hits.jsonl');
+    const saved = process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
+    process.env[DATA_ROOT_GUARD_HITS_FILE_ENV] = file;
+    try {
+      uninstall();
+      uninstall = installDataRootGuard({ mode: 'block', protectedRoot: root, recordToHitsFile: true });
+      expect(() => fs.writeFileSync(path.join(root, 'recorded-blocked.json'), '{}')).toThrow(DATA_ROOT_TEST_WRITE_BLOCKED_TOKEN);
+      const recs = fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean).map(l => JSON.parse(l) as DataRootGuardRecord);
+      expect(recs.some(r => r.kind === 'hit' && r.op === 'fs.writeFileSync')).toBe(true);
+    } finally {
+      if (saved === undefined) delete process.env[DATA_ROOT_GUARD_HITS_FILE_ENV];
+      else process.env[DATA_ROOT_GUARD_HITS_FILE_ENV] = saved;
+    }
   });
 });
 
