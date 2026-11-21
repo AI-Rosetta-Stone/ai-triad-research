@@ -25,7 +25,7 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 2. Ensure working tree is clean of stray files. Commit by **explicit pathspec** — never `git add -A` (it stages overlay files like `AGENTS.md`/`.orca*`).
 
-3. Push to `main`. Wait for CI to complete — all 6 jobs must pass before the deploy workflow will proceed.
+3. Push to `main`. Wait for CI to complete. The deploy workflow checks only `test-container` on the deployed commit (see the deploy steps below); `ci-gate` in `ci.yml` is the merge-queue gate.
 
 ## Step 2: Build Container Image
 
@@ -49,7 +49,7 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 ## Step 3: Deploy to Azure
 
-1. Trigger the deploy workflow (**once only** — duplicate dispatches are cancelled). Pass the **commit SHA** you built in Step 2 — the deploy resolves its permanent `sha-<commit>` tag to an immutable `@sha256` digest and pins the revision to it (deploy-by-digest, t/3679). There is **no `image_tag`/`:latest` path** — an empty/missing `sha` aborts with an actionable message:
+1. Trigger the deploy workflow (**once only** — duplicate dispatches are queued, not cancelled; the deploy concurrency group has `cancel-in-progress: false`). Pass the **commit SHA** you built in Step 2 — the deploy resolves its permanent `sha-<commit>` tag to an immutable `@sha256` digest and pins the revision to it (deploy-by-digest, t/3679). There is **no `image_tag`/`:latest` path** — an empty/missing `sha` aborts with an actionable message:
    ```bash
    gh workflow run deploy-azure.yml --ref main \
      -f environment=production \
@@ -64,7 +64,7 @@ If this release touches the **serialize path specifically** — the synthetic-em
    ```
 
 3. The workflow automatically:
-   - Verifies CI passed for the **deployed commit** (`sha`), not the dispatch HEAD (test-electron + test-container)
+   - Verifies CI passed for the **deployed commit** (`sha`), not the dispatch HEAD (checks `test-container` only; `test-electron` is not checked by name)
    - Resolves the commit's per-SHA tag to an immutable `@sha256` digest and pins to it — aborts fail-closed if the tag is absent (this replaces the old tag-existence check)
    - Runs Bicep what-if (checks for unexpected deletions)
    - Deploys Bicep template (infra + app config) with the digest-pinned image
@@ -77,9 +77,9 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 ## Step 4: Post-Deploy Verification
 
-1. Confirm the live revision matches the expected commit:
+1. Confirm the live revision matches the expected commit. Use `/health` `buildSha`, not `headSha` (`headSha` is the dispatch branch tip, not the deployed SHA):
    ```bash
-   gh run view <deploy-run-id> --json headSha --jq '.headSha'
+   curl -s https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io/health | python -m json.tool | grep -i buildSha
    ```
 
 2. Check production health:
@@ -206,6 +206,6 @@ If the image ever needs to go private, design around **ACR + managed identity**.
 
 ## Known Issues
 
-- **Duplicate dispatch**: `gh workflow run` occasionally emits two `workflow_dispatch` events. The deploy workflow has `cancel-in-progress: true` so the duplicate is cancelled automatically. If you see a failed run alongside a successful one for the same commit, check both before investigating.
+- **Duplicate dispatch**: `gh workflow run` occasionally emits two `workflow_dispatch` events. The deploy workflow has `cancel-in-progress: false`, so a duplicate is queued behind the running one, not cancelled. If you see a failed run alongside a successful one for the same commit, check both before investigating.
 - **BCP318/BCP422 warnings**: `runner/runner.bicep` emits null-safety warnings during every deploy. These are cosmetic — the runner module is disabled (`enabled=false`) and the warnings don't affect the Container App deployment.
 - **AlertsManagement RP warnings**: Bicep may emit stderr warnings about the AlertsManagement resource provider. These don't affect deployment (`failOnStdErr: false` is set).
