@@ -82,9 +82,28 @@ async function consumeSse(res: Response, onEvent: (evt: Record<string, unknown>)
   }
 }
 
+/** Plain-language copy for the server's document-source 400s (routes/oped.ts). Wording is Design's
+ *  (t/276, p/25#110). Returns null for any other message, so the server's text is kept. */
+export function documentSourceProblem(serverMessage: string): string | null {
+  if (serverMessage.startsWith('documentText exceeds')) {
+    return 'This document is too long. Use a shorter document. Documents can be up to 500,000 characters of text.';
+  }
+  if (serverMessage.startsWith('sourceName exceeds')) {
+    return 'The file name is too long. Shorten the file name, then choose the file again.';
+  }
+  if (serverMessage.startsWith('sourceName must be a bare file name')) {
+    return 'This file name contains a slash or "..". Rename the file to remove them, then choose it again.';
+  }
+  if (serverMessage.includes('is required with')) {
+    return "We couldn't read this document. It may be empty or in a format we can't read. Choose the file again.";
+  }
+  return null;
+}
+
 /** Build a user-readable ActionableError from a non-200 create response (JSON error emitted
- *  before the SSE headers: 403 anon, 400 bad request, 403 entitlement, 429 quota/concurrency). */
-async function buildHttpError(res: Response): Promise<ActionableError> {
+ *  before the SSE headers: 403 anon, 400 bad request, 403 entitlement, 429 quota/concurrency).
+ *  `isDocument` is set for a document-source create, so its 400s get the plain-language copy. */
+async function buildHttpError(res: Response, isDocument: boolean): Promise<ActionableError> {
   const data = await res.json().catch(() => ({})) as Record<string, unknown>;
   const goal = 'Op-Ed Studio: create an op-ed';
   if (res.status === 429) {
@@ -95,7 +114,8 @@ async function buildHttpError(res: Response): Promise<ActionableError> {
     (err as ActionableError & { httpStatus: number }).httpStatus = 429;
     return err;
   }
-  const problem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
+  const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
+  const problem = (isDocument && res.status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
   const nextSteps = res.status === 403
     ? ['Sign in with GitHub or Google to create op-eds']
     : ['Check your topic and selected voices, then try again'];
@@ -136,7 +156,12 @@ async function recoverFromRunStatus(fetchFn: OpEdFetch, runId: string): Promise<
  *  resolve {set_id} on 'complete'. Rejects with an ActionableError (pre-SSE JSON error, a
  *  server 'error' frame, or an unrecoverable stream drop). */
 export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPayload): Promise<{ set_id: string }> {
-  const body = { topic: payload.topic, povs: payload.voices, params: payload.params };
+  // t/276: the server takes exactly one source. A document goes as documentText + sourceName (names must match
+  // the server's contract, or the document is dropped); topic is left out, so there is no url+document 400.
+  const source = payload.documentSource
+    ? { documentText: payload.documentSource.text, sourceName: payload.documentSource.name }
+    : { topic: payload.topic };
+  const body = { ...source, povs: payload.voices, params: payload.params };
   const controller = new AbortController();
   activeAbort = controller;
   getGlobalRecorder()?.record({ type: 'ai.request', component: 'web-bridge', level: 'info', message: 'oped-create request', data: { voiceCount: payload.voices.length, model: payload.params.model } });
@@ -155,7 +180,7 @@ export async function runOpEdCreate(fetchFn: OpEdFetch, payload: CreateOpEdPaylo
     throw err;
   }
 
-  if (!res.ok) { activeAbort = null; throw await buildHttpError(res); }
+  if (!res.ok) { activeAbort = null; throw await buildHttpError(res, !!payload.documentSource); }
 
   let runId = '';
   let resolvedSetId: string | null = null;
