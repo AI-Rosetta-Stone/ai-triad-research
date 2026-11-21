@@ -24,13 +24,12 @@
 //
 // t/4939 (interim refusal, Quality-approved design + 3 should-fixes): #4648 merged with no
 // approval and CHANGES_REQUESTED still active, because `t1-approval-guard` isn't a required
-// status check yet (promotion is a separate T2 change, step 3 of t/4939). Until then, this
-// wrapper refuses to arm/enqueue a T1 PR whose guard verdict isn't a clean `success` at the
-// head, refuses any draft outright, and refuses on the guard's own `failure` verdict
-// regardless of declared tier. It does NOT cover a direct `gh pr merge --auto` call -- the
-// required-context promotion is the real fix for that. The sweeps (t0-, t1- and
-// dependabot-enqueue-sweep) DO get this refusal, because they all enqueue through
-// `enqueuePR()`, which runs it on every call (t/73 corrected this comment).
+// status check yet. t/455 (TL p/9#276) removed the T1 approval requirement: the guard check is
+// gone, and a T1 PR now enqueues on CI and branch protection alone. This wrapper refuses to
+// arm/enqueue a draft, and refuses when a required context (FAILING_ROW_CONTEXTS) has a failed
+// latest run at the head (the failing-row refusal). It does NOT cover a direct `gh pr merge
+// --auto` call. The sweeps (t0-, t1- and dependabot-enqueue-sweep) DO get these refusals,
+// because they all enqueue through `enqueuePR()`, which runs them on every call.
 //
 // t/73 (Orca t/4820): the approval-at-head check (`fetchGuardRun` + `approvalAtHeadVerdict` /
 // `classifyT1GuardForEnqueue` + `pickAuthoritativeGuardRun`) moved unchanged to
@@ -47,6 +46,35 @@ import {
 } from './t1-approval-at-head.mjs';
 
 export { approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun };
+
+/** t/455: the required contexts on main. A failed latest run on any of these refuses an enqueue. */
+export const FAILING_ROW_CONTEXTS = ['ci-gate', 'CodeQL Analysis', 'joint-gv-guard', 'consult-hold-guard'];
+const FAILED_CONCLUSIONS = new Set(['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure']);
+
+/**
+ * PURE. The names in FAILING_ROW_CONTEXTS whose LATEST check run on the head failed. Latest is
+ * the greatest started_at (the later entry when there are no times), so a superseded failure does
+ * not refuse, and a newer failure does. A name with no run at the head is not listed here: it is
+ * a pending or missing row, which the sweep and GitHub's own required-check rule handle.
+ */
+export function failingRequiredRows(checkRuns) {
+  const failing = [];
+  for (const name of FAILING_ROW_CONTEXTS) {
+    const runs = (checkRuns ?? []).filter((r) => r.name === name);
+    if (runs.length === 0) continue;
+    const at = (r) => { const t = Date.parse(r.started_at ?? ''); return Number.isNaN(t) ? -Infinity : t; };
+    let latest = runs[0];
+    for (const r of runs.slice(1)) if (at(r) >= at(latest)) latest = r;
+    if (FAILED_CONCLUSIONS.has(latest.conclusion)) failing.push(name);
+  }
+  return failing;
+}
+
+/** Impure. Every check run on `headSha`, read across pages (a full-suite head has over 100). */
+export function readCheckRuns(repo, headSha, ghFn = gh) {
+  const out = ghFn(['api', '--paginate', '-X', 'GET', `repos/${repo}/commits/${headSha}/check-runs`, '--jq', '.check_runs[]']);
+  return out.split('\n').filter((line) => line.trim() !== '').map((line) => JSON.parse(line));
+}
 
 /**
  * PURE. Classifies a queue-state read into one of five outcomes:
@@ -179,36 +207,27 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
     );
   }
 
-  const guard = fetchGuardRun(repo, headSha, ghFn);
+  // t/455 (TL p/9#276): the T1 approval requirement is gone. Nothing here reads the approval.
+  // A failed required check still refuses (the failing-row refusal), and so does a draft.
   // A tier-check lookup error is non-blocking: tierCheckDisagreesAt already WARNed (t/4950).
   const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn).disagrees : false;
-  const verdict = approvalAtHeadVerdict({ tier, isDraft: prMeta.isDraft, guard, tierCheckDisagreesOnT0 });
-
-  if (verdict.reason === 'guard_lookup_error') {
+  if (tierCheckDisagreesOnT0) {
     console.warn(
-      `WARN: enqueue-pr could not look up t1-approval-guard's check run for #${prNumber} on ${repo} ` +
-      `at ${headSha} (${guard.error?.message ?? 'API error'}). Refusing rather than risk arming an unapproved T1 PR.`,
-    );
-    throw new Error(
-      `enqueue-pr: refusing #${prNumber} on ${repo} -- could not verify t1-approval-guard's state at ${headSha}.\n` +
-      '  Goal:       land the PR only once its approval guard verdict is confirmed.\n' +
-      '  Problem:    the check-runs API lookup for t1-approval-guard failed.\n' +
-      '  Location:   operations/devops/enqueue-pr.mjs (fetchGuardRun).\n' +
-      '  Next steps: check gh auth / API rate limits, then rerun.',
+      `WARN: tier-check's completed run at this head disagrees with the declared Tier: T0 (#${prNumber} on ${repo}, head ${headSha}) -- ` +
+      'review manually; enqueue-pr does not block on this signal yet (t/4939 follow-up).',
     );
   }
-
-  if (verdict.warn) console.warn(`WARN: ${verdict.warn} (#${prNumber} on ${repo}, head ${headSha})`);
-  if (!verdict.allow) {
+  const failing = failingRequiredRows(readCheckRuns(repo, headSha, ghFn));
+  const refusal = prMeta.isDraft ? 'the PR is still a draft.'
+    : failing.length ? `required check${failing.length > 1 ? 's' : ''} failed at ${headSha}: ${failing.join(', ')}.`
+      : null;
+  if (refusal) {
     throw new Error(
-      `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (${verdict.reason}).\n` +
+      `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (${prMeta.isDraft ? 'draft' : 'failing_required_check'}).\n` +
       `  Goal:       land #${prNumber} via the merge queue.\n` +
-      `  Problem:    ${verdict.reason === 'draft'
-        ? 'the PR is still a draft.'
-        : `t1-approval-guard at ${headSha} is ${verdict.reason.replace(/^guard_/, '')}, and the declared tier (${tier ?? 'none'}) requires a clean pass.`}\n` +
-      '  Location:   operations/devops/enqueue-pr.mjs (classifyT1GuardForEnqueue, t/4939).\n' +
-      '  Next steps: get an `Approved (<role>):` comment or review, wait for t1-approval-guard ' +
-      'to go green on this exact head, then rerun. This is the same incident class as #4648/#3343/#3364.',
+      `  Problem:    ${refusal}\n` +
+      '  Location:   operations/devops/enqueue-pr.mjs (failingRequiredRows, t/455).\n' +
+      '  Next steps: fix the failing check on this head, or push a new head, then rerun.',
     );
   }
 

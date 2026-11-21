@@ -171,11 +171,10 @@ SAFE_STATUS_FN_RE = re.compile(r'(?<![\w.-])always\s*\(\s*\)|!\s*cancelled\s*\(\
 
 
 # t/4963 audit (agent-devops/notes/t70-audit.md): contexts Check 5 treats as required ON TOP of the
-# SSOT (.github/ci/required-contexts.json). `t1-approval-guard` is not in branch protection yet,
-# but t/4939 plans to promote it, and ci.yml's merge_group job already posts that name. Linting it
-# now means the promotion can't land on top of a job that silently skips. This only widens what
-# Check 5 checks; it does not touch R1-R5 or the SSOT's drift guard.
-CHECK5_PENDING_CONTEXTS = ('t1-approval-guard',)
+# SSOT (.github/ci/required-contexts.json). It held `t1-approval-guard` until t/455 removed that
+# guard (the PI's decision, 2026-11-15); no pending contexts remain. This only widens what Check 5
+# checks; it does not touch R1-R5 or the SSOT's drift guard.
+CHECK5_PENDING_CONTEXTS = ()
 
 
 # A YAML block-scalar header: `|` (literal) or `>` (folded), with an optional chomping indicator

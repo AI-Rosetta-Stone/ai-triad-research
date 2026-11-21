@@ -7,19 +7,15 @@
 #        2. T0 PRs (body starts `Tier: T0`, base main, not draft, no consult-hold / joint-gv /
 #           no-auto-enqueue label) with all required checks green and NOTHING PUSHED FOR 15
 #           MINUTES, since pushing to a queued PR is refused (operations/devops/t0-enqueue-sweep.mjs).
-#        3. T1 PRs (t/73, Orca t/4820): REPORT-ONLY AS MERGED. The step ships with
-#           `T1_NUDGE: 'off'` and `T1_ENQUEUE: 'off'` (see the step below for what must be true
-#           before each is turned on), so it neither enqueues nor comments: it only logs the PRs
-#           it would enqueue, and the PRs whose approved, green head t1-approval-guard never
-#           evaluated (which it would nudge with one comment per head). Once on, it enqueues, and
-#           it runs BEFORE the T0 step so its idle-window wait never delays T1 PRs. Selection is
-#           the same filters as T0 (labels, draft, queue, dequeue hold, conflict,
-#           review blocks, all required checks green), plus the SAME approval-at-head check
-#           enqueue-pr.mjs refuses on (t1-approval-at-head.mjs: t1-approval-guard success at the
-#           head), plus a reviewer-App `Approved (<role>):` review bound to the head SHA (the
-#           guard's committer-date staleness test alone is not enough). Enqueue is pinned to that
-#           head (expectedHeadOid). No idle window (operations/devops/t1-enqueue-sweep.mjs).
-#        All enqueue through operations/devops/enqueue-pr.mjs (pinned head, verified entry).
+#        3. T1 PRs (t/73, t/455): the T1 approval requirement is REMOVED (the PI's decision,
+#           2026-11-15). T1 PRs merge on CI and branch protection alone. The step is gated by
+#           `T1_ENQUEUE`, which ships `'off'`: until it is flipped, it only logs the PRs it would
+#           enqueue. Selection is the same filters as T0 (labels, draft, queue, dequeue hold,
+#           conflict, review blocks, all required checks green). There is no approval check.
+#           Enqueue is pinned to the selected head (expectedHeadOid). No idle window
+#           (operations/devops/t1-enqueue-sweep.mjs).
+#        All enqueue through operations/devops/enqueue-pr.mjs (pinned head, verified entry; it
+#        refuses a draft or a failed required check at the head).
 # Why:   Auto-merge armed with the built-in GITHUB_TOKEN never led to queue entry: every
 #        Dependabot PR since the queue launched (2026-10-28) sat 16-41h until a human
 #        re-armed it (#4262, #4263, #4280, #4282). Dependabot-triggered workflows cannot read
@@ -51,9 +47,7 @@ name: Merge-queue enqueue sweep
 # workflow_run can't see.
 on:
   workflow_run:
-    # t1-approval-guard (t/73): a new approval runs the guard but not CI, so without this an
-    # approved, already-green T1 PR would wait for some unrelated CI completion or the cron.
-    workflows: [CI, t1-approval-guard]
+    workflows: [CI]
     types: [completed]
     # No `branches:` filter: PR CI completions must trigger it too, or a PR that goes green waits
     # for the next merge to main. Safe because this job runs main's copy and checks out main only.
@@ -66,14 +60,6 @@ on:
         required: false
         default: false
         type: boolean
-      # T1 guard-nudge check (t/73). Lets ONE run post the guard nudge on ONE PR while T1_NUDGE
-      # is 'off', so the first live nudge is seen on a throwaway PR and not on a real one. It
-      # cannot enqueue: the T1 step turns it into `--nudge-pr=<N>` only, and only if all digits.
-      nudge_pr:
-        description: 'T1 nudge check: number of a throwaway PR this run may nudge (never enqueues). Empty = none.'
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read   # checkout only; all writes use the App token
@@ -81,7 +67,7 @@ permissions:
 # DEBOUNCE (t/73, Second Opinion on #4795): this group is what collapses a burst of triggers.
 # With `cancel-in-progress: false`, GitHub keeps at most ONE running and ONE pending run per
 # group; each new trigger cancels the pending run and takes its place. So N CI or
-# t1-approval-guard completions in a burst cost at most the sweep already running plus one more,
+# CI completions in a burst cost at most the sweep already running plus one more,
 # not N. Measured on main, 2026-11-11 16:18-19:48Z: 145 triggers gave 53 sweeps; the other 92
 # were cancelled while pending without running a step, and no two sweeps overlapped.
 # Nothing is lost by the collapse: the surviving pending run starts after every trigger it
@@ -144,45 +130,22 @@ jobs:
         run: node operations/devops/dependabot-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN
 
       # Runs even if the Dependabot step failed. Before the T0 step, whose idle-window wait can
-      # take 16 minutes. No wait here: the approval must already be bound to the head.
+      # take 16 minutes. No wait here: the required checks must already be green.
       #
-      # SHIPS REPORT-ONLY: T1_ENQUEUE and T1_NUDGE are both 'off' (Second Opinion's conditions on
-      # #4795, 2026-11-15). As merged this step neither enqueues nor comments on any PR. It
-      # selects, logs each skip reason, and logs `[nudge off] would ask t1-approval-guard to
-      # re-run for #N` and `[enqueue off] would enqueue #N` for the PRs it would act on. Each
-      # switch is a literal here, not a repo variable, so that turning it on is a reviewed
-      # commit, and each passes its flag only when it is exactly 'on'.
-      #
-      # T1_NUDGE gates the guard nudge: one comment per head, posted with the App token on a PR
-      # whose approval t1-approval-guard never evaluated. Before flipping it to 'on': one clean
-      # nudge has been observed on a THROWAWAY PR (one comment, one t1-approval-guard run, no
-      # second comment on the next sweep). To get that nudge without turning nudges on for
-      # every PR, dispatch this workflow by hand with `nudge_pr` set to the throwaway PR's
-      # number: that one run may nudge that one PR and no other. `nudge_pr` is read only on
-      # workflow_dispatch, must be all digits, and cannot enqueue anything.
-      #
-      # T1_ENQUEUE gates the enqueue. Before flipping it to 'on': #5150 is on main, and the
-      # clean nudge above has been observed. Flip it in the same commit as T1_NUDGE or a later
-      # one, never before.
-      #
-      # Each flip is its own T2 commit, and must change t1-enqueue-sweep.test.mjs's
-      # "SHIPS REPORT-ONLY" test in the same commit.
-      - name: T1 sweep (report-only unless T1_NUDGE / T1_ENQUEUE is 'on')
+      # T1 approval requirement removed (t/455, the PI's decision, 2026-11-15): T1 PRs enqueue
+      # on CI and branch protection alone. T1_ENQUEUE ships 'off' (Second-Opinion, p/136#25): it
+      # is flipped to 'on' in its own commit after #5150 is on main. It is a literal here, not a
+      # repo variable, and passes `--enqueue` only when it is exactly 'on'.
+      - name: T1 sweep (enqueue on green CI, t/455)
         if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-          NUDGE_PR: ${{ github.event_name == 'workflow_dispatch' && inputs.nudge_pr || '' }}
-          T1_NUDGE: 'off'
           T1_ENQUEUE: 'off'
         run: |
-          NUDGE_FLAG=''
-          if [ "$T1_NUDGE" = "on" ]; then NUDGE_FLAG='--nudge'; fi
-          NUDGE_PR_FLAG=''
-          case "$NUDGE_PR" in ''|*[!0-9]*) ;; *) NUDGE_PR_FLAG="--nudge-pr=$NUDGE_PR" ;; esac
           ENQUEUE_FLAG=''
           if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG='--enqueue'; fi
-          node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $NUDGE_FLAG $NUDGE_PR_FLAG $ENQUEUE_FLAG
+          node operations/devops/t1-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN $ENQUEUE_FLAG
 
       # Runs even if an earlier step failed: one stuck PR must not hold back T0 PRs.
       - name: Enqueue green, idle T0 PRs

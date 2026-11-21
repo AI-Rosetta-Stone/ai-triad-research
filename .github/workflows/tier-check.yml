@@ -16,7 +16,8 @@ name: tier-check
 # t/4266 P2 fix 4 (TL t/4266#13): without issue_comment/pull_request_review triggers, R6 only
 # re-evaluates on a push -- but a push invalidates R6's head-bound approval evidence, so a PR
 # that gets approved AFTER its last push would stay red forever once R6 is promoted to blocking
-# (a deadlock). Re-run on the same events t1-approval-guard.yml already triggers on.
+# (a deadlock). Re-run on the review and comment events the approval-aware checks use (t/455:
+# the T1 guard is removed, so this now runs on the same events as tier-check itself).
 #
 # COMMENT FILTER: a created or edited PR comment runs this check only if it (or, for an edit, its
 # previous text) contains R6 comment evidence or `/recheck-guards`. A DELETED PR comment always
@@ -59,7 +60,7 @@ jobs:
     #   'Approved (PI):'       -- PI_COMMENT_APPROVAL_RE
     #   'SO did not review'    -- SO_DID_NOT_REVIEW_RE
     #   'SO clearing comment'  -- SO_CLEARING_PREFIX_RE
-    #   '/recheck-guards'      -- the one documented way to re-run this check and t1-approval-guard
+    #   '/recheck-guards'      -- the one documented way to re-run this check (t/455: t1-approval-guard is gone)
     #       by hand: post a PR comment containing it (docs/pr-landing.md).
     # contains() ignores case and matches anywhere in the body, so the list is a SUPERSET of the
     # predicate: an extra run is harmless, a missed one leaves R6's advisory stale. The text
@@ -67,8 +68,8 @@ jobs:
     # The previous body is empty on `created`. The list is not applied to a deletion at all.
     # `pull_request_review` events (submitted, dismissed) are not filtered: every one runs the job.
     # When you change one of those three patterns, change the list here, in BOTH copies (`if:` and
-    # `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ or if a
-    # body the predicate reacts to would not run this job.
+    # `concurrency.group`). t/455: comment-filter-workflow.test.mjs was removed with the T1 guard, so
+    # nothing checks these copies or the predicate's bodies now. Re-add a check here (follow-up).
     #
     # A job skipped here reports a check run named `tier-check` (the job id) with conclusion
     # `skipped`, on the DEFAULT BRANCH'S TIP: an `issue_comment` run's SHA is never the PR head.
@@ -125,7 +126,7 @@ jobs:
 
             const owner = context.repo.owner, repo = context.repo.repo;
             // t/4266 P2 fix 4: issue_comment fires on every issue, not just PRs -- filter to PRs
-            // only (same check t1-approval-guard.yml's resolvePrNumber already applies).
+            // only (the same PR-only check the removed T1 guard used, t/455).
             function resolvePrNumber() {
               if (context.payload.pull_request) return context.payload.pull_request.number;
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
@@ -405,8 +406,8 @@ jobs:
             // never updated_at) or an old one of either would clear every future head forever.
             const rawComments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
             const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at }));
-            // Gate Co-Location (t/4266#13 fix 1, same identity t1-approval-guard.yml already
-            // trusts): the TL's T2 approval is a reviewer-App review, not a PI comment alone.
+            // Gate Co-Location (t/4266#13 fix 1, the reviewer-App identity this gate trusts):
+            // the TL's T2 approval is a reviewer-App review, not a PI comment alone.
             const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
             const rawReviews = await retry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const reviews = rawReviews.map((r) => ({ state: r.state, commitId: r.commit_id, login: r.user?.login, body: r.body }));
@@ -449,7 +450,7 @@ jobs:
             // function stays pure and the test can call it with no `context` global in scope.
             function tierRequirementsNote(tier, changeTiersUrl) {
               if (tier === 'T1') {
-                return `Needs: an \`Approved (<role>):\` approval at the current head from a role other than this PR's owner. Use a reviewer-App review (\`docs/agent-pr-approval.md\`); a comment is accepted during the transition. Enforced by \`t1-approval-guard\`. Arm auto-merge only after it. See [${changeTiersUrl}](${changeTiersUrl}).`;
+                return `Needs: nothing beyond the required checks going green. The T1 approval requirement was removed (t/455), so a T1 PR merges on CI and branch protection alone. See [${changeTiersUrl}](${changeTiersUrl}).`;
               }
               if (tier === 'T2') {
                 return `Needs: one Second Opinion round, with \`consult-hold\` on until the SO clears this exact head. Then the TL approves (reviewer App). It goes to the PI instead if the SO dissents or didn't review, or if the change is itself a PI-only decision (spend, secrets policy, branch protection, deleting prod data). \`consult-hold-guard\` enforces the label. See [${changeTiersUrl}](${changeTiersUrl}).`;
