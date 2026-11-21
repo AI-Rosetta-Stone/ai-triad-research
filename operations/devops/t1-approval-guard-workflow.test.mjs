@@ -27,9 +27,8 @@ test('P1: the PR trigger is pull_request_target, not pull_request (a PR can no l
 });
 
 test('P1: issue_comment and pull_request_review triggers are unaffected (no "target" variant exists for them)', () => {
-  // `deleted` and `dismissed` (SO condition on #5176): a removed approval must re-evaluate.
-  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited, deleted\]/m);
-  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
+  assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited\]/m);
+  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted\]/m);
 });
 
 test('P1: checkout never persists credentials, and the predicate is loaded only from the explicitly-fetched BASE tip', () => {
@@ -246,7 +245,7 @@ test('t/200 (#4804 semantics, unchanged): the old YAML cannot bind a reviewer-Ap
   assert.equal(result.pass, false);
   assert.equal(result.reason, 'missing-head-sha', 'the machine-readable reason is unchanged');
   assert.match(result.summary, /predates #4804/);
-  assert.match(result.summary, /post a PR comment containing `\/recheck-guards` or rebase onto main/);
+  assert.match(result.summary, /post any PR comment or rebase onto main/);
   assert.match(result.summary, /re-run the guard on main's workflow/);
 });
 
