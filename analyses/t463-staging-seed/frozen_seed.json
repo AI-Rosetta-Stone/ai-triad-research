@@ -1,0 +1,607 @@
+{
+  "ticket": "t/463",
+  "purpose": "seed ai-triad-data-staging (staging branch) for the staging gate (t/463)",
+  "source": {
+    "repo": "AI-Rosetta-Stone/ai-triad-data",
+    "branch": "main",
+    "commit": "ae35f676d78fd96ac769e6e56ec250db9c785938"
+  },
+  "target_repo": "AI-Rosetta-Stone/ai-triad-data-staging",
+  "target_branch": "staging",
+  "go": "t/463#8 (PI authorization, 2026-11-21, 'yes' in session, recorded by TL)",
+  "count": 98,
+  "total_bytes": 94379002,
+  "count_note": "11 taxonomy/Origin files (incl. embeddings.json) + 87 dictionary files = 98. The t/463#7 summary said 11 taxonomy plus 1 embeddings plus 87; embeddings is already one of the 11.",
+  "sha256_of_targets": "cc627054a6a0342bab70e39f9db7bcb0f4998fda82a7e3dbb6b8d4da22e65ab0",
+  "sha256_of_targets_rule": "sha256 of the UTF-8 text lines '<path>\t<git blob sha>\t<bytes>' sorted by path, each line ending in newline",
+  "targets": [
+    {
+      "path": "dictionary/colloquial/accountability.json",
+      "blob": "e488274a88c1bc71eee3a7193117b4c2506ae58a",
+      "bytes": 1150,
+      "sha256": "39f2264a9510d464084d03fe38594ba5a7209b0918b0967022697a798ea0e7ad"
+    },
+    {
+      "path": "dictionary/colloquial/adversarial_robustness.json",
+      "blob": "e99121c1eab79bef9141cb156356b6b1d1716952",
+      "bytes": 536,
+      "sha256": "32ba0c6520ba87dbb89f68f742619892c6330b3e0c816b29d0a6376fe9cfc0b5"
+    },
+    {
+      "path": "dictionary/colloquial/alignment.json",
+      "blob": "6326b0b8f19108df4987802feb76f3b754d4f64a",
+      "bytes": 1213,
+      "sha256": "76fe2fa8d748283938cfc32bb56759402ed4f75b81cc917713c470340e07bd80"
+    },
+    {
+      "path": "dictionary/colloquial/ambient_surveillance.json",
+      "blob": "0f633ce0b82adb386366d36c3326a1d92a6c97cf",
+      "bytes": 525,
+      "sha256": "6739ee887d07b61f15b1f26a91276284bd2ec0806f2517877e86943fdf3a05c6"
+    },
+    {
+      "path": "dictionary/colloquial/autonomy.json",
+      "blob": "f92afcc07494dd201d9ddb2c79b71049a515fc67",
+      "bytes": 1343,
+      "sha256": "42e12e16653310a63f040b7ddd9ee7121a8e7e2d689b9ad60bc6ad18bec2a8cc"
+    },
+    {
+      "path": "dictionary/colloquial/bias.json",
+      "blob": "f82e875c0bebed7c9f1c0b5112036f1ebf3376f1",
+      "bytes": 957,
+      "sha256": "e7b9a7fa1e7862f66fe75d437391dbb7021ba1f9923713a686e7da9d1260e6f1"
+    },
+    {
+      "path": "dictionary/colloquial/capabilities.json",
+      "blob": "5dfb011dd76c37e275490d98afcb6b1156239073",
+      "bytes": 1166,
+      "sha256": "7344c47fcc186214ab2e1179d4a19a3fa87fa3183fee7b3917bf9af833679077"
+    },
+    {
+      "path": "dictionary/colloquial/collective_bargaining.json",
+      "blob": "99ec38daaeb05e6bd5104325c27a73009f400209",
+      "bytes": 534,
+      "sha256": "98554cfb7fb8362c90ec8a59b3f721f0331117efd5fcc2ed7b51fee379324407"
+    },
+    {
+      "path": "dictionary/colloquial/control.json",
+      "blob": "63a75028018f3653ca57399adb80cee34bf687e7",
+      "bytes": 830,
+      "sha256": "22a437f8cc80d97fb15162db3e3f9f67dc08ff000a200040bbd4be5f6ae1ce98"
+    },
+    {
+      "path": "dictionary/colloquial/data_provenance.json",
+      "blob": "64e8804e94026f2bae53249e88f4cfd7a6bc80cc",
+      "bytes": 532,
+      "sha256": "8a23fc14a19963c26b6495c5e5fde38f1a77d6894ce690d8b76349d8a644fff8"
+    },
+    {
+      "path": "dictionary/colloquial/deployment.json",
+      "blob": "b4208c5487f57a4e28deae5c7bd717b3143d9e10",
+      "bytes": 1021,
+      "sha256": "87e0be8492af62ea5a8f0ff6a753a70c361a18d9f9767b508c766af26ac41a03"
+    },
+    {
+      "path": "dictionary/colloquial/energy_infrastructure.json",
+      "blob": "97bbc2c466d3ea83ef250a7ad194c02f96beb15f",
+      "bytes": 535,
+      "sha256": "6258a563fc06d4fe46159162b6e9c2446c6ee755bdc31cf1a79b22f0b24e5642"
+    },
+    {
+      "path": "dictionary/colloquial/fairness.json",
+      "blob": "fe0f80cba87debf13559bf9bcae8267e15532e0c",
+      "bytes": 1271,
+      "sha256": "d678af4bfd6aa5948b0bb9a4cc2535060c37751c65147348cb83f1bebae1d570"
+    },
+    {
+      "path": "dictionary/colloquial/frontier.json",
+      "blob": "f27b8655333812c69982485fdeef28cc174e6375",
+      "bytes": 526,
+      "sha256": "26b34f5a84a38d5ac79554d21ba16fdd98659114491d2705914ba23f8657a740"
+    },
+    {
+      "path": "dictionary/colloquial/governance.json",
+      "blob": "7d3a3cb8dcd490873303240a49f190fae8f60ff7",
+      "bytes": 1250,
+      "sha256": "8c5c472bf0857870f940ce0a162953131fca829dbf8ded7cf26da32b596b0b76"
+    },
+    {
+      "path": "dictionary/colloquial/guardrails.json",
+      "blob": "438071036f8b3269eefe4a544e4f73f376c25475",
+      "bytes": 515,
+      "sha256": "7b352173b16eb3f37dedcd670c466473d47424c6eeffaeae666918ac85d9aa49"
+    },
+    {
+      "path": "dictionary/colloquial/harm.json",
+      "blob": "b422d85e6ab58e353a8d9c3982b9a70ba08eae85",
+      "bytes": 904,
+      "sha256": "de70ec1b0a31c47e355dbb6f2dff8e126f08683cfcc53cc59b5135153e23981c"
+    },
+    {
+      "path": "dictionary/colloquial/industry_lobbying.json",
+      "blob": "98f8c6f2bf8f360ced07aec8566e13b548c55b0d",
+      "bytes": 520,
+      "sha256": "5d6fdd6f94d35b2d89b3c72613f500c4716cbc2f987cc4761146cf4bfb4cad9f"
+    },
+    {
+      "path": "dictionary/colloquial/labor_displacement.json",
+      "blob": "82db7e46c5cdfdd33b653dcd86043b6b98ae9b9a",
+      "bytes": 609,
+      "sha256": "3411e3e415969ba3a603548b83f6625417ae9828006f369ba52812388c5b6cc8"
+    },
+    {
+      "path": "dictionary/colloquial/mental_health.json",
+      "blob": "02ec0228d829b79ca6d6fff6b1405fbe1dc4f097",
+      "bytes": 540,
+      "sha256": "ffc01cbeda0523af6d1c664f5f545e452ca9198d4e30dc915e3d0bb6023adb48"
+    },
+    {
+      "path": "dictionary/colloquial/open_weights.json",
+      "blob": "c57f91399135e53eacfc53ba002cd2785b8c3b04",
+      "bytes": 533,
+      "sha256": "687b8a40e2a8babaac9016f2a0574861313839637256880157e5e724a8907738"
+    },
+    {
+      "path": "dictionary/colloquial/oversight.json",
+      "blob": "5291c402e676a8679eda25a260ac76b0d10bfffb",
+      "bytes": 1218,
+      "sha256": "beeaab1788f6768f56fab00a05acb788a6ef4ba83ef319f09dda36a2e5e8581d"
+    },
+    {
+      "path": "dictionary/colloquial/participatory_governance.json",
+      "blob": "73514f5eaa0e3830dcd6052190e6bc77b624c81f",
+      "bytes": 602,
+      "sha256": "d0baf6c4e1bd8ff2b1a9d07138423066d2c1edd48afad1b22a33d069da95b9ca"
+    },
+    {
+      "path": "dictionary/colloquial/performative_compliance.json",
+      "blob": "61d8440fbacebce4d9217f57a689707285c6df4c",
+      "bytes": 613,
+      "sha256": "4481341ed2280b0185a15acf0383371945c18b96abc744a8594d537252e3d6d1"
+    },
+    {
+      "path": "dictionary/colloquial/power_asymmetry.json",
+      "blob": "fe880ee39a6a43b1db32f920d20f495bc2956dd3",
+      "bytes": 617,
+      "sha256": "b2bac4f2e7d06986cea95a0c1ec28ad96890c14597be67e491a6851200af3722"
+    },
+    {
+      "path": "dictionary/colloquial/regulation.json",
+      "blob": "95bd33de58aa34e9c5bc28b777f65434034d4f30",
+      "bytes": 866,
+      "sha256": "a9ed0f4056288a2dd214cbac855e011d1599ac033e2e5254f92cedae10929d22"
+    },
+    {
+      "path": "dictionary/colloquial/regulatory_capture.json",
+      "blob": "bcfbac5604c345ca57af398a5f7be324f4e9195c",
+      "bytes": 589,
+      "sha256": "642a4e5581bd56936ce1f7590fe4055e42a2f94b39213b5dda15f927a7e34beb"
+    },
+    {
+      "path": "dictionary/colloquial/risk.json",
+      "blob": "a4eda60e421c2382074d6e8eb8cd4cd9d51ee79d",
+      "bytes": 1278,
+      "sha256": "1089321b8d5d8b67bfc92a626ed120ebfd04e9c4a06c0b3b27b867cfcea97e23"
+    },
+    {
+      "path": "dictionary/colloquial/safe_harbor.json",
+      "blob": "d2e37595ab0086a22918528358fd7337046a487b",
+      "bytes": 523,
+      "sha256": "93152fa334e9aff62e278eddf02068ab9acf543878d9ae6ec25575cf696dc41a"
+    },
+    {
+      "path": "dictionary/colloquial/safety.json",
+      "blob": "fb216e59754d6b87a53ec95417662cd431814fe3",
+      "bytes": 1154,
+      "sha256": "d46bde1a2713ff0ff83a98a8fcc012f752ba6e55ce44a7bf368a8542170df58d"
+    },
+    {
+      "path": "dictionary/colloquial/strict_liability.json",
+      "blob": "08dec2ff45017c70e0d2fb4a2d037c1a4ce5888a",
+      "bytes": 556,
+      "sha256": "8db8d54cf4515fbc311c416e643568b13df801cad11328685c3b6c6d0007a144"
+    },
+    {
+      "path": "dictionary/colloquial/systemic_risk.json",
+      "blob": "c4576816b12120ce1103055203e82d5947baca5a",
+      "bytes": 818,
+      "sha256": "12d722689c0a91680588f73a5313fe0500500a46f0dd6e12e4bf96725aa8534f"
+    },
+    {
+      "path": "dictionary/colloquial/transparency.json",
+      "blob": "9f1657ea526b66f0107d51424102f934b83371c2",
+      "bytes": 862,
+      "sha256": "5dad246ed7b0204552802ac911b270120b1fd340c30a9a1e99ee6f56a987afe3"
+    },
+    {
+      "path": "dictionary/standardized/accountability_algorithmic.json",
+      "blob": "097e3ef6bf22d234e8b8a72192afee7fe3616875",
+      "bytes": 2677,
+      "sha256": "6101cf2000c2fd5c2670f03d670172ffd8b314b463b45a97a93e8f21443df9ce"
+    },
+    {
+      "path": "dictionary/standardized/accountability_institutional.json",
+      "blob": "fee5364a770e833c49d6bb08a1ef8be819ab9940",
+      "bytes": 3699,
+      "sha256": "102d2d18732108f5961486b9cd29c27b6a8345fa9dfb42bdd9b036fd9abaa552"
+    },
+    {
+      "path": "dictionary/standardized/accountability_market.json",
+      "blob": "c65e215e0240eea86d6012a9d304935a06bc52aa",
+      "bytes": 3874,
+      "sha256": "b6a19076047ecc8c2d34633d5fecc8f7301809ea98624b53775798b21e2b021e"
+    },
+    {
+      "path": "dictionary/standardized/adversarial_robustness.json",
+      "blob": "3f730fb7a4d3ac72c34e5928b38a912adb0fb093",
+      "bytes": 1659,
+      "sha256": "196b5d38ac7ad13fa89056d0bc40e5dd5dea7d635d0ba3ce0963b4f550015bca"
+    },
+    {
+      "path": "dictionary/standardized/alignment_compliance.json",
+      "blob": "8ac4902d4127df8bee5ee40081034f5ddf50880d",
+      "bytes": 3937,
+      "sha256": "8bdd6f82c261b86a8ca124b7c7d2729490a942b9cb1468ba82581ed3ddc244e4"
+    },
+    {
+      "path": "dictionary/standardized/ambient_surveillance.json",
+      "blob": "f4ba8bef249ed78fb0b4b0a8e4f3d4a9839bdb77",
+      "bytes": 1106,
+      "sha256": "12eda657f51e764ed985c06a9bfad1d5fdbccd1702aef849fd8473c7b5ab67c0"
+    },
+    {
+      "path": "dictionary/standardized/asymmetry_power.json",
+      "blob": "bef3c5d12f98ed8fe0e0b275916515ef40b76441",
+      "bytes": 2276,
+      "sha256": "4bca1c26de79e6ccc179d97570c4fb392a479dd21b2ba38c06ff15889f27a345"
+    },
+    {
+      "path": "dictionary/standardized/autonomy_human.json",
+      "blob": "7ec2e9c94e06cdbc51411c1b78623cf4165e2515",
+      "bytes": 2857,
+      "sha256": "1b8b845fa29ca4807a7598378d551cd6f4b622f066db7b0506cf4a12976b4b5f"
+    },
+    {
+      "path": "dictionary/standardized/autonomy_individual.json",
+      "blob": "c43b130b7c7e2e6c260f94272652a76933561d33",
+      "bytes": 2878,
+      "sha256": "3bb2423ead5da92b3b7a786c4fe656854e53354b0225cdd997c489f0d485aa50"
+    },
+    {
+      "path": "dictionary/standardized/autonomy_machine.json",
+      "blob": "ccaa759835dc95e8af4244e05a79509c9696de49",
+      "bytes": 2560,
+      "sha256": "eaa33e8e033afaaa938a64738fed6b9d57b86e7fa2f110ea0cc1f320c45b226f"
+    },
+    {
+      "path": "dictionary/standardized/behavioral_guardrails.json",
+      "blob": "bb6b19a55b247743284657b6f24801f4aa7bf707",
+      "bytes": 2545,
+      "sha256": "395452d4eefde3382b6c4dc7c753a62896ace51ff795bcd5cb20b024f6615c3c"
+    },
+    {
+      "path": "dictionary/standardized/bias_systemic.json",
+      "blob": "eedfa1d902ceb8b5d135d1a61f44a75adbdab45a",
+      "bytes": 2957,
+      "sha256": "ed009cfc185211ec887cd48a32a8d5694bf440cc443be9e0bd03a21fb63742bf"
+    },
+    {
+      "path": "dictionary/standardized/bias_technical.json",
+      "blob": "3a634d41344a507a8f6bc74e6f9c506049802897",
+      "bytes": 2359,
+      "sha256": "1e28695b74c060141562b23a7140eb7acc1060616b440ac6e27ca6950665725b"
+    },
+    {
+      "path": "dictionary/standardized/capabilities_hazard.json",
+      "blob": "af9de9c0bd8d9b6f57e36d9e951ecabf83e5647f",
+      "bytes": 5765,
+      "sha256": "b3c08bf4fb307ad138b71a74f584ce68b83e8563b5f0884db8b2bd17f2358929"
+    },
+    {
+      "path": "dictionary/standardized/capabilities_scaling.json",
+      "blob": "6aaf21f6142fda486c2a879705ace24b18a09b3f",
+      "bytes": 2449,
+      "sha256": "5bed0c8f637e8378acf4094eb0dd9be2f7a456e5b2d20de4b9ba4cd07f8f2103"
+    },
+    {
+      "path": "dictionary/standardized/capability_frontier.json",
+      "blob": "984593f6641f74b5296508d8ebfe512455c703e0",
+      "bytes": 2189,
+      "sha256": "dea86da7c7b1f6534520a96b83321f6ab6a2402c96975a4add83e68eb6ce5508"
+    },
+    {
+      "path": "dictionary/standardized/capture_institutional.json",
+      "blob": "e4b06a0246c08dcd717f2194b5b5e72c4bb4f33a",
+      "bytes": 3417,
+      "sha256": "4bbe980742f3f9bb9b8e884e64be48121f5089a86ec449a42008808f3ecd62cd"
+    },
+    {
+      "path": "dictionary/standardized/collective_bargaining.json",
+      "blob": "a31c5b693376601d5a81dd133754e37fbe727536",
+      "bytes": 1224,
+      "sha256": "83259c1dd8829edf05ed0c859e01035692f8737f6ae5e9347b05fe1de26e28e9"
+    },
+    {
+      "path": "dictionary/standardized/commercial_alignment.json",
+      "blob": "63850f3f339c9020bf1fe5913143fa10f8427229",
+      "bytes": 1663,
+      "sha256": "6122b359a1d967ca23979929dc837ee2d87c22ebd191a4468e4a9d2f5cec9200"
+    },
+    {
+      "path": "dictionary/standardized/compliance_performative.json",
+      "blob": "23352453e6d085efe8a85e86f174f3beca5872bb",
+      "bytes": 2164,
+      "sha256": "e88aab740deb18fc2dc19b50d3078daaed2e0b378fc3061060f0e973cfdb997d"
+    },
+    {
+      "path": "dictionary/standardized/control_human_agency.json",
+      "blob": "0a8534c92f3e5716d0ab08c049c7733a39d5fbcd",
+      "bytes": 2707,
+      "sha256": "31c91d83d56bce352ba4544e3e0d5b14f86b4eb05b1a42d6ed27e80ff3305f6f"
+    },
+    {
+      "path": "dictionary/standardized/control_optimization.json",
+      "blob": "1b4f4d6de2e9b0439d07a1a26f472f6fe993ea17",
+      "bytes": 1864,
+      "sha256": "c0151a68d87ba227b7a7ffe3920ec97775e46aafe94395e438e39bab18b6691b"
+    },
+    {
+      "path": "dictionary/standardized/data_provenance.json",
+      "blob": "25c079790f344d45c0da8660c054b85eb63b7c74",
+      "bytes": 1199,
+      "sha256": "9001bbcfcff457ea1581b3367bc9f372467a0d8ab499b35e6fa369f55aebf115"
+    },
+    {
+      "path": "dictionary/standardized/deployment_competitive.json",
+      "blob": "c3ef7ac8bd3ded2e83fa88dc0394bb1c8c4e97ec",
+      "bytes": 2464,
+      "sha256": "0a006dea8b1dbc26b126caf0f62173be75363a68b12c6121c78f0be4a2560124"
+    },
+    {
+      "path": "dictionary/standardized/deployment_gated.json",
+      "blob": "ddfc16d7bb18e60161f68532d0e0b60c55a970d0",
+      "bytes": 4190,
+      "sha256": "45baea23d4f65798b69357cf548ff17dcd8ab7974badc7793f7e257d910f6633"
+    },
+    {
+      "path": "dictionary/standardized/displacement_labor.json",
+      "blob": "7e68a2b33d2cd3d7d0fe6baba13c41a67b98643b",
+      "bytes": 2629,
+      "sha256": "01c4c4974926b03c7c2eb611dd96c663cbfd9c4f8a2d047ce90782f3a48bc04e"
+    },
+    {
+      "path": "dictionary/standardized/documented_present_harm.json",
+      "blob": "3e16897e7c6f243e1fbdb1a970c0eab3e55feb27",
+      "bytes": 3285,
+      "sha256": "cfc942e410a4322aacb79d523eb0b4b22c6d8449b5a891931f115563581c7ee3"
+    },
+    {
+      "path": "dictionary/standardized/energy_infrastructure.json",
+      "blob": "e66a5c6844dc0cf4192b3870f0a46d5f70fbb471",
+      "bytes": 1263,
+      "sha256": "8859219b9d1ad30e693ab5d63e2237c3f4a893e5653d9fac556aaeef4cacb12d"
+    },
+    {
+      "path": "dictionary/standardized/fairness_group.json",
+      "blob": "81af08cefedf57651c0f92c188c1b500ea1340d7",
+      "bytes": 2014,
+      "sha256": "05ae5df29aebd2bc7b793d279645f18e6034add620028b5acd05102ab45221ca"
+    },
+    {
+      "path": "dictionary/standardized/fairness_individual.json",
+      "blob": "4feb6d0378b8650185e2b31816e4c5019d352cff",
+      "bytes": 2135,
+      "sha256": "ad2948a54e3775eec9a0183b589bb586075c0ccf73897b4e2460f2bdb3f00940"
+    },
+    {
+      "path": "dictionary/standardized/fairness_procedural.json",
+      "blob": "e477e3a0d02c3ef7b8925a2266ad06ea32c22c3b",
+      "bytes": 2384,
+      "sha256": "2126234c67d38ee7d8825ada13a4f6934d496db6733a6b965eb5d5e3332aa6d4"
+    },
+    {
+      "path": "dictionary/standardized/governance_adaptive.json",
+      "blob": "0690abf1238b8c906477324f2d883aaac58b2e08",
+      "bytes": 3346,
+      "sha256": "195ce88e17ad936dd7c0680a5c049cb170a766a8c3fc604b8df40b42805fc8b8"
+    },
+    {
+      "path": "dictionary/standardized/governance_oversight.json",
+      "blob": "473b87996ca051787e8272b5794cd5cf252f3296",
+      "bytes": 4953,
+      "sha256": "7cfa5de813c17f87792a630267c31a0220806262702a27fcdc134ed9a75dfc67"
+    },
+    {
+      "path": "dictionary/standardized/governance_participatory.json",
+      "blob": "eec5c88f2de8427d0c783afe52e928b792f1612f",
+      "bytes": 2247,
+      "sha256": "2280817198f33fa6ad4c7d545b74bfe0d5bbe74bebd182e63b1bb9eeeeba9f84"
+    },
+    {
+      "path": "dictionary/standardized/industry_lobbying.json",
+      "blob": "43c4567a682700c2883f8262768458f9299f0a84",
+      "bytes": 1413,
+      "sha256": "af912fb038ca83c0a43771fede8db4145a7f579a0340df82c65cc230446170a9"
+    },
+    {
+      "path": "dictionary/standardized/liability_strict.json",
+      "blob": "21dea13c8a5cd0f1930d70c9df75a0740f82e185",
+      "bytes": 3293,
+      "sha256": "05ae820dd85407f7366a0a94f41140fb40a9a5de3ec08abde9c2bbe7c94de3bd"
+    },
+    {
+      "path": "dictionary/standardized/model_weights.json",
+      "blob": "5f6caffc4d4cb08c6c1931fe4d57ffe3d2396d0a",
+      "bytes": 1810,
+      "sha256": "2a0b3f8fd14c15778185d3b2741ff33ccc95442152bb576b77f253bd68134411"
+    },
+    {
+      "path": "dictionary/standardized/oversight_audit.json",
+      "blob": "d594e1864520989668f640b9b198be69c7712626",
+      "bytes": 3001,
+      "sha256": "6b7dc56a32e040488ee61865c23d06a8af20f7ed2fad025f147c2da1dadca32f"
+    },
+    {
+      "path": "dictionary/standardized/oversight_democratic.json",
+      "blob": "1603c70271d427bab3320d352c8af360ad4150c4",
+      "bytes": 3020,
+      "sha256": "d755e96aef9018f9d7d0f6060917efb05f62e8342ff79f0104ce5014bfea4174"
+    },
+    {
+      "path": "dictionary/standardized/oversight_human_control.json",
+      "blob": "c64c5d06fc371b239b59d657138394d3eaa3d296",
+      "bytes": 2533,
+      "sha256": "429f7e139a7331f679436e0d30423053b1075b6f98fb68299f1e819923371acc"
+    },
+    {
+      "path": "dictionary/standardized/regulation_adaptive.json",
+      "blob": "83b6267bc507911213747abce59f334df893bd47",
+      "bytes": 2131,
+      "sha256": "70f47faf1d79f32e6cde9a4ce0be9c513b12b1274ab8ba2611f15df11e5b5dd9"
+    },
+    {
+      "path": "dictionary/standardized/regulation_precautionary.json",
+      "blob": "b3afe5cd7a9d265ea16d9156678f68fab3ab3c42",
+      "bytes": 5632,
+      "sha256": "602ebb02df280fe6aa64edd2700b54c9f170990317353f1c44883dde83f4b60e"
+    },
+    {
+      "path": "dictionary/standardized/risk_existential.json",
+      "blob": "670a8f9f5f472b26020ee0bb315e3df7da4bd8f2",
+      "bytes": 2222,
+      "sha256": "3ad1dcf3f405b5501a21cc8cd3e6ac9ffe3ef5d89f7e8c27d3bb80393f9da53f"
+    },
+    {
+      "path": "dictionary/standardized/risk_innovation.json",
+      "blob": "3c95b5100340c9d80eb9fdc9de0025244c4b8ba9",
+      "bytes": 2976,
+      "sha256": "83a087cafc4309ca3bc13a595d24f1222fd3d9465b55597aaac2303822f22d31"
+    },
+    {
+      "path": "dictionary/standardized/risk_systemic_structural.json",
+      "blob": "2e94bc1744f6b6123d7b4f1952c6a8016975f999",
+      "bytes": 2670,
+      "sha256": "06c61952a504c21e650e927d51210ac6552aed68a75dc57911be7c7f5dea6acf"
+    },
+    {
+      "path": "dictionary/standardized/safe_harbor_regulatory.json",
+      "blob": "8eda1fc437f3e7f9b304fdedb5ec94a70b6ce6a7",
+      "bytes": 2030,
+      "sha256": "2fc6457aa80b552c6456aa040821bddbfaa391e174f5c23bbdea4fec7e3bda73"
+    },
+    {
+      "path": "dictionary/standardized/safety_alignment.json",
+      "blob": "163d87abbd6925b01649fc8ae0cdcaf426ea4bc7",
+      "bytes": 2328,
+      "sha256": "1507f90847058e13ed7e58fdf4c886af9af31e40f241feaa34b945d40f79f149"
+    },
+    {
+      "path": "dictionary/standardized/safety_empirical.json",
+      "blob": "f3e1c852eb90d1ba5a45f20359a79ad46b32f529",
+      "bytes": 2252,
+      "sha256": "8a8f0656e3ee0ff192cfc57271252738cd0bd1026601fc8fe60c37f6a40b58b5"
+    },
+    {
+      "path": "dictionary/standardized/safety_existential.json",
+      "blob": "fa3a3631fedf4e44b7d9ea5177f5f610c8fd3bc5",
+      "bytes": 5890,
+      "sha256": "f72c5c527a4f3bec7b52a59f9101162e5266511bf8660160f8083e3d3ce8d231"
+    },
+    {
+      "path": "dictionary/standardized/speculative_future_harm.json",
+      "blob": "e83f891459b6d6ce4630b1365fd4f9e98e1fa6ba",
+      "bytes": 3613,
+      "sha256": "6facf19bb3c1db0c2613b6d2a1ffd4cc51a0840a63f599e64ea2e13a240554a0"
+    },
+    {
+      "path": "dictionary/standardized/speculative_risk_critique.json",
+      "blob": "b34c8bd0aca5cccfdd13c2cab0e1cc0a6d53f4ea",
+      "bytes": 3300,
+      "sha256": "2bad917dcd18a26a585adac3910793d56db6d8e02a3bf104c027e85a535706b3"
+    },
+    {
+      "path": "dictionary/standardized/transparency_accountability.json",
+      "blob": "5207379c933ffd93ef687fc0e09bb2a6522eedcb",
+      "bytes": 2619,
+      "sha256": "13a0f0ee0d4b0c29ec6e45c59ecc37de1fb06c941f1287456af0f3d22b281287"
+    },
+    {
+      "path": "dictionary/standardized/transparency_verification.json",
+      "blob": "b8a33f306b19a934d5bf7a2c4aece3125aa4fd37",
+      "bytes": 5026,
+      "sha256": "168b41ef7ab89f718ffbadf5345a6f77536e13555e929701f8bf2c20082e0662"
+    },
+    {
+      "path": "dictionary/standardized/wellbeing_mental_health.json",
+      "blob": "f402b26006fdda8cca3c5f32ddf2eaa6c2891179",
+      "bytes": 1342,
+      "sha256": "0868a3090e9b60641f63b0a700e812153b44ea195ef84e166deab2cfaab277dd"
+    },
+    {
+      "path": "taxonomy/Origin/accelerationist.json",
+      "blob": "83560eaec2f1b75bd76887067c9d3aaa4df5126f",
+      "bytes": 5482039,
+      "sha256": "10507eef3e5615eff6e31df6f168fb461163cda9f3cecb2ba25fdef3a7a455e4"
+    },
+    {
+      "path": "taxonomy/Origin/cc-to-sit-mapping.json",
+      "blob": "ab7341a0704a37136b35831326cdb3ce5133265e",
+      "bytes": 6538,
+      "sha256": "8586dac451b818906fa558c1bd845837251a5325361d45db9f3425246500ded9"
+    },
+    {
+      "path": "taxonomy/Origin/embeddings.json",
+      "blob": "8a5f0145860248e054b58ab13b827274de889db9",
+      "bytes": 67014736,
+      "sha256": "d31aeca90ac9f7020191f9b276eb0a8595a94fe4a768cefc9dea2552b4bfa9e2"
+    },
+    {
+      "path": "taxonomy/Origin/entities.json",
+      "blob": "c4adbae2d16d28b3cacd368b6cf042bdbd3d18bc",
+      "bytes": 416111,
+      "sha256": "5155f678d5bb2dd5a10e5ca29e60e618391d046007659ffc66cfcca96dc21d1c"
+    },
+    {
+      "path": "taxonomy/Origin/lineage_categories.json",
+      "blob": "aa091c69828dbc6cc1c09c43d65c9643498b166e",
+      "bytes": 270476,
+      "sha256": "206f7c65b76dd7efabaf99bd206111abfd8787ca1b36e19ff0c56a59aceb0719"
+    },
+    {
+      "path": "taxonomy/Origin/organization_edges.json",
+      "blob": "79f4b376a6f4623c7ce5575d398fd6649a7a49ab",
+      "bytes": 44817,
+      "sha256": "2ca276020a26797321d307c269eff3403ccf3a048d7fcd94d7455700176c5662"
+    },
+    {
+      "path": "taxonomy/Origin/organizations.json",
+      "blob": "9c438391629878bb27b46891522dbdd7a6ae6281",
+      "bytes": 62079,
+      "sha256": "6d6b3c5135d867ab8fdd83112315118fce5cd0cb7d4b7c0c533befcad9b0510b"
+    },
+    {
+      "path": "taxonomy/Origin/policy_actions.json",
+      "blob": "72cc3354ca9193ec107c42b70ee6a4fffc120f89",
+      "bytes": 455281,
+      "sha256": "b1cee96f981d7f133cf0d96c39beeb6ed692807407ed4c8bc79bc3b4048a0f39"
+    },
+    {
+      "path": "taxonomy/Origin/safetyist.json",
+      "blob": "70946acbf71871bfcad6864551e26d89b0cc11e7",
+      "bytes": 7398210,
+      "sha256": "ea12f4cd7f7c5059825492b6522f43b9895c36d9965c0e9c24a605fa9a4f01ac"
+    },
+    {
+      "path": "taxonomy/Origin/situations.json",
+      "blob": "fc1877abe6f6da3139633b81f1496d6059e08988",
+      "bytes": 6006422,
+      "sha256": "8749bdaf6736c29ad159efbc4f29b153ebb8fa43f2d1be7bb83536e558bacf05"
+    },
+    {
+      "path": "taxonomy/Origin/skeptic.json",
+      "blob": "0c6141c2e168a76258a31b1c81931faddcf2ce36",
+      "bytes": 7045551,
+      "sha256": "3e31df80164d0aaad48bb13c95d25690d58cd3552d0ee563021ee526cd9a3fb1"
+    }
+  ]
+}
