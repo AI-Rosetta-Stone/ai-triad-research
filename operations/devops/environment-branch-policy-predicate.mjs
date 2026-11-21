@@ -63,7 +63,13 @@ export function requiredEnvironments(repoEnvironmentNames, workflowReferencedNam
 /**
  * Pure: does one environment's branch-policy configuration actually restrict which ref can get
  * its credential?
- * @param {{name: string, deploymentBranchPolicy: {protected_branches: boolean, custom_branch_policies: boolean} | null, policyCount: number, missing?: boolean}} env
+ *
+ * t/4958: a policy-less environment that mints no credential at all -- 0 secrets AND 0
+ * variables -- has nothing for a branch policy to protect, so it's reported as informational,
+ * not a failing gap (the `copilot` environment GitHub's Copilot coding agent creates, e.g.).
+ * Fail CLOSED whenever the counts aren't both known integers: an unreadable or unprovided count
+ * is never read as "credential-less" (same discipline as the existing `missing` arm).
+ * @param {{name: string, deploymentBranchPolicy: {protected_branches: boolean, custom_branch_policies: boolean} | null, policyCount: number, missing?: boolean, secretsCount?: number, variablesCount?: number, countsError?: string}} env
  */
 export function evaluateEnvironmentBranchPolicy(env) {
   const name = env?.name ?? '(unnamed)';
@@ -71,17 +77,33 @@ export function evaluateEnvironmentBranchPolicy(env) {
     return { name, pass: false, reason: 'referenced (by a workflow or the repo environment list) but does not exist, or could not be read -- never read a missing/unreadable environment as clean' };
   }
   const policy = env?.deploymentBranchPolicy;
+  let noPolicyReason = null;
   if (policy == null) {
-    return { name, pass: false, reason: 'deployment_branch_policy is null -- no branch restriction configured at all, any branch can get this credential' };
+    noPolicyReason = 'deployment_branch_policy is null -- no branch restriction configured at all';
+  } else {
+    const { protected_branches, custom_branch_policies } = policy;
+    if (custom_branch_policies && (env.policyCount ?? 0) === 0) {
+      noPolicyReason = 'custom_branch_policies is true but 0 branch/tag policies are configured -- the selected-branches list is empty';
+    } else if (!custom_branch_policies && !protected_branches) {
+      noPolicyReason = 'neither protected_branches nor custom_branch_policies is enabled';
+    }
   }
-  const { protected_branches, custom_branch_policies } = policy;
-  if (custom_branch_policies && (env.policyCount ?? 0) === 0) {
-    return { name, pass: false, reason: 'custom_branch_policies is true but 0 branch/tag policies are configured -- the selected-branches list is empty, so nothing is actually restricted' };
+  if (noPolicyReason == null) {
+    return { name, pass: true, reason: null };
   }
-  if (!custom_branch_policies && !protected_branches) {
-    return { name, pass: false, reason: 'neither protected_branches nor custom_branch_policies is enabled -- any branch can get this credential' };
+
+  if (env?.countsError) {
+    return { name, pass: false, reason: `${noPolicyReason}, and this environment's secret/variable counts could not be read (${env.countsError}) -- fail closed, never read an unreadable count as credential-less` };
   }
-  return { name, pass: true, reason: null };
+  const { secretsCount, variablesCount } = env ?? {};
+  const countsKnown = Number.isInteger(secretsCount) && Number.isInteger(variablesCount);
+  if (!countsKnown) {
+    return { name, pass: false, reason: `${noPolicyReason}, and this environment's secret/variable counts were not provided -- fail closed, never read an unknown count as credential-less` };
+  }
+  if (secretsCount === 0 && variablesCount === 0) {
+    return { name, pass: true, info: true, reason: `${noPolicyReason}, but this environment has 0 secrets and 0 variables -- no credential to restrict, reported as informational only` };
+  }
+  return { name, pass: false, reason: `${noPolicyReason}, and this environment has ${secretsCount} secret(s)/${variablesCount} variable(s) -- a real credential with no branch restriction, any branch can get it` };
 }
 
 /** Pure: evaluate every required environment and collect the gaps. */
