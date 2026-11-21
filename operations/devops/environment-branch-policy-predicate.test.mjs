@@ -42,6 +42,92 @@ test('FIRE ARM: the environment is missing entirely -> fail, never read as clean
   assert.match(r.reason, /does not exist/);
 });
 
+// ── t/4958: policy-less but credential-less (#5279/#4539 false alarm on `copilot`) ──────────
+test('INFO, not FAIL: policy-less environment with 0 secrets and 0 variables (the `copilot` shape)', () => {
+  const r = evaluateEnvironmentBranchPolicy({
+    name: 'copilot',
+    deploymentBranchPolicy: null,
+    policyCount: 0,
+    secretsCount: 0,
+    variablesCount: 0,
+  });
+  assert.equal(r.pass, true);
+  assert.equal(r.info, true);
+  assert.match(r.reason, /0 secrets and 0 variables/);
+});
+
+test('FIRE ARM: policy-less environment with at least 1 secret still fails', () => {
+  const r = evaluateEnvironmentBranchPolicy({
+    name: 'staging',
+    deploymentBranchPolicy: null,
+    policyCount: 0,
+    secretsCount: 1,
+    variablesCount: 0,
+  });
+  assert.equal(r.pass, false);
+  assert.match(r.reason, /1 secret\(s\)\/0 variable\(s\)/);
+});
+
+test('FIRE ARM: policy-less environment with at least 1 variable (no secrets) still fails', () => {
+  const r = evaluateEnvironmentBranchPolicy({
+    name: 'staging',
+    deploymentBranchPolicy: null,
+    policyCount: 0,
+    secretsCount: 0,
+    variablesCount: 3,
+  });
+  assert.equal(r.pass, false);
+});
+
+test('FIRE ARM: an unreadable secret/variable count fails closed, is never read as credential-less', () => {
+  const r = evaluateEnvironmentBranchPolicy({
+    name: 'staging',
+    deploymentBranchPolicy: null,
+    policyCount: 0,
+    countsError: 'HTTP 403',
+  });
+  assert.equal(r.pass, false);
+  assert.match(r.reason, /could not be read/);
+  assert.match(r.reason, /HTTP 403/);
+});
+
+test('FIRE ARM: counts simply not provided (caller didn\'t look them up) also fails closed, not read as credential-less', () => {
+  const r = evaluateEnvironmentBranchPolicy({ name: 'staging', deploymentBranchPolicy: null, policyCount: 0 });
+  assert.equal(r.pass, false);
+  assert.match(r.reason, /were not provided/);
+});
+
+test('INFO applies equally to the custom_branch_policies-empty and neither-flag-enabled shapes', () => {
+  const emptyCustom = evaluateEnvironmentBranchPolicy({
+    name: 'copilot',
+    deploymentBranchPolicy: { protected_branches: false, custom_branch_policies: true },
+    policyCount: 0,
+    secretsCount: 0,
+    variablesCount: 0,
+  });
+  assert.equal(emptyCustom.pass, true);
+  assert.equal(emptyCustom.info, true);
+
+  const neitherFlag = evaluateEnvironmentBranchPolicy({
+    name: 'copilot',
+    deploymentBranchPolicy: { protected_branches: false, custom_branch_policies: false },
+    policyCount: 0,
+    secretsCount: 0,
+    variablesCount: 0,
+  });
+  assert.equal(neitherFlag.pass, true);
+  assert.equal(neitherFlag.info, true);
+});
+
+test('evaluateAll never counts an INFO result as a gap', () => {
+  const result = evaluateAll([
+    { name: 'copilot', deploymentBranchPolicy: null, policyCount: 0, secretsCount: 0, variablesCount: 0 },
+    { name: 'production', deploymentBranchPolicy: { protected_branches: false, custom_branch_policies: true }, policyCount: 1 },
+  ]);
+  assert.equal(result.pass, true);
+  assert.deepEqual(result.gaps, []);
+});
+
 test('PASS: custom_branch_policies true with at least one policy configured (production/staging/monitoring after t/4340)', () => {
   const r = evaluateEnvironmentBranchPolicy({
     name: 'production',
