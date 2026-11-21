@@ -2163,6 +2163,13 @@ jobs:
           GH_TOKEN: ''
           GITHUB_TOKEN: ''
         run: node --test operations/devops/*.test.mjs
+      # t/436 (TL p/9#318): measure mkdir and O_EXCL on this runner, then run THREE CONCURRENT PUSHES
+      # 50 consecutive times (blocking). The lock takes its owner file by O_EXCL, not mkdir.
+      - name: t/436 mkdir versus O_EXCL race (runner measurement)
+        run: sh operations/devops/t436-lock-race.sh 1000
+      - name: t/436 three concurrent pushes, 50 consecutive runs (blocking)
+        timeout-minutes: 20
+        run: bash operations/devops/t436-three-push-loop.sh 50
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
