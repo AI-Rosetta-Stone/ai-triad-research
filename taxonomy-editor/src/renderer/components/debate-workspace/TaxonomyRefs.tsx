@@ -15,7 +15,7 @@ import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
-import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type WarnFn } from './claimMap';
+import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type SteelmanContext, type WarnFn } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -322,13 +322,26 @@ interface ClaimMapLayoutProps {
   stage?: string;
   camp?: string; // the speaker's camp, e.g. SKEPTIC
   motion?: string; // the session motion; the line is omitted when absent
+  steelmanCtx?: SteelmanContext; // the debate's steelman nodes, for tagged attacks (t/388)
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-/** NLI verdict when a check has run; otherwise the attack is not yet verified. */
+/** t/388: a linked steelman shows its own text and verdict on the attack card. Without one the
+ *  attack reads as Unverified and shows its own challenge text. */
+function attackText(attack: ParsedAttack): string {
+  return attack.steelman ? attack.steelman.text : attack.text;
+}
+
 function attackStatus(attack: ParsedAttack): string {
-  return attack.verificationStatus && attack.verificationStatus !== 'not yet checked' ? attack.verificationStatus : 'Unverified';
+  const verdict = attack.steelman?.verdict;
+  if (verdict === 'faithful') return 'Faithful to target';
+  if (verdict === 'diverges') return 'Misrepresents target';
+  return 'Unverified';
+}
+
+function attackEyebrowSuffix(attack: ParsedAttack): string {
+  return attack.steelman ? ` · STEELMAN OF THE ${attack.steelman.camp.toUpperCase()}` : '';
 }
 
 // Every item the claim map skips is logged, so the fallback is never silent.
@@ -414,8 +427,8 @@ function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
       <div className="claim-map-attack-col" role="group" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
         {claim.attack ? (
           <div className="claim-map-attack-card">
-            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
-            <p className="claim-map-attack-text">{claim.attack.text}</p>
+            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}{attackEyebrowSuffix(claim.attack)}</div>
+            <p className="claim-map-attack-text">{attackText(claim.attack)}</p>
             <div className="claim-map-attack-footer">
               <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
             </div>
@@ -461,7 +474,7 @@ function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSele
             <div key={i} className="claim-map-unmapped-row">
               <div className="claim-map-unmapped-label">Unmapped attack</div>
               <div className="claim-map-attack-card">
-                <p className="claim-map-attack-text">{attack.text}</p>
+                <p className="claim-map-attack-text">{attackText(attack)}</p>
                 <div className="claim-map-attack-footer">
                   <span className="claim-map-attack-status">{attackStatus(attack)}</span>
                 </div>
@@ -536,16 +549,18 @@ function LegacyPlanView({ wp, selectedPlanNodeId, setSelectedPlanNodeId }: {
 }
 
 // Zero terms are left out. No "verified" term until verification is wired (t/388).
-function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number): string {
+// Zero terms are left out, verified included: only a steelman with a verdict counts (t/388).
+function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number, verifiedCount: number): string {
   return [
     claimCount > 0 && plural(claimCount, 'claim'),
     attackCount > 0 && plural(attackCount, 'attack'),
     assumptionCount > 0 && plural(assumptionCount, 'assumption'),
+    verifiedCount > 0 && `${verifiedCount} verified`,
   ].filter(Boolean).join(' · ');
 }
 
-function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
+function ClaimMapLayout({ wp, stage = '', camp, motion, steelmanCtx, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(() => parseWorkProduct(wp, warnClaimMap, steelmanCtx), [wp, steelmanCtx]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
@@ -556,7 +571,7 @@ function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setS
   }
 
   const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
-  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length);
+  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length, verifiedAttacks);
 
   return (
     <div className="claim-map-layout">
@@ -605,6 +620,12 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry 
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
   const motion = useDebateStore(s => motionForEntry(s.activeDebate, entry?.id));
+  // t/388: the debate's argument-network nodes, so a tagged attack can resolve its steelman.
+  const networkNodes = useDebateStore(s => s.activeDebate?.argument_network?.nodes);
+  const steelmanCtx = useMemo<SteelmanContext>(
+    () => ({ nodes: networkNodes ?? [], entryId: entry?.id, speaker: entry?.speaker ?? '' }),
+    [networkNodes, entry?.id, entry?.speaker],
+  );
   const wp = planStage.work_product as Record<string, unknown>;
   if (!wp || Object.keys(wp).length === 0) {
     return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
@@ -621,6 +642,7 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry 
           stage={entry?.type === 'opening' ? 'opening plan' : planStage.stage}
           camp={entry?.speaker}
           motion={motion}
+          steelmanCtx={steelmanCtx}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
