@@ -1,0 +1,74 @@
+name: Actions cache prune
+
+# t/4971: clears alert #4966 (actions-cache-budget.yml's own 8 GB alarm, t/4931). That alarm is
+# ALERT ONLY by design; this is its deletion counterpart, kept as its own narrowly-scoped
+# workflow rather than widening ci.yml's permissions (which stays contents: read for every job
+# there) -- the only thing this workflow can do beyond read is delete a cache entry.
+#
+# Policy (operations/devops/actions-cache-prune.mjs): for every cache key prefix, on
+# refs/heads/main ONLY, keep the most-recently-created entry and delete the rest. Never touches
+# a non-main ref -- a PR or merge-queue branch's own cache may still be read by a re-run of that
+# still-open PR, and GitHub evicts it on its own once the ref retires.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'  # once a day, off round-minute marks (t/4501 convention)
+  workflow_dispatch:
+
+permissions:
+  contents: read   # actions/checkout, to load operations/devops/actions-cache-prune.mjs
+  actions: write   # list + delete Actions caches
+
+concurrency:
+  group: actions-cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Self-health — unit suite
+        run: node --test operations/devops/actions-cache-prune.test.mjs
+
+      - name: Plan and delete stale same-prefix caches on main
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const ws = process.env.GITHUB_WORKSPACE;
+            const budget = await import(pathToFileURL(`${ws}/operations/devops/actions-cache-budget.mjs`).href);
+            const prune = await import(pathToFileURL(`${ws}/operations/devops/actions-cache-prune.mjs`).href);
+            const { owner, repo } = context.repo;
+
+            let caches;
+            try {
+              ({ caches } = await budget.fetchCacheData(github, owner, repo));
+            } catch (err) {
+              core.setFailed(`Could not read the Actions cache list: ${err && err.message}`);
+              return;
+            }
+
+            const toDelete = prune.planPrune(caches);
+            if (toDelete.length === 0) {
+              core.info('Nothing to prune: no refs/heads/main key prefix has more than one entry.');
+              return;
+            }
+
+            core.info(`Pruning ${toDelete.length} stale cache entr${toDelete.length === 1 ? 'y' : 'ies'}:`);
+            let freedBytes = 0;
+            for (const c of toDelete) {
+              core.info(`  deleting '${c.key}' (id ${c.id}, created ${c.created_at}, ${(c.size_in_bytes / 1e9).toFixed(2)} GB)`);
+              try {
+                await github.rest.actions.deleteActionsCacheById({ owner, repo, cache_id: c.id });
+                freedBytes += c.size_in_bytes;
+              } catch (err) {
+                // A 404 here means another concurrent run (or GitHub's own eviction) already
+                // removed it -- not a failure, just a race. Anything else is logged and the
+                // prune continues with the rest of the plan.
+                core.warning(`WARN actions-cache-prune: could not delete '${c.key}' (id ${c.id}): ${err && err.message}`);
+              }
+            }
+            core.info(`Freed approximately ${(freedBytes / 1e9).toFixed(2)} GB.`);
