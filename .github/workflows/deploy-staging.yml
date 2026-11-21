@@ -363,18 +363,15 @@ jobs:
             -OutFile (Join-Path $env:RUNNER_TEMP 't4935-env-before.json') `
             -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
 
-      - name: Sync Bicep baseEnv to staging template (t/2630)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-          ./operations/devops/Sync-StagingEnv.ps1
-
-      - name: "Pre-revision gate (t/77 condition 4): staging template must not target prod repo or App"
-        # BLOCKING -- no continue-on-error. t/77 condition 4 (SO t/77#3, t/77#9). Runs after the env
-        # sync and before the new revision is created, so no staging revision is built with prod's
-        # GITHUB_REPO, GITHUB_APP_ID or branch. Fail closed: an unset value, or an unset prod
-        # reference (vars.SYNC_GITHUB_REPO / SYNC_GITHUB_APP_ID), refuses the deploy.
+      - name: "Pre-revision gate (t/77 condition 4): staging config must not target prod repo or App"
+        # BLOCKING -- no continue-on-error. t/77 condition 4 (SO t/77#3, t/77#9; reorder per SO
+        # round-2 condition 1, t/404#3). Runs BEFORE the env sync, not after: Sync-StagingEnv.ps1
+        # calls `az containerapp update --set-env-vars`, which itself creates a revision, so a gate
+        # that reads the LIVE template only after that write cannot prove no bad revision was ever
+        # created in between. Instead this checks the exact values the sync is about to apply --
+        # Get-BicepBaseEnv.ps1 -ForStaging, main.bicep's stagingEnvOverrides merged over baseEnv,
+        # the same source Sync-StagingEnv.ps1 itself reads. Fail closed: an unset value, or an
+        # unset prod reference (vars.SYNC_GITHUB_REPO / SYNC_GITHUB_APP_ID), refuses the deploy.
         shell: pwsh
         env:
           PROD_REPO: ${{ vars.SYNC_GITHUB_REPO }}
@@ -385,37 +382,38 @@ jobs:
             Write-Host "::error::t/77 pre-revision gate: vars.SYNC_GITHUB_REPO or SYNC_GITHUB_APP_ID is unset, so the prod identity cannot be compared. NOT deploying (fail-closed)."
             exit 1
           }
-          $Json = az containerapp show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --query "properties.template.containers[0].env" -o json
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::t/77 pre-revision gate: could not read the staging template env. NOT deploying (fail-closed)."
-            exit 1
-          }
-          $Vars = @{}
-          foreach ($Item in ($Json | ConvertFrom-Json)) { $Vars[$Item.name] = $Item.value }
-          $Repo   = $Vars['GITHUB_REPO']
-          $AppId  = $Vars['GITHUB_APP_ID']
-          $Branch = $Vars['GITHUB_BRANCH']
+          $BicepEnv = ./operations/devops/Get-BicepBaseEnv.ps1 -ForStaging
+          $Repo   = $BicepEnv['GITHUB_REPO']
+          $AppId  = $BicepEnv['GITHUB_APP_ID']
+          $Branch = $BicepEnv['GITHUB_BRANCH']
           $Missing = @()
           if ([string]::IsNullOrWhiteSpace($Repo))   { $Missing += 'GITHUB_REPO' }
           if ([string]::IsNullOrWhiteSpace($AppId))  { $Missing += 'GITHUB_APP_ID' }
           if ([string]::IsNullOrWhiteSpace($Branch)) { $Missing += 'GITHUB_BRANCH' }
           if ($Missing.Count -gt 0) {
-            Write-Host "::error::t/77 pre-revision gate: staging template has no value for $($Missing -join ', '). NOT deploying (fail-closed)."
+            Write-Host "::error::t/77 pre-revision gate: main.bicep's staging config has no value for $($Missing -join ', '). NOT deploying (fail-closed)."
             exit 1
           }
           if ($Repo -eq $env:PROD_REPO) {
-            Write-Host "::error::t/77 pre-revision gate: staging template GITHUB_REPO is the prod repo '$Repo'. NOT deploying: a staging revision would write to prod data."
+            Write-Host "::error::t/77 pre-revision gate: staging config GITHUB_REPO is the prod repo '$Repo'. NOT deploying: the sync would write prod data to staging."
             exit 1
           }
           if ($AppId -eq $env:PROD_APP_ID) {
-            Write-Host "::error::t/77 pre-revision gate: staging template GITHUB_APP_ID is the prod App. NOT deploying: a staging revision would use prod's credential."
+            Write-Host "::error::t/77 pre-revision gate: staging config GITHUB_APP_ID is the prod App. NOT deploying: the sync would use prod's credential on staging."
             exit 1
           }
           if ($Branch -eq 'main') {
-            Write-Host "::error::t/77 pre-revision gate: staging template GITHUB_BRANCH is 'main'. NOT deploying: a staging revision would write to prod main."
+            Write-Host "::error::t/77 pre-revision gate: staging config GITHUB_BRANCH is 'main'. NOT deploying: the sync would point staging at prod main."
             exit 1
           }
           Write-Host "t/77 pre-revision gate PASSED: staging repo '$Repo', branch '$Branch', App id differs from prod."
+
+      - name: Sync Bicep baseEnv to staging template (t/2630)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          ./operations/devops/Sync-StagingEnv.ps1
 
       - name: Deploy new revision to staging (0% traffic)
         id: new_revision
