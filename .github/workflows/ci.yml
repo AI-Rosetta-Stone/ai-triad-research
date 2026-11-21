@@ -4547,11 +4547,12 @@ jobs:
 
             // t/238: the inline retry above retried EVERY error indiscriminately, including
             // permission 403s that are real denials, not transient -- delaying the same failure
-            // instead of fixing it. withGitHubRetry (same shared, tested module ci.yml's own
-            // other t1-approval-guard job already uses) distinguishes a rate-limit 403 (waits for
+            // instead of fixing it. withGitHubRetry (same shared, tested module
+            // t1-approval-guard.yml already uses) distinguishes a rate-limit 403 (waits for
             // the reset) from a 5xx/429 (exponential backoff) from a permission 403 (fails fast).
             const withRetry = async (label, fn) => withGitHubRetry(label, fn, {
-              warn: (m) => core.warning(m.replace('WARN github-retry: ', 't1-approval-guard (merge_group): ')),
+              warn: (m) => core.warning(m),
+              prefix: 't1-approval-guard (merge_group)',
             });
 
             const perPrResults = [];
