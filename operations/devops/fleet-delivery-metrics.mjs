@@ -228,6 +228,37 @@ export function findSoClearedAt(comments, afterISO) {
   return earliest == null ? null : new Date(earliest).toISOString();
 }
 
+// t/4972 (Shared Lib, via r/27#560 on PR #5199): the repo's SO-verdict convention has evolved
+// since SO_CLEARED_RE/HEADER_SO_RE were written -- recent rounds (2026-11-15 six-PR consult)
+// post "**Second Opinion verdict, mirrored for the PI (round of ...): proceed with conditions at
+// `<sha>`**" or "...send back at `<sha>`", neither of which contains "cleared"/"clearing"/"did
+// not review" at all. consult-hold-aged's 2h time-box exists to catch "nobody has answered",
+// not "nobody has cleared it yet" -- a conditional reply or a send-back is still a REPLY, so it
+// should suppress the aged-timeout alarm the same way a clearance does (#5199 paged despite the
+// SO having already answered). Pinned to the comment's OWN cited head SHA matching the PR's
+// CURRENT head: a verdict comment from a since-superseded head must NOT suppress the alarm for
+// a genuinely-unanswered later push.
+const SO_VERDICT_HEADER_RE = /^[\s*_]*Second Opinion verdict\b/i;
+const SHA_IN_BACKTICKS_RE = /`([0-9a-f]{7,40})`/;
+
+/** PURE. True if any comment opens with the "Second Opinion verdict" header (any verdict word --
+ * cleared, proceed-with-conditions, send-back) AND cites a head SHA (backtick-quoted hex) that
+ * matches the PR's actual current head SHA (either is a prefix of the other, so a short or long
+ * SHA on either side still matches). comments: [{ body }]. headSha: the PR's current head SHA,
+ * or null/undefined (never matches -- no head to pin against is not evidence of a reply at it). */
+export function soRepliedAtHead(comments, headSha) {
+  if (!headSha) return false;
+  for (const c of comments ?? []) {
+    const body = c.body ?? '';
+    if (!SO_VERDICT_HEADER_RE.test(body)) continue;
+    const m = body.match(SHA_IN_BACKTICKS_RE);
+    if (!m) continue;
+    const cited = m[1];
+    if (headSha.startsWith(cited) || cited.startsWith(headSha)) return true;
+  }
+  return false;
+}
+
 /** PURE. prs: [{ body, ciGreenAt, mergedAt, soClearedAt }] -- T2 only (others are ignored, same
  * as approvalWaitByTier's bucketing). A PR with no detected soClearedAt goes to `unclassified`
  * (its wait is real but can't be split) rather than guessed into either leg. */

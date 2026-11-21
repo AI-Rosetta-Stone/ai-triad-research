@@ -18,13 +18,20 @@
     A gh failure is NOT read as "nothing to report" (same rule as t/3912 cond 1): it returns
     ShouldAct=$true with QueryError set.
 
-    OWNER RESOLUTION ORDER (Lead review, PR #3141 item 4) -- performed by the CALLING AGENT,
+    OWNER RESOLUTION ORDER (Lead review, PR #3141 item 4; t/4972 step 1a added after the
+    second-ticket-series namespace clash found on r/27#560) -- performed by the CALLING AGENT,
     not this script (branch parsing alone mis-routes any PR whose branch lacks a ticket, or
     names a parent ticket, so it is a hint only, never the resolution):
-      1. If `.ticket` (the branch-derived hint) is non-null, call `get_ticket` on it. If the
-         ticket has an assignee, ping that role's Main.
-      2. Otherwise (no hint, or the ticket has no assignee), call `resolve_owners_batch` on the
-         PR's changed files (`gh pr view <number> --json files`), and ping the owning role's Main.
+      1. If `.ticketHint` is non-null, call `get_ticket` on it.
+      1a. Before trusting that result, call `Test-TicketHintTrustworthy` (StuckPRAlertFilter.ps1)
+          with the resolved ticket's status category, closedAt (if completed) and the PR's
+          createdAt. A low-numbered ticket (<1000) or one that closed before the PR was opened
+          is a second-ticket-series collision (the PI's Interweave tooling shares this repo's
+          `t/NNN` ref syntax but not its numbering), NOT the PR's real tracking ticket -- do not
+          use its assignee. If it IS trustworthy and has an assignee, ping that role's Main.
+      2. Otherwise (no hint, hint untrustworthy, or the trustworthy ticket has no assignee), call
+         `resolve_owners_batch` on the PR's changed files (`gh pr view <number> --json files`),
+         and ping the owning role's Main.
       3. If neither resolves, escalate to the TL rather than silently dropping the alert.
 .EXAMPLE
     ./operations/devops/Get-StuckPRAlerts.ps1
