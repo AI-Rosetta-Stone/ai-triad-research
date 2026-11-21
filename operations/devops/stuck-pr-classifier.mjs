@@ -158,8 +158,9 @@ export function findStaleChangesRequest({ reviews, comments, reviewerAppLogin, h
  *   Omit or null if unknown; a PR with the label but no known apply-time is treated as `held`
  *   (never escalated), never guessed into `consult-hold-aged`.
  * @param {boolean} [pr.soClearanceDetected] - true if any comment on the PR matches
- *   SO_CLEARED_RE (t/4533, reusing fleet-delivery-metrics.mjs's own detector) -- an SO has
- *   replied (cleared, or explicitly "did not review"), so the time-box question is already
+ *   SO_CLEARED_RE (t/4533, reusing fleet-delivery-metrics.mjs's own detector) OR soRepliedAtHead
+ *   at the PR's current head (t/4972: a "proceed with conditions"/"send back" verdict is not a
+ *   clearance, but it IS an answer) -- an SO has replied, so the time-box question is already
  *   answered and this is ordinary `held` (waiting on PI/TL), never `consult-hold-aged`.
  * @param {boolean} [pr.inMergeQueue] - true if the PR is currently in the merge queue
  *   (GraphQL `isInMergeQueue`, t/4660). A queued PR has `auto_merge` (REST)/`autoMergeEnabled`
