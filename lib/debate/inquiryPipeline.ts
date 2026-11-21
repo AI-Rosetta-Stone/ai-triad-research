@@ -184,6 +184,21 @@ function assertGroundingNonEmpty(
  * projectTrust and surfaces as CalibrationEntry.trust.verdict = 'censored' on
  * affected convergence metrics. The result is always returned.
  */
+// t/284 item 1, pre-flight: the debate must run on the user's literal question with no reframe.
+// Checked before grounding and the debate spend, so a violation cannot throw after the spend.
+// topicPipeline sets topic.final = config.topic, and it reframes only when wisdomAutoReframe is on.
+function assertLiteralQuestionPreflight(request: InquiryRequest, config: DebateConfig): void {
+  if (config.topic === request.question && config.wisdomAutoReframe === false) return;
+  throw new ActionableError({
+    goal: 'Run the inquiry debate on the user\'s literal question',
+    problem: `debate config would not keep the question as topic.final (config.topic ${config.topic === request.question ? 'matches' : 'differs'}, wisdomAutoReframe=${String(config.wisdomAutoReframe)})`,
+    location: 'runInquiryPipeline',
+    nextSteps: [
+      'Check that inquiryConfig sets topic: request.question and wisdomAutoReframe: false',
+    ],
+  });
+}
+
 export async function runInquiryPipeline(
   request: InquiryRequest,
   deps: InquiryPipelineDeps,
@@ -191,6 +206,7 @@ export async function runInquiryPipeline(
   // ── Stage 1: derive debate config ──────────────────────────────────────────
   deps.onStage?.('deriving');
   const { config, derivation } = deriveDebateConfig(request, deps.registry);
+  assertLiteralQuestionPreflight(request, config);
 
   // ── Stage 2: build grounding envelope ─────────────────────────────────────
   // ADR-001: empty envelope on zero-hit / empty-corpus inputs — WARN logged in
