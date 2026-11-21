@@ -54,14 +54,14 @@ a.vocab-term,
 .detail-row { margin: 3px 0; font-size: var(--text-xs); }
 .detail-row strong { color: var(--text-primary); margin-right: 4px; }
 .detail-row.meta { color: var(--text-muted); font-style: italic; }
-.phrase-tag { display: inline-block; background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent); color: var(--warning, #f59e0b); padding: 1px 5px; border-radius: var(--radius-sm); margin: 1px 2px; font-size: var(--text-2xs); }
+.phrase-tag { display: inline-block; background: var(--warning-bg); color: var(--warning-text); padding: 1px 5px; border-radius: var(--radius-sm); margin: 1px 2px; font-size: var(--text-2xs); }
 .see-also-link { cursor: pointer; color: var(--focus-ring); text-decoration: underline; margin-right: 6px; }
 .see-also-link:hover { opacity: 0.8; }
 .confusion-entry { margin: 2px 0 2px 8px; font-size: var(--text-xs); }
 .status-badge { font-size: var(--text-2xs); padding: 1px 6px; border-radius: var(--radius-sm); font-weight: 500; }
-.status-badge.do_not_use_bare { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
-.status-badge.acceptable_in_quotation { background: color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent); color: var(--warning, #f59e0b); }
-.status-badge.safe { background: color-mix(in srgb, var(--success, #22c55e) 15%, transparent); color: var(--success, #22c55e); }
+.status-badge.do_not_use_bare { background: var(--error-bg); color: var(--error-text); }
+.status-badge.acceptable_in_quotation { background: var(--warning-bg); color: var(--warning-text); }
+.status-badge.safe { background: var(--success-bg); color: var(--success-text); }
 .resolves-to { margin: 4px 0 0 16px; }
 .resolution { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: var(--text-xs); }
 .resolution .when { color: var(--text-muted); font-size: var(--text-2xs); }
