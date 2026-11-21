@@ -526,6 +526,28 @@ The threshold below which a camp's grounding is flagged `lowCoverage` in `buildG
 O17 and O28 are evaluated at data `8d15d499`, because t/293 (PI-approved) later removed their deciding claims; every other item was checked at `655a614c`. Across the population, the only type change is O15 → OPPOSES. This lifts the `OrgClaimMatching` write-freeze (t/4572 C3) through the consumer's gate-key PR. The `direction_conflict` provenance class is unchanged (an observation).
 
 **Revisit when** the t/4545 held-out set reports. A pass on t/4545 lifts the `endorsement` tag's provenance from stipulated; a fail may mean another prompt revision or dropping the Y/P bar entirely in favor of the N-only use (reorder, never filter).
+
+## 23. Inquiry question-drift warning (t/285)
+
+`questionDrift.warning` on an inquiry result, raised when any camp's self-reported `answeredLiteralQuestion` is false, or `driftScore` is at or over `DRIFT_WARN_THRESHOLD` (0.3). `driftScore` has no producer yet (t/283 A), so the warning rests on the self-report alone.
+
+| Item | Value | Provenance | Evidence / notes |
+|---|---|---|---|
+| `questionDrift.warning` (t/285) | raised when any camp's `answeredLiteralQuestion` is false | **stipulated** | Raised from the model's self-reported answer. Not validated; no observed sample yet (t/285#7 notes 1 and 3). **Gate:** the warning stays off the user surface (t/286) until an observed-sample rate is reported. |
+| `DRIFT_WARN_THRESHOLD` (0.3) | `driftScore` ≥ 0.3 raises the warning | **stipulated** | Debate Engine constant. No producer for `driftScore` (t/283 A). Unused in practice until one lands. |
+
+## 24. Inquiry relevance thresholds (t/284 item 5)
+
+Per-turn cosine between each debater turn and the literal question (`lib/debate/inquiryRelevance.ts`), on the ArCo anchor embedding model. The drift flag is set when the mean falls below the cut, or when three consecutive turns fall below the low-turn cut.
+
+| Item | Value | Provenance | Evidence / notes |
+|---|---|---|---|
+| `RELEVANCE_MEAN_WARN` | mean similarity < 0.35 raises the drift flag | **stipulated** | TL starting point (t/284#3 item 3). Not calibrated. Calibration pending the six t/284 runs, which report the cosine distribution before the cut is kept. |
+| `RELEVANCE_LOW_TURN` and `RELEVANCE_LOW_RUN` | 3 consecutive turns < 0.25 raise the drift flag | **stipulated** | Same source. Not calibrated. Same pending calibration. |
+| `session.relevance.drift_warning` | derived from the two rows above | **stipulated** | **Internal only:** stored and logged, not read by any UI. Must not reach the user surface until the six runs report a rate (t/285 gate applies). |
+
+Empty transcripts set `unavailable_reason: 'no debater turns'` with a null mean and no drift flag (af6d93407, `inquiryPipeline.ts:91`). Not a clean run.
+
 ## Maintenance
 
 - Every PR adding or modifying a metric, threshold, weight, or lexicon must state its provenance class and update this register in the same PR (CL review checklist item).
