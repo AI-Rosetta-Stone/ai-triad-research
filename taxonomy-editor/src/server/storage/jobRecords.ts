@@ -86,6 +86,29 @@ function parseRecord(kind: JobRecordKind, userId: string, name: string, raw: str
 }
 
 /**
+ * t/268 (item 5): Validate that a GitHub listDirectory [] is genuine, not degraded.
+ * On degraded [] (circuit breaker / transient), throws with JOB_RECORD_LIST_FAILED.
+ */
+async function validateGitHubListDirectoryResult(backend: StorageBackend, dir: string, kind: JobRecordKind): Promise<void> {
+  if (backend instanceof GitHubAPIBackend) {
+    try {
+      await backend.listDirectoryStrict(dir);
+    } catch (err: unknown) {
+      if ((err as { kind?: string }).kind === 'transient') {
+        // Circuit breaker or transient API failure. Fail closed.
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'job-records', level: 'error', message: `listUserJobRecords: GitHub transient failure, rejecting degraded [] as "unknown cap": ${dir}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        throw listFailed(kind, dir, new Error('GitHub backend returned degraded [] — cannot confirm job count (transient failure). Failing closed.'));
+      }
+      // Non-transient error (config/creds) — re-throw as is.
+      throw err;
+    }
+  }
+}
+
+/**
  * Every persisted job record of `kind` for `userId` (explicit, not getStorageUserId(), so a check
  * can name the user it counts). A missing directory → []. Unparseable, wrong-shape or other-user
  * records are skipped with a WARN. A record deleted between the listing and its read is skipped.
@@ -119,6 +142,8 @@ export async function listUserJobRecords<K extends JobRecordKind>(userId: string
     });
     throw listFailed(kind, dir, err);
   }
+
+  if (names.length === 0) await validateGitHubListDirectoryResult(backend, dir, kind);
 
   const records: JobRecordOf<K>[] = [];
   for (const name of names.filter(n => JOB_FILE_RE.test(n))) {
