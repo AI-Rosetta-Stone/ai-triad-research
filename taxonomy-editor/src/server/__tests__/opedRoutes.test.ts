@@ -328,6 +328,16 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
   });
 
+  it('t/467 (TL p/16#209): an anonymous caller with NO session cookie (storage _local) is refused before any write', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('_local'); // no anon_session_id cookie → the shared local store
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(403);
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
+    expect(upsertOpedRun).not.toHaveBeenCalled();
+  });
+
   it('t/467 (SO/TL 2): a parallel burst cannot bypass the one-run cap — the second concurrent create is 429 while the first is still in flight', async () => {
     // The store count shows zero (no run persisted yet), so only the synchronous in-process slot
     // can stop the second request. Before the fix, both requests passed the count and both ran.

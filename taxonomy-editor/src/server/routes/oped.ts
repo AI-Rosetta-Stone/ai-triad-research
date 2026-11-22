@@ -314,6 +314,11 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // ── Pre-start gate (JSON errors — must precede the SSE headers, TL condition 4) ──
     // t/467 (PI option A): anonymous callers may create op-eds. They route to the free pool via
     // resolveGenerationContext below (t/201), under the PI's monthly provider cap on that key.
+    // TL p/16#209: an anonymous caller needs their own storage key (anon_session_id cookie). Without
+    // one they would share the '_local' store with the local user, so refuse before any write.
+    if (isAnonymousUser() && getStorageUserId() === '_local') {
+      error(res, 'Start an anonymous session to create op-eds: reload the page, or sign in.', 403); return;
+    }
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;
