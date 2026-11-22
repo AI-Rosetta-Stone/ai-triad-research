@@ -2982,6 +2982,24 @@ export class GitHubAPIBackend implements StorageBackend {
    *  403/429 (TL t/4584#4, confirmed root cause) is GitHub's shared
    *  installation rate limit exhausted, not a generic refusal, so it gets
    *  its own reason rather than falling into the generic `status=<n>`. */
+  /** t/463 (log-only): on a 404 from the contents API, record what GitHub said, so the
+   *  not_found reason is readable in the logs. Pulled out of fetchFileFromGitHub for the
+   *  complexity budget. No behaviour change: callers still get the same null. */
+  private logContents404Detail(resp: ApiResult, repoPath: string, endpoint: string, ref: string, credentialMode: string): void {
+    if (resp.status !== 404) return;
+    const body = (resp.data && typeof resp.data === 'object') ? resp.data as Record<string, unknown> : {};
+    log.github.warn({
+      path: repoPath,
+      endpoint,
+      ref,
+      status: resp.status,
+      githubMessage: typeof body.message === 'string' ? body.message : null,
+      documentationUrl: typeof body.documentation_url === 'string' ? body.documentation_url : null,
+      apiError: resp.error ?? null,
+      credentialMode,
+    }, 'fetchFileFromGitHub: contents 404 detail (t/463 log-only)');
+  }
+
   private classifyNonOkContentsResponse(resp: ApiResult, repoPath: string, optional: boolean | undefined, strict: boolean): void {
     if (resp.status === 404) {
       this.logNullReadReason(repoPath, 'not_found', optional);
@@ -3170,6 +3188,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // ref, but treat it as a miss defensively rather than crash on null data.
     if (resp.status === 304) return null;
     if (!resp.ok) {
+      this.logContents404Detail(resp, repoPath, `/repos/${creds.repo}/contents/${repoPath}${qRef}`, ref, creds.mode);
       this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
       return null;
     }
