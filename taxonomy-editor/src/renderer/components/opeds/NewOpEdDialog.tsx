@@ -480,6 +480,7 @@ interface CreateFormProps {
   topicLooksLikeUrl: boolean;
   /** Move the URL-shaped topic value into the URL field and switch to web-page mode. */
   onMigrateTopicToUrl: () => void;
+  /** t/467: anonymous users may use topic and URL sources; the Document zone still needs sign-in. */
   isAnonymous: boolean;
   voices: Set<PovKey>;
   toggleVoice: (pov: PovKey) => void;
@@ -551,10 +552,8 @@ function OpEdCreateForm(p: CreateFormProps) {
               value={p.url}
               onChange={e => p.setUrl(e.target.value)}
               placeholder="https://…"
-              disabled={p.isAnonymous}
               autoFocus
             />
-            {p.isAnonymous && <p className="oped-signin-note">Sign in to use URL sources.</p>}
           </div>
         )}
 
@@ -853,9 +852,10 @@ export function NewOpEdDialog({ open, onClose, onCreated, allowUrlSource = true,
 
   const handleDraft = async () => {
     if (!canStart || creating) return;
-    if ((fromWebPage || sourceMode === 'document') && isAnonymous) {
-      const what = sourceMode === 'document' ? 'Document sources' : 'URL sources';
-      setStartError({ problem: `${what} require sign-in.`, nextSteps: ['Sign in with GitHub or Google', 'Or switch to a topic instead'] });
+    // t/467: URL sources are open to anonymous users; a document still needs sign-in (the extract route refuses
+    // anonymous callers, and Design's t/276 condition keeps the zone disabled with a sign-in note).
+    if (sourceMode === 'document' && isAnonymous) {
+      setStartError({ problem: 'Document sources require sign-in.', nextSteps: ['Sign in with GitHub or Google', 'Or switch to a topic instead'] });
       return;
     }
     setCreating(true);
