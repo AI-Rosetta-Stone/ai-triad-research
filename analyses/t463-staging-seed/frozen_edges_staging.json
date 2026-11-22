@@ -1,0 +1,24 @@
+{
+  "ticket": "t/463",
+  "purpose": "add taxonomy/Origin/edges.json to the staging branch of ai-triad-data-staging (scope change, PI)",
+  "source": {
+    "repo": "AI-Rosetta-Stone/ai-triad-data",
+    "branch": "main",
+    "commit": "ae35f676d78fd96ac769e6e56ec250db9c785938"
+  },
+  "target_repo": "AI-Rosetta-Stone/ai-triad-data-staging",
+  "target_branch": "staging",
+  "go": "t/463#26 (PI, 2026-11-22: 'Add edges.json to staging'); branch scope set to staging only by TL p/45#92",
+  "count": 1,
+  "total_bytes": 16675908,
+  "sha256_of_targets": "023338bc4235986cf226d43dfd1822ba64888d1252949c673d7040174319f0d7",
+  "sha256_of_targets_rule": "sha256 of the UTF-8 text line '<path>\t<git blob sha>\t<bytes>' followed by newline",
+  "targets": [
+    {
+      "path": "taxonomy/Origin/edges.json",
+      "blob": "a3affc786900e884883309b8673a24ae474195ef",
+      "bytes": 16675908,
+      "sha256": "3f2a8df8183343f3d60701615ec47f1f1200672aee98cea79ccaaa1ab693d551"
+    }
+  ]
+}
