@@ -9,6 +9,8 @@ import { json, error, getClientIp } from '../httpKit.js';
 import { checkRate } from '../security/rateLimiter.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { anonOpEdCeilingBreach } from '../storage/anonOpEdSpend.js';
+import { getModelRegistry, isRegisteredModel } from '../ai/aiBackends.js';
+import { resolvePricingKey } from '../../../../lib/ai-client/registry.js';
 import { log } from '../logger.js';
 
 /** Anonymous URL-source fetches allowed per client per hour (each one is an outbound request). */
@@ -34,6 +36,19 @@ export function refuseUnkeyedAnonymousOpEd(res: ServerResponse): boolean {
   if (!(isAnonymousUser() && getStorageUserId() === '_local')) return false;
   error(res, 'Start an anonymous session to create op-eds: reload the page, or sign in.', 403);
   return true;
+}
+
+/** The model check for an op-ed run: a model must be registered (400, for everyone), and an ANONYMOUS run
+ *  must also be priced (403), so its spend can be counted against the ceilings (t/467, SO condition 2).
+ *  Returns null when the model may run. */
+export function opedModelError(model: string, anonymous: boolean): { message: string; status: number } | null {
+  if (!isRegisteredModel(model)) {
+    return { message: `Model '${model}' is not available — choose another model in Settings.`, status: 400 };
+  }
+  if (anonymous && !resolvePricingKey(getModelRegistry(), model)) {
+    return { message: 'This model has no price on file, so it cannot run for anonymous users.', status: 403 };
+  }
+  return null;
 }
 
 /** Limits anonymous URL-source fetches per client IP. Returns true (429 written) when over the limit.

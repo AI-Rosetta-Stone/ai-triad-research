@@ -54,7 +54,13 @@ const { isAnonymousUser, getStorageUserId, getCurrentUser, resolveTier, resolveB
 }));
 vi.mock('../security/userContext.js', () => ({ isAnonymousUser, getStorageUserId, getCurrentUser }));
 vi.mock('../ai/proxyTiers.js', () => ({ resolveTier, isBackendAllowed: (tier: { allowedBackends: string[] }, b: string) => tier.allowedBackends.includes(b) }));
-vi.mock('../ai/aiBackends.js', () => ({ resolveBackend, isRegisteredModel }));
+vi.mock('../ai/aiBackends.js', () => ({ resolveBackend, isRegisteredModel, getModelRegistry: () => ({}) }));
+// t/467 (SO condition 2): which models have a price on file. Only the test models named here are priced.
+const { pricedModels } = vi.hoisted(() => ({ pricedModels: new Set(['gemini-2.5-flash', 'gemini-2.5-pro']) }));
+vi.mock('../../../../lib/ai-client/registry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/ai-client/registry.js')>()),
+  resolvePricingKey: (_registry: unknown, id: string) => (pricedModels.has(id) ? id : undefined),
+}));
 // accessControl (callerTierIdentity, clientSafeMessage) is pure — use the real module
 // so httpKit's error() path keeps clientSafeMessage. Only the tier/backend + user context
 // need controlling, and those are mocked above.
@@ -330,6 +336,20 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(res._status).not.toBe(403);
     expect(JSON.parse(res._body ?? '{}')).not.toMatchObject({ error: 'Sign in to create op-eds' });
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
+  });
+
+  it('t/467 (SO condition 2, TL p/16#213): an UNPRICED model cannot run for an anonymous caller (403, nothing registered)', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11');
+    resolveTier.mockReturnValue({ level: 'platform', allowedBackends: ['gemini'], pinnedModel: undefined });
+    resolveBackend.mockReturnValue('gemini');
+    isRegisteredModel.mockReturnValue(true); // registered, but with no price on file
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, params: { model: 'mystery-model-zz', wordCount: 800 } });
+    expect(res._status).toBe(403);
+    expect(JSON.parse(res._body ?? '{}')).toMatchObject({ error: expect.stringMatching(/no price on file/) });
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
+    expect(upsertOpedRun).not.toHaveBeenCalled();
   });
 
   it('t/467 (TL p/16#211): the DAILY spend ceiling refuses an anonymous run before it is registered, with a WARN', async () => {

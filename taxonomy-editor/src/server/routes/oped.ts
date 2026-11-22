@@ -19,8 +19,8 @@
 import type { Router, Handler } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param } from '../httpKit.js';
-import { MAX_CONCURRENT_OPED_RUNS, reserveOpedRunSlot, releaseOpedRunSlot } from './opedRunSlots.js';
-import { refuseAnonymousOpEdGate, refuseAnonymousUrlFetch } from './opedAnonGate.js';
+import { MAX_CONCURRENT_OPED_RUNS, reserveOpedRunSlot } from './opedRunSlots.js';
+import { refuseAnonymousOpEdGate, refuseAnonymousUrlFetch, opedModelError } from './opedAnonGate.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { clientSafeMessage } from '../security/accessControl.js';
@@ -35,7 +35,7 @@ import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { checkRate } from '../security/rateLimiter.js';
 import { publishOpedShare, unpublishOpedShare, refreshOpedShareIfShared } from '../storage/opedShareStore.js';
 import { resolveGenerationContext, enforceBackendAllowed } from './generationContext.js';
-import { resolveBackend, isRegisteredModel } from '../ai/aiBackends.js';
+import { resolveBackend } from '../ai/aiBackends.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { getProjectRoot } from '../config.js';
 import { createWebOpEdAdapter } from '../ai/opedAdapter.js';
@@ -313,7 +313,9 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // doesn't (resolveBackend only prefix-guesses unknown → 'gemini', so an unregistered id would
     // reach the provider and fail silently mid-generation, "voice failed — 0 words"). Free tier is
     // pinned to a registered model, so this only rejects a caller-chosen unregistered id.
-    if (!isRegisteredModel(model)) { error(res, `Model '${model}' is not available — choose another model in Settings.`, 400); return; }
+    // t/467 (SO condition 2, TL p/16#213): an unpriced model can't run for an anonymous caller (see opedModelError).
+    const modelErr = opedModelError(model, isAnonymousUser());
+    if (modelErr) { error(res, modelErr.message, modelErr.status); return; }
     if (enforceBackendAllowed(res, tier, backend)) return;
     // t/3993: validate tagSelection at the server boundary — unknown tag → 400 before SSE commits.
     const tagErr = tagSelectionError(body);
@@ -375,13 +377,14 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
 
   post('/api/oped-sets', async (req, res, body) => {
     const userId = getStorageUserId();
-    if (!reserveOpedRunSlot(userId)) {
-      json(res, { error: 'concurrency_limit', message: 'You already have an op-ed generating; wait for it to finish.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return;
+    const release = reserveOpedRunSlot(userId, isAnonymousUser());
+    if (!release) {
+      json(res, { error: 'concurrency_limit', message: 'An op-ed is already generating for you, or the service is busy with anonymous runs. Wait for it to finish, then try again.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return;
     }
     try {
       await createOpEdRun(req, res, body);
     } finally {
-      releaseOpedRunSlot(userId);
+      release();
     }
   });
 
