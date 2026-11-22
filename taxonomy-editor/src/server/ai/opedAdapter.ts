@@ -15,7 +15,8 @@
 
 import type { AIAdapter, GenerateOptions } from '../../../../lib/debate/aiAdapter.js';
 import * as ai from './aiBackends.js';
-import { estimateCost } from '../../../../lib/ai-client/registry.js';
+import { estimateCost, resolvePricingKey } from '../../../../lib/ai-client/registry.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 import { isAnonymousUser } from '../security/userContext.js';
 import { recordAnonOpEdSpend } from '../storage/anonOpEdSpend.js';
 import { log } from '../logger.js';
@@ -38,10 +39,27 @@ export function createWebOpEdAdapter(): AIAdapter {
           signal: options?.signal,           // client-disconnect cancellation → provider fetch abort
           responseSchema: options?.responseSchema,
           maxTokens: options?.maxTokens,
+          // t/467 (TL p/16#215): an anonymous run uses only its price-checked model, so the spend counted
+          // is the spend made. No fallback model can serve it.
+          noFallback: recordSpend,
         },
       );
-      // t/467 (TL p/16#211): an anonymous run's priced cost counts toward the daily and monthly ceilings.
-      if (recordSpend) await recordCallCost(result.tokenUsage, result.servedModel || model);
+      // t/467 (TL p/16#211, p/16#216): an anonymous run's priced cost counts toward the ceilings. The check
+      // is on the SERVED model, not the requested one: a reroute below this layer must not escape pricing.
+      if (recordSpend) {
+        const served = result.servedModel || model;
+        if (!resolvePricingKey(ai.getModelRegistry(), served)) {
+          throw new ActionableError({
+            goal: 'Refuse an anonymous op-ed run whose served model has no price',
+            problem: `The served model '${served}' has no price on file, so its spend cannot be counted toward the anonymous ceilings.`,
+            location: 'opedAdapter.generateText',
+            nextSteps: ['Choose a priced model, or sign in to run with your own key.'],
+            code: 'ANON_UNPRICED_SERVED_MODEL',
+            httpStatus: 403,
+          });
+        }
+        await recordCallCost(result.tokenUsage, served);
+      }
       return result.text;
     },
     // t/3614: required AIAdapter member — host-loaded registry data (cached via getModelRegistry).

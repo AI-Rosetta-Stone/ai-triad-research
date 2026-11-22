@@ -276,6 +276,13 @@ export function buildModelsToTry(resolved: string, hasExplicitKey: boolean, regi
   return filterChainForExplicitKey([resolved, ...getFallbackChain(resolved, registry)], hasExplicitKey, registry);
 }
 
+/** t/467 (SO / TL p/16#215): the chain a call may try. With `noFallback`, only the primary model, so a
+ *  fallback can never serve a model that was not price-checked (anonymous op-ed runs). */
+export function chainModelsToTry(resolved: string, hasExplicitKey: boolean, registry: Pick<ModelRegistry, 'models'> | null, options?: { noFallback?: boolean }): string[] {
+  const all = buildModelsToTry(resolved, hasExplicitKey, registry);
+  return options?.noFallback === true ? all.slice(0, 1) : all;
+}
+
 /**
  * Pure filter (t/829): when an explicit key is in play, keep only models that
  * resolve to the same backend as the first (resolved) model — the explicit key
@@ -376,12 +383,14 @@ export async function generateText(
     maxTokens?: number;
     /** t/4088: called once per chain link completion (success or failure) for the AI call log. */
     onChainLinkComplete?: ChainLinkComplete;
+    /** t/467 (TL p/16#215): only the primary model may serve this call (no fallback chain). */
+    noFallback?: boolean;
   },
 ): Promise<GenerateResult> {
   const resolved = model || DEFAULT_MODEL;
   const explicitKeys = normalizeExplicitKeys(explicitApiKey);
   const registry = getModelRegistry(); // read once per call, not once per chain link (TL e/284#19)
-  const modelsToTry = buildModelsToTry(resolved, explicitKeys !== undefined, registry);
+  const modelsToTry = chainModelsToTry(resolved, explicitKeys !== undefined, registry, options);
   const entryMap = loadModelConfig().entryMap;
 
   let lastError: unknown;

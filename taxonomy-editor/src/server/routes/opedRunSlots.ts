@@ -35,3 +35,10 @@ export function reserveOpedRunSlot(userId: string, anonymous: boolean): (() => v
     if (anonymous) anonRunsInFlight--;
   };
 }
+
+/** t/467 (SO, TL p/16#216 item 1): the anonymous cap is per REPLICA, so the most anonymous spend that can
+ *  be in flight at once, across all replicas, is replicas × ANON_PROCESS_RUN_CAP × the largest single-run cost.
+ *  The ceilings must be set with this bound in mind; it is the overshoot a burst can add past a ceiling. */
+export function replicaOvershootBoundUsd(replicas: number, maxRunCostUsd: number): number {
+  return replicas * ANON_PROCESS_RUN_CAP * maxRunCostUsd;
+}

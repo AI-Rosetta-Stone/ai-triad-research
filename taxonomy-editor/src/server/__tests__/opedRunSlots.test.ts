@@ -47,3 +47,12 @@ describe('op-ed run slots (t/467, SO condition 1)', () => {
     expect(reserveOpedRunSlot('same-user', false)).not.toBeNull();
   });
 });
+
+// t/467 (SO, TL p/16#216 item 1): the replica bound the ceilings must be set against.
+import { replicaOvershootBoundUsd } from '../routes/opedRunSlots.js';
+describe('replica overshoot bound (t/467, SO item 1)', () => {
+  it('the anonymous spend a burst can add across replicas is replicas × cap × the largest run cost', () => {
+    expect(replicaOvershootBoundUsd(1, 0.5)).toBeCloseTo(1); // 1 × 2 × 0.5
+    expect(replicaOvershootBoundUsd(3, 0.5)).toBeCloseTo(3); // 3 × 2 × 0.5: three replicas triple it
+  });
+});
