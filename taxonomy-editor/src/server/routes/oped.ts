@@ -294,7 +294,8 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   // POST opens text/event-stream; every JSON error must be sent BEFORE writeHead(200).
   post('/api/oped-sets', async (req, res, body) => {
     // ── Pre-start gate (JSON errors — must precede the SSE headers, TL condition 4) ──
-    if (isAnonymousUser()) { error(res, 'Sign in to create op-eds', 403); return; }
+    // t/467 (PI option A): anonymous callers may create op-eds. They route to the free pool via
+    // resolveGenerationContext below (t/201), under the PI's monthly provider cap on that key.
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;
@@ -441,6 +442,9 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   post('/api/oped-sets/:setId/share', async (req, res) => {
     const setId = param(req, 'setId', SHARE_ROUTE);
     if (rejectUnsafeId(res, setId)) return;
+    // t/467: anonymous creation is open, but publishing writes a PUBLIC copy. That is not in the
+    // PI's approved scope, so publish stays signed-in only.
+    if (isAnonymousUser()) { error(res, 'Sign in to publish op-eds', 403); return; }
     // Modest per-user rate guard — this writes to a public container.
     if (!checkRate(`oped-share-write:${getStorageUserId()}`, 20, 60_000).allowed) {
       json(res, { error: 'rate_limited' }, 429); return;

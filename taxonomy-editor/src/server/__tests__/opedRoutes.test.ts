@@ -315,6 +315,27 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled(); // gated before quota + any generation
   });
 
+  it('t/467: an ANONYMOUS caller is no longer refused at the sign-in gate; it reaches the free-pool entitlement and quota', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    resolveTier.mockReturnValue({ level: 'free', allowedBackends: ['gemini'], pinnedModel: 'gemini-2.5-flash' });
+    resolveBackend.mockReturnValue('gemini');
+    getOpedSetsQuotaStatus.mockResolvedValue({ allowed: false, resource: 'opeds', current: 15, limit: 15 });
+    const anonReq = { url: '/api/oped-sets', headers: {}, socket: { remoteAddress: '127.0.0.1' } } as unknown as IncomingMessage;
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](anonReq, res, validBody);
+    expect(res._status).not.toBe(403);
+    expect(JSON.parse(res._body ?? '{}')).not.toMatchObject({ error: 'Sign in to create op-eds' });
+    expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
+  });
+
+  it('t/467: an anonymous caller CANNOT publish a public share (public write stays signed-in only)', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets/:setId/share'](fakeReq('/api/oped-sets/set-1/share'), res, {});
+    expect(res._status).toBe(403);
+    expect(publishOpedShare).not.toHaveBeenCalled();
+  });
+
   it('free tier is PINNED — a premium request is not 403’d, it proceeds on the pinned backend (t/2635)', async () => {
     // The consolidation's core behaviour via resolveGenerationContext: a free user asking for a
     // premium model is served the tier's pinned model (an allowed backend), NOT rejected. We stop
@@ -328,14 +349,6 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     await handlers['POST /api/oped-sets'](freeReq, res, { ...validBody, params: { model: 'claude-opus-4', wordCount: 800 } });
     expect(res._status).toBe(429); // reached quota ⇒ entitlement did NOT 403 the pinned free user
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled();
-  });
-
-  it('403 for anonymous users (no anonymous op-ed tier)', async () => {
-    isAnonymousUser.mockReturnValue(true);
-    const res = fakeRes();
-    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
-    expect(res._status).toBe(403);
-    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
   });
 
   it('400 when the model is not a registered id — rejected before any generation (t/2687)', async () => {
