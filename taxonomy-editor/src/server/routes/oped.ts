@@ -18,7 +18,9 @@
 
 import type { Router, Handler } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, getClientIp } from '../httpKit.js';
+import { json, error, param } from '../httpKit.js';
+import { MAX_CONCURRENT_OPED_RUNS, reserveOpedRunSlot, releaseOpedRunSlot } from './opedRunSlots.js';
+import { refuseUnkeyedAnonymousOpEd, refuseAnonymousUrlFetch } from './opedAnonGate.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { clientSafeMessage } from '../security/accessControl.js';
@@ -56,25 +58,6 @@ const MAX_TOPIC_LEN = 2000;
 // store — a cross-replica reconnect / replica recycle recovers via the sets GET (TL Q2, t/2610#3).
 // The store lazy-expires stale 'running' blobs (crashed-A protection); no local sweep needed.
 // The in-memory job-store marker is removed — this ticket IS that migration.
-const MAX_CONCURRENT_OPED_RUNS = 1;          // per user, P1 (TL Q1)
-
-// t/467 (TL, SO): in-process run-slot reservation. Taken SYNCHRONOUSLY before the first await and
-// held until the run finishes, so a parallel burst can't pass the cap while the shared-store count
-// still shows zero. The store count (countRunningOpedRuns) stays as the cross-replica check.
-const opedRunSlots = new Map<string, number>();
-function reserveOpedRunSlot(userId: string): boolean {
-  const held = opedRunSlots.get(userId) ?? 0;
-  if (held >= MAX_CONCURRENT_OPED_RUNS) return false;
-  opedRunSlots.set(userId, held + 1);
-  return true;
-}
-function releaseOpedRunSlot(userId: string): void {
-  const held = (opedRunSlots.get(userId) ?? 1) - 1;
-  if (held <= 0) opedRunSlots.delete(userId); else opedRunSlots.set(userId, held);
-}
-/** t/467 (TL, SO): per-client limit on anonymous URL-source fetches (each fetch is an outbound request). */
-const ANON_URL_FETCH_LIMIT = 5;
-const ANON_URL_FETCH_WINDOW_MS = 60 * 60_000;
 const OPED_HEARTBEAT_MS = 15_000;
 
 // ── create-request parsing (FromTopic + FromSource-URL) ──
@@ -316,9 +299,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // resolveGenerationContext below (t/201), under the PI's monthly provider cap on that key.
     // TL p/16#209: an anonymous caller needs their own storage key (anon_session_id cookie). Without
     // one they would share the '_local' store with the local user, so refuse before any write.
-    if (isAnonymousUser() && getStorageUserId() === '_local') {
-      error(res, 'Start an anonymous session to create op-eds: reload the page, or sign in.', 403); return;
-    }
+    if (refuseUnkeyedAnonymousOpEd(res)) return;
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;
@@ -355,11 +336,8 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // and BEFORE the SSE stream commits so a fetch failure returns a clean HTTP error
     // instead of a mid-stream frame — never proceed with empty sourceMaterial (t/2722). (TL MUST)
     let sourceMaterial: string | undefined = documentText; // t/276: an extracted document is the source, no fetch
+    if (refuseAnonymousUrlFetch(req, res, url)) return;
     if (url) {
-      if (isAnonymousUser()) {
-        const rl = checkRate(`oped-url-anon:${getClientIp(req)}`, ANON_URL_FETCH_LIMIT, ANON_URL_FETCH_WINDOW_MS);
-        if (!rl.allowed) { json(res, { error: 'rate_limited', message: 'Too many URL sources from this client; try again later.' }, 429); return; }
-      }
       const fetched = await fetchUrlContent(url);
       if (fetched.error || !fetched.content) {
         error(res, `Could not fetch that URL: ${fetched.error || 'no readable content returned'}`, 502);
