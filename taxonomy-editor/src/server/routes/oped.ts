@@ -20,7 +20,7 @@ import type { Router, Handler } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param } from '../httpKit.js';
 import { MAX_CONCURRENT_OPED_RUNS, reserveOpedRunSlot, releaseOpedRunSlot } from './opedRunSlots.js';
-import { refuseUnkeyedAnonymousOpEd, refuseAnonymousUrlFetch } from './opedAnonGate.js';
+import { refuseAnonymousOpEdGate, refuseAnonymousUrlFetch } from './opedAnonGate.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { clientSafeMessage } from '../security/accessControl.js';
@@ -299,7 +299,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // resolveGenerationContext below (t/201), under the PI's monthly provider cap on that key.
     // TL p/16#209: an anonymous caller needs their own storage key (anon_session_id cookie). Without
     // one they would share the '_local' store with the local user, so refuse before any write.
-    if (refuseUnkeyedAnonymousOpEd(res)) return;
+    if (await refuseAnonymousOpEdGate(res)) return;
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;

@@ -33,6 +33,10 @@ const { refreshOpedShareIfShared, publishOpedShare, unpublishOpedShare } = vi.ho
 }));
 vi.mock('../storage/opedShareStore.js', () => ({ refreshOpedShareIfShared, publishOpedShare, unpublishOpedShare }));
 
+// t/467 (TL p/16#211): the anonymous spend ceiling. Mocked here; the ledger itself is tested in anonOpEdSpend.test.ts.
+const { anonOpEdCeilingBreach } = vi.hoisted(() => ({ anonOpEdCeilingBreach: vi.fn(async () => null as null | 'daily' | 'monthly') }));
+vi.mock('../storage/anonOpEdSpend.js', () => ({ anonOpEdCeilingBreach, recordAnonOpEdSpend: vi.fn(async () => undefined) }));
+
 const { serverWarn } = vi.hoisted(() => ({ serverWarn: vi.fn() }));
 vi.mock('../logger.js', () => ({
   log: { api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }, server: { info: vi.fn(), warn: serverWarn, error: vi.fn(), debug: vi.fn() } },
@@ -326,6 +330,32 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(res._status).not.toBe(403);
     expect(JSON.parse(res._body ?? '{}')).not.toMatchObject({ error: 'Sign in to create op-eds' });
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
+  });
+
+  it('t/467 (TL p/16#211): the DAILY spend ceiling refuses an anonymous run before it is registered, with a WARN', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11');
+    anonOpEdCeilingBreach.mockResolvedValueOnce('daily');
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(429);
+    expect(JSON.parse(res._body ?? '{}')).toMatchObject({ error: 'spend_ceiling', ceiling: 'daily' });
+    expect(serverWarn).toHaveBeenCalledWith(expect.objectContaining({ reason: 'anon-oped-spend-ceiling', ceiling: 'daily' }), expect.stringContaining('daily spend ceiling'));
+    expect(upsertOpedRun).not.toHaveBeenCalled(); // nothing registered
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled(); // refused before the quota and any generation
+  });
+
+  it('t/467 (TL p/16#211): the MONTHLY spend ceiling refuses an anonymous run before it is registered, with a WARN', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11');
+    anonOpEdCeilingBreach.mockResolvedValueOnce('monthly');
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(429);
+    expect(JSON.parse(res._body ?? '{}')).toMatchObject({ error: 'spend_ceiling', ceiling: 'monthly' });
+    expect(serverWarn).toHaveBeenCalledWith(expect.objectContaining({ reason: 'anon-oped-spend-ceiling', ceiling: 'monthly' }), expect.stringContaining('monthly spend ceiling'));
+    expect(upsertOpedRun).not.toHaveBeenCalled();
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
   });
 
   it('t/467 (TL p/16#209): an anonymous caller with NO session cookie (storage _local) is refused before any write', async () => {

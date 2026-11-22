@@ -15,11 +15,16 @@
 
 import type { AIAdapter, GenerateOptions } from '../../../../lib/debate/aiAdapter.js';
 import * as ai from './aiBackends.js';
+import { estimateCost } from '../../../../lib/ai-client/registry.js';
+import { isAnonymousUser } from '../security/userContext.js';
+import { recordAnonOpEdSpend } from '../storage/anonOpEdSpend.js';
+import { log } from '../logger.js';
 
 /** Build the web op-ed AIAdapter. `generateText` is the only method the `lib/oped`
  *  core requires (t/2608#3) — no search/embedding methods are needed (grounding
  *  computes its query embedding directly via onnxEmbedding inside the core). */
 export function createWebOpEdAdapter(): AIAdapter {
+  const recordSpend = isAnonymousUser(); // read per request, inside the request's async context
   return {
     async generateText(prompt: string, model: string, options?: GenerateOptions): Promise<string> {
       const result = await ai.generateText(
@@ -35,10 +40,24 @@ export function createWebOpEdAdapter(): AIAdapter {
           maxTokens: options?.maxTokens,
         },
       );
+      // t/467 (TL p/16#211): an anonymous run's priced cost counts toward the daily and monthly ceilings.
+      if (recordSpend) await recordCallCost(result.tokenUsage, result.servedModel || model);
       return result.text;
     },
     // t/3614: required AIAdapter member — host-loaded registry data (cached via getModelRegistry).
     // This adapter never runs the debate engine, but the interface requires it uniformly.
     registry: ai.getModelRegistry(),
   };
+}
+
+/** t/467: add one anonymous call's priced cost to the spend ledger. A failed write is logged (the run
+ *  continues, but that spend is then not counted). An unpriced call is logged, since it is not counted either. */
+async function recordCallCost(usage: Parameters<typeof estimateCost>[2] | undefined, model: string): Promise<void> {
+  const usd = usage ? estimateCost(ai.getModelRegistry(), model, usage) : undefined;
+  if (usd == null) {
+    log.server.warn({ component: 'oped', model, reason: 'anon-oped-unpriced-call' }, 'Anonymous op-ed call has no price; not counted toward the spend ceiling');
+    return;
+  }
+  try { await recordAnonOpEdSpend(usd); }
+  catch (err) { log.server.warn({ component: 'oped', model, err: String(err), reason: 'anon-oped-spend-record-failed' }, 'Anonymous op-ed spend could not be recorded'); }
 }
