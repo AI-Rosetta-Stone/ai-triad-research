@@ -16,9 +16,9 @@
 // DELETE is deliberately left anon-blocked by the default auth gate
 // (isAnonAllowedRoute) — an anon caller has no oped-sets to delete.
 
-import type { Router } from '../httpKit.js';
+import type { Router, Handler } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param } from '../httpKit.js';
+import { json, error, param, getClientIp } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { clientSafeMessage } from '../security/accessControl.js';
@@ -57,6 +57,24 @@ const MAX_TOPIC_LEN = 2000;
 // The store lazy-expires stale 'running' blobs (crashed-A protection); no local sweep needed.
 // The in-memory job-store marker is removed — this ticket IS that migration.
 const MAX_CONCURRENT_OPED_RUNS = 1;          // per user, P1 (TL Q1)
+
+// t/467 (TL, SO): in-process run-slot reservation. Taken SYNCHRONOUSLY before the first await and
+// held until the run finishes, so a parallel burst can't pass the cap while the shared-store count
+// still shows zero. The store count (countRunningOpedRuns) stays as the cross-replica check.
+const opedRunSlots = new Map<string, number>();
+function reserveOpedRunSlot(userId: string): boolean {
+  const held = opedRunSlots.get(userId) ?? 0;
+  if (held >= MAX_CONCURRENT_OPED_RUNS) return false;
+  opedRunSlots.set(userId, held + 1);
+  return true;
+}
+function releaseOpedRunSlot(userId: string): void {
+  const held = (opedRunSlots.get(userId) ?? 1) - 1;
+  if (held <= 0) opedRunSlots.delete(userId); else opedRunSlots.set(userId, held);
+}
+/** t/467 (TL, SO): per-client limit on anonymous URL-source fetches (each fetch is an outbound request). */
+const ANON_URL_FETCH_LIMIT = 5;
+const ANON_URL_FETCH_WINDOW_MS = 60 * 60_000;
 const OPED_HEARTBEAT_MS = 15_000;
 
 // ── create-request parsing (FromTopic + FromSource-URL) ──
@@ -292,7 +310,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   // runs the shared lib/oped core server-side (the desktop app runs New-OpEd; the web
   // container can't, so generation moved into the TS core). Mirrors routes/chat.ts:
   // POST opens text/event-stream; every JSON error must be sent BEFORE writeHead(200).
-  post('/api/oped-sets', async (req, res, body) => {
+  const createOpEdRun: Handler = async (req, res, body) => {
     // ── Pre-start gate (JSON errors — must precede the SSE headers, TL condition 4) ──
     // t/467 (PI option A): anonymous callers may create op-eds. They route to the free pool via
     // resolveGenerationContext below (t/201), under the PI's monthly provider cap on that key.
@@ -333,6 +351,10 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // instead of a mid-stream frame — never proceed with empty sourceMaterial (t/2722). (TL MUST)
     let sourceMaterial: string | undefined = documentText; // t/276: an extracted document is the source, no fetch
     if (url) {
+      if (isAnonymousUser()) {
+        const rl = checkRate(`oped-url-anon:${getClientIp(req)}`, ANON_URL_FETCH_LIMIT, ANON_URL_FETCH_WINDOW_MS);
+        if (!rl.allowed) { json(res, { error: 'rate_limited', message: 'Too many URL sources from this client; try again later.' }, 429); return; }
+      }
       const fetched = await fetchUrlContent(url);
       if (fetched.error || !fetched.content) {
         error(res, `Could not fetch that URL: ${fetched.error || 'no readable content returned'}`, 502);
@@ -366,6 +388,18 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // Generate with the entitlement-resolved (free-tier-pinned) model, not the raw request.
     const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, ...documentSourceFields(documentText, sourceName), signal: ac.signal };
     await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone);
+  };
+
+  post('/api/oped-sets', async (req, res, body) => {
+    const userId = getStorageUserId();
+    if (!reserveOpedRunSlot(userId)) {
+      json(res, { error: 'concurrency_limit', message: 'You already have an op-ed generating; wait for it to finish.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return;
+    }
+    try {
+      await createOpEdRun(req, res, body);
+    } finally {
+      releaseOpedRunSlot(userId);
+    }
   });
 
   // t/2610: observational run status — a dropped SSE stream re-fetches here instead of

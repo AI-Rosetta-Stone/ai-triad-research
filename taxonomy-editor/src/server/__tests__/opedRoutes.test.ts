@@ -328,6 +328,44 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
   });
 
+  it('t/467 (SO/TL 2): a parallel burst cannot bypass the one-run cap — the second concurrent create is 429 while the first is still in flight', async () => {
+    // The store count shows zero (no run persisted yet), so only the synchronous in-process slot
+    // can stop the second request. Before the fix, both requests passed the count and both ran.
+    countRunningOpedRuns.mockResolvedValue(0);
+    getStorageUserId.mockReturnValue('burst-user');
+    let releaseFirst!: (e: Error) => void;
+    upsertOpedRun.mockImplementationOnce(() => new Promise((_resolve, reject) => { releaseFirst = reject; }));
+    const first = handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), fakeRes(), validBody);
+    await new Promise(r => setImmediate(r)); // let the first request reach its pending upsert
+    const second = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), second, validBody);
+    expect(second._status).toBe(429);
+    expect(JSON.parse(second._body ?? '{}')).toMatchObject({ error: 'concurrency_limit' });
+    releaseFirst(new Error('test: finish the first run'));
+    await expect(first).rejects.toThrow('test: finish the first run');
+  });
+
+  it('t/467 (TL 3): an anonymous client is rate-limited on URL-source fetches; the over-limit fetch is never made', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    resolveTier.mockReturnValue({ level: 'free', allowedBackends: ['gemini'], pinnedModel: 'gemini-2.5-flash' });
+    resolveBackend.mockReturnValue('gemini');
+    getOpedSetsQuotaStatus.mockResolvedValue({ allowed: true, resource: 'opeds', current: 0, limit: 15 });
+    fetchUrlContent.mockResolvedValue({ content: '', error: 'blocked host' }); // fail fast: 502 before any SSE
+    const anonReq = () => ({ url: '/api/oped-sets', headers: {}, socket: { remoteAddress: '198.51.100.23' } } as unknown as IncomingMessage);
+    const withUrl = { ...validBody, url: 'https://example.com/a' };
+    for (let i = 0; i < 5; i++) {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](anonReq(), res, withUrl);
+      expect(res._status).toBe(502); // within the limit: the fetch is attempted
+    }
+    expect(fetchUrlContent).toHaveBeenCalledTimes(5);
+    const over = fakeRes();
+    await handlers['POST /api/oped-sets'](anonReq(), over, withUrl);
+    expect(over._status).toBe(429);
+    expect(JSON.parse(over._body ?? '{}')).toMatchObject({ error: 'rate_limited' });
+    expect(fetchUrlContent).toHaveBeenCalledTimes(5); // the sixth fetch was never made
+  });
+
   it('t/467: an anonymous caller CANNOT publish a public share (public write stays signed-in only)', async () => {
     isAnonymousUser.mockReturnValue(true);
     const res = fakeRes();
