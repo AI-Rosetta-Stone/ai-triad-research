@@ -17,6 +17,10 @@ P2. staitriadstg19 exists, AADKERB set, share taxonomy-data-staging exists (same
 P3. Consent owner (Jeffrey) has recorded consent with time on t/463, and the consent text has been checked.
 P4. Staging writes are paused for the copy window only (see the pause step). The pause is set up and confirmed
     before the inventory is taken.
+P5. BEFORE-RECORD, taken BEFORE the pause (step 1), and saved on t/463 with the time: (a) the complete role
+    assignment list on staitriadkvwl3nywge4iw and each of its shares (az role assignment list with --all, and the
+    share-scoped lists); (b) the shared-key setting and key-rotation state; (c) the default network action and
+    bypass. The P5 record is the reference for condition 3 after the run.
 
 ## Step 1: pause staging writes (window starts)
 - Pause method (PI-approved, t/463 TL p/9#362): scale the staging app to ZERO replicas for the copy window.
@@ -55,13 +59,21 @@ P4. Staging writes are paused for the copy window only (see the pause step). The
 - Any mismatch: STOP. The source is untouched; re-run the copy only after the cause is recorded.
 
 ## Condition 3 (SO, TL p/9#372): t/92 blob reach to the prod account is unchanged
-- Check, before and after the run: the prod account staitriadkvwl3nywge4iw has NO change to RBAC role
-  assignments (compare the list of assignments on the account and its shares with the pre-run record), NO change
-  to its access keys (shared-key setting and key rotation state unchanged), and NO change to its network rules
-  (default action and bypass unchanged). Any difference stops the run and is reported on t/463.
-- This plan changes none of the three. The only RBAC action in scope is the reader on the source share, which
-  is requested separately and is not a change to the account's blob reach.
-- Record the before and after lists on t/463.
+- Check, before and after the run, against the BEFORE-RECORD (precondition P5):
+  (a) RBAC: the role assignments on staitriadkvwl3nywge4iw and its shares must equal the before-record, EXCEPT the
+      one expected change named below;
+  (b) keys: the shared-key setting and key-rotation state unchanged;
+  (c) network: the default action and bypass unchanged.
+  Any difference outside the expected change stops the run and is reported on t/463.
+- EXPECTED CHANGE (the only one allowed on the prod account, under the PI's approval on t/463):
+  - Assignment: Storage File Data SMB Share Reader
+  - Scope: the share taxonomy-data-staging on staitriadkvwl3nywge4iw
+    (/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/fileServices/default/fileshares/taxonomy-data-staging)
+  - Principal: the DevOps identity, object id 5abf01bc-a673-4d31-851e-86607dae5f01
+  - Status: NOT YET CREATED. The first creation attempts failed in the CLI (t/463#102). It is recorded on t/463
+    with its time only after it exists, and the before-record is then re-checked against it.
+  - It is a read grant on that one share. It does not change the account's blob reach, keys or network rules,
+    and it is not part of the copy itself.
 
 ## No-delete assertion (applies to the whole run)
 - Before and after: the source's file count, total bytes and SHA-256 must be identical. A change on the source
