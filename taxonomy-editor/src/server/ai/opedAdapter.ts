@@ -73,11 +73,12 @@ export function createWebOpEdAdapter(): AIAdapter {
   };
 }
 
-/** t/467 (TL p/16#221): the worst-case cost of ONE call before it is sent. Input tokens are bounded by
- *  prompt.length / 2 (a token is rarely under two characters), and output tokens by the call's maxTokens.
+/** t/467 (TL p/16#221, p/16#224): the worst-case cost of ONE call before it is sent. Input tokens are bounded by the
+ *  prompt's UTF-8 byte length: every token covers at least one byte, so tokens ≤ bytes. (A character count is not
+ *  an upper bound, since one character can be several bytes.) Output tokens are bounded by the call's maxTokens.
  *  Undefined when the model has no price. */
 function worstCallUsd(model: string, prompt: string, maxTokens: number): number | undefined {
-  return estimateCost(ai.getModelRegistry(), model, { promptTokens: Math.ceil(prompt.length / 2), completionTokens: maxTokens });
+  return estimateCost(ai.getModelRegistry(), model, { promptTokens: Buffer.byteLength(prompt, 'utf8'), completionTokens: maxTokens });
 }
 
 /** Refuse (throw, before any provider call) an anonymous call that could take this run past the per-run ceiling,
