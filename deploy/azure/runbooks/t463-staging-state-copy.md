@@ -68,10 +68,11 @@ P5. BEFORE-RECORD, taken BEFORE the pause (step 1), and saved on t/463 with the 
 - EXPECTED CHANGE (the only one allowed on the prod account, under the PI's approval on t/463):
   - Assignment: Storage File Data SMB Share Reader
   - Scope: the share taxonomy-data-staging on staitriadkvwl3nywge4iw
-    (/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/fileServices/default/fileshares/taxonomy-data-staging)
+    (/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw/fileServices/default/shares/taxonomy-data-staging)
   - Principal: the DevOps identity, object id 5abf01bc-a673-4d31-851e-86607dae5f01
-  - Status: NOT YET CREATED. The first creation attempts failed in the CLI (t/463#102). It is recorded on t/463
-    with its time only after it exists, and the before-record is then re-checked against it.
+  - Status: CREATED 2026-11-23T15:43:55Z, through the ARM roleAssignments PUT after the CLI call failed with
+    MissingSubscription (TL, t/463#103). Verified with `az role assignment list`, and Second Opinion verified the
+    grant exists (p/59#106). The before-record (P5) is taken after this grant, so it already includes it.
   - It is a read grant on that one share. It does not change the account's blob reach, keys or network rules,
     and it is not part of the copy itself.
 
