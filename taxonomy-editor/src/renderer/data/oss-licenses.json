@@ -396,11 +396,6 @@
       "license": "MIT"
     },
     {
-      "name": "@types/estree",
-      "version": "1.0.9",
-      "license": "MIT"
-    },
-    {
       "name": "@types/estree-jsx",
       "version": "1.0.5",
       "license": "MIT"
@@ -992,7 +987,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.72.0",
+      "version": "1.76.0",
       "license": "ISC"
     },
     {
@@ -1482,7 +1477,7 @@
     },
     {
       "name": "semver",
-      "version": "7.8.5",
+      "version": "7.8.6",
       "license": "ISC"
     },
     {
@@ -2182,10 +2177,6 @@
         {
           "name": "@types/estree",
           "version": "1.0.10"
-        },
-        {
-          "name": "@types/estree",
-          "version": "1.0.9"
         },
         {
           "name": "@types/hast",
@@ -3283,7 +3274,7 @@
       "packages": [
         {
           "name": "lucide-react",
-          "version": "1.72.0"
+          "version": "1.76.0"
         }
       ],
       "licenseType": "ISC",
@@ -3649,7 +3640,7 @@
       "packages": [
         {
           "name": "semver",
-          "version": "7.8.5"
+          "version": "7.8.6"
         }
       ],
       "licenseType": "ISC",
