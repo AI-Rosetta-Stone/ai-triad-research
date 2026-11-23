@@ -24,7 +24,7 @@ P4. Staging writes are paused for the copy window only (see the pause step). The
   volume below. NO ad-hoc `az containerapp update --set-env-vars`.
 - Coverage (SO condition b, TL p/9#370): the staging app mounts TWO volumes, and BOTH are covered by the pause:
   (i) `staging-state` (taxonomy-data-staging on the account being copied; the subject of this plan), and
-  (ii) `shared-data`, which mounts PROD's share `taxonomy-data` read-write by default (main.bicep line 1076:
+  (ii) `shared-data`, which mounts PROD's share `taxonomy-data` read-write by default (main.bicep line 1086:
   `storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'`).
   Zero replicas stops writes to (ii) as well, so no staging write reaches prod storage during the window.
   Check: the staging app's replica count reads 0 and no replica is running, before the inventory is taken.
@@ -53,6 +53,15 @@ P4. Staging writes are paused for the copy window only (see the pause step). The
 - Re-list the destination (same list command, on staitriadstg19). Compare with the frozen inventory:
   count equal, total bytes equal, the sorted-list SHA-256 equal, and per-file size and MD5 equal.
 - Any mismatch: STOP. The source is untouched; re-run the copy only after the cause is recorded.
+
+## Condition 3 (SO, TL p/9#372): t/92 blob reach to the prod account is unchanged
+- Check, before and after the run: the prod account staitriadkvwl3nywge4iw has NO change to RBAC role
+  assignments (compare the list of assignments on the account and its shares with the pre-run record), NO change
+  to its access keys (shared-key setting and key rotation state unchanged), and NO change to its network rules
+  (default action and bypass unchanged). Any difference stops the run and is reported on t/463.
+- This plan changes none of the three. The only RBAC action in scope is the reader on the source share, which
+  is requested separately and is not a change to the account's blob reach.
+- Record the before and after lists on t/463.
 
 ## No-delete assertion (applies to the whole run)
 - Before and after: the source's file count, total bytes and SHA-256 must be identical. A change on the source
