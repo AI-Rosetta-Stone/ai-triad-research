@@ -58,6 +58,16 @@ P5. BEFORE-RECORD, taken BEFORE the pause (step 1), and saved on t/463 with the 
   count equal, total bytes equal, the sorted-list SHA-256 equal, and per-file size and MD5 equal.
 - Any mismatch: STOP. The source is untouched; re-run the copy only after the cause is recorded.
 
+## Pre-existing grants on the prod account (TL p/9#379): named, NOT changed by this plan
+These exist already, are not part of this plan, and must not be changed by it. They are the check's baseline,
+not expected changes. The PI decides what happens to the 22 November grants.
+- Storage Blob Data Reader on staitriadkvwl3nywge4iw, principal 5abf01bc-a673-4d31-851e-86607dae5f01: granted August 2026.
+- Storage Account Backup Contributor on staitriadkvwl3nywge4iw, principal 5abf01bc-a673-4d31-851e-86607dae5f01: granted 22 November 2026.
+- Storage File Data SMB Share Contributor on the share taxonomy-data-staging on staitriadkvwl3nywge4iw, principal
+  5abf01bc-a673-4d31-851e-86607dae5f01: granted 22 November 2026. This is a WRITE role on the staging share.
+  This plan does not use it, and it is not the approved reader.
+The reader grant (created 2026-11-23T15:43:55Z) is the only expected change.
+
 ## Condition 3 (SO, TL p/9#372): t/92 blob reach to the prod account is unchanged
 - Check, before and after the run, against the BEFORE-RECORD (precondition P5):
   (a) RBAC: the role assignments on staitriadkvwl3nywge4iw and its shares must equal the before-record, EXCEPT the
