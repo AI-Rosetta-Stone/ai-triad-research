@@ -18,16 +18,21 @@ import * as ai from './aiBackends.js';
 import { estimateCost, resolvePricingKey } from '../../../../lib/ai-client/registry.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { isAnonymousUser } from '../security/userContext.js';
-import { recordAnonOpEdSpend } from '../storage/anonOpEdSpend.js';
+import { recordAnonOpEdSpend, ANON_OPED_PER_RUN_CAP_USD } from '../storage/anonOpEdSpend.js';
 import { log } from '../logger.js';
 
 /** Build the web op-ed AIAdapter. `generateText` is the only method the `lib/oped`
  *  core requires (t/2608#3) — no search/embedding methods are needed (grounding
- *  computes its query embedding directly via onnxEmbedding inside the core). */
+ *  computes its query embedding directly via onnxEmbedding inside the core).
+ *  One adapter is built per run (oped.ts createOpEdRun), so the closure's `runSpendUsd` is that run's total. */
 export function createWebOpEdAdapter(): AIAdapter {
   const recordSpend = isAnonymousUser(); // read per request, inside the request's async context
+  let runSpendUsd = 0; // t/467 (TL p/16#221): what this anonymous run has spent so far
   return {
     async generateText(prompt: string, model: string, options?: GenerateOptions): Promise<string> {
+      // t/467 (TL p/16#221): before every call, refuse it if this run's total plus this call's worst case would
+      // exceed the per-run ceiling. Nothing is sent to a provider for a refused call.
+      if (recordSpend) assertCallWithinRunCeiling(prompt, model, options?.maxTokens, runSpendUsd);
       const result = await ai.generateText(
         prompt,
         model,
@@ -58,7 +63,7 @@ export function createWebOpEdAdapter(): AIAdapter {
             httpStatus: 403,
           });
         }
-        await recordCallCost(result.tokenUsage, served);
+        runSpendUsd += await recordCallCost(result.tokenUsage, served);
       }
       return result.text;
     },
@@ -68,14 +73,44 @@ export function createWebOpEdAdapter(): AIAdapter {
   };
 }
 
-/** t/467: add one anonymous call's priced cost to the spend ledger. A failed write is logged (the run
+/** t/467 (TL p/16#221): the worst-case cost of ONE call before it is sent. Input tokens are bounded by
+ *  prompt.length / 2 (a token is rarely under two characters), and output tokens by the call's maxTokens.
+ *  Undefined when the model has no price. */
+function worstCallUsd(model: string, prompt: string, maxTokens: number): number | undefined {
+  return estimateCost(ai.getModelRegistry(), model, { promptTokens: Math.ceil(prompt.length / 2), completionTokens: maxTokens });
+}
+
+/** Refuse (throw, before any provider call) an anonymous call that could take this run past the per-run ceiling,
+ *  or that cannot be bounded: no maxTokens, or an unpriced model. Each refusal names its reason. */
+function assertCallWithinRunCeiling(prompt: string, model: string, maxTokens: number | undefined, runSpendUsd: number): void {
+  const refuse = (code: string, problem: string): never => {
+    log.server.warn({ component: 'oped', model, reason: code, runSpendUsd }, `Anonymous op-ed call refused: ${problem}`);
+    throw new ActionableError({
+      goal: 'Keep an anonymous op-ed run within the per-run cost ceiling',
+      problem,
+      location: 'opedAdapter.assertCallWithinRunCeiling',
+      nextSteps: ['Shorten the request, or sign in to run with your own key.'],
+      code,
+      httpStatus: 403,
+    });
+  };
+  if (maxTokens === undefined) refuse('ANON_UNBOUNDED_CALL', 'this call sets no output limit, so its worst-case cost cannot be bounded for an anonymous run.');
+  const worst = worstCallUsd(model, prompt, maxTokens as number);
+  if (worst === undefined) refuse('ANON_UNPRICED_MODEL', `model '${model}' has no price on file, so an anonymous run cannot use it.`);
+  if (runSpendUsd + (worst as number) > ANON_OPED_PER_RUN_CAP_USD) {
+    refuse('ANON_RUN_COST_CEILING', `this call could take the run past the $${ANON_OPED_PER_RUN_CAP_USD} per-run ceiling (spent $${runSpendUsd.toFixed(4)}, worst case for this call $${(worst as number).toFixed(4)}).`);
+  }
+}
+
+/** t/467: add one anonymous call's priced cost to the spend ledger and return it. A failed write is logged (the run
  *  continues, but that spend is then not counted). An unpriced call is logged, since it is not counted either. */
-async function recordCallCost(usage: Parameters<typeof estimateCost>[2] | undefined, model: string): Promise<void> {
+async function recordCallCost(usage: Parameters<typeof estimateCost>[2] | undefined, model: string): Promise<number> {
   const usd = usage ? estimateCost(ai.getModelRegistry(), model, usage) : undefined;
   if (usd == null) {
     log.server.warn({ component: 'oped', model, reason: 'anon-oped-unpriced-call' }, 'Anonymous op-ed call has no price; not counted toward the spend ceiling');
-    return;
+    return 0;
   }
   try { await recordAnonOpEdSpend(usd); }
   catch (err) { log.server.warn({ component: 'oped', model, err: String(err), reason: 'anon-oped-spend-record-failed' }, 'Anonymous op-ed spend could not be recorded'); }
+  return usd;
 }

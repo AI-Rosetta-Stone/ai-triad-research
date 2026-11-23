@@ -15,6 +15,8 @@ import { log } from '../logger.js';
 
 export const ANON_OPED_DAILY_CAP_USD = 10;
 export const ANON_OPED_MONTHLY_CAP_USD = 50;
+/** t/467 (PI, set via TL p/16#221): the most one anonymous op-ed run may spend. Checked before every call. */
+export const ANON_OPED_PER_RUN_CAP_USD = 5;
 
 export type AnonOpEdCeiling = 'daily' | 'monthly';
 
