@@ -1,5 +1,5 @@
 // Staging-only data account for the staging state share (t/463, PI option a; TL p/9#354).
-// Deployed as its OWN staging deploy, BEFORE deploy/azure/main.bicep (which only references this account).
+// Deployed as its OWN staging deploy, BEFORE the prod template (which only references this account).
 // Not part of the prod deploy. Shared-key access stays ON (the managed-env mount uses the account key).
 // Identity: Entra Kerberos (AADKERB), on THIS account only. Consent owner: Jeffrey (TL, t/463).
 //
@@ -25,7 +25,7 @@ resource stagingDataAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
     networkAcls: {
-      // Same as main.bicep: consumption-tier ACA SNAT ranges cannot be allowlisted.
+      // Same as the prod template: consumption-tier ACA SNAT ranges cannot be allowlisted.
       defaultAction: 'Allow'
       bypass: 'AzureServices, Logging, Metrics'
     }
