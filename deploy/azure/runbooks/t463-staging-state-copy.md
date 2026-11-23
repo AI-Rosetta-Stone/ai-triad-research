@@ -19,10 +19,16 @@ P4. Staging writes are paused for the copy window only (see the pause step). The
     before the inventory is taken.
 
 ## Step 1: pause staging writes (window starts)
-- Pause method: set staging to take no writes during the window. The method must be approved with the PI
-  (open item). Default: staging ingress disabled through the approved deploy path. NO ad-hoc `az containerapp update`.
-- Check: staging health endpoint shows no writes; a test write to the staging state share from staging fails or
-  is refused, proving the pause holds. Record the time.
+- Pause method (PI-approved, t/463 TL p/9#362): scale the staging app to ZERO replicas for the copy window.
+  Scaling to zero stops every write path at once, including the staging-state volume and the shared-data
+  volume below. NO ad-hoc `az containerapp update --set-env-vars`.
+- Coverage (SO condition b, TL p/9#370): the staging app mounts TWO volumes, and BOTH are covered by the pause:
+  (i) `staging-state` (taxonomy-data-staging on the account being copied; the subject of this plan), and
+  (ii) `shared-data`, which mounts PROD's share `taxonomy-data` read-write by default (main.bicep line 1076:
+  `storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'`).
+  Zero replicas stops writes to (ii) as well, so no staging write reaches prod storage during the window.
+  Check: the staging app's replica count reads 0 and no replica is running, before the inventory is taken.
+- Check: a test write from staging is refused (no replica), proving the pause holds. Record the time.
 - Window start time recorded on t/463. HARD STOP at two hours from this time.
 
 ## Step 2: frozen inventory of the source (read-only)
@@ -54,22 +60,36 @@ P4. Staging writes are paused for the copy window only (see the pause step). The
 - The copy command is grep-checked for delete flags (step 3). The source is never a destination.
 - Nothing is deleted from either account by this plan. Retiring the old share is a separate PI decision.
 
-## Step 5: end the pause (window ends)
-- Restore staging writes through the approved path, with the staging app on the NEW mount only after the Step 3
-  of the separate mount change has been deployed (prod deploy, separate PI go). Until then, the staging app still
-  mounts the old share, so restoring writes before the mount change would write to the OLD share. Order matters:
-  the pause is not ended until the mount is confirmed (see the rollback and open items).
-- Check: a staging write lands on the path the staging app actually mounts. Record the time. Window end recorded on
-  t/463, total pause time recorded (must be under two hours).
+## Step 5: end the pause (window ends) — ONLY after the new mount is serving and verified (TL p/9#362 (3))
+- Order is fixed and cannot be reversed: the staging app must mount the NEW share (the separate mount change,
+  in main.bicep, deployed on the next prod deploy with its own PI go) and be verified serving from it, BEFORE
+  staging scales back up. Scaling up earlier would serve writes from the OLD mount.
+- Check: the serving revision mounts staitriadstg19's taxonomy-data-staging, a staging write lands on that share,
+  and the shared-data volume is the approved mount. Record the time. Window end and total pause (under two hours)
+  recorded on t/463.
+
+## State at the stop (written down, per SO condition a, TL p/9#370)
+Decision: the mount change is NOT deployed before the copy, because it would point staging at an empty
+destination. So at any stop, the state is defined as follows and is never left undefined:
+- Staging stays at ZERO replicas (paused). It does not write to the old share, to the new share, or to prod's
+  `taxonomy-data`. This is a staging outage for the duration, which the PI accepts for the copy window only.
+- The mount is still the OLD share (`staitriadkvwl3nywge4iw`/`taxonomy-data-staging`, unchanged). The source is
+  never written or deleted, so it is the intact state of record.
+- Two outcomes, decided at the stop, and recorded on t/463:
+  (A) copy verified before the stop AND the mount change is approved and deployed: end the pause per Step 5.
+  (B) copy NOT verified, or no mount change approved: staging resumes on the OLD mount, scaled back up through the
+      approved path (no mount change), the destination copy is discarded and not used, and the rollback is recorded.
+- Staying paused past two hours without a PI decision is not allowed: the stop forces (A) or (B).
 
 ## Rollback
-- Trigger: any failed check, a source change, a copy error, or the two-hour stop.
-- Action: staging stays on the OLD share (the source is intact and was never deleted), restore staging writes
-  through the approved path, and record the rollback time and reason on t/463.
+- Trigger: any failed check, a source change, a copy error, or the two-hour stop with no approved mount change.
+- Action: outcome (B) above. Staging resumes on the OLD share (the source is intact and was never deleted), scaled
+  back up through the approved path. Record the rollback time and reason on t/463.
 - Because the source is never deleted, rollback needs no restore from backup.
 
 ## Two-hour stop
-- A hard stop at two hours from Step 1. If the copy has not verified by then, roll back (above) and report.
+- A hard stop at two hours from Step 1. At the stop, the state is set by the "State at the stop" rules above:
+  outcome (A) if verified and approved, otherwise outcome (B). Staging is never left paused undecided.
 
 ## Open items for the PI (must be settled before the go)
 1. The pause method (approved deploy path, not ad-hoc).
