@@ -492,6 +492,30 @@ jobs:
           ./operations/devops/Test-OvershootBoundGate.ps1 -BicepPath ./deploy/azure/main.bicep `
             -StagingLoadTestSize ([bool]::Parse($env:STAGING_LOAD_TEST_SIZE))
 
+      # t/463 (PI option a, TL p/9#354; SO condition 1 on #5300): preflight the separate staging data account
+      # BEFORE the what-if. Read-only. Fails the deploy unless the account exists with Entra Kerberos
+      # (AADKERB) and the taxonomy-data-staging share exists. Nothing in this workflow deploys
+      # deploy/azure/staging-data-account.bicep; that module is applied only by its own staging-only run.
+      - name: Preflight staging data account (t/463)
+        env:
+          AZ_RG: ai-triad
+          STAGING_DATA_ACCOUNT: staitriadstg19
+        run: |
+          set -euo pipefail
+          DSO=$(az storage account show -n "$STAGING_DATA_ACCOUNT" -g "$AZ_RG" \
+            --query "azureFilesIdentityBasedAuthentication.directoryServiceOptions" -o tsv 2>/dev/null || true)
+          if [ "$DSO" != "AADKERB" ]; then
+            echo "::error::t/463 preflight: $STAGING_DATA_ACCOUNT must exist with AADKERB (found '${DSO:-none}'). Deploy its module first (staging-only run)."
+            exit 1
+          fi
+          SHARE=$(az storage share-rm show --storage-account "$STAGING_DATA_ACCOUNT" -g "$AZ_RG" -n taxonomy-data-staging \
+            --query name -o tsv 2>/dev/null || true)
+          if [ -z "$SHARE" ]; then
+            echo "::error::t/463 preflight: share taxonomy-data-staging missing on $STAGING_DATA_ACCOUNT."
+            exit 1
+          fi
+          echo "t/463 preflight OK: $STAGING_DATA_ACCOUNT AADKERB, share $SHARE present."
+
       - name: Preview Bicep changes (what-if)
         env:
           # t/4326: passed through env (not inlined) so bash never interprets the value.
