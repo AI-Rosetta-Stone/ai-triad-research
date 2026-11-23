@@ -800,9 +800,19 @@ resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/manageme
 // Prod's 'taxonomy-data' share is NOT declared here (managed externally) — it
 // will be flipped to ReadOnly in a follow-up deploy once getStateRoot() is live.
 
-resource stagingStateShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
-  name: '${storageAccount.name}/default/taxonomy-data-staging'
-  properties: { shareQuota: 100 }
+// t/463 (PI option a, TL p/9#354): the staging share now lives on the SEPARATE staging account
+// staitriadstg19, declared in deploy/azure/staging-data-account.bicep and deployed FIRST as its own
+// staging-only deploy. This file only references it (existing), so the mount points at the new account.
+// Prod's account (storageAccount above) keeps its prod shares; the staging share is not declared here.
+@description('Separate staging data account (t/463). Must exist before this template deploys.')
+param stagingDataAccountName string = 'staitriadstg19'
+
+resource stagingDataAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
+  name: stagingDataAccountName
+}
+
+resource stagingDataShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' existing = {
+  name: '${stagingDataAccountName}/default/taxonomy-data-staging'
 }
 
 resource envStorageStagingState 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
@@ -810,13 +820,13 @@ resource envStorageStagingState 'Microsoft.App/managedEnvironments/storages@2024
   name: 'taxonomy-data-staging'
   properties: {
     azureFile: {
-      accountName: storageAccount.name
-      accountKey: storageAccount.listKeys().keys[0].value
+      accountName: stagingDataAccount.name
+      accountKey: stagingDataAccount.listKeys().keys[0].value
       shareName: 'taxonomy-data-staging'
       accessMode: 'ReadWrite'
     }
   }
-  dependsOn: [stagingStateShare]
+  dependsOn: [stagingDataShare]
 }
 
 // ── Prod Azure Files — prod-only writable state share (t/617 design A, t/624) ──
