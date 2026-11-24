@@ -767,7 +767,8 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
         return !Number.isNaN(dts) && Math.abs(dts - errTs) <= WINDOW_MS;
       });
 
-      json(res, { entry, relatedDumps });
+      // t/376: the one route that keeps a stored stack (Security + TL); every other JSON response strips it.
+      json(res, { entry, relatedDumps }, 200, { keepStack: true });
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'server', level: 'error',

@@ -51,13 +51,38 @@ else
   echo "PASS: arm 2 (quota-low)"
 fi
 
-# Arm 3: health check itself unreachable -- must alert, never read as healthy
-RESULT=$(./check-github-rate-limit.sh "http://127.0.0.1:1/health" 5000)
+# Arm 3: health check itself unreachable on EVERY attempt -- must alert, never read as
+# healthy. Now takes ~10s (3 attempts, 2 backoffs) instead of instant -- t/4970's retry fix.
+RESULT=$(./check-github-rate-limit.sh "http://127.0.0.1:1/health" 5000 2>/dev/null)
 if ! echo "$RESULT" | jq -e '.shouldAlert == true and .kind == "health-check-failed"' >/dev/null; then
   echo "FAIL: arm 3 (health-check-failed) -- got: $RESULT"
   FAIL=1
 else
   echo "PASS: arm 3 (health-check-failed)"
+fi
+
+# t/4970: cold first attempt (nothing listening yet) then success once the server comes up --
+# must NOT alert, and must log at least one WARN for the retry taken. Reproduces the live
+# incident (alert #5279): a cold scale-to-zero start that resolves within the retry window.
+STDOUT_FILE=$(mktemp)
+STDERR_FILE=$(mktemp)
+./check-github-rate-limit.sh "http://127.0.0.1:8905/health" 5000 >"$STDOUT_FILE" 2>"$STDERR_FILE" &
+RETRY_PID=$!
+sleep 1  # let the first attempt fail against nothing listening, before the server comes up
+serve '{"githubRateLimitRemaining": 3701, "githubRateLimitResetsAt": "2026-10-27T23:40:49.000Z"}' 8905
+wait "$RETRY_PID"
+kill "$SERVER_PID" 2>/dev/null || true
+RESULT=$(cat "$STDOUT_FILE")
+WARN_COUNT=$(grep -c "WARN: health check attempt" "$STDERR_FILE" || true)
+rm -f "$STDOUT_FILE" "$STDERR_FILE"
+if ! echo "$RESULT" | jq -e '.shouldAlert == false and .kind == "healthy"' >/dev/null; then
+  echo "FAIL: arm 5 (cold-start-then-success) -- got: $RESULT"
+  FAIL=1
+elif [ "$WARN_COUNT" -lt 1 ]; then
+  echo "FAIL: arm 5 (cold-start-then-success) -- expected at least one retry WARN, got $WARN_COUNT"
+  FAIL=1
+else
+  echo "PASS: arm 5 (cold-start-then-success, no alert, $WARN_COUNT WARN(s) logged)"
 fi
 
 # Arm 4: field genuinely missing from the response -- must alert, not read as healthy

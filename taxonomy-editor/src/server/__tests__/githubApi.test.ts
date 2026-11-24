@@ -38,6 +38,7 @@ const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
 // Mock fs/promises — prevent real disk I/O
 vi.mock('fs/promises', () => ({
   default: {
+    realpath: vi.fn(async (p: string) => p), // t/432: confineToDir resolves real paths
     mkdir: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
     writeFile: vi.fn().mockResolvedValue(undefined),

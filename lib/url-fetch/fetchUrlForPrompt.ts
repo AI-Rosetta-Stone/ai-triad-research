@@ -72,12 +72,18 @@ export function normalizeIp(ip: string): string {
 }
 
 /** Returns true when the (already-normalized) IP should be blocked. */
+// t/467: IPv4-compatible ::/96 (deprecated): "::a.b.c.d" and "::h:l". Both forms have the first 96 bits zero.
+function isIpv4CompatibleV6(lower: string): boolean {
+  return /^::\d{1,3}(\.\d{1,3}){3}$/.test(lower) || /^::[0-9a-f]{1,4}(:[0-9a-f]{1,4})?$/.test(lower);
+}
+
 export function isPrivateIp(ip: string): boolean {
   const norm = normalizeIp(ip);
 
   // IPv4 range checks
   const parts = norm.split('.');
-  if (parts.length === 4) {
+  // t/467: only a pure dotted quad is IPv4; "::8.8.8.8" also splits into four parts and must reach the IPv6 checks.
+  if (parts.length === 4 && /^\d+(\.\d+){3}$/.test(norm)) {
     const [a, b, c] = parts.map(Number);
     if (a === 127) return true;                            // loopback
     if (a === 10) return true;                             // RFC-1918 10/8
@@ -89,11 +95,13 @@ export function isPrivateIp(ip: string): boolean {
     if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
     if (a === 192 && b === 0 && c === 2) return true;    // TEST-NET-1
     if (a === 255) return true;                            // broadcast
+    if (a >= 224) return true;                             // t/467: multicast 224/4 and reserved 240/4
     return false;
   }
 
   // IPv6 checks (after normalization, mapped addresses are already IPv4 above)
   const lower = norm.toLowerCase();
+  if (isIpv4CompatibleV6(lower)) return true;       // t/467: ::/96 (deprecated)
   if (lower === '::1') return true;                 // loopback
   if (lower === '::') return true;                  // unspecified
   if (lower.startsWith('fe80:')) return true;       // link-local
