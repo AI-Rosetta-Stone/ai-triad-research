@@ -253,7 +253,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
     }
 
     It 'drops a quote whose lines are in order but spread beyond one window' {
-        $Filler = (1..40 | ForEach-Object { "Paragraph $_ describes an unrelated survey question about household internet access and its wording." }) -join "`n"
+        $Filler = (1..120 | ForEach-Object { "Paragraph $_ describes an unrelated survey question about household internet access and its wording." }) -join "`n"
         $Src = "Developers answer that the evaluations they run today`n$Filler`nwere never designed to support a licensing decision.`n$Filler`nThey ask for a transition period of two years.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision. They ask for a transition period of two years.'
         $Out = & $script:Run $Src $Quote 'doc-scattered'
@@ -273,13 +273,14 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Best.Coverage | Should -BeGreaterThan 0.75
     }
 
-    It 'a snapped span takes whole source words: it never starts or ends inside a word' {
-        # The source's first word is corrupted ("Xhe" for "The"): most of it matches, so it is taken whole.
+    It 'a snapped span begins and ends on a word of the quote, not on part of one' {
+        # The source's first word is corrupted ("Xhe" for "The"), so the quote's "The" is only partly
+        # matched and is given up. "constructionwork" is glued text: the span ends with the quote's word.
         $Src = 'Constituents are restless. Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork nearby.'
         $Quote = 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of construction'
         $Out = & $script:Run $Src $Quote 'doc-word-boundary'
         $Out.R.Snapped | Should -Be 1
-        $Out.Stored | Should -Be 'Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork'
+        $Out.Stored | Should -Be 'meteoric emergence of the data-center rebellion is a response to the speed and scale of construction'
     }
 
     It 'ignores a page header and a URL that the model copied into the quote' {
@@ -349,5 +350,59 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             'Regulators in several countries have begun to ask for evaluation results',
             'Developers answer that the evaluations they run',
             'today were never designed to support a licensing decision')
+    }
+
+    It 'a piece gives up a word split by a hyphenated line break with other text after it (t/389#20, I13)' {
+        $Src = "Why has predicting downstream capabilities of fron- ijcnn55064.2022.9891914. URL http://dx.doi.org`ntier ai models with scale remained elusive?, 2024a. /10.1109/IJCNN55064.2022.9891914.`n"
+        $Quote = 'Why has predicting downstream capabilities of frontier ai models with scale remained elusive?, 2024a.'
+        $Out = & $script:Run $Src $Quote 'doc-hyphen'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.Stored | Should -Be @('Why has predicting downstream capabilities of', 'ai models with scale remained elusive?, 2024a')
+    }
+
+    It 'drops a quote when the pieces that can be stored cover less than 0.9 of it (t/389#20)' {
+        # A hyphenated break costs the quote its longest word, so what can be stored covers 38 of 53 letters.
+        $Src = "The committee adopted interna- (see the annex for the full list of members)`ntionally recognised standards (2024).`n"
+        $Quote = 'The committee adopted internationally recognised standards.'
+        $Out = & $script:Run $Src $Quote 'doc-low-stored'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'a repeated one-word line is document text, not a page header (t/389#20, S07)' {
+        $Src = "Pretrained`nML libraries`nor packages`nembedded`nwith`nmalicious`npayloads`ncould`ncorrupt`ndispatch or`nmonitoring`nsystems at`nscale.`n`nPretrained`nmodels reused.`n`nMonitoring`ncosts rise.`n`nPretrained`nweights.`n`nmonitoring`ngaps.`n"
+        $Quote = 'Pretrained ML libraries or packages embedded with malicious payloads could corrupt dispatch or monitoring systems at scale.'
+        $Out = & $script:Run $Src $Quote 'doc-sidebar'
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'finds in-order sentences about 1,800 letters apart (t/389#20, D03)' {
+        $Filler = (1..22 | ForEach-Object { "Paragraph $_ describes an unrelated survey question about household internet access and its wording." }) -join "`n"
+        $Src = "Developers answer that the evaluations they run today were never designed for this.`n$Filler`nThey ask for a transition period of two full years before any licence is required.`n"
+        $Quote = 'Developers answer that the evaluations they run today were never designed for this. They ask for a transition period of two full years before any licence is required.'
+        $Out = & $script:Run $Src $Quote 'doc-far'
+        $Out.R.Interleaved | Should -Be 1
+        @($Out.Stored).Count | Should -Be 2
+    }
+
+    It 'matches across HTML tags and a spaced ellipsis, and reads a bracketed letter as the letter (t/389#20)' {
+        $Src = 'As the report says, <figcaption><b>AI Danger:</b> Lazy overreliance on AI. Go hybrid instead.</figcaption> However, more capable models may come with greater risk. Other text here. In short, future models may pose catastrophic risks as capabilities improve.'
+        $Out = & $script:Run $Src 'AI Danger: Lazy overreliance on AI. Go hybrid instead.' 'doc-html'
+        $Out.R.Dropped | Should -Be 0
+        $Out2 = & $script:Run $Src 'However, more capable models may come with greater risk. . . . [F]uture models may pose catastrophic risks as capabilities improve.' 'doc-spaced'
+        $Out2.R.Dropped | Should -Be 0
+        @($Out2.Stored).Count | Should -Be 2
+        ($Out2.Stored -join '|') | Should -Not -Match '\. \. \.'
+    }
+
+    It 'does not strip a repeated line out of a quote that is mostly that line (t/389#20, D18)' {
+        $Label = 'Skills gaps in the labour market'
+        $Src = "$Label`n72% 63%`nOther barriers to transformation`n$Label`n51% 40%`nMore text about the survey.`n$Label`n"
+        $Out = & $script:Run $Src "$Label 72% 63%" 'doc-row-label'
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
     }
 }

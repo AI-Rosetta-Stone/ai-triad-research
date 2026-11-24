@@ -10,7 +10,7 @@
 #   - SNAPPED: the segment aligns to one source span that covers >= 0.9 of its letters and is about as
 #     long as the segment. The stored text is the source's own text, in whole source words.
 #   - INTERLEAVED: the segment's letters are in the source in order, in runs of at least 12 that cover
-#     >= 0.9 of it inside one window of about 1,500 letters, but not as one passage: other text sits
+#     >= 0.9 of it inside one window of about 6,000 letters, but not as one passage: other text sits
 #     between them (a two-column or table layout, a page header, or sentences the model skipped without
 #     an elision mark). It is stored as its source pieces, each the source's own text, and counted
 #     (t/389#8 b; CL rulings t/389#11, t/389#15, p/70#77).
@@ -20,7 +20,7 @@
 # removed when no quote is left.
 #
 # Thresholds are stipulated by CL (t/389). Matching runs on a working copy of the snapshot with the
-# t/4394 mojibake repaired and repeated page footers and headers blanked; a copy of such a line inside
+# t/4394 mojibake repaired, HTML tags blanked, and repeated page footers and headers blanked; a copy of such a line inside
 # a quote, and a URL inside a quote, are removed before matching (t/389#8 c). The working copy has the
 # same length as the source, so every match maps back to the source's own text. Alignment is over
 # letters and digits only, so PDF-glued words ("morecomputeisavailable") and corrupted characters
@@ -33,11 +33,13 @@ $script:VerbatimResyncSkip = 3         # characters either side may skip to cont
 $script:VerbatimResyncMin = 3          # and the continuation must then match at least this many
 $script:VerbatimMaxRegions = 40        # candidate source places tried per segment
 $script:VerbatimMaxRuns = 400          # matching runs collected per alignment
-$script:VerbatimInterleaveWindow = 1500 # letters around a place searched for an interleaved quote (CL, t/389#11)
+$script:VerbatimInterleaveWindow = 6000 # letters around a place searched for in-order runs (CL: 1,500 lost real quotes, t/389#20)
 $script:VerbatimMaxInnerGap = 8        # source letters one skip inside a snapped span may hold (a corrupted word, not a header)
 $script:VerbatimFooterMinRepeats = 3
 $script:VerbatimFooterMaxChars = 80
-$script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|\.{3,}|\u2026'
+$script:VerbatimFooterMinWords = 3     # a repeated one- or two-word line is a table cell or sidebar word, not a page header
+$script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
+$script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
 $script:VerbatimUrlPattern = '(?i)\b(?:https?://|www\.)[^\s<>"\)\]]+'
 
 function Get-VerbatimSource {
@@ -56,18 +58,31 @@ function Get-VerbatimSource {
         $W = $W.Replace($From, $To + (' ' * ($From.Length - $To.Length)))
     }
     foreach ($P in $script:EvidenceMojibakeSingles) { $W = $W.Replace($P[0], $P[1]) }
+    # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
+    # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
+    $W = [regex]::Replace($W, '</?[A-Za-z][^<>\r\n]{0,400}>', { param($M) ' ' * $M.Length })
+    $W = [regex]::Replace($W, '(?<=[\.,;:\)\]\d])\u00E1(?=[\p{Lu}\d\(\[])', ' ')
+    $W = [regex]::Replace($W, '(?<=\s)\u00E0(?=\s)', ' ')
     $Lines = $W -split "(\r?\n)"
-    $Counts = @{}
+    # A page header or footer: a short line of at least VerbatimFooterMinWords words, repeated, compared
+    # with case. One- and two-word lines repeat in tables and sidebars and are document text (S07, t/389#20).
+    $Counts = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
     foreach ($L in $Lines) {
         $T = $L.Trim()
-        if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars) { $Counts[$T] = 1 + [int]$Counts[$T] }
+        if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars -and
+            $T.Split([char[]]" `t", [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $script:VerbatimFooterMinWords) {
+            $N0 = 0
+            [void]$Counts.TryGetValue($T, [ref]$N0)
+            $Counts[$T] = $N0 + 1
+        }
     }
     $Footers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $Out = [System.Text.StringBuilder]::new($W.Length)
     $BlankedAt = [System.Collections.Generic.List[int]]::new()   # start offsets of the blanked lines, ascending
     foreach ($L in $Lines) {
         $T = $L.Trim()
-        if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars -and $Counts[$T] -ge $script:VerbatimFooterMinRepeats) {
+        $Seen0 = 0
+        if ($T.Length -gt 0 -and $Counts.TryGetValue($T, [ref]$Seen0) -and $Seen0 -ge $script:VerbatimFooterMinRepeats) {
             [void]$Footers.Add($T)
             $BlankedAt.Add($Out.Length)
             [void]$Out.Append((' ' * $L.Length))
@@ -123,15 +138,16 @@ function Get-VerbatimAlignment {
     #      and the source's order: without the order a run match is evidence of nothing (CL, t/389#11).
     #   3. In order, the gap after each run is then walked with short skips on either side, so a corrupted
     #      or mistyped character inside a word doesn't end the match.
-    # Returns @{ Matched; First; Last; MaxGap; PieceFirst; PieceLast }: characters matched, the first and
-    # last source positions, the most source characters skipped at one place inside the match (text the
-    # quote doesn't have), and the match as pieces: stretches of source with no skip of more than
-    # VerbatimMaxInnerGap characters inside them.
+    # Returns @{ Matched; First; Last; MaxGap; Pieces }: characters matched, the first and last source
+    # positions, the most source characters skipped at one place inside the match (text the quote doesn't
+    # have), and the match as pieces: stretches of source with no skip of more than VerbatimMaxInnerGap
+    # characters inside them. A piece is @{ First; Last; QFirst; QLast; Head; Tail }: its source and quote
+    # positions, and how many characters at its start and at its end match one for one.
     param([string]$Hay, [string]$Q, [int]$From, [int]$To)
     $N = $Q.Length
     $K = $script:VerbatimAnchorK
     $MinRun = [Math]::Min($script:VerbatimMinRun, $N)
-    $None = @{ Matched = 0; First = -1; Last = -1; MaxGap = 0; PieceFirst = @(); PieceLast = @() }
+    $None = @{ Matched = 0; First = -1; Last = -1; MaxGap = 0; Pieces = @() }
     if ($To - $From -lt $K -or $N -lt $K) { return $None }
 
     # 1. Maximal runs.
@@ -189,12 +205,12 @@ function Get-VerbatimAlignment {
     # 3. Walk each gap: from the end of a run, up to the start of the next one (or the end of the quote
     #    and the window after the last run).
     $MaxGap = 0
-    $PieceFirst = [System.Collections.Generic.List[int]]::new()
-    $PieceLast = [System.Collections.Generic.List[int]]::new()
-    $PieceStart = -1
+    $Pieces = [System.Collections.Generic.List[object]]::new()
+    $PieceStart = -1; $PieceQStart = -1; $Head = 0; $Tail = 0
     for ($C = 0; $C -lt $Chain.Count; $C++) {
         $I = $Chain[$C]
-        if ($PieceStart -lt 0) { $PieceStart = $Hs[$I] + $Trim[$I] }
+        if ($PieceStart -lt 0) { $PieceStart = $Hs[$I] + $Trim[$I]; $PieceQStart = $Qs[$I] + $Trim[$I]; $Head = $Ls[$I] - $Trim[$I] }
+        $Tail = $Ls[$I] - $Trim[$I]
         $A = $Qs[$I] + $Ls[$I]; $Cursor = $Hs[$I] + $Ls[$I]
         if ($C + 1 -lt $Chain.Count) {
             $Nx = $Chain[$C + 1]
@@ -215,6 +231,7 @@ function Get-VerbatimAlignment {
             if ($BestLen -lt [Math]::Min($script:VerbatimResyncMin, $QEnd - $A) -or $BestLen -eq 0) { break }
             $A += $BestDq + $BestLen; $Cursor += $BestDh + $BestLen
             $Matched += $BestLen
+            $Tail = $BestLen
             if ($BestDh -gt $MaxGap) { $MaxGap = $BestDh }
             if ($Cursor - 1 -gt $Last) { $Last = $Cursor - 1 }
         }
@@ -223,53 +240,27 @@ function Get-VerbatimAlignment {
         $Gap = if ($C + 1 -lt $Chain.Count) { $HEnd - $Cursor } else { 0 }
         if ($Gap -gt $MaxGap) { $MaxGap = $Gap }
         if ($C + 1 -eq $Chain.Count -or $Gap -gt $script:VerbatimMaxInnerGap) {
-            $PieceFirst.Add($PieceStart); $PieceLast.Add($Cursor - 1)
+            $Pieces.Add(@{ First = $PieceStart; Last = $Cursor - 1; QFirst = $PieceQStart; QLast = $A - 1; Head = $Head; Tail = $Tail })
             $PieceStart = -1
         }
     }
-    @{ Matched = $Matched; First = $First; Last = $Last; MaxGap = $MaxGap; PieceFirst = $PieceFirst.ToArray(); PieceLast = $PieceLast.ToArray() }
-}
-
-function Get-VerbatimWordSpan {
-    # Moves a matched stretch of the snapshot to whole source words. $Start is the first matched character
-    # and $End is one past the last. At each end, the source word the match stops inside is taken whole when
-    # at least half of its letters were matched (a corrupted first letter stays the source's own, t/389#11
-    # S10), and left out otherwise (one letter shared with the next column's first word is not a match).
-    # Returns @{ Start; End }; End <= Start when nothing is left.
-    param([string]$Text, [int]$Start, [int]$End, [int]$Floor = 0)
-    $Ws = $Start
-    while ($Ws -gt $Floor -and [char]::IsLetterOrDigit($Text[$Ws - 1])) { $Ws-- }
-    if ($Ws -lt $Start) {
-        $We = $Start
-        while ($We -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$We])) { $We++ }
-        if (2 * ([Math]::Min($We, $End) - $Start) -ge ($We - $Ws)) { $Start = $Ws }
-        else {
-            $Start = $We
-            while ($Start -lt $End -and -not [char]::IsLetterOrDigit($Text[$Start])) { $Start++ }
-        }
-    }
-    $We = $End
-    while ($We -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$We])) { $We++ }
-    if ($We -gt $End) {
-        $Ws = $End
-        while ($Ws -gt $Start -and [char]::IsLetterOrDigit($Text[$Ws - 1])) { $Ws-- }
-        if (2 * ($End - $Ws) -ge ($We - $Ws)) { $End = $We }
-        else {
-            $End = $Ws
-            while ($End -gt $Start -and -not [char]::IsLetterOrDigit($Text[$End - 1])) { $End-- }
-        }
-    }
-    @{ Start = $Start; End = $End }
+    @{ Matched = $Matched; First = $First; Last = $Last; MaxGap = $MaxGap; Pieces = $Pieces.ToArray() }
 }
 
 function Find-VerbatimSnap {
     # The best in-order alignment of a quote to the source. Returns $null, or { Start; End; Coverage;
-    # Contiguous; Pieces }: Start/End are source character offsets, widened to whole source words, Coverage
-    # is the share of the quote's letters matched, and Contiguous says the match is one passage: about as
-    # long as the quote, with no other text inside it. Pieces are the matched stretches of source as
-    # { Start; End } offsets, in order: one when Contiguous, several when other text sits between them.
+    # Contiguous; Pieces; QuoteLetters }. Coverage is the share of the quote's letters matched. Contiguous
+    # says the match is one passage: about as long as the quote, with no other text inside it. Pieces are
+    # the matched stretches of source, in order, as { Start; End; QuoteLetters }: source offsets, and how
+    # many of the quote's letters the piece covers. There is one piece when Contiguous, and several when
+    # other text sits between them. Start/End span all the pieces.
+    #
+    # A piece begins and ends on a word of the quote (CL ruling t/389#20): a match that stops inside a
+    # quote word, as at a hyphenated line break ("fron-" ... "tier"), gives that word up. Then it takes up
+    # to VerbatimWordTail more source letters to finish the source's word (a plural).
     param([object]$Source, [string]$Quote)
-    $Q = (ConvertTo-EvidenceKey -Quote $Quote) -replace ' ', ''
+    $QKey = ConvertTo-EvidenceKey -Quote $Quote
+    $Q = $QKey -replace ' ', ''
     if ([string]::IsNullOrEmpty($Q)) { return $null }
     $N = $Q.Length
     $Hay = $Source.Chars
@@ -277,23 +268,27 @@ function Find-VerbatimSnap {
     if ($N -lt $K -or $Hay.Length -lt $K) { return $null }
     $Slack = [int][Math]::Ceiling($N / 4) + 8
     $Tight = $N + $Slack
-    # Candidate places: where an anchor taken from the quote occurs in the source. The rarest anchors
-    # are used first, so a common opening ("thereis") doesn't use up the candidates.
+    # Candidate places: where an anchor taken from the quote occurs in the source. Anchors of one run's
+    # length are tried as well as short ones, and the rarest are used first, so a common phrase ("labour
+    # market" in a long report) doesn't use up the candidates before the right place is reached.
     $Anchors = [System.Collections.Generic.List[object]]::new()
-    for ($QI = 0; $QI + $K -le $N; $QI += $K) {
-        $G = $Q.Substring($QI, $K)
-        $Hits = [System.Collections.Generic.List[int]]::new()
-        $P = 0
-        while ($Hits.Count -le $script:VerbatimMaxRegions) {
-            $P = $Hay.IndexOf($G, $P, [System.StringComparison]::Ordinal)
-            if ($P -lt 0) { break }
-            $Hits.Add($P); $P++
+    foreach ($Len in @([Math]::Min($script:VerbatimMinRun, $N), $K) | Select-Object -Unique) {
+        $Step = [Math]::Max(1, [int]($Len / 3))
+        for ($QI = 0; $QI + $Len -le $N; $QI += $Step) {
+            $G = $Q.Substring($QI, $Len)
+            $Hits = [System.Collections.Generic.List[int]]::new()
+            $P = 0
+            while ($Hits.Count -le $script:VerbatimMaxRegions) {
+                $P = $Hay.IndexOf($G, $P, [System.StringComparison]::Ordinal)
+                if ($P -lt 0) { break }
+                $Hits.Add($P); $P++
+            }
+            if ($Hits.Count -gt 0) { $Anchors.Add([pscustomobject]@{ QI = $QI; Hits = $Hits; Len = $Len }) }
         }
-        if ($Hits.Count -gt 0) { $Anchors.Add([pscustomobject]@{ QI = $QI; Hits = $Hits }) }
     }
     $Places = [System.Collections.Generic.List[int]]::new()   # the quote's start, were it one passage
     $Seen = @{}
-    foreach ($Anchor in ($Anchors | Sort-Object { $_.Hits.Count }, QI)) {
+    foreach ($Anchor in ($Anchors | Sort-Object { $_.Hits.Count }, { -$_.Len }, QI)) {
         foreach ($P in $Anchor.Hits) {
             if ($Places.Count -ge $script:VerbatimMaxRegions) { break }
             $S0 = $P - $Anchor.QI
@@ -308,8 +303,7 @@ function Find-VerbatimSnap {
         if ($R.Matched -eq 0) { return $Cur }
         $Span = $R.Last - $R.First + 1
         if ($null -eq $Cur -or $R.Matched -gt $Cur.Matched -or ($R.Matched -eq $Cur.Matched -and $Span -lt $Cur.Span)) {
-            return @{ First = $R.First; Last = $R.Last; Matched = $R.Matched; Span = $Span; MaxGap = $R.MaxGap
-                PieceFirst = $R.PieceFirst; PieceLast = $R.PieceLast }
+            return @{ First = $R.First; Last = $R.Last; Matched = $R.Matched; Span = $Span; MaxGap = $R.MaxGap; Pieces = $R.Pieces }
         }
         $Cur
     }
@@ -322,8 +316,8 @@ function Find-VerbatimSnap {
     }
     if ($null -eq $Best -or ($Best.Matched / $N) -lt $script:VerbatimSnapThreshold -or $Best.Span -gt $Tight -or
         $Best.MaxGap -gt $script:VerbatimMaxInnerGap) {
-        # Then a layout that puts other text between the quote's lines: one window of about
-        # VerbatimInterleaveWindow letters around the place, still in order (CL ruling t/389#11).
+        # Then other text between the quote's lines or sentences: one window of about
+        # VerbatimInterleaveWindow letters around the place, still in order (CL rulings t/389#11, t/389#20).
         $WideBest = $null
         $Back = [int]($script:VerbatimInterleaveWindow / 6)
         foreach ($S0 in $Places) {
@@ -334,62 +328,102 @@ function Find-VerbatimSnap {
         if ($null -ne $WideBest -and ($null -eq $Best -or $WideBest.Matched -gt $Best.Matched)) { $Best = $WideBest }
     }
     if ($null -eq $Best) { return $null }
-    # Whole words: the stored text never begins or ends inside a source word.
+
+    # Where the quote's words begin and end, as positions in $Q.
+    $Boundary = [bool[]]::new($N + 1)
+    $At = 0
+    $Boundary[0] = $true
+    foreach ($Token in $QKey.Split(' ')) { $At += $Token.Length; if ($At -le $N) { $Boundary[$At] = $true } }
+
     $Text = $Source.Text
-    $Whole = Get-VerbatimWordSpan -Text $Text -Start (Get-VerbatimTextOffset -Source $Source -Position $Best.First) `
-        -End ((Get-VerbatimTextOffset -Source $Source -Position $Best.Last) + 1)
-    $Start = $Whole.Start; $End = $Whole.End
-    # One passage only when nothing else sits inside it (CL ruling t/389#15): no run of other source
-    # text between the quote's words, and no blanked page header or footer line inside the span.
-    $Contiguous = ($Best.Span -le $Tight) -and ($Best.MaxGap -le $script:VerbatimMaxInnerGap)
-    if ($Contiguous -and $Source.BlankedAt.Count -gt 0) {
-        $B = [Array]::BinarySearch($Source.BlankedAt, $Start)
-        if ($B -lt 0) { $B = -bnot $B }
-        if ($B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $End) { $Contiguous = $false }
-    }
     $Pieces = [System.Collections.Generic.List[object]]::new()
-    if ($Contiguous) {
-        $Pieces.Add([pscustomobject]@{ Start = $Start; End = $End })
-    } else {
-        $Floor = 0
-        for ($I = 0; $I -lt $Best.PieceFirst.Count; $I++) {
-            $Whole = Get-VerbatimWordSpan -Text $Text -Floor $Floor `
-                -Start (Get-VerbatimTextOffset -Source $Source -Position $Best.PieceFirst[$I]) `
-                -End ((Get-VerbatimTextOffset -Source $Source -Position $Best.PieceLast[$I]) + 1)
-            $PS = $Whole.Start; $PE = $Whole.End
-            if ($PE -le $PS) { continue }
-            # A blanked header or footer line inside a piece splits it: the line is not quote text.
-            $Cuts = [System.Collections.Generic.List[int]]::new()
-            if ($Source.BlankedAt.Count -gt 0) {
-                $B = [Array]::BinarySearch($Source.BlankedAt, $PS)
-                if ($B -lt 0) { $B = -bnot $B }
-                for (; $B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $PE; $B++) { $Cuts.Add($Source.BlankedAt[$B]) }
-            }
-            $At = $PS
-            foreach ($Cut in $Cuts) {
-                if ($Cut -gt $At) { $Pieces.Add([pscustomobject]@{ Start = $At; End = $Cut }) }
-                $LineEnd = $Text.IndexOfAny([char[]]"`r`n", $Cut)
-                $At = if ($LineEnd -lt 0) { $PE } else { [Math]::Min($PE, $LineEnd) }
-            }
-            if ($PE -gt $At) { $Pieces.Add([pscustomobject]@{ Start = $At; End = $PE }) }
-            $Floor = $PE
+    foreach ($P in $Best.Pieces) {
+        # A piece that starts or ends inside a quote word: take the rest of the word when the source has
+        # it right there (the neighbouring piece's run had claimed those letters), else give the word up.
+        $Ds = 0
+        if (-not $Boundary[$P.QFirst]) {
+            $Back = 1
+            while ($P.QFirst - $Back -gt 0 -and -not $Boundary[$P.QFirst - $Back]) { $Back++ }
+            $Fits = ($P.First - $Back -ge 0)
+            for ($J = 1; $Fits -and $J -le $Back; $J++) { if ($Q[$P.QFirst - $J] -cne $Hay[$P.First - $J]) { $Fits = $false } }
+            if ($Fits) { $Ds = -$Back }
+            else { while ($P.QFirst + $Ds -le $N -and -not $Boundary[$P.QFirst + $Ds]) { $Ds++ } }
+        }
+        $De = 0
+        if (-not $Boundary[$P.QLast + 1]) {
+            $Fwd = 1
+            while ($P.QLast + 1 + $Fwd -lt $N -and -not $Boundary[$P.QLast + 1 + $Fwd]) { $Fwd++ }
+            $Fits = ($P.Last + $Fwd -lt $Hay.Length)
+            for ($J = 1; $Fits -and $J -le $Fwd; $J++) { if ($Q[$P.QLast + $J] -cne $Hay[$P.Last + $J]) { $Fits = $false } }
+            if ($Fits) { $De = -$Fwd }
+            else { while ($P.QLast + 1 - $De -ge 0 -and -not $Boundary[$P.QLast + 1 - $De]) { $De++ } }
+        }
+        # Only the part that matches one for one can be given up letter by letter.
+        if ($Ds -gt $P.Head -or $De -gt $P.Tail) { continue }
+        $Letters = ($P.QLast + 1 - $De) - ($P.QFirst + $Ds)
+        if ($Letters -le 0) { continue }
+        $PS = Get-VerbatimTextOffset -Source $Source -Position ($P.First + $Ds)
+        $PE = (Get-VerbatimTextOffset -Source $Source -Position ($P.Last - $De)) + 1
+        # Finish the source's own word when only a letter or two of it is left.
+        $More = 0
+        while ($PE + $More -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$PE + $More])) { $More++ }
+        if ($More -le $script:VerbatimWordTail) { $PE += $More }
+        # A blanked header or footer line inside a piece splits it: the line is not quote text.
+        $Cuts = [System.Collections.Generic.List[int]]::new()
+        if ($Source.BlankedAt.Count -gt 0) {
+            $B = [Array]::BinarySearch($Source.BlankedAt, $PS)
+            if ($B -lt 0) { $B = -bnot $B }
+            for (; $B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $PE; $B++) { $Cuts.Add($Source.BlankedAt[$B]) }
+        }
+        if ($Cuts.Count -eq 0) {
+            $Pieces.Add([pscustomobject]@{ Start = $PS; End = $PE; QuoteLetters = $Letters })
+            continue
+        }
+        # Split at each header line; the quote's letters are shared out by the parts' own letters.
+        $Parts = [System.Collections.Generic.List[object]]::new()
+        $From = $PS
+        foreach ($Cut in $Cuts) {
+            if ($Cut -gt $From) { $Parts.Add(@{ Start = $From; End = $Cut }) }
+            $LineEnd = $Text.IndexOfAny([char[]]"`r`n", $Cut)
+            $From = if ($LineEnd -lt 0) { $PE } else { [Math]::Min($PE, $LineEnd) }
+        }
+        if ($PE -gt $From) { $Parts.Add(@{ Start = $From; End = $PE }) }
+        foreach ($Part in $Parts) {
+            $PartLetters = ([regex]::Replace($Text.Substring($Part.Start, $Part.End - $Part.Start), '[^\p{L}\p{Nd}]', '')).Length
+            $Pieces.Add([pscustomobject]@{ Start = $Part.Start; End = $Part.End; QuoteLetters = [Math]::Min($PartLetters, $Letters) })
         }
     }
+    if ($Pieces.Count -eq 0) { return $null }
+    # One passage only when nothing else sits inside it (CL ruling t/389#15): one piece, about as long as
+    # the quote, with no run of other source text and no header line inside it.
+    $Contiguous = ($Pieces.Count -eq 1) -and ($Best.Span -le $Tight) -and ($Best.MaxGap -le $script:VerbatimMaxInnerGap)
     [pscustomobject]@{
-        Start      = $Start
-        End        = $End
-        Coverage   = $Best.Matched / $N
-        Contiguous = $Contiguous
-        Pieces     = $Pieces.ToArray()
+        Start        = $Pieces[0].Start
+        End          = $Pieces[$Pieces.Count - 1].End
+        Coverage     = $Best.Matched / $N
+        Contiguous   = $Contiguous
+        Pieces       = $Pieces.ToArray()
+        QuoteLetters = $N
     }
 }
 
 function Remove-VerbatimQuoteNoise {
-    # The quote without a URL and without a copy of a blanked page footer or header line (t/389#8 c).
+    # The quote without a URL, without a copy of a blanked page footer or header line (t/389#8 c), and
+    # without the brackets of a one-letter alteration (t/389#20).
     param([object]$Source, [string]$Quote)
     $Q = [regex]::Replace($Quote, $script:VerbatimUrlPattern, ' ')
+    # "[F]uture": the model's bracketed change of one letter's case. The letter is the source's.
+    $Q = [regex]::Replace($Q, '\[(\p{L})\](?=\p{L})', '$1')
+    # A header line is removed only when it is the smaller part of the quote. A quote that is mostly
+    # the repeated line (a table's row label with its numbers) is not a quote of the text around a header.
+    $Letters = { param($T) ([regex]::Replace($T, '[^\p{L}\p{Nd}]', '')).Length }
+    $Before = & $Letters $Q
     foreach ($F in $Source.Footers) {
-        if ($F.Length -ge 8 -and $Q.Length -gt $F.Length -and $Q.Contains($F, [System.StringComparison]::Ordinal)) { $Q = $Q.Replace($F, ' ') }
+        if ($F.Length -ge 8 -and $Q.Length -gt $F.Length -and $Q.Contains($F, [System.StringComparison]::Ordinal)) {
+            $Without = $Q.Replace($F, ' ')
+            $Left = & $Letters $Without
+            if ($Left -ge $script:VerbatimMinRun -and 2 * $Left -ge $Before) { $Q = $Without }
+        }
     }
     if ($Q -ceq $Quote) { return $Quote }
     [regex]::Replace($Q, '\s{2,}', ' ').Trim()
@@ -412,12 +446,18 @@ function Resolve-VerbatimSegment {
     $Coverage = if ($Snap) { $Snap.Coverage } else { 0.0 }
     if ($Snap -and $Coverage -ge $script:VerbatimSnapThreshold) {
         $Texts = [System.Collections.Generic.List[string]]::new()
+        $StoredLetters = 0
         foreach ($P in $Snap.Pieces) {
-            $T = $Source.Text.Substring($P.Start, $P.End - $P.Start).Trim()
             # A piece too short to have been placed by itself is not stored as a quote.
-            if (([regex]::Replace($T, '[^\p{L}\p{Nd}]', '')).Length -ge $script:VerbatimMinRun) { $Texts.Add($T) }
+            if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
+            $Texts.Add($Source.Text.Substring($P.Start, $P.End - $P.Start).Trim())
+            $StoredLetters += $P.QuoteLetters
         }
-        if ($Texts.Count -gt 0) {
+        # What is stored must itself cover the quote (CL ruling t/389#20): pieces that add up to less read
+        # as fragments of other text, not as the quote.
+        # [double] on both: with an int 1 for full coverage, Min binds its int overload and rounds the share up.
+        $Coverage = [Math]::Min([double]$Coverage, [double]$StoredLetters / [double]$Snap.QuoteLetters)
+        if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
             $Decision = if ($Snap.Contiguous) { 'snapped' } else { 'interleaved' }
             return [pscustomobject]@{ Decision = $Decision; Texts = $Texts.ToArray(); Coverage = $Coverage }
         }
