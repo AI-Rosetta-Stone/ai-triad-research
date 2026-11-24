@@ -23,6 +23,27 @@
 export const EXEMPT_ENVIRONMENTS = [];
 
 /**
+ * t/4958 (Tech Lead review of #5285): environments KNOWN to mint no credential. Only these may be
+ * downgraded to informational when they have no branch policy, and only while they also hold 0
+ * secrets and 0 variables. "0 secrets and 0 variables" alone is NOT evidence of no credential:
+ * cloud OIDC trust (an Azure federated credential with subject
+ * `repo:<owner>/<repo>:environment:<name>`) is keyed on the environment's NAME, and the client id
+ * can live in repo-level variables. `production` and `staging` here are exactly that shape (0/0,
+ * trusted by the deploy app). Every entry needs a comment saying why it is safe and how that was
+ * checked; an environment that cannot be shown credential-less stays off this list and keeps
+ * failing.
+ */
+export const CREDENTIAL_LESS_ENVIRONMENTS = new Map([
+  // Created by GitHub's Copilot coding agent for its own runs; no workflow here deploys with it.
+  // Checked 2026-11-24 (t/4958): 0 secrets, 0 variables, no branch policy; no Azure federated
+  // credential in the tenant names `environment:copilot` (all 8 app registrations scanned; this
+  // repo's subjects are only staging, production and monitoring; 0 user-assigned managed
+  // identities). Limit: other clouds and package-registry trusted publishing were not checked,
+  // and this repo publishes to neither. Re-check before adding OIDC trust for this name.
+  ['copilot', 'GitHub Copilot coding agent environment; no OIDC trust or secret (checked 2026-11-24, t/4958)'],
+]);
+
+/**
  * Pure: extract every `environment: <name>` scalar value referenced in a set of workflow file
  * texts. Skips templated values (`environment: ${{ inputs.x }}`), since those can't be resolved
  * statically and are each already a developer error finding of their own (unresolvable at the
@@ -63,7 +84,14 @@ export function requiredEnvironments(repoEnvironmentNames, workflowReferencedNam
 /**
  * Pure: does one environment's branch-policy configuration actually restrict which ref can get
  * its credential?
- * @param {{name: string, deploymentBranchPolicy: {protected_branches: boolean, custom_branch_policies: boolean} | null, policyCount: number, missing?: boolean}} env
+ *
+ * t/4958: a policy-less environment is reported as informational, not a failing gap, ONLY when
+ * it is on CREDENTIAL_LESS_ENVIRONMENTS AND holds 0 secrets AND 0 variables (e.g. `copilot`, the
+ * environment GitHub's Copilot coding agent creates). 0/0 alone fails: OIDC trust is keyed on the
+ * environment name, so a 0/0 environment can still mint a cloud credential (Tech Lead, #5285).
+ * Fail CLOSED whenever the counts aren't both known integers: an unreadable or unprovided count
+ * is never read as "credential-less" (same discipline as the existing `missing` arm).
+ * @param {{name: string, deploymentBranchPolicy: {protected_branches: boolean, custom_branch_policies: boolean} | null, policyCount: number, missing?: boolean, secretsCount?: number, variablesCount?: number, countsError?: string}} env
  */
 export function evaluateEnvironmentBranchPolicy(env) {
   const name = env?.name ?? '(unnamed)';
@@ -71,17 +99,37 @@ export function evaluateEnvironmentBranchPolicy(env) {
     return { name, pass: false, reason: 'referenced (by a workflow or the repo environment list) but does not exist, or could not be read -- never read a missing/unreadable environment as clean' };
   }
   const policy = env?.deploymentBranchPolicy;
+  let noPolicyReason = null;
   if (policy == null) {
-    return { name, pass: false, reason: 'deployment_branch_policy is null -- no branch restriction configured at all, any branch can get this credential' };
+    noPolicyReason = 'deployment_branch_policy is null -- no branch restriction configured at all';
+  } else {
+    const { protected_branches, custom_branch_policies } = policy;
+    if (custom_branch_policies && (env.policyCount ?? 0) === 0) {
+      noPolicyReason = 'custom_branch_policies is true but 0 branch/tag policies are configured -- the selected-branches list is empty';
+    } else if (!custom_branch_policies && !protected_branches) {
+      noPolicyReason = 'neither protected_branches nor custom_branch_policies is enabled';
+    }
   }
-  const { protected_branches, custom_branch_policies } = policy;
-  if (custom_branch_policies && (env.policyCount ?? 0) === 0) {
-    return { name, pass: false, reason: 'custom_branch_policies is true but 0 branch/tag policies are configured -- the selected-branches list is empty, so nothing is actually restricted' };
+  if (noPolicyReason == null) {
+    return { name, pass: true, reason: null };
   }
-  if (!custom_branch_policies && !protected_branches) {
-    return { name, pass: false, reason: 'neither protected_branches nor custom_branch_policies is enabled -- any branch can get this credential' };
+
+  if (env?.countsError) {
+    return { name, pass: false, reason: `${noPolicyReason}, and this environment's secret/variable counts could not be read (${env.countsError}) -- fail closed, never read an unreadable count as credential-less` };
   }
-  return { name, pass: true, reason: null };
+  const { secretsCount, variablesCount } = env ?? {};
+  const countsKnown = Number.isInteger(secretsCount) && Number.isInteger(variablesCount);
+  if (!countsKnown) {
+    return { name, pass: false, reason: `${noPolicyReason}, and this environment's secret/variable counts were not provided -- fail closed, never read an unknown count as credential-less` };
+  }
+  if (secretsCount === 0 && variablesCount === 0) {
+    const why = CREDENTIAL_LESS_ENVIRONMENTS.get(name);
+    if (why) {
+      return { name, pass: true, info: true, reason: `${noPolicyReason}, but this environment has 0 secrets and 0 variables and is on the credential-less allowlist (${why}) -- reported as informational only` };
+    }
+    return { name, pass: false, reason: `${noPolicyReason}; it has 0 secrets and 0 variables, but that does not prove it mints no credential (OIDC trust is keyed on the environment name, and the client id can be a repo variable) and it is not on CREDENTIAL_LESS_ENVIRONMENTS -- any branch could get a credential trusted for this environment` };
+  }
+  return { name, pass: false, reason: `${noPolicyReason}, and this environment has ${secretsCount} secret(s)/${variablesCount} variable(s) -- a real credential with no branch restriction, any branch can get it` };
 }
 
 /** Pure: evaluate every required environment and collect the gaps. */
