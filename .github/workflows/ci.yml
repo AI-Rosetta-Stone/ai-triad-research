@@ -2157,13 +2157,6 @@ jobs:
       # separate check tracked on t/436 (operations/devops/t436-three-push-loop.sh), not run here.
       - name: t/436 mkdir versus O_EXCL race (runner measurement)
         run: sh operations/devops/t436-lock-race.sh 1000
-      # t/436 ONE-OFF (TL t/436#18, p/9#439): REMOVE BEFORE REVIEW. 50 three-push runs on the runner,
-      # old and fixed stamps side by side. continue-on-error so the other checks finish; the result is
-      # read from this step's log, not from the check colour.
-      - name: t/436 ONE-OFF runner loop, 50 runs, old and fixed stamps (remove before review)
-        continue-on-error: true
-        timeout-minutes: 20
-        run: bash operations/devops/t436-runner-loop.sh 50
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
