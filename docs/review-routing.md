@@ -62,6 +62,7 @@ Style, tone, and formatting are explicitly out of scope.
 
 An approval binds to a head, so any push after approval needs a new stamp. When that push is **delta-only**, the reviewer re-stamps against the delta, not the whole PR. A delta-only push is a lockfile refresh, a comment or test-name change, or a fix the reviewer asked for. This is what makes fixing review findings in the same PR cheap (`docs/pr-landing.md` § PR Budget and Batching).
 
+0. **Opening or marking ready a T1 PR:** the author pings the reviewer in the same step, naming the PR, the ticket and the head SHA (t/532). A ticket comment does not wake the reviewer.
 1. **The author** pushes, verifies the new head (`gh pr view <N> --json headRefOid`), and pings the reviewer with:
    - the approved head and the new head;
    - `git diff --stat <approved-head>..<new-head>`;
