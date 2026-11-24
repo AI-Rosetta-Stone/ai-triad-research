@@ -15,6 +15,7 @@ import type { CommunityChat } from './useCommunityStore';
 import { extractHttpUrls } from '../../../../lib/url-fetch/extractHttpUrls';
 import { mapErrorToUserMessage } from '../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { ActionableError } from '@lib/debate/errors';
 import { api } from '@bridge';
 import type { UrlContextMetadata } from '@lib/ai-client/index';
 import { formatTaxonomyContext } from '../utils/taxonomyContext';
@@ -215,6 +216,23 @@ function taxonomyPartsLoaded(): boolean {
     && state.situations !== null && state.policyRegistry !== null;
 }
 
+const TAXONOMY_START_GOAL = 'Chat: start a conversation';
+/** The chat error text for a failed send. A wait on the taxonomy (t/490) is shown as written, with no prefix:
+ *  its copy is complete. Any other failure keeps the prefix. */
+export function chatErrorText(err: unknown, prefix: string): string {
+  if (err instanceof ActionableError && err.goal === TAXONOMY_START_GOAL) return err.problem;
+  return `${prefix}: ${mapErrorToUserMessage(err)}`;
+}
+
+/** Plain copy for the two ways a send can wait on the taxonomy and not start (t/490, Design p/25#115). */
+const TAXONOMY_LOAD_FAILED_COPY = "The taxonomy couldn't load, so the chat can't start. Check your connection, then send again.";
+const TAXONOMY_STILL_LOADING_COPY = 'The taxonomy is still loading, so the chat cannot start. Try again in a moment.';
+
+/** An error whose text is shown to the user exactly as written. */
+function taxonomyStartError(problem: string, nextSteps: string[]): ActionableError {
+  return new ActionableError({ goal: TAXONOMY_START_GOAL, problem, location: 'useChatStore.waitForTaxonomy', nextSteps });
+}
+
 /** t/490: resolves once the taxonomy has fully loaded. Starts a load if none is running, rejects if the load fails,
  *  and rejects after timeoutMs, so a send never waits forever. */
 export function waitForTaxonomy(timeoutMs = 30_000): Promise<void> {
@@ -227,10 +245,13 @@ export function waitForTaxonomy(timeoutMs = 30_000): Promise<void> {
       unsubscribe();
       if (error) reject(error); else resolve();
     };
-    timer = setTimeout(() => finish(new Error('The taxonomy is still loading, so the chat cannot start. Try again in a moment.')), timeoutMs);
+    timer = setTimeout(() => finish(taxonomyStartError(TAXONOMY_STILL_LOADING_COPY, ['Try again in a moment'])), timeoutMs);
     unsubscribe = useTaxonomyStore.subscribe(state => {
-      if (state.loadError) finish(new Error(`The taxonomy failed to load, so the chat cannot start: ${state.loadError}`));
-      else if (taxonomyPartsLoaded()) finish();
+      if (state.loadError) {
+        // The raw loader error goes to the recorder for developers; the user sees the plain copy only (t/490, Design).
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Taxonomy failed to load before the chat could start', error: { name: 'Error', message: state.loadError, stack: undefined } });
+        finish(taxonomyStartError(TAXONOMY_LOAD_FAILED_COPY, ['Check your connection', 'Send again']));
+      } else if (taxonomyPartsLoaded()) finish();
     });
     const { loading, loadAll } = useTaxonomyStore.getState();
     if (!loading) void loadAll();
@@ -647,7 +668,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     } catch (err) {
       outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to generate opening message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ chatError: `Failed to start conversation: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
+      set({ chatError: chatErrorText(err, 'Failed to start conversation'), chatStreamingText: null });
       // createChat pre-saved an empty session before generation; the opening never landed, so remove
       // it from storage + the sidebar list rather than leaving a stale empty chat (t/2491). Cleanup
       // failures must not mask the original error, so they're swallowed after being recorded.
@@ -790,7 +811,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (!isStillValid()) return;
       outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to send chat message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ chatError: `Response failed: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
+      set({ chatError: chatErrorText(err, 'Response failed'), chatStreamingText: null });
     } finally {
       finishRun(outcome);
       set({ chatGenerating: false });
