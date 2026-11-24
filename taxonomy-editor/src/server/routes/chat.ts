@@ -541,13 +541,13 @@ function writeReplyIncomplete(
     message: `chat-stream reply incomplete: finish reason ${rawStopReason ?? 'none'} (t/491)`,
     data: { stop_reason: reason, raw_stop_reason: rawStopReason ?? null, chars },
   });
-  const why = stopReason === undefined ? 'the reply ended without a finish reason' : `finish reason: ${rawStopReason ?? stopReason}`;
   writeSse(res, {
     type: 'error',
     code: 'REPLY_INCOMPLETE',
     stop_reason: stopReason ?? null,
     chars,
-    message: `The model stopped before finishing its answer (${why}). Try again.`,
+    // Design (p/75#4): one plain message for every case; the raw reason stays in the log, not in front of the user.
+    message: 'The reply was cut off before it finished. Try again, or ask for a shorter answer.',
     partialText,
   });
 }

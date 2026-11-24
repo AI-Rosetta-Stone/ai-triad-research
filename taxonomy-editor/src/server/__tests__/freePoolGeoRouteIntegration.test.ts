@@ -259,8 +259,9 @@ describe('free-pool geo gate wiring across generate, chat and NLI (t/4486)', () 
     const errs = events.filter(e => e.type === 'error');
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatchObject({ code: 'REPLY_INCOMPLETE', stop_reason: normalized, chars: partial.length, partialText: partial });
-    expect(String(errs[0].message)).toMatch(/stopped before finishing its answer/);
-    expect(String(errs[0].message)).toContain(raw ?? 'without a finish reason');
+    // Design (p/75#4): the same plain message for every reason, with no provider code in it.
+    expect(errs[0].message).toBe('The reply was cut off before it finished. Try again, or ask for a shorter answer.');
+    if (raw) expect(String(errs[0].message)).not.toContain(raw);
     expect(events[events.length - 1].type).toBe('error'); // nothing after the error
   });
 
