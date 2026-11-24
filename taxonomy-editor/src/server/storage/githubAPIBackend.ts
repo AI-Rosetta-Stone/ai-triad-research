@@ -2057,17 +2057,25 @@ export class GitHubAPIBackend implements StorageBackend {
 
     if (!resp.ok) return [];
 
-    const data = resp.data as { tree: TreeEntry[]; truncated?: boolean };
+    // t/470: an OK response with no body, or without a tree array, is a failed load, not a throw.
+    // Callers already treat [] as "no tree" (the same answer as !resp.ok).
+    const data = resp.data as { tree?: unknown; truncated?: boolean } | null | undefined;
+    if (!data || !Array.isArray(data.tree)) {
+      log.github.warn({ sha, status: resp.status, bodyType: data === null ? 'null' : typeof data },
+        'getTree: OK response without a tree array; treating it as a failed load (t/470)');
+      return [];
+    }
+    const tree = data.tree as TreeEntry[];
     if (data.truncated) {
       this.recordEvent({
         type: 'system.scaling_warning',
         component: 'github-api',
         level: 'warn',
         message: 'Git Trees API returned truncated result (>100,000 entries)',
-        data: { sha, entryCount: data.tree.length },
+        data: { sha, entryCount: tree.length },
       });
     }
-    return data.tree;
+    return tree;
   }
 
   // ── Batched blob reads (t/4499, TL design t/4499#18) ────────────────────
@@ -3367,14 +3375,21 @@ export class GitHubAPIBackend implements StorageBackend {
       `/repos/${creds.repo}/git/commits/${commitSha}`);
     if (!commitResp.ok) return false;
 
-    const treeSha = (commitResp.data as { tree: { sha: string } }).tree.sha;
+    // t/470: an OK commit response with no body, or without tree.sha, is a failed load, not a throw.
+    const treeSha = (commitResp.data as { tree?: { sha?: unknown } } | null | undefined)?.tree?.sha;
+    if (typeof treeSha !== 'string' || treeSha.length === 0) {
+      log.github.warn({ commitSha, status: commitResp.status },
+        'fetchRepoTree: OK commit response without tree.sha; treating it as a failed load (t/470)');
+      return false;
+    }
     const entries = await this.getTree(treeSha, true);
 
     // t/463 (Second Opinion): build the tree locally and assign it only on success. A zero-blob or failed
     // load must not empty or replace the live tree.
     const loadedTree = new Map<string, TreeEntry>();
     for (const entry of entries) {
-      if (entry.type === 'blob') {
+      // t/470: skip an entry that is not an object with a path, instead of throwing on it.
+      if (entry?.type === 'blob' && typeof entry.path === 'string') {
         loadedTree.set(entry.path, entry);
       }
     }
