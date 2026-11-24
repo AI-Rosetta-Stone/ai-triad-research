@@ -98,6 +98,7 @@
 .debate-reasoning-caret {
   display: inline-block;
   width: 1em;
+  font-size: var(--text-xs); /* Design p/14#82: the only non-colour cue, so one step up from the 2xs id */
   text-decoration: none;
 }
 
