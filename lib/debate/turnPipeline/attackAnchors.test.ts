@@ -75,31 +75,31 @@ describe('verifyAttackAnchors (t/388)', () => {
 describe('applyPlanSteelmanRefs with attack anchors (t/388)', () => {
   it('keeps a steelman tag and a valid anchor on the same attack', () => {
     const p = plan(['ATTACK [AN-3]: the objection targeting node saf-beliefs-203']);
-    applyPlanSteelmanRefs(p, ['AN-3']);
+    applyPlanSteelmanRefs(p, ['AN-3'], undefined, true);
     expect(p.anticipated_challenges).toEqual(['ATTACK [AN-3]: the objection targeting node saf-beliefs-203']);
   });
 
-  it('runs the anchor check even when nothing was offered and the flag is off', () => {
+  it('with the flag on, runs the anchor check even when nothing was offered', () => {
     const p = plan(['ATTACK: the objection targeting node skp-beliefs-001']);
-    applyPlanSteelmanRefs(p, []);
+    applyPlanSteelmanRefs(p, [], undefined, true);
     expect(p.anticipated_challenges).toEqual(['ATTACK: the objection']);
   });
 
   it('object form: a target that is one of the plan’s claim anchors becomes the anchor phrase', () => {
     const p = plan([{ type: 'ATTACK', target: 'saf-beliefs-203', description: 'audits miss it' }]);
-    applyPlanSteelmanRefs(p, ['AN-3']);
+    applyPlanSteelmanRefs(p, ['AN-3'], undefined, true);
     expect(p.anticipated_challenges).toEqual(['ATTACK: audits miss it targeting node saf-beliefs-203']);
   });
 
   it('object form: a taxonomy target that is not one of the plan’s claims never becomes an anchor phrase', () => {
     const p = plan([{ type: 'ATTACK', target: 'acc-intentions-099', description: 'audits miss it' }]);
-    applyPlanSteelmanRefs(p, ['AN-3']);
+    applyPlanSteelmanRefs(p, ['AN-3'], undefined, true);
     expect(p.anticipated_challenges).toEqual(['ATTACK: audits miss it (target: acc-intentions-099)']);
   });
 
   it('object form: an ASSUMPTION never gets an anchor phrase', () => {
     const p = plan([{ type: 'ASSUMPTION', target: 'saf-beliefs-203', description: 'a premise' }]);
-    applyPlanSteelmanRefs(p, []);
+    applyPlanSteelmanRefs(p, [], undefined, true);
     expect(p.anticipated_challenges).toEqual(['ASSUMPTION: a premise (target: saf-beliefs-203)']);
   });
 });
@@ -107,8 +107,8 @@ describe('applyPlanSteelmanRefs with attack anchors (t/388)', () => {
 describe('planForLaterStages with attack anchors (t/388)', () => {
   it('gives later stages the attack without the tag and without the anchor phrase; the stored plan keeps both', () => {
     const p = plan(['ATTACK [AN-3]: the objection targeting node saf-beliefs-203', 'ASSUMPTION: a premise']);
-    applyPlanSteelmanRefs(p, ['AN-3']);
-    expect(planForLaterStages(p).anticipated_challenges).toEqual(['ATTACK: the objection', 'ASSUMPTION: a premise']);
+    applyPlanSteelmanRefs(p, ['AN-3'], undefined, true);
+    expect(planForLaterStages(p, true).anticipated_challenges).toEqual(['ATTACK: the objection', 'ASSUMPTION: a premise']);
     expect(p.anticipated_challenges[0]).toBe('ATTACK [AN-3]: the objection targeting node saf-beliefs-203');
   });
 
@@ -119,6 +119,47 @@ describe('planForLaterStages with attack anchors (t/388)', () => {
     const { steelman_refs_offered: _o, ...stored } = p;
     expect(toPromptJson(planForLaterStages(p))).toBe(before);
     expect(toPromptJson(stored)).toBe(before);
+  });
+});
+
+describe('flag off: anchors are not looked at and no plan is changed (TL condition p/32#134)', () => {
+  // Phrases a model might write unprompted: a valid anchor, an anchor of another camp, trailing
+  // punctuation, and the words mid-sentence.
+  const items = [
+    'ATTACK: audits miss it targeting node saf-beliefs-203',
+    'ATTACK: the objection targeting node acc-intentions-099',
+    'ATTACK [AN-3]: tagged targeting node saf-beliefs-203.',
+    'ASSUMPTION: a premise targeting node skp-beliefs-001',
+    'ATTACK: critics targeting node operators will object',
+  ];
+
+  it('stores every challenge exactly as written, with no WARN, whether the flag is absent or false', () => {
+    for (const flag of [undefined, false]) {
+      const p = plan([...items]);
+      const events = withRecorder(() => applyPlanSteelmanRefs(p, ['AN-3'], undefined, flag));
+      expect(p.anticipated_challenges).toEqual(items);
+      expect(events).toHaveLength(0);
+    }
+  });
+
+  it('does not reject or alter a plan whose anchors match none of its claims', () => {
+    const p = plan(['ATTACK: x targeting node nowhere-000'], []);
+    expect(() => applyPlanSteelmanRefs(p, [])).not.toThrow();
+    expect(p.anticipated_challenges).toEqual(['ATTACK: x targeting node nowhere-000']);
+  });
+
+  it('gives later stages the phrase untouched; only the steelman tag is removed, as before', () => {
+    const p = plan([...items]);
+    applyPlanSteelmanRefs(p, ['AN-3']);
+    expect(planForLaterStages(p).anticipated_challenges).toEqual([
+      items[0], items[1], 'ATTACK: tagged targeting node saf-beliefs-203.', items[3], items[4],
+    ]);
+  });
+
+  it('object form: a target that is a claim anchor keeps the t/485 text and gets no anchor phrase', () => {
+    const p = plan([{ type: 'ATTACK', target: 'saf-beliefs-203', description: 'audits miss it' }]);
+    applyPlanSteelmanRefs(p, []);
+    expect(p.anticipated_challenges).toEqual(['ATTACK: audits miss it (target: saf-beliefs-203)']);
   });
 });
 

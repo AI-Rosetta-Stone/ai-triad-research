@@ -16,6 +16,7 @@ export function offeredIdsOf(input: { steelmanRefsOffered?: { id: string }[] }):
 }
 
 const CHALLENGE_TYPES = new Set(['ATTACK', 'ASSUMPTION']);
+const NO_ANCHORS: ReadonlySet<string> = new Set();
 
 function firstText(o: Record<string, unknown>, keys: string[]): string | undefined {
   for (const k of keys) {
@@ -93,14 +94,16 @@ function normalizeChallenges(challenges: unknown[], allowed: ReadonlySet<string>
 
 /**
  * Apply the offered list to a plan: record the offered ids, put every challenge in string form,
- * and strip any ATTACK tag not among the offered ids.
+ * and strip any ATTACK tag not among the offered ids. With attackAnchors on (config.planAttackAnchors,
+ * t/388) it also checks each "targeting node <anchor>" phrase. With it off, anchors are not looked at
+ * and a plan is stored exactly as it would be without that feature.
  */
-export function applyPlanSteelmanRefs(plan: OpeningPlanWorkProduct | undefined, offeredIds: string[], debateId?: string): void {
+export function applyPlanSteelmanRefs(plan: OpeningPlanWorkProduct | undefined, offeredIds: string[], debateId?: string, attackAnchors = false): void {
   if (!plan) return;
   plan.steelman_refs_offered = offeredIds;
   if (!Array.isArray(plan.anticipated_challenges)) return;
   const allowed = new Set(offeredIds);
-  plan.anticipated_challenges = normalizeChallenges(plan.anticipated_challenges as unknown[], allowed, planClaimAnchors(plan), debateId);
+  plan.anticipated_challenges = normalizeChallenges(plan.anticipated_challenges as unknown[], allowed, attackAnchors ? planClaimAnchors(plan) : NO_ANCHORS, debateId);
   plan.anticipated_challenges = plan.anticipated_challenges.map(c => {
     const m = typeof c === 'string' ? ATTACK_TAG.exec(c) : null;
     if (!m || allowed.has(m[1])) return c;
@@ -111,19 +114,20 @@ export function applyPlanSteelmanRefs(plan: OpeningPlanWorkProduct | undefined, 
     return c.replace(ATTACK_TAG, 'ATTACK:');
   });
   // t/388: keep a "targeting node <anchor>" phrase only when the anchor is one of this plan's claims.
-  verifyAttackAnchors(plan, debateId);
+  if (attackAnchors) verifyAttackAnchors(plan, debateId);
 }
 
 /**
  * The plan as later stages see it (draft, cite): ATTACK tags reduced to plain "ATTACK:" and the
- * offered list removed, and any "targeting node <anchor>" phrase removed. Both are for the plan
- * card only, so they never enter a later prompt, and a plan with neither is passed on unchanged.
+ * offered list removed. With attackAnchors on, any "targeting node <anchor>" phrase is removed too.
+ * Both are for the plan card only, so they never enter a later prompt. A plan with neither is
+ * passed on unchanged, and with attackAnchors off the phrase is not looked at.
  */
-export function planForLaterStages<T extends OpeningPlanWorkProduct | undefined>(plan: T): T {
+export function planForLaterStages<T extends OpeningPlanWorkProduct | undefined>(plan: T, attackAnchors = false): T {
   if (!plan) return plan;
   const { steelman_refs_offered: _offered, ...rest } = plan;
   const challenges = Array.isArray(rest.anticipated_challenges)
-    ? rest.anticipated_challenges.map(c => (typeof c === 'string' ? withoutAnchorPhrase(c).replace(ATTACK_TAG, 'ATTACK:') : c))
+    ? rest.anticipated_challenges.map(c => (typeof c === 'string' ? (attackAnchors ? withoutAnchorPhrase(c) : c).replace(ATTACK_TAG, 'ATTACK:') : c))
     : rest.anticipated_challenges;
   return { ...rest, anticipated_challenges: challenges } as T;
 }

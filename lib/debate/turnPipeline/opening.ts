@@ -246,7 +246,7 @@ export async function runOpeningPipeline(
     elapsed = Date.now() - t0;
     const planParsed = parseStageResponse<OpeningPlanWorkProduct>(planRaw, 'plan');
     // t/388: record the offered ids and keep only ATTACK tags drawn from them.
-    applyPlanSteelmanRefs(planParsed.product, offeredIdsOf(input));
+    applyPlanSteelmanRefs(planParsed.product, offeredIdsOf(input), undefined, input.attackAnchors);
     stageDiags.push({
       stage: 'plan', prompt: planPromptText, raw_response: planRaw,
       model: oPlanModel, temperature: temps.plan_temperature,
@@ -277,7 +277,7 @@ export async function runOpeningPipeline(
       model: oPlanModel, timestamp: new Date().toISOString(),
     });
     // t/388: later stages see the plan without steelman ids, so no id reaches the statement.
-    planJson = toPromptJson(planForLaterStages(plan));
+    planJson = toPromptJson(planForLaterStages(plan, input.attackAnchors));
     break;
   }
 
