@@ -139,7 +139,9 @@ async function buildHttpError(res: Response, isDocument: boolean): Promise<Actio
     const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
     // t/276: a document-source 400 gets Design's plain-language copy; anything else keeps the server's text.
     const problem = (isDocument && res.status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
-    err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: createNextSteps(res.status, problem) });
+    // t/475: the auth gate's refusal carries its own user text in `detail`; show it instead of the bare error.
+    const detail = data.reason === 'anon_route_blocked' && typeof data.detail === 'string' ? data.detail : undefined;
+    err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: detail ? [detail] : createNextSteps(res.status, problem) });
   }
   (err as ActionableError & { httpStatus: number }).httpStatus = res.status;
   return err;
