@@ -197,7 +197,7 @@ async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResp
 
 /** Guard branch: enforce backend allowed and rate limits.
  *  Returns false if the handler should proceed; true if access was denied (response written). */
-function enforceChatAccess(res: http.ServerResponse, tier: ReturnType<typeof proxyTiers.resolveTier>, backend: AIBackend, isFree: boolean, limitKey: string): boolean {
+export function enforceChatAccess(res: http.ServerResponse, tier: ReturnType<typeof proxyTiers.resolveTier>, backend: AIBackend, isFree: boolean, limitKey: string): boolean {
   if (!proxyTiers.isBackendAllowed(tier, backend)) {
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Backend '${backend}' not available on your tier`, tier_level: tier.level }));
@@ -257,20 +257,43 @@ async function resolveExplicitAiKey(
   return { ok: true, key: explicitKey, reservationId: null, debateReservationId: null };
 }
 
+/** t/494: the tokens one chat turn books, against the free pool and the per-user daily limit. */
+export interface ChatTurnTokens { inputTokens: number; outputTokens: number; estimated: boolean }
+
+/** Output allowance used when the provider reports no usage for a turn. Chat sets no max-output
+ *  cap, so this is a deliberately high bound for a reply (over-counting is the safe side). */
+export const CHAT_OUTPUT_TOKEN_ALLOWANCE = 8192;
+
+/** t/494: the provider's real usage when the stream reported it. Otherwise an estimate from the
+ *  prompt size (about 4 characters per token) plus the output allowance, with a WARN — never the
+ *  flat FREE_POOL_CALL_TOKEN_ESTIMATE, which under-counts a ~150K-token turn about 75 times. */
+export function chatTurnTokens(usage: { promptTokens?: number; completionTokens?: number } | undefined, promptChars: number): ChatTurnTokens {
+  if (usage && typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number') {
+    return { inputTokens: usage.promptTokens, outputTokens: usage.completionTokens, estimated: false };
+  }
+  log.server.warn({ promptChars, outputAllowance: CHAT_OUTPUT_TOKEN_ALLOWANCE }, 'chat-stream: provider returned no usage; booking an estimate from the prompt size (t/494)');
+  return { inputTokens: Math.ceil(promptChars / 4), outputTokens: CHAT_OUTPUT_TOKEN_ALLOWANCE, estimated: true };
+}
+
+/** t/494: the per-user daily token bucket for a chat turn. The milestone the bucket returns cannot
+ *  be sent as a header here (the SSE head is already written), so it is not surfaced. */
+export function recordChatTokenUsage(limitKey: string, turn: ChatTurnTokens, dailyTokenLimit: number): void {
+  rateLimiter.recordTokenUsage(limitKey, turn.inputTokens, turn.outputTokens, dailyTokenLimit);
+}
+
 /** t/4485 (+ t/4485#9 debate reconciliation): pure mirror of routes/ai.ts's
  *  trackFreePoolReservation — keeps this handler's own commit/release bookkeeping out of its
- *  cyclomatic complexity (t/3821 baseline). chat-stream never surfaces a token count back to
- *  this handler, so `commit` always reconciles/commits the flat estimate — for a debate-covered
- *  call that means reconcileDebateDrawDown's delta is always 0 (a no-op), consistent with this
- *  file's existing "estimate, not a real reconciled count" limitation. */
-function trackFreePoolReservation(reservationId: string | null, debateReservationId: string | null = null) {
+ *  cyclomatic complexity (t/3821 baseline). t/494: `commit` books the real turn tokens (not the
+ *  flat estimate), and for a debate-covered call reconciles the debate's draw-down to them. */
+export function trackFreePoolReservation(reservationId: string | null, debateReservationId: string | null = null) {
   let settled = false;
   return {
-    async commit(): Promise<void> {
+    async commit(turn: ChatTurnTokens): Promise<void> {
       settled = true;
-      if (debateReservationId) { await reconcileDebateDrawDown(debateReservationId, FREE_POOL_CALL_TOKEN_ESTIMATE); return; }
+      const tokens = turn.inputTokens + turn.outputTokens;
+      if (debateReservationId) { await reconcileDebateDrawDown(debateReservationId, tokens); return; }
       if (!reservationId) return;
-      await commitFreePoolCall(reservationId, { calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE });
+      await commitFreePoolCall(reservationId, { calls: 1, tokens });
     },
     async releaseIfUnsettled(): Promise<void> {
       if (settled || debateReservationId || !reservationId) return;
@@ -341,6 +364,8 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
 
     // t/4485: a no-op tracker until resolveExplicitAiKey resolves a real reservationId below.
     let freePoolBudget = trackFreePoolReservation(null);
+    // t/494: the Gemini stream's usage for this turn, when the provider reported it.
+    let geminiUsage: { promptTokens?: number; completionTokens?: number } | undefined;
     try {
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
 
@@ -382,7 +407,7 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       const effectiveTemperature = temperature ?? 0.7;
 
       if (backend === 'gemini') {
-        await streamGeminiChat(res, {
+        geminiUsage = await streamGeminiChat(res, {
           messages: messages as ChatMessage[],
           systemInstruction: systemInstruction as string,
           apiModelId: ai.getResolvedApiModelId(requestModel),
@@ -412,7 +437,10 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       // t/4485: chat-stream doesn't surface a token count back to this handler (SSE chunks, no
       // final usage event) — commits the same conservative estimate used at reserve time,
       // rather than a real reconciled count. Known simplification vs. the generate path.
-      await freePoolBudget.commit();
+      // t/494: book the turn's real tokens against the free pool and the per-user daily limit.
+      const turn = chatTurnTokens(geminiUsage, promptCharsOf(messages as ChatMessage[], systemInstruction as string));
+      await freePoolBudget.commit(turn);
+      recordChatTokenUsage(limitKey, turn, tier.limits.tokensPerDay);
     } catch (err) {
       log.server.error({ component: 'ai-chat-stream', err }, 'chat-stream failed');
       const chatErrMsg = err instanceof ActionableError
@@ -445,6 +473,11 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
  *  Delegates SSE parsing to generateViaGeminiStream (t/2456) via geminiContents option
  *  (t/2456#3). Emits chunk→chat-stream-url-metadata→done per t/2458#2 contract. t/4848:
  *  emits raw_prompt and raw_response for the How panel's Raw Prompt/Raw Response sections. */
+/** t/494: characters the prompt sends, for the estimate used when the provider reports no usage. */
+export function promptCharsOf(messages: ChatMessage[], systemInstruction: string): number {
+  return (systemInstruction ?? '').length + messages.reduce((n, m) => n + (m.content ?? '').length, 0);
+}
+
 async function streamGeminiChat(
   res: http.ServerResponse,
   opts: {
@@ -455,7 +488,7 @@ async function streamGeminiChat(
     temperature: number;
     urlContext: boolean;
   },
-): Promise<void> {
+): Promise<{ promptTokens?: number; completionTokens?: number } | undefined> {
   const { messages, systemInstruction, apiModelId, apiKey, temperature, urlContext } = opts;
   const geminiContents: GeminiContent[] = messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
 
@@ -469,6 +502,8 @@ async function streamGeminiChat(
   let urlContextMetadata: UrlContextMetadata | undefined;
   // t/491: the provider's stop reason ('max_tokens' means the reply was cut off mid-answer).
   let stopReason: string | undefined;
+  // t/494: the final chunk's cumulative usage (Shared Lib, #5405).
+  let usage: { promptTokens?: number; completionTokens?: number } | undefined;
 
   try {
     const result = await generateViaGeminiStream(
@@ -490,6 +525,7 @@ async function streamGeminiChat(
     );
     urlContextMetadata = result.urlContextMetadata;
     stopReason = result.stopReason;
+    usage = result.usage;
   } catch (streamErr) {
     log.server.warn({ err: streamErr }, 'chat-stream: generateViaGeminiStream threw');
     writeSse(res, {
@@ -516,6 +552,7 @@ async function streamGeminiChat(
     });
   }
   writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText, stop_reason: stopReason ?? null });
+  return usage;
 }
 
 /** Non-Gemini chat (t/2457 fallback + t/2483 app-fetch): optionally fetch-and-inject

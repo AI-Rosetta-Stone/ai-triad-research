@@ -258,7 +258,9 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
-    expect(commitFreePoolCall).toHaveBeenCalledWith('res-3', { calls: 1, tokens: 2000 });
+    // t/494: the stream mock reports no usage, so the turn books the prompt-size estimate
+    // (ceil('hi'.length / 4) + 8192 output allowance = 8193), not the flat 2000.
+    expect(commitFreePoolCall).toHaveBeenCalledWith('res-3', { calls: 1, tokens: 8193 });
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
   });
 
@@ -335,7 +337,8 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }], linkedDebateId: 'deb-1' });
     expect(res._statusCode).not.toBe(429);
-    expect(reconcileDebateDrawDown).toHaveBeenCalledWith('db-res-1', 2000); // chat-stream's flat estimate — delta is 0, a no-op inside reconcileDebateDrawDown itself
+    // t/494: no usage from the stream mock, so the reconciled total is the prompt-size estimate (8193).
+    expect(reconcileDebateDrawDown).toHaveBeenCalledWith('db-res-1', 8193);
     expect(commitFreePoolCall).not.toHaveBeenCalled();
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
   });
