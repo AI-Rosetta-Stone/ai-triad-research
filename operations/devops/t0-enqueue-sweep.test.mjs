@@ -375,3 +375,10 @@ test('pageCapWarning: WARN only when the cap is reached with results still unrea
   assert.equal(pageCapWarning(SEARCH_MAX_PAGES, false), null, 'cap reached exactly at the last page: nothing unread');
   assert.match(pageCapWarning(SEARCH_MAX_PAGES, true), /^WARN: open-PR search stopped at its \d+-page cap \(\d+ PRs\) with more results unread/);
 });
+
+test('a green T0 PR with a non-required check still running is not enqueued (t/403)', () => {
+  const contexts = [...greenAt(minsAgo(20)), { name: 'Stray File Guard', status: 'IN_PROGRESS', conclusion: null }];
+  const { enqueue, skip } = selectT0Candidates([pr({ contexts })], NOW);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /^1 check\(s\) still running \(Stray File Guard\)/);
+});

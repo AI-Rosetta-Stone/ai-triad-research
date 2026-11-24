@@ -197,7 +197,78 @@ type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds'
  *  is the rawDisabled early-return's own reason (t/4615 — previously
  *  reused `status=503`, conflating with genuine 503 fallbacks in the
  *  stats). */
-type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled';
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path';
+
+/** t/372 (CodeQL #6229, #6230): join a repo-relative path under `base` and refuse, before any
+ *  write, anything that resolves outside `base`. toRepoPath's `..` check does not reach these
+ *  call sites in CodeQL's model, so the cache writes confine their own path. */
+async function confineToDir(base: string, rel: string): Promise<string> {
+  const root = path.resolve(base);
+  const abs = path.resolve(root, rel);
+  if (!(isWithinDir(abs, root) && await realpathWithin(abs, root))) {
+    throw new ActionableError({
+      goal: 'Confine disk cache access to the cache directory',
+      problem: `Path escapes the cache directory: ${rel}`,
+      location: 'githubAPIBackend.confineToDir',
+      nextSteps: ['Use a repo-relative path with no ".." segments, and no symlink inside the cache directory'],
+      code: 'PATH_OUTSIDE_ROOT',
+      httpStatus: 400,
+    });
+  }
+  // Return the join, not the resolved absolute path: the read side builds keys with path.join,
+  // so an in-cache write must keep the same string.
+  return path.join(base, rel);
+}
+
+/** Lexical containment of `abs` in `root` (case-insensitive on win32). */
+function isWithinDir(abs: string, root: string): boolean {
+  const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+  const r = process.platform === 'win32' ? root.toLowerCase() : root;
+  return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+}
+
+/** t/432: a symlink or junction already inside the cache directory must not lead out. Resolve the
+ *  deepest existing ancestor of `abs` and require it to stay inside the real root. Fails closed on any
+ *  error other than "does not exist yet" (containment cannot be proven). A missing root has no symlinks. */
+async function realpathWithin(abs: string, root: string): Promise<boolean> {
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(root);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return true; // telemetry — a missing root has no symlinks
+    log.storage.warn({ root, err: String(err) }, 'confineToDir: cannot resolve the cache root; refusing the write (t/432)');
+    return false;
+  }
+  let probe = abs;
+  for (;;) {
+    try {
+      return isWithinDir(await fs.realpath(probe), realRoot);
+    } catch (err: unknown) {
+      const parent = path.dirname(probe);
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) {
+        log.storage.warn({ probe, err: String(err) }, 'confineToDir: cannot verify containment; refusing (t/432)');
+        return false;
+      }
+      // A dangling link is an entry that exists but whose target does not: realpath fails with ENOENT,
+      // and a write through it would create the target outside the cache. Refuse it.
+      try {
+        await fs.lstat(probe);
+        log.storage.warn({ probe }, 'confineToDir: dangling link in the cache directory; refusing (t/432)');
+        return false;
+      } catch (lerr: unknown) {
+        if ((lerr as NodeJS.ErrnoException).code !== 'ENOENT') {
+          log.storage.warn({ probe, err: String(lerr) }, 'confineToDir: cannot inspect a cache entry; refusing (t/432)');
+          return false;
+        }
+        // telemetry — the entry does not exist at all: an ordinary not-yet-created path
+      }
+      probe = parent; // telemetry — a not-yet-created ancestor is the normal case
+    }
+  }
+}
+
+/** t/268: why a directory listing returned [] without a genuine answer. */
+export type DirListingDegradation = 'non-holder-tree-empty' | 'circuit-breaker-open' | 'api-unavailable' | 'no-credentials';
 
 type RawFetchResult =
   | { kind: 'hit'; content: string; sha: string }
@@ -455,9 +526,27 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       this._dataLoadStatus = 'ready';
     } else {
+      // t/463: decide now, apply only after the tree loads. A failed load leaves the manifest exactly as it
+      // was (memory and disk), so the next start tries again instead of reporting ready on an empty corpus.
+      const cachedSha = this.manifest?.lastCommitSha ?? '';
+      const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
       const loaded = await this.fetchRepoTree(mainSha);
       if (loaded) {
         this._dataLoadStatus = 'ready';
+        if (reseed) this.reseedManifestInMemory();
+        // A failed invalidation or manifest write must not abort start-up before polling starts (t/463).
+        if (this.manifest?.lastCommitSha) {
+          try {
+            await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+          } catch (err: unknown) {
+            log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
+          }
+        }
+        try {
+          await this.updateManifestSha(mainSha);
+        } catch (err: unknown) {
+          log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
+        }
       } else {
         this._dataLoadStatus = 'failed';
         this._dataLoadError = 'GitHub API data load failed during initialization — check credentials and network';
@@ -472,12 +561,6 @@ export class GitHubAPIBackend implements StorageBackend {
         // alert-github-api-error-spike (main.bicep) needs "github.api.error" in
         // ContainerAppConsoleLogs_CL to count this as a GitHub-outage/auth-failure signal.
         log.github.error({ sha: mainSha }, 'github.api.error: initialize data load failed — /healthz will report 503 until recovery');
-      }
-      if (this.manifest && mainSha) {
-        await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
-      }
-      if (mainSha) {
-        await this.updateManifestSha(mainSha);
       }
     }
 
@@ -1677,7 +1760,18 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string, opts?: { ref?: string }): Promise<string[]> {
+    return (await this.listDirectoryDetailed(dirPath, opts)).names;
+  }
+
+  /**
+   * t/268 (item 5): listDirectory, plus why the listing is degraded. A degraded listing returned []
+   * without a genuine answer (no tree on a non-holder, circuit breaker open, API unavailable, no
+   * credentials). A missing directory (404) is a genuine [] and is not degraded. Callers that count
+   * records (job caps) must fail closed on a degraded listing, not read it as "no records".
+   */
+  async listDirectoryDetailed(dirPath: string, opts?: { ref?: string }): Promise<{ names: string[]; degraded: DirListingDegradation | null }> {
     const repoPath = this.toRepoPath(dirPath);
+    let degraded: DirListingDegradation | null = null;
     const prefix = repoPath ? repoPath + '/' : '';
 
     // Build the base listing (direct children) from the in-memory tree, falling
@@ -1696,13 +1790,15 @@ export class GitHubAPIBackend implements StorageBackend {
         seen.add(rest.split('/')[0]);
       }
     } else if (this.mayFallBackToContentsApi() && !(this.rest.isTripped())) {
-      await this.fetchDirectoryFromAPI(repoPath, opts, seen);
+      degraded = await this.fetchDirectoryFromAPI(repoPath, opts, seen);
     } else if (!this.mayFallBackToContentsApi()) {
+      degraded = 'non-holder-tree-empty';
       // t/4179 R3: a non-holder with an empty tree even after a refill
       // attempt never hits the Contents API per-call — that's the N>1
       // crash-loop pattern t/4201/t/4176 fixed. Degraded [] instead.
       log.server.warn({ dir: repoPath, cause: 'non-holder-tree-empty' }, 'listDirectory returning [] — coordinated non-holder with no tree, avoiding per-call Contents API (t/4179)');
     } else {
+      degraded = 'circuit-breaker-open';
       log.server.warn({ dir: repoPath, cause: 'circuit-breaker-open' }, 'listDirectory returning [] — circuit breaker open, may be false-empty (t/3300)');
     }
 
@@ -1712,7 +1808,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // are invisible to listDirectory() until the overlay is flushed on commit.
     await this.mergeOverlayIntoListing(prefix, seen);
 
-    return [...seen];
+    return { names: [...seen], degraded };
   }
 
   /**
@@ -1755,23 +1851,29 @@ export class GitHubAPIBackend implements StorageBackend {
     return [];
   }
 
+  /** Returns the degradation reason, or null when the listing is genuine (including a 404: the
+   *  directory does not exist, which is a real empty answer). */
   private async fetchDirectoryFromAPI(
     repoPath: string, opts: { ref?: string } | undefined, seen: Set<string>,
-  ): Promise<void> {
+  ): Promise<DirListingDegradation | null> {
     const creds = await this.getCredsCached();
-    if (creds) {
-      const ref = opts?.ref ?? this.getEffectiveRef();
-      const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-      const resp = await this.rest.request(creds, 'GET',
-        `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
-      if (resp.ok && Array.isArray(resp.data)) {
-        for (const e of resp.data as Array<{ name: string }>) seen.add(e.name);
-      } else if (!resp.ok) {
-        log.server.warn({ dir: repoPath, status: (resp as { status?: number }).status, cause: 'api-non-ok' }, 'listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)');
-      }
-    } else {
+    if (!creds) {
       log.server.warn({ dir: repoPath, cause: 'no-credentials' }, 'listDirectory returning [] — no GitHub credentials available, may be false-empty (t/3300)');
+      return 'no-credentials';
     }
+    const ref = opts?.ref ?? this.getEffectiveRef();
+    const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
+    const resp = await this.rest.request(creds, 'GET',
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
+    if (resp.ok && Array.isArray(resp.data)) {
+      for (const e of resp.data as Array<{ name: string }>) seen.add(e.name);
+      return null;
+    }
+    if (resp.ok) return null;
+    const status = (resp as { status?: number }).status;
+    if (status === 404) return null;
+    log.server.warn({ dir: repoPath, status, cause: 'api-non-ok' }, 'listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)');
+    return 'api-unavailable';
   }
 
   /**
@@ -2551,16 +2653,39 @@ export class GitHubAPIBackend implements StorageBackend {
   // ── Path contract ──────────────────────────────────────────────────────
 
   private toRepoPath(filePath: string): string {
-    let p = filePath;
+    const refuse = (code: string, problem: string): never => {
+      throw new ActionableError({
+        goal: 'Validate file path',
+        problem,
+        location: 'GitHubAPIBackend.toRepoPath',
+        nextSteps: ['Use a clean repository-relative path inside the data root'],
+        code,
+        httpStatus: 400,
+      });
+    };
+    // t/434: a NUL byte never belongs in a path; refuse before anything else looks at it.
+    if (filePath.includes('\0')) refuse('INVALID_PATH', `Path contains a NUL byte: "${filePath}"`);
+
+    // t/434: backslash is a separator for Windows callers; normalise before any check.
+    let p = filePath.replace(/\\/g, '/');
 
     // Strip the data-root prefix to get the repo-relative path. Use getDataRoot()
     // (the actual source of incoming absolute paths from fileIO.ts) rather than
     // this.cacheDir (the disk-cache write location) — they can diverge when the
     // cache is on a separate mount (e.g. TAXONOMY_CACHE_DIR != AI_TRIAD_DATA_ROOT),
     // which caused staging github-api reads to 404 (t/2670).
-    const dataRoot = getDataRoot();
-    if (p.startsWith(dataRoot)) {
+    // t/434: match on a path-segment boundary (`<root>-evil/x` is not inside the root),
+    // case-insensitively on win32, and refuse absolute, drive-letter and UNC paths outside it.
+    const dataRoot = getDataRoot().replace(/\\/g, '/').replace(/\/+$/, '');
+    const ci = process.platform === 'win32';
+    const head = ci ? p.toLowerCase() : p;
+    const rootCmp = ci ? dataRoot.toLowerCase() : dataRoot;
+    if (dataRoot && (head === rootCmp || head.startsWith(rootCmp + '/'))) {
       p = p.slice(dataRoot.length);
+    } else if (dataRoot && head.startsWith(rootCmp)) {
+      refuse('PATH_OUTSIDE_ROOT', `Path shares the data-root name but is outside it: "${filePath}"`);
+    } else if (/^[a-zA-Z]:/.test(p) || p.startsWith('//')) {
+      refuse('PATH_OUTSIDE_ROOT', `Absolute, drive-letter or UNC path outside the data root rejected: "${filePath}"`);
     }
 
     // Strip leading slashes
@@ -2576,8 +2701,9 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
 
-    // Reject path traversal
-    if (p.includes('..')) {
+    // Reject path traversal: `..` as a whole segment only (either separator), so a name such as
+    // `foo..json` is a valid file name. confineToDir still keeps any in-root path inside the root.
+    if (p.split(/[\\/]/).includes('..')) {
       throw new ActionableError({
         goal: 'Validate file path',
         problem: `Path traversal with ".." rejected: "${filePath}"`,
@@ -2695,7 +2821,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath, 'utf-8');
     } catch (err: unknown) {
@@ -2711,7 +2837,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath);
     } catch (err) {
@@ -2730,7 +2856,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = await confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2779,7 +2905,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = await confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2823,7 +2949,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async removeFromDiskCache(repoPath: string): Promise<void> {
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       await fs.unlink(diskPath);
     } catch {
@@ -2868,6 +2994,24 @@ export class GitHubAPIBackend implements StorageBackend {
    *  403/429 (TL t/4584#4, confirmed root cause) is GitHub's shared
    *  installation rate limit exhausted, not a generic refusal, so it gets
    *  its own reason rather than falling into the generic `status=<n>`. */
+  /** t/463 (log-only): on a 404 from the contents API, record what GitHub said, so the
+   *  not_found reason is readable in the logs. Pulled out of fetchFileFromGitHub for the
+   *  complexity budget. No behaviour change: callers still get the same null. */
+  private logContents404Detail(resp: ApiResult, repoPath: string, endpoint: string, ref: string, credentialMode: string): void {
+    if (resp.status !== 404) return;
+    const body = (resp.data && typeof resp.data === 'object') ? resp.data as Record<string, unknown> : {};
+    log.github.warn({
+      path: repoPath,
+      endpoint,
+      ref,
+      status: resp.status,
+      githubMessage: typeof body.message === 'string' ? body.message : null,
+      documentationUrl: typeof body.documentation_url === 'string' ? body.documentation_url : null,
+      apiError: resp.error ?? null,
+      credentialMode,
+    }, 'fetchFileFromGitHub: contents 404 detail (t/463 log-only)');
+  }
+
   private classifyNonOkContentsResponse(resp: ApiResult, repoPath: string, optional: boolean | undefined, strict: boolean): void {
     if (resp.status === 404) {
       this.logNullReadReason(repoPath, 'not_found', optional);
@@ -2980,6 +3124,11 @@ export class GitHubAPIBackend implements StorageBackend {
    *  any failure becomes `fallback` for the caller to retry via REST. */
   private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
     if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
+    // t/372 (CodeQL #6275): encodeURIComponent leaves '.' and '..', and the URL parser
+    // normalises them, so refuse dot-segments before the URL is built.
+    if (repoPath.split('/').some(seg => seg === '.' || seg === '..')) {
+      return { kind: 'fallback', reason: 'invalid_path' };
+    }
 
     const creds = await this.getCredsCached();
     if (!creds) return { kind: 'fallback', reason: 'network_error' };
@@ -3051,6 +3200,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // ref, but treat it as a miss defensively rather than crash on null data.
     if (resp.status === 304) return null;
     if (!resp.ok) {
+      this.logContents404Detail(resp, repoPath, `/repos/${creds.repo}/contents/${repoPath}${qRef}`, ref, creds.mode);
       this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
       return null;
     }
@@ -3220,18 +3370,19 @@ export class GitHubAPIBackend implements StorageBackend {
     const treeSha = (commitResp.data as { tree: { sha: string } }).tree.sha;
     const entries = await this.getTree(treeSha, true);
 
-    this.repoTree.clear();
+    // t/463 (Second Opinion): build the tree locally and assign it only on success. A zero-blob or failed
+    // load must not empty or replace the live tree.
+    const loadedTree = new Map<string, TreeEntry>();
     for (const entry of entries) {
       if (entry.type === 'blob') {
-        this.repoTree.set(entry.path, entry);
+        loadedTree.set(entry.path, entry);
       }
     }
-    this.treeSha = treeSha;
 
     // Zero blobs = undici session-reuse returning stale/empty response (t/2053).
     // A valid taxonomy repo always has files — treat 0 as a load failure and
     // log at error-level so ops has a signal instead of a silent /healthz 503.
-    if (this.repoTree.size === 0) {
+    if (loadedTree.size === 0) {
       this.recordEvent({
         type: 'github.api.error',
         component: 'github-api',
@@ -3245,6 +3396,10 @@ export class GitHubAPIBackend implements StorageBackend {
       log.github.error({ commitSha, treeSha }, 'github.api.error: fetchRepoTree 0 blobs loaded — data-load failed');
       return false;
     }
+
+    this.repoTree.clear();
+    for (const [p, entry] of loadedTree) this.repoTree.set(p, entry);
+    this.treeSha = treeSha;
 
     this.recordEvent({
       type: 'cache.hit',
@@ -3648,6 +3803,42 @@ export class GitHubAPIBackend implements StorageBackend {
       level: 'info',
       message: `Invalidated ${changed.length} files on startup diff`,
       data: { paths: changed.slice(0, 20), trigger: 'startup' },
+    });
+  }
+
+  /** t/463: is `sha` still in repo history? A 404 or 422 says it is not. Any other outcome (a transient
+   *  failure, no credentials) counts as present: a cache is never wiped on an unknown answer. */
+  private async isCommitInHistory(sha: string): Promise<boolean> {
+    try {
+      const creds = await this.getCredsCached();
+      if (!creds) return true;
+      const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/commits/${sha}`);
+      if (resp.ok) return true;
+      const status = (resp as { status?: number }).status;
+      return !(status === 404 || status === 422);
+    } catch (err: unknown) {
+      // The check itself failed (credentials, network). Keep the cache; never wipe on an unknown answer.
+      log.storage.warn({ sha, err: String(err) }, 'isCommitInHistory: check failed; keeping the cache (t/463)');
+      return true;
+    }
+  }
+
+  /** t/463: drop the cached commit and its file entries in memory, so start-up re-seeds from the current
+   *  commit. The in-memory state is authoritative for this process; persistence is best-effort. */
+  private reseedManifestInMemory(): void {
+    const staleSha = this.manifest?.lastCommitSha ?? '';
+    if (this.manifest) {
+      this.manifest.files = {};
+      this.manifest.lastCommitSha = '';
+      this.manifest.generation++;
+    }
+    log.storage.warn({ staleSha }, 'Cached commit is not in repo history — re-seeding from the current commit (t/463)');
+    this.recordEvent({
+      type: 'cache.invalidate',
+      component: 'cache',
+      level: 'warn',
+      message: 'Cached commit not in repo history — re-seeding from current commit',
+      data: { staleSha, trigger: 'not-in-history' },
     });
   }
 

@@ -19,6 +19,8 @@ import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type Pars
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { useDebateStore } from '../../hooks/useDebateStore';
 import './TaxonomyRefs.css';
 
 // Prevents a TheoryLink click inside a <summary> from toggling its parent <details>
@@ -319,6 +321,7 @@ interface ClaimMapLayoutProps {
   wp: Record<string, unknown>;
   stage?: string;
   camp?: string; // the speaker's camp, e.g. SKEPTIC
+  motion?: string; // the session motion; the line is omitted when absent
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }
@@ -340,11 +343,12 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal }: {
+function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: {
   eyebrow: string;
   counts: string;
   coreThesis: string;
   strategicGoal: string;
+  motion?: string;
 }) {
   return (
     <header className="claim-map-header">
@@ -358,6 +362,7 @@ function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal }: {
           <strong>The ask:</strong> {stripLeadingVerb(strategicGoal)}
         </div>
       )}
+      {motion && <div className="claim-map-motion">Motion — {motion}</div>}
     </header>
   );
 }
@@ -413,7 +418,6 @@ function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
             <p className="claim-map-attack-text">{claim.attack.text}</p>
             <div className="claim-map-attack-footer">
               <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
-              {claim.attack.annotationId && <span className="claim-map-attack-id">{claim.attack.annotationId}</span>}
             </div>
           </div>
         ) : (
@@ -460,7 +464,6 @@ function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSele
                 <p className="claim-map-attack-text">{attack.text}</p>
                 <div className="claim-map-attack-footer">
                   <span className="claim-map-attack-status">{attackStatus(attack)}</span>
-                  {attack.annotationId && <span className="claim-map-attack-id">{attack.annotationId}</span>}
                 </div>
               </div>
             </div>
@@ -541,7 +544,7 @@ function claimMapCounts(claimCount: number, attackCount: number, assumptionCount
   ].filter(Boolean).join(' · ');
 }
 
-function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
   const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
@@ -563,6 +566,7 @@ function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedP
           counts={counts}
           coreThesis={coreThesis}
           strategicGoal={strategicGoal}
+          motion={motion}
         />
       </SectionErrorBoundary>
       {!!framingChoices && (
@@ -587,12 +591,20 @@ function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedP
   );
 }
 
+/** t/388: the session motion, but only when this entry belongs to the active debate. A chat answer
+ *  or an entry from another debate gets no motion line rather than someone else's topic. */
+function motionForEntry(debate: { topic?: { final?: string }; transcript?: { id: string }[] } | null | undefined, entryId: string | undefined): string | undefined {
+  if (!debate || !entryId || !debate.transcript?.some(t => t.id === entryId)) return undefined;
+  return debate.topic?.final || undefined;
+}
+
 function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
   entry?: TranscriptEntry;
   planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
+  const motion = useDebateStore(s => motionForEntry(s.activeDebate, entry?.id));
   const wp = planStage.work_product as Record<string, unknown>;
   if (!wp || Object.keys(wp).length === 0) {
     return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
@@ -605,8 +617,10 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry 
       <SectionErrorBoundary section="Claim Map Layout">
         <ClaimMapLayout
           wp={wp}
-          stage={planStage.stage}
+          // t/388: the stage word comes from the entry type; the entry has no round number to show.
+          stage={entry?.type === 'opening' ? 'opening plan' : planStage.stage}
           camp={entry?.speaker}
+          motion={motion}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
@@ -644,7 +658,14 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
 }) {
-  const label = getNodeLabel(taxRef.node_id);
+  // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
+  const resolved = getNodeLabel(taxRef.node_id);
+  const isMissing = !taxRef.label && resolved === taxRef.node_id;
+  const label = taxRef.label || resolved;
+  // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
+  const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
   return (
     <div className="debate-reasoning-item">
@@ -657,7 +678,9 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
       >
         {taxRef.node_id}
       </button>
-      <span className="debate-reasoning-label">{label}</span>
+      {isMissing
+        ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
+        : <span className="debate-reasoning-label">{label}</span>}
       <span className="debate-reasoning-text">{taxRef.relevance}</span>
     </div>
   );

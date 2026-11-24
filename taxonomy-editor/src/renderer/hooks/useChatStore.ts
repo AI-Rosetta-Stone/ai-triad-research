@@ -34,6 +34,8 @@ import {
 // shell's running signal). Pre-approved call site — see t/4687#1/#3.
 import { registerRun } from '../navigation/runningSignal';
 import type { RunOutcome } from '../navigation/runningSignal';
+import { normalizeSession, type NormalizerContext } from '../utils/chatNormalizer';
+import { getNodeLabel } from '../components/debate-workspace/utils';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -56,6 +58,21 @@ function resolveChatTemperature(chat: Pick<ChatSession, 'temperature' | 'mode'>)
   return chat.temperature ?? CHAT_MODE_TEMPERATURE[chat.mode];
 }
 
+/** t/282: normalizer context. Labels resolve through the same lookup the debate Why view uses, so
+ *  superseded nodes resolve too; a taxonomy still loading yields no backfill (see chatNormalizer). */
+function buildNormalizerContext(): NormalizerContext {
+  const taxState = useTaxonomyStore.getState();
+  const taxonomyLoaded = taxState.accelerationist !== null && taxState.safetyist !== null
+    && taxState.skeptic !== null && taxState.situations !== null;
+  return {
+    taxonomyLoaded,
+    lookupLabel: (nodeId: string) => {
+      const label = getNodeLabel(nodeId);
+      return label === nodeId ? null : label;
+    },
+  };
+}
+
 function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
   if (!payload || typeof payload !== 'object') return false;
   const p = payload as Record<string, unknown>;
@@ -67,7 +84,7 @@ function isUrlContextMetadata(payload: unknown): payload is UrlContextMetadata {
   );
 }
 
-async function streamChatWithProgress(
+export async function streamChatWithProgress(
   systemInstruction: string,
   messages: { role: 'user' | 'model'; content: string }[],
   model: string,
@@ -355,6 +372,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const raw = await api.loadChatSession(id);
       const session = raw as ChatSession;
+      
+      // t/282: Normalize old chats — backfill missing ref labels from taxonomy
+      const context = buildNormalizerContext();
+      normalizeSession(session, context);
+      
       set({
         activeChatId: session.id,
         activeChat: session,

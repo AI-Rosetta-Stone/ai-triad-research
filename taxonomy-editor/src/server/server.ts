@@ -47,7 +47,7 @@ import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
-import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
+import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, anonymousStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
 import { isFreeTierAiPath } from './anonAiRoutes.js';
@@ -374,6 +374,8 @@ function matchRoute(method: string, pathname: string): { handler: Handler; route
 type RawBodyReq = http.IncomingMessage & { __rawBody?: string; __rawBodyBuffer?: Buffer };
 
 const MAX_BODY_BYTES = 50 * 1024 * 1024; // 50 MB — debate sessions can reach 10+ MB at 14 rounds
+// t/274: routes that read their own capped stream. readBody would buffer the whole upload first, so these skip it.
+const STREAMED_BODY_ROUTES = new Set<string>(['/api/documents/extract']);
 
 async function readBody(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -898,7 +900,10 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const isAnon = !principalName;
   const effectivePrincipal = principalName || '_local';
   const effectiveIdp = idp || '_local';
-  const storageUserId = deriveStorageUserId(effectivePrincipal, effectiveIdp);
+  // t/467 (PI option a): an anonymous visitor's storage key comes from their own anon_session_id cookie,
+  // not the shared '_local' store that the signed-in local user also uses.
+  const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
+  const storageUserId = isAnon ? anonymousStorageUserId(anonymousSessionId) : deriveStorageUserId(effectivePrincipal, effectiveIdp);
 
   // Cross-provider collision guard: verify the idp matches the one that first
   // claimed this storageUserId. Prevents a different provider from accessing
@@ -919,7 +924,6 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   // context — never the raw email/principal (PII).
   const reqCtx = getRequestContext();
   if (reqCtx) reqCtx.userId = storageUserId;
-  const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
   return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId, stableId: isAnon ? undefined : getRequestStableId(req) };
 }
 
@@ -955,7 +959,8 @@ async function dispatchMatchedRoute(req: http.IncomingMessage, res: http.ServerR
     return;
   }
   try {
-    const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method!) ? await readBody(req) : {};
+    const body = STREAMED_BODY_ROUTES.has(route.routePath) ? null
+      : ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method!) ? await readBody(req) : {};
     await route.handler(req, res, body);
   } catch (err) {
     getGlobalRecorder()?.record({

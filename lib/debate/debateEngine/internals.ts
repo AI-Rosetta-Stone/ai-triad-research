@@ -113,6 +113,8 @@ export interface DebateConfig {
   enableSituationStatements?: boolean;
   /** Use debate_grounding register text instead of description when present on a node (t/3366). Off by default. Falls back to description per node when field absent. */
   useDebateGrounding?: boolean;
+  /** t/412 experiment arm B: each node's prompt text is its best-matching synthetic statement against the debate query, with skip-and-backfill for nodes without one. Never description or plain_description (TL p/140#24). Takes precedence over useDebateGrounding. Off by default. */
+  useSyntheticStatementGrounding?: boolean;
   /** Rank situation selection by weighted breadth score (relevance + freshness + bdi_entropy via PRE_DEBATE_WEIGHTS) instead of pure relevance (t/3411 experiment). Off by default. */
   breadthAwareSituationSelection?: boolean;
   /** Enable over-generate/select/rewrite pipeline: N=3 drafts, dedup, greedy top-K, rewrite, coherence gate (t/1581). */

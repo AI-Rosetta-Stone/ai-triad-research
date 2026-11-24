@@ -1,6 +1,7 @@
 {
   "scenario": "single-element-force-array",
   "transcript": [
+    "[warning] Finalize-Summary: doc-1 : no snapshot text available; numeric-grounding guard skipped (t/375)",
     "[Gray]   │  points: 1 (0 unmapped)  factual: 1  new_concepts: 1",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -71,7 +72,8 @@
       "    \"finish_reason\": null,",
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
-      "    \"camp_bridge_dropped\": 0",
+      "    \"camp_bridge_dropped\": 0,",
+      "    \"numeric_ungrounded_dropped\": null",
       "  },",
       "  \"context_rot\": null,",
       "  \"pov_summaries\": {",

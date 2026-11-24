@@ -83,6 +83,8 @@ describe('nodeSourceIndex.ts readFilesBatch consumption (t/4499)', () => {
     fs.mkdirSync(path.join(dataRoot, 'summaries'), { recursive: true });
     process.env.AI_TRIAD_DATA_ROOT = dataRoot;
     process.env.AI_TRIAD_SOURCES_ROOT = sourcesRoot;
+    // t/223: the module-level backend is rooted at import time, before this test's data root exists.
+    fileIO.setBackend(new FilesystemBackend({ root: dataRoot, extraRoots: [sourcesRoot] }));
     resetNodeSourceIndexCacheForTests();
 
     writeSourceMeta('doc-a', { title: 'Doc A', url: 'https://example.com/a' });
@@ -94,7 +96,7 @@ describe('nodeSourceIndex.ts readFilesBatch consumption (t/4499)', () => {
   });
 
   afterEach(() => {
-    fileIO.setBackend(new FilesystemBackend());
+    fileIO.setBackend(new FilesystemBackend({ root: dataRoot, extraRoots: [sourcesRoot] }));
     fs.rmSync(dataRoot, { recursive: true, force: true });
     fs.rmSync(sourcesRoot, { recursive: true, force: true });
     delete process.env.AI_TRIAD_DATA_ROOT;
@@ -105,7 +107,7 @@ describe('nodeSourceIndex.ts readFilesBatch consumption (t/4499)', () => {
     const baseline = await fileIO.buildNodeSourceIndex();
 
     resetNodeSourceIndexCacheForTests();
-    fileIO.setBackend(withBatchReader(new FilesystemBackend(), 'all'));
+    fileIO.setBackend(withBatchReader(new FilesystemBackend({ root: dataRoot, extraRoots: [sourcesRoot] }), 'all'));
     const withBatch = await fileIO.buildNodeSourceIndex();
 
     expect(sorted(withBatch)).toEqual(sorted(baseline));
@@ -116,7 +118,7 @@ describe('nodeSourceIndex.ts readFilesBatch consumption (t/4499)', () => {
 
     resetNodeSourceIndexCacheForTests();
     const summariesDir = path.join(dataRoot, 'summaries');
-    fileIO.setBackend(withBatchReader(new FilesystemBackend(), [path.join(summariesDir, 'doc-b.json')]));
+    fileIO.setBackend(withBatchReader(new FilesystemBackend({ root: dataRoot, extraRoots: [sourcesRoot] }), [path.join(summariesDir, 'doc-b.json')]));
     const withPartialBatch = await fileIO.buildNodeSourceIndex();
 
     expect(sorted(withPartialBatch)).toEqual(sorted(baseline));
@@ -126,7 +128,7 @@ describe('nodeSourceIndex.ts readFilesBatch consumption (t/4499)', () => {
     const baseline = await fileIO.buildNodeSourceIndex();
 
     resetNodeSourceIndexCacheForTests();
-    fileIO.setBackend(withBatchReader(new FilesystemBackend(), 'none'));
+    fileIO.setBackend(withBatchReader(new FilesystemBackend({ root: dataRoot, extraRoots: [sourcesRoot] }), 'none'));
     const withFailedBatch = await fileIO.buildNodeSourceIndex();
 
     expect(sorted(withFailedBatch)).toEqual(sorted(baseline));

@@ -36,7 +36,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
-import { checkVerdict } from './dependabot-enqueue-sweep.mjs';
+import { checkVerdict, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
@@ -110,6 +110,78 @@ export function manualDequeueHold(queueEvents, pushedMs) {
 }
 
 /**
+ * PURE. The skip reason shared by every tier-gated enqueue sweep (T0 here, T1 in
+ * t1-enqueue-sweep.mjs), or null when none applies. It covers everything except the tier's own
+ * extra rule (T0: the idle window; T1: the approval at the head). `declares(body)` says whether
+ * the PR declares the sweep's tier, and `tierName` names it in the skip reason. Factored out of
+ * selectT0Candidates unchanged (t/73), so both sweeps apply the same fork, draft, queue, label
+ * (consult-hold, joint-gv, no-auto-enqueue), manual-dequeue, conflict, review-block, Design-gate,
+ * required-check and wait-for-every-check (t/403) rules. `afterConflict(pr)` is an optional
+ * per-sweep rule evaluated right after the conflict check, returning a skip reason or null; the
+ * T0 sweep passes its t/309 re-pin re-check there so the rule order is the same as before.
+ */
+export function sharedSkipReason(pr, { declares, tierName, afterConflict = null }) {
+  const labels = pr.labels ?? [];
+  const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
+  let reason = null;
+  let hold = null;
+  let extra = null;
+  // Security: the repo is public and `main` requires checks, not a review. A fork PR that
+  // writes `Tier: T0` and goes green must never be merged with no human looking at it.
+  // Same-repo branches need write access. Fails closed: an unknown value counts as a fork.
+  if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
+  else if (!declares(pr.body)) reason = `not declared Tier: ${tierName}`;
+  else if (pr.baseRefName !== 'main') reason = `base is ${pr.baseRefName}, not main`;
+  else if (pr.isDraft) reason = 'draft';
+  else if (pr.isInMergeQueue) reason = 'already in merge queue';
+  else if (/dependabot/i.test(pr.author ?? '')) reason = 'Dependabot PR (handled by dependabot-enqueue-sweep)';
+  else if (blocking) reason = `label ${blocking}`;
+  else if ((hold = manualDequeueHold(pr.queueEvents, headPushedAt(pr.contexts)))) {
+    reason = `WARN: manually dequeued by ${hold.actor} at ${hold.removedAt} and nothing pushed since ` +
+      '(push a new head, or enqueue it by hand, to release it)';
+  }
+  else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
+  // A sweep's own rule that must run at this point in the order (T0: the t/309 re-pin re-check).
+  else if (afterConflict && (extra = afterConflict(pr))) reason = extra;
+  // t/4952(a): the Design gate and an active changes-request both read role-tagged review/
+  // comment BODIES (role-review-verdicts.mjs), never GitHub's review `state` or
+  // `reviewDecision` -- gap 2 (#4686: Design's CHANGES_REQUESTED and Quality's APPROVED, same
+  // reviewer-App login, same head, GitHub kept only the latest-per-user and silently dropped
+  // Design's block). Fails closed on a fetch problem, per the ticket's ask.
+  else if (pr.reviewDataError) reason = 'WARN: could not fetch files/reviews/comments (or the files list was truncated) -- failing closed';
+  else {
+    const verdicts = latestRoleVerdicts({
+      reviews: pr.reviews, comments: pr.comments, reviewerAppLogin: REVIEWER_APP_LOGIN,
+      headSha: pr.headRefOid, lastPushAt: headPushedAt(pr.contexts),
+    });
+    const changesRequestedBy = [...verdicts.entries()].find(([, v]) => v.kind === 'changes_requested');
+    const designVerdict = verdicts.get('Design');
+    const designPasses = designVerdict?.kind === 'approved' || designVerdict?.kind === 'exempt';
+    if (changesRequestedBy) {
+      const [role, v] = changesRequestedBy;
+      // Quality, p/780#46: a reviewer-App body that says "changes requested" but doesn't match
+      // the strict grammar still blocks (role-review-verdicts.mjs's fail-closed backstop) --
+      // flagged with a WARN here so a human notices the unrecognized shape, instead of it
+      // quietly looking like an ordinary, well-formed block.
+      reason = v.unparsed
+        ? `WARN: changes requested by ${role} (unparsed reviewer-App body -- check its exact wording against the grammar)`
+        : `changes requested by ${role}`;
+    }
+    else if (isUserFacing(pr.files) && !designPasses) reason = 'awaiting Design gate';
+  }
+  if (!reason) {
+    for (const name of REQUIRED_CONTEXTS) {
+      const v = checkVerdict(pr.contexts, name);
+      if (v !== 'success') { reason = `${name} is ${v}`; break; }
+    }
+    // t/403: wait for every check on the head to finish, required or not.
+    const running = pendingCheckNames(pr.contexts);
+    if (!reason && running.length > 0) reason = `${running.length} check(s) still running (${running.join(', ')})`;
+  }
+  return reason;
+}
+
+/**
  * PURE. Splits open PRs into those to enqueue now and those to skip (with the reason).
  * `waiting` lists the skipped PRs whose ONLY blocker is the idle window, with the time
  * (ms) they become eligible, so an event-triggered run can wait for them (planNextWake).
@@ -119,74 +191,25 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
   const skip = [];
   const waiting = [];
   for (const pr of prs) {
-    const labels = pr.labels ?? [];
-    const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
-    let reason = null;
-    let hold = null;
     let needsRepinComment = false;
-    // Security: the repo is public and `main` requires checks, not a review. A fork PR that
-    // writes `Tier: T0` and goes green must never be merged with no human looking at it.
-    // Same-repo branches need write access. Fails closed: an unknown value counts as a fork.
-    if (pr.isCrossRepository !== false) reason = 'fork PR (never auto-enqueued; a maintainer must review and enqueue it)';
-    else if (!declaresT0(pr.body)) reason = 'not declared Tier: T0';
-    else if (pr.baseRefName !== 'main') reason = `base is ${pr.baseRefName}, not main`;
-    else if (pr.isDraft) reason = 'draft';
-    else if (pr.isInMergeQueue) reason = 'already in merge queue';
-    else if (/dependabot/i.test(pr.author ?? '')) reason = 'Dependabot PR (handled by dependabot-enqueue-sweep)';
-    else if (blocking) reason = `label ${blocking}`;
-    else if ((hold = manualDequeueHold(pr.queueEvents, headPushedAt(pr.contexts)))) {
-      reason = `WARN: manually dequeued by ${hold.actor} at ${hold.removedAt} and nothing pushed since ` +
-        '(push a new head, or enqueue it by hand, to release it)';
-    }
-    else if (pr.mergeStateStatus === 'DIRTY') reason = 'merge conflict';
     // t/309: re-check a re-pin branch's head, not the tier the drift workflow declared at
-    // creation. No result (fetch failed, or the caller skipped it) fails closed.
-    else if (isRepinBranch(pr.headRefName) && pr.repinCheck?.tier !== 'T0') {
-      reason = pr.repinCheck
-        ? `WARN: ${pr.headRefName} head is not a pure base-pin bump (${pr.repinCheck.reason}); needs T1 review, not auto-enqueued`
-        : `WARN: ${pr.headRefName} head could not be re-classified (re-pin facts unavailable) -- failing closed`;
-      if (pr.repinCheck) needsRepinComment = true;
-    }
-    // t/4952(a): the Design gate and an active changes-request both read role-tagged review/
-    // comment BODIES (role-review-verdicts.mjs), never GitHub's review `state` or
-    // `reviewDecision` -- gap 2 (#4686: Design's CHANGES_REQUESTED and Quality's APPROVED, same
-    // reviewer-App login, same head, GitHub kept only the latest-per-user and silently dropped
-    // Design's block). Fails closed on a fetch problem, per the ticket's ask.
-    else if (pr.reviewDataError) reason = 'WARN: could not fetch files/reviews/comments (or the files list was truncated) -- failing closed';
-    else {
-      const verdicts = latestRoleVerdicts({
-        reviews: pr.reviews, comments: pr.comments, reviewerAppLogin: REVIEWER_APP_LOGIN,
-        headSha: pr.headRefOid, lastPushAt: headPushedAt(pr.contexts),
-      });
-      const changesRequestedBy = [...verdicts.entries()].find(([, v]) => v.kind === 'changes_requested');
-      const designVerdict = verdicts.get('Design');
-      const designPasses = designVerdict?.kind === 'approved' || designVerdict?.kind === 'exempt';
-      if (changesRequestedBy) {
-        const [role, v] = changesRequestedBy;
-        // Quality, p/780#46: a reviewer-App body that says "changes requested" but doesn't match
-        // the strict grammar still blocks (role-review-verdicts.mjs's fail-closed backstop) --
-        // flagged with a WARN here so a human notices the unrecognized shape, instead of it
-        // quietly looking like an ordinary, well-formed block.
-        reason = v.unparsed
-          ? `WARN: changes requested by ${role} (unparsed reviewer-App body -- check its exact wording against the grammar)`
-          : `changes requested by ${role}`;
-      }
-      else if (isUserFacing(pr.files) && !designPasses) reason = 'awaiting Design gate';
-    }
+    // creation. No result (fetch failed, or the caller skipped it) fails closed. T0 only: a
+    // re-pin PR that became T1 is exactly what the comment asks for, so the T1 sweep skips this.
+    const repinSkip = (p) => {
+      if (!isRepinBranch(p.headRefName) || p.repinCheck?.tier === 'T0') return null;
+      if (!p.repinCheck) return `WARN: ${p.headRefName} head could not be re-classified (re-pin facts unavailable) -- failing closed`;
+      needsRepinComment = true;
+      return `WARN: ${p.headRefName} head is not a pure base-pin bump (${p.repinCheck.reason}); needs T1 review, not auto-enqueued`;
+    };
+    let reason = sharedSkipReason(pr, { declares: declaresT0, tierName: 'T0', afterConflict: repinSkip });
     if (!reason) {
-      for (const name of REQUIRED_CONTEXTS) {
-        const v = checkVerdict(pr.contexts, name);
-        if (v !== 'success') { reason = `${name} is ${v}`; break; }
-      }
-      if (!reason) {
-        const pushed = headPushedAt(pr.contexts);
-        if (pushed == null) reason = 'push time unknown (no check runs with a start time)';
-        else {
-          const idle = (nowMs - pushed) / 60000;
-          if (idle < idleMinutes) {
-            reason = `idle ${Math.floor(idle)}m < ${idleMinutes}m since last push`;
-            waiting.push({ number: pr.number, eligibleAt: pushed + idleMinutes * 60000 });
-          }
+      const pushed = headPushedAt(pr.contexts);
+      if (pushed == null) reason = 'push time unknown (no check runs with a start time)';
+      else {
+        const idle = (nowMs - pushed) / 60000;
+        if (idle < idleMinutes) {
+          reason = `idle ${Math.floor(idle)}m < ${idleMinutes}m since last push`;
+          waiting.push({ number: pr.number, eligibleAt: pushed + idleMinutes * 60000 });
         }
       }
     }
@@ -266,7 +289,8 @@ export function hasReviewDataError({ files, reviews, comments }) {
 // A full-suite PR has more than 100 contexts; allContextsFor reads past the first page (#4475).
 const CONTEXT_FIELDS = '... on CheckRun{name status conclusion startedAt} ... on StatusContext{context state}';
 
-function listOpenPRs(repo) {
+// Exported for t1-enqueue-sweep.mjs (t/73); `headRefName` is read only by the T1 self-approval check.
+export function listOpenPRs(repo) {
   const query = `query($q:String!,$cursor:String){search(query:$q,type:ISSUE,first:${SEARCH_PAGE_SIZE},after:$cursor){
     pageInfo{hasNextPage endCursor}
     nodes{... on PullRequest{
@@ -373,6 +397,42 @@ function withRepinChecks(repo, prs) {
 }
 
 /**
+ * Enqueues one selected PR (`{ number, headRefOid, armed }`) and reports what happened:
+ * 'enqueued', 'skipped' (the live re-read said no), 'raced' (the PR moved on by itself while
+ * enqueuing) or 'failed'. Shared by the T0 and T1 sweeps (t/73); moved out of `sweep` unchanged.
+ * `enqueueOpts` is passed to enqueuePR (the T1 sweep pins `expectedHeadOid`). `deps` replaces the
+ * live read, the enqueue call and `gh` in tests.
+ */
+export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
+  const { readLive = readLivePR, enqueue = enqueuePR, ghFn = gh } = deps;
+  // Search results lag: re-read the PR directly right before acting (see live-pr-state.mjs).
+  const before = liveEnqueueVerdict(readLive(repo, pr.number), pr.headRefOid);
+  if (!before.ok) {
+    console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
+      (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
+    return 'skipped';
+  }
+  try {
+    // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
+    // re-arm, so clear it first.
+    if (pr.armed) ghFn(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
+    const result = enqueueOpts ? await enqueue(repo, pr.number, enqueueOpts) : await enqueue(repo, pr.number);
+    console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
+    return 'enqueued';
+  } catch (err) {
+    // The PR may have moved on in the seconds since the check above (merged by the queue,
+    // queued by its author, closed). That is a race, not a failure.
+    const after = liveEnqueueVerdict(readLive(repo, pr.number), pr.headRefOid);
+    if (after.raced) {
+      console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
+      return 'raced';
+    }
+    console.error(`::error::#${pr.number}: ${err.message ?? err}`);
+    return 'failed';
+  }
+}
+
+/**
  * One or more passes. With waitMaxMinutes > 0 (the event-triggered mode), a PR blocked only
  * by the idle window makes this run sleep until it qualifies and sweep again, for up to
  * waitMaxMinutes in total. GitHub's scheduler runs this repo's crons hours late (#4389), so
@@ -395,31 +455,9 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
 
     for (const pr of enqueue) {
       if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
-      // Search results lag: re-read the PR directly right before acting (see live-pr-state.mjs).
-      const before = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
-      if (!before.ok) {
-        console.log(`skip #${pr.number} at enqueue time: ${before.reason}` +
-          (before.raced ? '' : ' (WARN: will retry on the next sweep)'));
-        continue;
-      }
-      try {
-        // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
-        // re-arm, so clear it first.
-        if (pr.armed) gh(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
-        const result = await enqueuePR(repo, pr.number);
-        console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
-        failures.delete(pr.number);
-      } catch (err) {
-        // The PR may have moved on in the seconds since the check above (merged by the queue,
-        // queued by its author, closed). That is a race, not a failure.
-        const after = liveEnqueueVerdict(readLivePR(repo, pr.number), pr.headRefOid);
-        if (after.raced) {
-          console.log(`skip #${pr.number}: ${after.reason} while enqueuing (race, not a failure): ${err.message ?? err}`);
-          continue;
-        }
-        failures.add(pr.number);
-        console.error(`::error::#${pr.number}: ${err.message ?? err}`);
-      }
+      const outcome = await enqueueOne(repo, pr);
+      if (outcome === 'enqueued') failures.delete(pr.number);
+      else if (outcome === 'failed') failures.add(pr.number);
     }
 
     if (dryRun) break;

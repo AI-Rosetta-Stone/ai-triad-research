@@ -110,6 +110,17 @@ describe('community item removal (t/748)', () => {
 });
 
 describe('removing a shared community Op-Ed also revokes its share (t/4894 bug fix)', () => {
+  // t/235: this block gets its own temp data root; the block above clears its root in afterAll.
+  let ownRoot = '';
+  beforeAll(() => {
+    ownRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'commrm2-'));
+    process.env.AI_TRIAD_DATA_ROOT = ownRoot;
+  });
+  afterAll(() => {
+    fs.rmSync(ownRoot, { recursive: true, force: true });
+    delete process.env.AI_TRIAD_DATA_ROOT;
+  });
+
   const opedsDir = () => resolveDataPath('community/opeds');
   const registryPath = () => mem.normAbs(resolveDataPath('community/oped-shares.json'));
   const publicPath = (shareId: string) => mem.normAbs(path.join(resolveDataPath('public/opeds'), `${shareId}.json`));

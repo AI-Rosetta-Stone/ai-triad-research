@@ -2,9 +2,12 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { POV_META, type PovMetaKey } from '@lib/electron-shared/povMeta';
+import { useState, useEffect } from 'react';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import type { GraphAttributes } from '../../types/taxonomy';
-import { useDescriptionMode, resolveDescription } from './DescriptionToggle';
+import type { GraphAttributes, ConflictFile, PovNode, SituationNode } from '../../types/taxonomy';
+import type { PolicyRegistryEntry, PolicyReferencingNode } from '../../hooks/useTaxonomyStore/slices/taxonomyDataSlice';
+import { resolveDescription, DescriptionToggle } from './DescriptionToggle';
 import './LinkedNodePreview.css';
 
 const POV_LABELS: Record<string, string> = Object.fromEntries(
@@ -17,74 +20,64 @@ const CONFLICT_STATUS_LABELS: Record<string, string> = {
   'wont-fix': "Won't Fix",
 };
 
-/**
- * Enriched fields that may live under `graph_attributes` at runtime but are not
- * part of the declared {@link GraphAttributes} shape (per the project data
- * convention — enriched fields vary per node). Accessed defensively.
- */
+const reportedMissingPlain = new Set<string>();
+
 interface EnrichedAttrs {
   interpretation?: string | { summary?: string };
   key_points?: string[];
 }
 
-/**
- * Read-only inline preview of a linked taxonomy node, situation, or conflict,
- * resolved from the taxonomy store by id. Renders nothing for unknown ids.
- *
- * Shared by ConflictDetail (Conflicts tab) and CruxDetail (Cruxes tab) so both
- * present linked entities identically without navigating away.
- */
-export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
-  const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
-  const [descMode] = useDescriptionMode();
-  const data = lookupPinnedData(nodeId);
-  if (!data) return null;
-
-  if (data.type === 'conflict') {
-    const c = data.conflict;
-    return (
-      <div className="linked-node-preview">
-        <div className="linked-node-preview-header">
-          <span className="linked-node-preview-pov">Conflict</span>
-          <span className="linked-node-preview-category">{CONFLICT_STATUS_LABELS[c.status] ?? c.status}</span>
-          <span className="linked-node-preview-id">{nodeId}</span>
-        </div>
-        <div className="linked-node-preview-label">{c.claim_label}</div>
-        <div className="linked-node-preview-description">{c.description}</div>
-        {c.instances.length > 0 && (
-          <div className="linked-node-preview-attrs">
-            <span className="linked-node-preview-attr-label">Instances:</span>
-            <span>{c.instances.length}</span>
-          </div>
-        )}
+function renderConflictPreview(conflict: ConflictFile, nodeId: string) {
+  return (
+    <div className="linked-node-preview">
+      <div className="linked-node-preview-header">
+        <span className="linked-node-preview-pov">Conflict</span>
+        <span className="linked-node-preview-category">{CONFLICT_STATUS_LABELS[conflict.status] ?? conflict.status}</span>
+        <span className="linked-node-preview-id">{nodeId}</span>
       </div>
-    );
-  }
-
-  if (data.type === 'policy') {
-    const { policy, referencingNodes } = data;
-    return (
-      <div className="linked-node-preview">
-        <div className="linked-node-preview-header">
-          <span className="linked-node-preview-pov">Policy</span>
-          <span className="linked-node-preview-id">{nodeId}</span>
-        </div>
-        <div className="linked-node-preview-label">{policy.action}</div>
-        {policy.description && <div className="linked-node-preview-description">{policy.description}</div>}
+      <div className="linked-node-preview-label">{conflict.claim_label}</div>
+      <div className="linked-node-preview-description">{conflict.description}</div>
+      {conflict.instances.length > 0 && (
         <div className="linked-node-preview-attrs">
-          <span className="linked-node-preview-attr-label">Referenced by:</span>
-          <span>{referencingNodes.length} node{referencingNodes.length === 1 ? '' : 's'}</span>
+          <span className="linked-node-preview-attr-label">Instances:</span>
+          <span>{conflict.instances.length}</span>
         </div>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
-  const node = data.node;
-  const povLabel = data.type === 'pov' ? POV_LABELS[data.pov] ?? data.pov : 'Situation';
-  const category = data.type === 'pov' ? data.node.category : null;
+function renderPolicyPreview(policy: PolicyRegistryEntry, referencingNodes: PolicyReferencingNode[], nodeId: string) {
+  return (
+    <div className="linked-node-preview">
+      <div className="linked-node-preview-header">
+        <span className="linked-node-preview-pov">Policy</span>
+        <span className="linked-node-preview-id">{nodeId}</span>
+      </div>
+      <div className="linked-node-preview-label">{policy.action}</div>
+      {policy.description && <div className="linked-node-preview-description">{policy.description}</div>}
+      <div className="linked-node-preview-attrs">
+        <span className="linked-node-preview-attr-label">Referenced by:</span>
+        <span>{referencingNodes.length} node{referencingNodes.length === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+  );
+}
+
+function renderNodePreview(
+  node: PovNode | SituationNode,
+  nodeId: string,
+  povLabel: string,
+  category: string | null,
+  descMode: 'plain' | 'formal',
+  setDescMode: (mode: 'plain' | 'formal') => void,
+) {
   const enriched = node.graph_attributes as (GraphAttributes & EnrichedAttrs) | undefined;
   const interpretation = enriched?.interpretation;
   const keyPoints = enriched?.key_points ?? [];
+  const hasPlain = Boolean(node.plain_description);
+
+  const descResult = resolveDescription(node, descMode);
 
   return (
     <div className="linked-node-preview">
@@ -92,9 +85,13 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
         <span className="linked-node-preview-pov">{povLabel}</span>
         {category && <span className="linked-node-preview-category">{category}</span>}
         <span className="linked-node-preview-id">{nodeId}</span>
+        <DescriptionToggle mode={descMode} onToggle={setDescMode} hasPlainDescription={hasPlain} globalShortcut={false} />
       </div>
       <div className="linked-node-preview-label">{node.label}</div>
-      <div className="linked-node-preview-description">{resolveDescription(node, descMode).text}</div>
+      <div className="linked-node-preview-description">{descResult.text}</div>
+      {descMode === 'plain' && !hasPlain && (
+        <div className="linked-node-preview-note">No plain version yet. Showing formal text.</div>
+      )}
       {interpretation && (
         <div className="linked-node-preview-attrs">
           <span className="linked-node-preview-attr-label">Interpretation:</span>
@@ -112,4 +109,46 @@ export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
       )}
     </div>
   );
+}
+
+/**
+ * Read-only inline preview of a linked taxonomy node, situation, or conflict,
+ * resolved from the taxonomy store by id. Renders nothing for unknown ids.
+ *
+ * Shared by ConflictDetail (Conflicts tab) and CruxDetail (Cruxes tab) so both
+ * present linked entities identically without navigating away.
+ */
+export function LinkedNodePreview({ nodeId }: { nodeId: string }) {
+  const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
+  const [descMode, setDescMode] = useState<'plain' | 'formal'>('plain');
+
+  useEffect(() => {
+    const data = lookupPinnedData(nodeId);
+    if (data && (data.type === 'pov' || data.type === 'situations') && data.node && !data.node.plain_description && !reportedMissingPlain.has(nodeId)) {
+      reportedMissingPlain.add(nodeId);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'LinkedNodePreview',
+        level: 'warn',
+        message: `Node ${nodeId} has no plain_description, falling back to formal`,
+      });
+    }
+  }, [nodeId, lookupPinnedData]);
+
+  const data = lookupPinnedData(nodeId);
+  if (!data) return null;
+
+  if (data.type === 'conflict') {
+    return renderConflictPreview(data.conflict, nodeId);
+  }
+
+  if (data.type === 'policy') {
+    return renderPolicyPreview(data.policy, data.referencingNodes, nodeId);
+  }
+
+  const node = data.node;
+  const povLabel = data.type === 'pov' ? POV_LABELS[data.pov] ?? data.pov : 'Situation';
+  const category = data.type === 'pov' ? data.node.category : null;
+
+  return renderNodePreview(node, nodeId, povLabel, category, descMode, setDescMode);
 }

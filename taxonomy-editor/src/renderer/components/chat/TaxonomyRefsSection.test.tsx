@@ -16,6 +16,9 @@ import type { TaxonomyRef } from '../../types/debate';
 // doesn't implement it.
 Element.prototype.scrollIntoView = vi.fn();
 
+// Every POV and situation file present (taxonomy loaded), with no nodes: labels then come from ref.label.
+const loadedSlots = () => ({ accelerationist: { nodes: [] }, safetyist: { nodes: [] }, skeptic: { nodes: [] }, situations: { nodes: [] } });
+
 const lookupPinnedData = vi.fn((id: string) => {
   if (id === 'unknown-node-999') return undefined;
   return {
@@ -25,8 +28,13 @@ const lookupPinnedData = vi.fn((id: string) => {
   };
 });
 
+// The shared view reads the store imperatively (getState) for labels, and as a selector for the
+// loaded gate. Store is loaded with empty file slots: labels come from ref.label or the missing-node path.
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
+  useTaxonomyStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData, ...loadedSlots() }),
+    { getState: () => ({ lookupPinnedData, ...loadedSlots(), getLabelForId: () => null }) },
+  ),
 }));
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 vi.mock('@lib/debate/nodeIdUtils', () => ({
@@ -53,7 +61,7 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
   it('shows the ref list without an expand step (AC1)', () => {
     render(<TaxonomyRefsSection refs={[NODE_A]} />);
     expect(screen.queryByRole('button', { name: /reference/ })).toBeNull();
-    expect(screen.getByText('skp-beliefs-001')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'skp-beliefs-001' })).toBeInTheDocument();
     expect(screen.getByText('Node A')).toBeInTheDocument();
     expect(screen.getByText('why A matters')).toBeInTheDocument();
   });
@@ -61,14 +69,14 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
   it('clicking a ref shows its detail inline; no detail before clicking (AC2)', () => {
     render(<TaxonomyRefsSection refs={[NODE_A]} />);
     expect(screen.queryByText('Label for skp-beliefs-001')).toBeNull();
-    fireEvent.click(screen.getByText('skp-beliefs-001'));
+    fireEvent.click(screen.getByRole('button', { name: 'skp-beliefs-001' }));
     expect(lookupPinnedData).toHaveBeenCalledWith('skp-beliefs-001');
     expect(screen.getByText('Label for skp-beliefs-001')).toBeInTheDocument();
   });
 
   it('clicking the same ref again hides the detail (AC2, AC4 toggle-close)', () => {
     render(<TaxonomyRefsSection refs={[NODE_A]} />);
-    const pill = screen.getByText('skp-beliefs-001');
+    const pill = screen.getByRole('button', { name: 'skp-beliefs-001' });
     fireEvent.click(pill);
     expect(screen.getByText('Label for skp-beliefs-001')).toBeInTheDocument();
     fireEvent.click(pill);
@@ -77,9 +85,9 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
 
   it('clicking a different ref in the same reply switches the open detail (AC2, AC4 switch)', () => {
     render(<TaxonomyRefsSection refs={[NODE_A, NODE_B]} />);
-    fireEvent.click(screen.getByText('skp-beliefs-001'));
+    fireEvent.click(screen.getByRole('button', { name: 'skp-beliefs-001' }));
     expect(screen.getByText('Label for skp-beliefs-001')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('skp-beliefs-002'));
+    fireEvent.click(screen.getByRole('button', { name: 'skp-beliefs-002' }));
     expect(screen.queryByText('Label for skp-beliefs-001')).toBeNull();
     expect(screen.getByText('Label for skp-beliefs-002')).toBeInTheDocument();
   });
@@ -91,7 +99,7 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
         <TaxonomyRefsSection refs={[NODE_B]} />
       </>,
     );
-    const [pillA, pillB] = screen.getAllByText(/skp-beliefs-00[12]/);
+    const [pillA, pillB] = screen.getAllByRole('button', { name: /skp-beliefs-00[12]/ });
     fireEvent.click(pillA);
     expect(screen.getByText('Label for skp-beliefs-001')).toBeInTheDocument();
     expect(screen.queryByText('Label for skp-beliefs-002')).toBeNull();
@@ -103,7 +111,7 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
   it('an unresolved ref id shows the not-found state, not a blank area (TL addition, t/4627#2)', () => {
     const unknownRef: TaxonomyRef = { node_id: 'unknown-node-999', relevance: 'r' };
     render(<TaxonomyRefsSection refs={[unknownRef]} />);
-    fireEvent.click(screen.getByText('unknown-node-999'));
+    fireEvent.click(screen.getByRole('button', { name: 'unknown-node-999' }));
     expect(screen.getByText(/not found/i)).toBeInTheDocument();
   });
 
@@ -164,5 +172,37 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
       expect(document.body).not.toHaveFocus();
       expect(pill).toHaveFocus();
     });
+  });
+});
+
+// t/282: the Why section for an older chat, through the real shared view (not a mock).
+describe('TaxonomyRefsSection — Why for answers vs user messages, and missing nodes (t/282)', () => {
+  const ANSWER_EMPTY = 'No taxonomy grounding recorded for this answer.';
+  const MISSING: TaxonomyRef = { node_id: 'skp-beliefs-999', relevance: 'gone node' };
+
+  it('a user message with no refs renders no Why line at all', () => {
+    const { container } = render(<TaxonomyRefsSection refs={undefined} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText('No BDI grounding for this statement.')).toBeNull();
+  });
+
+  it('an answer with no refs shows Chat\'s own empty line, not the debate default', () => {
+    render(<TaxonomyRefsSection refs={[]} emptyText={ANSWER_EMPTY} />);
+    expect(screen.getByText(ANSWER_EMPTY)).toBeInTheDocument();
+    expect(screen.queryByText('No BDI grounding for this statement.')).toBeNull();
+  });
+
+  it('a ref whose node is gone from a loaded taxonomy shows "No longer in the taxonomy" once, not its id twice in the row', () => {
+    const { container } = render(<TaxonomyRefsSection refs={[MISSING]} emptyText={ANSWER_EMPTY} />);
+    expect(screen.getByText('No longer in the taxonomy')).toHaveClass('debate-reasoning-label--missing');
+    // The row button is the only element whose text is exactly the id in the list; the pill above
+    // it is the shared view's existing mouse-only span.
+    expect(container.querySelectorAll('.debate-reasoning-label')[0].textContent).toBe('No longer in the taxonomy');
+  });
+
+  it('a backfilled ref label (t/282 normalizer) shows in the row, not the missing text', () => {
+    render(<TaxonomyRefsSection refs={[{ node_id: 'skp-beliefs-999', label: 'Backfilled', relevance: 'r' }]} />);
+    expect(screen.getByText('Backfilled')).toHaveClass('debate-reasoning-label');
+    expect(screen.queryByText('No longer in the taxonomy')).toBeNull();
   });
 });

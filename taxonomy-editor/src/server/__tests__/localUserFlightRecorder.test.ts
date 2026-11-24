@@ -44,8 +44,8 @@ describe('_local user flight recorder access (t/1111)', () => {
 
   describe('local-mode merged dump includes server events (t/1064)', () => {
     let root: string;
-    beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-local-')); });
-    afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+    beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-local-')); process.env.AI_TRIAD_STATE_ROOT = root; });
+    afterEach(() => { delete process.env.AI_TRIAD_STATE_ROOT; fs.rmSync(root, { recursive: true, force: true }); });
 
     function ndjson(...records: Record<string, unknown>[]): string {
       return records.map(r => JSON.stringify(r)).join('\n') + '\n';

@@ -1,0 +1,76 @@
+# t/463 (TL p/9#383, SO p/59#115). Staging-only deploy of deploy/azure/staging-data-account.bicep.
+# Dispatch-only. It never runs main.bicep, never touches the prod account staitriadkvwl3nywge4iw, and
+# deploys no prod resource. The module hard-codes AADKERB (no parameter).
+name: Staging data account (t/463)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'what-if (read-only, default) or apply (creates staitriadstg19 and its share only)'
+        required: true
+        default: what-if
+        type: choice
+        options: [what-if, apply]
+      confirm:
+        description: 'For apply only: type APPLY-STAGING-DATA-ACCOUNT exactly'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-data-account
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: "staitriadstg19 (${{ inputs.mode }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      AZ_RG: ai-triad
+      TEMPLATE: deploy/azure/staging-data-account.bicep
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: main
+
+      - name: "Guard: apply needs the typed confirmation"
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$MODE" = "apply" ] && [ "$CONFIRM" != "APPLY-STAGING-DATA-ACCOUNT" ]; then
+            echo "::error::apply requires confirm=APPLY-STAGING-DATA-ACCOUNT. Nothing run."; exit 1
+          fi
+
+      - name: "Guard: template is the staging module only"
+        run: |
+          test -f "$TEMPLATE"
+          if grep -qi "main.bicep" "$TEMPLATE" || grep -q "staitriadkvwl3nywge4iw" "$TEMPLATE"; then
+            echo "::error::the staging module must not reference main.bicep or the prod account."; exit 1
+          fi
+
+      - name: "Azure login (OIDC, the same repo secrets as deploy-azure.yml)"
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "What-if (read-only), then parse the JSON changeType values"
+        run: |
+          az deployment group what-if -g "$AZ_RG" -f "$TEMPLATE" --no-pretty-print -o json > whatif.json
+          node operations/devops/staging-data-account-whatif-guard.mjs whatif.json
+
+      - name: "Apply (staging account and share only; mode=apply, confirmed, guard passed)"
+        if: inputs.mode == 'apply' && inputs.confirm == 'APPLY-STAGING-DATA-ACCOUNT'
+        run: |
+          az deployment group create -g "$AZ_RG" -f "$TEMPLATE"
+          az storage account show -n staitriadstg19 -g "$AZ_RG" \
+            --query "{aad:azureFilesIdentityBasedAuthentication.directoryServiceOptions,sharedKey:allowSharedKeyAccess}" -o json

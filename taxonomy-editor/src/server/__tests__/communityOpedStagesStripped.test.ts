@@ -54,9 +54,25 @@ describe('Community publication strips op-ed stages (t/171)', () => {
     expect(JSON.stringify(copy)).not.toContain('a private document');
   });
 
-  it("a debate's own `stages` key is untouched (the strip is op-ed-only, not a denylist key)", async () => {
+  // t/196#19 reverses the t/171 expectation: debate `stages` carries raw diagnostic prompts, so it is owner-only (default-deny allowlist).
+  it("a debate's own `stages` key is dropped (not on the community allowlist, t/196#19)", async () => {
     seed('d1', 'debate', { id: 'deb-1', title: 'A debate', stages: [{ name: 'context-rot' }] });
     const { communityId } = await approveSubmission('d1');
-    expect(published(communityId).stages).toEqual([{ name: 'context-rot' }]);
+    expect(published(communityId)).not.toHaveProperty('stages');
+  });
+
+  // t/196: unknown new fields are dropped by allowlist (not published by default)
+  it('unknown fields on op-ed/chat/debate are dropped by allowlist', async () => {
+    seed('o2', 'oped', { topic: 'Safety', opeds: [{ pov: 'acc', headline: 'h' }], unknown_oped_field: 'should-drop' });
+    const { communityId: opedId } = await approveSubmission('o2');
+    expect(published(opedId)).not.toHaveProperty('unknown_oped_field');
+
+    seed('c1', 'chat', { id: 'c-1', title: 'Chat', transcript: [], unknown_chat_field: 'should-drop' });
+    const { communityId: chatId } = await approveSubmission('c1');
+    expect(published(chatId)).not.toHaveProperty('unknown_chat_field');
+
+    seed('d2', 'debate', { id: 'd-2', title: 'Debate', transcript: [], unknown_debate_field: 'should-drop' });
+    const { communityId: debateId } = await approveSubmission('d2');
+    expect(published(debateId)).not.toHaveProperty('unknown_debate_field');
   });
 });

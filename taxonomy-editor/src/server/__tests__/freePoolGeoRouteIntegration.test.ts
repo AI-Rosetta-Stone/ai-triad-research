@@ -150,6 +150,7 @@ vi.mock('../storage/allowlistStore.js', () => ({
 
 import { registerAiRoutes } from '../routes/ai.js';
 import { registerChatRoutes } from '../routes/chat.js';
+import { KeyRoutingRefusal } from '../../../../lib/ai-client/apiKeyFallback.js';
 
 // ── Helpers (entitlementGate.test.ts / embeddingsBatchCapAnd503.test.ts pattern) ──────────────
 
@@ -233,6 +234,21 @@ describe('free-pool geo gate wiring across generate, chat and NLI (t/4486)', () 
     expect(getStoredUserKeysBeforeFreePool).not.toHaveBeenCalled();
     expect(getFreePoolKeys).not.toHaveBeenCalled();
     expect(generateTextByUsage.mock.calls[0][4]).toBe('request-key');
+  });
+
+  it('t/204 generate: a stored-key refusal stops the request — the free pool is never consulted', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    const refusal = new KeyRoutingRefusal('AIApiKeyForeignCredentialRefused', {
+      goal: 'Use your stored key', problem: 'stored key refused', location: 'test', nextSteps: ['x'],
+    });
+    getStoredUserKeysBeforeFreePool.mockRejectedValue(refusal);
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi' });
+    expect(res._statusCode).not.toBe(200);
+    expect(getFreePoolKeys).not.toHaveBeenCalled();
+    expect(generateTextByUsage).not.toHaveBeenCalled();
   });
 
   it('t/204 generate: no request key and no stored key → the free pool, unchanged', async () => {

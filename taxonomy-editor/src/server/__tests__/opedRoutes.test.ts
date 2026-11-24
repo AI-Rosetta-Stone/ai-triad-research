@@ -33,6 +33,10 @@ const { refreshOpedShareIfShared, publishOpedShare, unpublishOpedShare } = vi.ho
 }));
 vi.mock('../storage/opedShareStore.js', () => ({ refreshOpedShareIfShared, publishOpedShare, unpublishOpedShare }));
 
+// t/467 (TL p/16#211): the anonymous spend ceiling. Mocked here; the ledger itself is tested in anonOpEdSpend.test.ts.
+const { anonOpEdCeilingBreach } = vi.hoisted(() => ({ anonOpEdCeilingBreach: vi.fn(async () => null as null | 'daily' | 'monthly') }));
+vi.mock('../storage/anonOpEdSpend.js', () => ({ anonOpEdCeilingBreach, recordAnonOpEdSpend: vi.fn(async () => undefined) }));
+
 const { serverWarn } = vi.hoisted(() => ({ serverWarn: vi.fn() }));
 vi.mock('../logger.js', () => ({
   log: { api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }, server: { info: vi.fn(), warn: serverWarn, error: vi.fn(), debug: vi.fn() } },
@@ -50,7 +54,13 @@ const { isAnonymousUser, getStorageUserId, getCurrentUser, resolveTier, resolveB
 }));
 vi.mock('../security/userContext.js', () => ({ isAnonymousUser, getStorageUserId, getCurrentUser }));
 vi.mock('../ai/proxyTiers.js', () => ({ resolveTier, isBackendAllowed: (tier: { allowedBackends: string[] }, b: string) => tier.allowedBackends.includes(b) }));
-vi.mock('../ai/aiBackends.js', () => ({ resolveBackend, isRegisteredModel }));
+vi.mock('../ai/aiBackends.js', () => ({ resolveBackend, isRegisteredModel, getModelRegistry: () => ({}) }));
+// t/467 (SO condition 2): which models have a price on file. Only the test models named here are priced.
+const { pricedModels } = vi.hoisted(() => ({ pricedModels: new Set(['gemini-2.5-flash', 'gemini-2.5-pro']) }));
+vi.mock('../../../../lib/ai-client/registry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/ai-client/registry.js')>()),
+  resolvePricingKey: (_registry: unknown, id: string) => (pricedModels.has(id) ? id : undefined),
+}));
 // accessControl (callerTierIdentity, clientSafeMessage) is pure — use the real module
 // so httpKit's error() path keeps clientSafeMessage. Only the tier/backend + user context
 // need controlling, and those are mocked above.
@@ -315,6 +325,115 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled(); // gated before quota + any generation
   });
 
+  it('t/467: an ANONYMOUS caller is no longer refused at the sign-in gate; it reaches the free-pool entitlement and quota', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    resolveTier.mockReturnValue({ level: 'free', allowedBackends: ['gemini'], pinnedModel: 'gemini-2.5-flash' });
+    resolveBackend.mockReturnValue('gemini');
+    getOpedSetsQuotaStatus.mockResolvedValue({ allowed: false, resource: 'opeds', current: 15, limit: 15 });
+    const anonReq = { url: '/api/oped-sets', headers: {}, socket: { remoteAddress: '127.0.0.1' } } as unknown as IncomingMessage;
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](anonReq, res, validBody);
+    expect(res._status).not.toBe(403);
+    expect(JSON.parse(res._body ?? '{}')).not.toMatchObject({ error: 'Sign in to create op-eds' });
+    expect(getOpedSetsQuotaStatus).toHaveBeenCalled(); // reached quota ⇒ the gate was passed
+  });
+
+  it('t/467 (SO condition 2, TL p/16#213): an UNPRICED model cannot run for an anonymous caller (403, nothing registered)', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11');
+    resolveTier.mockReturnValue({ level: 'platform', allowedBackends: ['gemini'], pinnedModel: undefined });
+    resolveBackend.mockReturnValue('gemini');
+    isRegisteredModel.mockReturnValue(true); // registered, but with no price on file
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, params: { model: 'mystery-model-zz', wordCount: 800 } });
+    expect(res._status).toBe(403);
+    expect(JSON.parse(res._body ?? '{}')).toMatchObject({ error: expect.stringMatching(/no price on file/) });
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
+    expect(upsertOpedRun).not.toHaveBeenCalled();
+  });
+
+  it('t/467 (TL p/16#211): the DAILY spend ceiling refuses an anonymous run before it is registered, with a WARN', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11');
+    anonOpEdCeilingBreach.mockResolvedValueOnce('daily');
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(429);
+    expect(JSON.parse(res._body ?? '{}')).toMatchObject({ error: 'spend_ceiling', ceiling: 'daily' });
+    expect(serverWarn).toHaveBeenCalledWith(expect.objectContaining({ reason: 'anon-oped-spend-ceiling', ceiling: 'daily' }), expect.stringContaining('daily spend ceiling'));
+    expect(upsertOpedRun).not.toHaveBeenCalled(); // nothing registered
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled(); // refused before the quota and any generation
+  });
+
+  it('t/467 (TL p/16#211): the MONTHLY spend ceiling refuses an anonymous run before it is registered, with a WARN', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11');
+    anonOpEdCeilingBreach.mockResolvedValueOnce('monthly');
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(429);
+    expect(JSON.parse(res._body ?? '{}')).toMatchObject({ error: 'spend_ceiling', ceiling: 'monthly' });
+    expect(serverWarn).toHaveBeenCalledWith(expect.objectContaining({ reason: 'anon-oped-spend-ceiling', ceiling: 'monthly' }), expect.stringContaining('monthly spend ceiling'));
+    expect(upsertOpedRun).not.toHaveBeenCalled();
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
+  });
+
+  it('t/467 (TL p/16#209): an anonymous caller with NO session cookie (storage _local) is refused before any write', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    getStorageUserId.mockReturnValue('_local'); // no anon_session_id cookie → the shared local store
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    expect(res._status).toBe(403);
+    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
+    expect(upsertOpedRun).not.toHaveBeenCalled();
+  });
+
+  it('t/467 (SO/TL 2): a parallel burst cannot bypass the one-run cap — the second concurrent create is 429 while the first is still in flight', async () => {
+    // The store count shows zero (no run persisted yet), so only the synchronous in-process slot
+    // can stop the second request. Before the fix, both requests passed the count and both ran.
+    countRunningOpedRuns.mockResolvedValue(0);
+    getStorageUserId.mockReturnValue('burst-user');
+    let releaseFirst!: (e: Error) => void;
+    upsertOpedRun.mockImplementationOnce(() => new Promise((_resolve, reject) => { releaseFirst = reject; }));
+    const first = handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), fakeRes(), validBody);
+    await new Promise(r => setImmediate(r)); // let the first request reach its pending upsert
+    const second = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), second, validBody);
+    expect(second._status).toBe(429);
+    expect(JSON.parse(second._body ?? '{}')).toMatchObject({ error: 'concurrency_limit' });
+    releaseFirst(new Error('test: finish the first run'));
+    await expect(first).rejects.toThrow('test: finish the first run');
+  });
+
+  it('t/467 (TL 3): an anonymous client is rate-limited on URL-source fetches; the over-limit fetch is never made', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    resolveTier.mockReturnValue({ level: 'free', allowedBackends: ['gemini'], pinnedModel: 'gemini-2.5-flash' });
+    resolveBackend.mockReturnValue('gemini');
+    getOpedSetsQuotaStatus.mockResolvedValue({ allowed: true, resource: 'opeds', current: 0, limit: 15 });
+    fetchUrlContent.mockResolvedValue({ content: '', error: 'blocked host' }); // fail fast: 502 before any SSE
+    const anonReq = () => ({ url: '/api/oped-sets', headers: {}, socket: { remoteAddress: '198.51.100.23' } } as unknown as IncomingMessage);
+    const withUrl = { ...validBody, url: 'https://example.com/a' };
+    for (let i = 0; i < 5; i++) {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](anonReq(), res, withUrl);
+      expect(res._status).toBe(502); // within the limit: the fetch is attempted
+    }
+    expect(fetchUrlContent).toHaveBeenCalledTimes(5);
+    const over = fakeRes();
+    await handlers['POST /api/oped-sets'](anonReq(), over, withUrl);
+    expect(over._status).toBe(429);
+    expect(JSON.parse(over._body ?? '{}')).toMatchObject({ error: 'rate_limited' });
+    expect(fetchUrlContent).toHaveBeenCalledTimes(5); // the sixth fetch was never made
+  });
+
+  it('t/467: an anonymous caller CANNOT publish a public share (public write stays signed-in only)', async () => {
+    isAnonymousUser.mockReturnValue(true);
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets/:setId/share'](fakeReq('/api/oped-sets/set-1/share'), res, {});
+    expect(res._status).toBe(403);
+    expect(publishOpedShare).not.toHaveBeenCalled();
+  });
+
   it('free tier is PINNED — a premium request is not 403’d, it proceeds on the pinned backend (t/2635)', async () => {
     // The consolidation's core behaviour via resolveGenerationContext: a free user asking for a
     // premium model is served the tier's pinned model (an allowed backend), NOT rejected. We stop
@@ -328,14 +447,6 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     await handlers['POST /api/oped-sets'](freeReq, res, { ...validBody, params: { model: 'claude-opus-4', wordCount: 800 } });
     expect(res._status).toBe(429); // reached quota ⇒ entitlement did NOT 403 the pinned free user
     expect(getOpedSetsQuotaStatus).toHaveBeenCalled();
-  });
-
-  it('403 for anonymous users (no anonymous op-ed tier)', async () => {
-    isAnonymousUser.mockReturnValue(true);
-    const res = fakeRes();
-    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
-    expect(res._status).toBe(403);
-    expect(getOpedSetsQuotaStatus).not.toHaveBeenCalled();
   });
 
   it('400 when the model is not a registered id — rejected before any generation (t/2687)', async () => {
@@ -372,6 +483,118 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(fetchUrlContent).toHaveBeenCalledWith('https://example.com/article');
     expect(res._status).toBe(200); // SSE committed → generation ran
     expect(capturedReq?.sourceMaterial).toBe('# Fetched article\nBody.');
+  });
+
+  // t/276 (t/274#2 contract): an uploaded document arrives as extracted text plus its file name. The text is the
+  // generator's source material (source_mode 'document' in lib/oped); the server does not fetch anything.
+  describe('document source (t/276)', () => {
+    it('document source: the text and name reach the generator; nothing is fetched; generation runs', async () => {
+      let capturedReq: { sourceMaterial?: string; sourceName?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'The report says X.', sourceName: 'report.docx' });
+      expect(fetchUrlContent).not.toHaveBeenCalled();
+      expect(res._status).toBe(200);
+      expect(capturedReq?.sourceMaterial).toBe('The report says X.');
+      expect(capturedReq?.sourceName).toBe('report.docx');
+    });
+
+    it('a whitespace-only topic counts as no topic: the file name stands in as the topic', async () => {
+      let capturedReq: { topic?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, topic: '   ', documentText: 'The report says X.', sourceName: 'report.docx' });
+      expect(res._status).toBe(200);
+      expect(capturedReq?.topic).toBe('report.docx');
+    });
+
+    it('a sourceName that is not a bare file name is a 400: separators and parent references are refused', async () => {
+      for (const name of ['folder/report.docx', 'folder\\report.docx', '../report.docx', 'report..docx']) {
+        const res = fakeRes();
+        await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text', sourceName: name });
+        expect(res._status).toBe(400);
+      }
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a document with no topic (the web bridge body): the file name is the topic and generation runs', async () => {
+      let capturedReq: { topic?: string; sourceMaterial?: string; sourceName?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string; sourceName?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      const { topic: _omit, ...noTopic } = validBody;
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...noTopic, documentText: 'The report says X.', sourceName: 'report.docx' });
+      expect(res._status).toBe(200);
+      expect(capturedReq?.topic).toBe('report.docx');
+      expect(capturedReq?.sourceMaterial).toBe('The report says X.');
+      expect(capturedReq?.sourceName).toBe('report.docx');
+    });
+
+    it('document text without a sourceName is a 400, before generation', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a sourceName without document text is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, sourceName: 'report.docx' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a document and a URL together are a 400: two sources, not one', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, url: 'https://example.com/a', documentText: 'text', sourceName: 'r.txt' });
+      expect(res._status).toBe(400);
+      expect(fetchUrlContent).not.toHaveBeenCalled();
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('document text over the 500,000-character cap is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'a'.repeat(500_001), sourceName: 'big.txt' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('a sourceName over 255 characters is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'text', sourceName: 'n'.repeat(256) });
+      expect(res._status).toBe(400);
+    });
+
+    it('control characters are stripped from the document text before it reaches the generator', async () => {
+      let capturedReq: { sourceMaterial?: string } | undefined;
+      generateOpEdSet.mockImplementation(async function* (req: { set_id: string; topic: string; params: unknown; sourceMaterial?: string }) {
+        capturedReq = req;
+        yield { type: 'complete', set: { schema_version: 1, set_id: req.set_id, topic: req.topic, params: req.params, created_at: 'c', opeds: [] } };
+      });
+      finalizeOpedSet.mockResolvedValue(undefined);
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: 'a\u0000b\u0007c keep', sourceName: 'r.txt' });
+      expect(res._status).toBe(200);
+      expect(capturedReq?.sourceMaterial).toBe('abc keep');
+    });
+
+    it('a document that is only whitespace or control characters is a 400', async () => {
+      const res = fakeRes();
+      await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, { ...validBody, documentText: '   \u0001 ', sourceName: 'r.txt' });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
   });
 
   // t/172: the route is a pass-through for the generator's per-member `stages` (t/171) — the SSE
