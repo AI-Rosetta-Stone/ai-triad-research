@@ -219,6 +219,37 @@ describe('How → Plan claim map: motion, stage word, no synthetic ids (t/388)',
 });
 
 describe('claim-map steelman card (t/388)', () => {
+  it('labels the steelman on an unmapped attack too (a tagged attack that names no claim)', () => {
+    useDebateStore.setState({
+      activeDebate: {
+        transcript: [{ id: 'entry-2' }],
+        argument_network: {
+          nodes: [{ id: 'AN-3', text: 'Publishing tests hands exploits to attackers', steelman_of: 'accelerationist', steelman_check: { verdict: 'unchecked' }, source_entry_id: 'entry-1' }],
+          edges: [],
+        },
+      } as never,
+    });
+    const wp = {
+      ...PLAN_WORK_PRODUCT,
+      steelman_refs_offered: ['AN-3'],
+      anticipated_challenges: ['ATTACK [AN-3]: Raw data helps attackers', 'ATTACK: A plain unmapped objection'],
+    };
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: wp }];
+    const { container } = render(<TaxonomyRefsSection refs={[]} entry={{ id: 'entry-2', type: 'opening', speaker: 'safetyist' } as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+    const cards = container.querySelectorAll('.claim-map-unmapped-row .claim-map-attack-card');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0] as HTMLElement).getByText('STEELMAN OF THE ACCELERATIONIST')).toBeTruthy();
+    expect(within(cards[0] as HTMLElement).getByText('Publishing tests hands exploits to attackers')).toBeTruthy();
+    expect(within(cards[0] as HTMLElement).getByText('Unverified')).toBeTruthy();
+    // The untagged attack keeps its own text and gets no steelman label.
+    expect(within(cards[1] as HTMLElement).getByText('A plain unmapped objection')).toBeTruthy();
+    expect(within(cards[1] as HTMLElement).queryByText(/STEELMAN OF/)).toBeNull();
+    // An unchecked steelman adds no "N verified" term to the counts line.
+    expect(screen.queryByText(/\d+ verified/)).toBeNull();
+    expect(document.body.textContent).not.toContain('AN-3');
+    useDebateStore.setState({ activeDebate: null } as never);
+  });
+
   it('shows a linked steelman on the attack card, with its verdict and the verified term', () => {
     useDebateStore.setState({
       activeDebate: {

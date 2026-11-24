@@ -468,6 +468,8 @@ function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSele
             <div key={i} className="claim-map-unmapped-row">
               <div className="claim-map-unmapped-label">Unmapped attack</div>
               <div className="claim-map-attack-card">
+                {/* t/388: an unmapped attack names no claim, so its eyebrow is only the steelman label. Without it the steelman's text would read as the attack. */}
+                {attack.steelman && <div className="claim-map-attack-eyebrow">STEELMAN OF THE {attack.steelman.camp.toUpperCase()}</div>}
                 <p className="claim-map-attack-text">{attackText(attack)}</p>
                 <div className="claim-map-attack-footer">
                   <span className="claim-map-attack-status">{attackStatus(attack)}</span>
