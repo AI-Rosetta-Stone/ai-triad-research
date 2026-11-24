@@ -4,7 +4,7 @@
 #
 # Usage: pwsh ./scripts/ogit.ps1 <git-args>
 #   e.g. pwsh ./scripts/ogit.ps1 status
-#        pwsh ./scripts/ogit.ps1 add -f orca-support/AGENTS.md
+#        pwsh ./scripts/ogit.ps1 add -f .interweave/mcp.json
 #        pwsh ./scripts/ogit.ps1 commit -m "message"
 #
 # Always resolves paths relative to the git repo root, so it works from any subdirectory.
