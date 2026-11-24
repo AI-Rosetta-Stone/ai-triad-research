@@ -189,3 +189,34 @@ describe('buildChatTaxonomyTurn — situations and trace', () => {
     expect(turn.trace.context_statements).toHaveLength(turn.trace.context_node_ids.length);
   });
 });
+
+describe('buildChatTaxonomyTurn — statement batching and transcript (CL p/166#39)', () => {
+  it('never asks the statement route for more than 12 ids in one call', async () => {
+    const c = ctx();
+    const d = deps({}, c);
+    await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    const calls = (d.chatSyntheticStatements as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [payload] of calls) expect(payload.nodeIds.length).toBeLessThanOrEqual(12);
+  });
+
+  it('a whole-pool request is split: with every statement missing it still asks in rounds of 12, not the pool', async () => {
+    const c = ctx();
+    const d = deps({ chatSyntheticStatements: vi.fn(async () => ({})) }, c);
+    await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    const calls = (d.chatSyntheticStatements as ReturnType<typeof vi.fn>).mock.calls;
+    const requested = calls.flatMap(([payload]) => payload.nodeIds as string[]);
+    expect(new Set(requested).size).toBe(requested.length);
+    expect(calls.every(([payload]) => (payload.nodeIds as string[]).length <= 12)).toBe(true);
+    expect(requested.length).toBeLessThan(c.povNodes.length);
+  });
+
+  it('sends the same query text in the transcript as in the claim embedding', async () => {
+    const c = ctx();
+    const d = deps({}, c);
+    await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    const payload = (d.fetchRelevantNodes as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const [embeddedText] = (d.computeQueryVector as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(payload.recentTranscript).toBe(embeddedText);
+  });
+});
