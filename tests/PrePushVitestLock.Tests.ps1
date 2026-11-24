@@ -43,14 +43,19 @@ Describe 'pre-push-checks.sh machine-wide vitest lock (t/379)' -Tag 'devops' {
 
         # Stub pnpm: eslint/tsc succeed at once; vitest logs start/end (ms) around a sleep and
         # exits with AITRIAD_TEST_VITEST_RC.
+        # t/436: the stamp is `date +%s%N` cut to ms, never `date +%s%3N`. The uutils `date`
+        # (0.10.0, the default on ubuntu-26.04) drops the leading zeros of the nanoseconds
+        # before it truncates, so about 1 stamp in 10 came out up to 0.9 s late and the
+        # overlap check below failed on a lock that had serialized the runs correctly.
         $script:StubDir = New-TempDir 't379-stub'
         [IO.File]::WriteAllText((Join-Path $script:StubDir 'pnpm'), @'
 #!/bin/sh
+now_ms() { _ns=$(date +%s%N); echo "${_ns%??????}"; }
 case " $* " in
   *" vitest "*)
-    echo "start $$ $(date +%s%3N) $*" >>"$AITRIAD_TEST_LOG"
+    echo "start $$ $(now_ms) $*" >>"$AITRIAD_TEST_LOG"
     sleep "${AITRIAD_TEST_VITEST_SECS:-2}"
-    echo "end $$ $(date +%s%3N)" >>"$AITRIAD_TEST_LOG"
+    echo "end $$ $(now_ms)" >>"$AITRIAD_TEST_LOG"
     exit "${AITRIAD_TEST_VITEST_RC:-0}" ;;
 esac
 exit 0
@@ -162,6 +167,55 @@ exit 0
         ($results.Out -join "`n") | Should -Match 'waiting for the machine-wide vitest lock'
         ($results.Out -join "`n") | Should -Match 'got the vitest lock after waiting \d+s'
         Test-Path $script:LockDir | Should -BeFalse -Because 'the last owner must release the lock'
+    }
+
+    # t/436 (TL p/9#314, option a). A waiter judges a dead holder's lock stale, pauses, and meanwhile
+    # the dead holder releases and a live holder takes the lock. The waiter must not delete the live
+    # holder's lock: it must wait behind it. Before the fix it deleted it, and a third push ran at once
+    # (the overlap seen on CI). The pause is the AITRIAD_TEST_STALE_PAUSE hook, which marks the window.
+    It 't436: a stale-judged waiter does not delete a live holder that took the lock in the window' {
+        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value '999999 0 /gone/worktree' -NoNewline
+        $p = Start-Push (New-PushRepo) ($script:Env + @{ AITRIAD_TEST_VITEST_SECS = 0; AITRIAD_TEST_STALE_PAUSE = 3 })
+        $marker = "$script:LockDir.paused"
+        for ($i = 0; $i -lt 600 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 100 }
+        Test-Path $marker | Should -BeTrue -Because 'the waiter must reach the window'
+
+        # The dead holder is gone; a live holder takes the lock inside the window.
+        Remove-Item -Recurse -Force $script:LockDir
+        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+        # The live holder is this test process itself: alive for the whole test, and visible to kill -0
+        # from the waiter. Release it by removing its lock dir, as its own exit trap would.
+        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value "$PID 0 /live" -NoNewline
+        Start-Sleep -Seconds 5
+        Test-Path (Join-Path $script:LockDir 'owner') | Should -BeTrue -Because 'the live lock must survive the waiter'
+        Remove-Item -Recurse -Force $script:LockDir
+        $r = Wait-Push $p
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'waiting for the machine-wide vitest lock' -Because 'the waiter must wait behind the live holder, not remove its lock'
+        @(Get-VitestRuns $script:Log).Count | Should -Be 1
+    }
+
+    # t/436 (Quality t/436#23). A holder reads its own owner line at release and pauses. Meanwhile
+    # its lock is taken over and a live holder owns the lock. The releasing push must not delete the
+    # live holder's lock. With "check the owner, then rm -rf" it did. The pause is the
+    # AITRIAD_TEST_RELEASE_PAUSE hook, which marks the window.
+    It 't436: a releasing holder does not delete a live holder that took the lock in the window' {
+        $p = Start-Push (New-PushRepo) ($script:Env + @{ AITRIAD_TEST_VITEST_SECS = 0; AITRIAD_TEST_RELEASE_PAUSE = 3 })
+        $marker = "$script:LockDir.releasing"
+        for ($i = 0; $i -lt 600 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 100 }
+        Test-Path $marker | Should -BeTrue -Because 'the holder must reach the release window'
+
+        # The lock changes hands inside the window. The live holder is this test process itself.
+        Remove-Item -Recurse -Force $script:LockDir
+        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value "$PID 0 /live" -NoNewline
+        $r = Wait-Push $p
+        $r.Code | Should -Be 0 -Because $r.Out
+        @(Get-VitestRuns $script:Log).Count | Should -Be 1
+        Test-Path (Join-Path $script:LockDir 'owner') | Should -BeTrue -Because 'the live lock must survive the release'
+        (Get-Content (Join-Path $script:LockDir 'owner')) | Should -Be "$PID 0 /live"
+        @(Get-ChildItem -Path $script:Work -Filter 'prepush.lock.reap.*').Count | Should -Be 0 -Because 'the live lock must be put back under its own name'
     }
 
     It 'caps vitest workers: --pool=forks --maxWorkers set to half the cores, at least 1' {
