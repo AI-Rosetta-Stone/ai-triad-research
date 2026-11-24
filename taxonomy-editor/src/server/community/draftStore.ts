@@ -204,9 +204,8 @@ class DraftStoreImpl implements DraftStore {
         const data = await this.backend.readFile(`community/_drafts/${file}`);
         if (data !== null) {
           const rec = JSON.parse(data);
-          // Match based on some client identifier stored in draft (for now, we'll track by IP via route context)
-          // This is a simplified version; in production you'd store clientId in the draft record
-          if (rec.clientId === clientId) count++;
+          // Expired drafts do not count: they are dead content awaiting sweep (TL t/185#44, blocker 1).
+          if (rec.clientId === clientId && new Date(rec.expiresAt).getTime() >= this.now()) count++;
         }
       }
     } catch (err) {
@@ -373,6 +372,14 @@ class DraftStoreImpl implements DraftStore {
       return validation;
     }
 
+    // Enforce the 24h TTL on the write path: sweep expired drafts before counting. Nothing else starts
+    // startDraftSweeper in this PR (TL t/185#44). A sweep failure is logged; the counts still apply.
+    try {
+      await this.sweepExpiredDrafts();
+    } catch (err) {
+      log.server.warn(`createDraft: pre-count sweep failed: ${(err as any)?.message} (counts still enforce the caps)`);
+    }
+
     // Check caps (global + per-client)
     const capCheck = await this.checkCapLimits(ctx.clientId);
     if (capCheck === 'cap_reached') {
@@ -467,8 +474,10 @@ class DraftStoreImpl implements DraftStore {
         const data = await this.backend.readFile(p);
         if (data !== null) return true;
       }
-    } catch {
-      /* telemetry — silent by design (best-effort check) */
+    } catch (err) {
+      // A read error here lets the claim guard pass. finalizeDraft's strict write still refuses a double claim,
+      // but this must not be silent (TL t/185#44, blocker 2).
+      log.server.warn(`checkAlreadyClaimed: read failed for draft ${logDraftId(draftId)}: ${(err as any)?.message} (claim guard skipped; strict write still enforces)`);
     }
     return false;
   }
@@ -510,7 +519,8 @@ class DraftStoreImpl implements DraftStore {
     return { ok: true, record };
   }
 
-  private async writeSubmissionAndMarker(draftId: string, record: any, principal: DraftPrincipal): Promise<void> {
+  // Returns 'exists' when another finalize won the race: the loser reports already_claimed, not an error (t/185 follow-up).
+  private async writeSubmissionAndMarker(draftId: string, record: any, principal: DraftPrincipal): Promise<'written' | 'exists'> {
     const submissionPath = `community/_submissions/sub-${draftId}.json`;
     // B5: the same Submission shape submitToCommunity writes (community.ts), so the per-user and
     // global caps on both paths count every pending submission, and the approval flow reads it.
@@ -528,14 +538,7 @@ class DraftStoreImpl implements DraftStore {
 
     try {
       const result = await writeFileIfAbsentStrict(this.backend, submissionPath, JSON.stringify(submission));
-      if (result === 'exists') {
-        throw new ActionableError({
-          goal: 'Write finalized submission',
-          problem: 'Submission already claimed (race condition)',
-          location: 'draftStore.writeSubmissionAndMarker',
-          nextSteps: ['Retry if idempotent'],
-        });
-      }
+      if (result === 'exists') return 'exists';
     } catch (err) {
       if (err instanceof ActionableError) throw err;
       getGlobalRecorder()?.record({
@@ -568,6 +571,7 @@ class DraftStoreImpl implements DraftStore {
     } catch (err) {
       log.server.warn(`finalizeDraft: draft delete failed: ${(err as any)?.message}`);
     }
+    return 'written';
   }
 
   async finalizeDraft(draftId: string, principal: DraftPrincipal): Promise<FinalizeDraftResult> {
@@ -599,7 +603,8 @@ class DraftStoreImpl implements DraftStore {
     if (globalCount >= getConfig().community.globalPendingCap) return { ok: false, reason: 'queue_full' };
 
     // Write submission and markers
-    await this.writeSubmissionAndMarker(draftId, record, principal);
+    const written = await this.writeSubmissionAndMarker(draftId, record, principal);
+    if (written === 'exists') return { ok: false, reason: 'already_claimed' };
     return { ok: true, submissionId: draftId };
   }
 
@@ -618,13 +623,13 @@ class DraftStoreImpl implements DraftStore {
               try {
                 await this.backend.deleteFile(draftPath);
                 deleted++;
-              } catch {
-                /* telemetry — silent by design (best-effort sweep) */
+              } catch (err) {
+                log.server.warn(`sweepExpiredDrafts: could not delete expired draft ${draftPath}: ${(err as any)?.message} (skipped; retried on next sweep)`);
               }
             }
           }
-        } catch {
-          /* telemetry — silent by design (continue with next draft) */
+        } catch (err) {
+          log.server.warn(`sweepExpiredDrafts: could not read ${draftPath}: ${(err as any)?.message} (skipped)`);
         }
       }
     } catch (err) {

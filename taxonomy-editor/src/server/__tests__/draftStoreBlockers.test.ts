@@ -170,11 +170,11 @@ describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
     it('createDraft refuses (cap_reached) when the per-client count fails, and writes nothing', async () => {
       const store = createDraftStore({ backend: mockBackend, now });
 
-      // Mock listDirectory to throw on the second call (the per-client count, after the global count)
+      // listDirectory calls in createDraft: 1 = pre-count sweep, 2 = global count, 3 = per-client count.
       let callCount = 0;
       (mockBackend.listDirectory as any).mockImplementation(async (dir: string) => {
         callCount++;
-        if (callCount > 1) throw new Error('Storage error');
+        if (callCount === 3) throw new Error('Storage error');
         return listDirectoryImpl(dir);
       });
 
