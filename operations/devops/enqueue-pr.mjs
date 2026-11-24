@@ -47,6 +47,13 @@
 // below. `enqueuePR` also takes an optional `expectedHeadOid`: when set, it refuses unless the
 // PR's head is still that SHA, so a sweep that checked the approval at one head never arms a
 // newer one.
+//
+// t/534 part A (supersedes the check-run reading above): the T1 refusal no longer reads the
+// `t1-approval-guard` check run, which a PR-side workflow can forge. enqueuePR reads the PR's
+// commits, comments and reviews from the API at the head and runs the guard's predicate on them
+// (t1-approval-at-head.mjs: fetchApprovalInputs, approvalFromApiVerdict). An approval counts only
+// from a reviewer-App review bound to the head or an allowlisted commenter, never the shared login;
+// every read fails closed.
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -54,10 +61,12 @@ import { extractTier } from './tier-check-predicate.mjs';
 import { fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
 import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
 import {
-  approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun,
+  approvalAtHeadVerdict, approvalFromApiVerdict, classifyT1GuardForEnqueue, fetchApprovalInputs, fetchGuardRun, pickAuthoritativeGuardRun,
 } from './t1-approval-at-head.mjs';
 
-export { approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun };
+// The row helpers are re-exported for their existing callers and tests only; enqueuePR decides with
+// fetchApprovalInputs + approvalFromApiVerdict and never reads a check run (t/534 part A).
+export { approvalAtHeadVerdict, approvalFromApiVerdict, classifyT1GuardForEnqueue, fetchApprovalInputs, fetchGuardRun, pickAuthoritativeGuardRun };
 
 /**
  * PURE. Classifies a queue-state read into one of five outcomes:
@@ -224,21 +233,26 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       `at=${new Date().toISOString()} files=${gateVerdict.gateFiles.join(',')}`);
   }
 
-  const guard = fetchGuardRun(repo, headSha, ghFn);
+  // t/534 part A: the approval is decided HERE, from the PR's reviews and comments read from the
+  // API at this head, by the guard's own predicate (approvalFromApiVerdict). No check run is read
+  // for the decision: the `t1-approval-guard` row on the PR is display only (Security condition 3).
+  // T0 and T2 are exempt as before, so nothing is read for them.
+  const needsApproval = !prMeta.isDraft && tier !== 'T0' && tier !== 'T2';
+  const inputs = needsApproval ? fetchApprovalInputs(repo, prNumber, headSha, ghFn) : null;
   // A tier-check lookup error is non-blocking: tierCheckDisagreesAt already WARNed (t/4950).
   const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn).disagrees : false;
-  const verdict = approvalAtHeadVerdict({ tier, isDraft: prMeta.isDraft, guard, tierCheckDisagreesOnT0 });
+  const verdict = approvalFromApiVerdict({ tier, isDraft: prMeta.isDraft, headSha, inputs, tierCheckDisagreesOnT0 });
 
-  if (verdict.reason === 'guard_lookup_error') {
+  if (verdict.reason === 'approval_lookup_error') {
     console.warn(
-      `WARN: enqueue-pr could not look up t1-approval-guard's check run for #${prNumber} on ${repo} ` +
-      `at ${headSha} (${guard.error?.message ?? 'API error'}). Refusing rather than risk arming an unapproved T1 PR.`,
+      `WARN: enqueue-pr could not read the reviews, comments or commits of #${prNumber} on ${repo} ` +
+      `at ${headSha} (${verdict.detail}). Refusing rather than risk arming an unapproved T1 PR.`,
     );
     throw new Error(
-      `enqueue-pr: refusing #${prNumber} on ${repo} -- could not verify t1-approval-guard's state at ${headSha}.\n` +
-      '  Goal:       land the PR only once its approval guard verdict is confirmed.\n' +
-      '  Problem:    the check-runs API lookup for t1-approval-guard failed.\n' +
-      '  Location:   operations/devops/enqueue-pr.mjs (fetchGuardRun).\n' +
+      `enqueue-pr: refusing #${prNumber} on ${repo} -- could not verify the approval at ${headSha}.\n` +
+      '  Goal:       land the PR only once an approval at this head is confirmed from the API.\n' +
+      `  Problem:    ${verdict.detail}.\n` +
+      '  Location:   operations/devops/enqueue-pr.mjs (fetchApprovalInputs, t/534).\n' +
       '  Next steps: check gh auth / API rate limits, then rerun.',
     );
   }
@@ -250,10 +264,11 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       `  Goal:       land #${prNumber} via the merge queue.\n` +
       `  Problem:    ${verdict.reason === 'draft'
         ? 'the PR is still a draft.'
-        : `t1-approval-guard at ${headSha} is ${verdict.reason.replace(/^guard_/, '')}, and the declared tier (${tier ?? 'none'}) requires a clean pass.`}\n` +
-      '  Location:   operations/devops/enqueue-pr.mjs (classifyT1GuardForEnqueue, t/4939).\n' +
-      '  Next steps: get an `Approved (<role>):` comment or review, wait for t1-approval-guard ' +
-      'to go green on this exact head, then rerun. This is the same incident class as #4648/#3343/#3364.',
+        : `the approval read from the API at ${headSha} is ${verdict.reason}${verdict.detail ? ` (${verdict.detail})` : ''}, ` +
+          `and the declared tier (${tier ?? 'none'}) requires one.`}\n` +
+      '  Location:   operations/devops/enqueue-pr.mjs (approvalFromApiVerdict, t/534).\n' +
+      '  Next steps: get a reviewer-App `Approved (<role>):` review on this exact head from a role ' +
+      'other than the branch owner, resolve any changes-request, then rerun. This is the same incident class as #4648/#3343/#3364.',
     );
   }
 

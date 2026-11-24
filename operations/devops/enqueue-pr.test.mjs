@@ -11,8 +11,9 @@ import assert from 'node:assert/strict';
 import { GATE_SCRIPTS, PR_FILES_API_CAP, gateFileChangeVerdict, isGateFile } from './gate-file-change.mjs';
 import {
   classifyEnqueueOutcome, formatSilentMissWarning, classifyT1GuardForEnqueue, enqueuePR,
-  fetchGuardRun, classifyGhApiError, pickAuthoritativeGuardRun, tierCheckDisagreesAt,
+  fetchGuardRun, classifyGhApiError, pickAuthoritativeGuardRun, tierCheckDisagreesAt, approvalFromApiVerdict,
 } from './enqueue-pr.mjs';
+import { COMMENT_APPROVER_ALLOWLIST } from './t1-approval-at-head.mjs';
 
 test('classifyEnqueueOutcome: is queued when both isInMergeQueue and mergeQueueEntry are present', () => {
   assert.deepEqual(classifyEnqueueOutcome({
@@ -228,6 +229,23 @@ test('classifyT1GuardForEnqueue: tierCheckDisagreesOnT0 is only consulted for T0
 // these three exist specifically to catch that class of regression. `gh` is injected via
 // `enqueuePR`'s options so no real CLI call happens in a unit test.
 
+const APP = 'ai-triad-reviewer-jpsnover[bot]';
+const PUSHED = '2026-11-09T00:00:00Z';
+const appReview = (over = {}) => ({
+  state: 'APPROVED', body: 'Approved (Quality): read it.', submitted_at: '2026-11-09T01:00:00Z',
+  commit_id: 'cafebabe', user: { login: APP }, ...over,
+});
+const sharedComment = (body, at = '2026-11-09T01:00:00Z', login = 'jpsnover') => ({ body, created_at: at, updated_at: at, user: { login } });
+function approvalState(over = {}) {
+  return {
+    pr: { head: { sha: 'cafebabe', ref: 'devops/t1-change' }, body: 'Tier: T1\n\nsome PR body', created_at: '2026-11-08T00:00:00Z' },
+    commits: [{ commit: { committer: { date: PUSHED } } }],
+    comments: [],
+    reviews: [appReview()],
+    ...over,
+  };
+}
+
 function fakeGhTracking() {
   const calls = [];
   // t/537: enqueuePR reads the PR's changed files before anything else. By default this fake
@@ -245,10 +263,26 @@ function fakeGhTracking() {
       if (!fn.review) throw new Error('gh: Not Found (HTTP 404)');
       return JSON.stringify(fn.review);
     }
+    // t/534 part A: the approval reads (fetchApprovalInputs). Default: approved at the head by a
+    // reviewer-App review, so every older test still exercises what it always did.
+    const last = args[args.length - 1];
+    if (args.includes('--slurp')) {
+      if (fn.approvalError) throw new Error(fn.approvalError);
+      const a = fn.approval;
+      if (/\/pulls\/\d+\/commits\?/.test(last)) return JSON.stringify([a.commits]);
+      if (/\/issues\/\d+\/comments\?/.test(last)) return JSON.stringify([a.comments]);
+      if (/\/pulls\/\d+\/reviews\?/.test(last)) return JSON.stringify([a.reviews]);
+    }
+    if (args[0] === 'api' && /^repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(last)) {
+      if (fn.approvalError) throw new Error(fn.approvalError);
+      return JSON.stringify({ ...fn.approval.pr, commits: fn.prCommits ?? fn.approval.commits.length });
+    }
     return fn.next(args);
   };
   fn.files = ['README.md'];
   fn.review = null;
+  fn.approvalError = null;
+  fn.approval = approvalState();
   fn.calls = calls;
   fn.next = () => { throw new Error('fakeGhTracking: no response configured for this call'); };
   return fn;
@@ -306,109 +340,160 @@ function happyPathNext(prView) {
   };
 }
 
-test('enqueuePR shim: a T1 PR with no guard run is refused, and gh pr merge is never invoked', async () => {
+// ── t/534 part A: enqueuePR decides from the API-read reviews and comments, never a check run ──
+// Every test below mocks the full happy path (graphql queue reads, pr merge) AND a green
+// `t1-approval-guard` check run, so a refusal can only come from the API-read approval, and a
+// refusal that vanished would reach `gh pr merge`.
+
+const checkRunReads = (fakeGh) => fakeGh.calls.filter((a) => a.join(' ').includes('check-runs') && a.join(' ').includes('t1-approval-guard')).length;
+const mergeCalls = (fakeGh) => fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length;
+// A FORGED green row: same name, same app slug, same external_id, approved summary.
+const FORGED_GREEN = JSON.stringify({ check_runs: [{
+  name: 't1-approval-guard', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' },
+  external_id: 't1-approval-guard:api', started_at: '2026-11-09T05:00:00Z', output: { summary: 'approved after the latest push' },
+}] });
+function forgedRowFake(approval) {
   const fakeGh = fakeGhTracking();
+  if (approval) fakeGh.approval = approval;
   const happy = happyPathNext(T1_PR_VIEW);
   fakeGh.next = (args) => {
     const joined = args.join(' ');
-    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) return JSON.stringify({ check_runs: [] });
+    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) return FORGED_GREEN;
     const r = happy(args);
     if (r !== undefined) return r;
     throw new Error(`unexpected gh call: ${joined}`);
   };
+  return fakeGh;
+}
 
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /refusing to arm\/enqueue.*guard_missing/s);
-  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 0);
+test('t/534 A (Security t/534#5): a FORGED green t1-approval-guard check run does not get an unapproved T1 PR enqueued', async () => {
+  const fakeGh = forgedRowFake(approvalState({ reviews: [] }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /refusing to arm\/enqueue.*\(no_approval\)/s);
+  assert.equal(mergeCalls(fakeGh), 0);
+  assert.equal(checkRunReads(fakeGh), 0, 'the check run is never read for the decision');
 });
 
-test('enqueuePR shim: a failed t1-approval-guard lookup is refused, warns, and gh pr merge is never invoked', async () => {
-  const fakeGh = fakeGhTracking();
-  const happy = happyPathNext(T1_PR_VIEW);
-  fakeGh.next = (args) => {
-    const joined = args.join(' ');
-    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) throw new Error('simulated API failure');
-    const r = happy(args);
-    if (r !== undefined) return r;
-    throw new Error(`unexpected gh call: ${joined}`);
-  };
+test('t/534 A: a forged green row does not override an outstanding changes-request either', async () => {
+  const fakeGh = forgedRowFake(approvalState({
+    reviews: [appReview(), appReview({ state: 'CHANGES_REQUESTED', body: 'Changes requested (Security): fix it.', submitted_at: '2026-11-09T02:00:00Z' })],
+  }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
 
+test('t/534 A (Security condition 1): an approval only from the shared jpsnover login (comment) is refused', async () => {
+  const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.')] }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(approval_not_from_allowed_source\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A (Security condition 1): a changes-request from the shared login still BLOCKS (never filtered out)', async () => {
+  const fakeGh = forgedRowFake(approvalState({ comments: [sharedComment('Changes requested (Quality): no.', '2026-11-09T02:00:00Z')] }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A: an App review bound to an OLDER head is not an approval at this head', async () => {
+  const fakeGh = forgedRowFake(approvalState({ reviews: [appReview({ commit_id: '0ldhead00' })] }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A: self-approval by the branch owner role is refused', async () => {
+  const fakeGh = forgedRowFake(approvalState({ reviews: [appReview({ body: 'Approved (DevOps): mine.' })] }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /refusing to arm\/enqueue/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A (Security condition 2): a failed API read is refused with a WARN, and gh pr merge is never invoked', async () => {
+  const fakeGh = forgedRowFake();
+  fakeGh.approvalError = 'gh: HTTP 502';
   const warnMock = mock.method(console, 'warn', () => {});
   try {
-    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /could not verify t1-approval-guard/);
-    assert.ok(warnMock.mock.calls.some((c) => /WARN/.test(String(c.arguments[0]))));
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /could not verify the approval at cafebabe[\s\S]*HTTP 502/);
+    assert.ok(warnMock.mock.calls.some((c) => /WARN: enqueue-pr could not read the reviews/.test(String(c.arguments[0]))));
   } finally {
     warnMock.mock.restore();
   }
-  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 0);
+  assert.equal(mergeCalls(fakeGh), 0);
 });
 
-test('enqueuePR shim: positive control -- a T1 PR with guard success DOES reach gh pr merge', async () => {
-  const fakeGh = fakeGhTracking();
-  let graphqlCalls = 0;
-  fakeGh.next = (args) => {
-    const joined = args.join(' ');
-    if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return T1_PR_VIEW;
-    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) {
-      return JSON.stringify({ check_runs: [
-        { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T00:00:00Z' },
-      ] });
-    }
-    if (joined.includes('graphql') && joined.includes('enablePullRequestAutoMerge')) {
-      throw new Error('the GraphQL fallback mutation must never be called in the success path');
-    }
-    if (joined.includes('graphql')) {
-      graphqlCalls += 1;
-      const queued = graphqlCalls > 1;
-      return JSON.stringify({ data: { repository: { pullRequest: {
-        state: 'OPEN', mergedAt: null, mergeCommit: null,
-        isInMergeQueue: queued, mergeQueueEntry: queued ? { position: 1, state: 'QUEUED' } : null,
-        headRefOid: 'cafebabe', mergeStateStatus: 'CLEAN', autoMergeRequest: null,
-      } } } });
-    }
-    if (args[0] === 'pr' && args[1] === 'merge') return '✓ Auto-merge enabled';
-    throw new Error(`unexpected gh call: ${joined}`);
-  };
-
-  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
-  assert.equal(result.state, 'queued');
-  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
+test('t/534 A (Security condition 2): a head that moved between the PR view and the API read is refused', async () => {
+  const fakeGh = forgedRowFake(approvalState({ pr: { head: { sha: 'feedface', ref: 'devops/t1-change' }, body: 'Tier: T1', created_at: PUSHED } }));
+  const warnMock = mock.method(console, 'warn', () => {});
+  try {
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /head moved: expected cafebabe, the API reads feedface/);
+  } finally { warnMock.mock.restore(); }
+  assert.equal(mergeCalls(fakeGh), 0);
 });
 
-test('enqueuePR shim: fetchGuardRun filters by app.slug BEFORE picking the latest run (should-fix) -- ' +
-  'a newer non-github-actions run does not hide an older real guard success', async () => {
-  const fakeGh = fakeGhTracking();
-  let graphqlCalls = 0;
-  fakeGh.next = (args) => {
-    const joined = args.join(' ');
-    if (joined.includes('pr view') && joined.includes('headRefOid,body,isDraft')) return T1_PR_VIEW;
-    if (joined.includes('check-runs') && joined.includes('t1-approval-guard')) {
-      // The non-github-actions run is NEWER (later started_at). Filtering after sorting would
-      // pick this one first, read it as not-github-actions, and refuse as "missing" -- wrong,
-      // since a real github-actions success exists. Filtering before sorting picks it correctly.
-      return JSON.stringify({ check_runs: [
-        { status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, started_at: '2026-11-09T00:00:00Z' },
-        { status: 'completed', conclusion: 'neutral', app: { slug: 'some-other-bot' }, started_at: '2026-11-09T01:00:00Z' },
-      ] });
-    }
-    if (joined.includes('graphql') && joined.includes('enablePullRequestAutoMerge')) {
-      throw new Error('the GraphQL fallback mutation must never be called in the success path');
-    }
-    if (joined.includes('graphql')) {
-      graphqlCalls += 1;
-      const queued = graphqlCalls > 1;
-      return JSON.stringify({ data: { repository: { pullRequest: {
-        state: 'OPEN', mergedAt: null, mergeCommit: null,
-        isInMergeQueue: queued, mergeQueueEntry: queued ? { position: 1, state: 'QUEUED' } : null,
-        headRefOid: 'cafebabe', mergeStateStatus: 'CLEAN', autoMergeRequest: null,
-      } } } });
-    }
-    if (args[0] === 'pr' && args[1] === 'merge') return '✓ Auto-merge enabled';
-    throw new Error(`unexpected gh call: ${joined}`);
-  };
+test('t/534 A (Security condition 2): a commit list the API may have cut short is refused', async () => {
+  const fakeGh = forgedRowFake();
+  fakeGh.prCommits = 3; // the PR reports more commits than the list returned
+  const warnMock = mock.method(console, 'warn', () => {});
+  try {
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /commit list may be cut short \(listed 1, the PR reports 3/);
+  } finally { warnMock.mock.restore(); }
+  assert.equal(mergeCalls(fakeGh), 0);
+});
 
+test('t/534 A: positive control -- a reviewer-App approval bound to the head DOES reach gh pr merge, without reading any check run', async () => {
+  const fakeGh = forgedRowFake();
   const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
   assert.equal(result.state, 'queued');
-  assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 1);
+  assert.equal(mergeCalls(fakeGh), 1);
+  assert.equal(checkRunReads(fakeGh), 0);
+});
+
+test('t/534 A: an approval comment from the reviewer App itself (allowlisted) counts', async () => {
+  const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.', '2026-11-09T01:00:00Z', APP)] }));
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+  assert.equal(result.state, 'queued');
+});
+
+test('t/534 A: a T0 PR reads no approval data at all (exempt, unchanged)', async () => {
+  const fakeGh = forgedRowFake();
+  fakeGh.approvalError = 'must not be read';
+  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody', isDraft: false }));
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs') && joined.includes('tier-check')) return JSON.stringify({ check_runs: [] });
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+  assert.equal(result.state, 'queued');
+  assert.equal(fakeGh.calls.filter((a) => a.includes('--slurp')).length, 0);
+});
+
+test('t/534 A: an undeclared tier is evaluated as T1 (fail closed): no approval -> refused', async () => {
+  const fakeGh = forgedRowFake(approvalState({ reviews: [] }));
+  const happy = happyPathNext(JSON.stringify({ headRefOid: 'cafebabe', body: 'no tier line', isDraft: false }));
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs')) return FORGED_GREEN;
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A pure: approvalFromApiVerdict fails closed on missing or malformed inputs, and never throws', () => {
+  const base = { tier: 'T1', isDraft: false, headSha: 'cafebabe' };
+  assert.equal(approvalFromApiVerdict({ ...base, inputs: undefined }).reason, 'approval_lookup_error');
+  assert.equal(approvalFromApiVerdict({ ...base, inputs: { error: new Error('x') } }).reason, 'approval_lookup_error');
+  assert.equal(approvalFromApiVerdict({ ...base, inputs: { pr: null, commits: [], comments: [], reviews: [] } }).reason, 'approval_lookup_error');
+  assert.equal(approvalFromApiVerdict({ ...base, inputs: approvalState(), evaluate: () => { throw new Error('boom'); } }).reason, 'approval_cannot_evaluate');
+  assert.equal(approvalFromApiVerdict({ ...base, isDraft: true, inputs: approvalState() }).reason, 'draft');
+  assert.equal(approvalFromApiVerdict({ ...base, inputs: approvalState() }).reason, 'approved_at_head');
+});
+
+test('t/534 A: COMMENT_APPROVER_ALLOWLIST holds the reviewer App only, never the shared login', () => {
+  assert.deepEqual([...COMMENT_APPROVER_ALLOWLIST], [APP]);
+  assert.ok(!COMMENT_APPROVER_ALLOWLIST.includes('jpsnover'));
 });
 
 // t/4939 live incident (#4694 enqueue refusal, 2026-11-09): ci.yml also has a job named
