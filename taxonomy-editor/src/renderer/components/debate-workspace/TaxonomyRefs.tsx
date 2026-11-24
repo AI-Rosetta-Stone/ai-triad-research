@@ -8,7 +8,7 @@ import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import { humanizeSpeakerIds } from '../../utils/humanizeSpeakers';
 import {
-  nodeIdToTab, getNodeLabel, focusMainWindowNode,
+  nodeIdToTab, getNodeLabel,
   buildExplainPrompt, buildSelectionExplainPrompt, fixMarkdownLinks, resolvePolRef, getPolicyAction,
 } from './utils';
 import type { PolicyRefEntry } from './utils';
@@ -60,41 +60,6 @@ export function CoverageBadge({ coverageMap, strengthWeighted }: { coverageMap: 
     </span>
   );
 }
-
-export function TaxonomyPill({ taxRef, onSelect, selected }: {
-  taxRef: TaxonomyRef;
-  /** When provided, a click toggles inline selection instead of navigating to the main window (t/1724 pattern). */
-  onSelect?: (nodeId: string) => void;
-  selected?: boolean;
-}) {
-  const { colorVar } = nodeIdToTab(taxRef.node_id);
-  const label = getNodeLabel(taxRef.node_id);
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onSelect) onSelect(taxRef.node_id);
-    else focusMainWindowNode(taxRef.node_id);
-  };
-
-  const scoreLabel = taxRef.relevance_score != null
-    ? ` (${taxRef.relevance_score.toFixed(2)})`
-    : '';
-  const primaryMarker = taxRef.primary ? '★ ' : '';
-
-  return (
-    <span
-      className={`debate-taxonomy-pill debate-taxonomy-pill-clickable${taxRef.primary ? ' debate-taxonomy-pill-primary' : ''}${selected ? ' debate-taxonomy-pill-selected' : ''}`}
-      // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-      style={{ borderColor: colorVar, color: colorVar }}
-      title={`${primaryMarker}${label}${scoreLabel}\n${taxRef.relevance}`}
-      aria-pressed={onSelect ? selected === true : undefined}
-      onClick={handleClick}
-    >
-      {primaryMarker}{taxRef.node_id}{scoreLabel}
-    </span>
-  );
-}
-
 
 function CaveatsBox({ caveats }: { caveats: string[] }) {
   const qualityCaveats = caveats.filter(c => !c.startsWith('[Ungrounded]'));
@@ -678,13 +643,18 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, ent
   );
 }
 
+/** t/472: disclosure caret in front of an entry id. Decoration only; the button's aria-expanded carries the state. */
+function EntryCaret({ open }: { open: boolean }) {
+  return <span className="debate-reasoning-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>;
+}
+
 function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   taxRef: TaxonomyRef;
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
 }) {
   // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
-  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the row's button already
   // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
   const resolved = getNodeLabel(taxRef.node_id);
   const isMissing = !taxRef.label && resolved === taxRef.node_id;
@@ -692,17 +662,24 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
   const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
+  const open = selectedBdiNodeId === taxRef.node_id;
   return (
-    <div className="debate-reasoning-item">
-      <button
-        className="debate-reasoning-node"
-        // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-        style={{ color: colorVar }}
-        aria-expanded={selectedBdiNodeId === taxRef.node_id}
-        onClick={() => toggleBdiNode(taxRef.node_id)}
-      >
-        {taxRef.node_id}
-      </button>
+    // t/472 (Design p/14#76): the open entry is marked by a caret and a left rule in its POV colour, not by colour alone.
+    // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
+    <div className={`debate-reasoning-item${open ? ' debate-reasoning-item--open' : ''}`} style={open ? { borderLeftColor: colorVar } : undefined}>
+      {/* t/472: the chip row above each group is gone. Its primary marker sits beside the id; its relevance score is not shown (PI decision, p/6#150). Entries stay sorted by it. */}
+      <div className="debate-reasoning-head">
+        {taxRef.primary && <span className="debate-reasoning-primary" title="Primary reference" aria-label="Primary reference">★</span>}
+        <button
+          className="debate-reasoning-node"
+          // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
+          style={{ color: colorVar }}
+          aria-expanded={open}
+          onClick={() => toggleBdiNode(taxRef.node_id)}
+        >
+          <EntryCaret open={open} />{taxRef.node_id}
+        </button>
+      </div>
       {isMissing
         ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
         : <span className="debate-reasoning-label">{label}</span>}
@@ -753,11 +730,6 @@ function BdiGroup({ label, refs, selectedBdiNodeId, toggleBdiNode }: {
   return (
     <div className="taxrefs-bdi-group" role="group" aria-label={`${label}, ${refs.length} node${refs.length === 1 ? '' : 's'}`}>
       <div className="taxrefs-bdi-group-label">{label} ({refs.length})</div>
-      <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {refs.map((taxRef) => (
-          <TaxonomyPill key={taxRef.node_id} taxRef={taxRef} onSelect={toggleBdiNode} selected={selectedBdiNodeId === taxRef.node_id} />
-        ))}
-      </div>
       {refs.map((taxRef) => (
         <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
       ))}
@@ -773,32 +745,16 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
   return (
     <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
       <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
-      <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {polRefs.map((polRef, i) => {
-          const { id } = resolvePolRef(polRef);
-          return (
-            <span
-              key={`${id}-${i}`}
-              className={`debate-taxonomy-pill debate-taxonomy-pill-clickable taxrefs-pol-pill${selectedBdiNodeId === id ? ' debate-taxonomy-pill-selected' : ''}`}
-              title={getPolicyAction(id)}
-              aria-pressed={selectedBdiNodeId === id}
-              onClick={(e) => { e.stopPropagation(); toggleBdiNode(id); }}
-            >
-              {id}
-            </span>
-          );
-        })}
-      </div>
       {polRefs.map((polRef, i) => {
         const { id, relevance } = resolvePolRef(polRef);
         return (
-          <div key={`${id}-${i}`} className="debate-reasoning-item">
+          <div key={`${id}-${i}`} className={`debate-reasoning-item${selectedBdiNodeId === id ? ' debate-reasoning-item--open taxrefs-item-sit' : ''}`}>
             <button
               className="debate-reasoning-node taxrefs-node-sit"
               aria-expanded={selectedBdiNodeId === id}
               onClick={() => toggleBdiNode(id)}
             >
-              {id}
+              <EntryCaret open={selectedBdiNodeId === id} />{id}
             </button>
             <span className="debate-reasoning-label">{getPolicyAction(id)}</span>
             <span className="debate-reasoning-text">{relevance ?? "Policy action referenced by this debater's argument"}</span>
@@ -810,7 +766,7 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
 }
 
 /**
- * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
+ * The BDI grounding content: per-node entries, and the inline POV detail when a ref is
  * clicked. t/187: grouped Desires → Intentions → Beliefs (→ Situations), policy refs last. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
  * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
  * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).
