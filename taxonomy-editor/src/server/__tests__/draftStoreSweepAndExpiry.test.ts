@@ -135,7 +135,7 @@ describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
     expect([...files.keys()].filter(k => k.includes('/_submissions/')).length).toBe(1);
   });
 
-  it('a failed claim-marker read is logged, not silent (checkAlreadyClaimed)', async () => {
+  it('a failed claim-state read fails closed and is logged (checkAlreadyClaimed)', async () => {
     const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
     const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-6' });
     const draftId = (created as { draftId: string }).draftId;
@@ -143,7 +143,9 @@ describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
       if (normalize(p).includes('/claims/')) throw new Error('claim read boom');
       return files.get(normalize(p)) ?? null;
     });
-    await store.finalizeDraft(draftId, PRINCIPAL);
+    // Fail closed: an unreadable claim state refuses the finalize, and nothing is written (Security, t/185).
+    expect(await store.finalizeDraft(draftId, PRINCIPAL)).toEqual({ ok: false, reason: 'already_claimed' });
+    expect([...files.keys()].some(k => k.includes('/_submissions/'))).toBe(false);
     expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('checkAlreadyClaimed'))).toBe(true);
   });
 

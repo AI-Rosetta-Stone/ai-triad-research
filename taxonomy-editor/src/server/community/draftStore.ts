@@ -475,9 +475,10 @@ class DraftStoreImpl implements DraftStore {
         if (data !== null) return true;
       }
     } catch (err) {
-      // A read error here lets the claim guard pass. finalizeDraft's strict write still refuses a double claim,
-      // but this must not be silent (TL t/185#44, blocker 2).
-      log.server.warn(`checkAlreadyClaimed: read failed for draft ${logDraftId(draftId)}: ${(err as any)?.message} (claim guard skipped; strict write still enforces)`);
+      // Fail closed: when the claim state cannot be read, the draft is treated as claimed and refused.
+      // Letting the guard pass would rely on the strict write alone (Security, t/185).
+      log.server.warn(`checkAlreadyClaimed: read failed for draft ${logDraftId(draftId)}: ${(err as any)?.message} (treated as claimed; fail closed)`);
+      return true;
     }
     return false;
   }
