@@ -107,6 +107,19 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     expect(screen.getByRole('button', { name: 'pol-001' })).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('t/472: the open entry shows a down caret and the open class; a closed one shows a right caret', () => {
+    const { container } = render(<BdiGroundingView refs={REFS} policyRefs={['pol-001']} />);
+    const carets = () => Array.from(container.querySelectorAll('.debate-reasoning-caret')).map(c => c.textContent);
+    expect(carets()).toEqual(['▸', '▸']);
+    expect(container.querySelector('.debate-reasoning-caret')).toHaveAttribute('aria-hidden', 'true');
+    fireEvent.click(screen.getByRole('button', { name: NODE }));
+    expect(carets()).toEqual(['▾', '▸']);
+    expect(container.querySelectorAll('.debate-reasoning-item--open')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'pol-001' }));
+    expect(carets()).toEqual(['▸', '▾']);
+    expect(container.querySelector('.debate-reasoning-item--open')).toHaveClass('taxrefs-item-sit');
+  });
+
   it('t/472: a ref with no score shows no score; a primary ref keeps its marker', () => {
     const { container } = render(<BdiGroundingView refs={[{ node_id: NODE, relevance: 'r', primary: true }]} />);
     expect(container.querySelector('.debate-reasoning-score')).toBeNull();
@@ -167,7 +180,8 @@ describe('BdiGroundingView BDI grouping (t/187)', () => {
     render(<BdiGroundingView refs={MIXED} />);
     const beliefs = screen.getByRole('group', { name: 'Beliefs, 2 nodes' });
     const nodes = within(beliefs).getAllByRole('button').map(b => b.textContent);
-    expect(nodes).toEqual(['skp-beliefs-009', 'acc-beliefs-001']);
+    // t/472: each button's text starts with its (aria-hidden) disclosure caret.
+    expect(nodes).toEqual(['▸skp-beliefs-009', '▸acc-beliefs-001']);
     expect(within(screen.getByRole('group', { name: 'Desires, 1 node' })).queryByText('skp-beliefs-009')).not.toBeInTheDocument();
   });
 

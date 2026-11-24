@@ -80,6 +80,36 @@
   gap: 4px;
 }
 
+/* A long id breaks inside its own button and the star and score keep their places on its first line.
+   flex-wrap would instead drop the id and the score onto lines of their own (tried, t/472). */
+.debate-reasoning-head .debate-reasoning-node {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.debate-reasoning-score,
+.debate-reasoning-primary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* t/472: the open entry. The caret is the non-colour cue; the rule takes the entry's POV colour inline. */
+.debate-reasoning-caret {
+  display: inline-block;
+  width: 1em;
+  text-decoration: none;
+}
+
+.debate-reasoning-item--open {
+  border-left: 2px solid var(--text-secondary);
+  padding-left: 6px;
+}
+
+.taxrefs-item-sit {
+  border-left-color: var(--color-sit);
+}
+
 .debate-reasoning-score,
 .debate-reasoning-primary {
   font-family: monospace;

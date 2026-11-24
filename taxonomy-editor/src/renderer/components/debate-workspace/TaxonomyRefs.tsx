@@ -643,6 +643,11 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, ent
   );
 }
 
+/** t/472: disclosure caret in front of an entry id. Decoration only; the button's aria-expanded carries the state. */
+function EntryCaret({ open }: { open: boolean }) {
+  return <span className="debate-reasoning-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>;
+}
+
 function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   taxRef: TaxonomyRef;
   selectedBdiNodeId: string | null;
@@ -657,8 +662,11 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
   const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
+  const open = selectedBdiNodeId === taxRef.node_id;
   return (
-    <div className="debate-reasoning-item">
+    // t/472 (Design p/14#76): the open entry is marked by a caret and a left rule in its POV colour, not by colour alone.
+    // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
+    <div className={`debate-reasoning-item${open ? ' debate-reasoning-item--open' : ''}`} style={open ? { borderLeftColor: colorVar } : undefined}>
       {/* t/472: the chip row above each group is gone; the score and primary marker it carried sit beside the id. */}
       <div className="debate-reasoning-head">
         {taxRef.primary && <span className="debate-reasoning-primary" title="Primary reference" aria-label="Primary reference">★</span>}
@@ -666,10 +674,10 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
           className="debate-reasoning-node"
           // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
           style={{ color: colorVar }}
-          aria-expanded={selectedBdiNodeId === taxRef.node_id}
+          aria-expanded={open}
           onClick={() => toggleBdiNode(taxRef.node_id)}
         >
-          {taxRef.node_id}
+          <EntryCaret open={open} />{taxRef.node_id}
         </button>
         {taxRef.relevance_score != null && (
           <span className="debate-reasoning-score" title="Relevance score">· {taxRef.relevance_score.toFixed(2)}</span>
@@ -743,13 +751,13 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
       {polRefs.map((polRef, i) => {
         const { id, relevance } = resolvePolRef(polRef);
         return (
-          <div key={`${id}-${i}`} className="debate-reasoning-item">
+          <div key={`${id}-${i}`} className={`debate-reasoning-item${selectedBdiNodeId === id ? ' debate-reasoning-item--open taxrefs-item-sit' : ''}`}>
             <button
               className="debate-reasoning-node taxrefs-node-sit"
               aria-expanded={selectedBdiNodeId === id}
               onClick={() => toggleBdiNode(id)}
             >
-              {id}
+              <EntryCaret open={selectedBdiNodeId === id} />{id}
             </button>
             <span className="debate-reasoning-label">{getPolicyAction(id)}</span>
             <span className="debate-reasoning-text">{relevance ?? "Policy action referenced by this debater's argument"}</span>
