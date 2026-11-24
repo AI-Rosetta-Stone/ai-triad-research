@@ -197,7 +197,7 @@ type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds'
  *  is the rawDisabled early-return's own reason (t/4615 — previously
  *  reused `status=503`, conflating with genuine 503 fallbacks in the
  *  stats). */
-type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path';
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path' | 'private_repo';
 
 /** t/372 (CodeQL #6229, #6230): join a repo-relative path under `base` and refuse, before any
  *  write, anything that resolves outside `base`. toRepoPath's `..` check does not reach these
@@ -401,6 +401,15 @@ export class GitHubAPIBackend implements StorageBackend {
   // lifetime once tripped — avoids paying a raw miss on every single read
   // if raw starts misbehaving broadly (repo turns private, CDN outage).
   private rawDisabled = false;
+  // t/497: the data repo's visibility, from GET /repos/{repo}. null = not known (never read, or the last
+  // read failed), which means "try raw as today". Anything other than an explicit 'public' skips raw:
+  // the raw fetch is unauthenticated by design, so a private repo answers 404 to every request.
+  private repoVisibility: { isPublic: boolean; visibility: string; checkedAt: number } | null = null;
+  private repoVisibilityInFlight: Promise<void> | null = null;
+  private repoVisibilityLastAttemptAt = 0;
+  private rawSkipLogged = false;
+  private static readonly REPO_VISIBILITY_TTL_MS = 60 * 60_000;
+  private static readonly REPO_VISIBILITY_MIN_RECHECK_MS = 60_000;
   private rawFallbackWindowStart = 0;
   private rawFallbackWindowCount = 0;
   private static readonly RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE = 20;
@@ -624,6 +633,9 @@ export class GitHubAPIBackend implements StorageBackend {
       log.github.warn({}, 'storage.fallback: no GitHub credentials available — running in fallback mode');
       return;
     }
+
+    // t/497: one call per start; the answer is refreshed on a TTL and after an in-tree raw 404.
+    await this.refreshRepoVisibility('startup');
 
     const mainSha = await this.getLatestCommitSha();
     if (this.manifest && this.manifest.lastCommitSha === mainSha) {
@@ -1155,9 +1167,16 @@ export class GitHubAPIBackend implements StorageBackend {
         this.logNullReadReason(repoPath, 'not_found', optional);
         return null;
       }
-      this.recordRawFallback(rawResult.reason);
-      log.github.warn({ path: repoPath, reason: rawResult.reason },
-        `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+      if (rawResult.reason === 'private_repo') {
+        // t/497: a decision, not a failure. Count it, but keep it out of the disable window and out of
+        // the per-read WARN; noteRawSkippedForPrivateRepo logs it once.
+        this.rawFallbackCounts.private_repo = (this.rawFallbackCounts.private_repo ?? 0) + 1;
+        this.noteRawSkippedForPrivateRepo();
+      } else {
+        this.recordRawFallback(rawResult.reason);
+        log.github.warn({ path: repoPath, reason: rawResult.reason },
+          `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+      }
     }
 
     if (this.rest.isTripped()) {
@@ -3216,6 +3235,62 @@ export class GitHubAPIBackend implements StorageBackend {
     if (next) next();
   }
 
+  /** t/497: read the data repo's visibility with the installation token (api.github.com only). Never
+   *  throws. A failed or unreadable answer leaves the visibility unknown, which means "try raw as
+   *  today": skipping raw is only ever a quota saving, so it needs a positive answer. Single flight. */
+  private refreshRepoVisibility(trigger: 'startup' | 'ttl' | 'raw-404'): Promise<void> {
+    if (this.repoVisibilityInFlight) return this.repoVisibilityInFlight;
+    this.repoVisibilityLastAttemptAt = Date.now();
+    this.repoVisibilityInFlight = (async () => {
+      try {
+        const creds = await this.getCredsCached();
+        if (!creds) { this.repoVisibility = null; return; }
+        // optional: a 404 here (a token without metadata access, or a test double) is not an API error.
+        const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}`, undefined, undefined, { optional: true });
+        const data = resp.ok ? resp.data as { visibility?: unknown; private?: unknown } | null : null;
+        const visibility = typeof data?.visibility === 'string' ? data.visibility
+          : data?.private === false ? 'public' : data?.private === true ? 'private' : null;
+        if (visibility === null) {
+          this.repoVisibility = null;
+          log.storage.info({ trigger, status: resp.status }, 'repo visibility: could not be read; raw fetch stays as it was (t/497)');
+          return;
+        }
+        this.repoVisibility = { isPublic: visibility === 'public', visibility, checkedAt: Date.now() };
+        if (this.repoVisibility.isPublic) this.rawSkipLogged = false;
+        log.storage.info({ trigger, visibility }, 'repo visibility read (t/497)');
+      } catch (err: unknown) {
+        this.repoVisibility = null;
+        // INFO, not WARN: nothing degrades. Unknown visibility is the behaviour before t/497 (try raw).
+        log.storage.info({ trigger, errName: (err as Error)?.name ?? 'Error' }, 'repo visibility: read threw; raw fetch stays as it was (t/497)');
+      } finally {
+        this.repoVisibilityInFlight = null;
+      }
+    })();
+    return this.repoVisibilityInFlight;
+  }
+
+  /** t/497: true only when the repo is known, from a read no older than the TTL, not to be public. */
+  private async shouldSkipRawForPrivateRepo(): Promise<boolean> {
+    const known = this.repoVisibility;
+    if (!known) return false;
+    if (Date.now() - known.checkedAt > GitHubAPIBackend.REPO_VISIBILITY_TTL_MS) await this.refreshRepoVisibility('ttl');
+    return this.repoVisibility !== null && !this.repoVisibility.isPublic;
+  }
+
+  /** t/497: after a raw 404 for a path in the tree, re-read the visibility, at most once a minute. */
+  private recheckRepoVisibilityAfterRaw404(): void {
+    if (Date.now() - this.repoVisibilityLastAttemptAt < GitHubAPIBackend.REPO_VISIBILITY_MIN_RECHECK_MS) return;
+    void this.refreshRepoVisibility('raw-404');
+  }
+
+  /** t/497: one WARN per process (and again after the repo is seen public and turns private). */
+  private noteRawSkippedForPrivateRepo(): void {
+    if (this.rawSkipLogged) return;
+    this.rawSkipLogged = true;
+    log.github.warn({ visibility: this.repoVisibility?.visibility ?? null },
+      'fetchFileFromRaw: the data repo is not public, so the unauthenticated raw fetch is skipped; reads use the REST API (t/497)');
+  }
+
   /** TL condition 1's disable guard: a fixed one-minute window counting
    *  every raw-fallback event, regardless of reason. Crossing the threshold
    *  trips `rawDisabled` for the rest of the process's lifetime (never
@@ -3261,6 +3336,8 @@ export class GitHubAPIBackend implements StorageBackend {
    *  any failure becomes `fallback` for the caller to retry via REST. */
   private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
     if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
+    // t/497: a repo known not to be public would 404 here every time. Skip the request.
+    if (await this.shouldSkipRawForPrivateRepo()) return { kind: 'fallback', reason: 'private_repo' };
     // t/372 (CodeQL #6275): encodeURIComponent leaves '.' and '..', and the URL parser
     // normalises them, so refuse dot-segments before the URL is built.
     if (repoPath.split('/').some(seg => seg === '.' || seg === '..')) {
@@ -3290,6 +3367,9 @@ export class GitHubAPIBackend implements StorageBackend {
         // as a genuine absence — could be a renamed/moved CDN edge case, a
         // repo-visibility change, or raw misbehaving.
         if (this.isPathKnownInTree(repoPath)) {
+          // t/497 (Security): an in-tree path that 404s on raw may mean the repo is no longer public.
+          // Re-read the visibility in the background; this read falls back to REST either way.
+          this.recheckRepoVisibilityAfterRaw404();
           return { kind: 'fallback', reason: 'raw_404_but_in_tree' };
         }
         // t/4615: an unknown path still isn't trustworthy as genuinely
