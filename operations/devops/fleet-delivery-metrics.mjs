@@ -233,30 +233,38 @@ export function findSoClearedAt(comments, afterISO) {
 // post "**Second Opinion verdict, mirrored for the PI (round of ...): proceed with conditions at
 // `<sha>`**" or "...send back at `<sha>`", neither of which contains "cleared"/"clearing"/"did
 // not review" at all. consult-hold-aged's 2h time-box exists to catch "nobody has answered",
-// not "nobody has cleared it yet" -- a conditional reply or a send-back is still a REPLY, so it
-// should suppress the aged-timeout alarm the same way a clearance does (#5199 paged despite the
-// SO having already answered). Pinned to the comment's OWN cited head SHA matching the PR's
+// not "nobody has cleared it yet" -- a conditional reply is still a REPLY, so it suppresses the
+// aged-timeout alarm the same way a clearance does (#5199 paged despite the SO having already
+// answered). A SEND-BACK does not (Quality, #5286 review): the PR went back to its author, and
+// nothing else alerts on that state, so it keeps alerting under consult-hold-aged. Pinned to the comment's OWN cited head SHA matching the PR's
 // CURRENT head: a verdict comment from a since-superseded head must NOT suppress the alarm for
 // a genuinely-unanswered later push.
 const SO_VERDICT_HEADER_RE = /^[\s*_]*Second Opinion verdict\b/i;
 const SHA_IN_BACKTICKS_RE = /`([0-9a-f]{7,40})`/;
 
-/** PURE. True if any comment opens with the "Second Opinion verdict" header (any verdict word --
- * cleared, proceed-with-conditions, send-back) AND cites a head SHA (backtick-quoted hex) that
- * matches the PR's actual current head SHA (either is a prefix of the other, so a short or long
- * SHA on either side still matches). comments: [{ body }]. headSha: the PR's current head SHA,
- * or null/undefined (never matches -- no head to pin against is not evidence of a reply at it). */
+const SO_SEND_BACK_RE = /\bsen[dt][\s-]*back\b/i;
+
+/** PURE. True when the LATEST "Second Opinion verdict" comment that cites the PR's current head
+ * (backtick-quoted hex; either SHA a prefix of the other) is a clearance or "proceed with
+ * conditions". A **send-back** at the head is false (Quality, #5286 review): the PR went back to
+ * its author and must keep alerting under consult-hold-aged, since nothing else alerts on it. A
+ * later verdict at the same head replaces an earlier one. A verdict citing another head, a comment
+ * that only mentions "Second Opinion" mid-body, or no head to pin against: never counts.
+ * comments: [{ body }], oldest first (REST listComments order). headSha: the PR's current head. */
 export function soRepliedAtHead(comments, headSha) {
   if (!headSha) return false;
+  let latest = null;
   for (const c of comments ?? []) {
     const body = c.body ?? '';
     if (!SO_VERDICT_HEADER_RE.test(body)) continue;
     const m = body.match(SHA_IN_BACKTICKS_RE);
     if (!m) continue;
     const cited = m[1];
-    if (headSha.startsWith(cited) || cited.startsWith(headSha)) return true;
+    if (!(headSha.startsWith(cited) || cited.startsWith(headSha))) continue;
+    // The verdict word is in the header, before the cited head (`...: send back at \`<sha>\``).
+    latest = { sendBack: SO_SEND_BACK_RE.test(body.slice(0, m.index)) };
   }
-  return false;
+  return latest != null && !latest.sendBack;
 }
 
 /** PURE. prs: [{ body, ciGreenAt, mergedAt, soClearedAt }] -- T2 only (others are ignored, same

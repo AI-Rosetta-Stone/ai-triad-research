@@ -84,3 +84,12 @@ test('t/4972: plain chatter citing the head is not an SO reply', async () => {
   const { facts } = await run({ getCommit: noCommit, headSha: 'abc1234def', comments: [{ body: 'Head updated to `abc1234`', user: { type: 'User' }, created_at: '2026-11-09T12:00:00Z' }] });
   assert.equal(facts.soClearanceDetected, false);
 });
+
+test('t/4972 (Quality, #5286): an SO send-back at the current head still alerts (soClearanceDetected false); a clearance does not', async () => {
+  const back = { body: '**Second Opinion verdict, mirrored for the PI: send back at `abc1234`.** Rebase first.', user: { type: 'Bot' }, created_at: '2026-11-09T12:00:00Z' };
+  const { facts: sentBack } = await run({ getCommit: noCommit, headSha: 'abc1234def', comments: [back] });
+  assert.equal(sentBack.soClearanceDetected, false);
+  const cleared = { body: '**Second Opinion verdict: cleared at `abc1234`.**', user: { type: 'Bot' }, created_at: '2026-11-09T12:00:00Z' };
+  const { facts: ok } = await run({ getCommit: noCommit, headSha: 'abc1234def', comments: [cleared] });
+  assert.equal(ok.soClearanceDetected, true);
+});
