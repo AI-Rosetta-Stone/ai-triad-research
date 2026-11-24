@@ -18,6 +18,7 @@ import {
 } from './chatTaxonomyCap';
 import { selectChatSituations, CHAT_SITUATION_PRIMARY, type ScoredChatSituation } from './chatTaxonomySituations';
 import { chatSkipWarnings, buildChatTurnTrace, type ChatTurnTrace } from './chatTaxonomyTrace';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
 const QUERY_TRIM = 1000;
 
@@ -51,7 +52,7 @@ export interface ChatTurnDeps {
     queryText: string;
     nodeIds: string[];
   }) => Promise<Record<string, ChatStatement | null>>;
-  /** Records a WARN (the caller routes it to the flight recorder). */
+  /** Records a skip WARN (the caller routes it to the flight recorder). */
   warn: (message: string) => void;
 }
 
@@ -115,7 +116,10 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
       .map(s => ({ nodeId: s.nodeId, score: s.score }));
   } catch (err) {
     usedFallback = true;
-    deps.warn(`chat-taxonomy: reason=relevance-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); using deterministic fallback`);
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'chat-store', level: 'warn',
+      message: `chat-taxonomy: reason=relevance-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); using deterministic fallback`,
+    });
     pool = filePoolScores(ctx.povNodes);
     situationScores = ctx.situationNodes.map((n, i) => ({ nodeId: n.id, score: -i }));
   }
@@ -132,7 +136,10 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
       nodeIds: pool.map(n => n.nodeId),
     });
   } catch (err) {
-    deps.warn(`chat-taxonomy: reason=statements-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); nodes skipped`);
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'chat-store', level: 'warn',
+      message: `chat-taxonomy: reason=statements-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); nodes skipped`,
+    });
   }
   const { kept, skipped } = resolveChatNodes(pool, candidates, statements, boostIds);
   for (const warning of chatSkipWarnings(pov, skipped)) deps.warn(warning);
