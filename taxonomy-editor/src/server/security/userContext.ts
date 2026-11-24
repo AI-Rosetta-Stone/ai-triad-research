@@ -60,6 +60,12 @@ export function getStorageUserId(): string {
 }
 
 /** True when the current request has no authenticated principal. */
+/** t/516: true only inside a request that is positively anonymous. Unlike isAnonymousUser(), it is false outside
+ *  any request context, so background jobs keep their keys. */
+export function isAnonymousRequest(): boolean {
+  return als.getStore()?.isAnonymous === true;
+}
+
 export function isAnonymousUser(): boolean {
   return als.getStore()?.isAnonymous ?? true;
 }
