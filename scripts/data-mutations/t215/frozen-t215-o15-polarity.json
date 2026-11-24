@@ -1,0 +1,27 @@
+{
+  "ticket": "t/215 (Orca t/4703); PI approval p/6#132, relayed by the TL on t/215#6",
+  "data_commit": "365906e5",
+  "hash_basis": "sha256-lf",
+  "last_modified": "2026-11-24",
+  "edge": {
+    "key": ["org-002", "saf-beliefs-109", "ADVOCATES_FOR"],
+    "require": {
+      "status": "proposed",
+      "rationale": "match_basis=high-cosine families=1 best_cosine=0.657 (t/1553 Stage 3)"
+    },
+    "set": {
+      "type": "OPPOSES",
+      "rationale": "match_basis=high-cosine families=1 best_cosine=0.657 (t/1553 Stage 3) directional_flip=ADVOCATES_FOR->OPPOSES nli_dir=opposes nli_margin=5.1754 (t/215, t/334; PI-approved 2026-11-24)"
+    }
+  },
+  "no_change": {
+    "stored_correctly": ["O02", "O04", "O05", "O07", "O08", "O09", "O10", "O11", "O12", "O18", "O20", "O22", "O23", "O24", "O25", "O26", "O27"],
+    "stay_rejected": ["O17", "O28"]
+  },
+  "files": {
+    "taxonomy/Origin/organization_edges.json": {
+      "pre_sha256": "2ca276020a26797321d307c269eff3403ccf3a048d7fcd94d7455700176c5662",
+      "post_sha256": "b7377bcc680557447a7f13b0fdd0c399c43fd8986967c05338e8c38cde53272c"
+    }
+  }
+}
