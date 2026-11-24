@@ -182,7 +182,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # Bumped to :2026-11-10 (t/156, under t/155) — clears zlib1g CVE-2026-76844 (#6350), which the
 # deployed-image scan still reports for prod. DeployAzure verified the digest carries zlib1g
 # 1:...-1+deb13u1 (t/155#2). npm's bundled-undici alerts don't apply here: step 8 strips npm.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-22@sha256:d3d3c33d12c8465a1a426d4db5f84cc4c2bdf9c7eb1d3bda2c6e928489c9db5d AS runtime
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-24@sha256:65c0406769bbebb9765b810c92c055c1f711f6f58f441b2308c68c77d73a3ca5 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
