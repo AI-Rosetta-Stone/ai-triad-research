@@ -74,3 +74,18 @@ describe('t/501: anonymous requests never read the key store or the platform key
     expect(h.getKeys).toHaveBeenCalledWith('gemini', 'alice');
   });
 });
+
+// SO p/252#24: single-operator local mode (AUTH_DISABLED=1) makes every request anonymous-flagged. The operator is
+// the owner, so the owner's keys must still apply: the hosted gate does not fire.
+describe('t/501: AUTH_DISABLED single-operator mode keeps the owner\'s key lookup', () => {
+  const saved = process.env.AUTH_DISABLED;
+  beforeEach(() => { process.env.AUTH_DISABLED = '1'; });
+  afterEach(() => { if (saved === undefined) delete process.env.AUTH_DISABLED; else process.env.AUTH_DISABLED = saved; });
+
+  it('an anonymous-flagged request under AUTH_DISABLED reads the owner\'s key as before', async () => {
+    const key = await runWithUser(ANON_CTX, () => config.getApiKey('gemini'));
+    expect(h.getKeys).toHaveBeenCalledWith('gemini', '_local');
+    expect(key).toBe('OWNER-KEY-DO-NOT-USE');
+  });
+});
+

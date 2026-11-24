@@ -10,7 +10,7 @@ vi.mock('../security/keyStore.js', () => ({
   getKeyStore: () => ({ getKeys: async () => stored.keys }), // stored BYOK keys, [] unless a test sets them
 }));
 // t/501: config also reads isAnonymousRequest(); these tests are signed-in (not anonymous) by construction.
-vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'test-user', isAnonymousRequest: () => false }));
+vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'test-user', isAnonymousRequest: () => false, isHostedAnonymousRequest: () => false }));
 
 import { getApiKey, getApiKeys, getApiKeyForListing, hasApiKey } from '../config.js';
 
