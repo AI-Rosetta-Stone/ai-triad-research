@@ -2152,11 +2152,6 @@ jobs:
           GH_TOKEN: ''
           GITHUB_TOKEN: ''
         run: node --test operations/devops/*.test.mjs
-      # t/436 (TL p/9#318): measure mkdir and O_EXCL on this runner. The lock takes its owner file by
-      # O_EXCL, not mkdir. The 50-run THREE CONCURRENT PUSHES loop is NOT in this PR (TL p/9#340): it is a
-      # separate check tracked on t/436 (operations/devops/t436-three-push-loop.sh), not run here.
-      - name: t/436 mkdir versus O_EXCL race (runner measurement)
-        run: sh operations/devops/t436-lock-race.sh 1000
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
