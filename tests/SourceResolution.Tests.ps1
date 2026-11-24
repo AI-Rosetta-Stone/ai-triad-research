@@ -396,7 +396,7 @@ Describe 'Entity extraction never re-extracts a copy''s fact (TL e/347#7, spec 7
     BeforeEach { $script:F = script:New-Fixture }
     AfterEach { Remove-Item $script:F.Root -Recurse -Force -ErrorAction SilentlyContinue }
 
-    It 'skips a copy fact under the copy''s doc_id, and one re-attributed to the canonical with via; keeps the canonical''s own' {
+    It 'skips a copy fact under the copy''s doc_id; keeps the canonical''s own and a via fact (t/373: via is provenance, not a skip)' {
         InModuleScope AITriad -Parameters @{ F = $script:F } {
             $r = Get-SourceResolution -SourcesDir $F.Src -IndexPath $F.NoIndex 3>$null
             $entry = @{ facts = @(
@@ -404,15 +404,23 @@ Describe 'Entity extraction never re-extracts a copy''s fact (TL e/347#7, spec 7
                 @{ doc_id = 'report-2026-1'; claim = 'Copy claim, today''s index' }
                 @{ doc_id = 'report-2026';   claim = 'Copy claim, union index'; via = 'report-2026-1' }) }
             $w = ConvertTo-EntityExtractionWorkItem -NodeId 'saf-beliefs-001' -Entry $entry -Resolution $r
-            @($w.FactsText -split "`n") | Should -Be @('- Canonical claim')
+            @($w.FactsText -split "`n") | Should -Be @('- Canonical claim', '- Copy claim, union index')
             @($w.DocIds) | Should -Be @('report-2026')
         }
     }
 
-    It 'a fact with via is skipped even with no resolution available' {
+    It 'a via fact is extracted, not skipped, even with no resolution available (t/373)' {
         InModuleScope AITriad {
             $w = ConvertTo-EntityExtractionWorkItem -NodeId 'n' -Entry @{ facts = @(@{ doc_id = 'c'; claim = 'x'; via = 'c-1' }) } -Resolution $null
-            $w | Should -BeNullOrEmpty
+            $w.FactsText | Should -Be '- x'
+            @($w.DocIds) | Should -Be @('c')
+        }
+    }
+
+    It 'a via-only node yields a work item, so no node is left unextracted (t/373, 36 nodes in the corpus)' {
+        InModuleScope AITriad {
+            $w = ConvertTo-EntityExtractionWorkItem -NodeId 'n' -Entry @{ facts = @(@{ doc_id = 'c'; claim = 'only via'; via = 'c-1' }) } -Resolution $null
+            $w | Should -Not -BeNullOrEmpty
         }
     }
 }

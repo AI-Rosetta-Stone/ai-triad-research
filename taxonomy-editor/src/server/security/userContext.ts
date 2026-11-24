@@ -59,9 +59,42 @@ export function getStorageUserId(): string {
   return als.getStore()?.storageUserId || '_local';
 }
 
+/** t/516: true only inside a request that is positively anonymous. Unlike isAnonymousUser(), it is false outside
+ *  any request context, so background jobs keep their keys. */
+export function isAnonymousRequest(): boolean {
+  return als.getStore()?.isAnonymous === true;
+}
+
+/** t/516 (SO p/252#24): single-operator local mode (AUTH_DISABLED=1, outside production). Every request is then
+ *  anonymous, but the operator is the owner, so the owner's keys apply. Same rule as accessControl's
+ *  isAuthDisabledAllowed (L1); copied here so userContext stays free of accessControl's file-I/O imports, and a
+ *  test pins the two together. */
+export function isAuthDisabledMode(): boolean {
+  return process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'production';
+}
+
+/** t/516: a hosted anonymous request: positively anonymous AND not single-operator local mode. The key lookup
+ *  and the free-pool answer apply to these only. */
+export function isHostedAnonymousRequest(): boolean {
+  return isAnonymousRequest() && !isAuthDisabledMode();
+}
+
 /** True when the current request has no authenticated principal. */
 export function isAnonymousUser(): boolean {
   return als.getStore()?.isAnonymous ?? true;
+}
+
+// Same shape as accessControl's ANON_SESSION_UUID_RE (crypto.randomUUID output). Copied here to keep
+// userContext free of accessControl's file-I/O imports.
+const ANON_SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** t/467 (TL p/16#209, PI option a): the storage id for an ANONYMOUS visitor. Each visitor with a valid
+ *  anon_session_id cookie gets its own `anon-<uuid>` key, so their data and run slot are not shared with
+ *  each other or with the local user's '_local' store. Without a valid cookie it returns '_local' (the
+ *  legacy behaviour); op-ed creation refuses that case before any write. The cookie must come from
+ *  parseCookies(req), never a query, body or header. */
+export function anonymousStorageUserId(sessionId: string | undefined): string {
+  return sessionId !== undefined && ANON_SESSION_UUID_RE.test(sessionId) ? `anon-${sessionId}` : '_local';
 }
 
 /** Anonymous session ID from cookie, or undefined if not anonymous. */

@@ -1,0 +1,166 @@
+{
+ "status": "Succeeded",
+ "error": null,
+ "changes": [
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.App/containerApps/taxonomy-editor"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.App/containerApps/taxonomy-editor-staging"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.App/managedEnvironments/cae-aitriad"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.CognitiveServices/accounts/ATRIAD"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.CognitiveServices/accounts/ATRIAD/projects/proj-default"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/actiongroups/ag-aitriad-restart-alert"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/microsoft.insights/actiongroups/Application Insights Smart Detection"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/actiongroups/phase3-runbook-triggers"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/microsoft.insights/activityLogAlerts/Azure heath"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/components/appi-aitriad-kvwl3nywge4iw"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/metricalerts/alert-ingress-5xx-backstop"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-aadsts-any-error"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-aadsts-config-error"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-branch-divergence"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-cache-degraded"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-data-root-boot-warn"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-event-loop-blocked"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-fallback-active"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-free-pool-headroom"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-github-api-error-spike"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-github-api-refused"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-github-circuit-open"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-github-rate-limit-critical"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-github-rate-limit-warning"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-grounding-sweep-stall"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-image-pull-failure"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-paid-fallback-overflow"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-prod-container-backoff"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-replica-hours-24h"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-restart-loop"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-staging-container-backoff"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-stuck-revision-replica"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-worker-queue-nearcap"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Insights/scheduledqueryrules/alert-worker-queue-saturation"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.KeyVault/vaults/kv-ait-kvwl3nywge4iw"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.OperationalInsights/workspaces/log-aitriad-kvwl3nywge4iw"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw"
+  },
+  {
+   "changeType": "Create",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadstg19"
+  },
+  {
+   "changeType": "Create",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadstg19/fileServices/default/shares/taxonomy-data-staging"
+  },
+  {
+   "changeType": "Ignore",
+   "resourceId": "/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/strunnerkvwl3nywge4iw"
+  }
+ ]
+}

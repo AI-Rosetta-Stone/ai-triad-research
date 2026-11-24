@@ -116,6 +116,20 @@ import type { TagSelection as _TagSelection } from '@lib/debate/types/session';
 export type TagSelection = _TagSelection;
 export type RelevantTaxonomyResult = _RelevantTaxonomyResult;
 
+/** t/348: payload for `chatSyntheticStatements`. `pov` is the POV file key; `queryText` is the chat query
+ *  (trimmed by the caller to about 1,000 chars); `nodeIds` are the selected BDI node ids (at most 12). */
+export interface ChatSyntheticStatementsPayload {
+  pov: 'accelerationist' | 'safetyist' | 'skeptic';
+  queryText: string;
+  nodeIds: string[];
+}
+
+/** t/425: the statement chosen for one node, with its index in the node's corpus (for the trace). */
+export interface ChatSyntheticStatement {
+  text: string;
+  index: number;
+}
+
 /**
  * Payload for `fetchRelevantNodes` (t/3258 T3). Mirrors `SelectRelevantTaxonomyInput['session']` +
  * `params` — ONLY the per-session state the server/main cannot reconstruct crosses the wire; the
@@ -130,6 +144,10 @@ export interface FetchRelevantNodesPayload {
   recentTranscript: string;
   /** Default 0.45 (applied by the lib fn when omitted). */
   threshold?: number;
+  /** t/424: pool sizes. Omitted → the route's debate defaults (3, 35). Chat passes them to keep the full pool;
+   *  the 12-node cap is applied by the chat wrapper after scoring, never here. */
+  minPerCategory?: number;
+  maxTotal?: number;
   session: {
     /** `argument_network.nodes[]` with embeddings — the PRIMARY scoring signal; `text` for provenance. */
     anClaimEmbeddings: ANClaimInput[];
@@ -556,6 +574,11 @@ export interface AppAPI {
   // Electron → IPC → a main handler mirroring routes/relevantNodes.ts (packaged Electron has no
   // embedded server). Only per-session state crosses the wire; the corpus is assembled server/main-side.
   fetchRelevantNodes: (payload: FetchRelevantNodesPayload) => Promise<RelevantTaxonomyResult>;
+  // t/348: read-only chat lookup. For each selected BDI node, the corpus statement closest to the chat
+  // query, or null (the caller then skips and backfills the node; it never falls back to description).
+  // Web → POST /api/taxonomy/chat-synthetic-statements; Electron → IPC 'chat-synthetic-statements'.
+  // Never returns vectors or corpus.
+  chatSyntheticStatements: (payload: ChatSyntheticStatementsPayload) => Promise<Record<string, ChatSyntheticStatement | null>>;
   // t/3316 (t/3297 client half): server/main-side per-claim taxonomy attribution — the debate client
   // stops assembling the corpus for attribution. Both transports run the SAME pure fn
   // (computeClaimTaxonomyAttribution). Web → REST POST /api/argument-network/attribution; Electron →

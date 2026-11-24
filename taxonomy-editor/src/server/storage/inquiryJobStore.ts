@@ -50,6 +50,7 @@ import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { getUserContentBackend, assertSafeId, writeFileIfAbsentStrict } from './fileIO.js';
 import type { WriteIfAbsentResult } from './storageBackend.js';
+import type { InquiryStageTimings } from '../../../../lib/inquiry/jobStatus.js';
 import type { InquiryJobStatus } from '../../../../lib/inquiry/index.js';
 
 // ── Staleness threshold (SO condition 8; e/221#6 framing correction) ──
@@ -124,6 +125,8 @@ export interface InquiryJobRecord {
   startedAt: number;
   /** t/182: Idempotency key for de-duplication. null if the request didn't provide one (no idempotency). */
   idempotencyKey: string | null;
+  /** t/326: per-stage timings (t/325). Optional: records written before the field existed still load. */
+  stageTimings?: InquiryStageTimings;
 }
 
 /** The per-user job-record directory ('_local' → the legacy unscoped dir). Exported for jobRecords.ts. */

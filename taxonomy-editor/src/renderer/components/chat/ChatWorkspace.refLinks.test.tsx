@@ -46,7 +46,11 @@ const lookupPinnedData = vi.fn((id: string) => ({
   node: { id, label: `Label for ${id}` },
 }));
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
+  // t/167: the shared BdiGroundingView reads the store imperatively via getState().
+  useTaxonomyStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
+    { getState: () => ({ lookupPinnedData, getLabelForId: (id: string) => `Label for ${id}` }) },
+  ),
 }));
 vi.mock('../../hooks/useAuthStatus', () => ({ useUserProfile: () => null }));
 vi.mock('@bridge', () => ({ api: { submitToCommunity: vi.fn(), exportChatToFile: vi.fn() } }));
@@ -116,7 +120,7 @@ describe('ChatWorkspace — inline ID-ref links (t/1777)', () => {
   it('a taxonomy-ref pill opens inline detail, not the shared DetailPane (t/4627)', () => {
     mockChatStoreState = { activeChat: makeChat({ transcript: [messageWith('Hello', [{ node_id: 'sit-5', relevance: 'r' }])] }) };
     render(<ChatWorkspace />);
-    const pill = screen.getByText('sit-5'); // single match before the detail (which also shows the id) opens
+    const pill = screen.getAllByText('sit-5')[0]; // first match is the pill; the detail (opened by it) also shows the id
     fireEvent.click(pill);
     expect(screen.queryByTestId('chat-detail-pane')).toBeNull();
     expect(screen.getByText('Label for sit-5')).toBeInTheDocument();

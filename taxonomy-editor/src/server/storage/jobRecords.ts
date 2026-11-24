@@ -24,6 +24,7 @@ import { getUserContentBackend, getBriefExportBackend } from './fileIO.js';
 import { getInquiryJobsDir, type InquiryJobRecord } from './inquiryJobStore.js';
 import { getBriefExportJobsDir, type BriefExportJobRecord } from './briefExportJobStore.js';
 import type { StorageBackend } from './storageBackend.js';
+import { GitHubAPIBackend } from './githubAPIBackend.js';
 
 export type JobRecordKind = 'inquiry' | 'brief-export';
 export type JobRecordOf<K extends JobRecordKind> = K extends 'inquiry' ? InquiryJobRecord : BriefExportJobRecord;
@@ -42,6 +43,9 @@ function listFailed(kind: JobRecordKind, dir: string, err: unknown): ActionableE
   });
 }
 
+/** How many job records listUserJobRecords reads at once (t/268 item 6). */
+export const JOB_RECORD_READ_CONCURRENCY = 8;
+
 /** The userId becomes a path segment. Storage ids are sanitized upstream (deriveStorageUserId) but
  *  may contain characters assertSafeId rejects (e.g. '+'), so only refuse what could escape. */
 function assertUserSegment(userId: string): void {
@@ -52,6 +56,7 @@ function assertUserSegment(userId: string): void {
       location: 'storage/jobRecords.ts listUserJobRecords',
       nextSteps: ['Pass getStorageUserId() for the current request'],
       httpStatus: 400,
+      code: 'INVALID_STORAGE_USER_ID',
     });
   }
 }
@@ -95,7 +100,22 @@ export async function listUserJobRecords<K extends JobRecordKind>(userId: string
   const { backend, dir } = target(userId, kind);
   let names: string[];
   try {
-    names = await backend.listDirectory(dir);
+    if (backend instanceof GitHubAPIBackend) {
+      // t/268 (item 5): a degraded [] must not read as "no records", or a job cap fails open.
+      const listing = await backend.listDirectoryDetailed(dir);
+      if (listing.degraded) {
+        log.storage.warn({ dir, degraded: listing.degraded, kind }, 'listUserJobRecords: degraded GitHub listing — job cap fails closed (JOB_RECORD_LIST_FAILED, 503) (t/268)');
+        throw new ActionableError({
+          goal: 'Count job records for a job cap',
+          problem: `GitHub listing degraded (${listing.degraded}); cannot confirm the record count`,
+          location: 'jobRecords.listUserJobRecords',
+          nextSteps: ['Retry once the GitHub backend is reachable; the cap fails closed until then'],
+        });
+      }
+      names = listing.names;
+    } else {
+      names = await backend.listDirectory(dir);
+    }
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'job-records', level: 'error', message: `listUserJobRecords: listing failed: ${dir}`,
@@ -104,21 +124,40 @@ export async function listUserJobRecords<K extends JobRecordKind>(userId: string
     throw listFailed(kind, dir, err);
   }
 
-  const records: JobRecordOf<K>[] = [];
-  for (const name of names.filter(n => JOB_FILE_RE.test(n))) {
-    let raw: string | null;
-    try {
-      raw = await backend.readFile(path.join(dir, name));
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'job-records', level: 'error', message: `listUserJobRecords: read failed: ${name}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw listFailed(kind, dir, err);
+  // t/268 (item 6): read the records with bounded concurrency. One at a time made a cap check wait on N
+  // sequential backend reads; all at once would put N requests on the backend for one user's listing.
+  const recordNames = names.filter(n => JOB_FILE_RE.test(n));
+  const raws = new Array<string | null>(recordNames.length).fill(null);
+  let next = 0;
+  let failure: unknown;
+  let failed = false;
+  const worker = async (): Promise<void> => {
+    while (!failed) {
+      const i = next++;
+      if (i >= recordNames.length) return;
+      const name = recordNames[i];
+      try {
+        raws[i] = await backend.readFile(path.join(dir, name));
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'job-records', level: 'error', message: `listUserJobRecords: read failed: ${name}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        if (!failed) { failed = true; failure = err; }
+        return;
+      }
     }
-    if (raw === null) continue; // deleted between list and read (completion / retention sweep)
+  };
+  await Promise.all(Array.from({ length: Math.min(JOB_RECORD_READ_CONCURRENCY, recordNames.length) }, () => worker()));
+  // A read failure is never a silently shorter list: a cap that counted it would fail open.
+  if (failed) throw listFailed(kind, dir, failure);
+
+  const records: JobRecordOf<K>[] = [];
+  recordNames.forEach((name, i) => {
+    const raw = raws[i];
+    if (raw === null) return; // deleted between list and read (completion / retention sweep)
     const rec = parseRecord(kind, userId, name, raw);
     if (rec) records.push(rec as JobRecordOf<K>);
-  }
+  });
   return records;
 }

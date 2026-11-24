@@ -114,6 +114,26 @@ param freePoolDailyCallsCapStaging string = '300'
 // live incident instead of a code review.
 @description('AZURE_USER_CONTENT_CONTAINER override for staging only (t/4738). Isolates staging chats/debates from prod.')
 param azureUserContentContainerStaging string = 'staging-user-content'
+// ── Anonymous op-ed retention backstop (t/500, TL p/12#148/#149) ──
+// Deletes anonymous op-ed blobs older than the age below, independent of app code. The sweep and
+// lazy expiry are the mechanism; this rule is the backstop for the 24-hour promise.
+// Azure lifecycle rules match a literal prefix only, so the prefix must be a dedicated top-level
+// prefix that no signed-in storage id can produce (TaxonomyServer decides it; TL ruling t/500#15).
+// NOT SET: the default '' adds no rule. Every flag defaults off, so merging this changes nothing.
+// Order: staging first (anonOpEdLifecycleStagingEnabled), then prod before the prod deploy that
+// carries the t/500 code (anonOpEdLifecycleProdEnabled). Each needs SO clearance and the dry listing.
+@description('Blob name prefix (inside the container) for anonymous op-ed storage. Must be a top-level prefix no signed-in storage id can produce. Set to anon-oped/ (TaxonomyServer, t/500). Empty adds no rule.')
+@allowed([
+  'anon-oped/'
+])
+param anonOpEdLifecyclePrefix string = 'anon-oped/'
+@description('Apply the anonymous op-ed delete rule to staging-user-content. Staging first.')
+param anonOpEdLifecycleStagingEnabled bool = false
+@description('Apply the anonymous op-ed delete rule to user-content (prod). Only after staging has run clean and the PI is told.')
+param anonOpEdLifecycleProdEnabled bool = false
+@description('Age in days after last modification before an anonymous op-ed blob is deleted. Two days: the stamp rewrites at most hourly, and the policy runs daily.')
+param anonOpEdLifecycleAgeDays int = 2
+
 @description('AZURE_COMMUNITY_CONTAINER override for staging only (t/4738). Isolates staging community submissions from prod — without this, a staging test item could be approved and published on the public prod site.')
 param azureCommunityContainerStaging string = 'staging-community'
 @description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
@@ -534,12 +554,57 @@ resource stagingBriefExportsContainer 'Microsoft.Storage/storageAccounts/blobSer
 // 30-day flat delete on brief-exports and staging-brief-exports.
 // Zero runtime cost; runs even when the app is scaled to 0.
 // Count-quota (t/2831) handles live hygiene; this rule handles stale cleanup.
+// Anonymous op-ed rules (t/500). Included only when a prefix is set AND the flag is on.
+// Fail-safe: a prefix under users/ (signed-in storage ids) is never a rule target, and an unset
+// prefix adds nothing. A silent skip here deletes nothing, which is the safe direction.
+var anonOpEdPrefixSafe = !empty(anonOpEdLifecyclePrefix) && !startsWith(anonOpEdLifecyclePrefix, 'users/')
+var anonOpEdLifecycleRules = concat(
+  (anonOpEdLifecycleStagingEnabled && anonOpEdPrefixSafe)
+    ? [
+        {
+          name: 'delete-anon-oped-staging'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonOpEdLifecycleAgeDays } }
+            }
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['${azureUserContentContainerStaging}/${anonOpEdLifecyclePrefix}']
+            }
+          }
+        }
+      ]
+    : [],
+  (anonOpEdLifecycleProdEnabled && anonOpEdPrefixSafe)
+    ? [
+        {
+          name: 'delete-anon-oped-prod'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonOpEdLifecycleAgeDays } }
+            }
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['user-content/${anonOpEdLifecyclePrefix}']
+            }
+          }
+        }
+      ]
+    : []
+)
+
 resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
   parent: storageAccount
   name: 'default'
   properties: {
     policy: {
-      rules: [
+      rules: concat([
         {
           name: 'delete-stale-brief-exports'
           enabled: true
@@ -561,7 +626,7 @@ resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/manageme
             }
           }
         }
-      ]
+      ], anonOpEdLifecycleRules)
     }
   }
 }
@@ -766,6 +831,12 @@ var stagingEnvOverrides = [
   { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
+  // t/77 / t/406: staging writes only to its own data repo, never prod's. Staging starts empty
+  // (PI-confirmed, option B). Prod's baseEnv keeps GITHUB_REPO = prod.
+  { name: 'GITHUB_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
+  { name: 'STAGING_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
+  // t/406: the staging App ID, for the staging boot guard. Same value as GITHUB_APP_ID on staging.
+  { name: 'STAGING_APP_ID', value: stagingGithubAppId }
   // Isolated cache dir only — AI_TRIAD_DATA_ROOT=/mnt/shared inherited from baseEnv
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount

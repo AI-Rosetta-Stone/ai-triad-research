@@ -238,3 +238,48 @@ test('repin-tier.mjs has no imports (the T0 sweep imports it as-is) and is the r
   assert.equal(standalone.classifyRepinTier(before, dockerfile('2026-11-08', D_NEW)).tier, 'T0');
   assert.equal(standalone.classifyRepinTier(before, `${before}\nUSER root`).tier, 'T1');
 });
+
+// ---- t/377: GHCR-derived values must not inject extra $GITHUB_OUTPUT lines -------------------
+
+test('checkOutputLines: emits latest_*/branch only for a validated date tag + sha256 digest', async () => {
+  const { checkOutputLines } = await import('./base-pin-drift.mjs');
+  const pin = { tag: '2026-11-10', digest: D_OLD, lineIndex: 2 };
+  const ok = checkOutputLines({ verdict: 'FAIL', reason: 'r', gate: 'g' }, { tag: '2026-11-11', digest: D_NEW }, pin);
+  assert.ok(ok.includes(`latest_digest=${D_NEW}`));
+  assert.ok(ok.includes('branch=docker/base-repin-2026-11-11-bbbbbbbbbbbb'));
+  // A docker-content-digest header carrying a newline must not add a `branch=` (or any) line.
+  const evil = checkOutputLines({ verdict: 'GATE-UNREADABLE', reason: 'r', gate: 'g' }, { tag: '2026-11-11', digest: `${D_NEW}\nbranch=main` }, pin);
+  assert.equal(evil.filter((l) => l.startsWith('branch=')).length, 0, evil.join(' | '));
+  assert.equal(evil.some((l) => l.startsWith('latest_')), false);
+  assert.ok(evil.every((l) => !/[\r\n]/.test(l)));
+  // A non-date tag is likewise withheld.
+  const badTag = checkOutputLines({ verdict: 'FAIL', reason: 'r', gate: 'g' }, { tag: 'latest', digest: D_NEW }, pin);
+  assert.equal(badTag.some((l) => l.startsWith('latest_') || l.startsWith('branch=')), false);
+});
+
+test('checkOutputLines (Security residual 3): hostile digest adds no key and leaves verdict= unchanged', async () => {
+  const { checkOutputLines } = await import('./base-pin-drift.mjs');
+  const pin = { tag: '2026-11-10', digest: D_OLD, lineIndex: 2 };
+  const hostile = { tag: '2026-11-11', digest: `${D_NEW}\nbranch=main\nverdict=FAIL` };
+  const lines = checkOutputLines({ gate: 'base-pin-drift', verdict: 'GATE-UNREADABLE', reason: 'r' }, hostile, pin);
+  const keys = lines.map((l) => l.split('=')[0]);
+  assert.deepEqual(keys, ['gate', 'verdict', 'reason', 'pinned_tag', 'pinned_digest'], lines.join(' | '));
+  assert.deepEqual(lines.filter((l) => l.startsWith('verdict=')), ['verdict=GATE-UNREADABLE']);
+});
+
+test('checkOutputLines (Security residual 2): a line break in a pin value drops that line, never splits it', async () => {
+  const { checkOutputLines } = await import('./base-pin-drift.mjs');
+  const pin = { tag: '2026-11-10', digest: `${D_OLD}\nverdict=PASS`, lineIndex: 2 };
+  const lines = checkOutputLines({ gate: 'g', verdict: 'FAIL', reason: 'r' }, { tag: '2026-11-11', digest: D_NEW }, pin);
+  assert.equal(lines.some((l) => l.startsWith('pinned_digest=')), false);
+  assert.deepEqual(lines.filter((l) => l.startsWith('verdict=')), ['verdict=FAIL']);
+  assert.ok(lines.every((l) => !/[\r\n]/.test(l)));
+});
+
+test('tierOutputLines (t/474): tier lines pass the same CR/LF filter as check; a line break drops the line', async () => {
+  const { tierOutputLines, dropLineBreakLines } = await import('./base-pin-drift.mjs');
+  assert.deepEqual(tierOutputLines('T0', 'digest-only re-pin'), ['tier=T0', 'tier_reason=digest-only re-pin']);
+  assert.deepEqual(tierOutputLines('T1', 'r\ntier=T0'), ['tier=T1']);
+  assert.deepEqual(tierOutputLines('T1\r\nverdict=PASS', 'r'), ['tier_reason=r']);
+  assert.deepEqual(dropLineBreakLines(['a=1', 'b=2\nc=3', 'd=4\r']), ['a=1']);
+});

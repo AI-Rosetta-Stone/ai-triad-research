@@ -117,9 +117,9 @@
   white-space: nowrap;
   line-height: 1.4;
 }
-.coverage-badge-green { background: rgba(34,197,94,0.15); color: #16a34a; }
-.coverage-badge-yellow { background: rgba(234,179,8,0.15); color: #a16207; }
-.coverage-badge-red { background: rgba(239,68,68,0.15); color: #dc2626; }
+.coverage-badge-green { background: var(--success-bg); color: var(--success-text); }
+.coverage-badge-yellow { background: var(--warning-bg); color: var(--warning-text); }
+.coverage-badge-red { background: var(--error-bg); color: var(--error-text); }
 
 
 /* ─── Monolith-extracted styles (Phase 3 co-location, t/2989) ─── */
@@ -236,8 +236,8 @@
 .taxrefs-directive-badge {
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(245, 158, 11, 0.2);
-  color: #d97706;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -305,8 +305,8 @@
   display: inline-block;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(168, 85, 247, 0.2);
-  color: #a855f7;
+  background: var(--violet-bg);
+  color: var(--violet-text);
   font-size: var(--text-2xs);
   font-weight: 600;
 }
@@ -447,7 +447,7 @@
 }
 
 .claim-map-headline {
-  font-size: 1.4rem;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.3;
@@ -524,7 +524,7 @@
 }
 
 .claim-map-arg-header h3 {
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -544,7 +544,7 @@
 }
 
 .claim-map-dot {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
 }
 
 .claim-map-dot-info {
@@ -696,6 +696,7 @@
 
 .claim-map-attack-footer {
   display: flex;
+  align-items: center;
   gap: 8px;
   font-size: var(--text-2xs);
   margin-top: 8px;
@@ -832,4 +833,26 @@
   .claim-map-attack-col {
     order: 2;
   }
+}
+
+/* t/4656: match the Text pane's statement body size (.debate-statement-content,
+   StatementCard.css) so the reading prose in Why/How is the same size as Text — only the
+   small meta (ids, chips, section headings) stays at --text-xs. */
+.debate-reasoning-label {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.debate-reasoning-text {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  font-style: italic;
+}
+
+/* t/282 (Design): a missing node reads as text, not its id again. */
+.debate-reasoning-label--missing {
+  color: var(--text-secondary);
+  font-style: italic;
 }

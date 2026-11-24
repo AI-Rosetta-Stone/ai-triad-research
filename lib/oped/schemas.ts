@@ -51,6 +51,28 @@ export const OpEdStageSchema = z.object({
   temperature: z.number().optional(),
 });
 
+// t/435: the readability and coherence observability records (types.ts EditingMeta, CoherenceMeta). Declared so the
+// strip class can't drop them on save (finalizeOpedSet parses before writing). Log-only; no consumer branches on them.
+const EditingMetaSchema = z.object({
+  edited: z.boolean(),
+  fk_before: z.number(),
+  fk_after: z.number(),
+  checks_failed_after: z.array(z.string()),
+  reverted_reason: z.string().optional(),
+});
+
+const CoherenceMetaSchema = z.object({
+  any_flagged: z.boolean(),
+  checks_fired: z.array(z.string()),
+  flags: z.array(z.object({ check_id: z.string(), span_a: z.string(), span_b: z.string(), why: z.string() })),
+  judge_model: z.string(),
+  body_length_before: z.number(),
+  body_length_after: z.number().optional(),
+  rewritten: z.boolean(),
+  checks_still_flagged_after: z.array(z.string()).optional(),
+  reverted_reason: z.string().optional(),
+});
+
 export const OpEdMemberSchema = z.object({
   pov: PovKeySchema,
   status: z.enum(['complete', 'failed', 'cancelled']),
@@ -80,6 +102,9 @@ export const OpEdMemberSchema = z.object({
   // (finalizeOpedSet parses before writing). `stage` stays a plain string: an older reader must never reject
   // a whole set over a stage name a newer generator added.
   stages: z.array(OpEdStageSchema).optional(),
+  // t/435: see EditingMetaSchema and CoherenceMetaSchema above.
+  editing_meta: EditingMetaSchema.optional(),
+  coherence_meta: CoherenceMetaSchema.optional(),
 });
 
 export const OpEdSetSchema = z.object({

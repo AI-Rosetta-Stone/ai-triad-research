@@ -16,7 +16,8 @@ import { fileURLToPath } from 'node:url';
 import {
   evidenceKey, evidenceNearEqual, extractSummaryEvidenceLinks, mergeGroupEvidence,
   deriveEntityMentionContainers, isDerivedMentionContainerKey,
-  type EvidenceLink, type EvidenceUnionMember,
+  resolveDocId, groupMembers,
+  type EvidenceLink, type EvidenceUnionMember, type EvidenceDoc,
 } from './evidenceUnion.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,15 @@ const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as {
   }[];
   derived_key_regex: string;
   derived_key_cases: { key: string; derived: boolean }[];
+  resolve_cases: { name: string; docs: Record<string, EvidenceDoc & { summary?: unknown }>; id: string; expected: string }[];
+  chunk_union_cases: {
+    name: string;
+    canonical: string;
+    docs: Record<string, EvidenceDoc & { summary?: unknown; chunk_generated_at?: string; chunk_model?: string }>;
+    expected: Record<string, Array<EvidenceLink & { doc: string; via?: string; chunk_of?: string; chunk_generated_at?: string; chunk_model?: string }>>;
+    expected_documents: number;
+    expected_extracted: Record<string, unknown[]>;
+  }[];
 };
 
 describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => {
@@ -79,6 +89,42 @@ describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => 
 
   // t/4419 (spec 7.7, #3688): entity-mention `via-` containers — no TS consumer yet,
   // fixture parity only.
+  // t/479 (spec 6.2, 7.1, 7.4, 7.5, 7.6a; fixture v3): summary-only chunks resolve to their base and union into its group.
+  describe('resolve_cases', () => {
+    for (const c of fixture.resolve_cases) {
+      it(c.name, () => {
+        expect(resolveDocId(c.id, c.docs)).toBe(c.expected);
+      });
+    }
+  });
+
+  describe('chunk_union_cases', () => {
+    for (const c of fixture.chunk_union_cases) {
+      it(c.name, () => {
+        const members = groupMembers(c.canonical, c.docs);
+        const withLinks = (id: string) => extractSummaryEvidenceLinks(c.docs[id]?.summary as never);
+        const all: EvidenceUnionMember<EvidenceLink>[] = [
+          { id: c.canonical, links: withLinks(c.canonical) },
+          ...members.map(m => ({
+            id: m.id,
+            kind: m.kind,
+            viaCopy: m.viaCopy,
+            chunkGeneratedAt: c.docs[m.id]?.chunk_generated_at,
+            chunkModel: c.docs[m.id]?.chunk_model,
+            links: withLinks(m.id),
+          })),
+        ];
+        const merged = mergeGroupEvidence(c.canonical, all);
+        expect(merged).toEqual(c.expected);
+        // Extraction reads every kept fact (7.6, 7.6a): nothing is skipped on via or chunk_of.
+        expect(merged).toEqual(c.expected_extracted);
+        // 7.5: the group is one document, however many chunks it has.
+        const documents = new Set(all.map(m => resolveDocId(m.id, c.docs)));
+        expect(documents.size).toBe(c.expected_documents);
+      });
+    }
+  });
+
   describe('mention_key_cases', () => {
     for (const c of fixture.mention_key_cases) {
       it(c.name, () => {

@@ -467,6 +467,8 @@ async function streamGeminiChat(
 
   let fullText = '';
   let urlContextMetadata: UrlContextMetadata | undefined;
+  // t/491: the provider's stop reason ('max_tokens' means the reply was cut off mid-answer).
+  let stopReason: string | undefined;
 
   try {
     const result = await generateViaGeminiStream(
@@ -487,6 +489,7 @@ async function streamGeminiChat(
       },
     );
     urlContextMetadata = result.urlContextMetadata;
+    stopReason = result.stopReason;
   } catch (streamErr) {
     log.server.warn({ err: streamErr }, 'chat-stream: generateViaGeminiStream threw');
     writeSse(res, {
@@ -502,7 +505,17 @@ async function streamGeminiChat(
     writeSse(res, { type: 'chat-stream-url-metadata', urlContextMetadata });
   }
   // t/4848: emit raw_prompt and raw_response for How panel
-  writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText });
+  // t/491: a MAX_TOKENS finish means the reply was truncated. Say so on the stream and in the record,
+  // so a cut-off answer is diagnosable from the stream and a flight-recorder dump.
+  if (stopReason === 'max_tokens') {
+    log.server.warn({ stopReason }, 'chat-stream: Gemini stopped at max_tokens; the reply is truncated (t/491)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'chat-stream', level: 'warn',
+      message: 'chat-stream reply truncated: Gemini finish reason MAX_TOKENS (t/491)',
+      data: { stop_reason: stopReason, chars: fullText.length },
+    });
+  }
+  writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText, stop_reason: stopReason ?? null });
 }
 
 /** Non-Gemini chat (t/2457 fallback + t/2483 app-fetch): optionally fetch-and-inject

@@ -10,6 +10,7 @@ import { runOpeningPipelineWithRepair, assembleOpeningPipelineResult, type Openi
 import { getModelMinTimeout } from '../../../ai-client/index.js';
 import { resolveModelForSpeaker } from '../modelResolution.js';
 import { accumulateContextManifest } from '../adaptiveStaging.js';
+import { offeredSteelmanRefs } from '../../steelman.js';
 import { enrichTaxonomyRefs, getRelevantTaxonomyContext, formatDebaterEdgeContext } from '../taxonomyContext.js';
 import { getCommitmentContext, getEstablishedPointsContext } from '../context.js';
 import { EMBEDDING_DIM } from '../../constants.js';
@@ -17,6 +18,16 @@ import { narrativeBlockForDebater, extractNarrativeCheck } from '../../narrative
 import { runNarrativeVoicing, finalizeNarrativeReference } from './narrativeVoicing.js';
 
 // ── Phase: Opening statements ──────────────────────────────
+
+// t/284 item 3: the literal question an inquiry opening must answer (anchorToResolution gate).
+function anchorQuestionFor(engine: DebateEngineInternals): string | undefined {
+  return engine.config.anchorToResolution ? engine.session.topic.final : undefined;
+}
+
+// t/388: steelman AN nodes from earlier entries that the plan may cite as attacks.
+function steelmanRefsForPlan(engine: DebateEngineInternals, pov: string) {
+  return offeredSteelmanRefs(engine.session.argument_network?.nodes ?? [], pov);
+}
 
 export async function runOpeningStatements(engine: DebateEngineInternals): Promise<void> {
   engine.session.phase = 'opening';
@@ -116,7 +127,13 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
       taxonomyContext: fullContext,
       priorStatements: priorBlock,
       isFirst: priorStatements.length === 0,
+      // t/284 item 3: inquiry openings answer the user's literal question (anchorToResolution gate).
+      anchorQuestion: anchorQuestionFor(engine),
       priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
+      // t/388: steelman AN nodes from earlier entries, as attack references for this plan.
+      steelmanRefsOffered: steelmanRefsForPlan(engine, info.pov),
+      // t/388: default-off flag; asks each plan ATTACK to name the speaker's own claim it hits.
+      attackAnchors: engine.config.planAttackAnchors,
       sourceContent: engine.session.document_analysis ? undefined : engine.config.sourceContent,
       documentAnalysis: engine.session.document_analysis,
       audience: engine.config.audience,

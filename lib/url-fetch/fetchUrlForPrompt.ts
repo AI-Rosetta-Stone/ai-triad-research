@@ -72,12 +72,18 @@ export function normalizeIp(ip: string): string {
 }
 
 /** Returns true when the (already-normalized) IP should be blocked. */
+// t/467: IPv4-compatible ::/96 (deprecated): "::a.b.c.d" and "::h:l". Both forms have the first 96 bits zero.
+function isIpv4CompatibleV6(lower: string): boolean {
+  return /^::\d{1,3}(\.\d{1,3}){3}$/.test(lower) || /^::[0-9a-f]{1,4}(:[0-9a-f]{1,4})?$/.test(lower);
+}
+
 export function isPrivateIp(ip: string): boolean {
   const norm = normalizeIp(ip);
 
   // IPv4 range checks
   const parts = norm.split('.');
-  if (parts.length === 4) {
+  // t/467: only a pure dotted quad is IPv4; "::8.8.8.8" also splits into four parts and must reach the IPv6 checks.
+  if (parts.length === 4 && /^\d+(\.\d+){3}$/.test(norm)) {
     const [a, b, c] = parts.map(Number);
     if (a === 127) return true;                            // loopback
     if (a === 10) return true;                             // RFC-1918 10/8
@@ -89,11 +95,13 @@ export function isPrivateIp(ip: string): boolean {
     if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
     if (a === 192 && b === 0 && c === 2) return true;    // TEST-NET-1
     if (a === 255) return true;                            // broadcast
+    if (a >= 224) return true;                             // t/467: multicast 224/4 and reserved 240/4
     return false;
   }
 
   // IPv6 checks (after normalization, mapped addresses are already IPv4 above)
   const lower = norm.toLowerCase();
+  if (isIpv4CompatibleV6(lower)) return true;       // t/467: ::/96 (deprecated)
   if (lower === '::1') return true;                 // loopback
   if (lower === '::') return true;                  // unspecified
   if (lower.startsWith('fe80:')) return true;       // link-local
@@ -172,41 +180,15 @@ function readBody(res: http.IncomingMessage, maxBytes: number): Promise<Buffer |
 
 // ── HTML → plain text ──────────────────────────────────────────────────────
 
-function decodeBasicEntities(s: string): string {
-  // Numeric refs first, then named, then &amp; LAST — prevents &amp;lt; double-unescaping to <
-  return s
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&apos;/gi, "'")
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&');
-}
+// t/390: the URL-mode converter is the linear one from lib/extraction/extractHtml.ts (one implementation, with the
+// same tag and entity handling as document extraction). The regex chain it replaces went quadratic on unclosed tags
+// (an attacker-controlled page can send them): 40k "<" took about 0.75 s, and the cost quadrupled as the input doubled.
 
-function extractTitle(html: string): string | undefined {
-  const titleMatch = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
-  return titleMatch ? decodeBasicEntities(titleMatch[1].trim()) : undefined;
-}
-
-function htmlToText(html: string): { text: string; title: string | undefined } {
-  const title = extractTitle(html);
-
-  let text = html
-    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '')
-    .replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style\b[^>]*>/gi, ' ')
-    .replace(/<(?:br|\/p|\/div|\/h[1-6]|\/li|\/tr|\/blockquote)[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ');
-
-  text = decodeBasicEntities(text)
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n[ \t]+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  return { text, title };
+/** HTML to { text, title } for URL mode. Exported for the regression test. */
+export async function htmlToText(html: string): Promise<{ text: string; title: string | undefined }> {
+  // Lazy import, like the sanitizer: keeps the binary CLI plain-node-importable (see the top-of-file note).
+  const { htmlToTextLinear, htmlTitleLinear } = await import('../extraction/extractHtml.js');
+  return { text: htmlToTextLinear(html, { blockNewlines: true }), title: htmlTitleLinear(html) };
 }
 
 // ── Main entry point ───────────────────────────────────────────────────────
@@ -344,9 +326,12 @@ export async function fetchUrlForPrompt(
   let title: string | undefined;
   if (opts.rawBody) {
     text = body;
-    title = isHtml ? extractTitle(body) : undefined;
+    if (isHtml) {
+      const { htmlTitleLinear } = await import('../extraction/extractHtml.js');
+      title = htmlTitleLinear(body);
+    }
   } else {
-    const extracted = isHtml ? htmlToText(body) : { text: body, title: undefined };
+    const extracted = isHtml ? await htmlToText(body) : { text: body, title: undefined };
     title = extracted.title;
     // Lazy import (see the top-of-file note): keeps the sanitizer out of the module's eager graph so
     // the binary CLI stays plain-node-importable. Bundled/vitest callers resolve this normally.

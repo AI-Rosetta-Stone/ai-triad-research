@@ -187,6 +187,31 @@ export async function readLatestFromGhcr(fetchImpl = fetch) {
   }
 }
 
+/**
+ * PURE. The $GITHUB_OUTPUT lines for `check` (t/377). latest_* and branch= come from GHCR's
+ * response, and later steps feed them to `git push`/`gh pr create`; a newline in one would add
+ * an output line (duplicate keys: last wins, so even `verdict=` could be overridden). They are
+ * emitted only when the tag is YYYY-MM-DD and the digest is exactly sha256:<64 hex>, and every
+ * line is dropped if it still contains a CR/LF.
+ */
+export function checkOutputLines(verdictOutputs, latest, pin) {
+  const lines = Object.entries(verdictOutputs).map(([k, val]) => `${k}=${val}`);
+  const validLatest = latest && !latest.error && DATE_TAG.test(String(latest.tag)) && DIGEST.test(String(latest.digest));
+  if (validLatest) lines.push(`latest_tag=${latest.tag}`, `latest_digest=${latest.digest}`, `branch=${repinBranch(latest)}`);
+  if (pin) lines.push(`pinned_tag=${pin.tag}`, `pinned_digest=${pin.digest}`);
+  return dropLineBreakLines(lines);
+}
+
+/** PURE. The one filter for every $GITHUB_OUTPUT line: a line holding a CR/LF is dropped whole, never split (t/377). */
+export function dropLineBreakLines(lines) {
+  return lines.filter((l) => !/[\r\n]/.test(l));
+}
+
+/** PURE. The $GITHUB_OUTPUT lines for `pr-body` (t/474), through the same filter as `check`. */
+export function tierOutputLines(tier, tierReason) {
+  return dropLineBreakLines([`tier=${tier}`, `tier_reason=${tierReason}`]);
+}
+
 function appendFile(envName, text) {
   const target = process.env[envName];
   if (target) fs.appendFileSync(target, text);
@@ -203,13 +228,15 @@ async function check(dockerfilePath) {
   const latest = await readLatestFromGhcr();
   const v = evaluateDrift({ pin, latest });
 
-  const out = formatVerdictOutputs(v);
-  const lines = Object.entries(out).map(([k, val]) => `${k}=${val}`);
-  if (latest && !latest.error) {
-    lines.push(`latest_tag=${latest.tag}`, `latest_digest=${latest.digest}`, `branch=${repinBranch(latest)}`);
-  }
-  if (pin) lines.push(`pinned_tag=${pin.tag}`, `pinned_digest=${pin.digest}`);
+  const lines = checkOutputLines(formatVerdictOutputs(v), latest, pin);
   appendFile('GITHUB_OUTPUT', `${lines.join('\n')}\n`);
+  // t/377 (Security residual 1): a dropped line means a value carried CR/LF. Fail the run
+  // rather than hand the workflow a missing output (its steps key on verdict == FAIL/PASS).
+  const dropped = !lines.some((l) => l.startsWith('verdict=')) || (pin && !lines.some((l) => l.startsWith('pinned_digest=')));
+  if (dropped) {
+    console.log(`::error::${GATE}: an output value contained a line break and was dropped; failing closed (t/377).`);
+    return 1;
+  }
   appendFile('GITHUB_STEP_SUMMARY', `${formatVerdictSummary(v)}\n`);
 
   console.log(`${GATE}: ${v.verdict}${v.reason ? ` (${v.reason})` : ''}`);
@@ -234,6 +261,12 @@ function repin(dockerfilePath, tag, digest) {
 function prBody(beforePath, afterPath, bodyFile) {
   const env = process.env;
   const { tier, reason: tierReason } = classifyRepinTier(fs.readFileSync(beforePath, 'utf8'), fs.readFileSync(afterPath, 'utf8'));
+  // t/474: fail closed before anything is written if a tier value carried a line break.
+  const outputLines = tierOutputLines(tier, tierReason);
+  if (outputLines.length !== 2) {
+    console.log(`::error::${GATE}: tier or tier_reason contained a line break and was dropped; failing closed (t/474).`);
+    return 1;
+  }
   const body = repinPrBody({
     tier,
     tierReason,
@@ -245,7 +278,7 @@ function prBody(beforePath, afterPath, bodyFile) {
     driftRun: env.DRIFT_RUN,
   });
   fs.writeFileSync(bodyFile, body);
-  appendFile('GITHUB_OUTPUT', `tier=${tier}\ntier_reason=${tierReason}\n`);
+  appendFile('GITHUB_OUTPUT', `${outputLines.join('\n')}\n`);
   console.log(`${GATE}: re-pin PR tier ${tier} (${tierReason})`);
   if (tier !== 'T0') console.log(`::warning::WARN: ${GATE}: re-pin PR opens as ${tier}, not T0: ${tierReason}`);
   return 0;

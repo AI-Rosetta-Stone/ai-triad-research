@@ -74,12 +74,15 @@ function captureRunProvenance(): { config_revision: string; working_tree_state: 
   } catch (err) {
     // git unavailable (e.g. server/Azure) or timed out — leave 'unknown', per root
     // AGENTS.md: every fallback gets a WARN saying it was taken and why.
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'calibration-io',
-      level: 'warn',
-      message: 'git status unavailable or timed out — working_tree_state stamped as unknown. err=' + String(err),
-    });
+    const message = 'git status unavailable or timed out — working_tree_state stamped as unknown. err=' + String(err);
+    const recorder = getGlobalRecorder();
+    if (recorder) {
+      recorder.record({ type: 'system.error', component: 'calibration-io', level: 'warn', message });
+    } else {
+      // No recorder is set (under vitest, for one): without this the fallback was silent, which is why
+      // the CI flake on this path showed only 'unknown' and never the reason.
+      console.warn('[calibration-io] WARN ' + message);
+    }
   }
 
   // behaviour_revision is a build-time constant (imported at module load) — no I/O at log time.

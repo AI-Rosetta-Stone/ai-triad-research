@@ -30,6 +30,8 @@ import { json, error, param, statusForError, codeForError, requireBaseVersion } 
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { DEFAULT_MODEL, withTimeout } from '../../../../lib/ai-client/index.js';
 import { log } from '../logger.js';
+import { loadSourcesIndex } from '../storage/sourcesIndexReader.js';
+import { docMetaMapFromSourcesIndex, usableTitle } from '../../../../lib/debate/docTitlesFromSourcesIndex.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext, enforceBackendAllowed } from './generationContext.js';
 import { getDataRoot } from '../config.js';
@@ -97,8 +99,11 @@ function readDocMetaMap(sourcesRoot: string): DocMetaMap {
     if (!fs.existsSync(metaPath)) continue;
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-      if (meta.title) {
-        const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
+      // t/522: a title that is only an identifier (an arXiv id, or the doc's own id) is no title, the same rule as the
+      // hosted index mapping (Comp-Linguist, t/492#18). Such a document is left out and is cited by its id.
+      const title = usableTitle(meta.title, entry.name);
+      if (title) {
+        const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title };
         if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
         if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
         if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
@@ -109,15 +114,42 @@ function readDocMetaMap(sourcesRoot: string): DocMetaMap {
   return metaMap;
 }
 
-function loadDocTitles(): DocMetaMap | null {
-  if (_docTitles !== undefined) return _docTitles;
+/** Filesystem titles, read once and cached. A null (no sources directory, or no titles on disk) is cached too. */
+function readFsDocTitles(): DocMetaMap | null {
   try {
     const sourcesRoot = resolveSourcesRootFromConfig();
-    if (!sourcesRoot) { _docTitles = null; return null; }
+    if (!sourcesRoot) return null;
     const metaMap = readDocMetaMap(sourcesRoot);
-    _docTitles = Object.keys(metaMap).length > 0 ? metaMap : null;
-    return _docTitles;
-  } catch { /* telemetry — silent by design */ _docTitles = null; return null; }
+    return Object.keys(metaMap).length > 0 ? metaMap : null;
+  } catch (err) {
+    // t/492: an unreadable sources directory is a fallback taken, so it is logged, not silent.
+    log.server.warn({ component: 'sources-routes', err: String(err) }, 'doc-titles: sources directory unreadable; falling back to sources-index.json (t/492)');
+    return null;
+  }
+}
+
+/** t/492: the sources index as a title map. Cached for a short TTL, a null included, so an unusable index is
+ *  retried after the TTL and not on every request (anonymous callers reach this via source-evidence). */
+const INDEX_TITLES_TTL_MS = 5 * 60_000;
+let _indexTitles: { value: DocMetaMap | null; at: number } | null = null;
+
+async function loadTitlesFromIndex(): Promise<DocMetaMap | null> {
+  const now = Date.now();
+  if (_indexTitles && now - _indexTitles.at < INDEX_TITLES_TTL_MS) return _indexTitles.value;
+  const value = docMetaMapFromSourcesIndex(await loadSourcesIndex()) ?? null;
+  log.server.warn(
+    { component: 'sources-routes', titles: value ? Object.keys(value).length : 0 },
+    'doc-titles: no titles from the sources directory; fell back to sources-index.json (t/492)',
+  );
+  _indexTitles = { value, at: now };
+  return value;
+}
+
+/** Document titles for evidence citations: the sources directory when it has titles, else the sources index. */
+async function loadDocTitles(): Promise<DocMetaMap | null> {
+  if (_docTitles === undefined) _docTitles = readFsDocTitles();
+  if (_docTitles) return _docTitles;
+  return loadTitlesFromIndex();
 }
 
 /**
@@ -258,8 +290,8 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
     json(res, await loadEvidenceIndex());
   });
 
-  get('/api/doc-titles', (_req, res) => {
-    json(res, loadDocTitles());
+  get('/api/doc-titles', async (_req, res) => {
+    json(res, await loadDocTitles());
   });
 
   // t/1998: greatest-hits exclusion list for the renderer's node scoring. Returns
@@ -277,7 +309,7 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
     if (!index) { json(res, emptyResult); return; }
     try {
       const { retrieveSourceEvidence } = await import('../../../../lib/debate/evidenceFromSummaries.js');
-      const docTitles = loadDocTitles() ?? undefined;
+      const docTitles = (await loadDocTitles()) ?? undefined;
       json(res, retrieveSourceEvidence(nodeIds, pov, index, 3, 2, docTitles));
     } catch (err) {
       getGlobalRecorder()?.record({

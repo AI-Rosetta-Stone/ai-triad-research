@@ -33,22 +33,34 @@ describe('DescriptionToggle', () => {
     expect(onToggle).toHaveBeenCalledWith('plain');
   });
 
-  it('shows generating indicator when plain is active but unavailable', () => {
+  it('explains the formal fallback in the Plain title when no plain text exists', () => {
     render(<DescriptionToggle mode="plain" onToggle={onToggle} hasPlainDescription={false} />);
-    const indicator = document.querySelector('.description-toggle-generating');
-    expect(indicator).not.toBeNull();
+    const plain = screen.getByRole('radio', { name: /plain/i });
+    expect(plain.getAttribute('title')).toBe('No plain version for this node; showing the formal text.');
+    expect(plain.textContent).toBe('Plain');
   });
 
-  it('hides generating indicator when plain description exists', () => {
+  it('shows no generating indicator, even when plain is active without plain text', () => {
+    render(<DescriptionToggle mode="plain" onToggle={onToggle} hasPlainDescription={false} />);
+    expect(document.querySelector('.description-toggle-generating')).toBeNull();
+  });
+
+  it('keeps the plain title when plain text exists', () => {
     render(<DescriptionToggle mode="plain" onToggle={onToggle} hasPlainDescription={true} />);
-    const indicator = document.querySelector('.description-toggle-generating');
-    expect(indicator).toBeNull();
+    const plain = screen.getByRole('radio', { name: /plain/i });
+    expect(plain.getAttribute('title')).toBe('Show plain-language description (Alt+P)');
   });
 
-  it('toggles on Alt+P', () => {
-    render(<DescriptionToggle mode="formal" onToggle={onToggle} hasPlainDescription={true} />);
+  it('toggles on Alt+P when globalShortcut is true (default)', () => {
+    render(<DescriptionToggle mode="formal" onToggle={onToggle} hasPlainDescription={true} globalShortcut={true} />);
     fireEvent.keyDown(document, { key: 'p', altKey: true });
     expect(onToggle).toHaveBeenCalledWith('plain');
+  });
+
+  it('does not toggle on Alt+P when globalShortcut is false', () => {
+    render(<DescriptionToggle mode="formal" onToggle={onToggle} hasPlainDescription={true} globalShortcut={false} />);
+    fireEvent.keyDown(document, { key: 'p', altKey: true });
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
   it('uses radiogroup role for accessibility', () => {
@@ -77,7 +89,7 @@ describe('resolveDescription', () => {
   it('falls back to formal when plain is null', () => {
     const result = resolveDescription({ description: 'formal text', plain_description: null }, 'plain');
     expect(result.text).toBe('formal text');
-    expect(result.isGenerating).toBe(true);
+    expect(result.isGenerating).toBe(false);
   });
 
   it('handles null node', () => {

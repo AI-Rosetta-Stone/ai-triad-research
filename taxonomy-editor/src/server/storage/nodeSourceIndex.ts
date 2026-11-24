@@ -595,6 +595,11 @@ type NodeSourceIndexCache = {
    *  retries the build instead of silently living with a shrunk index until
    *  the next unrelated data change. */
   summaryReadFailures: number;
+  /** t/498: how much this build produced. `complete` only says that no summary read failed; a build
+   *  that found nothing to read has no failures either, so the counts are what tell an empty index
+   *  from a full one. */
+  entryCount: number;
+  canonicalDocCount: number;
 };
 
 let nodeSourceIndexCache: NodeSourceIndexCache | null = null;
@@ -692,6 +697,20 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
     },
     'Node source index rebuilt',
   );
+  const canonicalDocCount = Object.keys(cards).length;
+  if (entryCount === 0 && canonicalDocCount === 0) {
+    // t/498: an index with nothing in it still reports complete (no read failed). That is a silent
+    // degradation: every node shows no sources. Say so, where the build's own numbers are.
+    log.server.warn(
+      { entryCount, canonicalDocCount, summaryReadFailures: readFailures.size, usedSourcesIndex, complete: readFailures.size === 0 },
+      'Node source index is EMPTY (0 entries, 0 documents) although the build reports complete: no summaries or sources were found (t/498)',
+    );
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: 'Node source index is empty although the build reports complete',
+      data: { entryCount, canonicalDocCount, summaryReadFailures: readFailures.size, usedSourcesIndex },
+    });
+  }
   if (titleCollisions.length > 0) {
     // t/4344 spec 4.5: a report for a human cleanup pass (t/4337), never applied as a merge.
     log.server.warn({ titleCollisions }, 'Node source index: title collisions found (no merge applied, human review needed)');
@@ -712,6 +731,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   return {
     index, cards, indexVersion: nodeSourceIndexGeneration,
     invalidationSignature: await currentInvalidationSignature(), summaryReadFailures: readFailures.size,
+    entryCount, canonicalDocCount,
   };
 }
 
@@ -819,13 +839,21 @@ export async function getNodeSources(nodeId: string): Promise<{ sources: SourceR
  *  (the visibility TL's design requires, t/4517#1 point 3) without this module
  *  reaching into ServerAPI's route files. `null` means no build has happened
  *  yet (nothing to report). */
-export function getNodeSourceIndexStatus(): { built: boolean; complete: boolean; indexVersion: number; summaryReadFailures: number } | null {
+export function getNodeSourceIndexStatus(): {
+  built: boolean; complete: boolean; indexVersion: number; summaryReadFailures: number;
+  /** t/498: `complete` means no summary read failed, not that anything was found. `empty` is true
+   *  when the build produced no entries and no documents, so a caller can show "complete but empty". */
+  empty: boolean; entryCount: number; canonicalDocCount: number;
+} | null {
   if (!nodeSourceIndexCache) return null;
   return {
     built: true,
     complete: nodeSourceIndexCache.summaryReadFailures === 0,
     indexVersion: nodeSourceIndexCache.indexVersion,
     summaryReadFailures: nodeSourceIndexCache.summaryReadFailures,
+    empty: nodeSourceIndexCache.entryCount === 0 && nodeSourceIndexCache.canonicalDocCount === 0,
+    entryCount: nodeSourceIndexCache.entryCount,
+    canonicalDocCount: nodeSourceIndexCache.canonicalDocCount,
   };
 }
 

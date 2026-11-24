@@ -5,6 +5,7 @@ import type { StateCreator } from 'zustand';
 import type { DebateStore } from '../types';
 import { buildClarificationPrompt, buildSynthesisPrompt } from '../shared/prompts';
 import { seatSouls } from '../shared/seatSouls';
+import { openingAnchorQuestion } from './openingAnchorQuestion';
 import type {
   DebateSession,
   SpeakerId,
@@ -19,6 +20,7 @@ import type { OpeningPipelineInput, BriefEventFn } from '@lib/debate/turnPipelin
 import { api, emitBriefTimeout, emitBriefRetriesExhausted } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { generateId, nowISO, parseAIJson, parsePoverResponse, formatRecentTranscript } from '@lib/debate/helpers';
+import { offeredSteelmanRefs } from '@lib/debate/steelman';
 import { formatTaxonomyContext } from '../../../utils/taxonomyContext';
 import { classifyAiRetry, retryReasonLabel, parseRetryAfterMs } from '../../../utils/retryClassifier';
 import { formatCommitments, formatEstablishedPoints } from '../../../prompts/argumentNetwork';
@@ -675,6 +677,8 @@ async function buildOpeningContextForSpeaker(
     topic, taxonomyContext: taxonomyBlock, priorStatements: priorBlock,
     isFirst: priorStatements.length === 0,
     priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
+    // t/284 item 3: the literal question an inquiry opening must answer.
+    anchorQuestion: openingAnchorQuestion(activeDebate, topic),
     sourceContent: activeDebate.document_analysis ? undefined : (activeDebate.source_content || undefined),
     documentAnalysis: activeDebate.document_analysis,
     audience: activeDebate.audience,
@@ -691,6 +695,8 @@ async function buildOpeningContextForSpeaker(
       return voicing ? narrativeBlockForDebater(voicing.narratives, poverId as any) : undefined;
     })(),
     stageTimeoutMs: Math.max(getDefaultTimeout(speakerModel, aiModelsRegistry as unknown as ModelRegistry), getModelMinTimeout(speakerModel, aiModelsRegistry as unknown as ModelRegistry)),
+    // t/388: the same selection rule the engine uses (offeredSteelmanRefs, lib/debate/steelman.ts), so desktop and CLI agree.
+    steelmanRefsOffered: offeredSteelmanRefs(get().activeDebate?.argument_network?.nodes ?? [], info.pov),
   };
   return { input, taxonomyBlock, commitBlock, ctx, resolvedBriefModel, stageGenerate };
 }

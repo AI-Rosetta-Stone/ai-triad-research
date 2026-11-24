@@ -183,6 +183,8 @@ export interface OpeningPlanWorkProduct {
   framing_choices: { frame: string; why: string }[];
   anticipated_challenges: string[];
   target_nodes?: string[];
+  /** t/388: the steelman AN ids offered to this plan. ATTACK [id] tags use only these. */
+  steelman_refs_offered?: string[];
 }
 
 export interface OpeningCiteWorkProduct {

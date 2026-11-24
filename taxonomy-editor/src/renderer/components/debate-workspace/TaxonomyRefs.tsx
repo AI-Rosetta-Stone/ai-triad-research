@@ -15,10 +15,12 @@ import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
-import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type WarnFn } from './claimMap';
+import { normalizeAnticipatedItem, parseLenses, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type ParsedLens, type SteelmanContext, type WarnFn } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { useDebateStore } from '../../hooks/useDebateStore';
 import './TaxonomyRefs.css';
 
 // Prevents a TheoryLink click inside a <summary> from toggling its parent <details>
@@ -319,13 +321,38 @@ interface ClaimMapLayoutProps {
   wp: Record<string, unknown>;
   stage?: string;
   camp?: string; // the speaker's camp, e.g. SKEPTIC
+  motion?: string; // the session motion; the line is omitted when absent
+  steelmanCtx?: SteelmanContext; // the debate's steelman nodes, for tagged attacks (t/388)
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-/** NLI verdict when a check has run; otherwise the attack is not yet verified. */
+/** t/388: a linked steelman shows its own text and verdict on the attack card. Without one the
+ *  attack reads as Unverified and shows its own challenge text. */
+function attackText(attack: ParsedAttack): string {
+  return attack.steelman ? attack.steelman.text : attack.text;
+}
+
 function attackStatus(attack: ParsedAttack): string {
-  return attack.verificationStatus && attack.verificationStatus !== 'not yet checked' ? attack.verificationStatus : 'Unverified';
+  const verdict = attack.steelman?.verdict;
+  if (verdict === 'faithful') return 'Faithful to target';
+  if (verdict === 'diverges') return 'Misrepresents target';
+  return 'Unverified';
+}
+
+/** The verdict pill, plus the steelman's node id once the tag has resolved to a real node (Design p/14#91).
+ *  A tag that resolves to nothing shows no id (TL p/11#53). */
+function AttackFooter({ attack }: { attack: ParsedAttack }) {
+  return (
+    <div className="claim-map-attack-footer">
+      <span className="claim-map-attack-status">{attackStatus(attack)}</span>
+      {attack.steelman && attack.steelmanId && <span className="claim-map-attack-id">{attack.steelmanId}</span>}
+    </div>
+  );
+}
+
+function attackEyebrowSuffix(attack: ParsedAttack): string {
+  return attack.steelman ? ` · STEELMAN OF THE ${attack.steelman.camp.toUpperCase()}` : '';
 }
 
 // Every item the claim map skips is logged, so the fallback is never silent.
@@ -340,11 +367,12 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal }: {
+function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: {
   eyebrow: string;
   counts: string;
   coreThesis: string;
   strategicGoal: string;
+  motion?: string;
 }) {
   return (
     <header className="claim-map-header">
@@ -358,17 +386,12 @@ function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal }: {
           <strong>The ask:</strong> {stripLeadingVerb(strategicGoal)}
         </div>
       )}
+      {motion && <div className="claim-map-motion">Motion — {motion}</div>}
     </header>
   );
 }
 
-function ClaimMapLenses({ framingChoices }: { framingChoices: unknown }) {
-  const lenses = Array.isArray(framingChoices)
-    ? (framingChoices as { frame?: unknown; why?: unknown }[]).map(fc => ({
-      title: fc.frame ? String(fc.frame) : '',
-      why: fc.why ? String(fc.why) : undefined,
-    }))
-    : [{ title: String(framingChoices), why: undefined }];
+function ClaimMapLenses({ lenses }: { lenses: ParsedLens[] }) {
   return (
     <ul className="claim-map-lenses">
       {lenses.map((lens, i) => (
@@ -409,12 +432,9 @@ function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
       <div className="claim-map-attack-col" role="group" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
         {claim.attack ? (
           <div className="claim-map-attack-card">
-            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
-            <p className="claim-map-attack-text">{claim.attack.text}</p>
-            <div className="claim-map-attack-footer">
-              <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
-              {claim.attack.annotationId && <span className="claim-map-attack-id">{claim.attack.annotationId}</span>}
-            </div>
+            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}{attackEyebrowSuffix(claim.attack)}</div>
+            <p className="claim-map-attack-text">{attackText(claim.attack)}</p>
+            <AttackFooter attack={claim.attack} />
           </div>
         ) : (
           <div className="claim-map-no-attack">
@@ -457,11 +477,10 @@ function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSele
             <div key={i} className="claim-map-unmapped-row">
               <div className="claim-map-unmapped-label">Unmapped attack</div>
               <div className="claim-map-attack-card">
-                <p className="claim-map-attack-text">{attack.text}</p>
-                <div className="claim-map-attack-footer">
-                  <span className="claim-map-attack-status">{attackStatus(attack)}</span>
-                  {attack.annotationId && <span className="claim-map-attack-id">{attack.annotationId}</span>}
-                </div>
+                {/* t/388: an unmapped attack names no claim, so its eyebrow is only the steelman label. Without it the steelman's text would read as the attack. */}
+                {attack.steelman && <div className="claim-map-attack-eyebrow">STEELMAN OF THE {attack.steelman.camp.toUpperCase()}</div>}
+                <p className="claim-map-attack-text">{attackText(attack)}</p>
+                <AttackFooter attack={attack} />
               </div>
             </div>
           ))}
@@ -533,27 +552,29 @@ function LegacyPlanView({ wp, selectedPlanNodeId, setSelectedPlanNodeId }: {
 }
 
 // Zero terms are left out. No "verified" term until verification is wired (t/388).
-function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number): string {
+// Zero terms are left out, verified included: only a steelman with a verdict counts (t/388).
+function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number, verifiedCount: number): string {
   return [
     claimCount > 0 && plural(claimCount, 'claim'),
     attackCount > 0 && plural(attackCount, 'attack'),
     assumptionCount > 0 && plural(assumptionCount, 'assumption'),
+    verifiedCount > 0 && `${verifiedCount} verified`,
   ].filter(Boolean).join(' · ');
 }
 
-function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
+function ClaimMapLayout({ wp, stage = '', camp, motion, steelmanCtx, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(() => parseWorkProduct(wp, warnClaimMap, steelmanCtx), [wp, steelmanCtx]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
-  const framingChoices = wp.framing_choices;
+  const lenses = useMemo(() => parseLenses(wp.framing_choices, warnClaimMap), [wp]);
 
   if (!coreThesis && !strategicGoal) {
     return <LegacyPlanView wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />;
   }
 
   const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
-  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length);
+  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length, verifiedAttacks);
 
   return (
     <div className="claim-map-layout">
@@ -563,10 +584,11 @@ function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedP
           counts={counts}
           coreThesis={coreThesis}
           strategicGoal={strategicGoal}
+          motion={motion}
         />
       </SectionErrorBoundary>
-      {!!framingChoices && (
-        <SectionErrorBoundary section="Lenses"><ClaimMapLenses framingChoices={framingChoices} /></SectionErrorBoundary>
+      {lenses.length > 0 && (
+        <SectionErrorBoundary section="Lenses"><ClaimMapLenses lenses={lenses} /></SectionErrorBoundary>
       )}
       {claims.length > 0 && (
         <SectionErrorBoundary section="Argument">
@@ -587,12 +609,26 @@ function ClaimMapLayout({ wp, stage = '', camp, selectedPlanNodeId, setSelectedP
   );
 }
 
+/** t/388: the session motion, but only when this entry belongs to the active debate. A chat answer
+ *  or an entry from another debate gets no motion line rather than someone else's topic. */
+function motionForEntry(debate: { topic?: { final?: string }; transcript?: { id: string }[] } | null | undefined, entryId: string | undefined): string | undefined {
+  if (!debate || !entryId || !debate.transcript?.some(t => t.id === entryId)) return undefined;
+  return debate.topic?.final || undefined;
+}
+
 function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry }: {
   entry?: TranscriptEntry;
   planStage: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
+  const motion = useDebateStore(s => motionForEntry(s.activeDebate, entry?.id));
+  // t/388: the debate's argument-network nodes, so a tagged attack can resolve its steelman.
+  const networkNodes = useDebateStore(s => s.activeDebate?.argument_network?.nodes);
+  const steelmanCtx = useMemo<SteelmanContext>(
+    () => ({ nodes: networkNodes ?? [], entryId: entry?.id, speaker: entry?.speaker ?? '' }),
+    [networkNodes, entry?.id, entry?.speaker],
+  );
   const wp = planStage.work_product as Record<string, unknown>;
   if (!wp || Object.keys(wp).length === 0) {
     return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
@@ -605,8 +641,11 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry 
       <SectionErrorBoundary section="Claim Map Layout">
         <ClaimMapLayout
           wp={wp}
-          stage={planStage.stage}
+          // t/388: the stage word comes from the entry type; the entry has no round number to show.
+          stage={entry?.type === 'opening' ? 'opening plan' : planStage.stage}
           camp={entry?.speaker}
+          motion={motion}
+          steelmanCtx={steelmanCtx}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
@@ -644,7 +683,14 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
 }) {
-  const label = getNodeLabel(taxRef.node_id);
+  // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
+  const resolved = getNodeLabel(taxRef.node_id);
+  const isMissing = !taxRef.label && resolved === taxRef.node_id;
+  const label = taxRef.label || resolved;
+  // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
+  const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
   return (
     <div className="debate-reasoning-item">
@@ -657,7 +703,9 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
       >
         {taxRef.node_id}
       </button>
-      <span className="debate-reasoning-label">{label}</span>
+      {isMissing
+        ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
+        : <span className="debate-reasoning-label">{label}</span>}
       <span className="debate-reasoning-text">{taxRef.relevance}</span>
     </div>
   );

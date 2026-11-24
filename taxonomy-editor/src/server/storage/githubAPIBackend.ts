@@ -135,6 +135,14 @@ function isBlobNotFoundForPoll(err: unknown): boolean {
 const DEFAULT_MAX_OVERLAY_BYTES_PER_USER = 20 * 1024 * 1024; // 20 MB
 
 const POLL_INTERVAL_MS = 60_000;
+
+/** t/505: the ref callers pass to mean "the shared base data, not a session branch". It is the literal
+ *  'main' for historical reasons: callers across the server pin reads with `{ ref: 'main' }`. It is NOT
+ *  a branch name. The backend maps it to its base branch (GITHUB_BRANCH, default 'main'), so on a
+ *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
+ *  this mapping such a read went to the repository's default branch, a different branch from the tree,
+ *  the listings and the strict reads. */
+export const BASE_BRANCH_REF = 'main';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
@@ -197,7 +205,78 @@ type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds'
  *  is the rawDisabled early-return's own reason (t/4615 — previously
  *  reused `status=503`, conflating with genuine 503 fallbacks in the
  *  stats). */
-type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled';
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path' | 'private_repo';
+
+/** t/372 (CodeQL #6229, #6230): join a repo-relative path under `base` and refuse, before any
+ *  write, anything that resolves outside `base`. toRepoPath's `..` check does not reach these
+ *  call sites in CodeQL's model, so the cache writes confine their own path. */
+async function confineToDir(base: string, rel: string): Promise<string> {
+  const root = path.resolve(base);
+  const abs = path.resolve(root, rel);
+  if (!(isWithinDir(abs, root) && await realpathWithin(abs, root))) {
+    throw new ActionableError({
+      goal: 'Confine disk cache access to the cache directory',
+      problem: `Path escapes the cache directory: ${rel}`,
+      location: 'githubAPIBackend.confineToDir',
+      nextSteps: ['Use a repo-relative path with no ".." segments, and no symlink inside the cache directory'],
+      code: 'PATH_OUTSIDE_ROOT',
+      httpStatus: 400,
+    });
+  }
+  // Return the join, not the resolved absolute path: the read side builds keys with path.join,
+  // so an in-cache write must keep the same string.
+  return path.join(base, rel);
+}
+
+/** Lexical containment of `abs` in `root` (case-insensitive on win32). */
+function isWithinDir(abs: string, root: string): boolean {
+  const a = process.platform === 'win32' ? abs.toLowerCase() : abs;
+  const r = process.platform === 'win32' ? root.toLowerCase() : root;
+  return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+}
+
+/** t/432: a symlink or junction already inside the cache directory must not lead out. Resolve the
+ *  deepest existing ancestor of `abs` and require it to stay inside the real root. Fails closed on any
+ *  error other than "does not exist yet" (containment cannot be proven). A missing root has no symlinks. */
+async function realpathWithin(abs: string, root: string): Promise<boolean> {
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(root);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return true; // telemetry — a missing root has no symlinks
+    log.storage.warn({ root, err: String(err) }, 'confineToDir: cannot resolve the cache root; refusing the write (t/432)');
+    return false;
+  }
+  let probe = abs;
+  for (;;) {
+    try {
+      return isWithinDir(await fs.realpath(probe), realRoot);
+    } catch (err: unknown) {
+      const parent = path.dirname(probe);
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || parent === probe) {
+        log.storage.warn({ probe, err: String(err) }, 'confineToDir: cannot verify containment; refusing (t/432)');
+        return false;
+      }
+      // A dangling link is an entry that exists but whose target does not: realpath fails with ENOENT,
+      // and a write through it would create the target outside the cache. Refuse it.
+      try {
+        await fs.lstat(probe);
+        log.storage.warn({ probe }, 'confineToDir: dangling link in the cache directory; refusing (t/432)');
+        return false;
+      } catch (lerr: unknown) {
+        if ((lerr as NodeJS.ErrnoException).code !== 'ENOENT') {
+          log.storage.warn({ probe, err: String(lerr) }, 'confineToDir: cannot inspect a cache entry; refusing (t/432)');
+          return false;
+        }
+        // telemetry — the entry does not exist at all: an ordinary not-yet-created path
+      }
+      probe = parent; // telemetry — a not-yet-created ancestor is the normal case
+    }
+  }
+}
+
+/** t/268: why a directory listing returned [] without a genuine answer. */
+export type DirListingDegradation = 'non-holder-tree-empty' | 'circuit-breaker-open' | 'api-unavailable' | 'no-credentials';
 
 type RawFetchResult =
   | { kind: 'hit'; content: string; sha: string }
@@ -330,6 +409,15 @@ export class GitHubAPIBackend implements StorageBackend {
   // lifetime once tripped — avoids paying a raw miss on every single read
   // if raw starts misbehaving broadly (repo turns private, CDN outage).
   private rawDisabled = false;
+  // t/497: the data repo's visibility, from GET /repos/{repo}. null = not known (never read, or the last
+  // read failed), which means "try raw as today". Anything other than an explicit 'public' skips raw:
+  // the raw fetch is unauthenticated by design, so a private repo answers 404 to every request.
+  private repoVisibility: { isPublic: boolean; visibility: string; checkedAt: number } | null = null;
+  private repoVisibilityInFlight: Promise<void> | null = null;
+  private repoVisibilityLastAttemptAt = 0;
+  private rawSkipLogged = false;
+  private static readonly REPO_VISIBILITY_TTL_MS = 60 * 60_000;
+  private static readonly REPO_VISIBILITY_MIN_RECHECK_MS = 60_000;
   private rawFallbackWindowStart = 0;
   private rawFallbackWindowCount = 0;
   private static readonly RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE = 20;
@@ -354,6 +442,12 @@ export class GitHubAPIBackend implements StorageBackend {
   // Data-load state — exposed via getDataLoadStatus() for /healthz (t/2053, t/2059)
   private _dataLoadStatus: 'loading' | 'ready' | 'failed' = 'loading';
   private _dataLoadError: string | null = null;
+  // t/482: why the load failed, and when. 'known' is a classified failed load (GitHub unreachable, a
+  // zero-blob or wrong-shaped tree): a later poll may recover it. 'unknown' is a throw (t/480): it never
+  // recovers without a restart, because the state is unknown and no polling runs.
+  private _dataLoadFailure: 'known' | 'unknown' | null = null;
+  private _dataLoadFailedAt: number | null = null;
+  private recoveryInFlight = false;
 
   constructor(config: GitHubAPIBackendConfig) {
     this.cacheDir = config.cacheDir;
@@ -417,7 +511,124 @@ export class GitHubAPIBackend implements StorageBackend {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
+  /** t/480 (Second Opinion t/470#4, TL t/470#5): an unknown throw during start-up is recorded as a
+   *  failed load with its real cause, then re-thrown. Rejecting alone was the quiet option: server.ts
+   *  catches the rejection and the process keeps running, while the status stayed 'loading', which
+   *  readiness shows as a warm-up and then as a timeout with no cause. The public reason names the error
+   *  (name and code); the message stays in the log. Never 'ready' on this path, and
+   *  no polling: the state is unknown. The event is system.error, not github.api.error, so a code bug
+   *  is not counted as a GitHub outage by the alert. */
   async initialize(): Promise<void> {
+    try {
+      await this.runInitialize();
+    } catch (err: unknown) {
+      const name = (err as Error)?.name ?? 'Error';
+      const message = (err as Error)?.message ?? String(err);
+      this._dataLoadStatus = 'failed';
+      this._dataLoadFailure = 'unknown';
+      this._dataLoadFailedAt = Date.now();
+      // The load error is returned by /readyz, which is anonymous. It carries the error's name and code
+      // only: a message can hold a server path (an fs error does). The message and stack go to the log
+      // and the recorder below.
+      const code = typeof (err as NodeJS.ErrnoException)?.code === 'string' ? ` (${(err as NodeJS.ErrnoException).code})` : '';
+      this._dataLoadError = `GitHubAPIBackend.initialize threw ${name}${code}; see the server log for storage.init.error`;
+      this.stopPollingTimers();
+      this.recordEvent({
+        type: 'system.error',
+        component: 'storage',
+        level: 'error',
+        message: 'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started',
+        error: normalizeErrorForEvent(err),
+      });
+      log.storage.error({ errName: name, errMessage: message, stack: (err as Error)?.stack },
+        'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started (t/480)');
+      throw err;
+    }
+  }
+
+  /** The full load from the head commit, for a start that is not a cache hit and for recovery (t/482).
+   *  t/463: decide the re-seed first, apply it only after the tree loads. A failed load (fetchRepoTree
+   *  false: GitHub unreachable, zero blobs, a wrong-shaped response) leaves the manifest exactly as it
+   *  was, in memory and on disk, and returns false. Never reports success on less than the full tree. */
+  private async loadFromHead(mainSha: string): Promise<boolean> {
+    const cachedSha = this.manifest?.lastCommitSha ?? '';
+    const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
+    const loaded = await this.fetchRepoTree(mainSha);
+    if (!loaded) return false;
+
+    if (reseed) this.reseedManifestInMemory();
+    // A failed invalidation or manifest write must not undo a loaded tree (t/463).
+    if (this.manifest?.lastCommitSha) {
+      try {
+        await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+      } catch (err: unknown) {
+        log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
+      }
+    }
+    try {
+      await this.updateManifestSha(mainSha);
+    } catch (err: unknown) {
+      log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
+    }
+    return true;
+  }
+
+  /** t/482: one attempt to recover a replica whose initial load failed for a known reason. It runs the
+   *  same load a clean start runs. Success sets ready and logs how long the replica was failed. Anything
+   *  less leaves it failed, to try again on the next poll tick. The in-flight flag keeps a load that
+   *  outlasts the poll interval from overlapping a second one. */
+  private async attemptLoadRecovery(): Promise<void> {
+    if (this.recoveryInFlight) return;
+    this.recoveryInFlight = true;
+    try {
+      const mainSha = await this.getLatestCommitSha();
+      if (!mainSha || !(await this.loadFromHead(mainSha))) {
+        log.storage.debug({ sha: mainSha }, 'storage.init.recovery: load still failing; will retry on the next poll (t/482)');
+        return;
+      }
+      // Only a known failure that is still current may become ready (shutdown or a later throw wins).
+      if (this._dataLoadStatus !== 'failed' || this._dataLoadFailure !== 'known') return;
+      const failedForMs = this._dataLoadFailedAt === null ? null : Date.now() - this._dataLoadFailedAt;
+      this._dataLoadStatus = 'ready';
+      this._dataLoadError = null;
+      this._dataLoadFailure = null;
+      this._dataLoadFailedAt = null;
+      this.recordEvent({
+        type: 'storage.mode',
+        component: 'storage',
+        level: 'info',
+        message: 'storage.init.recovered: data load succeeded on a poll after a failed start',
+        data: { sha: mainSha, failedForMs, treeSize: this.repoTree.size },
+      });
+      log.storage.warn({ sha: mainSha, failedForMs, treeSize: this.repoTree.size },
+        'storage.init.recovered: data load succeeded on a poll after a failed start; the replica is ready (t/482)');
+    } catch (err: unknown) {
+      log.storage.warn({ errName: (err as Error)?.name ?? 'Error', errMessage: (err as Error)?.message ?? String(err) },
+        'storage.init.recovery: attempt threw; the replica stays failed and will retry on the next poll (t/482)');
+    } finally {
+      this.recoveryInFlight = false;
+    }
+  }
+
+  /** Clear the poll and lease timers if a failed start-up got as far as creating them. */
+  private stopPollingTimers(): void {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.leaseRenewTimer) { clearInterval(this.leaseRenewTimer); this.leaseRenewTimer = null; }
+  }
+
+  /** t/505: map the base-branch alias to this deployment's base branch. Any other ref (a real session
+   *  branch, a commit SHA) passes through unchanged, and undefined stays undefined so the caller's
+   *  own default applies. */
+  private resolveReadRef(ref: string | undefined): string | undefined {
+    return ref === BASE_BRANCH_REF ? this.baseBranch : ref;
+  }
+
+  private async runInitialize(): Promise<void> {
+    if (this.baseBranch !== BASE_BRANCH_REF) {
+      // t/505: say once, at start-up, that pinned reads do not go to a branch called 'main' here.
+      log.storage.info({ baseBranch: this.baseBranch },
+        `base branch is '${this.baseBranch}': reads pinned with ref '${BASE_BRANCH_REF}' are mapped to it (t/505)`);
+    }
     this.recordEvent({
       type: 'storage.mode',
       component: 'storage',
@@ -443,6 +654,9 @@ export class GitHubAPIBackend implements StorageBackend {
       return;
     }
 
+    // t/497: one call per start; the answer is refreshed on a TTL and after an in-tree raw 404.
+    await this.refreshRepoVisibility('startup');
+
     const mainSha = await this.getLatestCommitSha();
     if (this.manifest && this.manifest.lastCommitSha === mainSha) {
       const treeSource = await this.loadTreeOnCacheHit(mainSha);
@@ -455,11 +669,14 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       this._dataLoadStatus = 'ready';
     } else {
-      const loaded = await this.fetchRepoTree(mainSha);
-      if (loaded) {
+      // t/482: the load itself is loadFromHead, shared with the recovery step in pollTick, so a recovered
+      // replica has passed exactly the checks a clean start passes.
+      if (await this.loadFromHead(mainSha)) {
         this._dataLoadStatus = 'ready';
       } else {
         this._dataLoadStatus = 'failed';
+        this._dataLoadFailure = 'known';
+        this._dataLoadFailedAt = Date.now();
         this._dataLoadError = 'GitHub API data load failed during initialization — check credentials and network';
         this.recordEvent({
           type: 'github.api.error',
@@ -472,12 +689,6 @@ export class GitHubAPIBackend implements StorageBackend {
         // alert-github-api-error-spike (main.bicep) needs "github.api.error" in
         // ContainerAppConsoleLogs_CL to count this as a GitHub-outage/auth-failure signal.
         log.github.error({ sha: mainSha }, 'github.api.error: initialize data load failed — /healthz will report 503 until recovery');
-      }
-      if (this.manifest && mainSha) {
-        await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
-      }
-      if (mainSha) {
-        await this.updateManifestSha(mainSha);
       }
     }
 
@@ -858,7 +1069,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
     // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // t/4510: skip the overlay only when genuinely pinned away from the
     // session's own ref, unless the caller explicitly opts back in (see the
@@ -976,9 +1187,16 @@ export class GitHubAPIBackend implements StorageBackend {
         this.logNullReadReason(repoPath, 'not_found', optional);
         return null;
       }
-      this.recordRawFallback(rawResult.reason);
-      log.github.warn({ path: repoPath, reason: rawResult.reason },
-        `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+      if (rawResult.reason === 'private_repo') {
+        // t/497: a decision, not a failure. Count it, but keep it out of the disable window and out of
+        // the per-read WARN; noteRawSkippedForPrivateRepo logs it once.
+        this.rawFallbackCounts.private_repo = (this.rawFallbackCounts.private_repo ?? 0) + 1;
+        this.noteRawSkippedForPrivateRepo();
+      } else {
+        this.recordRawFallback(rawResult.reason);
+        log.github.warn({ path: repoPath, reason: rawResult.reason },
+          `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+      }
     }
 
     if (this.rest.isTripped()) {
@@ -1170,7 +1388,7 @@ export class GitHubAPIBackend implements StorageBackend {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     // t/4224 (TL design, p/538#40/#43): an edit-load on a session branch with
     // no pending overlay entry must read the branch's own current content and
@@ -1234,7 +1452,7 @@ export class GitHubAPIBackend implements StorageBackend {
   // serve or pollute the main cache from a non-main session branch.
   async readBinaryFile(filePath: string, opts?: { ref?: string }): Promise<Buffer | null> {
     const repoPath = this.toRepoPath(filePath);
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     if (ref === this.baseBranch) {
       const cached = await this.readBinaryFromDiskCache(repoPath);
@@ -1252,7 +1470,8 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
-  async readFileAtRef(repoPath: string, ref: string): Promise<string | null> {
+  async readFileAtRef(repoPath: string, requestedRef: string): Promise<string | null> {
+    const ref = this.resolveReadRef(requestedRef) ?? requestedRef;
     if (ref === this.baseBranch) {
       const cached = await this.readFromDiskCache(repoPath);
       if (cached !== null) return cached;
@@ -1555,7 +1774,9 @@ export class GitHubAPIBackend implements StorageBackend {
     if (resp.status === 409) {
       return this.handleCreateConflict(repoPath, content, ref, creds, callId);
     }
-    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) return 'exists';
+    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) {
+      return this.confirmExistsAfter422(repoPath, ref, resp.error ?? '', callId);
+    }
     if (!resp.ok) {
       throw new ActionableError({
         goal: `Create ${repoPath} on GitHub only if absent`,
@@ -1567,6 +1788,35 @@ export class GitHubAPIBackend implements StorageBackend {
     const newSha = (resp.data as { content?: { sha?: string } })?.content?.sha ?? '';
     await this.writeToDiskCache(repoPath, content, newSha, '');
     return 'created';
+  }
+
+  /** t/268 (item 3): GitHub's 422 text mentioning "sha" is a hint that the file exists, not proof: the
+   *  wording is not a contract, and another validation error could mention sha. Confirm with a read, the
+   *  way the 409 path does. Present → 'exists'. Absent → the 422 was a real validation failure: WARN with
+   *  the raw message and throw. Unavailable → cannot verify, so fail closed with a 503. */
+  private async confirmExistsAfter422(repoPath: string, ref: string, rawError: string, callId: string): Promise<WriteIfAbsentResult> {
+    const status = await this.getSessionBranchFileStatus(repoPath, ref);
+    if (status.kind === 'present') return 'exists';
+    if (status.kind === 'unavailable') {
+      log.github.warn({ callId, repoPath, ref, githubMessage: rawError },
+        'writeFileIfAbsent: 422 mentions sha but the file could not be read to confirm it exists; failing closed (t/268)');
+      throw new ActionableError({
+        goal: `Verify whether ${repoPath} exists after GitHub refused the create`,
+        problem: 'GitHub API returned 422 for a create without sha, but the file could not be read to confirm it exists.',
+        location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+        nextSteps: ['Retry the operation', 'Check GitHub API status'],
+        httpStatus: 503,
+        code: 'GITHUB_EXISTS_UNVERIFIED',
+      });
+    }
+    log.github.warn({ callId, repoPath, ref, githubMessage: rawError },
+      'writeFileIfAbsent: 422 mentions sha but the file is absent; treating it as a validation failure, not as exists (t/268)');
+    throw new ActionableError({
+      goal: `Create ${repoPath} on GitHub only if absent`,
+      problem: `GitHub API returned 422: ${rawError}`,
+      location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+      nextSteps: ['Check the path and content are valid for the GitHub contents API', 'Retry the operation'],
+    });
   }
 
   private async handleCreateConflict(
@@ -1595,7 +1845,9 @@ export class GitHubAPIBackend implements StorageBackend {
       content: Buffer.from(content, 'utf-8').toString('base64'),
       branch: ref,
     }, callId);
-    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) return 'exists';
+    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) {
+      return this.confirmExistsAfter422(repoPath, ref, retryResp.error ?? '', callId);
+    }
     if (retryResp.ok) {
       const newSha = (retryResp.data as { content?: { sha?: string } })?.content?.sha ?? '';
       await this.writeToDiskCache(repoPath, content, newSha, '');
@@ -1677,7 +1929,18 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   async listDirectory(dirPath: string, opts?: { ref?: string }): Promise<string[]> {
+    return (await this.listDirectoryDetailed(dirPath, opts)).names;
+  }
+
+  /**
+   * t/268 (item 5): listDirectory, plus why the listing is degraded. A degraded listing returned []
+   * without a genuine answer (no tree on a non-holder, circuit breaker open, API unavailable, no
+   * credentials). A missing directory (404) is a genuine [] and is not degraded. Callers that count
+   * records (job caps) must fail closed on a degraded listing, not read it as "no records".
+   */
+  async listDirectoryDetailed(dirPath: string, opts?: { ref?: string }): Promise<{ names: string[]; degraded: DirListingDegradation | null }> {
     const repoPath = this.toRepoPath(dirPath);
+    let degraded: DirListingDegradation | null = null;
     const prefix = repoPath ? repoPath + '/' : '';
 
     // Build the base listing (direct children) from the in-memory tree, falling
@@ -1696,13 +1959,15 @@ export class GitHubAPIBackend implements StorageBackend {
         seen.add(rest.split('/')[0]);
       }
     } else if (this.mayFallBackToContentsApi() && !(this.rest.isTripped())) {
-      await this.fetchDirectoryFromAPI(repoPath, opts, seen);
+      degraded = await this.fetchDirectoryFromAPI(repoPath, opts, seen);
     } else if (!this.mayFallBackToContentsApi()) {
+      degraded = 'non-holder-tree-empty';
       // t/4179 R3: a non-holder with an empty tree even after a refill
       // attempt never hits the Contents API per-call — that's the N>1
       // crash-loop pattern t/4201/t/4176 fixed. Degraded [] instead.
       log.server.warn({ dir: repoPath, cause: 'non-holder-tree-empty' }, 'listDirectory returning [] — coordinated non-holder with no tree, avoiding per-call Contents API (t/4179)');
     } else {
+      degraded = 'circuit-breaker-open';
       log.server.warn({ dir: repoPath, cause: 'circuit-breaker-open' }, 'listDirectory returning [] — circuit breaker open, may be false-empty (t/3300)');
     }
 
@@ -1712,7 +1977,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // are invisible to listDirectory() until the overlay is flushed on commit.
     await this.mergeOverlayIntoListing(prefix, seen);
 
-    return [...seen];
+    return { names: [...seen], degraded };
   }
 
   /**
@@ -1739,7 +2004,7 @@ export class GitHubAPIBackend implements StorageBackend {
         ],
       });
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${this.toRepoPath(dirPath)}${qRef}`);
@@ -1755,23 +2020,29 @@ export class GitHubAPIBackend implements StorageBackend {
     return [];
   }
 
+  /** Returns the degradation reason, or null when the listing is genuine (including a 404: the
+   *  directory does not exist, which is a real empty answer). */
   private async fetchDirectoryFromAPI(
     repoPath: string, opts: { ref?: string } | undefined, seen: Set<string>,
-  ): Promise<void> {
+  ): Promise<DirListingDegradation | null> {
     const creds = await this.getCredsCached();
-    if (creds) {
-      const ref = opts?.ref ?? this.getEffectiveRef();
-      const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-      const resp = await this.rest.request(creds, 'GET',
-        `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
-      if (resp.ok && Array.isArray(resp.data)) {
-        for (const e of resp.data as Array<{ name: string }>) seen.add(e.name);
-      } else if (!resp.ok) {
-        log.server.warn({ dir: repoPath, status: (resp as { status?: number }).status, cause: 'api-non-ok' }, 'listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)');
-      }
-    } else {
+    if (!creds) {
       log.server.warn({ dir: repoPath, cause: 'no-credentials' }, 'listDirectory returning [] — no GitHub credentials available, may be false-empty (t/3300)');
+      return 'no-credentials';
     }
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
+    const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
+    const resp = await this.rest.request(creds, 'GET',
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
+    if (resp.ok && Array.isArray(resp.data)) {
+      for (const e of resp.data as Array<{ name: string }>) seen.add(e.name);
+      return null;
+    }
+    if (resp.ok) return null;
+    const status = (resp as { status?: number }).status;
+    if (status === 404) return null;
+    log.server.warn({ dir: repoPath, status, cause: 'api-non-ok' }, 'listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)');
+    return 'api-unavailable';
   }
 
   /**
@@ -1850,7 +2121,7 @@ export class GitHubAPIBackend implements StorageBackend {
   async fileExists(filePath: string, opts?: { ref?: string }): Promise<boolean> {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // Check session overlay — only when this call isn't pinned away from the
     // session's own ref (t/4428#2 condition 1). An explicit opts.ref that
@@ -1955,17 +2226,25 @@ export class GitHubAPIBackend implements StorageBackend {
 
     if (!resp.ok) return [];
 
-    const data = resp.data as { tree: TreeEntry[]; truncated?: boolean };
+    // t/470: an OK response with no body, or without a tree array, is a failed load, not a throw.
+    // Callers already treat [] as "no tree" (the same answer as !resp.ok).
+    const data = resp.data as { tree?: unknown; truncated?: boolean } | null | undefined;
+    if (!data || !Array.isArray(data.tree)) {
+      log.github.warn({ sha, status: resp.status, bodyType: data === null ? 'null' : typeof data },
+        'getTree: OK response without a tree array; treating it as a failed load (t/470)');
+      return [];
+    }
+    const tree = data.tree as TreeEntry[];
     if (data.truncated) {
       this.recordEvent({
         type: 'system.scaling_warning',
         component: 'github-api',
         level: 'warn',
         message: 'Git Trees API returned truncated result (>100,000 entries)',
-        data: { sha, entryCount: data.tree.length },
+        data: { sha, entryCount: tree.length },
       });
     }
-    return data.tree;
+    return tree;
   }
 
   // ── Batched blob reads (t/4499, TL design t/4499#18) ────────────────────
@@ -2005,7 +2284,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const creds = await this.getCredsCached();
     if (!creds) return { contents, fallbackCount: filePaths.length, graphqlCost: 0 };
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const [owner, name] = creds.repo.split('/');
     // repoPath (the GraphQL expression's path) <-> the caller's original
     // absolute filePath, so the result map is keyed the same way callers
@@ -2456,8 +2735,12 @@ export class GitHubAPIBackend implements StorageBackend {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
     }
 
+    // t/505: callers pass the base-branch alias ('main') for either side. Compare against this
+    // deployment's base branch, not a branch that happens to be called 'main'.
+    const baseRef = this.resolveReadRef(base) ?? base;
+    const headRef = this.resolveReadRef(head) ?? head;
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/compare/${base}...${head}`);
+      `/repos/${creds.repo}/compare/${baseRef}...${headRef}`);
 
     if (!resp.ok) {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
@@ -2551,16 +2834,39 @@ export class GitHubAPIBackend implements StorageBackend {
   // ── Path contract ──────────────────────────────────────────────────────
 
   private toRepoPath(filePath: string): string {
-    let p = filePath;
+    const refuse = (code: string, problem: string): never => {
+      throw new ActionableError({
+        goal: 'Validate file path',
+        problem,
+        location: 'GitHubAPIBackend.toRepoPath',
+        nextSteps: ['Use a clean repository-relative path inside the data root'],
+        code,
+        httpStatus: 400,
+      });
+    };
+    // t/434: a NUL byte never belongs in a path; refuse before anything else looks at it.
+    if (filePath.includes('\0')) refuse('INVALID_PATH', `Path contains a NUL byte: "${filePath}"`);
+
+    // t/434: backslash is a separator for Windows callers; normalise before any check.
+    let p = filePath.replace(/\\/g, '/');
 
     // Strip the data-root prefix to get the repo-relative path. Use getDataRoot()
     // (the actual source of incoming absolute paths from fileIO.ts) rather than
     // this.cacheDir (the disk-cache write location) — they can diverge when the
     // cache is on a separate mount (e.g. TAXONOMY_CACHE_DIR != AI_TRIAD_DATA_ROOT),
     // which caused staging github-api reads to 404 (t/2670).
-    const dataRoot = getDataRoot();
-    if (p.startsWith(dataRoot)) {
+    // t/434: match on a path-segment boundary (`<root>-evil/x` is not inside the root),
+    // case-insensitively on win32, and refuse absolute, drive-letter and UNC paths outside it.
+    const dataRoot = getDataRoot().replace(/\\/g, '/').replace(/\/+$/, '');
+    const ci = process.platform === 'win32';
+    const head = ci ? p.toLowerCase() : p;
+    const rootCmp = ci ? dataRoot.toLowerCase() : dataRoot;
+    if (dataRoot && (head === rootCmp || head.startsWith(rootCmp + '/'))) {
       p = p.slice(dataRoot.length);
+    } else if (dataRoot && head.startsWith(rootCmp)) {
+      refuse('PATH_OUTSIDE_ROOT', `Path shares the data-root name but is outside it: "${filePath}"`);
+    } else if (/^[a-zA-Z]:/.test(p) || p.startsWith('//')) {
+      refuse('PATH_OUTSIDE_ROOT', `Absolute, drive-letter or UNC path outside the data root rejected: "${filePath}"`);
     }
 
     // Strip leading slashes
@@ -2576,8 +2882,9 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
 
-    // Reject path traversal
-    if (p.includes('..')) {
+    // Reject path traversal: `..` as a whole segment only (either separator), so a name such as
+    // `foo..json` is a valid file name. confineToDir still keeps any in-root path inside the root.
+    if (p.split(/[\\/]/).includes('..')) {
       throw new ActionableError({
         goal: 'Validate file path',
         problem: `Path traversal with ".." rejected: "${filePath}"`,
@@ -2695,7 +3002,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readFromDiskCache(repoPath: string): Promise<string | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath, 'utf-8');
     } catch (err: unknown) {
@@ -2711,7 +3018,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async readBinaryFromDiskCache(repoPath: string): Promise<Buffer | null> {
     if (!this.manifest?.files[repoPath]) return null;
 
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       return await fs.readFile(diskPath);
     } catch (err) {
@@ -2730,7 +3037,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = await confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2779,7 +3086,7 @@ export class GitHubAPIBackend implements StorageBackend {
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
     try {
-      const diskPath = path.join(this.cacheDir, repoPath);
+      const diskPath = await confineToDir(this.cacheDir, repoPath);
       await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
       const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
@@ -2823,7 +3130,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async removeFromDiskCache(repoPath: string): Promise<void> {
-    const diskPath = path.join(this.cacheDir, repoPath);
+    const diskPath = await confineToDir(this.cacheDir, repoPath);
     try {
       await fs.unlink(diskPath);
     } catch {
@@ -2868,6 +3175,24 @@ export class GitHubAPIBackend implements StorageBackend {
    *  403/429 (TL t/4584#4, confirmed root cause) is GitHub's shared
    *  installation rate limit exhausted, not a generic refusal, so it gets
    *  its own reason rather than falling into the generic `status=<n>`. */
+  /** t/463 (log-only): on a 404 from the contents API, record what GitHub said, so the
+   *  not_found reason is readable in the logs. Pulled out of fetchFileFromGitHub for the
+   *  complexity budget. No behaviour change: callers still get the same null. */
+  private logContents404Detail(resp: ApiResult, repoPath: string, endpoint: string, ref: string, credentialMode: string): void {
+    if (resp.status !== 404) return;
+    const body = (resp.data && typeof resp.data === 'object') ? resp.data as Record<string, unknown> : {};
+    log.github.warn({
+      path: repoPath,
+      endpoint,
+      ref,
+      status: resp.status,
+      githubMessage: typeof body.message === 'string' ? body.message : null,
+      documentationUrl: typeof body.documentation_url === 'string' ? body.documentation_url : null,
+      apiError: resp.error ?? null,
+      credentialMode,
+    }, 'fetchFileFromGitHub: contents 404 detail (t/463 log-only)');
+  }
+
   private classifyNonOkContentsResponse(resp: ApiResult, repoPath: string, optional: boolean | undefined, strict: boolean): void {
     if (resp.status === 404) {
       this.logNullReadReason(repoPath, 'not_found', optional);
@@ -2935,6 +3260,62 @@ export class GitHubAPIBackend implements StorageBackend {
     if (next) next();
   }
 
+  /** t/497: read the data repo's visibility with the installation token (api.github.com only). Never
+   *  throws. A failed or unreadable answer leaves the visibility unknown, which means "try raw as
+   *  today": skipping raw is only ever a quota saving, so it needs a positive answer. Single flight. */
+  private refreshRepoVisibility(trigger: 'startup' | 'ttl' | 'raw-404'): Promise<void> {
+    if (this.repoVisibilityInFlight) return this.repoVisibilityInFlight;
+    this.repoVisibilityLastAttemptAt = Date.now();
+    this.repoVisibilityInFlight = (async () => {
+      try {
+        const creds = await this.getCredsCached();
+        if (!creds) { this.repoVisibility = null; return; }
+        // optional: a 404 here (a token without metadata access, or a test double) is not an API error.
+        const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}`, undefined, undefined, { optional: true });
+        const data = resp.ok ? resp.data as { visibility?: unknown; private?: unknown } | null : null;
+        const visibility = typeof data?.visibility === 'string' ? data.visibility
+          : data?.private === false ? 'public' : data?.private === true ? 'private' : null;
+        if (visibility === null) {
+          this.repoVisibility = null;
+          log.storage.info({ trigger, status: resp.status }, 'repo visibility: could not be read; raw fetch stays as it was (t/497)');
+          return;
+        }
+        this.repoVisibility = { isPublic: visibility === 'public', visibility, checkedAt: Date.now() };
+        if (this.repoVisibility.isPublic) this.rawSkipLogged = false;
+        log.storage.info({ trigger, visibility }, 'repo visibility read (t/497)');
+      } catch (err: unknown) {
+        this.repoVisibility = null;
+        // INFO, not WARN: nothing degrades. Unknown visibility is the behaviour before t/497 (try raw).
+        log.storage.info({ trigger, errName: (err as Error)?.name ?? 'Error' }, 'repo visibility: read threw; raw fetch stays as it was (t/497)');
+      } finally {
+        this.repoVisibilityInFlight = null;
+      }
+    })();
+    return this.repoVisibilityInFlight;
+  }
+
+  /** t/497: true only when the repo is known, from a read no older than the TTL, not to be public. */
+  private async shouldSkipRawForPrivateRepo(): Promise<boolean> {
+    const known = this.repoVisibility;
+    if (!known) return false;
+    if (Date.now() - known.checkedAt > GitHubAPIBackend.REPO_VISIBILITY_TTL_MS) await this.refreshRepoVisibility('ttl');
+    return this.repoVisibility !== null && !this.repoVisibility.isPublic;
+  }
+
+  /** t/497: after a raw 404 for a path in the tree, re-read the visibility, at most once a minute. */
+  private recheckRepoVisibilityAfterRaw404(): void {
+    if (Date.now() - this.repoVisibilityLastAttemptAt < GitHubAPIBackend.REPO_VISIBILITY_MIN_RECHECK_MS) return;
+    void this.refreshRepoVisibility('raw-404');
+  }
+
+  /** t/497: one WARN per process (and again after the repo is seen public and turns private). */
+  private noteRawSkippedForPrivateRepo(): void {
+    if (this.rawSkipLogged) return;
+    this.rawSkipLogged = true;
+    log.github.warn({ visibility: this.repoVisibility?.visibility ?? null },
+      'fetchFileFromRaw: the data repo is not public, so the unauthenticated raw fetch is skipped; reads use the REST API (t/497)');
+  }
+
   /** TL condition 1's disable guard: a fixed one-minute window counting
    *  every raw-fallback event, regardless of reason. Crossing the threshold
    *  trips `rawDisabled` for the rest of the process's lifetime (never
@@ -2980,6 +3361,13 @@ export class GitHubAPIBackend implements StorageBackend {
    *  any failure becomes `fallback` for the caller to retry via REST. */
   private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
     if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
+    // t/497: a repo known not to be public would 404 here every time. Skip the request.
+    if (await this.shouldSkipRawForPrivateRepo()) return { kind: 'fallback', reason: 'private_repo' };
+    // t/372 (CodeQL #6275): encodeURIComponent leaves '.' and '..', and the URL parser
+    // normalises them, so refuse dot-segments before the URL is built.
+    if (repoPath.split('/').some(seg => seg === '.' || seg === '..')) {
+      return { kind: 'fallback', reason: 'invalid_path' };
+    }
 
     const creds = await this.getCredsCached();
     if (!creds) return { kind: 'fallback', reason: 'network_error' };
@@ -3004,6 +3392,9 @@ export class GitHubAPIBackend implements StorageBackend {
         // as a genuine absence — could be a renamed/moved CDN edge case, a
         // repo-visibility change, or raw misbehaving.
         if (this.isPathKnownInTree(repoPath)) {
+          // t/497 (Security): an in-tree path that 404s on raw may mean the repo is no longer public.
+          // Re-read the visibility in the background; this read falls back to REST either way.
+          this.recheckRepoVisibilityAfterRaw404();
           return { kind: 'fallback', reason: 'raw_404_but_in_tree' };
         }
         // t/4615: an unknown path still isn't trustworthy as genuinely
@@ -3032,6 +3423,38 @@ export class GitHubAPIBackend implements StorageBackend {
     }
   }
 
+  /** t/478: the contents GET for a caller that needs the body. A conditional request is only valid when
+   *  the caller has a body to serve on a 304, and no caller of fetchFileFromGitHub has one (each arrives
+   *  after a cache miss, or on a strict read that skips the disk cache, t/4778). So a strict read sends
+   *  no If-None-Match, and any 304 is repeated once without the ETag instead of being read as "absent".
+   *  Before this, a manifest ETag made GitHub answer 304 and the file read as absent on every attempt.
+   *  Returns null only when the 304 persists on a non-strict read; a strict read throws transient. */
+  private async requestContentsBody(
+    creds: SyncCredentials, endpoint: string, repoPath: string, ref: string,
+    optional: boolean | undefined, strict: boolean,
+  ): Promise<ApiResult | null> {
+    if (strict) {
+      log.github.info({ path: repoPath, ref, manifestEtagPresent: !!this.manifest?.files[repoPath]?.etag },
+        'fetchFileFromGitHub: strict read goes to REST without If-None-Match (t/478)');
+    }
+    const first = await this.rest.request(creds, 'GET', endpoint,
+      undefined, undefined, { optional: !!optional, unconditional: strict });
+    if (first.status !== 304) return first;
+
+    log.github.warn({ path: repoPath, ref, strict },
+      'fetchFileFromGitHub: 304 with no cached body to serve; retrying once without If-None-Match (t/478)');
+    const second = await this.rest.request(creds, 'GET', endpoint,
+      undefined, undefined, { optional: !!optional, unconditional: true });
+    if (second.status !== 304) return second;
+
+    log.github.warn({ path: repoPath, ref, strict },
+      'fetchFileFromGitHub: 304 again on an unconditional retry; the file could not be read (t/478)');
+    if (strict) {
+      throw Object.assign(new Error(`GitHub answered 304 to an unconditional read — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'status=304' as const });
+    }
+    return null;
+  }
+
   private async fetchFileFromGitHub(
     repoPath: string,
     ref: string,
@@ -3042,15 +3465,11 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!creds) { this.handleMissingCreds(repoPath, optional, strict); return null; }
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-    const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
-      undefined, undefined, optional ? { optional: true } : undefined);
-
-    // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
-    // from a cached etag — getCachedEtag() no longer sends one for a non-main
-    // ref, but treat it as a miss defensively rather than crash on null data.
-    if (resp.status === 304) return null;
+    const endpoint = `/repos/${creds.repo}/contents/${repoPath}${qRef}`;
+    const resp = await this.requestContentsBody(creds, endpoint, repoPath, ref, optional, strict);
+    if (resp === null) return null;
     if (!resp.ok) {
+      this.logContents404Detail(resp, repoPath, endpoint, ref, creds.mode);
       this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
       return null;
     }
@@ -3104,11 +3523,22 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!creds) return null;
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-    const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
+    const endpoint = `/repos/${creds.repo}/contents/${repoPath}${qRef}`;
+    let resp = await this.rest.request(creds, 'GET', endpoint);
 
-    // t/4258/t/4295: see fetchFileFromGitHub — a 304 carries no data.
-    if (!resp.ok || resp.status === 304) return null;
+    // t/478 guard: this runs after a binary cache miss, so a 304 has no body to serve. Repeat once
+    // without the ETag instead of returning null as "absent".
+    if (resp.status === 304) {
+      log.github.warn({ path: repoPath, ref },
+        'fetchBinaryFileFromGitHub: 304 with no cached body to serve; retrying once without If-None-Match (t/478)');
+      resp = await this.rest.request(creds, 'GET', endpoint, undefined, undefined, { unconditional: true });
+    }
+    if (resp.status === 304) {
+      log.github.warn({ path: repoPath, ref },
+        'fetchBinaryFileFromGitHub: 304 again on an unconditional retry; the file could not be read (t/478)');
+      return null;
+    }
+    if (!resp.ok) return null;
 
     const data = resp.data as {
       content?: string;
@@ -3149,9 +3579,10 @@ export class GitHubAPIBackend implements StorageBackend {
     etag: string,
   ): Promise<{ content: Buffer; sha: string; etag: string } | null> {
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true });
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true, unconditional: true });
 
-    if (!resp.ok) return null;
+    // t/478: a 304 is ok with null data; never return that as the file's bytes.
+    if (!resp.ok || resp.status === 304) return null;
 
     return { content: resp.data as Buffer, sha, etag: resp.etag ?? etag };
   }
@@ -3217,21 +3648,29 @@ export class GitHubAPIBackend implements StorageBackend {
       `/repos/${creds.repo}/git/commits/${commitSha}`);
     if (!commitResp.ok) return false;
 
-    const treeSha = (commitResp.data as { tree: { sha: string } }).tree.sha;
+    // t/470: an OK commit response with no body, or without tree.sha, is a failed load, not a throw.
+    const treeSha = (commitResp.data as { tree?: { sha?: unknown } } | null | undefined)?.tree?.sha;
+    if (typeof treeSha !== 'string' || treeSha.length === 0) {
+      log.github.warn({ commitSha, status: commitResp.status },
+        'fetchRepoTree: OK commit response without tree.sha; treating it as a failed load (t/470)');
+      return false;
+    }
     const entries = await this.getTree(treeSha, true);
 
-    this.repoTree.clear();
+    // t/463 (Second Opinion): build the tree locally and assign it only on success. A zero-blob or failed
+    // load must not empty or replace the live tree.
+    const loadedTree = new Map<string, TreeEntry>();
     for (const entry of entries) {
-      if (entry.type === 'blob') {
-        this.repoTree.set(entry.path, entry);
+      // t/470: skip an entry that is not an object with a path, instead of throwing on it.
+      if (entry?.type === 'blob' && typeof entry.path === 'string') {
+        loadedTree.set(entry.path, entry);
       }
     }
-    this.treeSha = treeSha;
 
     // Zero blobs = undici session-reuse returning stale/empty response (t/2053).
     // A valid taxonomy repo always has files — treat 0 as a load failure and
     // log at error-level so ops has a signal instead of a silent /healthz 503.
-    if (this.repoTree.size === 0) {
+    if (loadedTree.size === 0) {
       this.recordEvent({
         type: 'github.api.error',
         component: 'github-api',
@@ -3245,6 +3684,10 @@ export class GitHubAPIBackend implements StorageBackend {
       log.github.error({ commitSha, treeSha }, 'github.api.error: fetchRepoTree 0 blobs loaded — data-load failed');
       return false;
     }
+
+    this.repoTree.clear();
+    for (const [p, entry] of loadedTree) this.repoTree.set(p, entry);
+    this.treeSha = treeSha;
 
     this.recordEvent({
       type: 'cache.hit',
@@ -3345,9 +3788,53 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async pollTick(): Promise<void> {
+    // t/482: a replica that is not ready does no ordinary polling. If its load failed for a known reason
+    // it tries the full load again, whatever its lease role: each replica has its own in-memory tree, so
+    // a non-holder cannot be recovered by the holder's poll state.
+    if (this._dataLoadStatus === 'failed') {
+      if (this._dataLoadFailure === 'known') await this.attemptLoadRecovery();
+      return;
+    }
     if (!this.blobLease) return this.pollDirect();
     if (this.blobLease.isHolder()) return this.pollAsHolder();
     return this.pollAsNonHolder();
+  }
+
+  /** t/483: apply a new head commit seen by a poll. The tree is loaded first, and nothing else happens
+   *  unless that load succeeds: fetchRepoTree returns false on a failed, zero-blob or wrong-shaped load
+   *  and leaves the live tree as it was. The callers used to ignore that result, drop the changed
+   *  entries from the manifest before the fetch, and advance the manifest commit after it, so a failed
+   *  fetch left the manifest naming a commit whose tree was never loaded, and the next poll saw
+   *  "nothing changed". #5309 (t/463) fixed the same thing in initialize().
+   *  Returns the changed paths, or null when the tree load failed and nothing was applied. */
+  private async applyPolledCommit(currentSha: string): Promise<string[] | null> {
+    const previousSha = this.manifest?.lastCommitSha ?? '';
+    const changed = previousSha ? await this.getChangedFiles(previousSha, currentSha) : [];
+
+    const loaded = await this.fetchRepoTree(currentSha);
+    if (!loaded) {
+      log.storage.warn({ previousSha, currentSha, changedCount: changed.length },
+        'poll: tree load failed for the new commit; manifest and live tree left unchanged, will retry on the next poll (t/483)');
+      return null;
+    }
+
+    if (changed.length > 0) {
+      this.recordEvent({
+        type: 'cache.invalidate',
+        component: 'cache',
+        level: 'info',
+        message: `Poll: ${changed.length} files changed`,
+        data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
+      });
+      await this.withManifestLock(async () => {
+        for (const filePath of changed) {
+          if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
+        }
+      });
+    }
+
+    await this.updateManifestSha(currentSha);
+    return changed;
   }
 
   /** The pre-t/4179 poll body, unchanged — used when no pollLease is
@@ -3359,27 +3846,7 @@ export class GitHubAPIBackend implements StorageBackend {
       const currentSha = await this.getLatestCommitSha();
       if (!currentSha || currentSha === this.manifest?.lastCommitSha) return;
 
-      const changed = this.manifest?.lastCommitSha
-        ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
-        : [];
-
-      if (changed.length > 0) {
-        this.recordEvent({
-          type: 'cache.invalidate',
-          component: 'cache',
-          level: 'info',
-          message: `Poll: ${changed.length} files changed`,
-          data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-        });
-        await this.withManifestLock(async () => {
-          for (const filePath of changed) {
-            if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-          }
-        });
-      }
-
-      await this.fetchRepoTree(currentSha);
-      await this.updateManifestSha(currentSha);
+      await this.applyPolledCommit(currentSha);
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -3407,27 +3874,10 @@ export class GitHubAPIBackend implements StorageBackend {
     try {
       currentSha = await this.getLatestCommitSha();
       if (currentSha && currentSha !== this.manifest?.lastCommitSha) {
-        changed = this.manifest?.lastCommitSha
-          ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
-          : [];
-
-        if (changed.length > 0) {
-          this.recordEvent({
-            type: 'cache.invalidate',
-            component: 'cache',
-            level: 'info',
-            message: `Poll: ${changed.length} files changed`,
-            data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-          });
-          await this.withManifestLock(async () => {
-            for (const filePath of changed) {
-              if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-            }
-          });
-        }
-
-        await this.fetchRepoTree(currentSha);
-        await this.updateManifestSha(currentSha);
+        const applied = await this.applyPolledCommit(currentSha);
+        // t/483: a failed tree load applied nothing, so there is nothing to publish to non-holders.
+        if (applied === null) return;
+        changed = applied;
       }
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
@@ -3651,6 +4101,42 @@ export class GitHubAPIBackend implements StorageBackend {
     });
   }
 
+  /** t/463: is `sha` still in repo history? A 404 or 422 says it is not. Any other outcome (a transient
+   *  failure, no credentials) counts as present: a cache is never wiped on an unknown answer. */
+  private async isCommitInHistory(sha: string): Promise<boolean> {
+    try {
+      const creds = await this.getCredsCached();
+      if (!creds) return true;
+      const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/commits/${sha}`);
+      if (resp.ok) return true;
+      const status = (resp as { status?: number }).status;
+      return !(status === 404 || status === 422);
+    } catch (err: unknown) {
+      // The check itself failed (credentials, network). Keep the cache; never wipe on an unknown answer.
+      log.storage.warn({ sha, err: String(err) }, 'isCommitInHistory: check failed; keeping the cache (t/463)');
+      return true;
+    }
+  }
+
+  /** t/463: drop the cached commit and its file entries in memory, so start-up re-seeds from the current
+   *  commit. The in-memory state is authoritative for this process; persistence is best-effort. */
+  private reseedManifestInMemory(): void {
+    const staleSha = this.manifest?.lastCommitSha ?? '';
+    if (this.manifest) {
+      this.manifest.files = {};
+      this.manifest.lastCommitSha = '';
+      this.manifest.generation++;
+    }
+    log.storage.warn({ staleSha }, 'Cached commit is not in repo history — re-seeding from the current commit (t/463)');
+    this.recordEvent({
+      type: 'cache.invalidate',
+      component: 'cache',
+      level: 'warn',
+      message: 'Cached commit not in repo history — re-seeding from current commit',
+      data: { staleSha, trigger: 'not-in-history' },
+    });
+  }
+
   private async fullCacheInvalidation(): Promise<void> {
     await this.withManifestLock(async () => {
       if (this.manifest) {
@@ -3812,7 +4298,9 @@ export class GitHubAPIBackend implements StorageBackend {
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
-      undefined, undefined, { optional: true });
+      // t/268 (item 4): unconditional. This read always needs the body, and on the base branch a cached
+      // ETag turned it into a 304, which read as 'unavailable' and surfaced a spurious 503.
+      undefined, undefined, { optional: true, unconditional: true });
 
     if (resp.status === 404) return { kind: 'absent' };
     // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged

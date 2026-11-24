@@ -16,8 +16,10 @@
 import type { JobRecordKind, JobRecordOf } from './jobRecords.js';
 import { listUserJobRecords } from './jobRecords.js';
 import { log } from '../logger.js';
-import { INQUIRY_HEARTBEAT_STALE_MS } from './inquiryJobStore.js';
-import { BRIEF_EXPORT_HEARTBEAT_STALE_MS } from './briefExportJobStore.js';
+import { INQUIRY_HEARTBEAT_STALE_MS, loadInquiryJobRecord, type InquiryJobRecord } from './inquiryJobStore.js';
+import { BRIEF_EXPORT_HEARTBEAT_STALE_MS, loadBriefExportJobRecord, isTerminalExportStatus, type BriefExportJobRecord } from './briefExportJobStore.js';
+import type { IsSlotHolderLive } from './jobSlots.js';
+import { isTerminalStatus } from '../../../../lib/inquiry/index.js';
 
 export interface JobCapError {
   reason: 'list_failed';
@@ -140,3 +142,24 @@ export async function findRunningJobByIdempotencyKey<K extends JobRecordKind>(
   }
 }
 
+
+/** How long a slot claim may precede its job record (the record is written right after the claim). */
+const SLOT_CLAIM_GRACE_MS = 30_000;
+
+/**
+ * Liveness of an inquiry or brief-export slot holder (t/400): live while its record is non-terminal with a
+ * fresh heartbeat. A claim with no record yet is live within SLOT_CLAIM_GRACE_MS of claimedAt, so a replica
+ * still writing the record never loses its slot. Lookups run in the caller's user context.
+ */
+export function slotHolderLiveness(kind: JobRecordKind): IsSlotHolderLive {
+  return async (holder) => {
+    const rec = kind === 'inquiry'
+      ? await loadInquiryJobRecord(holder.jobId)
+      : await loadBriefExportJobRecord(holder.jobId);
+    if (!rec) return Date.now() - Date.parse(holder.claimedAt) < SLOT_CLAIM_GRACE_MS;
+    if (kind === 'inquiry'
+      ? isTerminalStatus((rec as InquiryJobRecord).status)
+      : isTerminalExportStatus((rec as BriefExportJobRecord).status)) return false;
+    return isHeartbeatFresh(rec as JobRecordOf<any>, kind);
+  };
+}

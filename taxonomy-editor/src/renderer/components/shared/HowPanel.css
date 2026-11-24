@@ -26,7 +26,7 @@
 .how-chevron {
   display: inline-block;
   transition: transform 0.15s ease;
-  font-size: 0.7em;
+  font-size: 0.85em;
 }
 
 .how-chevron.expanded {

@@ -1,0 +1,23 @@
+{
+  "title": "AI Safety Test Case",
+  "debate_model": "gpt-4-turbo",
+  "debate_temperature": 0.7,
+  "protocol_id": "standard-debate-v2",
+  "app_version": "3.2.1",
+  "created_at": "2026-11-01T10:00:00Z",
+  "calibration_log": {
+    "crux_addressed_ratio": 0.88,
+    "repetition_rate": 0.09,
+    "claims_forgotten_rate": 0.05,
+    "taxonomy_mapped_ratio": 0.93,
+    "avg_utilization_rate": 0.81,
+    "situation_crux_alignment": 0.85,
+    "avg_branch_cohesion": 0.78,
+    "draft_repair_rate": 0.14,
+    "concession_cascades": 2,
+    "topic_alignment_rate": 0.91,
+    "process_reward_mean": 0.75,
+    "process_reward_stddev": 0.12,
+    "process_reward_min": 0.48
+  }
+}
