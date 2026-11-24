@@ -769,6 +769,8 @@ function Finalize-Summary {
     # Same fallback as the numeric guard: no snapshot text means no guard, and the counts stay null.
     $VerbatimSnapped = $null
     $VerbatimDropped = $null
+    $VerbatimInterleaved = $null
+    $VerbatimQuotes = $null
     if ([string]::IsNullOrWhiteSpace($SnapshotText)) {
         Write-Warning "Finalize-Summary: $ThisDocId : no snapshot text available; verbatim-grounding guard skipped (t/389)"
     } else {
@@ -776,6 +778,7 @@ function Finalize-Summary {
         $VerbatimSnapped = $VerbatimResult.Snapped
         $VerbatimDropped = $VerbatimResult.Dropped
         $VerbatimInterleaved = $VerbatimResult.Interleaved
+        $VerbatimQuotes = $VerbatimResult.Quotes
         if ($VerbatimSnapped -gt 0 -or $VerbatimDropped -gt 0 -or $VerbatimInterleaved -gt 0) {
             Write-Host "  │  verbatim-grounding: $VerbatimSnapped snapped, $VerbatimDropped dropped, $VerbatimInterleaved kept as written (interleaved layout)" -ForegroundColor DarkYellow
         }
@@ -803,7 +806,8 @@ function Finalize-Summary {
         -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens `
         -JsonRepaired $JsonRepaired -Truncated $Truncated -OutputTokens $OutputTokens `
         -CampBridgeDropped $CampBridgeDropped -NumericUngroundedDropped $NumericUngroundedDropped `
-        -VerbatimSnapped $VerbatimSnapped -VerbatimDropped $VerbatimDropped
+        -VerbatimSnapped $VerbatimSnapped -VerbatimDropped $VerbatimDropped `
+        -VerbatimInterleaved $VerbatimInterleaved -VerbatimQuotes $VerbatimQuotes
 
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)

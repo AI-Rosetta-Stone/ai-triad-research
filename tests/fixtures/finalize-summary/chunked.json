@@ -68,6 +68,8 @@
       "    \"numeric_ungrounded_dropped\": null,",
       "    \"verbatim_snapped\": null,",
       "    \"verbatim_dropped\": null,",
+      "    \"verbatim_interleaved\": null,",
+      "    \"verbatim_interleaved_rate\": null,",
       "    \"chunked\": true,",
       "    \"chunk_count\": 3",
       "  },",

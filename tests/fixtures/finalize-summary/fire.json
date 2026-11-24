@@ -60,6 +60,8 @@
       "    \"numeric_ungrounded_dropped\": null,",
       "    \"verbatim_snapped\": null,",
       "    \"verbatim_dropped\": null,",
+      "    \"verbatim_interleaved\": null,",
+      "    \"verbatim_interleaved_rate\": null,",
       "    \"fire_confidence_threshold\": 0.7,",
       "    \"fire_stats\": {",
       "      \"api_calls\": 9,",

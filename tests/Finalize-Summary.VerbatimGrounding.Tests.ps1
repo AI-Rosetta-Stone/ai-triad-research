@@ -144,7 +144,7 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
     }
 }
 
-Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (t/389#8)' -Tag 'summarization' {
+Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (t/389#8, t/389#11)' -Tag 'summarization' {
 
     BeforeAll {
         $script:Run = {
@@ -161,13 +161,16 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             'Independent auditors, for their part, say that access to the model weights is the only way to check such claims.'
     }
 
-    It 'keeps an elided quote as written when every segment is in the source' {
+    It 'stores an elided quote as its segments, each a source span, with no elision mark' {
         $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] access to the model weights is the only way to check such claims.'
         $Out = & $script:Run $script:Long $Quote 'doc-elide'
-        $Out.R.Snapped | Should -Be 0
+        $Out.R.Snapped | Should -Be 1
         $Out.R.Dropped | Should -Be 0
         $Out.R.Interleaved | Should -Be 0
-        $Out.Stored | Should -Be $Quote
+        @($Out.Stored).Count | Should -Be 2
+        $Out.Stored[0] | Should -Be 'Regulators in several countries have begun to ask for evaluation results'
+        $Out.Stored[1] | Should -Be 'access to the model weights is the only way to check such claims.'
+        foreach ($S in $Out.Stored) { $script:Long.Contains($S.TrimEnd('.')) | Should -BeTrue; $S | Should -Not -Match '\[' }
     }
 
     It 'treats three dots and the ellipsis character as elision marks too' {
@@ -175,15 +178,17 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Quote = "Regulators in several countries have begun to ask for evaluation results $Mark never designed to support a licensing decision."
             $Out = & $script:Run $script:Long $Quote 'doc-elide-marks'
             $Out.R.Dropped | Should -Be 0
-            $Out.Stored | Should -Be $Quote
+            @($Out.Stored).Count | Should -Be 2
+            ($Out.Stored -join '|') | Should -Not -Match ([regex]::Escape($Mark))
         }
     }
 
-    It 'keeps the segments the source has and removes the one it does not' {
+    It 'keeps the segment the source has, as a string, and removes the one it does not' {
         $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] and every lab has already agreed to publish them in full.'
         $Out = & $script:Run $script:Long $Quote 'doc-elide-partial'
         $Out.R.Snapped | Should -Be 1
         $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -BeOfType [string]
         $Out.Stored | Should -Be 'Regulators in several countries have begun to ask for evaluation results'
     }
 
@@ -194,14 +199,25 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -BeNullOrEmpty
     }
 
-    It 'does not keep a short fragment by itself, even when the source has those words' {
-        $Quote = 'the model [...] and every lab has already agreed to publish its results in full.'
+    It 'never keeps a fragment shorter than one run, even when the source has those words' {
+        $Quote = 'the model [...] Regulators in several countries have begun to ask for evaluation results'
         $Out = & $script:Run $script:Long $Quote 'doc-elide-short'
-        $Out.R.Dropped | Should -Be 1
-        $Out.Stored | Should -BeNullOrEmpty
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be 'Regulators in several countries have begun to ask for evaluation results'
     }
 
-    It 'keeps a quote as written when a two-column layout puts other text between its lines' {
+    It 'keeps a list a list, and adds the segments of an elided entry in place' {
+        $Verbatim = @(
+            'Developers answer that the evaluations they run today',
+            'Regulators in several countries have begun to ask for evaluation results [...] access to the model weights is the only way to check such claims.'
+        )
+        $Out = & $script:Run $script:Long $Verbatim 'doc-elide-list'
+        @($Out.Stored).Count | Should -Be 3
+        $Out.Stored[0] | Should -Be 'Developers answer that the evaluations they run today'
+        $Out.R.Quotes | Should -Be 2
+    }
+
+    It 'keeps a quote as written when a two-column layout puts other text between its lines, in order' {
         # Column A is the quote's sentence; column B's lines sit between column A's lines in the snapshot.
         $Src = "Developers answer that the evaluations they run`nTable 3 reports the share of respondents in each income group`ntoday were never designed to support a licensing`nwho said they had used a chatbot in the past month, by region`ndecision, and they ask for a transition period.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision, and they ask for a transition period.'
@@ -212,16 +228,16 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -Be $Quote
     }
 
-    It 'keeps a quote as written when the layout puts its lines out of order' {
+    It 'drops a quote whose lines are in the source out of order (CL ruling t/389#11: in order only)' {
         $Src = "decision, and they ask for a transition period of two years.`n`nDevelopers answer that the evaluations they run today were never designed to support a licensing`n`nTable 3 reports the share of respondents in each income group.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision, and they ask for a transition period of two years.'
         $Out = & $script:Run $Src $Quote 'doc-out-of-order'
-        $Out.R.Interleaved | Should -Be 1
-        $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -Be $Quote
+        $Out.R.Interleaved | Should -Be 0
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
     }
 
-    It 'still drops a quote whose words are scattered across the document, not in one place' {
+    It 'drops a quote whose lines are in order but spread beyond one window' {
         $Filler = (1..40 | ForEach-Object { "Paragraph $_ describes an unrelated survey question about household internet access and its wording." }) -join "`n"
         $Src = "Developers answer that the evaluations they run today`n$Filler`nwere never designed to support a licensing decision.`n$Filler`nThey ask for a transition period of two years.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision. They ask for a transition period of two years.'
@@ -234,13 +250,21 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         # The model put "Internal audit documents" before the quoted passage; those words occur again after it.
         $Src = 'The filings suggest that the minimum viable product goal for the feature was to have something the company could point regulators and parents to. Figure 5. Internal audit documents, Exhibit 12.'
         $Quote = 'Internal audit documents: the minimum viable product goal for the feature was to have something the company could point regulators and parents to.'
-        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
         $Best = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
             param($S, $Q)
             Find-VerbatimSnap -Source (Get-VerbatimSource -Text $S) -Quote $Q
         }
         $Src.Substring($Best.Start, $Best.End - $Best.Start) | Should -Match '^the minimum viable product goal'
         $Best.Coverage | Should -BeGreaterThan 0.75
+    }
+
+    It 'a snapped span takes whole source words: it never starts or ends inside a word' {
+        # The source's first word is corrupted ("Xhe" for "The"), so the match starts at its last letter.
+        $Src = 'Constituents are restless. Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork nearby.'
+        $Quote = 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of construction'
+        $Out = & $script:Run $Src $Quote 'doc-word-boundary'
+        $Out.R.Snapped | Should -Be 1
+        $Out.Stored | Should -Be 'Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork'
     }
 
     It 'ignores a page header and a URL that the model copied into the quote' {
@@ -252,6 +276,12 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Snapped | Should -Be 1
         $Out.R.Dropped | Should -Be 0
         $Out.Stored | Should -Be 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
+    }
+
+    It 'counts the quotes it examined' {
+        $Out = & $script:Run $script:Long @('Developers answer that the evaluations they run today', 'A sentence the source does not have at all, about something else.') 'doc-count'
+        $Out.R.Quotes | Should -Be 2
+        $Out.R.Dropped | Should -Be 1
     }
 
     It 'decides 40 near quotes against a 300,000-character snapshot in under 20 seconds' {
