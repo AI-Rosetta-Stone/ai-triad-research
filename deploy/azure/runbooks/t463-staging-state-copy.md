@@ -31,14 +31,18 @@ P5. BEFORE-RECORD, taken BEFORE the pause (step 1), and saved on t/463 with the 
   (ii) `shared-data`, which mounts PROD's share `taxonomy-data` read-write by default (main.bicep line 1086:
   `storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'`).
   Zero replicas stops writes to (ii) as well, so no staging write reaches prod storage during the window.
-  Check: the staging app's replica count reads 0 and no replica is running, before the inventory is taken.
+  Check (TL p/9#412): list EVERY revision of `taxonomy-editor-staging` (`az containerapp revision list`), not one
+  replica set. Every revision must read replicas = 0. The check runs three times: before the inventory, before the
+  first write, and before verify. Any revision above zero stops the run.
 - Check: a test write from staging is refused (no replica), proving the pause holds. Record the time.
 - Window start time recorded on t/463. HARD STOP at two hours from this time.
 
 ## Step 2: frozen inventory of the source (read-only)
-- Command: `az storage file list --account-name staitriadkvwl3nywge4iw --share-name taxonomy-data-staging
-  --path "" --recursive --auth-mode login --enable-file-backup-request-intent`
-  (the backup-intent flag is per the PI's one-off approval; NOT a storage key).
+- Command (TL p/9#414): the script's source listing, `node copy-staging-state.mjs` (dry-run mode, the default).
+  It lists the source share recursively over the Azure Files REST API with Entra auth. Source reads carry the
+  x-ms-file-request-intent: backup header, which the PI approved for source reads under this copy plan only.
+  The CLI listing with the backup flag is NOT used: that flag was approved for one delete only.
+  Source writes are refused in code. No storage key is used.
 - Record for every file: path, size, Content-MD5 (from `az storage file show` if not in the list).
 - Save the inventory to a dated file and record its file count, total bytes and a SHA-256 over the sorted list
   on t/463. This is the frozen record.
@@ -52,6 +56,19 @@ P5. BEFORE-RECORD, taken BEFORE the pause (step 1), and saved on t/463 with the 
 - NO delete flags: the command must not contain `--delete-destination`, `remove`, `rm` or `delete`. This is
   asserted by a grep of the command before it runs.
 - Check: exit code 0, and azcopy's final summary shows zero failed transfers.
+- Mechanism change (PI option a, TL p/9#407): the copy is done by the reviewed REST script
+  `copy-staging-state.mjs` (SHA-256 recorded on t/463), not by azcopy, because azcopy cannot send the
+  x-ms-file-request-intent header. The script sends the backup-intent header on source GETs only and writes only
+  to staitriadstg19. The azcopy command above is superseded for this copy; the TL should confirm this line.
+
+### Partly written file: stop for a PI decision (TL p/9#412)
+- If a file is partly written (any failed create or range write, or a destination file whose size or SHA-256 does
+  not match the source), the run STOPS. The script writes `PARTIAL-FILE-STOP.json` (file, bytes written before
+  the failure, error, time) and exits non-zero.
+- The run does NOT retry the file, does NOT delete it, and does NOT overwrite it. A re-run refuses any existing
+  name whose size or hash differs.
+- Only the PI decides the next step (for example a separate, PI-approved delete of the partial destination file,
+  then a re-run). The decision and its time are recorded on t/463.
 
 ## Step 4: verification
 - Re-list the destination (same list command, on staitriadstg19). Compare with the frozen inventory:
@@ -66,7 +83,8 @@ not expected changes. The PI decides what happens to the 22 November grants.
 - Storage File Data SMB Share Contributor on the share taxonomy-data-staging on staitriadkvwl3nywge4iw, principal
   5abf01bc-a673-4d31-851e-86607dae5f01: granted 22 November 2026. This is a WRITE role on the staging share.
   This plan does not use it, and it is not the approved reader.
-The reader grant (created 2026-11-23T15:43:55Z) is the only expected change.
+Expected changes on the prod account are the reader grant (created 2026-11-23T15:43:55Z) and the account-scope
+Privileged Reader grant (created 2026-11-24T01:01:03Z), both named below.
 
 ## Condition 3 (SO, TL p/9#372): t/92 blob reach to the prod account is unchanged
 - Check, before and after the run, against the BEFORE-RECORD (precondition P5):
@@ -85,6 +103,21 @@ The reader grant (created 2026-11-23T15:43:55Z) is the only expected change.
     grant exists (p/59#106). The before-record (P5) is taken after this grant, so it already includes it.
   - It is a read grant on that one share. It does not change the account's blob reach, keys or network rules,
     and it is not part of the copy itself.
+- SECOND EXPECTED CHANGE (TL p/9#421, PI option a, t/463#152 to #161): the backup-intent read needs a privileged
+  role, and the share scope did not authorise it. The grant is widened to the account, for the copy read only.
+  - Assignment: Storage File Data Privileged Reader (role id b8eda974-7b85-4f76-af95-65846b26df6d)
+  - Scope: the storage account staitriadkvwl3nywge4iw (/subscriptions/ba91d835-ea25-49fe-9a86-a2694201ae21/resourceGroups/ai-triad/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw)
+  - Assignment id: 5ad4d9c1-3d35-4fc8-af45-6437b94f7718. Principal: 5abf01bc-a673-4d31-851e-86607dae5f01.
+  - Status: CREATED 2026-11-24T01:01:03Z (ARM PUT). It works: the source root read with the backup header returned
+    HTTP 200 at 01:31:04Z (t/463#164).
+  - It can read files and use backup semantics. It cannot write, delete or change permissions. It is not part of
+    the copy itself.
+  - PREDECESSOR (also a change, recorded): the share-scope grant c17d8852-8bb3-4f28-959b-abd7e5b142ee (scope
+    .../shares/taxonomy-data-staging, created 2026-11-24T00:02:05.99Z) was REMOVED at 2026-11-24T01:01:08Z (HTTP 200).
+  - REMOVAL PLAN for 5ad4d9c1: after the copy is verified (verify-report.json shows no problems), delete it with
+    the ARM roleAssignments DELETE on the account scope, then list the principal's assignments on the account to
+    confirm it is gone. Record the removal time and the listing on t/463. If the copy is NOT verified, the grant
+    stays until the PI decides; it is not removed by the copy's failure path. No write or delete role is added.
 
 ## No-delete assertion (applies to the whole run)
 - Before and after: the source's file count, total bytes and SHA-256 must be identical. A change on the source
