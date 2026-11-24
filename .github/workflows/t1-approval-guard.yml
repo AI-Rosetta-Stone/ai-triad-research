@@ -26,6 +26,17 @@ name: t1-approval-guard
 # ROLLOUT: ships warn-only (not a required context) for >=1 green cycle against real T1 PRs.
 # Promotion to required is a separate T2 PR (branch-protection-adjacent).
 #
+# STATES (t/534, PI decision t/531 items 1 and 4). Two rows show on a PR: the job row `evaluate`
+# and the API check run `t1-approval-guard` (the one enqueue-pr.mjs reads).
+#   T1, no approval at the head, no changes-request -> `t1-approval-guard` PENDING (in_progress,
+#       "awaiting review"); `evaluate` success. Not a pass: enqueue-pr.mjs refuses guard_in_progress.
+#   approved after the latest push   -> `t1-approval-guard` success; `evaluate` success.
+#   outstanding changes-request      -> `t1-approval-guard` failure; `evaluate` failure.
+#   cannot evaluate (crash, no head) -> `t1-approval-guard` failure; `evaluate` failure (t/4819).
+#   not T1                           -> `t1-approval-guard` success; `evaluate` success.
+# Every evaluation at a head UPDATES the one `t1-approval-guard` run it opened there (postCheckRun),
+# so an approval turns the push's pending row green instead of adding a second row (#5392).
+#
 # t/4247 (TL, 2026-10-20): the check went stale 6x in one day after an approval arrived -- the
 # issue_comment/pull_request_review triggers above were already in place, but a workflow run
 # triggered by either event does NOT attach its check-run to the PR's head SHA (`context.sha`
@@ -213,11 +224,44 @@ jobs:
             // GitHub counts a neutral check run as satisfying a required check, so a neutral
             // CANNOT EVALUATE would let an API outage that exhausts the retries PASS the gate
             // (fail-open). t/4819, TL condition p/12#44.
+            //
+            // t/534 (PI decision t/531 items 1 and 4): ONE ROW PER HEAD. `conclusion` may also be
+            // 'pending' (awaiting review): the run is left `in_progress`, never failed. Every later
+            // evaluation at the same head UPDATES that same run (found by CHECK_EXTERNAL_ID, which
+            // only this function sets), so the approval settles the row the push opened instead of
+            // adding a green row beside a red or pending one (#5392). A run is created only when
+            // none of ours exists at the head. If the lookup or the update fails, a new run is
+            // created (WARN): enqueue-pr.mjs reads the LATEST non-skipped run at the head, so the
+            // new one still decides. ci.yml's merge_group job shares the name but never sets this
+            // external_id, so it is never picked up here.
+            const CHECK_EXTERNAL_ID = 't1-approval-guard:api';
+            async function findOwnCheckRun(headSha) {
+              const runs = await withRetry('checks.listForRef', () => github.paginate(github.rest.checks.listForRef, { owner, repo, ref: headSha, check_name: 't1-approval-guard', filter: 'all', per_page: 100 }));
+              const own = (runs || []).filter((r) => r.external_id === CHECK_EXTERNAL_ID && r.app?.slug === 'github-actions');
+              own.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+              return own[0] || null;
+            }
             async function postCheckRun(headSha, conclusion, title, summary) {
               if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
+              const fields = conclusion === 'pending'
+                ? { status: 'in_progress', output: { title, summary } }
+                : { status: 'completed', conclusion, output: { title, summary } };
+              let existing = null;
+              try {
+                existing = await findOwnCheckRun(headSha);
+              } catch (err) {
+                core.warning(`WARN t1-approval-guard: could not list this head's check runs (${String(err && err.message ? err.message : err).split('\n')[0]}); creating a new t1-approval-guard run instead of updating one.`);
+              }
+              if (existing) {
+                try {
+                  await withRetry('checks.update', () => github.rest.checks.update({ owner, repo, check_run_id: existing.id, ...fields }));
+                  return;
+                } catch (err) {
+                  core.warning(`WARN t1-approval-guard: could not update check run ${existing.id} (${String(err && err.message ? err.message : err).split('\n')[0]}); creating a new one at this head (the newest run decides).`);
+                }
+              }
               await withRetry('checks.create', () => github.rest.checks.create({
-                owner, repo, name: 't1-approval-guard', head_sha: headSha,
-                status: 'completed', conclusion, output: { title, summary },
+                owner, repo, name: 't1-approval-guard', head_sha: headSha, external_id: CHECK_EXTERNAL_ID, ...fields,
               }));
             }
 
@@ -345,6 +389,23 @@ jobs:
               ].join('\n'));
               await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
               core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has an outstanding changes-request from ${who}.`);
+              return;
+            }
+
+            // t/534: no approval at the head yet, and no changes-request, is AWAITING REVIEW. The
+            // check run is left pending (in_progress) and this job ends success, so no red row is
+            // left behind; the approval later settles the same run (postCheckRun). Pending is not
+            // a pass: enqueue-pr.mjs reads an in_progress run as `guard_in_progress` and refuses.
+            if (result.reason === 'no-post-push-approval') {
+              const why = result.summary ? `\n\n${result.summary}` : '';
+              await postVerdictComment(prNumber, [
+                MARKER,
+                '**t1-approval-guard: AWAITING REVIEW (pending)** — this is a declared `Tier: T1` PR with no `Approved (<role>):` approval at the latest push yet.',
+                '',
+                'This is not a failure. The `t1-approval-guard` check stays pending, and the PR is not enqueued, until a reviewer approves at this head; the approval re-runs this check and settles the same check row to success (no push needed). A new push makes an earlier approval stale, so the check goes back to pending.' + why,
+              ].join('\n'));
+              await postCheckRun(pr.head.sha, 'pending', 't1-approval-guard: awaiting review', `T1 PR #${prNumber}: awaiting a reviewer approval at ${pr.head.sha.slice(0, 9)}.${result.summary ? ' ' + result.summary : ''}`);
+              core.info(`t1-approval-guard: T1 PR #${prNumber} is awaiting review at ${pr.head.sha} -- check left pending, job not failed (t/534).`);
               return;
             }
 

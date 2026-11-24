@@ -340,6 +340,10 @@ const SHAPES = [
   // Supersets: the lists ignore case, the predicates do not. An extra run is harmless.
   ['mixed case: approved (pi): -- over-triggers both, by design', created('approved (pi): x'), true, true],
   ['prose that mentions "approved" -- over-triggers the guard, by design', created('Head updated; previously approved by Quality.'), true, false],
+  // t/538 (t/437#9, observed live on #5436): a comment of only lower-case "approved" runs the guard
+  // (contains() ignores case) and skips tier-check (its list has only 'Approved (PI):'). By design:
+  // tier-check reads no T1 verdict. The guard's predicate does not count it (t1-approval-guard-pending.test.mjs).
+  ['t/538: bare lower-case "approved" -- runs the guard, skips tier-check, by design', created('approved'), true, false],
   ['empty body', created(''), false, false],
   ['verdict on a plain issue (not a PR)', { eventName: 'issue_comment', action: 'created', issue: { number: 7 }, comment: { body: 'Approved (PI): x /recheck-guards' } }, false, false],
   ['verdict deleted on a plain issue (the PR condition still applies)', { eventName: 'issue_comment', action: 'deleted', issue: { number: 7 }, comment: { body: 'Approved (Quality): ok' } }, false, false],
@@ -479,13 +483,22 @@ function assertOneCheck(result, conclusion) {
   assert.equal(result.checks[0].conclusion, conclusion);
 }
 
-test('guard script, issue_comment.deleted: the approval comment is gone from the list -> the head goes back to failure', async () => {
+// t/534: with the approval gone the head is AWAITING REVIEW again: the check goes back to pending
+// (in_progress), which enqueue-pr.mjs refuses as guard_in_progress. It must never stay success.
+function assertPending(result) {
+  assert.equal(result.checks.length, 1, `expected one check run; errors: ${JSON.stringify(result.log.error)}`);
+  assert.equal(result.checks[0].head_sha, PR_HEAD);
+  assert.equal(result.checks[0].status, 'in_progress');
+  assert.equal(result.checks[0].conclusion, undefined, 'a pending run has no conclusion, and never success');
+  assert.deepEqual(result.log.failed, [], 'awaiting review does not fail the job (t/534)');
+}
+
+test('guard script, issue_comment.deleted: the approval comment is gone from the list -> the head goes back to pending, not success', async () => {
   const approval = 'Approved (Quality): fine';
   const before = await runGuard({ payload: commentPayload('created', approval), comments: [apiComment(approval, AFTER_PUSH)] });
   assertOneCheck(before, 'success');
   const after = await runGuard({ payload: commentPayload('deleted', approval), comments: [] });
-  assertOneCheck(after, 'failure');
-  assert.match(after.log.failed.join('\n'), /no post-push approval \(no-post-push-approval\)/);
+  assertPending(after);
 });
 
 test('guard script, issue_comment.deleted: deleting the only changes-request comment unblocks an approved PR', async () => {
@@ -501,8 +514,7 @@ test('guard script, pull_request_review.dismissed: a dismissed reviewer-App appr
   const before = await runGuard({ payload: reviewPayload('submitted', 'approved'), reviews: [apiReview('APPROVED', body)] });
   assertOneCheck(before, 'success');
   const after = await runGuard({ payload: reviewPayload('dismissed', 'dismissed'), reviews: [apiReview('DISMISSED', body)] });
-  assertOneCheck(after, 'failure');
-  assert.match(after.log.failed.join('\n'), /no post-push approval \(no-post-push-approval\)/);
+  assertPending(after);
 });
 
 test('guard script, pull_request_review.dismissed: one of two approvals dismissed -> the other still satisfies the gate', async () => {
