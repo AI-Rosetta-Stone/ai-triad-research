@@ -35,12 +35,14 @@ type Internals = {
   initialize: () => Promise<void>;
   shutdown: () => void;
   _dataLoadStatus: string;
+  isCommitInHistory: (sha: string) => Promise<boolean>;
 };
 
 let tmp: string;
 let cacheDir: string;
 let inHistory: boolean;
 let writeFails: boolean;
+let treeFails: boolean;
 let writeSpy: ReturnType<typeof vi.spyOn> | null;
 
 /** A GitHub that answers for the current commit; OLD is in history only when `inHistory`. */
@@ -52,7 +54,9 @@ function router(_creds: unknown, _method: string, p: string): Promise<Resp> {
   if (p === `/repos/testowner/testrepo/compare/${OLD}...${NEW}`) {
     return Promise.resolve(inHistory ? { ok: true, data: { files: [] } } : { ok: false, status: 404, data: {} });
   }
-  if (p === `/repos/testowner/testrepo/git/commits/${NEW}`) return Promise.resolve({ ok: true, data: { tree: { sha: TREE } } });
+  if (p === `/repos/testowner/testrepo/git/commits/${NEW}`) {
+    return Promise.resolve(treeFails ? { ok: false, status: 503, data: {} } : { ok: true, data: { tree: { sha: TREE } } });
+  }
   if (p.startsWith(`/repos/testowner/testrepo/git/trees/${TREE}`)) {
     return Promise.resolve({ ok: true, data: { tree: [{ path: 'taxonomy/a.json', type: 'blob', mode: '100644', sha: 'NEWBLOB' }], truncated: false } });
   }
@@ -71,6 +75,7 @@ beforeEach(async () => {
   await fsp.writeFile(path.join(cacheDir, 'taxonomy', 'a.json'), 'STALE-CONTENT');
   inHistory = false;
   writeFails = false;
+  treeFails = false;
   writeSpy = null;
 });
 
@@ -138,5 +143,48 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend re-seeds a
     } finally {
       b.shutdown();
     }
+  });
+
+  describe('a transient failure never applies or persists the re-seed (t/463 Second Opinion)', () => {
+    it('a failed tree load leaves memory and disk as they were, and reports failed', async () => {
+      treeFails = true;
+      const b = await makeBackend();
+      await expect(b.initialize()).resolves.toBeUndefined();
+      try {
+        expect(b._dataLoadStatus).toBe('failed');
+        // Nothing applied in memory: the stale commit and its entry are still there.
+        expect(b.manifest?.lastCommitSha).toBe(OLD);
+        expect(b.manifest?.files['taxonomy/a.json']).toBeDefined();
+      } finally {
+        b.shutdown();
+      }
+      // Nothing persisted: the commit on disk is still the stale one.
+      const onDisk = JSON.parse(await fsp.readFile(path.join(cacheDir, 'manifest.json'), 'utf-8'));
+      expect(onDisk.lastCommitSha).toBe(OLD);
+    });
+
+    it('the next start with a healthy GitHub re-seeds and reports ready', async () => {
+      treeFails = true;
+      const first = await makeBackend();
+      await first.initialize();
+      first.shutdown();
+
+      treeFails = false;
+      const second = await makeBackend();
+      await second.initialize();
+      try {
+        expect(second._dataLoadStatus).toBe('ready');
+        expect(second.manifest?.lastCommitSha).toBe(NEW);
+        expect(second.manifest?.files['taxonomy/a.json']).toBeUndefined();
+      } finally {
+        second.shutdown();
+      }
+    });
+
+    it('the commit check is safe: a throwing credentials call keeps the cache (no throw, no wipe)', async () => {
+      const b = await makeBackend();
+      b.getCredsCached = async () => { throw new Error('credentials unavailable'); };
+      await expect(b.isCommitInHistory(OLD)).resolves.toBe(true);
+    });
   });
 });

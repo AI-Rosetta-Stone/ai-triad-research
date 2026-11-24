@@ -526,14 +526,27 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       this._dataLoadStatus = 'ready';
     } else {
-      // t/463: a cached commit that is no longer in repo history re-seeds from mainSha, in memory, before
-      // the tree loads. This does not depend on the manifest file being writable (a read-only share is the case).
-      if (this.manifest?.lastCommitSha && mainSha && !(await this.isCommitInHistory(this.manifest.lastCommitSha))) {
-        this.reseedManifestInMemory();
-      }
+      // t/463: decide now, apply only after the tree loads. A failed load leaves the manifest exactly as it
+      // was (memory and disk), so the next start tries again instead of reporting ready on an empty corpus.
+      const cachedSha = this.manifest?.lastCommitSha ?? '';
+      const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
       const loaded = await this.fetchRepoTree(mainSha);
       if (loaded) {
         this._dataLoadStatus = 'ready';
+        if (reseed) this.reseedManifestInMemory();
+        // A failed invalidation or manifest write must not abort start-up before polling starts (t/463).
+        if (this.manifest?.lastCommitSha) {
+          try {
+            await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+          } catch (err: unknown) {
+            log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
+          }
+        }
+        try {
+          await this.updateManifestSha(mainSha);
+        } catch (err: unknown) {
+          log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
+        }
       } else {
         this._dataLoadStatus = 'failed';
         this._dataLoadError = 'GitHub API data load failed during initialization — check credentials and network';
@@ -548,22 +561,6 @@ export class GitHubAPIBackend implements StorageBackend {
         // alert-github-api-error-spike (main.bicep) needs "github.api.error" in
         // ContainerAppConsoleLogs_CL to count this as a GitHub-outage/auth-failure signal.
         log.github.error({ sha: mainSha }, 'github.api.error: initialize data load failed — /healthz will report 503 until recovery');
-      }
-      // t/463: a failed manifest write must not abort start-up before polling starts. The in-memory state
-      // is already correct; the next successful save persists it. Each failure is logged (fallback WARN).
-      if (this.manifest?.lastCommitSha && mainSha) {
-        try {
-          await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
-        } catch (err: unknown) {
-          log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
-        }
-      }
-      if (mainSha) {
-        try {
-          await this.updateManifestSha(mainSha);
-        } catch (err: unknown) {
-          log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
-        }
       }
     }
 
@@ -3807,12 +3804,18 @@ export class GitHubAPIBackend implements StorageBackend {
   /** t/463: is `sha` still in repo history? A 404 or 422 says it is not. Any other outcome (a transient
    *  failure, no credentials) counts as present: a cache is never wiped on an unknown answer. */
   private async isCommitInHistory(sha: string): Promise<boolean> {
-    const creds = await this.getCredsCached();
-    if (!creds) return true;
-    const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/commits/${sha}`);
-    if (resp.ok) return true;
-    const status = (resp as { status?: number }).status;
-    return !(status === 404 || status === 422);
+    try {
+      const creds = await this.getCredsCached();
+      if (!creds) return true;
+      const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/commits/${sha}`);
+      if (resp.ok) return true;
+      const status = (resp as { status?: number }).status;
+      return !(status === 404 || status === 422);
+    } catch (err: unknown) {
+      // The check itself failed (credentials, network). Keep the cache; never wipe on an unknown answer.
+      log.storage.warn({ sha, err: String(err) }, 'isCommitInHistory: check failed; keeping the cache (t/463)');
+      return true;
+    }
   }
 
   /** t/463: drop the cached commit and its file entries in memory, so start-up re-seeds from the current
@@ -3824,8 +3827,6 @@ export class GitHubAPIBackend implements StorageBackend {
       this.manifest.lastCommitSha = '';
       this.manifest.generation++;
     }
-    this.repoTree.clear();
-    this.treeSha = null;
     log.storage.warn({ staleSha }, 'Cached commit is not in repo history — re-seeding from the current commit (t/463)');
     this.recordEvent({
       type: 'cache.invalidate',
