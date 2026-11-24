@@ -87,6 +87,35 @@ export function declaresT0(body) {
   return /^\s*Tier:\s*T0\b/i.test(first);
 }
 
+// t/440: a PR with no `Tier:` line at all is skipped by every tier sweep, and nothing told its
+// author (seen on #5168, #5167, #5166, #5116, #5147, #5150). The sweep now posts one comment per
+// head asking for the line. A PR that declares T1 or T2 is not missing anything: no comment.
+export const TIER_NUDGE_MARKER = '<!-- t0-sweep-missing-tier:';
+
+/** PURE. True when the first non-empty line declares any tier (`Tier: T0`, `T1` or `T2`). */
+export function declaresAnyTier(body) {
+  const first = String(body ?? '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  return /^\s*Tier:\s*T[012]\b/i.test(first);
+}
+
+/**
+ * PURE. Whether the sweep should ask this PR's author for a Tier line. Only same-repo,
+ * non-draft, non-Dependabot PRs on main with no Tier line on line 1. Forks fail closed (no
+ * comment), the same way sharedSkipReason treats an unknown fork status.
+ */
+export function needsTierNudge(pr) {
+  if (pr.isCrossRepository !== false) return false;
+  if (pr.isDraft) return false;
+  if (/dependabot/i.test(pr.author ?? '')) return false;
+  if (pr.baseRefName !== 'main') return false;
+  return !declaresAnyTier(pr.body);
+}
+
+/** PURE. The once-per-head marker for the missing-Tier comment. */
+export function tierNudgeMarker(headRefOid) {
+  return `${TIER_NUDGE_MARKER}${headRefOid} -->`;
+}
+
 /** PURE. Earliest check-run start on the head, as a push-time proxy; null when unknown. */
 export function headPushedAt(contexts) {
   const starts = (contexts ?? []).map((c) => Date.parse(c.startedAt ?? '')).filter((t) => !Number.isNaN(t));
@@ -213,7 +242,10 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         }
       }
     }
-    if (reason) skip.push({ number: pr.number, reason, ...(needsRepinComment ? { repinComment: { headRefOid: pr.headRefOid, reason: pr.repinCheck.reason } } : {}) });
+    const tierNudge = reason && needsTierNudge(pr)
+      ? { tierNudge: { headRefOid: pr.headRefOid, knownCommentBodies: (pr.comments ?? []).map((c) => c.body ?? '') } }
+      : {};
+    if (reason) skip.push({ number: pr.number, reason, ...(needsRepinComment ? { repinComment: { headRefOid: pr.headRefOid, reason: pr.repinCheck.reason } } : {}), ...tierNudge });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
   }
   return { enqueue, skip, waiting };
@@ -385,6 +417,35 @@ function postRepinComment(repo, number, { headRefOid, reason }) {
   }
 }
 
+/**
+ * t/440: asks the author to add the missing `Tier:` line, at most once per head (found by its
+ * marker), the way postGuardNudge works in t1-enqueue-sweep.mjs. `knownCommentBodies` are the
+ * comments the open-PR search already fetched; when the marker is there no API call is made.
+ * Otherwise it reads up to 100 comments before posting. Best-effort: a failed read or post only
+ * WARNs, since the PR is skipped either way and the next sweep tries again. Returns 'posted',
+ * 'already' or 'failed'.
+ */
+export function postTierNudge(repo, number, { headRefOid, knownCommentBodies = [] }, { ghFn = gh } = {}) {
+  const marker = tierNudgeMarker(headRefOid);
+  try {
+    if (knownCommentBodies.some((b) => (b ?? '').includes(marker))) return 'already';
+    const bodies = JSON.parse(ghFn(['api', `repos/${repo}/issues/${number}/comments?per_page=100`, '--jq', '[.[].body]']));
+    if (bodies.some((b) => (b ?? '').includes(marker))) return 'already';
+    const body = [
+      `**Enqueue sweep (t/440): this PR has no \`Tier:\` line, so no sweep will enqueue it.** The first line of the PR body must be \`Tier: T0\`, \`Tier: T1\` or \`Tier: T2\` (AGENTS.md; the tiers are in docs/change-tiers.md).`,
+      '',
+      `Edit the PR description and put the tier on line 1. This is posted once per head (\`${headRefOid.slice(0, 9)}\`); nothing else is needed from you once the line is there.`,
+      marker,
+    ].join('\n');
+    ghFn(['api', `repos/${repo}/issues/${number}/comments`, '-f', `body=${body}`]);
+    console.log(`commented on #${number}: asked for a Tier line at ${headRefOid.slice(0, 9)}`);
+    return 'posted';
+  } catch (err) {
+    console.log(`WARN: #${number}: could not post the missing-Tier comment (${err.message ?? err}); the PR is still skipped`);
+    return 'failed';
+  }
+}
+
 // Fetch re-pin facts only where they can change the verdict: same-repo T0 re-pin PRs whose
 // review data loaded (the earlier skips in selectT0Candidates would fire first otherwise).
 function withRepinChecks(repo, prs) {
@@ -442,6 +503,7 @@ export async function enqueueOne(repo, pr, { enqueueOpts, deps = {} } = {}) {
 export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
   const deadline = Date.now() + waitMaxMinutes * 60000;
   const failures = new Set();
+  const tierNudged = new Set(); // `${number}@${head}` handled this run, so later passes don't re-read comments
   for (let pass = 1; ; pass++) {
     const { enqueue, skip, waiting } = selectT0Candidates(withRepinChecks(repo, listOpenPRs(repo)), Date.now());
     for (const s of skip) {
@@ -449,6 +511,13 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
       if (s.repinComment) {
         if (dryRun) console.log(`[dry-run] would comment on #${s.number}: re-pin head not T0`);
         else postRepinComment(repo, s.number, s.repinComment);
+      }
+      if (s.tierNudge) {
+        const key = `${s.number}@${s.tierNudge.headRefOid}`;
+        if (tierNudged.has(key)) continue;
+        tierNudged.add(key);
+        if (dryRun) console.log(`[dry-run] would ask #${s.number} for a Tier line (unless already asked at this head)`);
+        else postTierNudge(repo, s.number, s.tierNudge);
       }
     }
     if (enqueue.length === 0) console.log(`pass ${pass}: no T0 PRs to enqueue.`);
