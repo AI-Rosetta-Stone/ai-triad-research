@@ -217,7 +217,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Quotes | Should -Be 2
     }
 
-    It 'keeps a quote as written when a two-column layout puts other text between its lines, in order' {
+    It 'stores a quote as its source pieces when a two-column layout puts other text between its lines, in order' {
         # Column A is the quote's sentence; column B's lines sit between column A's lines in the snapshot.
         $Src = "Developers answer that the evaluations they run`nTable 3 reports the share of respondents in each income group`ntoday were never designed to support a licensing`nwho said they had used a chatbot in the past month, by region`ndecision, and they ask for a transition period.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision, and they ask for a transition period.'
@@ -225,7 +225,22 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.R.Interleaved | Should -Be 1
         $Out.R.Snapped | Should -Be 0
         $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -Be $Quote
+        # Stored as the source's own pieces, in order: column A's three lines, none of column B's.
+        $Out.Stored | Should -Be @(
+            'Developers answer that the evaluations they run',
+            'today were never designed to support a licensing',
+            'decision, and they ask for a transition period')
+        foreach ($S in $Out.Stored) { $Src.Contains($S) | Should -BeTrue }
+    }
+
+    It 'stores a quote that skips sentences without an elision mark as its source pieces (CL ruling p/70#77)' {
+        $Quote = 'Regulators in several countries have begun to ask for evaluation results before a model is released. Independent auditors, for their part, say that access to the model weights is the only way to check such claims.'
+        $Out = & $script:Run $script:Long $Quote 'doc-skipped-sentence'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.R.Snapped | Should -Be 0
+        @($Out.Stored).Count | Should -Be 2
+        $Out.Stored[0] | Should -Be 'Regulators in several countries have begun to ask for evaluation results before a model is released'
+        $Out.Stored[1] | Should -Be 'Independent auditors, for their part, say that access to the model weights is the only way to check such claims'
     }
 
     It 'drops a quote whose lines are in the source out of order (CL ruling t/389#11: in order only)' {
@@ -259,7 +274,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
     }
 
     It 'a snapped span takes whole source words: it never starts or ends inside a word' {
-        # The source's first word is corrupted ("Xhe" for "The"), so the match starts at its last letter.
+        # The source's first word is corrupted ("Xhe" for "The"): most of it matches, so it is taken whole.
         $Src = 'Constituents are restless. Xhe meteoric emergence of the data-center rebellion is a response to the speed and scale of constructionwork nearby.'
         $Quote = 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of construction'
         $Out = & $script:Run $Src $Quote 'doc-word-boundary'
@@ -300,15 +315,17 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Sw.Elapsed.TotalSeconds | Should -BeLessThan 20
     }
 
-    It 'a repeated page header inside the sentence makes the quote interleaved, not a snap that stores the header' {
+    It 'a repeated page header inside the sentence makes the quote interleaved, and the header is not stored' {
         $Header = 'Journal of Applied Policy 14(2)'
         $Src = "$Header`nRegulators have begun to ask for results.`n$Header`nDevelopers answer that the evaluations they run today`n$Header`nwere never designed to support a licensing decision.`n"
         $Quote = 'Developers answer that the evaluations they run today were never designed to support the licensing decision.'
         $Out = & $script:Run $Src $Quote 'doc-header-inside'
         $Out.R.Interleaved | Should -Be 1
         $Out.R.Snapped | Should -Be 0
-        $Out.Stored | Should -Be $Quote
-        $Out.Stored | Should -Not -Match 'Journal'
+        $Out.Stored | Should -Be @(
+            'Developers answer that the evaluations they run today',
+            'were never designed to support a licensing decision')
+        ($Out.Stored -join ' ') | Should -Not -Match 'Journal'
     }
 
     It 'other text inside the sentence makes the quote interleaved, even when the span is short' {
@@ -317,7 +334,9 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out = & $script:Run $Src $Quote 'doc-insert-inside'
         $Out.R.Interleaved | Should -Be 1
         $Out.R.Snapped | Should -Be 0
-        $Out.Stored | Should -Be $Quote
+        $Out.Stored | Should -Be @(
+            'Developers answer that the evaluations they run today',
+            'were never designed to support a licensing decision and say so in every filing they make to the regulator')
     }
 
     It 'an elided quote with one interleaved segment is counted as interleaved, not snapped' {
@@ -326,6 +345,9 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out = & $script:Run $Src $Quote 'doc-elide-interleaved'
         $Out.R.Interleaved | Should -Be 1
         $Out.R.Snapped | Should -Be 0
-        @($Out.Stored).Count | Should -Be 2
+        $Out.Stored | Should -Be @(
+            'Regulators in several countries have begun to ask for evaluation results',
+            'Developers answer that the evaluations they run',
+            'today were never designed to support a licensing decision')
     }
 }

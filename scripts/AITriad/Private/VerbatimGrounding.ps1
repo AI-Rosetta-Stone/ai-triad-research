@@ -10,12 +10,13 @@
 #   - SNAPPED: the segment aligns to one source span that covers >= 0.9 of its letters and is about as
 #     long as the segment. The stored text is the source's own text, in whole source words.
 #   - INTERLEAVED: the segment's letters are in the source in order, in runs of at least 12 that cover
-#     >= 0.9 of it inside one window of about 1,500 letters, but the runs are spread over a longer span:
-#     a two-column or table layout puts other text between them (t/389#8 b, CL ruling t/389#11). No single
-#     source span is the quote, so the segment is kept as the model wrote it and counted.
+#     >= 0.9 of it inside one window of about 1,500 letters, but not as one passage: other text sits
+#     between them (a two-column or table layout, a page header, or sentences the model skipped without
+#     an elision mark). It is stored as its source pieces, each the source's own text, and counted
+#     (t/389#8 b; CL rulings t/389#11, t/389#15, p/70#77).
 #   - otherwise DROPPED.
-# Each kept segment is stored as its own quote. An elision mark is never stored, because the model added
-# it (t/389#11). A quote with no kept segment is dropped; the key point is kept, and its verbatim is
+# Each kept segment or piece is stored as its own quote, so every stored string is in the source. An
+# elision mark is never stored, because the model added it (t/389#11). A quote with no kept segment is dropped; the key point is kept, and its verbatim is
 # removed when no quote is left.
 #
 # Thresholds are stipulated by CL (t/389). Matching runs on a working copy of the snapshot with the
@@ -122,13 +123,15 @@ function Get-VerbatimAlignment {
     #      and the source's order: without the order a run match is evidence of nothing (CL, t/389#11).
     #   3. In order, the gap after each run is then walked with short skips on either side, so a corrupted
     #      or mistyped character inside a word doesn't end the match.
-    # Returns @{ Matched; First; Last; MaxGap }: characters matched, the first and last source positions,
-    # and the most source characters skipped at one place inside the match (text the quote doesn't have).
+    # Returns @{ Matched; First; Last; MaxGap; PieceFirst; PieceLast }: characters matched, the first and
+    # last source positions, the most source characters skipped at one place inside the match (text the
+    # quote doesn't have), and the match as pieces: stretches of source with no skip of more than
+    # VerbatimMaxInnerGap characters inside them.
     param([string]$Hay, [string]$Q, [int]$From, [int]$To)
     $N = $Q.Length
     $K = $script:VerbatimAnchorK
     $MinRun = [Math]::Min($script:VerbatimMinRun, $N)
-    $None = @{ Matched = 0; First = -1; Last = -1; MaxGap = 0 }
+    $None = @{ Matched = 0; First = -1; Last = -1; MaxGap = 0; PieceFirst = @(); PieceLast = @() }
     if ($To - $From -lt $K -or $N -lt $K) { return $None }
 
     # 1. Maximal runs.
@@ -186,8 +189,12 @@ function Get-VerbatimAlignment {
     # 3. Walk each gap: from the end of a run, up to the start of the next one (or the end of the quote
     #    and the window after the last run).
     $MaxGap = 0
+    $PieceFirst = [System.Collections.Generic.List[int]]::new()
+    $PieceLast = [System.Collections.Generic.List[int]]::new()
+    $PieceStart = -1
     for ($C = 0; $C -lt $Chain.Count; $C++) {
         $I = $Chain[$C]
+        if ($PieceStart -lt 0) { $PieceStart = $Hs[$I] + $Trim[$I] }
         $A = $Qs[$I] + $Ls[$I]; $Cursor = $Hs[$I] + $Ls[$I]
         if ($C + 1 -lt $Chain.Count) {
             $Nx = $Chain[$C + 1]
@@ -211,17 +218,56 @@ function Get-VerbatimAlignment {
             if ($BestDh -gt $MaxGap) { $MaxGap = $BestDh }
             if ($Cursor - 1 -gt $Last) { $Last = $Cursor - 1 }
         }
-        # Source text between the end of this piece and the start of the next run.
-        if ($C + 1 -lt $Chain.Count -and $HEnd - $Cursor -gt $MaxGap) { $MaxGap = $HEnd - $Cursor }
+        # Source text between the end of this run and the start of the next one. More than a corrupted
+        # word's worth ends the piece.
+        $Gap = if ($C + 1 -lt $Chain.Count) { $HEnd - $Cursor } else { 0 }
+        if ($Gap -gt $MaxGap) { $MaxGap = $Gap }
+        if ($C + 1 -eq $Chain.Count -or $Gap -gt $script:VerbatimMaxInnerGap) {
+            $PieceFirst.Add($PieceStart); $PieceLast.Add($Cursor - 1)
+            $PieceStart = -1
+        }
     }
-    @{ Matched = $Matched; First = $First; Last = $Last; MaxGap = $MaxGap }
+    @{ Matched = $Matched; First = $First; Last = $Last; MaxGap = $MaxGap; PieceFirst = $PieceFirst.ToArray(); PieceLast = $PieceLast.ToArray() }
+}
+
+function Get-VerbatimWordSpan {
+    # Moves a matched stretch of the snapshot to whole source words. $Start is the first matched character
+    # and $End is one past the last. At each end, the source word the match stops inside is taken whole when
+    # at least half of its letters were matched (a corrupted first letter stays the source's own, t/389#11
+    # S10), and left out otherwise (one letter shared with the next column's first word is not a match).
+    # Returns @{ Start; End }; End <= Start when nothing is left.
+    param([string]$Text, [int]$Start, [int]$End, [int]$Floor = 0)
+    $Ws = $Start
+    while ($Ws -gt $Floor -and [char]::IsLetterOrDigit($Text[$Ws - 1])) { $Ws-- }
+    if ($Ws -lt $Start) {
+        $We = $Start
+        while ($We -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$We])) { $We++ }
+        if (2 * ([Math]::Min($We, $End) - $Start) -ge ($We - $Ws)) { $Start = $Ws }
+        else {
+            $Start = $We
+            while ($Start -lt $End -and -not [char]::IsLetterOrDigit($Text[$Start])) { $Start++ }
+        }
+    }
+    $We = $End
+    while ($We -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$We])) { $We++ }
+    if ($We -gt $End) {
+        $Ws = $End
+        while ($Ws -gt $Start -and [char]::IsLetterOrDigit($Text[$Ws - 1])) { $Ws-- }
+        if (2 * ($End - $Ws) -ge ($We - $Ws)) { $End = $We }
+        else {
+            $End = $Ws
+            while ($End -gt $Start -and -not [char]::IsLetterOrDigit($Text[$End - 1])) { $End-- }
+        }
+    }
+    @{ Start = $Start; End = $End }
 }
 
 function Find-VerbatimSnap {
     # The best in-order alignment of a quote to the source. Returns $null, or { Start; End; Coverage;
-    # Contiguous }: Start/End are source character offsets, widened to whole source words, Coverage is the
-    # share of the quote's letters matched, and Contiguous says the span is about as long as the quote (one
-    # passage) and not spread across a layout that puts other text between the quote's lines.
+    # Contiguous; Pieces }: Start/End are source character offsets, widened to whole source words, Coverage
+    # is the share of the quote's letters matched, and Contiguous says the match is one passage: about as
+    # long as the quote, with no other text inside it. Pieces are the matched stretches of source as
+    # { Start; End } offsets, in order: one when Contiguous, several when other text sits between them.
     param([object]$Source, [string]$Quote)
     $Q = (ConvertTo-EvidenceKey -Quote $Quote) -replace ' ', ''
     if ([string]::IsNullOrEmpty($Q)) { return $null }
@@ -262,7 +308,8 @@ function Find-VerbatimSnap {
         if ($R.Matched -eq 0) { return $Cur }
         $Span = $R.Last - $R.First + 1
         if ($null -eq $Cur -or $R.Matched -gt $Cur.Matched -or ($R.Matched -eq $Cur.Matched -and $Span -lt $Cur.Span)) {
-            return @{ First = $R.First; Last = $R.Last; Matched = $R.Matched; Span = $Span; MaxGap = $R.MaxGap }
+            return @{ First = $R.First; Last = $R.Last; Matched = $R.Matched; Span = $Span; MaxGap = $R.MaxGap
+                PieceFirst = $R.PieceFirst; PieceLast = $R.PieceLast }
         }
         $Cur
     }
@@ -287,13 +334,11 @@ function Find-VerbatimSnap {
         if ($null -ne $WideBest -and ($null -eq $Best -or $WideBest.Matched -gt $Best.Matched)) { $Best = $WideBest }
     }
     if ($null -eq $Best) { return $null }
-    # Whole words: a span that starts or ends inside a source word takes the rest of that word, so the
-    # stored text never begins mid-word (a corrupted first letter stays the source's own, t/389#11 S10).
+    # Whole words: the stored text never begins or ends inside a source word.
     $Text = $Source.Text
-    $Start = Get-VerbatimTextOffset -Source $Source -Position $Best.First
-    $End = (Get-VerbatimTextOffset -Source $Source -Position $Best.Last) + 1
-    while ($Start -gt 0 -and [char]::IsLetterOrDigit($Text[$Start - 1])) { $Start-- }
-    while ($End -lt $Text.Length -and [char]::IsLetterOrDigit($Text[$End])) { $End++ }
+    $Whole = Get-VerbatimWordSpan -Text $Text -Start (Get-VerbatimTextOffset -Source $Source -Position $Best.First) `
+        -End ((Get-VerbatimTextOffset -Source $Source -Position $Best.Last) + 1)
+    $Start = $Whole.Start; $End = $Whole.End
     # One passage only when nothing else sits inside it (CL ruling t/389#15): no run of other source
     # text between the quote's words, and no blanked page header or footer line inside the span.
     $Contiguous = ($Best.Span -le $Tight) -and ($Best.MaxGap -le $script:VerbatimMaxInnerGap)
@@ -302,11 +347,40 @@ function Find-VerbatimSnap {
         if ($B -lt 0) { $B = -bnot $B }
         if ($B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $End) { $Contiguous = $false }
     }
+    $Pieces = [System.Collections.Generic.List[object]]::new()
+    if ($Contiguous) {
+        $Pieces.Add([pscustomobject]@{ Start = $Start; End = $End })
+    } else {
+        $Floor = 0
+        for ($I = 0; $I -lt $Best.PieceFirst.Count; $I++) {
+            $Whole = Get-VerbatimWordSpan -Text $Text -Floor $Floor `
+                -Start (Get-VerbatimTextOffset -Source $Source -Position $Best.PieceFirst[$I]) `
+                -End ((Get-VerbatimTextOffset -Source $Source -Position $Best.PieceLast[$I]) + 1)
+            $PS = $Whole.Start; $PE = $Whole.End
+            if ($PE -le $PS) { continue }
+            # A blanked header or footer line inside a piece splits it: the line is not quote text.
+            $Cuts = [System.Collections.Generic.List[int]]::new()
+            if ($Source.BlankedAt.Count -gt 0) {
+                $B = [Array]::BinarySearch($Source.BlankedAt, $PS)
+                if ($B -lt 0) { $B = -bnot $B }
+                for (; $B -lt $Source.BlankedAt.Count -and $Source.BlankedAt[$B] -lt $PE; $B++) { $Cuts.Add($Source.BlankedAt[$B]) }
+            }
+            $At = $PS
+            foreach ($Cut in $Cuts) {
+                if ($Cut -gt $At) { $Pieces.Add([pscustomobject]@{ Start = $At; End = $Cut }) }
+                $LineEnd = $Text.IndexOfAny([char[]]"`r`n", $Cut)
+                $At = if ($LineEnd -lt 0) { $PE } else { [Math]::Min($PE, $LineEnd) }
+            }
+            if ($PE -gt $At) { $Pieces.Add([pscustomobject]@{ Start = $At; End = $PE }) }
+            $Floor = $PE
+        }
+    }
     [pscustomobject]@{
         Start      = $Start
         End        = $End
         Coverage   = $Best.Matched / $N
         Contiguous = $Contiguous
+        Pieces     = $Pieces.ToArray()
     }
 }
 
@@ -322,37 +396,46 @@ function Remove-VerbatimQuoteNoise {
 }
 
 function Resolve-VerbatimSegment {
-    # Decides one elision-free segment. Returns { Decision; Text; Coverage }: Decision is 'exact',
-    # 'snapped', 'interleaved' or 'dropped', and Text is what to store (empty when dropped).
+    # Decides one elision-free segment. Returns { Decision; Texts; Coverage }: Decision is 'exact',
+    # 'snapped', 'interleaved' or 'dropped', and Texts is what to store, in order (empty when dropped).
+    # An interleaved segment is stored as its matched source pieces, each the source's own text: kept as
+    # the model wrote it, it would read as one continuous passage, which it isn't (CL ruling p/70#77).
     param([object]$Source, [string]$Segment)
     if (Test-VerbatimExact -Source $Source -Quote $Segment) {
-        return [pscustomobject]@{ Decision = 'exact'; Text = $Segment; Coverage = 1.0 }
+        return [pscustomobject]@{ Decision = 'exact'; Texts = @($Segment); Coverage = 1.0 }
     }
     $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
     if ($Clean -cne $Segment -and (Test-VerbatimExact -Source $Source -Quote $Clean)) {
-        return [pscustomobject]@{ Decision = 'snapped'; Text = $Clean; Coverage = 1.0 }
+        return [pscustomobject]@{ Decision = 'snapped'; Texts = @($Clean); Coverage = 1.0 }
     }
     $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
     $Coverage = if ($Snap) { $Snap.Coverage } else { 0.0 }
     if ($Snap -and $Coverage -ge $script:VerbatimSnapThreshold) {
-        if ($Snap.Contiguous) {
-            return [pscustomobject]@{ Decision = 'snapped'; Text = $Source.Text.Substring($Snap.Start, $Snap.End - $Snap.Start); Coverage = $Coverage }
+        $Texts = [System.Collections.Generic.List[string]]::new()
+        foreach ($P in $Snap.Pieces) {
+            $T = $Source.Text.Substring($P.Start, $P.End - $P.Start).Trim()
+            # A piece too short to have been placed by itself is not stored as a quote.
+            if (([regex]::Replace($T, '[^\p{L}\p{Nd}]', '')).Length -ge $script:VerbatimMinRun) { $Texts.Add($T) }
         }
-        return [pscustomobject]@{ Decision = 'interleaved'; Text = $Clean; Coverage = $Coverage }
+        if ($Texts.Count -gt 0) {
+            $Decision = if ($Snap.Contiguous) { 'snapped' } else { 'interleaved' }
+            return [pscustomobject]@{ Decision = $Decision; Texts = $Texts.ToArray(); Coverage = $Coverage }
+        }
     }
-    [pscustomobject]@{ Decision = 'dropped'; Text = ''; Coverage = $Coverage }
+    [pscustomobject]@{ Decision = 'dropped'; Texts = @(); Coverage = $Coverage }
 }
 
 function Resolve-VerbatimQuote {
     # Decides one quote. Returns { Decision; Texts; Coverage; Segments; KeptSegments; SegmentDecisions }.
-    #   Texts     what to store: one string per kept segment, in order. No elision mark is stored: a mark
-    #             the model added is not source text, so an elided quote becomes its segments (t/389#11 S23).
+    #   Texts     what to store, in order: one string per kept segment, or several for a segment kept as
+    #             source pieces. No elision mark is stored: a mark the model added is not source text, so
+    #             an elided quote becomes its segments (t/389#11 S23).
     #   Decision  'exact' (one segment, stored as written), 'snapped' (the stored text differs from the
     #             quote: source text in place of the model's, a segment removed, or the quote split at its
-    #             elisions), 'interleaved' (at least one kept segment is as the model wrote it,
-    #             verified in order across a layout, with no single source span) or 'dropped'.
+    #             elisions), 'interleaved' (at least one kept segment is in the source in order but not as
+    #             one passage, and is stored as its source pieces) or 'dropped'.
     #   Coverage  the lowest coverage among the kept segments, or the best reached when dropped.
-    #   SegmentDecisions  the decision of each kept segment, in the order of Texts.
+    #   SegmentDecisions  the decision behind each stored string, in the order of Texts.
     param([object]$Source, [string]$Quote)
     $Parts = @([regex]::Split($Quote, $script:VerbatimElisionPattern) | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
     $Dropped = [pscustomobject]@{ Decision = 'dropped'; Texts = @(); Coverage = 0.0; Segments = $Parts.Count; KeptSegments = 0; SegmentDecisions = @() }
@@ -360,7 +443,8 @@ function Resolve-VerbatimQuote {
     if ($Parts.Count -eq 1 -and $Parts[0] -ceq $Quote.Trim()) {
         $R = Resolve-VerbatimSegment -Source $Source -Segment $Quote
         if ($R.Decision -eq 'dropped') { $Dropped.Coverage = $R.Coverage; return $Dropped }
-        return [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Text); Coverage = $R.Coverage; Segments = 1; KeptSegments = 1; SegmentDecisions = @($R.Decision) }
+        return [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Texts); Coverage = $R.Coverage; Segments = 1; KeptSegments = 1
+            SegmentDecisions = @($R.Texts | ForEach-Object { $R.Decision }) }
     }
     $Kept = [System.Collections.Generic.List[object]]::new()
     $BestCoverage = 0.0
@@ -375,13 +459,13 @@ function Resolve-VerbatimQuote {
     $MinCoverage = 1.0
     foreach ($R in $Kept) { if ($R.Coverage -lt $MinCoverage) { $MinCoverage = $R.Coverage } }
     $Interleaved = @($Kept | Where-Object { $_.Decision -eq 'interleaved' }).Count
-    # Any segment kept across a layout makes the quote interleaved: part of what is stored is the model's
-    # text, not a source span (t/389#15, S29). Otherwise the stored text changed, which is a snap.
+    # Any segment found across a layout makes the quote interleaved (t/389#15, S29). Otherwise the stored
+    # text changed, which is a snap.
     $Decision = if ($Interleaved -gt 0) { 'interleaved' } else { 'snapped' }
     [pscustomobject]@{
-        Decision = $Decision; Texts = @($Kept | ForEach-Object { $_.Text })
+        Decision = $Decision; Texts = @($Kept | ForEach-Object { $_.Texts })
         Coverage = $MinCoverage; Segments = $Parts.Count; KeptSegments = $Kept.Count
-        SegmentDecisions = @($Kept | ForEach-Object { $_.Decision })
+        SegmentDecisions = @(foreach ($R in $Kept) { foreach ($T in $R.Texts) { $R.Decision } })
     }
 }
 
@@ -389,9 +473,9 @@ function Repair-SummaryKeyPointVerbatim {
     <#
     .SYNOPSIS
         Keeps each key_point verbatim quote grounded in the snapshot (t/389): exact quotes stay, near
-        quotes are snapped to the source's own text, an elided quote becomes its grounded segments, quotes
-        verified in order across an interleaving layout stay as written, and the rest are dropped with
-        the key point kept.
+        quotes are snapped to the source's own text, an elided quote becomes its grounded segments, a
+        quote found in order but not as one passage becomes its source pieces, and the rest are dropped
+        with the key point kept.
     .OUTPUTS
         [hashtable] @{ Quotes = <int>; Snapped = <int>; Dropped = <int>; Interleaved = <int> }
         Quotes is the number of quotes examined.
@@ -432,7 +516,7 @@ function Repair-SummaryKeyPointVerbatim {
                     }
                     'interleaved' {
                         $Result.Interleaved++
-                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim kept as written: its text is in the snapshot in order but not as one span, as in a two-column or table layout (t/389): $Preview"
+                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim stored as $($R.Texts.Count) source piece(s): its text is in the snapshot in order but not as one passage, as in a two-column or table layout or where sentences were skipped (t/389): $Preview"
                     }
                     default {
                         $Result.Dropped++
@@ -440,8 +524,8 @@ function Repair-SummaryKeyPointVerbatim {
                     }
                 }
             }
-            # No quote left: null. A list stays a list. A string stays a string unless an elided quote
-            # became several segments, which are stored as a list (the array form of t/296).
+            # No quote left: null. A list stays a list. A string stays a string unless the quote became
+            # several segments or pieces, which are stored as a list (the array form of t/296).
             if ($Kept.Count -eq 0) { $New = $null }
             elseif ($IsList -or $Kept.Count -gt 1) { $New = $Kept.ToArray() }
             else { $New = $Kept[0] }
