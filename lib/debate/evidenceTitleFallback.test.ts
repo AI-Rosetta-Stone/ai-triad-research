@@ -76,6 +76,37 @@ describe('retrieveSourceEvidence — title fallback is visible (t/492)', () => {
   });
 });
 
+describe('loadDocTitles — an identifier-only title counts as no title (t/492, CL ruling t/492#18)', () => {
+  const norm = (p: unknown): string => String(p).replace(/\\/g, '/');
+
+  it('leaves out a document whose metadata title is an arXiv id, and keeps one with a real title', async () => {
+    const actual = await vi.importActual<typeof import('fs')>('fs');
+    const dirent = (name: string) => ({ name, isDirectory: () => true });
+    const readdir = vi.spyOn(fs, 'readdirSync').mockImplementation(((p: unknown, ...rest: unknown[]) =>
+      (norm(p).endsWith('/fake-sources/sources') || norm(p).endsWith('/fake-sources')
+        ? [dirent('170306856v3-2026'), dirent('real-doc-2026')]
+        : (actual.readdirSync as (...a: unknown[]) => unknown)(p, ...rest))) as never);
+    vi.mocked(fs.existsSync).mockImplementation((p) => (norm(p).includes('/fake-sources') ? true : actual.existsSync(p as never)));
+    vi.mocked(fs.readFileSync).mockImplementation(((p: unknown, ...rest: unknown[]) => {
+      const s = norm(p);
+      if (s.endsWith('.aitriad.json')) return JSON.stringify({ data_root: '.', taxonomy_dir: 'taxonomy/Origin', sources_root: '../fake-sources', sources_dir: 'sources' });
+      if (s.includes('/170306856v3-2026/')) return JSON.stringify({ title: '1703.06856v3', url: 'https://arxiv.org/abs/1703.06856v3' });
+      if (s.includes('/real-doc-2026/')) return JSON.stringify({ title: 'Counterfactual Fairness', url: 'https://example.org/cf' });
+      return (actual.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
+    }) as typeof fs.readFileSync);
+    let titles: ReturnType<typeof loadDocTitles>;
+    try {
+      titles = loadDocTitles('sess-t492');
+    } finally {
+      readdir.mockRestore();
+      vi.mocked(fs.existsSync).mockImplementation(actual.existsSync);
+      vi.mocked(fs.readFileSync).mockImplementation(actual.readFileSync);
+    }
+    expect(titles?.['real-doc-2026']?.title).toBe('Counterfactual Fairness');
+    expect(titles?.['170306856v3-2026']).toBeUndefined();
+  });
+});
+
 describe('loadDocTitles — a missing sources root is reported (t/492)', () => {
   const norm = (p: unknown): string => String(p).replace(/\\/g, '/');
 
