@@ -143,3 +143,130 @@ Describe 'Repair-SummaryKeyPointVerbatim (t/389)' -Tag 'summarization' {
         $Sum.pov_summaries.accelerationist.key_points[0].PSObject.Properties['verbatim'] | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (t/389#8)' -Tag 'summarization' {
+
+    BeforeAll {
+        $script:Run = {
+            param([string]$Src, [object]$Verbatim, [string]$Id)
+            $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Verbatim })
+            $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum; Id = $Id } {
+                param($S, $Sum, $Id)
+                Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId $Id 3>$null
+            }
+            [pscustomobject]@{ R = $R; Stored = $Sum.pov_summaries.accelerationist.key_points[0].verbatim }
+        }
+        $script:Long = 'Regulators in several countries have begun to ask for evaluation results before a model is released. ' +
+            'Developers answer that the evaluations they run today were never designed to support a licensing decision. ' +
+            'Independent auditors, for their part, say that access to the model weights is the only way to check such claims.'
+    }
+
+    It 'keeps an elided quote as written when every segment is in the source' {
+        $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] access to the model weights is the only way to check such claims.'
+        $Out = & $script:Run $script:Long $Quote 'doc-elide'
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'treats three dots and the ellipsis character as elision marks too' {
+        foreach ($Mark in '...', [string][char]0x2026) {
+            $Quote = "Regulators in several countries have begun to ask for evaluation results $Mark never designed to support a licensing decision."
+            $Out = & $script:Run $script:Long $Quote 'doc-elide-marks'
+            $Out.R.Dropped | Should -Be 0
+            $Out.Stored | Should -Be $Quote
+        }
+    }
+
+    It 'keeps the segments the source has and removes the one it does not' {
+        $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] and every lab has already agreed to publish them in full.'
+        $Out = & $script:Run $script:Long $Quote 'doc-elide-partial'
+        $Out.R.Snapped | Should -Be 1
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be 'Regulators in several countries have begun to ask for evaluation results'
+    }
+
+    It 'drops an elided quote when no segment is in the source' {
+        $Quote = 'Every lab has already agreed to publish its results in full [...] and the auditors have declared themselves entirely satisfied.'
+        $Out = & $script:Run $script:Long $Quote 'doc-elide-none'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'does not keep a short fragment by itself, even when the source has those words' {
+        $Quote = 'the model [...] and every lab has already agreed to publish its results in full.'
+        $Out = & $script:Run $script:Long $Quote 'doc-elide-short'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'keeps a quote as written when a two-column layout puts other text between its lines' {
+        # Column A is the quote's sentence; column B's lines sit between column A's lines in the snapshot.
+        $Src = "Developers answer that the evaluations they run`nTable 3 reports the share of respondents in each income group`ntoday were never designed to support a licensing`nwho said they had used a chatbot in the past month, by region`ndecision, and they ask for a transition period.`n"
+        $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision, and they ask for a transition period.'
+        $Out = & $script:Run $Src $Quote 'doc-columns'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'keeps a quote as written when the layout puts its lines out of order' {
+        $Src = "decision, and they ask for a transition period of two years.`n`nDevelopers answer that the evaluations they run today were never designed to support a licensing`n`nTable 3 reports the share of respondents in each income group.`n"
+        $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision, and they ask for a transition period of two years.'
+        $Out = & $script:Run $Src $Quote 'doc-out-of-order'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'still drops a quote whose words are scattered across the document, not in one place' {
+        $Filler = (1..40 | ForEach-Object { "Paragraph $_ describes an unrelated survey question about household internet access and its wording." }) -join "`n"
+        $Src = "Developers answer that the evaluations they run today`n$Filler`nwere never designed to support a licensing decision.`n$Filler`nThey ask for a transition period of two years.`n"
+        $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision. They ask for a transition period of two years.'
+        $Out = & $script:Run $Src $Quote 'doc-scattered'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'matches the right passage when the quote opens with words that also appear later (no greedy jump)' {
+        # The model put "Internal audit documents" before the quoted passage; those words occur again after it.
+        $Src = 'The filings suggest that the minimum viable product goal for the feature was to have something the company could point regulators and parents to. Figure 5. Internal audit documents, Exhibit 12.'
+        $Quote = 'Internal audit documents: the minimum viable product goal for the feature was to have something the company could point regulators and parents to.'
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = $Quote })
+        $Best = InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+            param($S, $Q)
+            Find-VerbatimSnap -Source (Get-VerbatimSource -Text $S) -Quote $Q
+        }
+        $Src.Substring($Best.Start, $Best.End - $Best.Start) | Should -Match '^the minimum viable product goal'
+        $Best.Coverage | Should -BeGreaterThan 0.75
+    }
+
+    It 'ignores a page header and a URL that the model copied into the quote' {
+        $Header = 'Journal of Applied Policy 14(2)'
+        $Body = 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
+        $Src = "$Header`nRegulators have begun to ask for results.`n$Header`n$Body`n$Header`nAuditors want access to the weights.`n"
+        $Quote = "Developers answer that the evaluations they run today $Header https://example.org/vol14/issue2 were never designed to support a licensing decision."
+        $Out = & $script:Run $Src $Quote 'doc-header-url'
+        $Out.R.Snapped | Should -Be 1
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
+    }
+
+    It 'decides 40 near quotes against a 300,000-character snapshot in under 20 seconds' {
+        $Sentences = 1..3500 | ForEach-Object { "Sentence $_ of the report says that group $($_ * 7) answered question $($_ * 3) with option $($_ % 5) in wave $($_ % 11)." }
+        $Src = $Sentences -join ' '
+        $Src.Length | Should -BeGreaterThan 300000
+        $Quotes = 1..40 | ForEach-Object { ($Sentences[$_ * 70] -replace 'answered', 'had answered') }
+        $Sum = New-VerbatimSummary @([pscustomobject]@{ point = 'p'; verbatim = @($Quotes) })
+        $Sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $R = InModuleScope AITriad -Parameters @{ S = $Src; Sum = $Sum } {
+            param($S, $Sum)
+            Repair-SummaryKeyPointVerbatim -SummaryObject $Sum -SnapshotText $S -ThisDocId 'doc-speed' 3>$null
+        }
+        $Sw.Stop()
+        $R.Snapped | Should -Be 40
+        $Sw.Elapsed.TotalSeconds | Should -BeLessThan 20
+    }
+}

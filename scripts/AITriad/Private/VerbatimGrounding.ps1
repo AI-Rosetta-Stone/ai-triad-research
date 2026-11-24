@@ -3,34 +3,52 @@
 
 # t/389: quote-grounding guard for key_points[].verbatim. A quote is meant to be an exact source
 # quote, but chunked and FIRE runs return near-quotes (grounding 0.42 chunked vs 0.68 single-call, t/358#9).
-# For each quote, under the spec 7.2 key (ConvertTo-EvidenceKey):
-#   - an exact key match is kept unchanged;
-#   - otherwise the best source span is found, and the quote is SNAPPED to it when the span covers >= 0.9
-#     of the quote's characters. The stored text is the source's own text;
-#   - otherwise the quote is DROPPED. The key point is kept, and its verbatim is removed when no quote is left.
+#
+# A quote is first split at its elision marks ("[...]", "...", the ellipsis character) into segments
+# (CL audit t/389#8 a). Each segment is decided on its own, under the spec 7.2 key (ConvertTo-EvidenceKey):
+#   - EXACT: the segment's key is a contiguous run of the source's key. Kept unchanged.
+#   - SNAPPED: the segment aligns to one source span that covers >= 0.9 of its characters and is about
+#     as long as the segment. The stored text is the source's own text.
+#   - INTERLEAVED: the segment's characters are in the source, in order, in runs that cover >= 0.9 of it,
+#     but the runs are spread over a longer span: a two-column or table layout puts other text between
+#     them (t/389#8 b). No single source span is the quote, so the segment is kept as the model wrote it
+#     and counted.
+#   - otherwise DROPPED.
+# The kept segments are joined again with " [...] ". A quote with no kept segment is dropped; the key
+# point is kept, and its verbatim is removed when no quote is left.
+#
 # Thresholds are stipulated by CL (t/389). Matching runs on a working copy of the snapshot with the
-# t/4394 mojibake repaired and repeated page footers blanked. The working copy has the same length as the
-# source, so every match maps back to the source's own text. The snap is character-level, so PDF-glued
-# words ("morecomputeisavailable") and corrupted characters inside a word still count (t/389#5).
+# t/4394 mojibake repaired and repeated page footers and headers blanked; a copy of such a line inside
+# a quote, and a URL inside a quote, are removed before matching (t/389#8 c). The working copy has the
+# same length as the source, so every match maps back to the source's own text. Alignment is over
+# letters and digits only, so PDF-glued words ("morecomputeisavailable") and corrupted characters
+# inside a word still match (t/389#5, t/389#8 d).
 
 $script:VerbatimSnapThreshold = 0.9
-$script:VerbatimAnchorK = 3
-$script:VerbatimCharAnchorK = 6
-$script:VerbatimMaxAnchorHits = 200
+$script:VerbatimAnchorK = 6            # characters of an anchor looked up in the source
+$script:VerbatimMinRun = 12            # a run must match at least this many characters to start or re-anchor
+$script:VerbatimResyncSkip = 3         # characters either side may skip to continue a run (corruption, a typo)
+$script:VerbatimResyncMin = 3          # and the continuation must then match at least this many
+$script:VerbatimMaxRegions = 40        # candidate source places tried per segment
+$script:VerbatimMaxRuns = 400          # matching runs collected per alignment
 $script:VerbatimFooterMinRepeats = 3
 $script:VerbatimFooterMaxChars = 80
+$script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|\.{3,}|\u2026'
+$script:VerbatimUrlPattern = '(?i)\b(?:https?://|www\.)[^\s<>"\)\]]+'
 
-function Get-VerbatimWorkText {
-    # A same-length working copy of the snapshot for matching only: the t/4394 mojibake sequences and
-    # singles (spec 7.2 step 1) are replaced by a same-length ASCII form, and page footers and headers
-    # (a short line repeated at least VerbatimFooterMinRepeats times) are blanked, keeping their line breaks.
+function Get-VerbatimSource {
+    # Everything matching needs from one snapshot, built once per document:
+    #   Text     the snapshot as given (stored text is cut from this)
+    #   Key      the working copy's spec 7.2 key, padded with a space each side
+    #   Chars    the working copy's letters and digits, lowercased, as one string
+    #   WordAt, WordOffset  the map from a position in Chars back to an offset in Text
+    #   Footers  the short repeated lines that were blanked (page footers and headers)
     param([string]$Text)
-    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    if ($null -eq $Text) { $Text = '' }
     $W = $Text
     foreach ($P in $script:EvidenceMojibakeSequences) {
         $To = $P[1]; $From = $P[0]
-        $Pad = ' ' * ($From.Length - $To.Length)
-        $W = $W.Replace($From, $To + $Pad)
+        $W = $W.Replace($From, $To + (' ' * ($From.Length - $To.Length)))
     }
     foreach ($P in $script:EvidenceMojibakeSingles) { $W = $W.Replace($P[0], $P[1]) }
     $Lines = $W -split "(\r?\n)"
@@ -39,169 +57,345 @@ function Get-VerbatimWorkText {
         $T = $L.Trim()
         if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars) { $Counts[$T] = 1 + [int]$Counts[$T] }
     }
-    $Out = [System.Text.StringBuilder]::new()
+    $Footers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $Out = [System.Text.StringBuilder]::new($W.Length)
     foreach ($L in $Lines) {
         $T = $L.Trim()
         if ($T.Length -gt 0 -and $T.Length -le $script:VerbatimFooterMaxChars -and $Counts[$T] -ge $script:VerbatimFooterMinRepeats) {
+            [void]$Footers.Add($T)
             [void]$Out.Append((' ' * $L.Length))
         } else {
             [void]$Out.Append($L)
         }
     }
-    $Out.ToString()
-}
-
-function Get-VerbatimSourceIndex {
-    # The working text as spec 7.2 key tokens, each with its character span, plus a trigram index.
-    param([string]$Text)
-    $Keys = [System.Collections.Generic.List[string]]::new()
-    $Starts = [System.Collections.Generic.List[int]]::new()
-    $Ends = [System.Collections.Generic.List[int]]::new()
-    $Cache = @{}
-    foreach ($M in [regex]::Matches($Text, '[\p{L}\p{Nd}]+')) {
-        $Raw = $M.Value
-        if (-not $Cache.ContainsKey($Raw)) { $Cache[$Raw] = ConvertTo-EvidenceKey -Quote $Raw }
-        $K = $Cache[$Raw]
-        if ([string]::IsNullOrEmpty($K)) { continue }
-        foreach ($Part in $K.Split(' ')) {
-            if ([string]::IsNullOrEmpty($Part)) { continue }
-            $Keys.Add($Part); $Starts.Add($M.Index); $Ends.Add($M.Index + $M.Length)
-        }
+    $Work = $Out.ToString()
+    # Lowercasing is per UTF-16 unit, so the lowered copy keeps the working copy's offsets.
+    $Lower = $Work.ToLowerInvariant()
+    # Chars is cut from the lowered copy word by word. WordAt[i] is where word i starts in Chars and
+    # WordOffset[i] where it starts in Text, so a Chars position maps back to a Text offset.
+    $Words = [regex]::Matches($Lower, '[\p{L}\p{Nd}]+')
+    $WordAt = [int[]]::new($Words.Count)
+    $WordOffset = [int[]]::new($Words.Count)
+    $At = 0; $WordIx = 0
+    foreach ($M in $Words) {
+        $WordAt[$WordIx] = $At; $WordOffset[$WordIx] = $M.Index
+        $At += $M.Length; $WordIx++
     }
-    $K = $script:VerbatimAnchorK
-    $Grams = @{}
-    for ($I = 0; $I + $K -le $Keys.Count; $I++) {
-        $G = ($Keys.GetRange($I, $K)) -join ' '
-        if (-not $Grams.ContainsKey($G)) { $Grams[$G] = [System.Collections.Generic.List[int]]::new() }
-        $Grams[$G].Add($I)
-    }
-    [pscustomobject]@{ Keys = $Keys; Starts = $Starts; Ends = $Ends; Text = $Text; Grams = $Grams }
-}
-
-function Get-VerbatimCharIndex {
-    # The working text as one lowercase string of letters and digits, with each character's source offset,
-    # plus a character k-gram index. Spaces, punctuation and corrupted symbols are left out, so glued words match.
-    param([string]$Text)
-    $Chars = [System.Text.StringBuilder]::new()
-    $Offsets = [System.Collections.Generic.List[int]]::new()
-    for ($I = 0; $I -lt $Text.Length; $I++) {
-        $C = $Text[$I]
-        if ([char]::IsLetterOrDigit($C)) {
-            [void]$Chars.Append([char]::ToLowerInvariant($C))
-            $Offsets.Add($I)
-        }
-    }
-    $S = $Chars.ToString()
-    $K = $script:VerbatimCharAnchorK
-    $Grams = @{}
-    for ($I = 0; $I + $K -le $S.Length; $I++) {
-        $G = $S.Substring($I, $K)
-        if (-not $Grams.ContainsKey($G)) { $Grams[$G] = [System.Collections.Generic.List[int]]::new() }
-        $Grams[$G].Add($I)
-    }
-    [pscustomobject]@{ Chars = $S; Offsets = $Offsets; Grams = $Grams; Text = $Text }
-}
-
-function Find-VerbatimSnap {
-    # The best source span for a quote, by character coverage. Returns $null, or @{ Start; End; Coverage }
-    # where Start/End are source character offsets and Coverage is the share of the quote's characters
-    # matched in that span (a character multiset overlap, in a window of the quote's length plus slack).
-    param([object]$Index, [string]$Quote)
-    $QKey = ConvertTo-EvidenceKey -Quote $Quote
-    $Q = $QKey -replace ' ', ''
-    if ([string]::IsNullOrEmpty($Q)) { return $null }
-    $N = $Q.Length
-    $Bag = @{}
-    foreach ($C in $Q.ToCharArray()) { $Bag[$C] = 1 + [int]$Bag[$C] }
-    $Hay = $Index.Chars
-    $K = $script:VerbatimCharAnchorK
-    $Best = $null
-    $Hits = 0
-    $Seen = @{}
-    for ($QI = 0; $QI + $K -le $N; $QI += $K) {
-        $G = $Q.Substring($QI, $K)
-        if (-not $Index.Grams.ContainsKey($G)) { continue }
-        foreach ($P in $Index.Grams[$G]) {
-            if (++$Hits -gt $script:VerbatimMaxAnchorHits) { break }
-            $S0 = [Math]::Max(0, $P - $QI)
-            if ($Seen.ContainsKey($S0)) { continue }
-            $Seen[$S0] = $true
-            $E0 = [Math]::Min($Hay.Length, $S0 + $N + [Math]::Ceiling($N / 4) + 8)
-            # Longest common subsequence of the quote against the window: quote characters matched in order,
-            # with skipped source characters (glue, corruption, footers) and skipped quote characters (insertions)
-            # both allowed. The matched source positions give the span.
-            $W = $E0 - $S0
-            $Dp = New-Object 'int[,]' ($N + 1), ($W + 1)
-            for ($A = $N - 1; $A -ge 0; $A--) {
-                for ($B = $W - 1; $B -ge 0; $B--) {
-                    if ($Q[$A] -ceq $Hay[$S0 + $B]) { $Dp[$A, $B] = 1 + $Dp[($A + 1), ($B + 1)] }
-                    else { $Dp[$A, $B] = [Math]::Max($Dp[($A + 1), $B], $Dp[$A, ($B + 1)]) }
-                }
-            }
-            $Matched = $Dp[0, 0]
-            if ($Matched -eq 0) { continue }
-            # Walk forward to recover the matched source positions, and the first and last of them.
-            $FirstJ = -1; $LastJ = -1
-            $A = 0; $B = 0
-            while ($A -lt $N -and $B -lt $W) {
-                if ($Q[$A] -ceq $Hay[$S0 + $B] -and $Dp[$A, $B] -eq (1 + $Dp[($A + 1), ($B + 1)])) {
-                    if ($FirstJ -lt 0) { $FirstJ = $S0 + $B }
-                    $LastJ = $S0 + $B; $A++; $B++
-                } elseif ($Dp[($A + 1), $B] -ge $Dp[$A, ($B + 1)]) { $A++ }
-                else { $B++ }
-            }
-            $Span = $LastJ - $FirstJ + 1
-            if ($Best -eq $null -or $Matched -gt $Best.Matched -or ($Matched -eq $Best.Matched -and $Span -lt $Best.Span)) {
-                $Best = @{ First = $FirstJ; Last = $LastJ; Matched = $Matched; Span = $Span }
-            }
-        }
-        if ($Hits -gt $script:VerbatimMaxAnchorHits) { break }
-    }
-    if ($null -eq $Best) { return $null }
-    # The span runs from the first matched character to the last, so it begins and ends on quote text.
     [pscustomobject]@{
-        Start    = $Index.Offsets[$Best.First]
-        End      = $Index.Offsets[$Best.Last] + 1
-        Coverage = $Best.Matched / $N
+        Text       = $Text
+        Key        = ' ' + (ConvertTo-EvidenceKey -Quote $Work) + ' '
+        Chars      = [regex]::Replace($Lower, '[^\p{L}\p{Nd}]+', '')
+        WordAt     = $WordAt
+        WordOffset = $WordOffset
+        Footers    = $Footers
     }
+}
+
+function Get-VerbatimTextOffset {
+    # The offset in the snapshot text of the source character at $Position of Chars.
+    param([object]$Source, [int]$Position)
+    $I = [Array]::BinarySearch($Source.WordAt, $Position)
+    if ($I -lt 0) { $I = (-bnot $I) - 1 }
+    $Source.WordOffset[$I] + ($Position - $Source.WordAt[$I])
 }
 
 function Test-VerbatimExact {
-    # True when the quote's spec 7.2 key appears as a contiguous run of the working text's key tokens.
-    param([object]$Index, [string]$Quote)
+    # True when the quote's spec 7.2 key is a contiguous run of whole key tokens of the source.
+    param([object]$Source, [string]$Quote)
     $QKey = ConvertTo-EvidenceKey -Quote $Quote
     if ([string]::IsNullOrEmpty($QKey)) { return $false }
-    $Q = @($QKey.Split(' ') | Where-Object { $_ })
-    $N = $Q.Count
-    $K = [Math]::Min($script:VerbatimAnchorK, $N)
-    $Anchor = ($Q[0..($K - 1)]) -join ' '
-    if (-not $Index.Grams.ContainsKey($Anchor)) { return $false }
-    foreach ($I in $Index.Grams[$Anchor]) {
-        if ($I + $N -gt $Index.Keys.Count) { continue }
-        $Match = $true
-        for ($J = 0; $J -lt $N; $J++) {
-            if ($Index.Keys[$I + $J] -cne $Q[$J]) { $Match = $false; break }
+    $Source.Key.Contains(" $QKey ", [System.StringComparison]::Ordinal)
+}
+
+function Get-VerbatimAlignment {
+    # Aligns the quote's letters and digits ($Q) to the source characters from $From up to $To.
+    #   1. Every maximal run is collected: a place where at least VerbatimMinRun characters of the quote
+    #      match the source one for one (or fewer, when the run reaches the end of the quote).
+    #   2. The chain of runs that covers the most quote characters is chosen. Runs keep the quote's order;
+    #      they also keep the source's order unless -Unordered, which is for a layout that puts the quote's
+    #      lines out of order.
+    #   3. In order, the gap after each run is then walked with short skips on either side, so a corrupted
+    #      or mistyped character inside a word doesn't end the match.
+    # Returns @{ Matched; First; Last }: characters matched, and the first and last source positions.
+    param([string]$Hay, [string]$Q, [int]$From, [int]$To, [switch]$Unordered)
+    $N = $Q.Length
+    $K = $script:VerbatimAnchorK
+    $MinRun = [Math]::Min($script:VerbatimMinRun, $N)
+    $None = @{ Matched = 0; First = -1; Last = -1 }
+    if ($To - $From -lt $K -or $N -lt $K) { return $None }
+
+    # 1. Maximal runs.
+    $Qs = [System.Collections.Generic.List[int]]::new()
+    $Hs = [System.Collections.Generic.List[int]]::new()
+    $Ls = [System.Collections.Generic.List[int]]::new()
+    for ($A = 0; $A + $K -le $N -and $Qs.Count -lt $script:VerbatimMaxRuns; $A++) {
+        $G = $Q.Substring($A, $K)
+        $P = $From; $Tries = 0
+        while ($Tries -lt 16 -and $P + $K -le $To) {
+            $P = $Hay.IndexOf($G, $P, $To - $P, [System.StringComparison]::Ordinal)
+            if ($P -lt 0) { break }
+            $Tries++
+            # Not the start of a run when the characters before also match: that run was collected earlier.
+            if (-not ($A -gt 0 -and $P -gt $From -and $Q[$A - 1] -ceq $Hay[$P - 1])) {
+                $X = $A + $K; $Y = $P + $K
+                while ($X -lt $N -and $Y -lt $To -and $Q[$X] -ceq $Hay[$Y]) { $X++; $Y++ }
+                $L = $X - $A
+                if ($L -ge $MinRun -or $A + $L -eq $N) { $Qs.Add($A); $Hs.Add($P); $Ls.Add($L) }
+            }
+            $P++
         }
-        if ($Match) { return $true }
     }
-    $false
+    $R = $Qs.Count
+    if ($R -eq 0) { return $None }
+
+    # 2. Best chain. Runs are already in quote order. A run that overlaps the one before it is trimmed
+    #    at its head, and must still have VerbatimResyncMin characters left.
+    $Score = [int[]]::new($R); $Prev = [int[]]::new($R); $Trim = [int[]]::new($R)
+    $BestI = 0
+    for ($I = 0; $I -lt $R; $I++) {
+        $Score[$I] = $Ls[$I]; $Prev[$I] = -1; $Trim[$I] = 0
+        for ($J = 0; $J -lt $I; $J++) {
+            if ($Qs[$J] -ge $Qs[$I]) { continue }
+            $O = [Math]::Max(0, $Qs[$J] + $Ls[$J] - $Qs[$I])
+            if (-not $Unordered) {
+                if ($Hs[$J] -ge $Hs[$I]) { continue }
+                $O = [Math]::Max($O, $Hs[$J] + $Ls[$J] - $Hs[$I])
+            }
+            $Eff = $Ls[$I] - $O
+            if ($Eff -lt $script:VerbatimResyncMin) { continue }
+            if ($Score[$J] + $Eff -gt $Score[$I]) { $Score[$I] = $Score[$J] + $Eff; $Prev[$I] = $J; $Trim[$I] = $O }
+        }
+        if ($Score[$I] -gt $Score[$BestI]) { $BestI = $I }
+    }
+    $Chain = [System.Collections.Generic.List[int]]::new()
+    for ($I = $BestI; $I -ge 0; $I = $Prev[$I]) { $Chain.Insert(0, $I) }
+
+    $Matched = $Score[$BestI]
+    $First = [int]::MaxValue; $Last = -1
+    foreach ($I in $Chain) {
+        $S = $Hs[$I] + $Trim[$I]; $E = $Hs[$I] + $Ls[$I] - 1
+        if ($S -lt $First) { $First = $S }
+        if ($E -gt $Last) { $Last = $E }
+    }
+    if ($Unordered) { return @{ Matched = $Matched; First = $First; Last = $Last } }
+
+    # 3. Walk each gap: from the end of a run, up to the start of the next one (or the end of the quote
+    #    and the window after the last run).
+    for ($C = 0; $C -lt $Chain.Count; $C++) {
+        $I = $Chain[$C]
+        $A = $Qs[$I] + $Ls[$I]; $Cursor = $Hs[$I] + $Ls[$I]
+        if ($C + 1 -lt $Chain.Count) {
+            $Nx = $Chain[$C + 1]
+            $QEnd = $Qs[$Nx] + $Trim[$Nx]; $HEnd = $Hs[$Nx] + $Trim[$Nx]
+        } else {
+            $QEnd = $N; $HEnd = $To
+        }
+        while ($A -lt $QEnd -and $Cursor -lt $HEnd) {
+            $BestLen = 0; $BestDq = 0; $BestDh = 0
+            for ($Dq = 0; $Dq -le $script:VerbatimResyncSkip; $Dq++) {
+                for ($Dh = 0; $Dh -le $script:VerbatimResyncSkip; $Dh++) {
+                    if ($Dq -eq 0 -and $Dh -eq 0) { continue }
+                    $X = $A + $Dq; $Y = $Cursor + $Dh; $L = 0
+                    while ($X -lt $QEnd -and $Y -lt $HEnd -and $Q[$X] -ceq $Hay[$Y]) { $X++; $Y++; $L++ }
+                    if ($L -gt $BestLen) { $BestLen = $L; $BestDq = $Dq; $BestDh = $Dh }
+                }
+            }
+            if ($BestLen -lt [Math]::Min($script:VerbatimResyncMin, $QEnd - $A) -or $BestLen -eq 0) { break }
+            $A += $BestDq + $BestLen; $Cursor += $BestDh + $BestLen
+            $Matched += $BestLen
+            if ($Cursor - 1 -gt $Last) { $Last = $Cursor - 1 }
+        }
+    }
+    @{ Matched = $Matched; First = $First; Last = $Last }
+}
+
+function Find-VerbatimSnap {
+    # The best alignment of a quote to the source. Returns $null, or { Start; End; Coverage; Contiguous }:
+    # Start/End are source character offsets of the first and last matched character, Coverage is the share
+    # of the quote's characters matched, and Contiguous says the span is about as long as the quote (one
+    # passage) and not spread across a layout that interleaves other text.
+    param([object]$Source, [string]$Quote)
+    $Q = (ConvertTo-EvidenceKey -Quote $Quote) -replace ' ', ''
+    if ([string]::IsNullOrEmpty($Q)) { return $null }
+    $N = $Q.Length
+    $Hay = $Source.Chars
+    $K = $script:VerbatimAnchorK
+    if ($N -lt $K -or $Hay.Length -lt $K) { return $null }
+    $Slack = [int][Math]::Ceiling($N / 4) + 8
+    $Tight = $N + $Slack
+    # Candidate places: where an anchor taken from the quote occurs in the source. The rarest anchors
+    # are used first, so a common opening ("thereis") doesn't use up the candidates.
+    $Anchors = [System.Collections.Generic.List[object]]::new()
+    for ($QI = 0; $QI + $K -le $N; $QI += $K) {
+        $G = $Q.Substring($QI, $K)
+        $Hits = [System.Collections.Generic.List[int]]::new()
+        $P = 0
+        while ($Hits.Count -le $script:VerbatimMaxRegions) {
+            $P = $Hay.IndexOf($G, $P, [System.StringComparison]::Ordinal)
+            if ($P -lt 0) { break }
+            $Hits.Add($P); $P++
+        }
+        if ($Hits.Count -gt 0) { $Anchors.Add([pscustomobject]@{ QI = $QI; Hits = $Hits }) }
+    }
+    $Places = [System.Collections.Generic.List[int]]::new()   # the quote's start, were it one passage
+    $Seen = @{}
+    foreach ($Anchor in ($Anchors | Sort-Object { $_.Hits.Count }, QI)) {
+        foreach ($P in $Anchor.Hits) {
+            if ($Places.Count -ge $script:VerbatimMaxRegions) { break }
+            $S0 = $P - $Anchor.QI
+            $Bucket = [int][Math]::Floor($S0 / [Math]::Max(1, [int]($Slack / 2)))
+            if (-not $Seen.ContainsKey($Bucket)) { $Seen[$Bucket] = $true; $Places.Add($S0) }
+        }
+        if ($Places.Count -ge $script:VerbatimMaxRegions) { break }
+    }
+    if ($Places.Count -eq 0) { return $null }
+    $Better = {
+        param($Cur, $R)
+        if ($R.Matched -eq 0) { return $Cur }
+        $Span = $R.Last - $R.First + 1
+        if ($null -eq $Cur -or $R.Matched -gt $Cur.Matched -or ($R.Matched -eq $Cur.Matched -and $Span -lt $Cur.Span)) {
+            return @{ First = $R.First; Last = $R.Last; Matched = $R.Matched; Span = $Span }
+        }
+        $Cur
+    }
+    # One passage first: a window about as long as the quote.
+    $Best = $null
+    foreach ($S0 in $Places) {
+        $From = [Math]::Max(0, $S0 - $Slack)
+        $To = [Math]::Min($Hay.Length, [Math]::Max(0, $S0) + $Tight)
+        $Best = & $Better $Best (Get-VerbatimAlignment -Hay $Hay -Q $Q -From $From -To $To)
+    }
+    if ($null -eq $Best -or ($Best.Matched / $N) -lt $script:VerbatimSnapThreshold -or $Best.Span -gt $Tight) {
+        # Then a layout that puts other text between the quote's lines: a window several times longer.
+        $WideBest = $null
+        foreach ($S0 in $Places) {
+            $From = [Math]::Max(0, $S0 - 3 * $N - 200)
+            $To = [Math]::Min($Hay.Length, [Math]::Max(0, $S0) + 4 * $N + 400)
+            $WideBest = & $Better $WideBest (Get-VerbatimAlignment -Hay $Hay -Q $Q -From $From -To $To)
+        }
+        if ($null -ne $WideBest -and ($null -eq $Best -or $WideBest.Matched -gt $Best.Matched)) { $Best = $WideBest }
+        if ($null -eq $Best -or ($Best.Matched / $N) -lt $script:VerbatimSnapThreshold) {
+            # Last, the same windows with the quote's lines in any order (a column read out of turn).
+            $AnyBest = $null
+            foreach ($S0 in $Places) {
+                $From = [Math]::Max(0, $S0 - 3 * $N - 200)
+                $To = [Math]::Min($Hay.Length, [Math]::Max(0, $S0) + 4 * $N + 400)
+                $AnyBest = & $Better $AnyBest (Get-VerbatimAlignment -Hay $Hay -Q $Q -From $From -To $To -Unordered)
+            }
+            if ($null -ne $AnyBest -and ($AnyBest.Matched / $N) -ge $script:VerbatimSnapThreshold) {
+                # Never one passage, whatever its length: the stored text can't be a source span.
+                $AnyBest.Span = [int]::MaxValue
+                $Best = $AnyBest
+            }
+        }
+    }
+    if ($null -eq $Best) { return $null }
+    [pscustomobject]@{
+        Start      = Get-VerbatimTextOffset -Source $Source -Position $Best.First
+        End        = (Get-VerbatimTextOffset -Source $Source -Position $Best.Last) + 1
+        Coverage   = $Best.Matched / $N
+        Contiguous = ($Best.Span -le $Tight)
+    }
+}
+
+function Remove-VerbatimQuoteNoise {
+    # The quote without a URL and without a copy of a blanked page footer or header line (t/389#8 c).
+    param([object]$Source, [string]$Quote)
+    $Q = [regex]::Replace($Quote, $script:VerbatimUrlPattern, ' ')
+    foreach ($F in $Source.Footers) {
+        if ($F.Length -ge 8 -and $Q.Length -gt $F.Length -and $Q.Contains($F, [System.StringComparison]::Ordinal)) { $Q = $Q.Replace($F, ' ') }
+    }
+    if ($Q -ceq $Quote) { return $Quote }
+    [regex]::Replace($Q, '\s{2,}', ' ').Trim()
+}
+
+function Resolve-VerbatimSegment {
+    # Decides one elision-free segment. Returns { Decision; Text; Coverage }: Decision is 'exact',
+    # 'snapped', 'interleaved' or 'dropped', and Text is what to store (empty when dropped).
+    param([object]$Source, [string]$Segment)
+    if (Test-VerbatimExact -Source $Source -Quote $Segment) {
+        return [pscustomobject]@{ Decision = 'exact'; Text = $Segment; Coverage = 1.0 }
+    }
+    $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
+    if ($Clean -cne $Segment -and (Test-VerbatimExact -Source $Source -Quote $Clean)) {
+        return [pscustomobject]@{ Decision = 'snapped'; Text = $Clean; Coverage = 1.0 }
+    }
+    $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
+    $Coverage = if ($Snap) { $Snap.Coverage } else { 0.0 }
+    if ($Snap -and $Coverage -ge $script:VerbatimSnapThreshold) {
+        if ($Snap.Contiguous) {
+            return [pscustomobject]@{ Decision = 'snapped'; Text = $Source.Text.Substring($Snap.Start, $Snap.End - $Snap.Start); Coverage = $Coverage }
+        }
+        return [pscustomobject]@{ Decision = 'interleaved'; Text = $Clean; Coverage = $Coverage }
+    }
+    [pscustomobject]@{ Decision = 'dropped'; Text = ''; Coverage = $Coverage }
+}
+
+function Resolve-VerbatimQuote {
+    # Decides one quote. Returns { Decision; Text; Coverage; Segments; KeptSegments }.
+    # Decision: 'exact' (stored text equals the quote), 'snapped' (some text replaced by the source's own,
+    # or a segment removed), 'interleaved' (kept as written; verified in order across a layout, with no
+    # single source span) or 'dropped'. Coverage is the lowest coverage among the kept segments, or the
+    # best coverage reached when dropped.
+    param([object]$Source, [string]$Quote)
+    $Parts = @([regex]::Split($Quote, $script:VerbatimElisionPattern) | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
+    if ($Parts.Count -eq 0) { return [pscustomobject]@{ Decision = 'dropped'; Text = ''; Coverage = 0.0; Segments = 0; KeptSegments = 0 } }
+    if ($Parts.Count -eq 1 -and $Parts[0] -ceq $Quote.Trim()) {
+        $R = Resolve-VerbatimSegment -Source $Source -Segment $Quote
+        return [pscustomobject]@{ Decision = $R.Decision; Text = $R.Text; Coverage = $R.Coverage; Segments = 1; KeptSegments = [int]($R.Decision -ne 'dropped') }
+    }
+    $Long = [System.Collections.Generic.List[object]]::new()
+    $Results = foreach ($Part in $Parts) {
+        $Letters = ((ConvertTo-EvidenceKey -Quote $Part) -replace ' ', '').Length
+        # A fragment shorter than one run can't be placed by itself: it is kept only when it is exact
+        # and a longer segment of the same quote is kept.
+        if ($Letters -lt $script:VerbatimMinRun) {
+            [pscustomobject]@{ Short = $true; Decision = $(if (Test-VerbatimExact -Source $Source -Quote $Part) { 'exact' } else { 'dropped' }); Text = $Part; Coverage = 1.0 }
+        } else {
+            $R = Resolve-VerbatimSegment -Source $Source -Segment $Part
+            $Row = [pscustomobject]@{ Short = $false; Decision = $R.Decision; Text = $R.Text; Coverage = $R.Coverage }
+            $Long.Add($Row)
+            $Row
+        }
+    }
+    $Results = @($Results)
+    $AnyLongKept = @($Long | Where-Object { $_.Decision -ne 'dropped' }).Count -gt 0
+    $Kept = @($Results | Where-Object { $_.Decision -ne 'dropped' -and (-not $_.Short -or $AnyLongKept) })
+    if ($Kept.Count -eq 0) {
+        $BestCoverage = 0.0
+        foreach ($R in $Long) { if ($R.Coverage -gt $BestCoverage) { $BestCoverage = $R.Coverage } }
+        return [pscustomobject]@{ Decision = 'dropped'; Text = ''; Coverage = $BestCoverage; Segments = $Results.Count; KeptSegments = 0 }
+    }
+    $MinCoverage = 1.0
+    foreach ($R in $Kept) { if ($R.Coverage -lt $MinCoverage) { $MinCoverage = $R.Coverage } }
+    $AllExact = ($Kept.Count -eq $Results.Count) -and (@($Kept | Where-Object { $_.Decision -ne 'exact' }).Count -eq 0)
+    if ($AllExact) {
+        # Every segment is the source's own text: the quote, elision marks included, is kept as written.
+        return [pscustomobject]@{ Decision = 'exact'; Text = $Quote; Coverage = 1.0; Segments = $Results.Count; KeptSegments = $Kept.Count }
+    }
+    $Decision = if (@($Kept | Where-Object { $_.Decision -eq 'interleaved' }).Count -gt 0 -and $Kept.Count -eq $Results.Count -and
+        @($Kept | Where-Object { $_.Decision -eq 'snapped' }).Count -eq 0) { 'interleaved' } else { 'snapped' }
+    [pscustomobject]@{
+        Decision = $Decision; Text = (@($Kept | ForEach-Object { $_.Text }) -join ' [...] ')
+        Coverage = $MinCoverage; Segments = $Results.Count; KeptSegments = $Kept.Count
+    }
 }
 
 function Repair-SummaryKeyPointVerbatim {
     <#
     .SYNOPSIS
         Keeps each key_point verbatim quote grounded in the snapshot (t/389): exact quotes stay, near
-        quotes are snapped to the source's own text, and the rest are dropped with the key point kept.
+        quotes are snapped to the source's own text, quotes verified across an interleaving layout stay
+        as written, and the rest are dropped with the key point kept.
     .OUTPUTS
-        [hashtable] @{ Snapped = <int>; Dropped = <int> }
+        [hashtable] @{ Snapped = <int>; Dropped = <int>; Interleaved = <int> }
     #>
     param([object]$SummaryObject, [string]$SnapshotText, [string]$ThisDocId)
-    $Result = @{ Snapped = 0; Dropped = 0 }
+    $Result = @{ Snapped = 0; Dropped = 0; Interleaved = 0 }
     if (-not (Test-SummaryField $SummaryObject 'pov_summaries')) { return $Result }
     $Pov = Get-SummaryField $SummaryObject 'pov_summaries'
     if (-not $Pov) { return $Result }
-    $Index = $null
-    $CharIndex = $null
+    $Source = $null
     foreach ($Camp in 'accelerationist', 'safetyist', 'skeptic') {
         $CampData = Get-SummaryField $Pov $Camp
         if (-not $CampData -or -not (Test-SummaryField $CampData 'key_points')) { continue }
@@ -213,26 +407,31 @@ function Repair-SummaryKeyPointVerbatim {
             $Raw = Get-SummaryField $Kp 'verbatim'
             if ($null -eq $Raw) { continue }
             $IsList = $Raw -is [System.Collections.IList]
-            if ($null -eq $Index) {
-                $Work = Get-VerbatimWorkText -Text $SnapshotText
-                $Index = Get-VerbatimSourceIndex -Text $Work
-                $CharIndex = Get-VerbatimCharIndex -Text $Work
-            }
+            if ($null -eq $Source) { $Source = Get-VerbatimSource -Text $SnapshotText }
             $Kept = [System.Collections.Generic.List[string]]::new()
             foreach ($Quote in @($Raw)) {
                 if ($Quote -isnot [string] -or [string]::IsNullOrWhiteSpace($Quote)) { continue }
-                if (Test-VerbatimExact -Index $Index -Quote $Quote) { $Kept.Add($Quote); continue }
-                $Snap = Find-VerbatimSnap -Index $CharIndex -Quote $Quote
-                if ($Snap -and $Snap.Coverage -ge $script:VerbatimSnapThreshold) {
-                    $Source = $SnapshotText.Substring($Snap.Start, $Snap.End - $Snap.Start)
-                    $Kept.Add($Source)
-                    if ($Source -cne $Quote) {
-                        $Result.Snapped++
-                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim snapped to the source text (t/389): $($Quote.Substring(0, [Math]::Min(100, $Quote.Length)))"
+                $R = Resolve-VerbatimQuote -Source $Source -Quote $Quote
+                $Preview = $Quote.Substring(0, [Math]::Min(100, $Quote.Length))
+                switch ($R.Decision) {
+                    'exact' { $Kept.Add($R.Text) }
+                    'snapped' {
+                        $Kept.Add($R.Text)
+                        if ($R.Text -cne $Quote) {
+                            $Result.Snapped++
+                            $What = if ($R.KeptSegments -lt $R.Segments) { "snapped to the source text, $($R.Segments - $R.KeptSegments) of $($R.Segments) segments not found" } else { 'snapped to the source text' }
+                            Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim $What (t/389): $Preview"
+                        }
                     }
-                } else {
-                    $Result.Dropped++
-                    Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim dropped, not found in the snapshot (t/389): $($Quote.Substring(0, [Math]::Min(100, $Quote.Length)))"
+                    'interleaved' {
+                        $Kept.Add($R.Text)
+                        $Result.Interleaved++
+                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim kept as written: its text is in the snapshot in order but not as one span, as in a two-column or table layout (t/389): $Preview"
+                    }
+                    default {
+                        $Result.Dropped++
+                        Write-Warning "Finalize-Summary: $ThisDocId $Camp key_points[$I] verbatim dropped, not found in the snapshot (t/389): $Preview"
+                    }
                 }
             }
             # A string stays a string (one quote or none); a list stays a list, and an empty list becomes null.
