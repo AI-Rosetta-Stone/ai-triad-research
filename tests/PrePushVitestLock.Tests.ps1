@@ -182,18 +182,24 @@ exit 0
         Test-Path $marker | Should -BeTrue -Because 'the waiter must reach the window'
 
         # The dead holder is gone; a live holder takes the lock inside the window.
-        Remove-Item -Recurse -Force $script:LockDir
-        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
-        # The live holder is this test process itself: alive for the whole test, and visible to kill -0
-        # from the waiter. Release it by removing its lock dir, as its own exit trap would.
-        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value "$PID 0 /live" -NoNewline
-        Start-Sleep -Seconds 5
-        Test-Path (Join-Path $script:LockDir 'owner') | Should -BeTrue -Because 'the live lock must survive the waiter'
-        Remove-Item -Recurse -Force $script:LockDir
-        $r = Wait-Push $p
-        $r.Code | Should -Be 0 -Because $r.Out
-        $r.Out | Should -Match 'waiting for the machine-wide vitest lock' -Because 'the waiter must wait behind the live holder, not remove its lock'
-        @(Get-VitestRuns $script:Log).Count | Should -Be 1
+        # t/481: the live holder is a real sh process (Start-Holder), and the owner line carries its
+        # own $$. The waiter judges it with kill -0, which on Windows Git Bash sees only MSYS pids,
+        # so the test process's own $PID (a Windows pid there) read as dead and the test failed.
+        $h = Start-Holder
+        try {
+            Remove-Item -Recurse -Force $script:LockDir
+            New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+            Set-Content -Path (Join-Path $script:LockDir 'owner') -Value "$($h.ShPid) 0 /live" -NoNewline
+            Start-Sleep -Seconds 5
+            $h.HasExited | Should -BeFalse -Because 'the stand-in holder must be alive while the waiter judges it'
+            Test-Path (Join-Path $script:LockDir 'owner') | Should -BeTrue -Because 'the live lock must survive the waiter'
+            # Release it by removing its lock dir, as its own exit trap would.
+            Remove-Item -Recurse -Force $script:LockDir
+            $r = Wait-Push $p
+            $r.Code | Should -Be 0 -Because $r.Out
+            $r.Out | Should -Match 'waiting for the machine-wide vitest lock' -Because 'the waiter must wait behind the live holder, not remove its lock'
+            @(Get-VitestRuns $script:Log).Count | Should -Be 1
+        } finally { if (-not $h.HasExited) { $h.Kill($true) } }
     }
 
     # t/436 (Quality t/436#23). A holder reads its own owner line at release and pauses. Meanwhile
