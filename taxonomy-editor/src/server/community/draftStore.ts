@@ -10,6 +10,7 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
 import { getConfig } from '../runtimeConfig.js';
+import { isAnonymousUser } from '../security/userContext.js';
 import { stripSensitiveKeys as stripSensitiveKeysCore } from '../../../../lib/sanitize/stripSensitiveKeys.js';
 import { sanitizeUserText, withSanitizeBudget } from '../security/contentSanitizer.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
@@ -41,7 +42,7 @@ export interface DraftCreateContext {
 }
 
 export interface DraftPrincipal {
-  storageUserId: string; // getStorageUserId() of the authenticated caller; anonymous ids are refused
+  storageUserId: string; // getStorageUserId() of the authenticated caller
   displayName: string; // becomes Submission.submittedBy display
 }
 
@@ -580,7 +581,11 @@ class DraftStoreImpl implements DraftStore {
       return { ok: false, reason: 'not_found' };
     }
 
-    if (!principal.storageUserId || principal.storageUserId === '_local') {
+    // Refuse anonymous callers via the shared request-context check. A cookie-holding anonymous visitor has
+    // storageUserId anon-<uuid> (since #5293), so the id is not the test. isAnonymousUser() is true outside a
+    // request context, so a finalize with no context is refused. The id prefix is not matched: a signed-in
+    // login can start with 'anon-' (Second-Opinion, t/185).
+    if (isAnonymousUser() || !principal.storageUserId || principal.storageUserId === '_local') {
       return { ok: false, reason: 'anonymous' };
     }
 

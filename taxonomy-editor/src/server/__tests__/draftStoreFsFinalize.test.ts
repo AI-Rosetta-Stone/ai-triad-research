@@ -11,6 +11,8 @@ import os from 'os';
 import path from 'path';
 import { FilesystemBackend } from '../storage/filesystemBackend.js';
 import { createDraftStore } from '../community/draftStore.js';
+import { runWithUser } from '../security/userContext.js';
+const SIGNED_IN = { principalName: 'fs-user', idp: 'test', storageUserId: 'user-fs', isAnonymous: false };
 import type { InquiryPayload } from '../../../../lib/inquiry/index.js';
 import { makeValidResult } from '../../../../lib/inquiry/__fixtures__/validResult.js';
 
@@ -39,8 +41,8 @@ describe('DraftStore finalize on the real filesystem backend (t/185 TL t/185#44)
       const principal = { storageUserId: 'user-fs', displayName: 'Fs' } as any;
 
       const results = await Promise.all([
-        store.finalizeDraft(draftId, principal),
-        store.finalizeDraft(draftId, principal),
+        runWithUser(SIGNED_IN, () => store.finalizeDraft(draftId, principal)),
+        runWithUser(SIGNED_IN, () => store.finalizeDraft(draftId, principal)),
       ]);
       const okCount = results.filter(r => r.ok).length;
       expect(okCount).toBe(1);

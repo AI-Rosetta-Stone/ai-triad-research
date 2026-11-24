@@ -39,6 +39,8 @@ vi.mock('../storage/fileIO.js', () => ({
   }),
 }));
 
+const anonCtx = vi.hoisted(() => ({ anonymous: false }));
+vi.mock('../security/userContext.js', () => ({ isAnonymousUser: () => anonCtx.anonymous }));
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
 // Community caps as the store reads them (getConfig().community). Old hard-coded values, so the existing cap tests keep their meaning.
 vi.mock('../runtimeConfig.js', () => ({ getConfig: () => ({ community: { maxPendingPerUser: 50, globalPendingCap: 1000 } }) }));
@@ -77,6 +79,7 @@ const now = () => Date.now();
 
 describe('DraftStore (t/185) — SO blockers B1, B2, B3, B6', () => {
   beforeEach(() => {
+    anonCtx.anonymous = false;
     files.clear();
     vi.clearAllMocks();
     // A test that overrides listDirectory must not leak its override into the next test.

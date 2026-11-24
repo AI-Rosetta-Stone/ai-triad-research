@@ -33,6 +33,8 @@ vi.mock('../storage/fileIO.js', () => ({
     return 'created';
   }),
 }));
+const anonCtx = vi.hoisted(() => ({ anonymous: false }));
+vi.mock('../security/userContext.js', () => ({ isAnonymousUser: () => anonCtx.anonymous }));
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
 vi.mock('../runtimeConfig.js', () => ({ getConfig: () => ({ community: { maxPendingPerUser: 50, globalPendingCap: 1000 } }) }));
 vi.mock('../logger.js', () => ({
@@ -62,7 +64,10 @@ const PRINCIPAL = { storageUserId: 'user-1', displayName: 'Ann' } as any;
 
 describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
   beforeEach(() => {
+    anonCtx.anonymous = false;
     files.clear();
+    // A test that overrides readFile must not leak its override into the next test.
+    (mockBackend.readFile as any).mockImplementation(async (p: string) => files.get(normalize(p)) ?? null);
     vi.clearAllMocks();
     (mockBackend.listDirectory as any).mockImplementation(listDirectoryImpl);
   });
@@ -165,5 +170,22 @@ describe('DraftStore expiry, sweep and logging (t/185 TL t/185#44)', () => {
     files.set(normalize('community/_drafts/drf_bad.json'), '{not json');
     await store.sweepExpiredDrafts();
     expect(vi.mocked(log.server.warn).mock.calls.some(c => String(c[0]).includes('could not read community/_drafts/drf_bad.json'))).toBe(true);
+  });
+  it('finalizeDraft refuses an anonymous cookie holder (anon-<uuid>) when isAnonymous is set, and writes nothing (Second-Opinion, t/185)', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-anon' });
+    const draftId = (created as { draftId: string }).draftId;
+    anonCtx.anonymous = true; // the request is an anonymous cookie holder (isAnonymousUser() true)
+    const anon = { storageUserId: 'anon-3f1c2b7e-8a4d-4c1e-9b2a-0d5e6f7a8b9c', displayName: 'Anon' };
+    expect(await store.finalizeDraft(draftId, anon)).toEqual({ ok: false, reason: 'anonymous' });
+    expect([...files.keys()].some(k => k.includes('/_submissions/'))).toBe(false);
+  });
+
+  it('finalizeDraft accepts a signed-in login whose id starts with anon- (the prefix is not the test) (Second-Opinion, t/185)', async () => {
+    const store = createDraftStore({ backend: mockBackend, now: () => 1_000_000 });
+    const created = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'c-login' });
+    const draftId = (created as { draftId: string }).draftId;
+    const login = { storageUserId: 'anon-smith', displayName: 'Smith' };
+    expect((await store.finalizeDraft(draftId, login)).ok).toBe(true);
   });
 });
