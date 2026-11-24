@@ -389,9 +389,30 @@ describe('runInquiryPipeline — persistSession (t/284 item 5, t/476)', () => {
     expect(withDep).toEqual(without);
   });
 
-  it('still returns the answer when the save rejects', async () => {
-    const deps = makeDeps({ persistSession: vi.fn().mockRejectedValue(new Error('disk full')) });
-    await expect(runInquiryPipeline(makeRequest(), deps)).resolves.toBeDefined();
+  it('records a WARN and still returns the answer when the save rejects', async () => {
+    const record = vi.fn();
+    vi.mocked(getGlobalRecorder).mockReturnValue({ record } as never);
+    try {
+      const deps = makeDeps({ persistSession: vi.fn().mockRejectedValue(new Error('disk full')) });
+      await expect(runInquiryPipeline(makeRequest(), deps)).resolves.toBeDefined();
+    } finally {
+      vi.mocked(getGlobalRecorder).mockReturnValue(undefined as never);
+    }
+    const saveWarns = record.mock.calls.map(c => c[0]).filter(e => String(e.message).includes('inquiry session save failed'));
+    expect(saveWarns).toHaveLength(1);
+    expect(saveWarns[0]).toMatchObject({ type: 'system.error', component: 'inquiryPipeline', level: 'warn' });
+    expect(saveWarns[0].message).toContain('disk full');
+  });
+
+  it('records no save WARN when the save succeeds', async () => {
+    const record = vi.fn();
+    vi.mocked(getGlobalRecorder).mockReturnValue({ record } as never);
+    try {
+      await runInquiryPipeline(makeRequest(), makeDeps({ persistSession: vi.fn().mockResolvedValue(undefined) }));
+    } finally {
+      vi.mocked(getGlobalRecorder).mockReturnValue(undefined as never);
+    }
+    expect(record.mock.calls.filter(c => String(c[0].message).includes('inquiry session save failed'))).toHaveLength(0);
   });
 
   it('is not called when the debate throws', async () => {
