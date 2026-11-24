@@ -775,8 +775,9 @@ function Finalize-Summary {
         $VerbatimResult = Repair-SummaryKeyPointVerbatim -SummaryObject $SummaryObject -SnapshotText $SnapshotText -ThisDocId $ThisDocId
         $VerbatimSnapped = $VerbatimResult.Snapped
         $VerbatimDropped = $VerbatimResult.Dropped
-        if ($VerbatimSnapped -gt 0 -or $VerbatimDropped -gt 0) {
-            Write-Host "  │  verbatim-grounding: $VerbatimSnapped snapped, $VerbatimDropped dropped" -ForegroundColor DarkYellow
+        $VerbatimInterleaved = $VerbatimResult.Interleaved
+        if ($VerbatimSnapped -gt 0 -or $VerbatimDropped -gt 0 -or $VerbatimInterleaved -gt 0) {
+            Write-Host "  │  verbatim-grounding: $VerbatimSnapped snapped, $VerbatimDropped dropped, $VerbatimInterleaved kept as written (interleaved layout)" -ForegroundColor DarkYellow
         }
     }
 
