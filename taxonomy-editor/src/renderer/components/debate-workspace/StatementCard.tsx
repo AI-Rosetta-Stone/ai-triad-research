@@ -736,14 +736,7 @@ function StatementBody({
         </div>
       ) : displayedTier === 'reasoning' ? (
         // t/469 Layout A: the statement's own claims, focus, moves, assumptions and responses.
-        <StatementHowLayout
-          entry={entry}
-          nodes={activeDebate?.argument_network?.nodes}
-          edges={activeDebate?.argument_network?.edges}
-          convergence={convergenceSignalFor(activeDebate, entry.id)}
-          vocabResolutions={vocabResolutions}
-          ambiguities={meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined}
-        />
+        <StatementHowLayout entry={entry} debate={activeDebate} vocabResolutions={vocabResolutions} meta={meta} />
       ) : WHY_TIERS.has(displayedTier) ? (
         <div className="debate-statement-content">
           <BdiGroundingView

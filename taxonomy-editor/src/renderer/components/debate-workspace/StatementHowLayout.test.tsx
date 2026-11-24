@@ -83,14 +83,13 @@ describe('StatementHowLayout', () => {
   beforeEach(() => vi.clearAllMocks());
 
   function renderHow(over: Record<string, unknown> = {}) {
+    const props = { nodes: NODES, edges: EDGES, convergence: CONVERGENCE, entry: ENTRY, ...over };
     return render(
       <StatementHowLayout
-        entry={ENTRY}
-        nodes={NODES}
-        edges={EDGES}
-        convergence={CONVERGENCE}
+        entry={props.entry as never}
+        debate={{ argument_network: { nodes: props.nodes as never, edges: props.edges as never }, convergence_signals: props.convergence ? [props.convergence as never] : [] }}
         vocabResolutions={undefined}
-        {...over}
+        meta={undefined}
       />,
     );
   }

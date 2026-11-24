@@ -110,3 +110,12 @@ export function statementCounts(m: StatementHowModel): string {
     m.supportCount > 0 && plural(m.supportCount, 'support'),
   ].filter(Boolean).join(' · ');
 }
+
+/** The debate fields the HOW view reads, looked up for one statement. */
+export function readDebateHow(debate: { argument_network?: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] }; convergence_signals?: ConvergenceSignals[] } | null | undefined, entryId: string) {
+  return {
+    nodes: debate?.argument_network?.nodes,
+    edges: debate?.argument_network?.edges ?? [],
+    convergence: debate?.convergence_signals?.find(s => s.entry_id === entryId),
+  };
+}
