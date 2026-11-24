@@ -44,6 +44,7 @@ vi.mock('../storage/readDataFile.js', () => ({ readDataFile: vi.fn(async () => B
 vi.mock('../ai/fsCache.js', () => ({ readFileWithMtime: vi.fn(() => ({ content: '{}', mtimeMs: 1 })) }));
 
 import { computeEmbeddings, _resetEmbeddingsCacheForTest, _setPythonAvailableForTest } from '../ai/aiBackends.js';
+import { ONNX_MISS_BATCH } from '../ai/onnxSubBatches.js';
 
 const DIM = 8; // tiny vectors — dimensionality is irrelevant to liveness/conversion, keep the test cheap.
 
@@ -95,7 +96,9 @@ describe('computeEmbeddings worker offload (t/3183)', () => {
 
     // Arm OFF: in-thread onnx blocks synchronously per chunk → the loop stalls past the deadline.
     delete process.env.EMBEDDING_WORKER_OFFLOAD;
-    onnxCompute.mockImplementation(async (t: string[]) => { blockFor(BLOCK_MS); return vecs(t.length); });
+    // t/520: misses now reach ONNX in sub-batches of ONNX_MISS_BATCH, so the simulated cost is per text: a
+    // 128-text chunk still costs BLOCK_MS in total, and the sub-batches inside a chunk run without yielding.
+    onnxCompute.mockImplementation(async (t: string[]) => { blockFor((BLOCK_MS * t.length) / 128); return vecs(t.length); });
     const gapOff = await maxEventLoopGapDuring(() => computeEmbeddings(texts));
     expect(gapOff).toBeGreaterThanOrEqual(DEADLINE_MS); // starves — this is the incident, reproduced
     expect(offthread).not.toHaveBeenCalled();
@@ -121,16 +124,16 @@ describe('computeEmbeddings worker offload (t/3183)', () => {
     const { vectors, cacheMisses } = await computeEmbeddings(['a', 'b', 'c']);
     expect(cacheMisses).toBe(3);
     expect(vectors).toHaveLength(3);
-    expect(onnxCompute).toHaveBeenCalledTimes(1);
+    expect(onnxCompute).toHaveBeenCalledTimes(Math.ceil(3 / ONNX_MISS_BATCH)); // t/520: sub-batched misses
     expect(offthread).not.toHaveBeenCalled();
   });
 
   it('flag ON routes to the worker and widens Float32Array[] → number[][]', async () => {
     process.env.EMBEDDING_WORKER_OFFLOAD = '1';
     offthread.mockImplementation(async (t: string[]) =>
-      t.map((_, i) => Float32Array.from([i, i + 0.5, i + 0.25, 0, 0, 0, 0, 0])));
+      t.map((txt) => { const i = ['x', 'y'].indexOf(txt); return Float32Array.from([i, i + 0.5, i + 0.25, 0, 0, 0, 0, 0]); })); // keyed by text: misses arrive sub-batched (t/520)
     const { vectors } = await computeEmbeddings(['x', 'y']);
-    expect(offthread).toHaveBeenCalledTimes(1);
+    expect(offthread).toHaveBeenCalledTimes(Math.ceil(2 / ONNX_MISS_BATCH)); // t/520: sub-batched misses
     expect(onnxCompute).not.toHaveBeenCalled();
     expect(Array.isArray(vectors[0])).toBe(true);          // number[], not a Float32Array view
     expect(vectors[0][0]).toBeCloseTo(0);
