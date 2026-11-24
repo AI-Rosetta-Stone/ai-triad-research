@@ -370,6 +370,31 @@ describe('runInquiryPipeline — question relevance (t/284 item 5)', () => {
   });
 });
 
+// t/284 (TL p/32#134): the inquiry entry point must treat a multi-line question as one question.
+describe('runInquiryPipeline — a multi-line question stays one question (t/284)', () => {
+  const MULTI_LINE_QUESTION = 'A large frontier developer shall retain records pertaining to:\n(i) A catastrophic risk;\n(ii) A critical safety incident; or\n(iii) The developer\u2019s compliance with this law.';
+
+  it('runs exactly one debate, on the whole question, and scores relevance against the whole question', async () => {
+    const session = {
+      ...makeSession(),
+      transcript: [{ id: 'e1', timestamp: '', type: 'statement', speaker: 'safetyist', content: 'Records matter.', taxonomy_refs: [] }],
+    } as unknown as DebateSession;
+    const runDebate = vi.fn().mockResolvedValue({ session });
+    const embed = vi.fn().mockResolvedValue([[1, 0], [1, 0]]);
+    const deps = makeDeps({ runDebate, embed });
+
+    await runInquiryPipeline(makeRequest({ question: MULTI_LINE_QUESTION }), deps);
+
+    expect(runDebate).toHaveBeenCalledTimes(1);
+    const [config, question] = runDebate.mock.calls[0];
+    expect(config.topic).toBe(MULTI_LINE_QUESTION);
+    expect(question).toBe(MULTI_LINE_QUESTION);
+    expect(embed.mock.calls.some(c => c[0][0] === MULTI_LINE_QUESTION)).toBe(true);
+    expect(vi.mocked(deriveDebateConfig).mock.calls.every(c => c[0].question === MULTI_LINE_QUESTION)).toBe(true);
+    expect(vi.mocked(deriveDebateConfig)).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('runInquiryPipeline — persistSession (t/284 item 5, t/476)', () => {
   it('is called once, after relevance is recorded, with the session that carries it', async () => {
     const session = makeSession();

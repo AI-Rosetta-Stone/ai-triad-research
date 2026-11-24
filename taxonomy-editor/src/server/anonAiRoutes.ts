@@ -36,3 +36,18 @@ export const FREE_TIER_AI_POST_PATHS: readonly string[] = [
 export function isFreeTierAiPath(method: string, urlPath: string): boolean {
   return method === 'POST' && FREE_TIER_AI_POST_PATHS.includes(urlPath);
 }
+
+/**
+ * t/475 (TL-approved): THE decision for whether an anonymous (keyless) request may reach a route. It is the only
+ * implementation: server.ts calls it from both the optional-auth gate and the anonymous route guard, and keeps no
+ * copy. A route passes if it is a free-tier exempt AI route while the free tier is enabled, or if the anonymous
+ * allowlist (`anonAllowed`, injected so this module stays free of accessControl's file-I/O imports) allows it.
+ */
+export function anonRouteDecision(
+  method: string,
+  urlPath: string,
+  freeTierEnabled: boolean,
+  anonAllowed: (method: string, urlPath: string) => boolean,
+): boolean {
+  return (isFreeTierAiPath(method, urlPath) && freeTierEnabled) || anonAllowed(method, urlPath);
+}

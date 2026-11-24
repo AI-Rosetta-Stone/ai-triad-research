@@ -62,7 +62,9 @@ vi.mock('../logger.js', async (importOriginal) => {
       storage: {
         ...logActual.storage,
         warn: (...args: unknown[]) => warnCalls.push(args),
-        info: (...args: unknown[]) => infoCalls.push(args),
+        // t/497: this file is about the uncommitted-overlay line. Start-up now also logs the repo
+        // visibility on this logger; that line is not what these tests count.
+        info: (...args: unknown[]) => { if (!String(args[1]).startsWith('repo visibility')) infoCalls.push(args); },
       },
     },
   };

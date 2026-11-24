@@ -25,6 +25,8 @@ import { runInquiryPipeline, type InquiryPipelineDeps, type InquiryStage } from 
 import type { GroundingTaxonomy } from '../../../lib/debate/inquiryGrounding.js';
 import type { NodeEmbeddingMap } from '../../../lib/debate/relevanceSelection.js';
 import { runHeadlessDebate } from '../../../lib/debate/headlessRunner.js';
+import { docMetaMapFromSourcesIndex } from '../../../lib/debate/docTitlesFromSourcesIndex.js';
+import { loadSourcesIndex } from './storage/sourcesIndexReader.js';
 import { resolvePoverInfo } from '../../../lib/debate/soulDocLoader.js';
 import { loadTaxonomy, type LoadedTaxonomy } from '../../../lib/debate/taxonomyLoader.js';
 import { getProjectRoot } from './config.js';
@@ -198,6 +200,10 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
       // records the question relevance, so the stored session carries the relevance metric.
       // t/284 item 6: the question must be the debate's topic. deriveDebateConfig sets topic = request.question,
       // so a mismatch means the config was built from something else. Refuse before the debate spends anything.
+      // t/492: a hosted server has no sources directory, so the engine cannot read document titles from disk.
+      // The titles come from sources-index.json through the storage backend (loadSourcesIndex never throws; null
+      // when the index is unusable, with a WARN). docMetaMapFromSourcesIndex(null) is undefined, and then the key
+      // is left out, so the engine keeps its own lookup.
       runDebate: async (config, question, onProgress) => {
         if (config.topic !== question) {
           throw new ActionableError({
@@ -209,7 +215,8 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
             code: 'INQUIRY_TOPIC_MISMATCH',
           });
         }
-        return runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress);
+        const docTitles = docMetaMapFromSourcesIndex(await loadSourcesIndex());
+        return runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo, ...(docTitles ? { docTitles } : {}) }, adapter, getLoadedTaxonomy(), onProgress);
       },
       // t/476: called once by the pipeline, after relevance is recorded, with the same session object.
       persistSession: async (session) => { if (!(await persistInquiryDebateSession(session, ctx.jobId))) debateSaveFailed = true; }, // t/4338

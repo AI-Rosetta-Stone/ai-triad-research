@@ -297,6 +297,18 @@ describe('deriveDebateConfig — no silent reframe (t/284 item 1)', () => {
   });
 });
 
+// t/284 (TL p/32#134): an earlier calibration loop split a multi-line question on line breaks. This
+// shows the product's own derivation does not.
+describe('deriveDebateConfig — a multi-line question stays one question (t/284)', () => {
+  const MULTI_LINE_QUESTION = 'A large frontier developer shall retain records pertaining to:\n(i) A catastrophic risk;\n(ii) A critical safety incident; or\n(iii) The developer\u2019s compliance with this law.';
+
+  it('uses the whole question, line breaks included, as the debate topic', () => {
+    const { config } = deriveDebateConfig(makeRequest({ question: MULTI_LINE_QUESTION }), makeRegistry());
+    expect(config.topic).toBe(MULTI_LINE_QUESTION);
+    expect(config.topic.split('\n')).toHaveLength(4);
+  });
+});
+
 describe('deriveDebateConfig — ArCo anchoring (t/284 item 2)', () => {
   it('sets anchorToResolution: true so resolution anchoring runs for every inquiry', () => {
     const { config } = deriveDebateConfig(makeRequest(), makeRegistry());

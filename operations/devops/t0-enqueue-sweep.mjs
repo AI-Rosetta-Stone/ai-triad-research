@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { enqueuePR } from './enqueue-pr.mjs';
 import { checkVerdict, pendingCheckNames } from './dependabot-enqueue-sweep.mjs';
 import { liveEnqueueVerdict, readLivePR } from './live-pr-state.mjs';
+import { ejectedBatchVerdict, listMergeGroupRuns, listRunJobs, readJobLog } from './ejected-batch.mjs';
 import { allContextsFor } from './pr-contexts.mjs';
 import { isUserFacing } from './design-review-scope.mjs';
 import { latestRoleVerdicts } from './role-review-verdicts.mjs';
@@ -453,8 +454,25 @@ export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
     }
     if (enqueue.length === 0) console.log(`pass ${pass}: no T0 PRs to enqueue.`);
 
+    // t/423: one read of the merge_group runs per pass. A failed read is kept, not thrown, so
+    // every PR below fails open to 'unknown' (WARN, not skipped).
+    let mergeGroupRuns;
+    try { mergeGroupRuns = { runs: listMergeGroupRuns(repo, gh) }; } catch (err) { mergeGroupRuns = { error: err }; }
+    const ejectedCheck = (prNumber, prContexts) => {
+      if (mergeGroupRuns.error) return { verdict: 'unknown', reason: `could not list merge_group runs: ${mergeGroupRuns.error.message ?? mergeGroupRuns.error}` };
+      return ejectedBatchVerdict({ prNumber, runs: mergeGroupRuns.runs, pushedAt: headPushedAt(prContexts), readJobs: (id) => listRunJobs(repo, id, gh), readLog: (id) => readJobLog(repo, id, gh) });
+    };
+
     for (const pr of enqueue) {
       if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+      // t/423: skip only a confirmed exit-3 (EJECTED) on this PR's latest queue run. Anything else
+      // proceeds as before, with a WARN when the state could not be read (fail open).
+      const eject = ejectedCheck(pr.number, pr.contexts);
+      if (eject.verdict === 'ejected') {
+        console.log(`skip #${pr.number}: its merge-queue batch was ejected (run ${eject.runId}, t/423); not enqueuing`);
+        continue;
+      }
+      if (eject.verdict === 'unknown') console.log(`WARN t/423: could not confirm the merge-queue state of #${pr.number} (${eject.reason}); not skipping (fail open)`);
       const outcome = await enqueueOne(repo, pr);
       if (outcome === 'enqueued') failures.delete(pr.number);
       else if (outcome === 'failed') failures.add(pr.number);

@@ -269,6 +269,11 @@ acquire_vitest_lock() {
     # t/436 test hook (unset in production): pause after reading the owner and before judging it
     # stale, and say so with a marker, so a test can replace the lock inside that window.
     if [ -n "${AITRIAD_TEST_STALE_PAUSE:-}" ]; then : >"$LOCK_DIR.paused"; sleep "$AITRIAD_TEST_STALE_PAUSE"; fi
+    # Known limit (t/481, TL decision t/481#2): kill -0 sees only pids of THIS POSIX runtime. On
+    # Windows, Git Bash sees other Git Bash pids but not a Windows pid, nor a pid from a second
+    # MSYS or Cygwin install sharing this lock dir, so such a live holder reads as dead and its
+    # lock is taken over. Not handled: the cost is one overlapping vitest run. WSL has its own
+    # lock dir (LOCALAPPDATA is unset there).
     if { [ -n "$hpid" ] && ! kill -0 "$hpid" 2>/dev/null; } || [ $(( now - born )) -gt "$LOCK_STALE" ]; then
       echo "pre-push: WARN removing a stale vitest lock (holder: ${holder:-unknown}, age $(( now - born ))s): its process is gone or it outlived ${LOCK_STALE}s." >&2
       remove_lock_if_owner "$holder"

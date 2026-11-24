@@ -1,11 +1,20 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// ── Inquiry relevance metric (t/284 item 5) ───────────────────────────
+// ── Inquiry gross-drift signal (t/284 item 5) ─────────────────────────
 //
-// Per-turn embedding similarity between each debater turn and the user's literal question, on
-// the same embedding model as the ArCo anchors. Pure functions here; the pipeline does the I/O.
-// Thresholds are the TL's starting point (t/284#3 item 3), to be calibrated on the 6 runs.
+// Per-turn embedding similarity between each debater turn and the user's question, on the same
+// embedding model as the ArCo anchors. Pure functions here; the pipeline does the I/O.
+//
+// What it is: an internal signal that a debate has left the question's field. Off-field and
+// unrelated turns score below RELEVANCE_MEAN_WARN, and their consecutive runs fall under
+// RELEVANCE_LOW_TURN, so they raise the flag.
+// What it is not: a measure of whether the debate answers the question. A debate on a
+// neighbouring question in the same field scores in the same range as one on the question itself,
+// so no threshold on this number separates the two (controls on t/284#77 and t/284#80). That
+// case is t/496. The flag is not shown to users.
+//
+// The thresholds are stipulated, not calibrated: the TL's starting point (t/284#3 item 3).
 
 import { cosineSimilarity } from '../embeddings/similarity.js';
 import type { TranscriptEntry } from './types/session.js';
@@ -39,7 +48,7 @@ export function scoreTurns(entries: TranscriptEntry[], turnVectors: number[][], 
   return entries.map((e, i) => ({ entry_id: e.id, similarity: cosineSimilarity(turnVectors[i], questionVector) }));
 }
 
-/** Drift test: mean below RELEVANCE_MEAN_WARN, or RELEVANCE_LOW_RUN consecutive turns below RELEVANCE_LOW_TURN. */
+/** Gross-drift test: mean below RELEVANCE_MEAN_WARN, or RELEVANCE_LOW_RUN consecutive turns below RELEVANCE_LOW_TURN. */
 export function relevanceDrift(scores: TurnRelevance[]): { warn: boolean; reason?: string } {
   if (scores.length === 0) return { warn: false };
   const mean = scores.reduce((s, t) => s + t.similarity, 0) / scores.length;

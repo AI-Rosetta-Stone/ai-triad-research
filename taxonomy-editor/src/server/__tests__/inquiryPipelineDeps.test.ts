@@ -33,6 +33,9 @@ vi.mock('../ai/aiBackends.js', () => ({
   computeQueryEmbedding: (text: string) => computeQueryEmbeddingSpy(text),
   generateText: vi.fn(),
 }));
+// t/492: the server reads sources-index.json through the storage reader; the test controls what it returns.
+const sourcesIndexHolder = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock('../storage/sourcesIndexReader.js', () => ({ loadSourcesIndex: async () => sourcesIndexHolder.value }));
 vi.mock('../../../../lib/debate/headlessRunner.js', () => ({ runHeadlessDebate: h.runHeadlessDebateMock }));
 vi.mock('../storage/debateStore.js', () => ({ saveDebateSession: h.saveDebateSessionSpy }));
 vi.mock('../../../../lib/debate/taxonomyLoader.js', () => ({ loadTaxonomy: () => ({ embeddings: {} }) }));
@@ -202,5 +205,30 @@ describe('t/4917 — debate progress reaches the job through the prod wiring', (
     expect(updates.length).toBeGreaterThanOrEqual(3);
     for (let i = 1; i < updates.length; i++) expect(updates[i].fraction).toBeGreaterThan(updates[i - 1].fraction);
     expect(updates.every(u => typeof u.detail === 'string' && u.detail.length > 0)).toBe(true);
+  });
+});
+
+describe('t/492 — the inquiry debate carries document titles from sources-index.json', () => {
+  const INDEX = { schema_version: 1, docs: [
+    { id: 'doc-a', title: 'The Title of A', resolved_url: 'https://example.org/a', provenance: [{ id: 'prov-a' }] },
+    { id: 'doc-b', title: '' },
+  ] } as unknown;
+
+  it('the config passed to runHeadlessDebate carries docTitles when the index has titles', async () => {
+    sourcesIndexHolder.value = INDEX;
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    await h.capturedDeps!.runDebate({ model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0], 'q');
+    const cfg = h.runHeadlessDebateMock.mock.calls[0][0] as unknown as { docTitles?: Record<string, unknown> };
+    expect(cfg.docTitles).toEqual({ 'doc-a': { title: 'The Title of A', resolved_url: 'https://example.org/a', provenance_label: 'prov-a' } });
+  });
+
+  it('the config carries no docTitles key when the reader returns null', async () => {
+    sourcesIndexHolder.value = null;
+    h.runHeadlessDebateMock.mockClear();
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    await h.capturedDeps!.runDebate({ model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0], 'q');
+    const cfg = h.runHeadlessDebateMock.mock.calls[0][0] as unknown as Record<string, unknown>;
+    expect('docTitles' in cfg).toBe(false);
+    expect(cfg.soulResolver).toBeDefined(); // the existing soulResolver injection is unchanged
   });
 });
