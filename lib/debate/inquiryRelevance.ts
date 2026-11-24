@@ -34,6 +34,18 @@ export interface RelevanceResult {
   drift_warning: boolean;
   drift_reason?: string;
   unavailable_reason?: string;
+  /**
+   * Residual similarity per turn, and its mean (t/496): similarity to the question after the
+   * field's centroid is removed from both. Absent when the host has no taxonomy vectors.
+   *
+   * RECORDED FOR STUDY ONLY. It has no threshold and raises no WARN, it is not shown to anyone,
+   * and NO consumer branches on it. That is why adding it is a T0 change (TL p/32#159). THE
+   * EXEMPTION LAPSES the moment any code path reads `residual_similarity` or `residual_mean` to
+   * make a DECISION (a flag, a threshold, a warning, a display): at that point it is part of the
+   * consumer contract, and the change that introduces the read needs its own tier and review.
+   */
+  residual_similarity?: TurnRelevance[];
+  residual_mean?: number | null;
 }
 
 /** Debater turns: non-empty content from a speaker, not the system or the moderator. */
@@ -65,4 +77,36 @@ export function relevanceResult(scores: TurnRelevance[]): RelevanceResult {
   const mean = scores.length === 0 ? null : scores.reduce((s, t) => s + t.similarity, 0) / scores.length;
   const drift = relevanceDrift(scores);
   return { question_similarity: scores, mean, drift_warning: drift.warn, drift_reason: drift.reason };
+}
+
+// ── Residual similarity (t/496) ───────────────────────────────────────
+//
+// Every text in one field shares a large common component, which is why a debate on a neighbouring
+// question scores almost as high as a debate on the asked one. Residual similarity subtracts the
+// field's centroid (the mean of the taxonomy node vectors) from both the turn and the question
+// before comparing. On saved debates it ranks an on-question debate above a neighbouring-question
+// one more often than plain similarity does (t/496#4), and still misses about half of the hard
+// cases, so it is recorded for study and nothing more.
+
+/** The mean of the field's vectors, or undefined when there are none of the right dimension. */
+export function fieldCentroid(vectors: number[][], dimension: number): number[] | undefined {
+  const usable = vectors.filter(v => Array.isArray(v) && v.length === dimension);
+  if (usable.length === 0) return undefined;
+  const sum = new Array<number>(dimension).fill(0);
+  for (const v of usable) for (let i = 0; i < dimension; i++) sum[i] += v[i];
+  return sum.map(x => x / usable.length);
+}
+
+/** Cosine similarity of two vectors after the field centroid is subtracted from each. */
+export function residualSimilarity(a: number[], b: number[], centroid: number[]): number {
+  return cosineSimilarity(a.map((x, i) => x - centroid[i]), b.map((x, i) => x - centroid[i]));
+}
+
+/** Per-turn residual similarity to the question, in the same order as the entries, and its mean. */
+export function residualScores(
+  entries: TranscriptEntry[], turnVectors: number[][], questionVector: number[], centroid: number[],
+): { residual_similarity: TurnRelevance[]; residual_mean: number | null } {
+  const residual_similarity = entries.map((e, i) => ({ entry_id: e.id, similarity: residualSimilarity(turnVectors[i], questionVector, centroid) }));
+  const residual_mean = residual_similarity.length === 0 ? null : residual_similarity.reduce((s, t) => s + t.similarity, 0) / residual_similarity.length;
+  return { residual_similarity, residual_mean };
 }
