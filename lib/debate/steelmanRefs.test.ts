@@ -3,7 +3,15 @@
 
 // t/388: plan-level steelman references. Offer selection, plan tag handling, and the prompt block.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Only getGlobalRecorder is replaced, so the WARN tests can read what was recorded.
+vi.mock('../flight-recorder/index.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../flight-recorder/index.js')>()),
+  getGlobalRecorder: vi.fn(),
+}));
+
+import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { offeredSteelmanRefs } from './steelman.js';
 import { applyPlanSteelmanRefs, planForLaterStages, stripSteelmanIdsFromStatement } from './turnPipeline/steelmanRefs.js';
 import { toPromptJson } from './turnPipeline/runTurn-stages.js';
@@ -132,5 +140,71 @@ describe('inquiry opening with both the question and steelman references (t/284 
     expect(draftPrompt).not.toContain('STEELMAN REFERENCES');
     expect(draftPrompt).not.toContain('AN-2');
     expect(draftPrompt).toContain('ATTACK: the strongest objection');
+  });
+});
+
+describe('anticipated challenges returned as objects (t/485)', () => {
+  const plan = (challenges: unknown[]): OpeningPlanWorkProduct =>
+    ({ strategic_goal: 'g', core_thesis: 't', argument_structure: [], framing_choices: [], anticipated_challenges: challenges }) as unknown as OpeningPlanWorkProduct;
+
+  it('an ATTACK object whose target is an offered steelman id becomes a tagged string', () => {
+    const p = plan([{ type: 'ATTACK', target: 'AN-2', description: 'the strongest objection' }]);
+    applyPlanSteelmanRefs(p, ['AN-2']);
+    expect(p.anticipated_challenges).toEqual(['ATTACK [AN-2]: the strongest objection']);
+    expect(toPromptJson(planForLaterStages(p))).not.toContain('AN-2');
+  });
+
+  it('an ATTACK object whose target is not offered becomes a plain ATTACK, never a tag', () => {
+    const p = plan([{ type: 'ATTACK', target: 'AN-9', description: 'invented id' }]);
+    applyPlanSteelmanRefs(p, ['AN-2']);
+    expect(p.anticipated_challenges).toEqual(['ATTACK: invented id (target: AN-9)']);
+  });
+
+  it('a taxonomy node id as target never matches the steelman list, even with a non-empty offer', () => {
+    // The live case from session 26b17ef3: target is a taxonomy node id, not an AN id.
+    const p = plan([
+      { type: 'ATTACK', target: 'acc-intentions-099', description: 'Strict liability fails to capture diffuse harms.' },
+      { type: 'ASSUMPTION', target: 'acc-intentions-078', description: 'Auditors have the capacity.' },
+    ]);
+    applyPlanSteelmanRefs(p, ['AN-9', 'AN-3']);
+    expect(p.anticipated_challenges).toEqual([
+      'ATTACK: Strict liability fails to capture diffuse harms. (target: acc-intentions-099)',
+      'ASSUMPTION: Auditors have the capacity. (target: acc-intentions-078)',
+    ]);
+    expect(p.anticipated_challenges.some(c => /^ATTACK \[/.test(c))).toBe(false);
+    expect(p.steelman_refs_offered).toEqual(['AN-9', 'AN-3']);
+  });
+
+  it('an ASSUMPTION object is never tagged, even when its target is an offered id', () => {
+    const p = plan([{ type: 'assumption', target: 'AN-2', description: 'a premise' }]);
+    applyPlanSteelmanRefs(p, ['AN-2']);
+    expect(p.anticipated_challenges).toEqual(['ASSUMPTION: a premise (target: AN-2)']);
+  });
+
+  it('leaves string items exactly as they were, mixed with objects', () => {
+    const p = plan(['ATTACK [AN-2]: kept', 'ASSUMPTION: plain', { type: 'ATTACK', description: 'no target' }]);
+    applyPlanSteelmanRefs(p, ['AN-2']);
+    expect(p.anticipated_challenges).toEqual(['ATTACK [AN-2]: kept', 'ASSUMPTION: plain', 'ATTACK: no target']);
+  });
+
+  it('keeps an item with no usable text as its JSON, so nothing is dropped', () => {
+    const p = plan([{ type: 'ATTACK', target: 'AN-2' }, 42]);
+    applyPlanSteelmanRefs(p, []);
+    expect(p.anticipated_challenges).toEqual(['ATTACK: {"type":"ATTACK","target":"AN-2"} (target: AN-2)', 'ATTACK: 42']);
+  });
+
+  it('records one WARN per converted object, with the original, and none for strings', () => {
+    const record = vi.fn();
+    vi.mocked(getGlobalRecorder).mockReturnValue({ record } as never);
+    try {
+      const p = plan(['ATTACK: plain', { type: 'ATTACK', target: 'acc-intentions-099', description: 'd1' }, { type: 'ASSUMPTION', description: 'd2' }]);
+      applyPlanSteelmanRefs(p, ['AN-2']);
+    } finally {
+      vi.mocked(getGlobalRecorder).mockReturnValue(undefined as never);
+    }
+    const warns = record.mock.calls.map(c => c[0]).filter(e => String(e.message).includes('t/485'));
+    expect(warns).toHaveLength(2);
+    expect(warns[0]).toMatchObject({ level: 'warn', component: 'turn-pipeline' });
+    expect(warns[0].data.original).toContain('acc-intentions-099');
   });
 });
