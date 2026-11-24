@@ -62,7 +62,7 @@
 .debate-reasoning-node {
   font-family: monospace;
   font-size: var(--text-2xs);
-  font-weight: 600;
+  font-weight: 500; /* t/472 (Design p/14#80): one weight, open or closed; the caret and rule carry the state */
   background: none;
   border: none;
   padding: 0;
