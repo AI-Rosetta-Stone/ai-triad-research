@@ -5,7 +5,7 @@
  * Batch runner for chat regeneration with rate limiting and error handling.
  */
 
-import type { ChatSession, RegeneratedChatSession } from './types.js';
+import type { ChatEntry, ChatSession, RegeneratedChatSession } from './types.js';
 
 export interface BatchOptions {
   dryRun?: boolean;
@@ -22,7 +22,10 @@ export interface BatchResult {
 }
 
 /**
- * Replay a chat session through the app's actual pipeline.
+ * Replay a chat session through an injected per-turn function.
+ *
+ * The live replay does not use this: it drives the app's own chat store (replayHarness.ts,
+ * started by replayRuntime.ts). This function remains for the dry-run metadata path and its tests.
  *
  * Calls streamChatWithProgress directly from useChatStore, replaying each user
  * turn and capturing raw_prompt/raw_response for the How panel (t/4848).
@@ -81,7 +84,7 @@ export async function replayChatSession(
         pover: session.pover,
         transcriptContext,
         temperature,
-        model: session.model || 'gemini-2.0-flash',
+        model: session.chat_model || 'gemini-2.0-flash',
       });
 
       const regeneratedEntry: ChatEntry = {
@@ -166,7 +169,7 @@ export async function processChatBatch(
     const chat = toProcess[i];
 
     // Check if already regenerated
-    const regenerated = (chat as Record<string, unknown>).regenerated_at !== undefined;
+    const regenerated = (chat as unknown as Record<string, unknown>).regenerated_at !== undefined;
     if (regenerated && !options.force) {
       report.skipped++;
       continue;

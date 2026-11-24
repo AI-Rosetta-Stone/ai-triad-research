@@ -21,7 +21,7 @@ describe('Archive Module with Backend Adapter', () => {
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'chat-regen-test-'));
-    const storageBackend = new FilesystemBackend();
+    const storageBackend = new FilesystemBackend({ root: tempDir }); // t/223: the backend is confined to a root
     backend = createBackendAdapter(storageBackend);
   });
 

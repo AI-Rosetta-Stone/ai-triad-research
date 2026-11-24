@@ -24,7 +24,7 @@ export function analyzeChatSession(
   const assistantTurns = session.transcript.filter(e => e.speaker !== 'user').length;
 
   // Check if already regenerated
-  const regenerated = (session as Record<string, unknown>).regenerated_at !== undefined;
+  const regenerated = (session as unknown as Record<string, unknown>).regenerated_at !== undefined;
   if (regenerated && !options.force) {
     return {
       id: session.id,

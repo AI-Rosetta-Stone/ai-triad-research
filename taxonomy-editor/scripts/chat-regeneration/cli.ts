@@ -13,9 +13,14 @@
  *   npm run regen:batch -- --dry-run                    # Analyze all chats without changes
  *   npm run regen:batch -- --apply --single <chat-id>   # Regenerate one chat (requires app wiring)
  *   npm run regen:batch -- --restore <chat-id>          # Restore chat from archive
+ *
+ * Replay one chat through the app's pipeline and write the result to a local candidate file.
+ * It reads the store and writes no store (t/287):
+ *   npx tsx scripts/chat-regeneration/cli.ts --replay --single <chat-id> --server http://127.0.0.1:7862 --out <file> [--model <id>] [--store community]
  */
 
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 
 import { generateDryRunReport, formatDryRunReport } from './dryRun.js';
@@ -27,6 +32,7 @@ import type { ChatSession, DryRunReport } from './types.js';
 import { FilesystemBackend } from '../../src/server/storage/filesystemBackend.js';
 import type { StorageBackend } from '../../src/server/storage/storageBackend.js';
 import { resolveCommunityBackend, COMMUNITY_CHATS_DIR } from './hostedBackend.js';
+import { startReplayRuntime } from './replayRuntime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,6 +48,10 @@ interface CliOptions {
   force: boolean;
   limit?: number;
   store: StoreName;
+  replay: boolean;
+  server?: string;
+  out?: string;
+  model?: string;
 }
 
 function parseArgs(): CliOptions {
@@ -66,6 +76,10 @@ function parseArgs(): CliOptions {
     force: args.includes('--force'),
     limit: getSingleValue('--limit') ? parseInt(getSingleValue('--limit')!, 10) : undefined,
     store: storeArg,
+    replay: args.includes('--replay'),
+    server: getSingleValue('--server'),
+    out: getSingleValue('--out'),
+    model: getSingleValue('--model'),
   };
 }
 
@@ -107,8 +121,8 @@ async function main() {
   const opts = parseArgs();
 
   // Validate mode
-  if (!opts.dryRun && !opts.apply && !opts.restore) {
-    console.error('Usage: --dry-run, --apply [--single <id> | --batch], or --restore <id>');
+  if (!opts.dryRun && !opts.apply && !opts.restore && !opts.replay) {
+    console.error('Usage: --dry-run, --replay --single <id> --server <url> --out <file>, --apply [--single <id> | --batch], or --restore <id>');
     process.exit(1);
   }
 
@@ -128,7 +142,8 @@ async function main() {
     storageBackend = await resolveCommunityBackend();
     baseDataPath = COMMUNITY_CHATS_DIR;
   } else {
-    storageBackend = new FilesystemBackend();
+    // t/223: the backend is confined to a root; the personal chats directory is the only one this tool needs.
+    storageBackend = new FilesystemBackend({ root: localChatsDir });
     baseDataPath = localChatsDir;
   }
   console.log(`Base path: ${baseDataPath}`);
@@ -184,6 +199,38 @@ async function main() {
     process.exit(0);
   }
 
+  // REPLAY MODE: read one chat, regenerate it through the app's pipeline, write a local candidate file.
+  if (opts.replay) {
+    if (!opts.single || !opts.server || !opts.out) {
+      console.error('--replay requires --single <id>, --server <url> and --out <file>');
+      process.exit(1);
+    }
+    const chats = await loadChatsFromPath(storageBackend, baseDataPath);
+    const chat = chats.find(c => c.id === opts.single);
+    if (!chat) {
+      console.error(`Chat ${opts.single} not found in the ${opts.store} store`);
+      process.exit(1);
+    }
+    console.log(`Replaying chat ${chat.id} ("${chat.title}", ${chat.transcript.length} entries) through ${opts.server}`);
+    const runtime = await startReplayRuntime(opts.server);
+    let exitCode = 0;
+    try {
+      const regenerated = await runtime.replay(chat, { fallbackModel: opts.model });
+      await fs.writeFile(opts.out, JSON.stringify({ original: chat, regenerated }, null, 2), 'utf8');
+      const answers = regenerated.transcript.filter(e => e.speaker === regenerated.pover);
+      console.log(`Regenerated ${answers.length} answer(s); ${answers.filter(e => e.raw_prompt && e.raw_response).length} carry raw_prompt and raw_response.`);
+      console.log(`Candidate written to ${opts.out}. No store was written.`);
+      if (runtime.guard.blocked.length > 0) console.log(`Refused requests: ${runtime.guard.blocked.join(', ')}`);
+    } catch (err) {
+      console.error('Chat replay failed');
+      console.error(formatActionableError(err as Error));
+      exitCode = 1;
+    } finally {
+      await runtime.close();
+    }
+    process.exit(exitCode);
+  }
+
   // APPLY MODE
   if (opts.apply) {
     if (opts.single) {
@@ -201,7 +248,6 @@ async function main() {
         // Replay with backend and dry-run (no actual regeneration yet for first test)
         const regenerated = await replayChatSession(chat, {
           dryRun: true, // Start with dry-run for safety
-          backend,
           // Phase 5: app provides replayTurnFn via wrapper when ready
         });
         console.log(`✅ Regenerated chat (dry-run mode)`);
