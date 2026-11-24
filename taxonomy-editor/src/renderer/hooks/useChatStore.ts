@@ -137,9 +137,6 @@ export async function streamChatWithProgress(
   }
 }
 
-function stripCodeFences(text: string): string {
-  return text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
-}
 
 const CHAT_CONTEXT_CONFIG: FormatContextConfig = { maxNodes: 9999, maxDesires: 9999 };
 
@@ -209,7 +206,145 @@ function stripThinkingBlocks(text: string): string {
   return text.replace(/<think(?:ing)?[\s\S]*?<\/think(?:ing)?>/gi, '').trim();
 }
 
-/** Parse the POVer's JSON response into content + taxonomy refs */
+/** Strips a JSON code fence in any letter case, and any bare fence. */
+/** The four parts the chat prompt is built from: both POV files it can cite, the situations, and the policy
+ *  registry it can cite (t/490). A chat prompt built before these have loaded drops ids it could have cited. */
+function taxonomyPartsLoaded(): boolean {
+  const state = useTaxonomyStore.getState();
+  return state.accelerationist !== null && state.safetyist !== null && state.skeptic !== null
+    && state.situations !== null && state.policyRegistry !== null;
+}
+
+/** t/490: resolves once the taxonomy has fully loaded. Starts a load if none is running, rejects if the load fails,
+ *  and rejects after timeoutMs, so a send never waits forever. */
+export function waitForTaxonomy(timeoutMs = 30_000): Promise<void> {
+  if (taxonomyPartsLoaded()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let unsubscribe: () => void = () => undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error): void => {
+      clearTimeout(timer);
+      unsubscribe();
+      if (error) reject(error); else resolve();
+    };
+    timer = setTimeout(() => finish(new Error('The taxonomy is still loading, so the chat cannot start. Try again in a moment.')), timeoutMs);
+    unsubscribe = useTaxonomyStore.subscribe(state => {
+      if (state.loadError) finish(new Error(`The taxonomy failed to load, so the chat cannot start: ${state.loadError}`));
+      else if (taxonomyPartsLoaded()) finish();
+    });
+    const { loading, loadAll } = useTaxonomyStore.getState();
+    if (!loading) void loadAll();
+  });
+}
+
+/** The activity line shown while a chat reply streams. */
+function chatActivityLabel(fetchingUrl: boolean, label: string): string {
+  return fetchingUrl ? `Fetching page for ${label}…` : `${label} is thinking…`;
+}
+
+function stripCodeFences(text: string): string {
+  return text.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+}
+
+/** Which parse path produced the reply. Recorded as a WARN for every path except `direct`, so a
+ *  dump shows how a reply was read (t/490). */
+type ChatParsePath = 'direct' | 'fence' | 'embedded' | 'truncated-salvage' | 'prose';
+
+/** A JSON object (not an array or a scalar), or null. */
+function parseObject(text: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch { /* telemetry — silent by design: this candidate is not JSON, so the caller tries the next one */
+    return null;
+  }
+}
+
+/** The first balanced {...} span that parses, scanning string-aware so braces inside a string don't count. */
+function firstEmbeddedObject(text: string): Record<string, unknown> | null {
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (inString) {
+        if (c === '\\') i++;
+        else if (c === '"') inString = false;
+        continue;
+      }
+      if (c === '"') inString = true;
+      else if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          const object = parseObject(text.slice(start, i + 1));
+          if (object) return object;
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** The answer text of a reply cut off before its end: the `response` string, when it closed. */
+function salvageResponse(text: string): string | null {
+  const match = /"response"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+  if (!match) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch { /* telemetry — silent by design: this candidate is not JSON, so the caller tries the next one */
+    return null;
+  }
+}
+
+/** Finds the reply object in the text, and the path that found it. Tried in order: the whole text, the first
+ *  fenced block, the first balanced object. A reply cut off mid-object yields its response text, no refs. */
+function readReply(stripped: string): { path: ChatParsePath; object: Record<string, unknown> | null; salvaged?: string } {
+  const whole = parseObject(stripCodeFences(stripped));
+  if (whole) return { path: 'direct', object: whole };
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(stripped);
+  const fencedObject = fenced ? parseObject(fenced[1].trim()) : null;
+  if (fencedObject) return { path: 'fence', object: fencedObject };
+  const embedded = firstEmbeddedObject(stripped);
+  if (embedded) return { path: 'embedded', object: embedded };
+  const salvaged = salvageResponse(stripped);
+  if (salvaged !== null) return { path: 'truncated-salvage', object: null, salvaged };
+  return { path: 'prose', object: null };
+}
+
+/** t/490: a taxonomy id is unresolvable only when the part of the taxonomy that would hold it has loaded. Returns
+ *  whether that part has loaded, or null for an id whose prefix is not one of the known kinds. */
+function holderLoaded(id: string): boolean | null {
+  const state = useTaxonomyStore.getState();
+  if (id.startsWith('acc-')) return state.accelerationist !== null;
+  if (id.startsWith('saf-')) return state.safetyist !== null;
+  if (id.startsWith('skp-')) return state.skeptic !== null;
+  if (id.startsWith('sit-') || id.startsWith('cc-')) return state.situations !== null;
+  if (id.startsWith('pol-')) return state.policyRegistry !== null;
+  return null;
+}
+
+/** Keeps the refs that resolve. A ref that does not resolve is dropped only when its part of the taxonomy has
+ *  loaded (t/4675); otherwise it is kept, so it can resolve on the next load (t/490). */
+function resolvableRefs(refs: TaxonomyRef[]): TaxonomyRef[] {
+  const getLabelForId = useTaxonomyStore.getState().getLabelForId;
+  return refs.filter(ref => {
+    if (getLabelForId(ref.node_id) !== '') return true;
+    const loaded = holderLoaded(ref.node_id);
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'chat-store',
+      level: 'warn',
+      message: loaded === false
+        ? `Chat response cited an id whose taxonomy part has not loaded yet; kept: '${ref.node_id}'`
+        : `Chat response cited an unresolvable taxonomy id, dropped: '${ref.node_id}'`,
+    });
+    return loaded === false;
+  });
+}
+
+/** Parse the POVer's JSON response into content + taxonomy refs (t/490). Never shows raw JSON as the answer. */
 export function parseChatResponse(text: string, model?: string): { response: string; taxonomyRefs: TaxonomyRef[] } {
   const stripped = stripThinkingBlocks(text);
   // Observability (t/2454): a stripped-vs-input difference means a reasoning model
@@ -224,40 +359,24 @@ export function parseChatResponse(text: string, model?: string): { response: str
       data: { model: model ?? null, blockLength: text.length - stripped.length },
     });
   }
-  try {
-    const parsed = JSON.parse(stripCodeFences(stripped));
-    const response = parsed.response || stripped;
-    // t/4675: the model sometimes returns a label-slugged id (e.g. "sit-153-ensuring-ai-
-    // alignment-and-control" instead of "sit-153") that passes the string-shape check below but
-    // never resolves in the taxonomy lookup, so the ref permanently shows "not found" to the
-    // user. Mirror lib/debate/inquirySynthesis.ts's resolveNodeRefs: exact-match against the
-    // known ids and drop+WARN on mismatch, rather than passing an unresolvable id downstream.
-    const getLabelForId = useTaxonomyStore.getState().getLabelForId;
-    const taxonomyRefs: TaxonomyRef[] = Array.isArray(parsed.taxonomy_refs)
-      ? parsed.taxonomy_refs
-        .filter((r: Record<string, unknown>) => r.node_id && typeof r.node_id === 'string')
-        .map((r: Record<string, unknown>) => ({
-          node_id: r.node_id as string,
-          relevance: (r.relevance as string) || '',
-        }))
-        .filter((ref: TaxonomyRef) => {
-          const resolves = getLabelForId(ref.node_id) !== '';
-          if (!resolves) {
-            getGlobalRecorder()?.record({
-              type: 'system.error',
-              component: 'chat-store',
-              level: 'warn',
-              message: `Chat response cited an unresolvable taxonomy id, dropped: '${ref.node_id}'`,
-            });
-          }
-          return resolves;
-        })
-      : [];
-    return { response, taxonomyRefs };
-  } catch (err) {
-    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'debug', message: 'Chat response JSON parse failed, using raw text', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    return { response: stripped, taxonomyRefs: [] };
+  const reply = readReply(stripped);
+  if (reply.path !== 'direct') {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: `Chat reply read via ${reply.path}`, data: { model: model ?? null } });
   }
+  if (reply.object) {
+    const response = typeof reply.object.response === 'string' && reply.object.response ? reply.object.response : stripped;
+    // t/4675: the model sometimes returns a label-slugged id (e.g. "sit-153-ensuring-ai-
+    // alignment-and-control" instead of "sit-153"). It is dropped when it can't resolve in a loaded part of the taxonomy.
+    const raw = Array.isArray(reply.object.taxonomy_refs) ? reply.object.taxonomy_refs : [];
+    const refs: TaxonomyRef[] = raw
+      .filter((r: Record<string, unknown>) => r.node_id && typeof r.node_id === 'string')
+      .map((r: Record<string, unknown>) => ({ node_id: r.node_id as string, relevance: (r.relevance as string) || '' }));
+    return { response, taxonomyRefs: resolvableRefs(refs) };
+  }
+  if (reply.salvaged !== undefined) return { response: reply.salvaged, taxonomyRefs: [] };
+  // A reply that starts as a JSON object but could not be read: never show the raw JSON.
+  if (stripped.startsWith('{')) return { response: 'The reply was cut off before the answer was complete.', taxonomyRefs: [] };
+  return { response: stripped, taxonomyRefs: [] };
 }
 
 /** Build transcript text for context window */
@@ -475,6 +594,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     let outcome: RunOutcome = 'aborted';
 
     try {
+      if (!taxonomyPartsLoaded()) await waitForTaxonomy();
       const info = chatSoul(activeChat);
       const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
       const model = getConfiguredModel();
@@ -585,6 +705,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
 
     try {
+      if (!taxonomyPartsLoaded()) await waitForTaxonomy();
       const info = chatSoul(activeChat);
       const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
       const model = getConfiguredModel();
@@ -625,9 +746,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         .filter(Boolean);
       const userContent = chatContinuationPrompt(message.trim(), transcriptText, priorClaims);
 
-      const activity = urlContext
-        ? `Fetching page for ${info.label}…`
-        : `${info.label} is thinking…`;
+      const activity = chatActivityLabel(urlContext, info.label);
       const { text: fullText, urlContextMetadata, rawFields } = await streamChatWithProgress(
         systemInstruction,
         [{ role: 'user', content: userContent }],
