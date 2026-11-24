@@ -278,7 +278,10 @@ jobs:
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
               const wr = context.payload.workflow_run;
               if (wr) {
-                if (wr.pull_requests && wr.pull_requests.length) return wr.pull_requests[0].number;
+                // Security (t/537#18): trust pull_requests[0] only when the relay ran on a branch of
+                // THIS repository; a fork's run has none, and the API lookup below decides instead.
+                const sameRepo = wr.head_repository && wr.head_repository.full_name === `${owner}/${repo}`;
+                if (sameRepo && wr.pull_requests && wr.pull_requests.length) return wr.pull_requests[0].number;
                 const { data: prs } = await withRetry('repos.listPullRequestsAssociatedWithCommit', () => github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: wr.head_sha }));
                 const open = (prs || []).find((p) => p.state === 'open' && p.head && p.head.sha === wr.head_sha);
                 return open ? open.number : null;
@@ -341,6 +344,15 @@ jobs:
 
             if (pr.base.ref !== 'main') {
               core.info(`t1-approval-guard: base is '${pr.base.ref}', not main — skipped (epic-branch PRs aren't gated here).`);
+              return;
+            }
+
+            // Security (t/537#18): a relay event is about the head it ran on. If the PR has moved
+            // since, skip: a stale workflow_run never acts on a new head (that head's own push or
+            // comment events evaluate it).
+            const relayHead = context.payload.workflow_run && context.payload.workflow_run.head_sha;
+            if (relayHead && pr.head.sha !== relayHead) {
+              core.info(`t1-approval-guard: the review relay ran at ${relayHead}, but PR #${prNumber}'s head is now ${pr.head.sha} — skipped (stale workflow_run).`);
               return;
             }
 

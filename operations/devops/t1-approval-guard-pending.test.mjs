@@ -282,7 +282,7 @@ test('t/534 NOT LOOSENED: enqueue-pr.mjs refuses an in_progress or queued guard 
 });
 
 // ── t/534 part B: reviews arrive as workflow_run from the permission-less relay (runs from main) ──
-const relayRun = (prs, headSha = HEAD) => ({ workflow_run: { name: 't1-approval-review-relay', event: 'pull_request_review', head_sha: headSha, pull_requests: prs } });
+const relayRun = (prs, headSha = HEAD, repoName = 'o/r') => ({ workflow_run: { name: 't1-approval-review-relay', event: 'pull_request_review', head_sha: headSha, head_repository: { full_name: repoName }, pull_requests: prs } });
 
 test('t/534 B: a workflow_run from the relay (same-repo PR in pull_requests) settles the same row on approval', async () => {
   const gh = makeGitHub();
@@ -308,4 +308,23 @@ test('t/534 B: a workflow_run whose head is no open PR posts nothing and does no
   assert.deepEqual(log.failed, []);
   assert.equal(gh.state.checkRuns.length, 0);
   assert.ok(log.info.some((m) => /not a PR event/.test(m)));
+});
+
+test('t/534 B (Security t/537#18): pull_requests[0] is trusted only when the relay ran in THIS repository', async () => {
+  const gh = makeGitHub();
+  gh.state.pr.number = 7;
+  // A run from another repository naming PR #99: ignored; the API lookup by head_sha decides (#7).
+  const log = await runGuard(gh, { payload: relayRun([{ number: 99, head: { sha: HEAD } }], HEAD, 'someone/fork') });
+  assert.deepEqual(log.failed, []);
+  assert.ok(gh.state.calls.includes('repos.listPullRequestsAssociatedWithCommit'));
+  assert.equal(ours(gh).length, 1);
+});
+
+test('t/534 B (Security t/537#18): a stale relay run (PR head has moved) is skipped and posts nothing', async () => {
+  const gh = makeGitHub();
+  gh.state.pr.head = HEAD2; // the PR moved after the review
+  const log = await runGuard(gh, { payload: relayRun([{ number: 7, head: { sha: HEAD } }], HEAD) });
+  assert.deepEqual(log.failed, []);
+  assert.equal(gh.state.checkRuns.length, 0);
+  assert.ok(log.info.some((m) => /stale workflow_run/.test(m)), log.info.join(' | '));
 });
