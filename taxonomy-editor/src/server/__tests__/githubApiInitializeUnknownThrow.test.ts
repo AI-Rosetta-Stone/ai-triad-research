@@ -18,6 +18,7 @@ import path from 'path';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
 import { classifyDataUnavailable } from '../routes/readiness.js';
 import type { ServerCtx } from '../routes/context.js';
+import { log } from '../logger.js';
 
 vi.mock('../security/githubAppAuth', () => ({
   getCredentials: vi.fn().mockResolvedValue({ repo: 'testowner/testrepo', token: 't', mode: 'pat' }),
@@ -94,14 +95,16 @@ function readiness(b: Internals): { state: string; reason: string } {
   return classifyDataUnavailable(ctx, 100_000) as { state: string; reason: string };
 }
 
-const THROW_SITES: Array<[string, (b: Internals) => void]> = [
-  ['loadManifest', b => { b.loadManifest = async () => { throw new TypeError('boom in loadManifest'); }; }],
-  ['getLatestCommitSha', b => { b.getLatestCommitSha = async () => { throw new RangeError('boom in getLatestCommitSha'); }; }],
-  ['fetchRepoTree', b => { b.fetchRepoTree = async () => { throw new Error('boom in fetchRepoTree'); }; }],
+/** Each message holds a server path, as an fs error's does. It must never reach the public reason. */
+const SECRET_PATH = '/mnt/shared/.cache/manifest.json';
+const THROW_SITES: Array<[string, string, (b: Internals) => void]> = [
+  ['loadManifest', 'TypeError', b => { b.loadManifest = async () => { throw new TypeError(`boom in loadManifest at ${SECRET_PATH}`); }; }],
+  ['getLatestCommitSha', 'RangeError', b => { b.getLatestCommitSha = async () => { throw new RangeError(`boom in getLatestCommitSha at ${SECRET_PATH}`); }; }],
+  ['fetchRepoTree', 'Error (EIO)', b => { b.fetchRepoTree = async () => { throw Object.assign(new Error(`boom in fetchRepoTree at ${SECRET_PATH}`), { code: 'EIO' }); }; }],
 ];
 
 describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend.initialize records an unknown throw as a failed load (t/480)', () => {
-  it.each(THROW_SITES)('a throw from %s: failed with the cause in the readiness reason, re-thrown, no polling', async (site, arrange) => {
+  it.each(THROW_SITES)('a throw from %s: failed with the error name and code in the readiness reason, re-thrown, no polling', async (site, named, arrange) => {
     const { b, startPolling } = await makeBackend();
     arrange(b);
     try {
@@ -109,11 +112,14 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend.initialize
 
       const status = b.getDataLoadStatus();
       expect(status.status).toBe('failed');
-      expect(status.error).toContain(`boom in ${site}`);
+      expect(status.error).toContain(`initialize threw ${named}`);
 
+      // /readyz is anonymous and returns this reason: the name and code, never the message or a path.
       const ready = readiness(b);
       expect(ready.state).toBe('failed');
-      expect(ready.reason).toContain(`boom in ${site}`);
+      expect(ready.reason).toContain(`initialize threw ${named}`);
+      expect(ready.reason).not.toContain('boom');
+      expect(ready.reason).not.toContain(SECRET_PATH);
 
       expect(startPolling).not.toHaveBeenCalled();
       expect(b.pollTimer).toBeNull();
@@ -122,11 +128,14 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend.initialize
     }
   });
 
-  it('the event is system.error with the storage.init.error marker, never github.api.error', async () => {
+  it('the event is system.error with the storage.init.error marker, never github.api.error; the message goes to the log', async () => {
+    const errorLog = vi.spyOn(log.storage, 'error');
     const { b } = await makeBackend();
-    b.loadManifest = async () => { throw new TypeError('boom in loadManifest'); };
+    b.loadManifest = async () => { throw new TypeError(`boom in loadManifest at ${SECRET_PATH}`); };
     try {
       await expect(b.initialize()).rejects.toThrow();
+      const line = errorLog.mock.calls.find(c => String(c[1]).includes('storage.init.error'));
+      expect(line?.[0]).toMatchObject({ errName: 'TypeError', errMessage: `boom in loadManifest at ${SECRET_PATH}` });
       const ours = events.filter(e => (e.message ?? '').includes('storage.init.error'));
       expect(ours).toHaveLength(1);
       expect(ours[0]).toMatchObject({ type: 'system.error', level: 'error' });

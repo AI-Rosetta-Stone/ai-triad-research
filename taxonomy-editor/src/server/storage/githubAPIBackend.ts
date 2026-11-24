@@ -491,7 +491,8 @@ export class GitHubAPIBackend implements StorageBackend {
   /** t/480 (Second Opinion t/470#4, TL t/470#5): an unknown throw during start-up is recorded as a
    *  failed load with its real cause, then re-thrown. Rejecting alone was the quiet option: server.ts
    *  catches the rejection and the process keeps running, while the status stayed 'loading', which
-   *  readiness shows as a warm-up and then as a timeout with no cause. Never 'ready' on this path, and
+   *  readiness shows as a warm-up and then as a timeout with no cause. The public reason names the error
+   *  (name and code); the message stays in the log. Never 'ready' on this path, and
    *  no polling: the state is unknown. The event is system.error, not github.api.error, so a code bug
    *  is not counted as a GitHub outage by the alert. */
   async initialize(): Promise<void> {
@@ -501,7 +502,11 @@ export class GitHubAPIBackend implements StorageBackend {
       const name = (err as Error)?.name ?? 'Error';
       const message = (err as Error)?.message ?? String(err);
       this._dataLoadStatus = 'failed';
-      this._dataLoadError = `GitHubAPIBackend.initialize threw ${name}: ${message}`;
+      // The load error is returned by /readyz, which is anonymous. It carries the error's name and code
+      // only: a message can hold a server path (an fs error does). The message and stack go to the log
+      // and the recorder below.
+      const code = typeof (err as NodeJS.ErrnoException)?.code === 'string' ? ` (${(err as NodeJS.ErrnoException).code})` : '';
+      this._dataLoadError = `GitHubAPIBackend.initialize threw ${name}${code}; see the server log for storage.init.error`;
       this.stopPollingTimers();
       this.recordEvent({
         type: 'system.error',
