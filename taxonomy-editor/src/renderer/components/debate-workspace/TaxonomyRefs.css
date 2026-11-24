@@ -524,7 +524,7 @@
 }
 
 .claim-map-arg-header h3 {
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -544,7 +544,7 @@
 }
 
 .claim-map-dot {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
 }
 
 .claim-map-dot-info {
@@ -696,6 +696,7 @@
 
 .claim-map-attack-footer {
   display: flex;
+  align-items: center;
   gap: 8px;
   font-size: var(--text-2xs);
   margin-top: 8px;

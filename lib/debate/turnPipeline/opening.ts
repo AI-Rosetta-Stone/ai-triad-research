@@ -70,6 +70,8 @@ export interface OpeningPipelineInput {
   anchorQuestion?: string;
   /** t/388: steelman AN nodes offered to the plan as attack references (from earlier entries). */
   steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
+  /** t/388: ask each plan ATTACK to end with "targeting node <anchor>" (config.planAttackAnchors). Off by default. */
+  attackAnchors?: boolean;
   sourceContent?: string;
   documentAnalysis?: DocumentAnalysis;
   audience?: import('../types.js').DebateAudience;
@@ -136,6 +138,7 @@ export async function runOpeningPipeline(
     isFirst: input.isFirst,
     priorSpeakerLabels: input.priorSpeakerLabels,
     steelmanRefsOffered: input.steelmanRefsOffered,
+    attackAnchors: input.attackAnchors,
     sourceContent: input.sourceContent,
     documentAnalysis: input.documentAnalysis,
     audience: input.audience,
@@ -243,7 +246,7 @@ export async function runOpeningPipeline(
     elapsed = Date.now() - t0;
     const planParsed = parseStageResponse<OpeningPlanWorkProduct>(planRaw, 'plan');
     // t/388: record the offered ids and keep only ATTACK tags drawn from them.
-    applyPlanSteelmanRefs(planParsed.product, offeredIdsOf(input));
+    applyPlanSteelmanRefs(planParsed.product, offeredIdsOf(input), undefined, input.attackAnchors);
     stageDiags.push({
       stage: 'plan', prompt: planPromptText, raw_response: planRaw,
       model: oPlanModel, temperature: temps.plan_temperature,
@@ -274,7 +277,7 @@ export async function runOpeningPipeline(
       model: oPlanModel, timestamp: new Date().toISOString(),
     });
     // t/388: later stages see the plan without steelman ids, so no id reaches the statement.
-    planJson = toPromptJson(planForLaterStages(plan));
+    planJson = toPromptJson(planForLaterStages(plan, input.attackAnchors));
     break;
   }
 

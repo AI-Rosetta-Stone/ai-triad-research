@@ -99,6 +99,7 @@ vi.mock('../security/rateLimiter.js', () => ({
 
 vi.mock('../ai/aiBackends.js', () => ({
   resolveBackend: vi.fn(() => 'gemini'),
+  getResolvedApiModelId: (m: string) => m, // t/491: the chat route reads this
   generateText: vi.fn(),
   generateTextByUsage: (...a: unknown[]) => generateTextByUsage(...a),
   generateTextWithSearchByUsage: vi.fn(),
@@ -215,6 +216,34 @@ describe('free-pool geo gate wiring across generate, chat and NLI (t/4486)', () 
     await handlers['POST /api/ai/chat-stream'](fakeReq(), fakeRes(), { messages: [{ role: 'user', content: 'hi' }] });
     expect(getStoredUserKeysBeforeFreePool).toHaveBeenCalledWith('gemini');
     expect(getFreePoolKeys).not.toHaveBeenCalled();
+  });
+
+  // t/491: the done event carries the provider stop reason, so a cut-off reply is visible on the stream.
+  it('t/491 chat-stream: a MAX_TOKENS finish is reported on the done event as stop_reason', async () => {
+    const { generateViaGeminiStream } = await import('../../../../lib/ai-client/index.js');
+    getFreePoolKeys.mockResolvedValue({ ok: true, keys: ['server-key-1'] });
+    vi.mocked(generateViaGeminiStream).mockResolvedValueOnce({ text: '{"response":"cut', stopReason: 'max_tokens', rawStopReason: 'MAX_TOKENS' } as never);
+    const handlers = registerAll();
+    const res = fakeRes();
+    const writes: string[] = [];
+    (res.write as unknown as ReturnType<typeof vi.fn>).mockImplementation((c: string) => { writes.push(String(c)); return true; });
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
+    const done = writes.map(w => JSON.parse(w.replace(/^data: /, '').trim())).find(e => e.type === 'done');
+    expect(done).toBeTruthy();
+    expect(done.stop_reason).toBe('max_tokens');
+  });
+
+  it('t/491 chat-stream: a normal finish reports stop_reason stop on the done event', async () => {
+    const { generateViaGeminiStream } = await import('../../../../lib/ai-client/index.js');
+    getFreePoolKeys.mockResolvedValue({ ok: true, keys: ['server-key-1'] });
+    vi.mocked(generateViaGeminiStream).mockResolvedValueOnce({ text: '{"response":"ok"}', stopReason: 'stop', rawStopReason: 'STOP' } as never);
+    const handlers = registerAll();
+    const res = fakeRes();
+    const writes: string[] = [];
+    (res.write as unknown as ReturnType<typeof vi.fn>).mockImplementation((c: string) => { writes.push(String(c)); return true; });
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
+    const done = writes.map(w => JSON.parse(w.replace(/^data: /, '').trim())).find(e => e.type === 'done');
+    expect(done.stop_reason).toBe('stop');
   });
 
   it('t/204 NLI: a signed-in user\'s stored key is used instead of the free pool', async () => {
