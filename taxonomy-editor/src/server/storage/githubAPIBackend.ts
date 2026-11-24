@@ -425,6 +425,12 @@ export class GitHubAPIBackend implements StorageBackend {
   // Data-load state — exposed via getDataLoadStatus() for /healthz (t/2053, t/2059)
   private _dataLoadStatus: 'loading' | 'ready' | 'failed' = 'loading';
   private _dataLoadError: string | null = null;
+  // t/482: why the load failed, and when. 'known' is a classified failed load (GitHub unreachable, a
+  // zero-blob or wrong-shaped tree): a later poll may recover it. 'unknown' is a throw (t/480): it never
+  // recovers without a restart, because the state is unknown and no polling runs.
+  private _dataLoadFailure: 'known' | 'unknown' | null = null;
+  private _dataLoadFailedAt: number | null = null;
+  private recoveryInFlight = false;
 
   constructor(config: GitHubAPIBackendConfig) {
     this.cacheDir = config.cacheDir;
@@ -502,6 +508,8 @@ export class GitHubAPIBackend implements StorageBackend {
       const name = (err as Error)?.name ?? 'Error';
       const message = (err as Error)?.message ?? String(err);
       this._dataLoadStatus = 'failed';
+      this._dataLoadFailure = 'unknown';
+      this._dataLoadFailedAt = Date.now();
       // The load error is returned by /readyz, which is anonymous. It carries the error's name and code
       // only: a message can hold a server path (an fs error does). The message and stack go to the log
       // and the recorder below.
@@ -518,6 +526,70 @@ export class GitHubAPIBackend implements StorageBackend {
       log.storage.error({ errName: name, errMessage: message, stack: (err as Error)?.stack },
         'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started (t/480)');
       throw err;
+    }
+  }
+
+  /** The full load from the head commit, for a start that is not a cache hit and for recovery (t/482).
+   *  t/463: decide the re-seed first, apply it only after the tree loads. A failed load (fetchRepoTree
+   *  false: GitHub unreachable, zero blobs, a wrong-shaped response) leaves the manifest exactly as it
+   *  was, in memory and on disk, and returns false. Never reports success on less than the full tree. */
+  private async loadFromHead(mainSha: string): Promise<boolean> {
+    const cachedSha = this.manifest?.lastCommitSha ?? '';
+    const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
+    const loaded = await this.fetchRepoTree(mainSha);
+    if (!loaded) return false;
+
+    if (reseed) this.reseedManifestInMemory();
+    // A failed invalidation or manifest write must not undo a loaded tree (t/463).
+    if (this.manifest?.lastCommitSha) {
+      try {
+        await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+      } catch (err: unknown) {
+        log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
+      }
+    }
+    try {
+      await this.updateManifestSha(mainSha);
+    } catch (err: unknown) {
+      log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
+    }
+    return true;
+  }
+
+  /** t/482: one attempt to recover a replica whose initial load failed for a known reason. It runs the
+   *  same load a clean start runs. Success sets ready and logs how long the replica was failed. Anything
+   *  less leaves it failed, to try again on the next poll tick. The in-flight flag keeps a load that
+   *  outlasts the poll interval from overlapping a second one. */
+  private async attemptLoadRecovery(): Promise<void> {
+    if (this.recoveryInFlight) return;
+    this.recoveryInFlight = true;
+    try {
+      const mainSha = await this.getLatestCommitSha();
+      if (!mainSha || !(await this.loadFromHead(mainSha))) {
+        log.storage.debug({ sha: mainSha }, 'storage.init.recovery: load still failing; will retry on the next poll (t/482)');
+        return;
+      }
+      // Only a known failure that is still current may become ready (shutdown or a later throw wins).
+      if (this._dataLoadStatus !== 'failed' || this._dataLoadFailure !== 'known') return;
+      const failedForMs = this._dataLoadFailedAt === null ? null : Date.now() - this._dataLoadFailedAt;
+      this._dataLoadStatus = 'ready';
+      this._dataLoadError = null;
+      this._dataLoadFailure = null;
+      this._dataLoadFailedAt = null;
+      this.recordEvent({
+        type: 'storage.mode',
+        component: 'storage',
+        level: 'info',
+        message: 'storage.init.recovered: data load succeeded on a poll after a failed start',
+        data: { sha: mainSha, failedForMs, treeSize: this.repoTree.size },
+      });
+      log.storage.warn({ sha: mainSha, failedForMs, treeSize: this.repoTree.size },
+        'storage.init.recovered: data load succeeded on a poll after a failed start; the replica is ready (t/482)');
+    } catch (err: unknown) {
+      log.storage.warn({ errName: (err as Error)?.name ?? 'Error', errMessage: (err as Error)?.message ?? String(err) },
+        'storage.init.recovery: attempt threw; the replica stays failed and will retry on the next poll (t/482)');
+    } finally {
+      this.recoveryInFlight = false;
     }
   }
 
@@ -565,29 +637,14 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       this._dataLoadStatus = 'ready';
     } else {
-      // t/463: decide now, apply only after the tree loads. A failed load leaves the manifest exactly as it
-      // was (memory and disk), so the next start tries again instead of reporting ready on an empty corpus.
-      const cachedSha = this.manifest?.lastCommitSha ?? '';
-      const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
-      const loaded = await this.fetchRepoTree(mainSha);
-      if (loaded) {
+      // t/482: the load itself is loadFromHead, shared with the recovery step in pollTick, so a recovered
+      // replica has passed exactly the checks a clean start passes.
+      if (await this.loadFromHead(mainSha)) {
         this._dataLoadStatus = 'ready';
-        if (reseed) this.reseedManifestInMemory();
-        // A failed invalidation or manifest write must not abort start-up before polling starts (t/463).
-        if (this.manifest?.lastCommitSha) {
-          try {
-            await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
-          } catch (err: unknown) {
-            log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
-          }
-        }
-        try {
-          await this.updateManifestSha(mainSha);
-        } catch (err: unknown) {
-          log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
-        }
       } else {
         this._dataLoadStatus = 'failed';
+        this._dataLoadFailure = 'known';
+        this._dataLoadFailedAt = Date.now();
         this._dataLoadError = 'GitHub API data load failed during initialization — check credentials and network';
         this.recordEvent({
           type: 'github.api.error',
@@ -3593,6 +3650,13 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async pollTick(): Promise<void> {
+    // t/482: a replica that is not ready does no ordinary polling. If its load failed for a known reason
+    // it tries the full load again, whatever its lease role: each replica has its own in-memory tree, so
+    // a non-holder cannot be recovered by the holder's poll state.
+    if (this._dataLoadStatus === 'failed') {
+      if (this._dataLoadFailure === 'known') await this.attemptLoadRecovery();
+      return;
+    }
     if (!this.blobLease) return this.pollDirect();
     if (this.blobLease.isHolder()) return this.pollAsHolder();
     return this.pollAsNonHolder();
