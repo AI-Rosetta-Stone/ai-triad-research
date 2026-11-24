@@ -233,7 +233,10 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend main-pinned reads via raw.git
   it('raw 404 for a path NOT in the tree, but the manifest is stale: falls back to REST (t/4615, TL edge case) — a just-added file must not read as absent', async () => {
     const calls: FetchCall[] = [];
     globalThis.fetch = makeFetchMock({
-      treeFiles: [], // the file was added to main after this manifest was built — genuinely absent from the tree
+      // The file was added to main after this manifest was built — genuinely absent from the tree.
+      // t/483: the tree holds another file. An empty tree is a failed load, and a poll no longer advances
+      // the manifest commit after one, so with [] there was no commit for the raw fetch to pin.
+      treeFiles: ['taxonomy/other.json'],
       rawHandler: () => jsonResponse(404, { message: 'Not Found' }), // raw is pinned to the old commit SHA too
       contentsHandler: () => jsonResponse(200, {
         content: Buffer.from('just added to main').toString('base64'), encoding: 'base64', sha: 'new-sha', type: 'file',
