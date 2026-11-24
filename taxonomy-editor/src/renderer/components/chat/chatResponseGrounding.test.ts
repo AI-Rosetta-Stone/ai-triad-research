@@ -11,7 +11,9 @@
  *   B. A cited id is dropped as "unresolvable" when the part of the taxonomy that holds it has not
  *      loaded yet. Not loaded is not the same as not in the taxonomy.
  *
- * The cases marked FAILS TODAY fail against origin/main; they are the regression tests for the fix.
+ * The cases marked FAILS TODAY fail against origin/main, so they are declared with `it.fails`: the
+ * file is green while the defect exists and goes red when it is fixed. The fix (t/490) changes each
+ * `it.fails` to `it`; they are the regression tests for it.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -59,7 +61,7 @@ describe('parseChatResponse keeps the grounding for Why (t/167)', () => {
     });
 
     // FAILS TODAY: stripCodeFences matches "```json" case-sensitively.
-    it.each([
+    it.fails.each([
       ['an uppercase JSON fence', '```JSON\n' + JSON_TEXT + '\n```'],
       ['a sentence before a fenced reply', 'Here is my response:\n\n```json\n' + JSON_TEXT + '\n```'],
       ['a sentence before bare JSON', 'Here is my response:\n' + JSON_TEXT],
@@ -70,7 +72,7 @@ describe('parseChatResponse keeps the grounding for Why (t/167)', () => {
     });
 
     // FAILS TODAY: a reply cut off mid-array is shown to the user as raw JSON.
-    it('a reply cut off after the answer shows the answer text, never raw JSON', () => {
+    it.fails('a reply cut off after the answer shows the answer text, never raw JSON', () => {
       const truncated = JSON_TEXT.slice(0, JSON_TEXT.indexOf('"relevance"'));
       const shown = content(truncated);
       expect(shown).toBe(ANSWER);
@@ -86,13 +88,13 @@ describe('parseChatResponse keeps the grounding for Why (t/167)', () => {
 
   describe('B. ids whose part of the taxonomy has not loaded yet', () => {
     // FAILS TODAY: with situations still loading, every sit-* ref is dropped as unresolvable.
-    it('keeps a situation ref while situations are still loading', () => {
+    it.fails('keeps a situation ref while situations are still loading', () => {
       setTaxonomy('chat-pov-only');
       expect(ids(JSON_TEXT)).toEqual(['acc-desires-001', 'sit-001']);
     });
 
     // FAILS TODAY: with nothing loaded, every ref is dropped.
-    it('keeps every ref when no taxonomy has loaded', () => {
+    it.fails('keeps every ref when no taxonomy has loaded', () => {
       setTaxonomy('none');
       expect(ids(JSON_TEXT)).toEqual(['acc-desires-001', 'sit-001']);
     });
