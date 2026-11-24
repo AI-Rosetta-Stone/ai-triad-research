@@ -100,26 +100,47 @@ export function documentSourceProblem(serverMessage: string): string | null {
   return null;
 }
 
+/** t/467: the anonymous ceilings and URL-fetch limit answer with their own server text. Those are shown as
+ *  sent, not as the plan-limit copy, which would mislabel a spend pause as a plan limit. */
+function anonLimitError(goal: string, data: Record<string, unknown>): ActionableError {
+  const problem = (data.message as string) || 'Too many requests. Try again later.';
+  const nextSteps = data.error === 'spend_ceiling'
+    ? ['Try again later', 'Sign in to keep creating op-eds']
+    : ['Try again later', 'Use a topic instead of a web page'];
+  return new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps });
+}
+
+/** The user's next step for a refused create. An unpriced model (403, t/467) needs a different model, not sign-in. */
+function createNextSteps(status: number, problem: string): string[] {
+  if (status !== 403) return ['Check your topic and selected voices, then try again'];
+  if (/no price on file/.test(problem)) return ['Choose a different model in Settings'];
+  return ['Sign in with GitHub or Google to create op-eds'];
+}
+
 /** Build a user-readable ActionableError from a non-200 create response (JSON error emitted
  *  before the SSE headers: 403 anon, 400 bad request, 403 entitlement, 429 quota/concurrency).
  *  `isDocument` is set for a document-source create, so its 400s get the plain-language copy. */
 async function buildHttpError(res: Response, isDocument: boolean): Promise<ActionableError> {
   const data = await res.json().catch(() => ({})) as Record<string, unknown>;
   const goal = 'Op-Ed Studio: create an op-ed';
-  if (res.status === 429) {
-    const problem = data.error === 'concurrency_limit'
-      ? (data.message as string) || 'You already have an op-ed generating — wait for it to finish.'
-      : 'You have reached your op-ed limit. Delete an op-ed or try again later.';
-    const err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: data.error === 'concurrency_limit' ? ['Wait for the current op-ed to finish, then try again'] : ['Delete an existing op-ed to free a slot', 'Try again later'] });
-    (err as ActionableError & { httpStatus: number }).httpStatus = 429;
-    return err;
+  const anonLimit = res.status === 429 && (data.error === 'spend_ceiling' || data.error === 'rate_limited');
+  let err: ActionableError;
+  if (anonLimit) {
+    err = anonLimitError(goal, data);
+  } else if (res.status === 429) {
+    const concurrency = data.error === 'concurrency_limit';
+    err = new ActionableError({
+      goal,
+      problem: concurrency ? (data.message as string) || 'You already have an op-ed generating — wait for it to finish.' : 'You have reached your op-ed limit. Delete an op-ed or try again later.',
+      location: 'opedStream.runOpEdCreate',
+      nextSteps: concurrency ? ['Wait for the current op-ed to finish, then try again'] : ['Delete an existing op-ed to free a slot', 'Try again later'],
+    });
+  } else {
+    const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
+    // t/276: a document-source 400 gets Design's plain-language copy; anything else keeps the server's text.
+    const problem = (isDocument && res.status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
+    err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: createNextSteps(res.status, problem) });
   }
-  const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
-  const problem = (isDocument && res.status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
-  const nextSteps = res.status === 403
-    ? ['Sign in with GitHub or Google to create op-eds']
-    : ['Check your topic and selected voices, then try again'];
-  const err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps });
   (err as ActionableError & { httpStatus: number }).httpStatus = res.status;
   return err;
 }
