@@ -126,6 +126,9 @@ export const VERDICT_SCRIPTS = [
   // t/543#7: the PowerShell complexity steps call this cmdlet to compute their verdict. Reached through
   // the AITriad module, so neither walk sees it; listed by hand.
   'scripts/AITriad/Public/Test-ComplexityBudget.ps1',
+  // t/543 (Security p/131#48): its `test` block chooses which taxonomy-editor and lib tests the
+  // required vitest run executes. Same class as poviewer/vitest.config.ts; read by default name.
+  'taxonomy-editor/vite.config.ts',
   // Modules those scripts load (found by the import walk).
   'taxonomy-editor/scripts/check-contrast.mjs', // the contrast checker check-contrast.sh runs
   'taxonomy-editor/scripts/contrast-gate.mjs', // the contrast verdict predicate check-contrast.sh runs
