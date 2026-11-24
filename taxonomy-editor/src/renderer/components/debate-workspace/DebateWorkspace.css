@@ -641,11 +641,11 @@
 }
 
 .debate-fact-check-verdict.debate-fact-check-supported {
-  color: #22c55e;
+  color: var(--success-text);
 }
 
 .debate-fact-check-verdict.debate-fact-check-disputed {
-  color: #f59e0b;
+  color: var(--warning-text);
 }
 
 .debate-fact-check-verdict.debate-fact-check-unverifiable {
@@ -653,7 +653,7 @@
 }
 
 .debate-fact-check-verdict.debate-fact-check-false {
-  color: #ef4444;
+  color: var(--error-text);
 }
 
 .debate-fact-check-sources-inline {
