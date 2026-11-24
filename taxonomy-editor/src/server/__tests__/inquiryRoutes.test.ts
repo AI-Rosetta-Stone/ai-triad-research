@@ -192,6 +192,16 @@ describe('t/3581 — POST /api/inquiry', () => {
     expect(startInquiryJob).toHaveBeenCalledTimes(1);
   });
 
+  // t/495: a multi-line question reaches the job start as ONE string, unchanged, and one job is created.
+  it('t/495 — a multi-line question reaches startInquiryJob as one unchanged string, one job', async () => {
+    const question = 'A large frontier developer shall retain records pertaining to:\n(i) A catastrophic risk;\n(ii) A critical safety incident; or\n(iii) The developer’s compliance with this law.';
+    const r = res(); await post()(req('/api/inquiry'), r, { question, fidelity: 'standard' });
+    expect(r.statusCode).toBe(202);
+    expect(startInquiryJob).toHaveBeenCalledTimes(1);
+    const args = startInquiryJob.mock.calls[0][0] as unknown as { request: { question: string } };
+    expect(args.request.question).toBe(question);
+  });
+
   // t/3724 change 3: creation event, independent of t/3728.
   it('t/3724 — records inquiry.created after startInquiryJob succeeds', async () => {
     const r = res(); await post()(req('/api/inquiry'), r, VALID);
