@@ -94,10 +94,10 @@ are shown under their own names, below.
 
 ### Anticipated responses
 
-- One card, `ANTICIPATED RESPONSES`, listing each sentence. Each sentence is the speaker's own anticipated
-  objection, of the form "X will argue Y. I counter Z."
-- Shown in the More pattern when the list is long. Do not style these as attacks; they are not attached to a
-  claim node.
+- A disclosure, `Anticipated responses (n)`, open by default, listing each sentence as a bullet. Each
+  sentence is the speaker's own anticipated objection, of the form "X will argue Y. I counter Z."
+- Use the disclosure pattern rather than a card, because the list is text and can be long. Do not style
+  these as attacks; they are not attached to a claim node.
 
 ### Convergence
 
