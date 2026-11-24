@@ -66,11 +66,6 @@ const FIELD_EXEMPTIONS: Record<string, { engineRequired: boolean; rendererRequir
     rendererRequired: true,
     note: 'BUG t/4007: engine wiring pending. Renderer side landed (t/3975). Remove this exemption when t/4007 lands',
   },
-  steelmanRefsOffered: {
-    engineRequired: true,
-    rendererRequired: false,
-    note: 'PENDING t/388: the type lands before its consumer (TL p/32#123). The renderer field is Rosetta\'s PR (branch t388-steelman-slice-field), which removes this exemption',
-  },
   opponentSouls: {
     engineRequired: false,
     rendererRequired: true,
