@@ -308,16 +308,16 @@ export async function settleProviderTurn(
   await budget.commit(turn);
 }
 
+/** t/494 policy switch (TL p/16#263; PI undecided). false: a turn the provider reported no usage for does not
+ *  count against the visitor's daily bucket (the free pool still books it). true: it does, at the estimate. */
+export const CHARGE_TURNS_WITHOUT_USAGE = false;
+
 /** t/494 (TL p/16#260): does this turn count against the visitor's daily token bucket? Only when the
  *  provider reported both prompt and completion tokens. A failed turn with no usage does not. */
 export function chargesVisitorDailyBucket(usage: TurnUsage | undefined): boolean {
   const reported = usage !== undefined && typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number';
   return reported || CHARGE_TURNS_WITHOUT_USAGE;
 }
-
-/** t/494 policy switch (TL p/16#263; PI undecided). false: a turn the provider reported no usage for does not
- *  count against the visitor's daily bucket (the free pool still books it). true: it does, at the estimate. */
-export const CHARGE_TURNS_WITHOUT_USAGE = false;
 
 /** t/4485 (+ t/4485#9 debate reconciliation): pure mirror of routes/ai.ts's
  *  trackFreePoolReservation — keeps this handler's own commit/release bookkeeping out of its
