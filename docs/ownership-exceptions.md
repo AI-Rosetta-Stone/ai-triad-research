@@ -23,3 +23,5 @@ Rulings by the TL (p/7#131, recorded on t/220). To change a row, get a TL ruling
 
 **Everything else** under `.github/workflows/` with no row here stays with the team root, whatever
 `resolve-owner` answers, until a role claims it through a TL ruling recorded here.
+
+<!-- t/537 probe line: this PR tests that a direct merge is refused; it is closed unmerged. -->
