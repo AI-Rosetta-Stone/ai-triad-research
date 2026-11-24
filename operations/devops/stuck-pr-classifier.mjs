@@ -264,7 +264,7 @@ export function classifyBlocker(pr, nowMs) {
           class: 'stuck-required-run',
           detail: {
             context: name, runId: run.id, stuckMinutes: Math.round(stuckMinutes), stuckKind: 'queued',
-            remedy: `Re-trigger first (toggle a label or push an empty commit; never re-arm with gh pr merge); if that doesn't clear it, cancel and re-run run ${run.id}.`,
+            remedy: `Re-trigger first (toggle a label or push an empty commit); if that doesn't clear it, cancel and re-run run ${run.id}.`,
           },
         };
       }

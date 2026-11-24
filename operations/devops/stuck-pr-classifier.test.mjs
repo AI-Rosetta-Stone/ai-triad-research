@@ -953,3 +953,11 @@ test('t/535: no remedy string in the classifier source suggests gh pr merge --au
   assert.ok(remedies.length >= 8, `found ${remedies.length} remedy strings`);
   for (const r of remedies) assert.doesNotMatch(r, /gh pr merge --auto|merge directly|toggle auto-merge|(?<![-\w])arm it\b/i, r);
 });
+
+test('t/535 (Quality on #5461): the stuck-required-run remedy names no merge route at all, and keeps the run id and the re-run step', () => {
+  const src = readFileSync(new URL('./stuck-pr-classifier.mjs', import.meta.url), 'utf8');
+  const stuck = [...src.matchAll(/remedy:\s*`(Re-trigger first[^`]*)`/g)].map((m) => m[1]);
+  assert.equal(stuck.length, 1);
+  assert.doesNotMatch(stuck[0], /gh pr merge|auto-merge|re-arm/i);
+  assert.match(stuck[0], /cancel and re-run run \$\{run\.id\}/);
+});
