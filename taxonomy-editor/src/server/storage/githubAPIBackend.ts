@@ -488,7 +488,41 @@ export class GitHubAPIBackend implements StorageBackend {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
+  /** t/480 (Second Opinion t/470#4, TL t/470#5): an unknown throw during start-up is recorded as a
+   *  failed load with its real cause, then re-thrown. Rejecting alone was the quiet option: server.ts
+   *  catches the rejection and the process keeps running, while the status stayed 'loading', which
+   *  readiness shows as a warm-up and then as a timeout with no cause. Never 'ready' on this path, and
+   *  no polling: the state is unknown. The event is system.error, not github.api.error, so a code bug
+   *  is not counted as a GitHub outage by the alert. */
   async initialize(): Promise<void> {
+    try {
+      await this.runInitialize();
+    } catch (err: unknown) {
+      const name = (err as Error)?.name ?? 'Error';
+      const message = (err as Error)?.message ?? String(err);
+      this._dataLoadStatus = 'failed';
+      this._dataLoadError = `GitHubAPIBackend.initialize threw ${name}: ${message}`;
+      this.stopPollingTimers();
+      this.recordEvent({
+        type: 'system.error',
+        component: 'storage',
+        level: 'error',
+        message: 'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started',
+        error: normalizeErrorForEvent(err),
+      });
+      log.storage.error({ errName: name, errMessage: message, stack: (err as Error)?.stack },
+        'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started (t/480)');
+      throw err;
+    }
+  }
+
+  /** Clear the poll and lease timers if a failed start-up got as far as creating them. */
+  private stopPollingTimers(): void {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.leaseRenewTimer) { clearInterval(this.leaseRenewTimer); this.leaseRenewTimer = null; }
+  }
+
+  private async runInitialize(): Promise<void> {
     this.recordEvent({
       type: 'storage.mode',
       component: 'storage',
