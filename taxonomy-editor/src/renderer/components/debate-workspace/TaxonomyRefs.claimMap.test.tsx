@@ -145,6 +145,16 @@ describe('How → Plan claim map (t/331)', () => {
     expect(screen.getByText('MODERATOR DIRECTIVE')).toBeTruthy();
   });
 
+  it('skips a null or frameless lens; the valid lens still renders and no empty heading appears', () => {
+    const { container } = renderPlan({
+      ...PLAN_WORK_PRODUCT,
+      framing_choices: [null, { why: 'orphan reason' }, { frame: 'Governance', why: 'Regulators shape norms' }],
+    });
+    expect(screen.getByRole('heading', { name: 'Governance' })).toBeTruthy();
+    expect(container.querySelectorAll('.claim-map-lens-title')).toHaveLength(1);
+    expect(screen.getByRole('group', { name: 'Attack on C1' })).toBeTruthy();
+  });
+
   it('skips a malformed anticipated item without rendering it as text', () => {
     renderPlan({ ...PLAN_WORK_PRODUCT, anticipated_challenges: [null, { foo: 1 }, 'ASSUMPTION: Real assumption'] });
     expect(document.body.textContent).not.toContain('[object Object]');

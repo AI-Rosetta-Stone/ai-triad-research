@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseWorkProduct, normalizeAnticipatedItem, stripLeadingVerb } from './claimMap';
+import { parseWorkProduct, parseLenses, normalizeAnticipatedItem, stripLeadingVerb } from './claimMap';
 
 const claims = [
   { point: 'Labs self-regulate', evidence: 'Ev 1', taxonomy_anchor: 'acc-saf-001' },
@@ -82,6 +82,37 @@ describe('parseWorkProduct', () => {
     ]);
   });
 
+});
+
+describe('parseLenses', () => {
+  it('returns no lenses for an absent framing_choices, without a WARN', () => {
+    const warn = vi.fn();
+    expect(parseLenses(undefined, warn)).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a plain string as one lens', () => {
+    expect(parseLenses('Market incentives')).toEqual([{ title: 'Market incentives' }]);
+  });
+
+  it('skips and WARNs on a lens with no frame, keeping the valid ones', () => {
+    const warn = vi.fn();
+    const lenses = parseLenses([{ why: 'orphan reason' }, { frame: 'Governance', why: 'Regulators shape norms' }], warn);
+    expect(lenses).toEqual([{ title: 'Governance', why: 'Regulators shape norms' }]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips and WARNs on null and non-object entries', () => {
+    const warn = vi.fn();
+    expect(parseLenses([null, 'text', { frame: 'Kept' }], warn)).toEqual([{ title: 'Kept', why: undefined }]);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('WARNs and returns nothing for a null framing_choices', () => {
+    const warn = vi.fn();
+    expect(parseLenses(null, warn)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('named target wins', () => {

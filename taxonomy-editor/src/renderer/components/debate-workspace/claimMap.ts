@@ -67,6 +67,36 @@ function findClaim(claims: ParsedClaim[], target: string | undefined, body: stri
   return claims.find(c => c.taxonomy_anchor !== undefined && tokens.includes(c.taxonomy_anchor));
 }
 
+export interface ParsedLens {
+  title: string; // the frame
+  why?: string;
+}
+
+// framing_choices is an array of {frame, why}, or a plain string. A malformed entry is skipped with a WARN.
+export function parseLenses(framingChoices: unknown, warn: WarnFn = () => {}): ParsedLens[] {
+  if (framingChoices === undefined) return [];
+  if (typeof framingChoices === 'string') {
+    if (framingChoices.trim() !== '') return [{ title: framingChoices }];
+    warn('framing_choices is an empty string; skipped');
+    return [];
+  }
+  if (!Array.isArray(framingChoices)) {
+    warn(`framing_choices is not a list or a string (${framingChoices === null ? 'null' : typeof framingChoices}); skipped`);
+    return [];
+  }
+  const lenses: ParsedLens[] = [];
+  framingChoices.forEach((fc: unknown, i) => {
+    const entry = fc as { frame?: unknown; why?: unknown } | null;
+    if (typeof entry !== 'object' || entry === null || typeof entry.frame !== 'string' || entry.frame.trim() === '') {
+      warn(`framing_choices[${i}] has no frame; skipped`);
+      return;
+    }
+    const why = typeof entry.why === 'string' && entry.why.trim() !== '' ? entry.why : undefined;
+    lenses.push({ title: entry.frame, why });
+  });
+  return lenses;
+}
+
 export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () => {}): ParsedWorkProduct {
   const claims: ParsedClaim[] = [];
   if (Array.isArray(wp.argument_structure)) {

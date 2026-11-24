@@ -15,7 +15,7 @@ import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
-import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type WarnFn } from './claimMap';
+import { normalizeAnticipatedItem, parseLenses, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type ParsedLens, type WarnFn } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -367,13 +367,7 @@ function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: 
   );
 }
 
-function ClaimMapLenses({ framingChoices }: { framingChoices: unknown }) {
-  const lenses = Array.isArray(framingChoices)
-    ? (framingChoices as { frame?: unknown; why?: unknown }[]).map(fc => ({
-      title: fc.frame ? String(fc.frame) : '',
-      why: fc.why ? String(fc.why) : undefined,
-    }))
-    : [{ title: String(framingChoices), why: undefined }];
+function ClaimMapLenses({ lenses }: { lenses: ParsedLens[] }) {
   return (
     <ul className="claim-map-lenses">
       {lenses.map((lens, i) => (
@@ -549,7 +543,7 @@ function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setS
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
-  const framingChoices = wp.framing_choices;
+  const lenses = useMemo(() => parseLenses(wp.framing_choices, warnClaimMap), [wp]);
 
   if (!coreThesis && !strategicGoal) {
     return <LegacyPlanView wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />;
@@ -569,8 +563,8 @@ function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setS
           motion={motion}
         />
       </SectionErrorBoundary>
-      {!!framingChoices && (
-        <SectionErrorBoundary section="Lenses"><ClaimMapLenses framingChoices={framingChoices} /></SectionErrorBoundary>
+      {lenses.length > 0 && (
+        <SectionErrorBoundary section="Lenses"><ClaimMapLenses lenses={lenses} /></SectionErrorBoundary>
       )}
       {claims.length > 0 && (
         <SectionErrorBoundary section="Argument">
