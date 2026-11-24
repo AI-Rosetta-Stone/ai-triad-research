@@ -30,8 +30,9 @@
 
 .sh-move-row {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 4px;
 }
 
 .sh-move-detail {
@@ -143,12 +144,6 @@
 }
 
 
-@media (max-width: 766px) {
-  .sh-move-row {
-    flex-direction: column;
-    gap: 4px;
-  }
-}
 
 /* Claim labels are node ids (AN-34), wider than the 28px C{n} badge; let the badge fit its text. */
 .sh-layout .claim-map-claim-badge {
