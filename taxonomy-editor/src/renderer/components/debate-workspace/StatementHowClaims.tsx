@@ -1,24 +1,44 @@
 // t/469: the claim rows of the per-statement HOW (docs/ux/debate-statement-how.md): a claim, and its
 // attacks and supports, collapsed to three per claim with "Show N more".
 
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { collapseItems, type StatementHowClaim, type StatementHowItem } from './statementHow';
+// Loaded on first open, so this module does not evaluate the taxonomy-store chain on render.
+const TaxNodeDetail = lazy(() => import('../shared/TaxNodeDetail').then(m => ({ default: m.TaxNodeDetail })));
 
 const COLLAPSE_AT = 3;
 
-/** One claim and its attacks and supports. The first three are shown; the rest sit behind "Show N more". */
+/** One claim and its attacks and supports. The first three are shown; the rest sit behind "Show N more".
+ *  The anchor chip (the claim's first taxonomy reference, as on Openings) toggles the node detail inline. */
 export function ClaimRow({ claim }: { claim: StatementHowClaim }) {
   const [expanded, setExpanded] = useState(false);
+  const [anchorOpen, setAnchorOpen] = useState(false);
   const items: StatementHowItem[] = [...claim.attacks, ...claim.supports];
   const { shown, hidden } = collapseItems(items, COLLAPSE_AT);
   const visible = expanded ? items : shown;
+  const anchor = (claim.node.taxonomy_refs ?? [])[0] as string | undefined;
   return (
     <li className="claim-map-row">
       <div className="claim-map-claim-col">
         <div className="claim-map-claim-card">
           <div className="claim-map-claim-badge">C{claim.index}</div>
           <p className="claim-map-claim-point">{claim.node.text ?? ''}</p>
+          {anchor && (
+            <button
+              type="button"
+              className="claim-map-anchor-chip"
+              aria-expanded={anchorOpen}
+              onClick={() => setAnchorOpen(o => !o)}
+            >
+              {anchor}
+            </button>
+          )}
         </div>
+        {anchorOpen && anchor && (
+          <Suspense fallback={null}>
+            <TaxNodeDetail nodeId={anchor} onClose={() => setAnchorOpen(false)} />
+          </Suspense>
+        )}
       </div>
       <div className="sh-item-col" role="group" aria-label={items.length === 0 ? `No attack mapped to C${claim.index}` : `Attacks and supports on C${claim.index}`}>
         {items.length === 0 && (

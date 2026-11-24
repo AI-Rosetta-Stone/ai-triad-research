@@ -90,13 +90,14 @@ export function buildStatementHow(entry: TranscriptEntry, nodes: ArgumentNetwork
 export function convergenceCells(s: ConvergenceSignals): [string, string][] {
   const mp = s.move_polarity;
   const de = s.dialectical_engagement;
+  const r = (n: number) => String(Math.round(n * 100) / 100);
   return [
-    ['Move polarity', `${mp.ratio} (${mp.confrontational} confrontational, ${mp.collaborative} collaborative)`],
-    ['Dialectical engagement', `${de.ratio} (${de.targeted} targeted, ${de.standalone} standalone)`],
-    ['Argument redundancy', `avg overlap ${s.argument_redundancy.avg_self_overlap}`],
+    ['Move polarity', `${r(mp.ratio)} (${mp.confrontational} confrontational, ${mp.collaborative} collaborative)`],
+    ['Dialectical engagement', `${r(de.ratio)} (${de.targeted} targeted, ${de.standalone} standalone)`],
+    ['Argument redundancy', `avg overlap ${r(s.argument_redundancy.avg_self_overlap)}`],
     ['Dominant counterargument', s.dominant_counterargument ? String(s.dominant_counterargument) : 'None'],
     ['Concession opportunity', s.concession_opportunity.outcome ?? 'none'],
-    ['Position drift', `${s.position_drift.drift}`],
+    ['Position drift', r(s.position_drift.drift)],
     ['Crux engagement', `${s.crux_engagement_rate.cumulative_follow_through} follow-through`],
   ];
 }

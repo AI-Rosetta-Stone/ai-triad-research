@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
 vi.mock('../../utils/lineageMatcher', () => ({ extractLineageNames: () => [] }));
+vi.mock('../shared/TaxNodeDetail', () => ({ TaxNodeDetail: () => <div data-testid="node-detail" /> }));
 vi.mock('./VocabularyPanel', () => ({
   VocabTermsView: () => <div data-testid="vocab" />,
   LineageTermsView: () => <div data-testid="lineage" />,
@@ -169,5 +170,25 @@ describe('StatementHowLayout', () => {
     const { container } = renderHow({ vocabResolutions: [] });
     expect(container.querySelector('[aria-label="Vocabulary and lineage"]')).toBeNull();
     expect(screen.queryByTestId('vocab')).toBeNull();
+  });
+});
+
+describe('anchor chip and convergence rounding (t/469)', () => {
+  it('toggles the node detail from the claim anchor chip, and keeps it a keyboard button', async () => {
+    const anchored = [{ id: 'AN-1', text: 'Claim one', source_entry_id: 'e2', taxonomy_refs: ['skp-beliefs-001'] }] as never;
+    render(<StatementHowLayout entry={ENTRY} debate={{ argument_network: { nodes: anchored, edges: [] } }} vocabResolutions={undefined} meta={undefined} />);
+    const chip = screen.getByRole('button', { name: 'skp-beliefs-001' });
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('node-detail')).toBeNull();
+    fireEvent.click(chip);
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    expect(await screen.findByTestId('node-detail')).toBeTruthy();
+  });
+
+  it('rounds convergence values to two decimal places', () => {
+    const { container } = render(<StatementHowLayout entry={ENTRY} debate={{ argument_network: { nodes: NODES, edges: EDGES }, convergence_signals: [{ ...CONVERGENCE, move_polarity: { confrontational: 2, collaborative: 1, ratio: 1 / 3 }, position_drift: { overlap_with_opening: 1, drift: 0.8114285714 } } as never] }} vocabResolutions={undefined} meta={undefined} />);
+    expect(container.textContent).toContain('0.33 (2 confrontational, 1 collaborative)');
+    expect(container.textContent).toContain('0.81');
+    expect(container.textContent).not.toContain('0.3333');
   });
 });
