@@ -22,7 +22,9 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
 const QUERY_TRIM = 1000;
 /** Above any POV's size, so relevance returns the whole pool (t/348, CL condition 2). */
-const ALL_POV_NODES = 100000;
+/** The relevant-nodes route accepts maxTotal 1..500 and minPerCategory 1..10 (t/424, relevantNodes.ts). The largest
+ *  POV camp has 385 nodes, so 500 covers the whole POV; Scope is applied after the call. */
+const ALL_POV_NODES = 500;
 /** The web statement route takes at most this many ids per request (t/348, CL p/166#39). */
 const CHAT_STATEMENT_BATCH = 12;
 
@@ -97,6 +99,44 @@ function filePoolScores(nodes: PovNode[]): ScoredChatNode[] {
     .map((n, i) => ({ nodeId: n.id, category: n.category, score: -i }));
 }
 
+interface StatementRoundInput {
+  pov: 'accelerationist' | 'safetyist' | 'skeptic';
+  povById: Map<string, PovNode>;
+  deps: ChatTurnDeps;
+  statementQuery: string;
+  pool: ScoredChatNode[];
+  candidates: string[];
+  boostIds: ReadonlySet<string>;
+}
+
+/** Statements for the candidates, fetched in rounds of at most CHAT_STATEMENT_BATCH ids, the candidates first and then the
+ *  next pool nodes in pool order, only as many as a backfill needs. If the route is unavailable, each candidate's line
+ *  uses its label (a stated fallback, never description), and the WARN names the reason (TL p/10#248). */
+async function resolveStatements(input: StatementRoundInput): Promise<ReturnType<typeof resolveChatNodes>> {
+  const { pov, povById, deps, statementQuery, pool, candidates, boostIds } = input;
+  const order = [...candidates, ...poolByScore(pool, boostIds).map(n => n.nodeId).filter(id => !candidates.includes(id))];
+  const statements: Record<string, ChatStatement | null> = {};
+  let next = 0;
+  let resolved = resolveChatNodes(pool, candidates, statements, boostIds);
+  while (next < order.length && resolved.kept.length < candidates.length) {
+    const batch = order.slice(next, next + CHAT_STATEMENT_BATCH);
+    next += batch.length;
+    try {
+      Object.assign(statements, await deps.chatSyntheticStatements({ pov, queryText: statementQuery, nodeIds: batch }));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'chat-store', level: 'warn',
+        message: `chat-taxonomy: reason=statements-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); candidates shown with labels only`,
+      });
+      const labelStatements: Record<string, ChatStatement> = {};
+      for (const id of candidates) labelStatements[id] = { text: povById.get(id)?.label ?? id, index: 0 };
+      return resolveChatNodes(pool, candidates, labelStatements, boostIds);
+    }
+    resolved = resolveChatNodes(pool, candidates, statements, boostIds);
+  }
+  return resolved;
+}
+
 export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurnDeps): Promise<ChatTurnResult> {
   const { pov, ctx, tagSelection, query } = input;
   const povById = new Map(ctx.povNodes.map(n => [n.id, n]));
@@ -118,7 +158,7 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
       topic: query.topic,
       recentTranscript: selectionQuery,
       threshold: 0,
-      minPerCategory: 0,
+      minPerCategory: 1,
       // The server does not know Scope, so the cap must cover the whole POV; Scope is applied below.
       maxTotal: ALL_POV_NODES,
       session: { anClaimEmbeddings: [{ id: 'chat-query', vector }], sourceType: 'chat' },
@@ -143,28 +183,10 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
   // 2. BDI cap: 12 nodes, top 2 per category reserved, Prioritize boosts first.
   const candidates = selectChatCandidates(pool, boostIds, CHAT_NODE_CAP);
 
-  // 3. Statements, in rounds of at most CHAT_STATEMENT_BATCH ids (the web route's limit): the candidates first,
-  // then the next pool nodes in pool order, only as many as a backfill needs (t/348#8, CL p/166#39).
-  const statementQuery = trimQuery(query.lastUserMessage || query.topic);
-  const order = [...candidates, ...poolByScore(pool, boostIds).map(n => n.nodeId).filter(id => !candidates.includes(id))];
-  const statements: Record<string, ChatStatement | null> = {};
-  let next = 0;
-  let resolved = resolveChatNodes(pool, candidates, statements, boostIds);
-  while (next < order.length && resolved.kept.length < candidates.length) {
-    const batch = order.slice(next, next + CHAT_STATEMENT_BATCH);
-    next += batch.length;
-    try {
-      Object.assign(statements, await deps.chatSyntheticStatements({ pov, queryText: statementQuery, nodeIds: batch }));
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'chat-store', level: 'warn',
-        message: `chat-taxonomy: reason=statements-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); nodes skipped`,
-      });
-      break;
-    }
-    resolved = resolveChatNodes(pool, candidates, statements, boostIds);
-  }
-  const { kept, skipped } = resolved;
+  // 3. Statements, in rounds of at most CHAT_STATEMENT_BATCH ids (t/348#8, CL p/166#39).
+  const { kept, skipped } = await resolveStatements(
+    { pov, povById, deps, statementQuery: trimQuery(query.lastUserMessage || query.topic), pool, candidates, boostIds },
+  );
   for (const warning of chatSkipWarnings(pov, skipped)) deps.warn(warning);
 
   // 4. Situation cap: 4 by score, the top 2 injected in full.

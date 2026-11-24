@@ -220,3 +220,30 @@ describe('buildChatTaxonomyTurn — statement batching and transcript (CL p/166#
     expect(payload.recentTranscript).toBe(embeddedText);
   });
 });
+
+describe('buildChatTaxonomyTurn — live-round fixes (TL p/10#248, t/348#62)', () => {
+  it('sends pool sizes the route accepts: minPerCategory 1..10, maxTotal 1..500', async () => {
+    const c = ctx();
+    const d = deps({}, c);
+    await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    const payload = (d.fetchRelevantNodes as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(payload.minPerCategory).toBeGreaterThanOrEqual(1);
+    expect(payload.minPerCategory).toBeLessThanOrEqual(10);
+    expect(payload.maxTotal).toBeGreaterThanOrEqual(1);
+    expect(payload.maxTotal).toBeLessThanOrEqual(500);
+  });
+
+  it('a statement failure (403) shows the candidates with their labels, not an empty block, and WARNs', async () => {
+    const c = ctx();
+    const warn = vi.fn();
+    const d = deps({
+      chatSyntheticStatements: vi.fn(async () => { throw new Error('403 anon_route_blocked'); }),
+      warn,
+    }, c);
+    const turn = await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    expect(turn.block.length).toBeGreaterThan(0);
+    expect(turn.block).toContain('label acc-bel-0');
+    expect(turn.block).not.toContain('DESC');
+    expect(turn.trace.context_node_ids.length).toBe(12);
+  });
+});
