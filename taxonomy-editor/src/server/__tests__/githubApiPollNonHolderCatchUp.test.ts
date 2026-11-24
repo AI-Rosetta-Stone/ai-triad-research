@@ -38,7 +38,7 @@ const HOLDER = 'holder-1';
 type Resp = { ok: boolean; status?: number; data?: unknown };
 type ManifestFile = { sha: string; etag: string; cachedAt: string };
 type Manifest = { version: number; generation: number; lastCommitSha: string; lastUpdated: string; files: Record<string, ManifestFile> };
-type PollState = { holderId: string; generation: number; lastCommitSha: string; changedSinceGeneration: Array<{ generation: number; paths: string[] }>; publishedAt: string };
+type PollState = { holderId: string; generation: number; lastCommitSha: string; changedSinceGeneration: Array<{ generation: number; paths: string[] | null }>; publishedAt: string };
 type Internals = {
   manifest: Manifest | null;
   rest: { isTripped: () => boolean; request: (creds: unknown, method: string, p: string) => Promise<Resp> };
@@ -52,7 +52,16 @@ type Internals = {
   pollLastSeenGeneration: number;
   pollLastSeenHolderId: string | null;
   pollLastSeenCommitSha: string;
+  pollAsHolder: () => Promise<void>;
+  publishPollState: (sha: string, changed: string[] | null) => Promise<void>;
+  renewPollLease: () => Promise<void>;
+  seedGenerationAfterAcquiring: () => Promise<void>;
+  blobLease: { isHolder: () => boolean; acquireOrRenew: () => Promise<boolean> } | null;
+  holderId: string;
 };
+
+type CompareMode = 'ok' | 'fails' | 'force-push' | 'capped' | 'empty';
+let compareMode: CompareMode;
 
 let newTreeFails: boolean;
 let treeRequests: string[];
@@ -60,6 +69,15 @@ let tmp: string;
 let cacheDir: string;
 
 function router(_creds: unknown, _method: string, p: string): Promise<Resp> {
+  if (p === '/repos/testowner/testrepo/commits/main') return Promise.resolve({ ok: true, data: { sha: NEW } });
+  if (p === `/repos/testowner/testrepo/compare/${OLD}...${NEW}`) {
+    if (compareMode === 'fails') return Promise.resolve({ ok: false, status: 500, data: {} });
+    if (compareMode === 'force-push') return Promise.resolve({ ok: false, status: 404, data: {} });
+    const files = compareMode === 'empty' ? []
+      : compareMode === 'capped' ? Array.from({ length: 300 }, (_, i) => ({ filename: `taxonomy/f${i}.json` }))
+      : [{ filename: CHANGED }];
+    return Promise.resolve({ ok: true, data: { files } });
+  }
   if (p === `/repos/testowner/testrepo/git/commits/${OLD}`) return Promise.resolve({ ok: true, data: { tree: { sha: OLD_TREE } } });
   if (p === `/repos/testowner/testrepo/git/commits/${NEW}`) {
     return Promise.resolve(newTreeFails ? { ok: false, status: 503, data: {} } : { ok: true, data: { tree: { sha: NEW_TREE } } });
@@ -93,6 +111,7 @@ beforeEach(async () => {
   }));
   newTreeFails = false;
   treeRequests = [];
+  compareMode = 'ok';
 });
 
 afterEach(async () => {
@@ -200,11 +219,66 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('poll-lease non-holder catch
     expect(await b.getFileSha(CHANGED, 'main')).toBe('NEWBLOB');
   });
 
+  it('an entry whose paths are unknown (null) since our generation drops every cached file', async () => {
+    const b = await makeNonHolder();
+    publish(b, { generation: 7, lastCommitSha: NEW, changedSinceGeneration: [{ generation: 6, paths: null }, { generation: 7, paths: [CHANGED] }] });
+    await b.pollAsNonHolder();
+    expect(b.manifest?.lastCommitSha).toBe(NEW);
+    expect(b.manifest?.files).toEqual({});
+  });
+
   it('gaps between history entries are not a cut: generations without changes are simply absent', async () => {
     const b = await makeNonHolder();
     publish(b, { generation: 12, lastCommitSha: NEW, changedSinceGeneration: [{ generation: 2, paths: [UNCHANGED] }, { generation: 9, paths: [CHANGED] }] });
     await b.pollAsNonHolder();
     expect(b.manifest?.files[CHANGED]).toBeUndefined();
     expect(b.manifest?.files[UNCHANGED]).toBeDefined(); // generation 2 was before our last-seen 5
+  });
+});
+
+describe.skipIf(!isUndiciMajorAlignedWithRuntime())('poll-lease holder: what it publishes (t/547, Quality on #5455)', () => {
+  const UNKNOWN: Array<[string, CompareMode]> = [
+    ['the compare fails (500)', 'fails'],
+    ['the old commit left history (force-push, 404)', 'force-push'],
+    ['the compare list is at the 300-file cap', 'capped'],
+    ['the commit moved but the compare lists no file', 'empty'],
+  ];
+
+  it.each(UNKNOWN)('when %s, it drops every cached file and publishes the paths as unknown (null)', async (_name, mode) => {
+    compareMode = mode;
+    const b = await makeNonHolder();
+    const publishCalls: Array<[string, string[] | null]> = [];
+    b.publishPollState = async (sha, changed) => { publishCalls.push([sha, changed]); };
+    await b.pollAsHolder();
+    expect(b.manifest?.lastCommitSha).toBe(NEW);
+    expect(b.manifest?.files).toEqual({});
+    expect(publishCalls).toEqual([[NEW, null]]);
+  });
+
+  it('control: a complete compare drops only the changed path and publishes it', async () => {
+    const b = await makeNonHolder();
+    const publishCalls: Array<[string, string[] | null]> = [];
+    b.publishPollState = async (sha, changed) => { publishCalls.push([sha, changed]); };
+    await b.pollAsHolder();
+    expect(b.manifest?.files[CHANGED]).toBeUndefined();
+    expect(b.manifest?.files[UNCHANGED]).toBeDefined();
+    expect(publishCalls).toEqual([[NEW, [CHANGED]]]);
+  });
+
+  it('the holder id is per tenure: re-acquiring the lease in the same process gives a new id', async () => {
+    const b = await makeNonHolder();
+    let holding = false;
+    b.blobLease = { isHolder: () => holding, acquireOrRenew: async () => { holding = next; return holding; } };
+    b.seedGenerationAfterAcquiring = async () => {};
+    let next = true;
+    await b.renewPollLease();
+    const first = b.holderId;
+    await b.renewPollLease(); // still holding: same tenure
+    expect(b.holderId).toBe(first);
+    next = false;
+    await b.renewPollLease(); // lost
+    next = true;
+    await b.renewPollLease(); // re-acquired
+    expect(b.holderId).not.toBe(first);
   });
 });

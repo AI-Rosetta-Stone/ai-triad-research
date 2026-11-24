@@ -111,7 +111,7 @@ interface PollState {
   /** Capped-length history of per-generation changed paths, oldest first —
    *  lets a non-holder catch up without replaying every tick, and lets it
    *  detect a gap (its last-seen generation predates the oldest entry here). */
-  changedSinceGeneration: Array<{ generation: number; paths: string[] }>;
+  changedSinceGeneration: Array<{ generation: number; paths: string[] | null }>; // t/547: null = unknown, invalidate all
   publishedAt: string; // ISO timestamp — staleness detection
 }
 
@@ -148,6 +148,8 @@ const ERROR_BUFFER_CAPACITY = 100;
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
 const POLL_STATE_BLOB = 'poll-state.json';
 const POLL_STATE_HISTORY_CAP = 50;
+// t/547: GitHub's compare API lists at most 300 files; a list that long may have been cut.
+const COMPARE_FILES_CAP = 300;
 // A non-holder falls back to direct polling once the published state is
 // older than this multiple of the poll interval — fails toward coherence,
 // never toward silent staleness (TL t/4179#2 §2 point 2).
@@ -386,9 +388,11 @@ export class GitHubAPIBackend implements StorageBackend {
   private readonly blobLeaseContainerClient: ContainerClient | null = null;
   private readonly pollLeaseDurationSeconds: number = 0;
   private leaseRenewTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly holderId = crypto.randomUUID();
+  /** t/547: per tenure, not per process: a new id each time this replica acquires the lease, since its
+   *  history restarts then and another holder may have published in between. */
+  private holderId = crypto.randomUUID();
   private pollStateGeneration = 0;
-  private pollStateHistory: Array<{ generation: number; paths: string[] }> = [];
+  private pollStateHistory: PollState['changedSinceGeneration'] = [];
   private pollLastSeenGeneration = 0;
   private pollLastSeenHolderId: string | null = null;
   /** t/547: the commit this non-holder's manifest was brought to by its last applied poll state. */
@@ -3755,6 +3759,7 @@ export class GitHubAPIBackend implements StorageBackend {
     }
     // t/547 (for the t/504 staging proof): a healthy hand-over logged nothing, so the log could not show
     // which replica held the lease.
+    if (isHolder && !wasHolder) this.holderId = crypto.randomUUID();
     if (isHolder !== wasHolder) {
       log.storage.info({ holderId: this.holderId, container: this.pollLeaseContainer },
         isHolder ? 'poll lease acquired: this replica is now the poll holder' : 'poll lease lost: this replica is now a non-holder');
@@ -3814,35 +3819,57 @@ export class GitHubAPIBackend implements StorageBackend {
    *  entries from the manifest before the fetch, and advance the manifest commit after it, so a failed
    *  fetch left the manifest naming a commit whose tree was never loaded, and the next poll saw
    *  "nothing changed". #5309 (t/463) fixed the same thing in initialize().
-   *  Returns the changed paths, or null when the tree load failed and nothing was applied. */
-  private async applyPolledCommit(currentSha: string): Promise<string[] | null> {
+   *  Returns `{ changed }`, where `changed` is null when the changed paths are unknown (t/547), or null
+   *  overall when the tree load failed and nothing was applied. */
+  private async applyPolledCommit(currentSha: string): Promise<{ changed: string[] | null } | null> {
     const previousSha = this.manifest?.lastCommitSha ?? '';
-    const changed = previousSha ? await this.getChangedFiles(previousSha, currentSha) : [];
+    const changed = previousSha ? await this.compareChangedPaths(previousSha, currentSha) : null;
 
     const loaded = await this.fetchRepoTree(currentSha);
     if (!loaded) {
-      log.storage.warn({ previousSha, currentSha, changedCount: changed.length },
+      log.storage.warn({ previousSha, currentSha, changedCount: changed?.length ?? 'unknown' },
         'poll: tree load failed for the new commit; manifest and live tree left unchanged, will retry on the next poll (t/483)');
       return null;
     }
 
-    if (changed.length > 0) {
-      this.recordEvent({
-        type: 'cache.invalidate',
-        component: 'cache',
-        level: 'info',
-        message: `Poll: ${changed.length} files changed`,
-        data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-      });
-      await this.withManifestLock(async () => {
-        for (const filePath of changed) {
-          if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-        }
-      });
+    if (changed === null) {
+      log.storage.warn({ previousSha, currentSha },
+        'poll: the changed paths for the new commit are unknown; falling back to invalidating every cached file (t/547)');
     }
+    this.recordEvent({
+      type: 'cache.invalidate',
+      component: 'cache',
+      level: changed === null ? 'warn' : 'info',
+      message: changed === null ? 'Poll: changed paths unknown, all cached files invalidated' : `Poll: ${changed.length} files changed`,
+      data: { paths: (changed ?? []).slice(0, 20), trigger: 'poll', sha: currentSha, full: changed === null },
+    });
+    await this.withManifestLock(async () => {
+      if (!this.manifest) return;
+      if (changed === null) this.manifest.files = {};
+      else for (const filePath of changed) delete this.manifest.files[filePath];
+    });
 
     await this.updateManifestSha(currentSha);
-    return changed;
+    return { changed };
+  }
+
+  /** t/547: the paths that changed between two commits, or null when the compare cannot vouch for the whole
+   *  set. getChangedFiles answers [] for a failed compare (including a force-push, where the old commit is
+   *  no longer in history) and for a list cut at GitHub's cap, and a moved commit with no changed file is
+   *  not trusted as "nothing changed" either. Unlike getChangedFiles, this does not invalidate the cache
+   *  itself on a force-push: the caller does that after the new tree has loaded (t/483 ordering). */
+  private async compareChangedPaths(fromSha: string, toSha: string): Promise<string[] | null> {
+    const creds = await this.getCredsCached();
+    if (!creds) return null;
+    const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/compare/${fromSha}...${toSha}`);
+    if (!resp.ok) {
+      log.storage.warn({ fromSha, toSha, status: resp.status, forcePush: resp.status === 404 || resp.status === 422 },
+        'poll: compare failed; the changed paths are unknown (t/547)');
+      return null;
+    }
+    const files = (resp.data as { files?: Array<{ filename: string }> } | null | undefined)?.files;
+    if (!Array.isArray(files) || files.length === 0 || files.length >= COMPARE_FILES_CAP) return null;
+    return files.map(f => f.filename);
   }
 
   /** The pre-t/4179 poll body, unchanged — used when no pollLease is
@@ -3878,14 +3905,14 @@ export class GitHubAPIBackend implements StorageBackend {
    *  pollDirect), then publishes the result for non-holders to consume. */
   private async pollAsHolder(): Promise<void> {
     let currentSha = '';
-    let changed: string[] = [];
+    let changed: string[] | null = [];
     try {
       currentSha = await this.getLatestCommitSha();
       if (currentSha && currentSha !== this.manifest?.lastCommitSha) {
         const applied = await this.applyPolledCommit(currentSha);
         // t/483: a failed tree load applied nothing, so there is nothing to publish to non-holders.
         if (applied === null) return;
-        changed = applied;
+        changed = applied.changed;
       }
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
@@ -3912,13 +3939,14 @@ export class GitHubAPIBackend implements StorageBackend {
    *  that renewed too late (another replica already took over) gets a 412
    *  here and just skips the publish, instead of silently writing stale
    *  state under a lease it no longer holds. */
-  private async publishPollState(lastCommitSha: string, changedPaths: string[]): Promise<void> {
+  private async publishPollState(lastCommitSha: string, changedPaths: string[] | null): Promise<void> {
     if (!this.blobLease) return;
     const leaseId = this.blobLease.getLeaseId();
     if (!leaseId) return; // lost holder status — next tick re-evaluates via isHolder()
 
     this.pollStateGeneration++;
-    if (changedPaths.length > 0) {
+    // t/547: null (paths unknown) is published as its own entry, so a non-holder invalidates everything.
+    if (changedPaths === null || changedPaths.length > 0) {
       this.pollStateHistory.push({ generation: this.pollStateGeneration, paths: changedPaths });
       if (this.pollStateHistory.length > POLL_STATE_HISTORY_CAP) this.pollStateHistory.shift();
     }
@@ -4060,8 +4088,10 @@ export class GitHubAPIBackend implements StorageBackend {
    *  cannot vouch for that whole step. It can only when: we applied this same holder's state before
    *  (t/4179 R2: a new holder restarts its history), our manifest is still at the commit we applied then
    *  (a direct-poll fallback in between moves it), the generation moved forward, and the history list was
-   *  not cut at its cap past our last generation. The list holds only generations that changed something,
-   *  so gaps between its entries are normal and are not a cut. */
+   *  not cut at its cap past our last generation, and no entry since then says its paths are unknown. The
+   *  holder adds an entry for every commit it moves to (null paths when its compare could not vouch for
+   *  them), and its id is per tenure, so within one id the list is complete up to the cap. It holds only
+   *  generations that moved the commit, so gaps between its entries are normal and are not a cut. */
   private knownChangedPathsSince(state: PollState, ourSha: string): Set<string> | null {
     const lastSeen = this.pollLastSeenGeneration;
     if (lastSeen === 0 || state.holderId !== this.pollLastSeenHolderId) return null;
@@ -4070,7 +4100,11 @@ export class GitHubAPIBackend implements StorageBackend {
     const oldest = history[0]?.generation;
     if (history.length >= POLL_STATE_HISTORY_CAP && oldest !== undefined && oldest > lastSeen + 1) return null;
     const paths = new Set<string>();
-    for (const entry of history) if (entry.generation > lastSeen) for (const p of entry.paths) paths.add(p);
+    for (const entry of history) {
+      if (entry.generation <= lastSeen) continue;
+      if (entry.paths === null) return null;
+      for (const p of entry.paths) paths.add(p);
+    }
     return paths;
   }
 
