@@ -2735,8 +2735,12 @@ export class GitHubAPIBackend implements StorageBackend {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
     }
 
+    // t/505: callers pass the base-branch alias ('main') for either side. Compare against this
+    // deployment's base branch, not a branch that happens to be called 'main'.
+    const baseRef = this.resolveReadRef(base) ?? base;
+    const headRef = this.resolveReadRef(head) ?? head;
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/compare/${base}...${head}`);
+      `/repos/${creds.repo}/compare/${baseRef}...${headRef}`);
 
     if (!resp.ok) {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };

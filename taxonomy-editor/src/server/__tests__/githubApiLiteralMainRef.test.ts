@@ -39,6 +39,7 @@ type Internals = {
   readFile: (filePath: string, opts?: { ref?: string; optional?: boolean }) => Promise<string | null>;
   readBinaryFile: (filePath: string, opts?: { ref?: string }) => Promise<Buffer | null>;
   readFileAtRef: (repoPath: string, ref: string) => Promise<string | null>;
+  compareBranches: (base: string, head: string) => Promise<unknown>;
   initialize: () => Promise<void>;
   shutdown: () => void;
 };
@@ -163,6 +164,36 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())("a read pinned with the lite
       await b.initialize().catch(() => undefined);
       b.shutdown();
       expect(mappedLines(info)).toHaveLength(0);
+    });
+  });
+
+  describe('compareBranches maps the alias on either side (TL p/50#150)', () => {
+    const SESSION = 'api-session/alice';
+    const compareUrls = () => urls.filter(u => u.includes('/compare/'));
+
+    it("base branch 'staging': compareBranches('main', session) compares against staging", async () => {
+      const b = await makeBackend('staging');
+      await b.compareBranches(BASE_BRANCH_REF, SESSION);
+      expect(compareUrls()).toHaveLength(1);
+      expect(compareUrls()[0]).toContain(`/compare/staging...${SESSION}`);
+    });
+
+    it("base branch 'staging': compareBranches(session, 'main') puts staging on the head side", async () => {
+      const b = await makeBackend('staging');
+      await b.compareBranches(SESSION, BASE_BRANCH_REF);
+      expect(compareUrls()[0]).toContain(`/compare/${SESSION}...staging`);
+    });
+
+    it("base branch 'main' (prod): the comparison is against main, as before", async () => {
+      const b = await makeBackend(null);
+      await b.compareBranches(BASE_BRANCH_REF, SESSION);
+      expect(compareUrls()[0]).toContain(`/compare/main...${SESSION}`);
+    });
+
+    it('two real refs are compared as given', async () => {
+      const b = await makeBackend('staging');
+      await b.compareBranches(HEAD, SESSION);
+      expect(compareUrls()[0]).toContain(`/compare/${HEAD}...${SESSION}`);
     });
   });
 
