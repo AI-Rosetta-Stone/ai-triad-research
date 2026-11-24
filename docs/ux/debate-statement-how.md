@@ -1,14 +1,14 @@
 # Per-statement HOW: Layout A
 
-Status: approved layout (human, 2026-11-23). Owner: Design. Build: DebateWorkspace.
+Status: approved layout (human, 2026-11-23), amended 2026-11-24: Planned moves show their text; Convergence is removed. Owner: Design. Build: DebateWorkspace.
 Reference: the Openings How → Plan claim map (t/331, #5073; fixes #5127 and t/421).
 Data source: DebateWorkspace measurements over 327 debate sessions, 2,779 statements (t/469, p/14#40 to #44).
 
 ## Goal
 
 The per-statement HOW uses the same card vocabulary as the Openings HOW: an eyebrow, a counts line,
-a claim-and-attack grid, lens cards, assumption cards and a More disclosure. The data differs, so the
-layout adapts to it.
+a claim-and-attack grid, assumption cards and a More disclosure. The data differs, so the layout
+adapts to it.
 
 ## Data this layout relies on
 
@@ -16,16 +16,17 @@ layout adapts to it.
 |---|---|---|
 | Claims | argument-network nodes filtered by `source_entry_id` | 96% of statements have at least one node. Median 3 per statement, max 6 |
 | Attacks and supports | incoming `attacks` and `supports` edges on a claim node | Attacks median 1 per statement, max 21. Supports median 0, max 14 |
-| Convergence | convergence row, seven signals | 60% of statements. All seven present as fields on every row. `dominant_counterargument` is null when there is none |
 | Focus | `metadata.focus_point` | 2,772 statements |
 | Planned moves | `metadata.move_types`, `[{move, target?, detail}]` | 2,771 statements |
 | Assumptions | `metadata.key_assumptions`, `[{assumption, if_wrong}]` | 1,641 statements (59%) |
 | Anticipated responses | `metadata.anticipated_responses`, sentences | 158 statements (6%) |
-| Vocabulary and lineage | vocabulary resolutions and lineage terms | Not measured. Hidden when empty |
+| Vocabulary | vocabulary resolutions | Hidden when empty. Lineage is not measured and stays out until it is |
 
 Not used: `summaries.brief` (generated, not the speaker's plan), and the response fields
 `directive_response`, `challenge_response`, `probe_response`, `pin_response`, `check_response`. Those
 answer moderator and check prompts, not anticipated objections.
+
+Convergence is not part of this layout. The convergence signals are not shown in the HOW body.
 
 No statement has a plan stage, a thesis or a `work_product`. The Openings PLAN, Planned Moves, Argument
 Sketch and Anticipated Responses sections therefore do not exist per statement. The statement equivalents
@@ -36,7 +37,9 @@ are shown under their own names, below.
 ```
 ┌ SPEAKER · STATEMENT ──────────────── 4 claims · 2 attacks · 3 supports ┐
 │ Focus: what the speaker must answer                    (if present)    │
-│ Planned moves: [DISTINGUISH → AN-12] [BURDEN SHIFT]    (if present)    │
+│ Planned moves                                          (if present)    │
+│  DISTINGUISH → AN-12   Differentiate passive protocols from …          │
+│  BURDEN SHIFT          Demand that opponents …                         │
 └────────────────────────────────────────────────────────────────────────┘
 ┌ C1 ─────────────────────────┐ ┌ ← ATTACK ON C1 ────────────────────────┐
 │ Claim point                 │ │ Attack text                            │
@@ -52,11 +55,7 @@ are shown under their own names, below.
 ┌ ANTICIPATED RESPONSES ────────────────────────────────────────────────┐
 │ "Safetyist will argue X. I counter Y."                                 │
 └───────────────────────────────────────────────────────────────────────┘
-┌ CONVERGENCE ──────────────────────────────────────────────────────────┐
-│ [polarity] [engagement] [redundancy] [counterargument] [concession]    │
-│ [drift] [crux]                              (lens-card grid)          │
-└───────────────────────────────────────────────────────────────────────┘
-┌ VOCABULARY · LINEAGE ─────────────────────────────────────────────────┐
+┌ VOCABULARY ───────────────────────────────────────────────────────────┐
 │ term card · term card                                                  │
 └───────────────────────────────────────────────────────────────────────┘
 ```
@@ -68,9 +67,11 @@ are shown under their own names, below.
 - No headline. Statements have no thesis.
 - Focus: one line under the header, labelled `Focus`. It states what the speaker must answer. It is not
   labelled "Argument sketch".
-- Planned moves: chips, one per move, each showing the move name and its detail on hover or focus. Move
-  names are free text, so style every chip the same. A `target` that is an argument-network id is linked to
-  its claim.
+- Planned moves: a list, one row per move. Each row has the move name as a chip, then the move's full
+  `detail` text beside it at body size. The text is never truncated and never hidden behind hover or focus.
+  If the move has a `target` that is an argument-network id, the chip links to that claim. Move names are
+  free text, so style every chip the same.
+- Under 767px each row stacks: chip above, detail below.
 - Each element is hidden when its field is absent.
 
 ### Claim grid
@@ -99,21 +100,17 @@ are shown under their own names, below.
 - Use the disclosure pattern rather than a card, because the list is text and can be long. Do not style
   these as attacks; they are not attached to a claim node.
 
-### Convergence
-
-- Seven labelled cells in a lens-card grid: two columns at desktop, one under 767px. Label above, value below.
-- When the row is absent, show the existing copy: "No convergence data for this turn."
-- A null `dominant_counterargument` shows as "None" in its cell. It is not an error.
-
-### Vocabulary and lineage
+### Vocabulary
 
 - Card list at the bottom, in the assumption-card pattern.
 - Hidden when empty. No empty heading.
 
 ### Pills
 
-- The existing Reasoning, Claims, Convergence and Vocabulary pills keep their meaning and remain the switch.
+- The Reasoning, Claims and Vocabulary pills keep their meaning and remain the switch.
 - The HOW body is one scroll under the pills.
+- The Convergence pill is removed from the HOW body with the section. Whether it also leaves the pill row is a
+  separate decision, noted under Open questions.
 
 ## Shared rules
 
@@ -123,18 +120,25 @@ are shown under their own names, below.
 - Contrast: check each new surface in harvard, dark, bkc and light.
 - Keyboard: the `Show N more` control and each anchor chip are buttons, reachable in tab order.
 - Empty states keep the existing copy: "No argument network yet", "No claims extracted for this
-  statement", "No convergence data for this turn."
+  statement".
 
 ## Out of scope
 
 - The steelman link and the verified count (t/329#4; t/388 steps 3 and 4).
 - The Openings view. It stays as it is.
+- Lineage, until a statement in the corpus yields lineage names.
+- Convergence, removed 2026-11-24.
 - Layout B. It is the fallback if live data turns out to resemble the calibration batches.
+
+## Open questions
+
+1. **Convergence pill:** remove it from the pill row as well as the body? Design's default is yes, since
+   a pill with no body would be empty. Awaiting the human.
 
 ## Evidence needed before build sign-off
 
 - Static renders of the real component, harvard and dark, 1280px and 390px, for: a typical statement
-  (1 attack), a statement with a heavy claim (the collapse control), a statement with no attacks, a
-  statement with convergence absent, and a statement with Focus, Planned moves, Assumptions and
-  Anticipated responses all present.
+  (1 attack), a statement with a heavy claim (the collapse control), a statement with no attacks, and a
+  statement with Focus, Planned moves with their detail text, Assumptions and Anticipated responses all
+  present.
 - Screenshots are required for `Approved (Design)` on the implementing PR.
