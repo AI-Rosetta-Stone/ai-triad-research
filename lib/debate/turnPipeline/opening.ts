@@ -8,6 +8,7 @@ import { validateDraftStage, validateCiteStage } from '../turnValidator.js';
 import { wordOverlap, sanitizeTurnSymbols } from '../helpers.js';
 import type { PoverResponseMeta } from '../helpers.js';
 import { briefOpeningStagePrompt, planOpeningStagePrompt, draftOpeningStagePrompt, citeOpeningStagePrompt } from '../prompts.js';
+import { applyPlanSteelmanRefs, offeredIdsOf, planForLaterStages, stripSteelmanIdsFromDraft } from './steelmanRefs.js';
 import type { OpeningStagePromptInput } from '../prompts.js';
 import { sanitizeNodeIds } from '../nodeIdUtils.js';
 import { parseStageResponse, tagProvenance, toPromptJson } from './runTurn-stages.js';
@@ -65,6 +66,8 @@ export interface OpeningPipelineInput {
   isFirst: boolean;
   /** Labels of speakers who have already given their opening, in order. */
   priorSpeakerLabels?: string[];
+  /** t/388: steelman AN nodes offered to the plan as attack references (from earlier entries). */
+  steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
   sourceContent?: string;
   documentAnalysis?: DocumentAnalysis;
   audience?: import('../types.js').DebateAudience;
@@ -130,6 +133,7 @@ export async function runOpeningPipeline(
     priorStatements: input.priorStatements,
     isFirst: input.isFirst,
     priorSpeakerLabels: input.priorSpeakerLabels,
+    steelmanRefsOffered: input.steelmanRefsOffered,
     sourceContent: input.sourceContent,
     documentAnalysis: input.documentAnalysis,
     audience: input.audience,
@@ -235,6 +239,8 @@ export async function runOpeningPipeline(
     );
     elapsed = Date.now() - t0;
     const planParsed = parseStageResponse<OpeningPlanWorkProduct>(planRaw, 'plan');
+    // t/388: record the offered ids and keep only ATTACK tags drawn from them.
+    applyPlanSteelmanRefs(planParsed.product, offeredIdsOf(input));
     stageDiags.push({
       stage: 'plan', prompt: planPromptText, raw_response: planRaw,
       model: oPlanModel, temperature: temps.plan_temperature,
@@ -264,7 +270,8 @@ export async function runOpeningPipeline(
       pipeline_run: 0, stage: 'plan', attempt: planAttempt,
       model: oPlanModel, timestamp: new Date().toISOString(),
     });
-    planJson = toPromptJson(plan);
+    // t/388: later stages see the plan without steelman ids, so no id reaches the statement.
+    planJson = toPromptJson(planForLaterStages(plan));
     break;
   }
 
@@ -291,6 +298,8 @@ export async function runOpeningPipeline(
   );
   elapsed = Date.now() - t0;
   const draftParsed = parseStageResponse<DraftWorkProduct>(draftRaw, 'draft');
+  // t/388: guard, in case a steelman id reached the statement anyway.
+  stripSteelmanIdsFromDraft(draftParsed.product, offeredIdsOf(input));
   stageDiags.push({
     stage: 'draft', prompt: draftPromptText, raw_response: draftRaw,
     model: oDraftModel, temperature: temps.draft_temperature,
