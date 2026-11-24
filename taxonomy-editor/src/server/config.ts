@@ -242,11 +242,25 @@ const ENV_KEY_NAMES: Record<AIBackend, string> = {
 
 // Imported after AIBackend is defined (keyStore depends on the type).
 import { getKeyStore, type KeyRotationResult } from './security/keyStore.js';
-import { getCurrentUserId, isAnonymousUser } from './security/userContext.js';
+import { getCurrentUserId, isAnonymousUser, isAnonymousRequest } from './security/userContext.js';
 import { resolveGenericFallbackKey, assertKeyForBackend, isKeyRoutingRefusal, LISTING_WARN, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../lib/ai-client/apiKeyFallback.js';
 
 /** The backend's OWN key: its env var, then the keyStore. Never the AI_API_KEY fallback. */
+/** t/501: an anonymous visitor has no key store. A write under the caller's principal would overwrite the owner's _local key. */
+function refuseAnonymousKeyWrite(): void {
+  if (!isAnonymousRequest()) return;
+  throw new ActionableError({
+    goal: 'Store an API key',
+    problem: 'Anonymous visitors have no key store.',
+    location: 'config.ts — refuseAnonymousKeyWrite',
+    nextSteps: ['Sign in to store your own API key.'],
+  });
+}
+
 async function ownApiKey(backend: AIBackend): Promise<string | null> {
+  // t/501: an anonymous request never reads the platform env key or the key store. Its principal is
+  // '_local', so the key-store read would return the owner's own key.
+  if (isAnonymousRequest()) return null;
   const envKey = process.env[ENV_KEY_NAMES[backend]];
   if (envKey) return envKey;
 
@@ -281,6 +295,7 @@ async function ownApiKey(backend: AIBackend): Promise<string | null> {
  * user via getCurrentUserId(). Locally, a single shared key is used per backend.
  */
 export async function getApiKey(backend: AIBackend = 'gemini'): Promise<string | null> {
+  if (isAnonymousRequest()) return null; // t/501: no owned key and no AI_API_KEY fallback for an anonymous request
   return (await ownApiKey(backend)) ?? resolveGenericFallbackKey(backend) ?? null;
 }
 
@@ -330,6 +345,7 @@ export async function getStoredUserKeysBeforeFreePool(backend: AIBackend): Promi
  * none. Used by the key rotator for round-robin selection.
  */
 export async function getApiKeys(backend: AIBackend = 'gemini'): Promise<string[]> {
+  if (isAnonymousRequest()) return []; // t/501: anonymous never reads the env or key store (see ownApiKey)
   const envKey = process.env[ENV_KEY_NAMES[backend]];
   if (envKey) return [envKey];
 
@@ -363,6 +379,7 @@ export async function getApiKeys(backend: AIBackend = 'gemini'): Promise<string[
 export async function getApiKeySource(backend: AIBackend): Promise<string> {
   // Keyless backends (ollama has ENV_KEY_NAMES[backend] === '' which is falsy)
   if (!ENV_KEY_NAMES[backend]) return 'none';
+  if (isAnonymousRequest()) return ''; // t/501: no source is visible to an anonymous request
   // Own env var
   const envVarName = ENV_KEY_NAMES[backend];
   if (process.env[envVarName]) return `env:${envVarName}`;
@@ -387,16 +404,19 @@ export async function getApiKeySource(backend: AIBackend): Promise<string> {
 /** The user's stored BYOK keys for a backend (t/835) — excludes env/platform
  *  keys; for the Settings key-management list. */
 export async function getStoredApiKeys(backend: AIBackend = 'gemini'): Promise<string[]> {
+  if (isAnonymousRequest()) return []; // t/501
   return getKeyStore(getStateRoot).getKeys(backend, getCurrentUserId());
 }
 
 /** Append a BYOK key for a backend (t/835); returns the new key list. */
 export async function addApiKey(key: string, backend: AIBackend = 'gemini'): Promise<string[]> {
+  refuseAnonymousKeyWrite();
   return getKeyStore(getStateRoot).addKey(backend, getCurrentUserId(), key);
 }
 
 /** Remove the BYOK key at `index` for a backend (t/835); returns the new key list. */
 export async function removeApiKey(index: number, backend: AIBackend = 'gemini'): Promise<string[]> {
+  refuseAnonymousKeyWrite();
   return getKeyStore(getStateRoot).removeKey(backend, getCurrentUserId(), index);
 }
 
@@ -406,6 +426,7 @@ export async function hasApiKey(backend: AIBackend = 'gemini'): Promise<boolean>
 }
 
 export async function storeApiKey(key: string, backend: AIBackend = 'gemini'): Promise<void> {
+  refuseAnonymousKeyWrite();
   await getKeyStore(getStateRoot).set(backend, getCurrentUserId(), key);
 }
 
@@ -434,11 +455,13 @@ export async function getPaidGeminiFallbackKey(): Promise<string | null> {
 
 /** Admin: store the paid Gemini fallback key in the `_system` key-store partition. */
 export async function setPaidGeminiFallbackKey(key: string): Promise<void> {
+  refuseAnonymousKeyWrite();
   await getKeyStore(getStateRoot).set('gemini', PAID_FALLBACK_PARTITION, key);
 }
 
 /** Admin: remove the stored paid Gemini fallback key (the env-var path, if any, persists). */
 export async function deletePaidGeminiFallbackKey(): Promise<void> {
+  refuseAnonymousKeyWrite();
   await getKeyStore(getStateRoot).delete('gemini', PAID_FALLBACK_PARTITION);
 }
 
@@ -450,6 +473,7 @@ export async function deletePaidGeminiFallbackKey(): Promise<void> {
 const ALL_AI_BACKENDS = Object.keys(ENV_KEY_NAMES) as AIBackend[];
 
 export async function deleteApiKey(backend: AIBackend = 'gemini'): Promise<void> {
+  refuseAnonymousKeyWrite();
   await getKeyStore(getStateRoot).delete(backend, getCurrentUserId());
 }
 
