@@ -55,7 +55,7 @@ function makeGitHub() {
   const state = {
     pr: { number: 7, body: 'Tier: T1\n\nA change.', head: HEAD, pushAt: PUSH },
     comments: [], reviews: [], checkRuns: [], nextId: 100, calls: [],
-    failUpdate: false, failList: false,
+    failUpdate: false, failList: false, updatesOfCompleted: [],
   };
   let clock = 0;
   const stamp = () => new Date(Date.parse('2026-11-24T13:00:00Z') + 1000 * clock++).toISOString();
@@ -87,6 +87,9 @@ function makeGitHub() {
       if (state.failUpdate) throw Object.assign(new Error('HTTP 422 Unprocessable'), { status: 422 });
       const run = state.checkRuns.find((r) => r.id === p.check_run_id);
       assert.ok(run, `update of unknown check run ${p.check_run_id}`);
+      // Worst case for a COMPLETED run (Lead t/534#9 point 2): GitHub answers 200 and keeps the
+      // old status and conclusion. The guard must never depend on rewriting one.
+      if (run.status === 'completed') { state.updatesOfCompleted.push(run.id); return run; }
       run.status = p.status;
       run.conclusion = p.status === 'completed' ? p.conclusion : null;
       run.output = p.output;
@@ -260,6 +263,49 @@ test('t/534 FALLBACK: if the update is refused, a new run is created with a WARN
   assert.ok(log.warning.some((w) => /could not update check run \d+/.test(w)), log.warning.join(' | '));
   assert.equal(ours(gh).length, 2);
   assert.deepEqual(enqueueVerdict(gh), { allow: true, reason: 'guard_success', warn: null });
+});
+
+const appReview = (state, body, at, head = HEAD) => ({ state, body, submitted_at: at, commit_id: head, user: { login: 'ai-triad-reviewer-jpsnover[bot]' } });
+
+test('t/534#9 DISMISSAL: approved then the App review dismissed at the same head -> a NEW pending run, the green one is never rewritten', async () => {
+  const gh = makeGitHub();
+  gh.state.reviews.push(appReview('APPROVED', 'Approved (Quality): looks right.', AFTER));
+  await runGuard(gh);
+  const greenId = ours(gh)[0].id;
+  assert.equal(ours(gh)[0].conclusion, 'success');
+  assert.deepEqual(enqueueVerdict(gh), { allow: true, reason: 'guard_success', warn: null });
+  gh.state.reviews[0].state = 'DISMISSED';
+  const log = await runGuard(gh);
+  assert.deepEqual(log.failed, [], 'awaiting review again: the job must not fail');
+  assert.deepEqual(gh.state.updatesOfCompleted, [], 'a completed run must never be the target of checks.update');
+  const runs = ours(gh);
+  assert.equal(runs.length, 2);
+  const green = runs.find((r) => r.id === greenId);
+  const fresh = runs.find((r) => r.id !== greenId);
+  assert.equal(green.conclusion, 'success', 'the old run is left as it was');
+  assert.equal(fresh.status, 'in_progress');
+  assert.equal(fresh.output.title, 't1-approval-guard: awaiting review');
+  assert.deepEqual(enqueueVerdict(gh), { allow: false, reason: 'guard_in_progress', warn: null }, 'the newest (pending) run decides');
+});
+
+test('t/534#9 CHANGES REQUESTED AFTER APPROVAL: a completed success row is not rewritten; a new failure run decides', async () => {
+  const gh = makeGitHub();
+  gh.state.comments.push(comment('Approved (Quality): looks right.', AFTER));
+  await runGuard(gh);
+  gh.state.comments.push(comment('Changes requested (Quality): one more thing.', LATER));
+  const log = await runGuard(gh);
+  assert.equal(log.failed.length, 1);
+  assert.deepEqual(gh.state.updatesOfCompleted, []);
+  assert.equal(ours(gh).length, 2);
+  assert.deepEqual(enqueueVerdict(gh), { allow: false, reason: 'guard_failure', warn: null });
+});
+
+test('t/534#9 PENDING STILL UPDATES: an in-progress run is the one updated (same row), never a completed one', async () => {
+  const gh = makeGitHub();
+  await runGuard(gh);
+  await runGuard(gh); // a second awaiting-review evaluation (e.g. an unrelated comment)
+  assert.equal(ours(gh).length, 1, 'repeated pending evaluations keep one row');
+  assert.deepEqual(gh.state.updatesOfCompleted, []);
 });
 
 test('t/534 FALLBACK: if listing the head\'s runs fails, a new run is created with a WARN (never no row)', async () => {

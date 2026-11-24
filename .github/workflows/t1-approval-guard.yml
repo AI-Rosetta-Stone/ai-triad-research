@@ -35,8 +35,12 @@ name: t1-approval-guard
 #   outstanding changes-request      -> `t1-approval-guard` failure; `evaluate` failure.
 #   cannot evaluate (crash, no head) -> `t1-approval-guard` failure; `evaluate` failure (t/4819).
 #   not T1                           -> `t1-approval-guard` success; `evaluate` success.
-# Every evaluation at a head UPDATES the one `t1-approval-guard` run it opened there (postCheckRun),
-# so an approval turns the push's pending row green instead of adding a second row (#5392).
+# While the head's `t1-approval-guard` run is pending, the next evaluation UPDATES it (postCheckRun),
+# so an approval turns the push's pending row green instead of adding a second row (#5392). Once
+# it has completed, a later evaluation (dismissal, changes-request) CREATES a new run, which is the
+# newest and so the one shown and read (t/534#9). No consumer reads `evaluate` as a verdict: it is
+# not a required context, and enqueue-pr.mjs, t1-approval-at-head.mjs, the sweeps, pr-triage,
+# stuck-pr-classifier and my-prs.mjs select rows by name and never by `evaluate` (t/534#10).
 #
 # t/4247 (TL, 2026-10-20): the check went stale 6x in one day after an approval arrived -- the
 # issue_comment/pull_request_review triggers above were already in place, but a workflow run
@@ -230,15 +234,26 @@ jobs:
             // CANNOT EVALUATE would let an API outage that exhausts the retries PASS the gate
             // (fail-open). t/4819, TL condition p/12#44.
             //
-            // t/534 (PI decision t/531 items 1 and 4): ONE ROW PER HEAD. `conclusion` may also be
-            // 'pending' (awaiting review): the run is left `in_progress`, never failed. Every later
-            // evaluation at the same head UPDATES that same run (found by CHECK_EXTERNAL_ID, which
-            // only this function sets), so the approval settles the row the push opened instead of
-            // adding a green row beside a red or pending one (#5392). A run is created only when
-            // none of ours exists at the head. If the lookup or the update fails, a new run is
-            // created (WARN): enqueue-pr.mjs reads the LATEST non-skipped run at the head, so the
-            // new one still decides. ci.yml's merge_group job shares the name but never sets this
-            // external_id, so it is never picked up here.
+            // t/534 (PI decision t/531 items 1 and 4): ONE ROW PER HEAD while it is pending.
+            // `conclusion` may also be 'pending' (awaiting review): the run is left `in_progress`,
+            // never failed. A later evaluation at the same head UPDATES that run while it is still
+            // in progress, so the approval settles the row the push opened instead of adding a
+            // green row beside a red or pending one (#5392). Once our run has COMPLETED, every
+            // later evaluation CREATES a new run instead (Lead t/534#9 point 2): GitHub is not
+            // shown to move a completed run back to in_progress or change its conclusion, so a
+            // dismissal or a new changes-request must never rely on rewriting a green run.
+            // enqueue-pr.mjs reads the LATEST non-skipped run at the head, so the new one decides.
+            // If the lookup or the update fails, a new run is created too (WARN). ci.yml's
+            // merge_group job shares the name but never sets this external_id, so it is never
+            // picked up here.
+            //
+            // CHECK_EXTERNAL_ID IS NOT PROOF OF ORIGIN (Lead t/534#9 point 3). Any Actions run with
+            // `checks: write`, including one running a PR's own workflow, can create a
+            // `t1-approval-guard` run with this external_id under the same `github-actions` app, and
+            // findOwnCheckRun would then pick it up. It only selects which display row to update.
+            // That is harmless solely because the row is display only: enqueue-pr.mjs and the
+            // sweeps decide from the reviews and comments themselves (t/534 part A, Security
+            // condition 3) and never read this row as an input. Never treat it as an identity.
             const CHECK_EXTERNAL_ID = 't1-approval-guard:api';
             async function findOwnCheckRun(headSha) {
               const runs = await withRetry('checks.listForRef', () => github.paginate(github.rest.checks.listForRef, { owner, repo, ref: headSha, check_name: 't1-approval-guard', filter: 'all', per_page: 100 }));
@@ -256,6 +271,10 @@ jobs:
                 existing = await findOwnCheckRun(headSha);
               } catch (err) {
                 core.warning(`WARN t1-approval-guard: could not list this head's check runs (${String(err && err.message ? err.message : err).split('\n')[0]}); creating a new t1-approval-guard run instead of updating one.`);
+              }
+              if (existing && existing.status === 'completed') {
+                core.info(`t1-approval-guard: check run ${existing.id} at this head has already completed (${existing.conclusion}); creating a new run rather than rewriting a completed one (t/534#9).`);
+                existing = null;
               }
               if (existing) {
                 try {
