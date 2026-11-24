@@ -44,7 +44,7 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: 
 
 import {
   chatTurnTokens, trackFreePoolReservation, recordChatTokenUsage, enforceChatAccess,
-  promptCharsOf, CHAT_OUTPUT_TOKEN_ALLOWANCE,
+  promptCharsOf, CHAT_OUTPUT_TOKEN_ALLOWANCE, settleProviderTurn,
 } from '../routes/chat.js';
 
 beforeEach(() => {
@@ -91,6 +91,13 @@ describe('t/494: chat turn tokens are the real usage', () => {
     expect(refused).toBe(true);
     expect(res.writeHead).toHaveBeenCalledWith(429, expect.anything());
     expect(res.end).toHaveBeenCalledWith(expect.stringContaining('Daily token limit exceeded'));
+  });
+
+  it('a failed provider turn (no usage reported) still books the estimate on both books (Security p/93#27)', async () => {
+    const commit = vi.fn(async () => undefined);
+    await settleProviderTurn({ commit }, { limitKey: 'user-b', dailyTokenLimit: 500_000, promptChars: 40_000 }, undefined);
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({ inputTokens: 10_000, outputTokens: CHAT_OUTPUT_TOKEN_ALLOWANCE, estimated: true }));
+    expect(h.recordTokenUsage).toHaveBeenCalledWith('user-b', 10_000, CHAT_OUTPUT_TOKEN_ALLOWANCE, 500_000);
   });
 
   it('promptCharsOf counts the system instruction and every message', () => {

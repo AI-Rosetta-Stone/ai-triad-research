@@ -260,6 +260,9 @@ async function resolveExplicitAiKey(
 /** t/494: the tokens one chat turn books, against the free pool and the per-user daily limit. */
 export interface ChatTurnTokens { inputTokens: number; outputTokens: number; estimated: boolean }
 
+/** t/494: the provider's usage for one turn, as Shared Lib's stream returns it (#5405). */
+export interface TurnUsage { promptTokens?: number; completionTokens?: number; totalTokens?: number }
+
 /** Output allowance used when the provider reports no usage for a turn. Chat sets no max-output
  *  cap, so this is a deliberately high bound for a reply (over-counting is the safe side). */
 export const CHAT_OUTPUT_TOKEN_ALLOWANCE = 8192;
@@ -267,9 +270,12 @@ export const CHAT_OUTPUT_TOKEN_ALLOWANCE = 8192;
 /** t/494: the provider's real usage when the stream reported it. Otherwise an estimate from the
  *  prompt size (about 4 characters per token) plus the output allowance, with a WARN — never the
  *  flat FREE_POOL_CALL_TOKEN_ESTIMATE, which under-counts a ~150K-token turn about 75 times. */
-export function chatTurnTokens(usage: { promptTokens?: number; completionTokens?: number } | undefined, promptChars: number): ChatTurnTokens {
+export function chatTurnTokens(usage: TurnUsage | undefined, promptChars: number): ChatTurnTokens {
   if (usage && typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number') {
-    return { inputTokens: usage.promptTokens, outputTokens: usage.completionTokens, estimated: false };
+    // Thinking and tool-use tokens may sit outside candidatesTokenCount, but totalTokenCount covers the
+    // whole call (Firebase docs: total = input + output incl. thinking). Book the larger output figure.
+    const fromTotal = typeof usage.totalTokens === 'number' ? usage.totalTokens - usage.promptTokens : 0;
+    return { inputTokens: usage.promptTokens, outputTokens: Math.max(usage.completionTokens, fromTotal), estimated: false };
   }
   log.server.warn({ promptChars, outputAllowance: CHAT_OUTPUT_TOKEN_ALLOWANCE }, 'chat-stream: provider returned no usage; booking an estimate from the prompt size (t/494)');
   return { inputTokens: Math.ceil(promptChars / 4), outputTokens: CHAT_OUTPUT_TOKEN_ALLOWANCE, estimated: true };
@@ -279,6 +285,24 @@ export function chatTurnTokens(usage: { promptTokens?: number; completionTokens?
  *  be sent as a header here (the SSE head is already written), so it is not surfaced. */
 export function recordChatTokenUsage(limitKey: string, turn: ChatTurnTokens, dailyTokenLimit: number): void {
   rateLimiter.recordTokenUsage(limitKey, turn.inputTokens, turn.outputTokens, dailyTokenLimit);
+}
+
+/** t/494: a turn that reached the provider, with what its books need. */
+export interface ProviderTurn { limitKey: string; dailyTokenLimit: number; promptChars: number }
+
+/** t/494: book one provider turn against the free pool and the per-user daily limit. Called from the
+ *  handler's `finally`, so a failed turn is booked too (Security p/93#27). Never throws: commit
+ *  swallows its own store errors. */
+export async function settleProviderTurn(
+  budget: { commit(turn: ChatTurnTokens): Promise<void> },
+  pt: ProviderTurn,
+  usage: TurnUsage | undefined,
+): Promise<void> {
+  const turn = chatTurnTokens(usage, pt.promptChars);
+  // Per-user bucket first: it is in-process and cannot fail, so the user's daily limit reflects the
+  // turn even if the free-pool store commit below throws (Second Opinion, p/252#15).
+  recordChatTokenUsage(pt.limitKey, turn, pt.dailyTokenLimit);
+  await budget.commit(turn);
 }
 
 /** t/4485 (+ t/4485#9 debate reconciliation): pure mirror of routes/ai.ts's
@@ -365,7 +389,9 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
     // t/4485: a no-op tracker until resolveExplicitAiKey resolves a real reservationId below.
     let freePoolBudget = trackFreePoolReservation(null);
     // t/494: the Gemini stream's usage for this turn, when the provider reported it.
-    let geminiUsage: { promptTokens?: number; completionTokens?: number } | undefined;
+    let geminiUsage: TurnUsage | undefined;
+    // t/494: set once the turn is about to reach the provider; settled in `finally`.
+    let providerTurn: ProviderTurn | null = null;
     try {
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
 
@@ -406,6 +432,7 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
 
       const effectiveTemperature = temperature ?? 0.7;
 
+      providerTurn = { limitKey, dailyTokenLimit: tier.limits.tokensPerDay, promptChars: promptCharsOf(messages as ChatMessage[], systemInstruction as string) };
       if (backend === 'gemini') {
         geminiUsage = await streamGeminiChat(res, {
           messages: messages as ChatMessage[],
@@ -434,13 +461,6 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
         data: { model: requestModel, backend, urlContext },
       });
 
-      // t/4485: chat-stream doesn't surface a token count back to this handler (SSE chunks, no
-      // final usage event) — commits the same conservative estimate used at reserve time,
-      // rather than a real reconciled count. Known simplification vs. the generate path.
-      // t/494: book the turn's real tokens against the free pool and the per-user daily limit.
-      const turn = chatTurnTokens(geminiUsage, promptCharsOf(messages as ChatMessage[], systemInstruction as string));
-      await freePoolBudget.commit(turn);
-      recordChatTokenUsage(limitKey, turn, tier.limits.tokensPerDay);
     } catch (err) {
       log.server.error({ component: 'ai-chat-stream', err }, 'chat-stream failed');
       const chatErrMsg = err instanceof ActionableError
@@ -463,8 +483,11 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       }
     } finally {
       if (!res.writableEnded) res.end();
-      // t/4485: return any reservation that never made it to a successful commit.
-      await freePoolBudget.releaseIfUnsettled();
+      // t/494 (Security p/93#27): every turn that reached the provider books its tokens, on success
+      // AND on failure — the provider has the prompt either way. Real usage when reported, otherwise
+      // the prompt-size estimate. Only a turn that never reached the provider returns its reservation.
+      if (providerTurn) await settleProviderTurn(freePoolBudget, providerTurn, geminiUsage);
+      else await freePoolBudget.releaseIfUnsettled();
     }
   });
 }
@@ -488,7 +511,7 @@ async function streamGeminiChat(
     temperature: number;
     urlContext: boolean;
   },
-): Promise<{ promptTokens?: number; completionTokens?: number } | undefined> {
+): Promise<TurnUsage | undefined> {
   const { messages, systemInstruction, apiModelId, apiKey, temperature, urlContext } = opts;
   const geminiContents: GeminiContent[] = messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
 
@@ -503,7 +526,7 @@ async function streamGeminiChat(
   // t/491: the provider's stop reason ('max_tokens' means the reply was cut off mid-answer).
   let stopReason: string | undefined;
   // t/494: the final chunk's cumulative usage (Shared Lib, #5405).
-  let usage: { promptTokens?: number; completionTokens?: number } | undefined;
+  let usage: TurnUsage | undefined;
 
   try {
     const result = await generateViaGeminiStream(
