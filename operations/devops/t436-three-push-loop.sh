@@ -9,11 +9,13 @@ W=$(mktemp -d) || exit 1
 mkdir -p "$W/stub"
 cat > "$W/stub/pnpm" <<'STUB'
 #!/bin/sh
+# t/436: date +%s%N cut to ms, never %3N (uutils date drops the leading zeros before truncating).
+now_ms() { _ns=$(date +%s%N); echo "${_ns%??????}"; }
 case " $* " in
   *" vitest "*)
-    echo "start $$ $(date +%s%3N) $*" >>"$AITRIAD_TEST_LOG"
+    echo "start $$ $(now_ms) $*" >>"$AITRIAD_TEST_LOG"
     sleep "${AITRIAD_TEST_VITEST_SECS:-2}"
-    echo "end $$ $(date +%s%3N)" >>"$AITRIAD_TEST_LOG"
+    echo "end $$ $(now_ms)" >>"$AITRIAD_TEST_LOG"
     exit 0 ;;
 esac
 exit 0
