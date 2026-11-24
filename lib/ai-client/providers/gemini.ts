@@ -93,6 +93,13 @@ function toUsage(um: GeminiUsageMetadata | undefined): ProviderResult['usage'] {
   } : undefined;
 }
 
+/** Requests JSON output when the caller asks for it (t/542: shared by the streaming and non-streaming paths). */
+function applyJsonMode(genConfig: Record<string, unknown>, opts: GenerateOptions): void {
+  if (!opts.jsonMode && !opts.responseSchema) return;
+  genConfig.responseMimeType = 'application/json';
+  if (opts.responseSchema) genConfig.responseSchema = toGeminiSchema(opts.responseSchema);
+}
+
 export async function generateViaGemini(
   fetchFn: FetchFn,
   prompt: string,
@@ -107,12 +114,7 @@ export async function generateViaGemini(
     temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
     maxOutputTokens: opts.maxTokens ?? 16384,
   };
-  if (opts.jsonMode || opts.responseSchema) {
-    genConfig.responseMimeType = 'application/json';
-    if (opts.responseSchema) {
-      genConfig.responseSchema = toGeminiSchema(opts.responseSchema);
-    }
-  }
+  applyJsonMode(genConfig, opts);
 
   const body: Record<string, unknown> = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -200,6 +202,8 @@ export async function generateViaGeminiStream(
     temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
     maxOutputTokens: opts.maxTokens ?? 16384,
   };
+  // t/542: same JSON mode as generateViaGemini, so a streamed reply is valid JSON from the model.
+  applyJsonMode(genConfig, opts);
 
   const contents = opts.geminiContents ?? [{ role: 'user', parts: [{ text: prompt }] }];
   const body: Record<string, unknown> = {
