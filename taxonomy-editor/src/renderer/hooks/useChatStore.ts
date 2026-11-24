@@ -17,8 +17,8 @@ import { mapErrorToUserMessage } from '../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { api } from '@bridge';
 import type { UrlContextMetadata } from '@lib/ai-client/index';
-import { formatTaxonomyContext } from '../utils/taxonomyContext';
-import type { TaxonomyContext, FormatContextConfig } from '../utils/taxonomyContext';
+import type { TaxonomyContext } from '../utils/taxonomyContext';
+import { buildChatTaxonomyTurn, type ChatTurnQuery, type ChatTurnResult } from '../utils/chatTaxonomyTurn';
 import { applyTagSelection, checkTagScope } from '@lib/debate/relevanceSelection';
 import type { SeatTag, TagSelection } from '@lib/debate/types/session';
 import { resolvePoverInfo } from '@lib/debate/tagSoulRegistry';
@@ -141,8 +141,6 @@ function stripCodeFences(text: string): string {
   return text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
 }
 
-const CHAT_CONTEXT_CONFIG: FormatContextConfig = { maxNodes: 9999, maxDesires: 9999 };
-
 /** The soul the chat's POVer speaks as: the tag soul when the chat is tagged (spec §1: it replaces the POV
  *  soul), else the base soul. Browser-safe tagSoulRegistry, never soulDocLoader. Throws if the tag has no
  *  soul, so a tagged chat never silently speaks in the base voice (t/3995). */
@@ -157,7 +155,7 @@ export function chatTagSelection(chat: Pick<ChatSession, 'pov_tag' | 'tag_mode'>
 
 /** The taxonomy a chat is given. Chat has no relevance ranking: every POV node is sent, except that a
  *  Scope-tagged chat is given only its tagged nodes (t/3995). Prioritize keeps every node; its ordering is
- *  applied by chatTaxonomyBlock through formatTaxonomyContext (t/3996). */
+ *  applied by the chat turn builder (t/3996). */
 function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>): TaxonomyContext {
   const state = useTaxonomyStore.getState();
   const povFile = state[pov as 'accelerationist' | 'safetyist' | 'skeptic'];
@@ -180,26 +178,34 @@ function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag
   return { povNodes, situationNodes };
 }
 
-/** The formatted taxonomy block for a chat turn. A Prioritize chat passes its tagged ids (the shared
- *  applyTagSelection boost set) to formatTaxonomyContext, which sorts them first within each BDI category
- *  and marks them ▲ (t/3996). Scope was already narrowed by getTaxonomyContext. */
-function chatTaxonomyBlock(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>): string {
+/** The taxonomy block for a chat turn (t/348): per-turn relevance selection, the 12-node and 4-situation
+ *  caps, statements instead of descriptions, and the trace. See utils/chatTaxonomyTurn.ts. */
+async function chatTaxonomyTurnFor(
+  pov: string,
+  chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>,
+  query: ChatTurnQuery,
+): Promise<ChatTurnResult> {
   const ctx = getTaxonomyContext(pov, chat);
   const tagSelection = chatTagSelection(chat);
-  if (tagSelection?.mode !== 'prioritize') return formatTaxonomyContext(ctx, pov, undefined, CHAT_CONTEXT_CONFIG);
-  const { boostIds } = applyTagSelection(ctx.povNodes, tagSelection);
   // Setup refuses a Prioritize tag with no tagged nodes (t/3959), but tags can change after a chat starts.
-  if (boostIds.length === 0) {
+  if (tagSelection?.mode === 'prioritize' && applyTagSelection(ctx.povNodes, tagSelection).boostIds.length === 0) {
     getGlobalRecorder()?.record({
       type: 'state.change', component: 'chat-store', level: 'warn',
       message: 'Prioritize-tagged chat has no tagged nodes left; nothing is ordered first',
       data: { chat_session_id: chat.id, pov, tag: tagSelection.tag },
     });
   }
-  return formatTaxonomyContext(ctx, pov, undefined, {
-    ...CHAT_CONTEXT_CONFIG,
-    tagSelection: { taggedIds: new Set(boostIds), mode: 'prioritize' },
-  });
+  return buildChatTaxonomyTurn(
+    { pov: pov as 'accelerationist' | 'safetyist' | 'skeptic', ctx, tagSelection, query },
+    {
+      computeQueryVector: (text) => api.computeQueryEmbedding(text),
+      fetchRelevantNodes: (payload) => api.fetchRelevantNodes(payload),
+      chatSyntheticStatements: (payload) => api.chatSyntheticStatements(payload),
+      warn: (message) => {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message });
+      },
+    },
+  );
 }
 
 /** Remove reasoning-model `<think>…</think>` / `<thinking>…</thinking>` blocks that
@@ -476,13 +482,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     try {
       const info = chatSoul(activeChat);
-      const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
+      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, { topic: activeChat.topic, previousPoverText: '', lastUserMessage: '' });
+      if (!isStillValid()) return;
       const model = getConfiguredModel();
       const temperature = resolveChatTemperature(activeChat);
 
       const systemInstruction = chatSystemPrompt(
         info.label, info.pov, info.personality,
-        activeChat.mode, activeChat.topic, taxonomyBlock,
+        activeChat.mode, activeChat.topic, turn.block,
       );
       const userContent = chatOpeningPrompt(activeChat.mode, activeChat.topic);
 
@@ -510,6 +517,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: response,
         taxonomy_refs: taxonomyRefs,
         ...rawFields,
+        ...turn.trace,
       };
 
       const updated = {
@@ -586,7 +594,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     try {
       const info = chatSoul(activeChat);
-      const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
+      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, { topic: activeChat.topic, previousPoverText: [...activeChat.transcript].reverse().find(e => e.speaker !== 'user')?.content ?? '', lastUserMessage: message.trim() });
+      if (!isStillValid()) return;
       const model = getConfiguredModel();
       const temperature = resolveChatTemperature(activeChat);
 
@@ -608,7 +617,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       });
       const systemInstruction = chatSystemPrompt(
         info.label, info.pov, info.personality,
-        activeChat.mode, activeChat.topic, taxonomyBlock,
+        activeChat.mode, activeChat.topic, turn.block,
         urlContext,
       );
       const transcriptText = formatTranscriptForContext(
@@ -653,6 +662,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         taxonomy_refs: taxonomyRefs,
         ...(urlContextMetadata && { url_context_metadata: urlContextMetadata }),
         ...rawFields,
+        ...turn.trace,
       };
 
       const updated = {
