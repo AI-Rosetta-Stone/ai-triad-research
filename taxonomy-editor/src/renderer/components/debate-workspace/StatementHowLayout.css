@@ -44,7 +44,7 @@
 .sh-moves-label {
   color: var(--text-secondary);
   font-weight: 600;
-  margin-right: 4px;
+  font-size: var(--text-xs);
 }
 
 .sh-move-chip {
