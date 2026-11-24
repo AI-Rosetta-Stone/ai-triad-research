@@ -58,7 +58,15 @@ export function loadDocTitles(sessionId?: string): DocMetaMap | undefined {
     const __dir = path.dirname(fileURLToPath(import.meta.url));
     const root = resolveRepoRoot(__dir);
     const sourcesRoot = resolveSourcesRoot(root);
-    if (!sourcesRoot) return undefined;
+    if (!sourcesRoot) {
+      // t/492: without the sources root no document has a title, and every evidence citation falls
+      // back to its document id. Say so instead of returning quietly.
+      getGlobalRecorder()?.record({
+        type: 'state.error', component: 'debate-engine', level: 'warn', debate_id: sessionId,
+        message: `Document titles not loaded: no sources root for repo root ${root} (sources_root in .aitriad.json is missing or its directory does not exist). Evidence will be cited by document id (t/492)`,
+      });
+      return undefined;
+    }
     return loadDocMetadataMap(sourcesRoot);
   } catch (err) {
     getGlobalRecorder()?.record({
