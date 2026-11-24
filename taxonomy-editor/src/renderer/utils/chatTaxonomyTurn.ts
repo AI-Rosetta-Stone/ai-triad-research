@@ -25,6 +25,9 @@ const QUERY_TRIM = 1000;
 /** The relevant-nodes route accepts maxTotal 1..500 and minPerCategory 1..10 (t/424, relevantNodes.ts). The largest
  *  POV camp has 385 nodes, so 500 covers the whole POV; Scope is applied after the call. */
 const ALL_POV_NODES = 500;
+
+/** Shown at the top of the block when any line uses its label (not a statement), so the raw prompt makes the degraded turn visible. */
+export const CHAT_LABEL_ONLY_NOTE = 'Note: statements were not available for some of these nodes in this turn, so their lines show the label only.';
 /** The web statement route takes at most this many ids per request (t/348, CL p/166#39). */
 const CHAT_STATEMENT_BATCH = 12;
 
@@ -74,6 +77,9 @@ export interface ChatTurnDeps {
 }
 
 export interface ChatTurnInput {
+  /** False for an anonymous session: the statement route is refused for it in advance (403), so it is not called and
+   *  the label fallback is used (TL p/10#250). Defaults to true. */
+  statementsAvailable?: boolean;
   pov: 'accelerationist' | 'safetyist' | 'skeptic';
   /** The POV's nodes after Scope narrowing (getTaxonomyContext). The pool never leaves this set. */
   ctx: TaxonomyContext;
@@ -107,15 +113,34 @@ interface StatementRoundInput {
   pool: ScoredChatNode[];
   candidates: string[];
   boostIds: ReadonlySet<string>;
+  statementsAvailable: boolean;
+}
+
+interface StatementResolution {
+  kept: { nodeId: string; statement: string; index: number }[];
+  skipped: string[];
+  /** The kept nodes whose line uses the label, because they had no usable statement. */
+  labelOnly: string[];
 }
 
 /** Statements for the candidates, fetched in rounds of at most CHAT_STATEMENT_BATCH ids, the candidates first and then the
- *  next pool nodes in pool order, only as many as a backfill needs. If the route is unavailable, each candidate's line
- *  uses its label (a stated fallback, never description), and the WARN names the reason (TL p/10#248). */
-async function resolveStatements(input: StatementRoundInput): Promise<ReturnType<typeof resolveChatNodes>> {
-  const { pov, povById, deps, statementQuery, pool, candidates, boostIds } = input;
+ *  next pool nodes in pool order, only as many as a backfill needs. When the route cannot be used (an anonymous session,
+ *  or a failed round), only the candidates that still have no usable statement take their label (a stated fallback, never
+ *  description). Statements already fetched are kept. A WARN is recorded for an unexpected failure only (TL p/10#250). */
+async function resolveStatements(input: StatementRoundInput): Promise<StatementResolution> {
+  const { pov, povById, deps, statementQuery, pool, candidates, boostIds, statementsAvailable } = input;
   const order = [...candidates, ...poolByScore(pool, boostIds).map(n => n.nodeId).filter(id => !candidates.includes(id))];
   const statements: Record<string, ChatStatement | null> = {};
+  const hasUsable = (id: string): boolean => Boolean(statements[id]?.text);
+  const withLabels = (): StatementResolution => {
+    const labelOnly = candidates.filter(id => !hasUsable(id));
+    const merged: Record<string, ChatStatement | null> = { ...statements };
+    for (const id of labelOnly) merged[id] = { text: povById.get(id)?.label ?? id, index: 0 };
+    const resolved = resolveChatNodes(pool, candidates, merged, boostIds);
+    return { kept: resolved.kept, skipped: resolved.skipped, labelOnly: resolved.kept.map(k => k.nodeId).filter(id => labelOnly.includes(id)) };
+  };
+  if (!statementsAvailable) return withLabels();
+
   let next = 0;
   let resolved = resolveChatNodes(pool, candidates, statements, boostIds);
   while (next < order.length && resolved.kept.length < candidates.length) {
@@ -126,15 +151,13 @@ async function resolveStatements(input: StatementRoundInput): Promise<ReturnType
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'chat-store', level: 'warn',
-        message: `chat-taxonomy: reason=statements-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); candidates shown with labels only`,
+        message: `chat-taxonomy: reason=statements-unavailable pov=${pov} (${err instanceof Error ? err.message : String(err)}); candidates without a statement shown with labels only`,
       });
-      const labelStatements: Record<string, ChatStatement> = {};
-      for (const id of candidates) labelStatements[id] = { text: povById.get(id)?.label ?? id, index: 0 };
-      return resolveChatNodes(pool, candidates, labelStatements, boostIds);
+      return withLabels();
     }
     resolved = resolveChatNodes(pool, candidates, statements, boostIds);
   }
-  return resolved;
+  return { kept: resolved.kept, skipped: resolved.skipped, labelOnly: [] };
 }
 
 export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurnDeps): Promise<ChatTurnResult> {
@@ -184,9 +207,10 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
   const candidates = selectChatCandidates(pool, boostIds, CHAT_NODE_CAP);
 
   // 3. Statements, in rounds of at most CHAT_STATEMENT_BATCH ids (t/348#8, CL p/166#39).
-  const { kept, skipped } = await resolveStatements(
-    { pov, povById, deps, statementQuery: trimQuery(query.lastUserMessage || query.topic), pool, candidates, boostIds },
-  );
+  const { kept, skipped, labelOnly } = await resolveStatements({
+    pov, povById, deps, statementQuery: trimQuery(query.lastUserMessage || query.topic), pool, candidates, boostIds,
+    statementsAvailable: input.statementsAvailable !== false,
+  });
   for (const warning of chatSkipWarnings(pov, skipped)) deps.warn(warning);
 
   // 4. Situation cap: 4 by score, the top 2 injected in full.
@@ -212,10 +236,11 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
   );
 
   return {
-    block,
+    block: labelOnly.length > 0 ? `${CHAT_LABEL_ONLY_NOTE}\n${block}` : block,
     trace: buildChatTurnTrace(
       kept.map(k => ({ nodeId: k.nodeId, statement: { text: k.statement, index: k.index } })),
       situationNodes.map(n => n.id),
+      labelOnly,
     ),
     usedFallback,
   };

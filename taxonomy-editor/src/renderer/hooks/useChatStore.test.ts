@@ -12,6 +12,7 @@ const { mockApi, mockRecord, mockGetLabelForId, taxonomyNodes } = vi.hoisted(() 
   /** Accelerationist POV nodes the mocked taxonomy store returns (t/3995 tag tests set it). */
   const taxonomyNodes: { skeptic: Array<{ id: string; pov_tags?: string[] }> } = { skeptic: [] };
   const mockApi = {
+    checkAnonymousSession: vi.fn().mockResolvedValue(false),
     listChatSessions: vi.fn().mockResolvedValue([]),
     loadChatSession: vi.fn(),
     saveChatSession: vi.fn().mockResolvedValue(undefined),

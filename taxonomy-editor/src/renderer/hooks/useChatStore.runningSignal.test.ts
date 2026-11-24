@@ -12,6 +12,7 @@ const { mockApi, mockRegisterRun, mockFinishRun } = vi.hoisted(() => {
   const mockFinishRun = vi.fn();
   const mockRegisterRun = vi.fn().mockReturnValue(mockFinishRun);
   const mockApi = {
+    checkAnonymousSession: vi.fn().mockResolvedValue(false),
     listChatSessions: vi.fn().mockResolvedValue([]),
     loadChatSession: vi.fn(),
     saveChatSession: vi.fn().mockResolvedValue(undefined),

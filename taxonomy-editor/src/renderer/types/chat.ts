@@ -30,6 +30,9 @@ export interface ChatEntry {
   context_statements?: { node_id: string; index: number; text: string }[];
   /** t/348: the situation ids injected into this turn's prompt. */
   context_situation_ids?: string[];
+  /** t/348 (TL p/10#250): the injected nodes whose prompt line uses their label, because the statement route was not
+   *  used for this session or failed. Absent or empty when every line has a statement. */
+  label_only_node_ids?: string[];
 }
 
 export interface ChatSession {

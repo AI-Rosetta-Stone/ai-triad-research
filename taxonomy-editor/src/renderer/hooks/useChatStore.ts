@@ -201,8 +201,10 @@ async function chatTaxonomyTurnFor(
       data: { chat_session_id: chat.id, pov, tag: tagSelection.tag },
     });
   }
+  // An anonymous session is refused by the statement route in advance (TL p/10#250): it is not called, and labels are used.
+  const statementsAvailable = !(await api.checkAnonymousSession());
   return buildChatTaxonomyTurn(
-    { pov: pov as 'accelerationist' | 'safetyist' | 'skeptic', ctx, tagSelection, query },
+    { pov: pov as 'accelerationist' | 'safetyist' | 'skeptic', ctx, tagSelection, query, statementsAvailable },
     {
       computeQueryVector: (text) => api.computeQueryEmbedding(text),
       fetchRelevantNodes: (payload) => api.fetchRelevantNodes(payload),

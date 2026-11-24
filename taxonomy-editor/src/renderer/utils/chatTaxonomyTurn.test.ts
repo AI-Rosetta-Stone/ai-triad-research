@@ -247,3 +247,43 @@ describe('buildChatTaxonomyTurn — live-round fixes (TL p/10#248, t/348#62)', (
     expect(turn.trace.context_node_ids.length).toBe(12);
   });
 });
+
+describe('buildChatTaxonomyTurn — label fallback only where needed (CL p/166#43, TL p/10#250)', () => {
+  it('a later round failing keeps the statements already fetched; only the candidate without one takes its label', async () => {
+    const c = ctx();
+    // Round 1: every candidate except the first two has a statement, so the first two need a backfill from round 2.
+    const round1 = (nodeIds: string[]) => Object.fromEntries(nodeIds.map(id => [id, (id === 'acc-bel-0' || id === 'acc-bel-1') ? null : { text: `S-${id}`, index: 0 }]));
+    const d = deps({
+      chatSyntheticStatements: vi.fn()
+        .mockImplementationOnce(async (p: { nodeIds: string[] }) => round1(p.nodeIds))
+        .mockImplementationOnce(async () => { throw new Error('boom'); }),
+    }, c);
+    const turn = await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    expect(turn.block).toContain('S-acc-des-0');
+    expect(turn.block).not.toContain('S-acc-bel-0');
+    expect(turn.trace.label_only_node_ids.length).toBeGreaterThan(0);
+    expect(turn.trace.label_only_node_ids.every(id => !turn.trace.context_statements.find(s => s.node_id === id && s.text.startsWith('S-')))).toBe(true);
+    expect(turn.block.startsWith('Note: statements were not available')).toBe(true);
+  });
+
+  it('an anonymous session does not call the statement route, uses labels, adds the note, and records them', async () => {
+    const c = ctx();
+    const statementCall = vi.fn();
+    const warn = vi.fn();
+    const d = deps({ chatSyntheticStatements: statementCall, warn }, c);
+    const turn = await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY, statementsAvailable: false }, d);
+    expect(statementCall).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(turn.block).toContain('label acc-bel-0');
+    expect(turn.block.startsWith('Note: statements were not available')).toBe(true);
+    expect(turn.trace.label_only_node_ids.length).toBe(turn.trace.context_node_ids.length);
+  });
+
+  it('with the statement route available and every line having a statement, there is no note and no label-only ids', async () => {
+    const c = ctx();
+    const d = deps({}, c);
+    const turn = await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: c, query: QUERY }, d);
+    expect(turn.block.startsWith('Note:')).toBe(false);
+    expect(turn.trace.label_only_node_ids).toEqual([]);
+  });
+});

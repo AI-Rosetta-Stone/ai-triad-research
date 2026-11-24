@@ -15,6 +15,7 @@ import { render, cleanup } from '@testing-library/react';
 const { mockApi, mockRecord } = vi.hoisted(() => {
   const mockRecord = vi.fn();
   const mockApi = {
+    checkAnonymousSession: vi.fn().mockResolvedValue(false),
     listChatSessions: vi.fn().mockResolvedValue([]),
     loadChatSession: vi.fn(),
     saveChatSession: vi.fn().mockResolvedValue(undefined),
