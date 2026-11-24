@@ -2,7 +2,7 @@
 // t/516: GET /health is unauthenticated, so an anonymous probe reaches it. For an anonymous request its
 // geminiKeyConfigured comes from the free pool and makes no owner-slot read. A signed-in request is unchanged.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 const h = vi.hoisted(() => ({
@@ -91,6 +91,21 @@ describe('t/516: GET /health for a signed-in caller is unchanged', () => {
   it('geminiKeyConfigured reflects the caller’s own key lookup', async () => {
     h.hasApiKey.mockResolvedValue(true);
     const body = await probe(ALICE);
+    expect(h.hasApiKey).toHaveBeenCalledWith('gemini');
+    expect(body.ai).toMatchObject({ geminiKeyConfigured: true });
+  });
+});
+
+// t/516 (SO p/252#24): single-operator local mode keeps the owner's key answer on /health.
+describe('t/516: AUTH_DISABLED single-operator mode on /health', () => {
+  const saved = process.env.AUTH_DISABLED;
+  beforeEach(() => { process.env.AUTH_DISABLED = '1'; });
+  afterEach(() => { if (saved === undefined) delete process.env.AUTH_DISABLED; else process.env.AUTH_DISABLED = saved; });
+
+  it('geminiKeyConfigured reads the owner\'s key under AUTH_DISABLED, even with an empty free pool', async () => {
+    h.freePoolKeys = 0;
+    h.hasApiKey.mockResolvedValue(true);
+    const body = await probe(ANON);
     expect(h.hasApiKey).toHaveBeenCalledWith('gemini');
     expect(body.ai).toMatchObject({ geminiKeyConfigured: true });
   });

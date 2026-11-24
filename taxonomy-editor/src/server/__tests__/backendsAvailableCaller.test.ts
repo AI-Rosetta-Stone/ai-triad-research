@@ -4,7 +4,7 @@
 // real router, and the request runs inside the real user context (runWithUser), so isAnonymousRequest() and
 // callerIdentity() are the production functions.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type http from 'http';
 
 const h = vi.hoisted(() => ({
@@ -119,5 +119,29 @@ describe('t/516: signed-in answers are unchanged', () => {
     expect(h.hasApiKey).toHaveBeenCalledWith('gemini');
     expect(body.backends.find(b => b.id === 'claude')).toMatchObject({ available: true });
     expect(body.backends.find(b => b.id === 'gemini')).toMatchObject({ available: false, reason: 'no_key' });
+  });
+});
+
+// t/516 (SO p/252#24): single-operator local mode. With AUTH_DISABLED=1 every request is anonymous, but the operator
+// is the owner: the owner's keys must still answer, so the hosted free-pool branch must not apply.
+describe('t/516: AUTH_DISABLED single-operator mode keeps the owner\'s key lookup', () => {
+  const saved = process.env.AUTH_DISABLED;
+  beforeEach(() => { process.env.AUTH_DISABLED = '1'; });
+  afterEach(() => { if (saved === undefined) delete process.env.AUTH_DISABLED; else process.env.AUTH_DISABLED = saved; });
+
+  it('an anonymous-flagged request under AUTH_DISABLED reads the key store per backend, as before', async () => {
+    h.hasApiKey.mockImplementation(async (b: string) => b === 'claude' || b === 'gemini');
+    const { body } = await callAs(ANON);
+    expect(h.hasApiKey).toHaveBeenCalledWith('gemini');
+    expect(h.hasApiKey).toHaveBeenCalledWith('claude');
+    expect(body.backends.find(b => b.id === 'claude')).toMatchObject({ available: true });
+    expect(body.backends.find(b => b.id === 'gemini')).toMatchObject({ available: true });
+  });
+
+  it('gemini is not decided by the free pool in this mode', async () => {
+    h.freePoolKeys = 0;
+    h.hasApiKey.mockResolvedValue(true);
+    const { body } = await callAs(ANON);
+    expect(body.backends.find(b => b.id === 'gemini')).toMatchObject({ available: true });
   });
 });

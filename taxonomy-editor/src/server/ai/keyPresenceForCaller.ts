@@ -10,10 +10,10 @@
 // Signed-in callers are unchanged: hasApiKey() resolves their own keys.
 
 import { hasApiKey, type AIBackend } from '../config.js';
-import { isAnonymousRequest } from '../security/userContext.js';
+import { isHostedAnonymousRequest } from '../security/userContext.js';
 import { freeTierKeyCount } from './proxyTiers.js';
 
 export async function callerHasKey(backend: string): Promise<boolean> {
-  if (isAnonymousRequest()) return backend === 'gemini' && freeTierKeyCount() > 0;
+  if (isHostedAnonymousRequest()) return backend === 'gemini' && freeTierKeyCount() > 0;
   return hasApiKey(backend as AIBackend);
 }
