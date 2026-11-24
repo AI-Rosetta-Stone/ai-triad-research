@@ -31,7 +31,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { DEFAULT_MODEL, withTimeout } from '../../../../lib/ai-client/index.js';
 import { log } from '../logger.js';
 import { loadSourcesIndex } from '../storage/sourcesIndexReader.js';
-import { docMetaMapFromSourcesIndex } from '../../../../lib/debate/docTitlesFromSourcesIndex.js';
+import { docMetaMapFromSourcesIndex, usableTitle } from '../../../../lib/debate/docTitlesFromSourcesIndex.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext, enforceBackendAllowed } from './generationContext.js';
 import { getDataRoot } from '../config.js';
@@ -99,8 +99,11 @@ function readDocMetaMap(sourcesRoot: string): DocMetaMap {
     if (!fs.existsSync(metaPath)) continue;
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-      if (meta.title) {
-        const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
+      // t/522: a title that is only an identifier (an arXiv id, or the doc's own id) is no title, the same rule as the
+      // hosted index mapping (Comp-Linguist, t/492#18). Such a document is left out and is cited by its id.
+      const title = usableTitle(meta.title, entry.name);
+      if (title) {
+        const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title };
         if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
         if (meta.provenance?.length > 0 && meta.provenance[0].id) docMeta.provenance_label = meta.provenance[0].id;
         if (!docMeta.resolved_url && meta.url) docMeta.resolved_url = meta.url;
