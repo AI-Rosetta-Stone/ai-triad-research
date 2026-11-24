@@ -140,6 +140,10 @@ describe('plan prompt attack-anchor block (t/388)', () => {
     const out = planOpeningStagePrompt({ ...(base as object), attackAnchors: true, steelmanRefsOffered: [{ id: 'AN-2', steelman_of: 'skeptic', text: 's' }] } as never, '{}');
     expect(out).toContain('=== ATTACK ANCHORS ===');
     expect(out).toContain('"targeting node <taxonomy_anchor>"');
+    // CL review t/485#5: the phrase is conditional, never "every ATTACK".
+    expect(out).toContain('When an ATTACK hits one of YOUR OWN argument_structure claims');
+    expect(out).toContain('If the attack hits none of your claims, omit the phrase.');
+    expect(out).not.toContain('End every ATTACK');
     expect(out.indexOf('=== STEELMAN REFERENCES ===')).toBeLessThan(out.indexOf('=== ATTACK ANCHORS ==='));
     expect(out.indexOf('=== ATTACK ANCHORS ===')).toBeLessThan(out.indexOf('Respond ONLY with a JSON object'));
   });

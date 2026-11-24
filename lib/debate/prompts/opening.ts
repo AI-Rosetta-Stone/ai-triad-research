@@ -52,7 +52,7 @@ export interface OpeningStagePromptInput {
 /** t/388: the attack-anchor instruction for the plan prompt. Returns '' when the flag is off. */
 function attackAnchorsBlock(on: boolean | undefined): string {
   if (!on) return '';
-  return `=== ATTACK ANCHORS ===\nEnd every ATTACK with "targeting node <taxonomy_anchor>", where <taxonomy_anchor> is the taxonomy_anchor of the argument_structure claim of YOURS that the attack hits. Use only an anchor that appears in your own argument_structure, written exactly, as the last thing in the item. Example: "ATTACK: <objection> targeting node <taxonomy_anchor>". An ASSUMPTION takes no anchor.\n\n`;
+  return `=== ATTACK ANCHORS ===\nWhen an ATTACK hits one of YOUR OWN argument_structure claims, end it with "targeting node <taxonomy_anchor>", where <taxonomy_anchor> is that claim's taxonomy_anchor, written exactly, as the last thing in the item. Example: "ATTACK: <objection> targeting node <taxonomy_anchor>". Use only an anchor that appears in your own argument_structure. If the attack hits none of your claims, omit the phrase. An ASSUMPTION takes no anchor.\n\n`;
 }
 
 /** t/388: the steelman references block for the plan prompt. Returns '' when none are offered. */
