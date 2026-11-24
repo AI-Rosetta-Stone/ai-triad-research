@@ -123,6 +123,9 @@ param azureUserContentContainerStaging string = 'staging-user-content'
 // Order: staging first (anonOpEdLifecycleStagingEnabled), then prod before the prod deploy that
 // carries the t/500 code (anonOpEdLifecycleProdEnabled). Each needs SO clearance and the dry listing.
 @description('Blob name prefix (inside the container) for anonymous op-ed storage. Must be a top-level prefix no signed-in storage id can produce. Set to anon-oped/ (TaxonomyServer, t/500). Empty adds no rule.')
+@allowed([
+  'anon-oped/'
+])
 param anonOpEdLifecyclePrefix string = 'anon-oped/'
 @description('Apply the anonymous op-ed delete rule to staging-user-content. Staging first.')
 param anonOpEdLifecycleStagingEnabled bool = false
@@ -563,7 +566,10 @@ var anonOpEdLifecycleRules = concat(
           enabled: true
           type: 'Lifecycle'
           definition: {
-            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } } }
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonOpEdLifecycleAgeDays } }
+            }
             filters: {
               blobTypes: ['blockBlob']
               prefixMatch: ['${azureUserContentContainerStaging}/${anonOpEdLifecyclePrefix}']
@@ -579,7 +585,10 @@ var anonOpEdLifecycleRules = concat(
           enabled: true
           type: 'Lifecycle'
           definition: {
-            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } } }
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonOpEdLifecycleAgeDays } }
+            }
             filters: {
               blobTypes: ['blockBlob']
               prefixMatch: ['user-content/${anonOpEdLifecyclePrefix}']
