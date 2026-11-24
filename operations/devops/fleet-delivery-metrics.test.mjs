@@ -15,6 +15,7 @@ import {
   approvalWaitByTier,
   splitT2ApprovalWait,
   findSoClearedAt,
+  soRepliedAtHead,
   prSizeDistribution,
   openPRAgeDays,
   parsePILoadLines,
@@ -192,6 +193,70 @@ test('findSoClearedAt: no matching comment returns null, not a guess', () => {
   assert.equal(findSoClearedAt([{ body: 'Looks good to me', createdAt: '2026-10-19T10:00:00Z' }]), null);
   assert.equal(findSoClearedAt([]), null);
   assert.equal(findSoClearedAt(undefined), null);
+});
+
+// ── t/4972 (PR #5199 real shape): a conditional/send-back SO verdict still counts as a reply ──
+test('soRepliedAtHead: a "proceed with conditions" verdict at the current head counts as a reply (#5199 live shape)', () => {
+  const comments = [{
+    body: '**Second Opinion verdict, mirrored for the PI (round of 2026-11-15, six-PR consult): proceed with conditions at `5a14dae7f`.** The clearance from `9abc7e018` carries...',
+  }];
+  assert.equal(soRepliedAtHead(comments, '5a14dae7f9a34c062dbe2975f8f1e974284631ee'), true);
+});
+
+test('soRepliedAtHead: a "send back" verdict at the head does NOT suppress -- the PR went back to its author and must keep alerting (#4967 live shape; Quality, #5286 review)', () => {
+  const comments = [{
+    body: '**Second Opinion verdict, mirrored for the PI (round of 2026-11-15, six-PR consult): send back at `60f432ab8`.** Rebase and cut scope before a re-consult.',
+  }];
+  assert.equal(soRepliedAtHead(comments, '60f432ab8d3a850003cb42509ec3a7bd3d04d1ed'), false);
+  const sent = [{ body: '**Second Opinion verdict: sent back at `60f432ab8`.**' }];
+  assert.equal(soRepliedAtHead(sent, '60f432ab8d3a850003cb42509ec3a7bd3d04d1ed'), false, '"sent back" spelling too');
+});
+
+test('soRepliedAtHead: a clearance verdict at the head suppresses', () => {
+  const comments = [{ body: '**Second Opinion verdict: cleared at `60f432ab8`.** No conditions.' }];
+  assert.equal(soRepliedAtHead(comments, '60f432ab8d3a850003cb42509ec3a7bd3d04d1ed'), true);
+});
+
+test('soRepliedAtHead: the LATEST verdict at the head decides (proceed then send-back alerts; send-back then proceed does not)', () => {
+  const head = '60f432ab8d3a850003cb42509ec3a7bd3d04d1ed';
+  const proceed = { body: '**Second Opinion verdict: proceed with conditions at `60f432ab8`.**' };
+  const back = { body: '**Second Opinion verdict: send back at `60f432ab8`.**' };
+  assert.equal(soRepliedAtHead([proceed, back], head), false);
+  assert.equal(soRepliedAtHead([back, proceed], head), true);
+  assert.equal(soRepliedAtHead([back, { body: '**Second Opinion verdict: proceed at `0ff1ce000`.**' }], head), false, 'a verdict at another head does not replace the send-back');
+});
+
+test('soRepliedAtHead: "send back" mentioned only AFTER the cited head (in the reasoning) does not make a proceed a send-back', () => {
+  const c = [{ body: '**Second Opinion verdict: proceed with conditions at `60f432ab8`.** If the conditions slip, send back.' }];
+  assert.equal(soRepliedAtHead(c, '60f432ab8d3a850003cb42509ec3a7bd3d04d1ed'), true);
+});
+
+test('soRepliedAtHead: a verdict comment citing a DIFFERENT (superseded) head does not count -- an answer to an old push is not an answer to this one', () => {
+  const comments = [{
+    body: '**Second Opinion verdict: proceed with conditions at `aaaaaaa`.**',
+  }];
+  assert.equal(soRepliedAtHead(comments, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), false);
+});
+
+test('soRepliedAtHead: a verdict comment with no cited SHA at all does not count -- nothing to pin against', () => {
+  const comments = [{ body: '**Second Opinion verdict: proceed with conditions.** No head cited.' }];
+  assert.equal(soRepliedAtHead(comments, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), false);
+});
+
+test('soRepliedAtHead: a comment that only MENTIONS "Second Opinion" mid-body does not match -- must be the comment\'s own header', () => {
+  const comments = [{ body: 'Per the Second Opinion verdict from before at `bbbbbbb`, this is fine.' }];
+  assert.equal(soRepliedAtHead(comments, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), false);
+});
+
+test('soRepliedAtHead: no headSha provided never matches -- missing evidence is not evidence of a reply', () => {
+  const comments = [{ body: '**Second Opinion verdict: proceed with conditions at `bbbbbbb`.**' }];
+  assert.equal(soRepliedAtHead(comments, null), false);
+  assert.equal(soRepliedAtHead(comments, undefined), false);
+});
+
+test('soRepliedAtHead: empty/no comments never matches', () => {
+  assert.equal(soRepliedAtHead([], 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), false);
+  assert.equal(soRepliedAtHead(undefined, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), false);
 });
 
 test('splitT2ApprovalWait: fast SO-clear + slow PI sign-off (this week\'s dominant real shape, t/4091#40) splits correctly', () => {
