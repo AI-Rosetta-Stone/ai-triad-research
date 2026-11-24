@@ -229,14 +229,6 @@ function assertGroundingNonEmpty(
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
-/**
- * Run the five inquiry pipeline stages and return a validated InquiryResult.
- *
- * Stage faults propagate (the caller maps them to its own error codes). Budget /
- * truncation does NOT throw — terminationReason from runDebate flows into
- * projectTrust and surfaces as CalibrationEntry.trust.verdict = 'censored' on
- * affected convergence metrics. The result is always returned.
- */
 // t/284 item 1, pre-flight: the debate must run on the user's literal question with no reframe.
 // Checked before grounding and the debate spend, so a violation cannot throw after the spend.
 // topicPipeline sets topic.final = config.topic, and it reframes only when wisdomAutoReframe is on.
@@ -252,6 +244,14 @@ function assertLiteralQuestionPreflight(request: InquiryRequest, config: DebateC
   });
 }
 
+/**
+ * Run the five inquiry pipeline stages and return a validated InquiryResult.
+ *
+ * Stage faults propagate (the caller maps them to its own error codes). Budget /
+ * truncation does NOT throw — terminationReason from runDebate flows into
+ * projectTrust and surfaces as CalibrationEntry.trust.verdict = 'censored' on
+ * affected convergence metrics. The result is always returned.
+ */
 export async function runInquiryPipeline(
   request: InquiryRequest,
   deps: InquiryPipelineDeps,
