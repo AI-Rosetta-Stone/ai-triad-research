@@ -22,6 +22,10 @@
 //
 //   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id> --by=<collaborator id>]
 //
+// t/556: before anything else, the wrapper refuses unless its running copy (this file,
+// gate-file-change.mjs and every local module they import) is origin/main's
+// (running-copy-current.mjs). A stale copy can lack a refusal entirely (t/537#40). Fail closed.
+//
 // t/537: a PR that changes a workflow or a gate script is refused at every tier unless a
 // reviewer-App `Approved (Tech Lead):` or `Approved (Security):` review bound to the current head is
 // named with --gate-change-review (gate-file-change.mjs). The sweeps never pass it, so they skip
@@ -48,6 +52,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
 import { fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
+import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
 import {
   approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun,
 } from './t1-approval-at-head.mjs';
@@ -166,7 +171,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null } = {}) {
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, currency = checkRunningCopy } = {}) {
+  // t/556: BEFORE ANY OTHER CHECK, refuse unless this running copy (this file, gate-file-change.mjs
+  // and every local module they import) is origin/main's. A stale copy can lack a refusal entirely
+  // (t/537#40). Fail closed: a failed fetch or read refuses. `currency` is injectable for tests only.
+  const current = currency();
+  if (!current?.ok) {
+    throw Object.assign(new Error(currencyRefusalMessage(current ?? { reason: 'no_result', detail: 'the check returned nothing' })), {
+      name: 'ActionableError', reason: current?.reason ?? 'no_result',
+    });
+  }
+  console.log(currencyOkLine(current));
+
   const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
