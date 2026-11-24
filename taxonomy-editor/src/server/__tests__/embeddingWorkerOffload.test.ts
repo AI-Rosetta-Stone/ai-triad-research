@@ -43,7 +43,8 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({
 vi.mock('../storage/readDataFile.js', () => ({ readDataFile: vi.fn(async () => Buffer.from('{"nodes":{}}')) }));
 vi.mock('../ai/fsCache.js', () => ({ readFileWithMtime: vi.fn(() => ({ content: '{}', mtimeMs: 1 })) }));
 
-import { computeEmbeddings, _resetEmbeddingsCacheForTest, _setPythonAvailableForTest, ONNX_MISS_BATCH } from '../ai/aiBackends.js';
+import { computeEmbeddings, _resetEmbeddingsCacheForTest, _setPythonAvailableForTest } from '../ai/aiBackends.js';
+import { ONNX_MISS_BATCH } from '../ai/onnxSubBatches.js';
 
 const DIM = 8; // tiny vectors — dimensionality is irrelevant to liveness/conversion, keep the test cheap.
 

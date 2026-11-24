@@ -40,10 +40,8 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: 
 vi.mock('../storage/readDataFile.js', () => ({ readDataFile: vi.fn(async () => Buffer.from('{"nodes":{}}')) }));
 vi.mock('../ai/fsCache.js', () => ({ readFileWithMtime: vi.fn(() => ({ content: '{}', mtimeMs: 1 })) }));
 
-import {
-  computeEmbeddings, computeQueryEmbedding, computeInSubBatches, ONNX_MISS_BATCH,
-  _resetEmbeddingsCacheForTest, _setPythonAvailableForTest,
-} from '../ai/aiBackends.js';
+import { computeEmbeddings, computeQueryEmbedding, _resetEmbeddingsCacheForTest, _setPythonAvailableForTest } from '../ai/aiBackends.js';
+import { computeInSubBatches, ONNX_MISS_BATCH } from '../ai/onnxSubBatches.js';
 
 const corpusMisses = (n: number) => Array.from({ length: n }, (_, i) => `uncached node text ${i}`);
 let queryN = 0;
