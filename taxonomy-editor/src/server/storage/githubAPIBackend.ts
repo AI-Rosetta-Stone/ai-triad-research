@@ -391,6 +391,8 @@ export class GitHubAPIBackend implements StorageBackend {
   private pollStateHistory: Array<{ generation: number; paths: string[] }> = [];
   private pollLastSeenGeneration = 0;
   private pollLastSeenHolderId: string | null = null;
+  /** t/547: the commit this non-holder's manifest was brought to by its last applied poll state. */
+  private pollLastSeenCommitSha = '';
   private repoTreeRefillInFlight: Promise<void> | null = null;
 
   // Coherency probe stats
@@ -3751,6 +3753,12 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       return;
     }
+    // t/547 (for the t/504 staging proof): a healthy hand-over logged nothing, so the log could not show
+    // which replica held the lease.
+    if (isHolder !== wasHolder) {
+      log.storage.info({ holderId: this.holderId, container: this.pollLeaseContainer },
+        isHolder ? 'poll lease acquired: this replica is now the poll holder' : 'poll lease lost: this replica is now a non-holder');
+    }
     if (isHolder && !wasHolder) await this.seedGenerationAfterAcquiring();
   }
 
@@ -3994,62 +4002,76 @@ export class GitHubAPIBackend implements StorageBackend {
       return this.pollDirect();
     }
 
-    await this.applyPollState(state);
+    // t/547: a catch-up that could not load the new commit's tree applied nothing, so the bookkeeping
+    // stays where it was and the next tick tries the same catch-up again.
+    if (!(await this.applyPollState(state))) return;
 
     this.pollLastSeenGeneration = state.generation;
     this.pollLastSeenHolderId = state.holderId;
+    this.pollLastSeenCommitSha = state.lastCommitSha;
   }
 
-  /** Extracted from pollAsNonHolder() to keep its own complexity under
-   *  budget. Decides gap vs. incremental catch-up and applies it to the
-   *  local manifest/tree caches; does not touch pollLastSeen* bookkeeping. */
-  private async applyPollState(state: PollState): Promise<void> {
-    // t/4179 R2: a generation that goes backwards, or stays the same/lower
-    // while the holderId changed, is a gap — never trust it as "no change".
-    const generationWentBackwards = state.generation < this.pollLastSeenGeneration;
-    const suspiciousHolderChange = this.pollLastSeenHolderId !== null
-      && state.holderId !== this.pollLastSeenHolderId
-      && state.generation <= this.pollLastSeenGeneration;
+  /** Extracted from pollAsNonHolder() to keep its own complexity under budget. Brings the local manifest
+   *  and tree to the holder's published commit; does not touch pollLastSeen* bookkeeping.
+   *
+   *  t/547: the invariant is that the manifest's file entries and the live tree both describe
+   *  `manifest.lastCommitSha`. So there is nothing to do unless the published commit differs from ours,
+   *  whatever the generation says (a heartbeat with an empty history used to count as a gap and wipe the
+   *  whole cache on every tick). When it differs, the new commit's tree is loaded FIRST, and nothing else
+   *  changes unless that load succeeds (the old code reloaded the tree at the previous commit and then
+   *  advanced the manifest, so changed files kept serving their old blob). Then either only the published
+   *  changed paths are dropped, when they are known to cover the whole step from our commit, or every
+   *  file entry is.
+   *  Returns false when the tree load failed and nothing was applied. */
+  private async applyPollState(state: PollState): Promise<boolean> {
+    const targetSha = state.lastCommitSha;
+    const ourSha = this.manifest?.lastCommitSha ?? '';
+    if (!targetSha || targetSha === ourSha) return true;
 
-    if (this.pollLastSeenGeneration === 0 || generationWentBackwards || suspiciousHolderChange) {
-      await this.fullCacheInvalidation();
-      await this.ensureRepoTreeFilled();
-    } else if (state.generation > this.pollLastSeenGeneration) {
-      await this.applyIncrementalPollChanges(state);
+    const loaded = await this.fetchRepoTree(targetSha);
+    if (!loaded) {
+      log.storage.warn({ ourSha, targetSha, generation: state.generation },
+        'poll (non-holder): tree load failed for the published commit; manifest and live tree left unchanged, will retry on the next poll (t/547)');
+      return false;
     }
 
-    if (state.lastCommitSha && state.lastCommitSha !== this.manifest?.lastCommitSha) {
-      await this.updateManifestSha(state.lastCommitSha);
+    const paths = this.knownChangedPathsSince(state, ourSha);
+    if (paths === null) {
+      log.storage.warn({ ourSha, targetSha, generation: state.generation, lastSeenGeneration: this.pollLastSeenGeneration },
+        'poll (non-holder): the poll state cannot vouch for the changed paths since our commit; falling back to invalidating every cached file (t/547)');
     }
-  }
-
-  /** Extracted from applyPollState(): the "generation moved forward, no gap
-   *  detected yet" branch — still checks the history-list gap case. */
-  private async applyIncrementalPollChanges(state: PollState): Promise<void> {
-    const oldestTracked = state.changedSinceGeneration[0]?.generation;
-    const hasHistoryGap = oldestTracked === undefined || oldestTracked > this.pollLastSeenGeneration + 1;
-    if (hasHistoryGap) {
-      await this.fullCacheInvalidation();
-      await this.ensureRepoTreeFilled();
-      return;
-    }
-
-    const toApply = state.changedSinceGeneration.filter(e => e.generation > this.pollLastSeenGeneration);
-    const paths = new Set<string>();
-    for (const entry of toApply) for (const p of entry.paths) paths.add(p);
-    if (paths.size === 0) return;
-
     await this.withManifestLock(async () => {
-      for (const p of paths) if (this.manifest?.files[p]) delete this.manifest.files[p];
+      if (!this.manifest) return;
+      if (paths === null) this.manifest.files = {};
+      else for (const p of paths) delete this.manifest.files[p];
     });
-    this.repoTree.clear();
-    this.treeSha = null;
-    await this.ensureRepoTreeFilled();
+    await this.updateManifestSha(targetSha);
     this.recordEvent({
       type: 'cache.invalidate', component: 'cache', level: 'info',
-      message: `Poll (non-holder): ${paths.size} files changed`,
-      data: { paths: [...paths].slice(0, 20), trigger: 'poll-shared-state' },
+      message: paths === null
+        ? 'Poll (non-holder): changed paths unknown, all cached files invalidated'
+        : `Poll (non-holder): ${paths.size} files changed`,
+      data: { paths: paths === null ? [] : [...paths].slice(0, 20), trigger: 'poll-shared-state', sha: targetSha, full: paths === null },
     });
+    return true;
+  }
+
+  /** t/547: the paths that changed between our commit and the published one, or null when the poll state
+   *  cannot vouch for that whole step. It can only when: we applied this same holder's state before
+   *  (t/4179 R2: a new holder restarts its history), our manifest is still at the commit we applied then
+   *  (a direct-poll fallback in between moves it), the generation moved forward, and the history list was
+   *  not cut at its cap past our last generation. The list holds only generations that changed something,
+   *  so gaps between its entries are normal and are not a cut. */
+  private knownChangedPathsSince(state: PollState, ourSha: string): Set<string> | null {
+    const lastSeen = this.pollLastSeenGeneration;
+    if (lastSeen === 0 || state.holderId !== this.pollLastSeenHolderId) return null;
+    if (ourSha !== this.pollLastSeenCommitSha || state.generation <= lastSeen) return null;
+    const history = state.changedSinceGeneration;
+    const oldest = history[0]?.generation;
+    if (history.length >= POLL_STATE_HISTORY_CAP && oldest !== undefined && oldest > lastSeen + 1) return null;
+    const paths = new Set<string>();
+    for (const entry of history) if (entry.generation > lastSeen) for (const p of entry.paths) paths.add(p);
+    return paths;
   }
 
   /**
