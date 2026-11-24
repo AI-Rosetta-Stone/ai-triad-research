@@ -30,7 +30,22 @@ export const GATE_SCRIPTS = [
   'operations/devops/role-review-verdicts.mjs',
   'operations/devops/github-retry.mjs',
   'operations/devops/tier-check-predicate.mjs',
+  // The sweeps that decide enqueues, and the modules their decisions read. A sweep run by hand
+  // from a PR branch uses that branch's copy (Security, t/537).
+  'operations/devops/t0-enqueue-sweep.mjs',
+  'operations/devops/t1-enqueue-sweep.mjs',
+  'operations/devops/dependabot-enqueue-sweep.mjs',
+  'operations/devops/infra-rearm-sweep.mjs',
+  'operations/devops/live-pr-state.mjs',
+  'operations/devops/pr-contexts.mjs',
+  'operations/devops/ejected-batch.mjs',
+  'operations/devops/design-review-scope.mjs',
+  'operations/devops/docker/repin-tier.mjs',
 ];
+
+// Directory prefixes that count in full. `.github/ci/` holds data the gates load
+// (required-contexts.json, tier-paths.json, the allowlists).
+export const GATE_PREFIXES = ['.github/workflows/', '.github/actions/', '.github/ci/'];
 
 // GitHub's "list pull request files" returns at most this many files. At or above it the list
 // may be cut short, so it is treated as unreadable.
@@ -40,11 +55,11 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** PURE. True when a repo-relative path is a workflow, a composite action, or a gate script. */
+/** PURE. True when a repo-relative path is a workflow, a composite action, gate data under .github/ci, or a gate script. */
 export function isGateFile(path) {
   if (typeof path !== 'string' || !path) return false;
   const p = path.replace(/\\/g, '/').replace(/^\.\//, '');
-  return p.startsWith('.github/workflows/') || p.startsWith('.github/actions/') || GATE_SCRIPTS.includes(p);
+  return GATE_PREFIXES.some((pre) => p.startsWith(pre)) || GATE_SCRIPTS.includes(p);
 }
 
 /**

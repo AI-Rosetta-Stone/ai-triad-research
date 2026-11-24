@@ -785,10 +785,10 @@ test('t/537 shim: a PR with no gate files proceeds as before', async () => {
 });
 
 test('t/537 pure: isGateFile covers workflows, composite actions and the gate scripts, and nothing else', () => {
-  for (const p of ['.github/workflows/ci.yml', '.github/workflows/sub/x.yaml', '.github/actions/setup/action.yml', ...GATE_SCRIPTS, './.github/workflows/a.yml', '.github\\workflows\\a.yml']) {
+  for (const p of ['.github/workflows/ci.yml', '.github/workflows/sub/x.yaml', '.github/actions/setup/action.yml', '.github/ci/required-contexts.json', 'operations/devops/t0-enqueue-sweep.mjs', 'operations/devops/infra-rearm-sweep.mjs', ...GATE_SCRIPTS, './.github/workflows/a.yml', '.github\\workflows\\a.yml']) {
     assert.equal(isGateFile(p), true, p);
   }
-  for (const p of ['README.md', 'docs/.github/workflows/ci.yml', '.github/dependabot.yml', 'operations/devops/my-prs.mjs', 'operations/devops/enqueue-pr.test.mjs', '', null, undefined]) {
+  for (const p of ['README.md', 'docs/.github/workflows/ci.yml', '.github/dependabot.yml', '.github/cicd/x.json', 'operations/devops/my-prs.mjs', 'operations/devops/t0-enqueue-sweep.test.mjs', 'operations/devops/enqueue-pr.test.mjs', '', null, undefined]) {
     assert.equal(isGateFile(p), false, String(p));
   }
 });
