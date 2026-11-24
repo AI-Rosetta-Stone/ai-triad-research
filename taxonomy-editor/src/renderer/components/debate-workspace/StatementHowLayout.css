@@ -149,3 +149,11 @@
     gap: 4px;
   }
 }
+
+/* Claim labels are node ids (AN-34), wider than the 28px C{n} badge; let the badge fit its text. */
+.sh-layout .claim-map-claim-badge {
+  width: auto;
+  min-width: 28px;
+  padding: 0 6px;
+  white-space: nowrap;
+}

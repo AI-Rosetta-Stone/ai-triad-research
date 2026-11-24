@@ -12,6 +12,7 @@ vi.mock('./VocabularyPanel', () => ({
 
 import { StatementHowLayout } from './StatementHowLayout';
 import { buildStatementHow, collapseItems } from './statementHow';
+import { pairLabel } from './StatementHowClaims';
 
 const ENTRY = { id: 'e2', type: 'statement', speaker: 'skeptic', content: 'Body text.', metadata: {} } as never;
 
@@ -103,21 +104,21 @@ describe('StatementHowLayout', () => {
 
   it('collapses a claim to three items, and Show N more reveals the rest', () => {
     renderHow();
-    const c2 = screen.getByRole('group', { name: 'Attacks and supports on C2' });
+    const c2 = screen.getByRole('group', { name: 'Attacks and supports on AN-2' });
     // 4 attacks + 1 support = 5 items; three shown, two behind the control.
-    expect(within(c2).getAllByText(/^← ATTACK ON C2$/)).toHaveLength(3);
-    expect(within(c2).queryByText('SUPPORTS C2')).toBeNull();
+    expect(within(c2).getAllByText(/ATTACKED by/)).toHaveLength(3);
+    expect(within(c2).queryByText(/SUPPORTED by/)).toBeNull();
     const more = within(c2).getByRole('button', { name: 'Show 2 more' });
     expect(more.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(more);
     expect(within(c2).queryByRole('button', { name: /Show/ })).toBeNull();
-    expect(within(c2).getAllByText(/^← ATTACK ON C2$/)).toHaveLength(4);
-    expect(within(c2).getByText('SUPPORTS C2')).toBeTruthy();
+    expect(within(c2).getAllByText(/ATTACKED by/)).toHaveLength(4);
+    expect(within(c2).getByText(/^AN-2 SUPPORTED by/)).toBeTruthy();
   });
 
   it('shows the no-attack slot for a claim with no attacks or supports', () => {
     renderHow({ edges: [], nodes: [node('AN-1', 'e2', 'Lonely claim')] });
-    expect(screen.getByRole('group', { name: 'No attack mapped to C1' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'No attack mapped to AN-1' })).toBeTruthy();
   });
 
   it('hides the focus, moves, assumptions and responses when their fields are absent', () => {
@@ -139,7 +140,7 @@ describe('StatementHowLayout', () => {
     expect(screen.getByText('Answer the audit point')).toBeTruthy();
     expect(screen.getByLabelText('Planned moves')).toBeTruthy();
     expect(screen.getByText('Separate the cases')).toBeTruthy();
-    expect(screen.getByText('→ C2')).toBeTruthy();
+    expect(screen.getByText('→ AN-2')).toBeTruthy();
     expect(screen.getByText('Audits can be staffed')).toBeTruthy();
     expect(screen.getByText('Then pledges are unverifiable', { exact: false })).toBeTruthy();
     expect(screen.getByText('Labs will argue X. I counter Y.')).toBeTruthy();
@@ -186,5 +187,13 @@ describe('planned moves show their detail (t/469 amendment)', () => {
     expect(screen.getByText(/Demand that opponents provide a viable rollback plan/)).toBeTruthy();
     expect(container.querySelector('.sh-move-row .sh-move-detail')).not.toBeNull();
     expect(container.querySelector('[aria-label="Convergence"]')).toBeNull();
+  });
+});
+
+describe('claim labels and attacker speaker (t/469 amendment)', () => {
+  it('labels claims by node id and shows the attacker POV speaker only when it is a POV speaker', () => {
+    expect(pairLabel('AN-34', { id: 'AN-42', text: '', kind: 'attacks', speaker: 'safetyist' })).toBe('AN-34 ATTACKED by Safetyist AN-42');
+    expect(pairLabel('AN-34', { id: 'AN-39', text: '', kind: 'supports', speaker: 'skeptic' })).toBe('AN-34 SUPPORTED by Skeptic AN-39');
+    expect(pairLabel('AN-34', { id: 'AN-42', text: '', kind: 'attacks' })).toBe('AN-34 ATTACKED by AN-42');
   });
 });

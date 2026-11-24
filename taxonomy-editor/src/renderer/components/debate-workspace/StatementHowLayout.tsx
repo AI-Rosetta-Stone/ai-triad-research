@@ -14,16 +14,15 @@ import './StatementHowLayout.css';
 
 /** The debate fields the HOW view reads. */
 export interface StatementHowDebate {
+  transcript?: TranscriptEntry[];
   argument_network?: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] };
 }
 
 /** Planned moves: one row per move. The chip names the move; its full detail sits beside it (below it
- *  under 767px). A target that is a claim links to that claim. */
+ *  under 767px). The target is shown as its node id. */
 function HowMoves({ moves, claims }: { moves: StatementHowModel['moves']; claims: StatementHowClaim[] }) {
-  const linked = (target: string | undefined) => {
-    const idx = claims.find(c => c.node.id === target)?.index;
-    return idx ? `→ C${idx}` : target ? `→ ${target}` : undefined;
-  };
+  // A target is the argument-graph id it names, shown as is (the same id the claim is labelled with).
+  const linked = (target: string | undefined) => (target ? `→ ${target}` : undefined);
   return (
     <div className="sh-moves" aria-label="Planned moves">
       <span className="sh-moves-label">Planned moves</span>
@@ -74,7 +73,7 @@ export function StatementHowLayout({ entry, debate, vocabResolutions, meta }: {
 }) {
   const { nodes, edges } = readDebateHow(debate);
   if (!nodes || nodes.length === 0) return <div className="claims-empty">No argument network yet</div>;
-  const model = buildStatementHow(entry, nodes, edges);
+  const model = buildStatementHow(entry, nodes, edges, debate?.transcript);
   const ambiguities = meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined;
   const counts = statementCounts(model);
   return (

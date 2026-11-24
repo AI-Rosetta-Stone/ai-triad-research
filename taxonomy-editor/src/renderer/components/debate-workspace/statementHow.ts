@@ -8,6 +8,16 @@ export interface StatementHowItem {
   id: string; // the attacking or supporting node id
   text: string;
   kind: 'attacks' | 'supports';
+  speaker?: 'accelerationist' | 'safetyist' | 'skeptic'; // the attacker's POV speaker; absent for other speakers
+}
+
+const POV_SPEAKERS = new Set(['accelerationist', 'safetyist', 'skeptic']);
+
+/** The POV speaker of the entry that owns a node, or undefined for anything else (incl. 'system'). */
+function povSpeakerOf(nodeId: string, nodes: ArgumentNetworkNode[], transcript: TranscriptEntry[]): StatementHowItem['speaker'] {
+  const node = nodes.find(n => n.id === nodeId);
+  const speaker = transcript.find(e => e.id === node?.source_entry_id)?.speaker as string | undefined;
+  return speaker && POV_SPEAKERS.has(speaker) ? (speaker as StatementHowItem['speaker']) : undefined;
 }
 
 export interface StatementHowClaim {
@@ -47,12 +57,12 @@ function asString(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
 
-export function buildStatementHow(entry: TranscriptEntry, nodes: ArgumentNetworkNode[], edges: ArgumentNetworkEdge[]): StatementHowModel {
+export function buildStatementHow(entry: TranscriptEntry, nodes: ArgumentNetworkNode[], edges: ArgumentNetworkEdge[], transcript: TranscriptEntry[] = []): StatementHowModel {
   const entryNodes = nodes.filter(n => n.source_entry_id === entry.id);
   const textOf = new Map(nodes.map(n => [n.id, n.text ?? '']));
   const claims: StatementHowClaim[] = entryNodes.map((node, i) => {
     const incoming = edges.filter(e => e.target === node.id);
-    const item = (e: ArgumentNetworkEdge): StatementHowItem => ({ id: e.source, text: textOf.get(e.source) ?? '', kind: e.type as 'attacks' | 'supports' });
+    const item = (e: ArgumentNetworkEdge): StatementHowItem => ({ id: e.source, text: textOf.get(e.source) ?? '', kind: e.type as 'attacks' | 'supports', speaker: povSpeakerOf(e.source, nodes, transcript) });
     return {
       index: i + 1,
       node,
