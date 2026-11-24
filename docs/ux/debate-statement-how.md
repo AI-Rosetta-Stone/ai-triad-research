@@ -67,11 +67,11 @@ are shown under their own names, below.
 - No headline. Statements have no thesis.
 - Focus: one line under the header, labelled `Focus`. It states what the speaker must answer. It is not
   labelled "Argument sketch".
-- Planned moves: a list, one row per move. Each row has the move name as a chip, then the move's full
-  `detail` text beside it at body size. The text is never truncated and never hidden behind hover or focus.
-  If the move has a `target` that is an argument-network id, the chip links to that claim. Move names are
-  free text, so style every chip the same.
-- Under 767px each row stacks: chip above, detail below.
+- Planned moves: a heading line, `Planned moves`, then one block per move. Each block has two lines, at every
+  width: the move name as a chip on its own line, then the move's full `detail` text underneath, at body size.
+  The text is never truncated and never hidden behind hover or focus. It is not placed beside the chip, at
+  any width. If the move has a `target` that is an argument-network id, the chip links to that claim. Move
+  names are free text, so style every chip the same.
 - Each element is hidden when its field is absent.
 
 ### Claim grid
