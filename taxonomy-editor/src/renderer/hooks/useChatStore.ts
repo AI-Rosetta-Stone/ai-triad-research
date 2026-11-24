@@ -202,7 +202,8 @@ async function chatTaxonomyTurnFor(
     });
   }
   // An anonymous session is refused by the statement route in advance (TL p/10#250): it is not called, and labels are used.
-  const statementsAvailable = !(await api.checkAnonymousSession());
+  // A failed check counts as available: the route is tried, and a failure there falls back to labels with a WARN (CL p/166#45).
+  const statementsAvailable = !(await api.checkAnonymousSession().catch(() => false));
   return buildChatTaxonomyTurn(
     { pov: pov as 'accelerationist' | 'safetyist' | 'skeptic', ctx, tagSelection, query, statementsAvailable },
     {
