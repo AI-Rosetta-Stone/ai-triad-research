@@ -740,22 +740,6 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
   return (
     <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
       <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
-      <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {polRefs.map((polRef, i) => {
-          const { id } = resolvePolRef(polRef);
-          return (
-            <span
-              key={`${id}-${i}`}
-              className={`debate-taxonomy-pill debate-taxonomy-pill-clickable taxrefs-pol-pill${selectedBdiNodeId === id ? ' debate-taxonomy-pill-selected' : ''}`}
-              title={getPolicyAction(id)}
-              aria-pressed={selectedBdiNodeId === id}
-              onClick={(e) => { e.stopPropagation(); toggleBdiNode(id); }}
-            >
-              {id}
-            </span>
-          );
-        })}
-      </div>
       {polRefs.map((polRef, i) => {
         const { id, relevance } = resolvePolRef(polRef);
         return (
@@ -777,7 +761,7 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
 }
 
 /**
- * The BDI grounding content: per-node entries (policy refs keep their chips), and the inline POV detail when a ref is
+ * The BDI grounding content: per-node entries, and the inline POV detail when a ref is
  * clicked. t/187: grouped Desires → Intentions → Beliefs (→ Situations), policy refs last. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
  * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
  * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).

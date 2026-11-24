@@ -19,34 +19,6 @@
   margin-top: 8px;
 }
 
-.debate-taxonomy-pill {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-2xs);
-  font-family: monospace;
-  background: var(--chip-bg);
-  color: var(--text-secondary);
-  transition: background 0.15s;
-}
-
-.debate-taxonomy-pill-clickable {
-  cursor: pointer;
-  border: 1px solid currentColor;
-  background: transparent;
-}
-
-.debate-taxonomy-pill-clickable:hover {
-  background: var(--focus-ring);
-  color: var(--text-on-focus-ring, #fff);
-  border-color: var(--focus-ring);
-}
-
-.debate-taxonomy-pill-primary {
-  font-weight: 600;
-  border-width: 2px;
-}
-
 .debate-taxonomy-refs-section {
   margin-top: 8px;
 }
@@ -139,15 +111,6 @@
 /* ─── Monolith-extracted styles (Phase 3 co-location, t/2989) ─── */
 
 /* TaxonomyRefs — mechanical CSS migration of static inline styles (t/1866) */
-
-/* Selected BDI ref chip — persistent "active" look while its inline detail is open.
-   !important overrides the dynamic inline POV color the pill carries, matching the
-   existing .debate-taxonomy-pill-clickable:hover treatment. */
-.debate-taxonomy-pill-selected {
-  background: var(--focus-ring);
-  color: #fff !important;
-  border-color: var(--focus-ring) !important;
-}
 
 .taxrefs-caveats-btn {
   color: #d97706;
@@ -395,15 +358,6 @@
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   margin-bottom: 4px;
-}
-
-.taxrefs-refs-mb {
-  margin-bottom: 6px;
-}
-
-.taxrefs-pol-pill {
-  border-color: var(--color-sit);
-  color: var(--color-sit);
 }
 
 .taxrefs-node-sit {

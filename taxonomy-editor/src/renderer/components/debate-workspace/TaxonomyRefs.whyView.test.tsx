@@ -100,6 +100,13 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     expect(screen.getByText('· 0.66')).toHaveClass('debate-reasoning-score');
   });
 
+  it('t/472: the policy block has no chip row either; the policy id shows once, as its entry button', () => {
+    const { container } = render(<BdiGroundingView refs={[]} policyRefs={['pol-001']} />);
+    expect(container.querySelector('.debate-taxonomy-pill')).toBeNull();
+    expect(screen.getAllByText('pol-001')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'pol-001' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('t/472: a ref with no score shows no score; a primary ref keeps its marker', () => {
     const { container } = render(<BdiGroundingView refs={[{ node_id: NODE, relevance: 'r', primary: true }]} />);
     expect(container.querySelector('.debate-reasoning-score')).toBeNull();
