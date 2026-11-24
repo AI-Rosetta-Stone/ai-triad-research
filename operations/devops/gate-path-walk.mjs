@@ -169,8 +169,16 @@ export function jsRelativeSpecifiers(text) {
  */
 function psPathExpr(expr) {
   const e = expr.trim();
-  const jp = /^\(\s*Join-Path\s+(?:-Path\s+)?\$\{?[A-Za-z_]\w*\}?\s+((?:(?:-ChildPath\s+|-AdditionalChildPath\s+)?['"][^'"$]+['"]\s*,?\s*)+)\)$/i.exec(e);
-  if (jp) return [...jp[1].matchAll(/['"]([^'"$]+)['"]/g)].map((m) => m[1]).join('/');
+  // CodeQL js/redos (alert 6742): no nested quantifier here. Match the head once, take the rest
+  // as one group, then check the rest is ONLY quoted literals, -ChildPath/-AdditionalChildPath
+  // flags, commas and whitespace (a linear scan), and read the literals out of it.
+  const jp = /^\(\s*Join-Path\s+(?:-Path\s+)?\$\{?[A-Za-z_]\w*\}?\s+([^()]*)\)$/i.exec(e);
+  if (jp) {
+    const rest = jp[1];
+    const leftover = rest.replace(/'[^'$]*'|"[^"$]*"|-(?:Additional)?ChildPath\b|[\s,]/gi, '');
+    const parts = [...rest.matchAll(/'([^'$]+)'|"([^"$]+)"/g)].map((m) => m[1] ?? m[2]);
+    return leftover === '' && parts.length ? parts.join('/') : null;
+  }
   const s = e.replace(/^["']|["']$/g, '');
   const m = /^\$\{?[A-Za-z_]\w*\}?[\\/]([^$]+)$/.exec(s);
   if (m) return m[1];

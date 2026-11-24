@@ -55,6 +55,17 @@ test('PowerShell: dot-sourcing by $PSScriptRoot, Join-Path, ./ and a repo-root v
   assert.deepEqual(deps('ops/V.ps1', ". (Join-Path $RepoRoot 'mod/Shared.ps1')"), ['mod/Shared.ps1']);
 });
 
+test('PowerShell Join-Path: -ChildPath flags and commas still parse; no exponential backtracking (CodeQL js/redos 6742)', () => {
+  assert.deepEqual(deps('ops/V.ps1', ". (Join-Path -Path $PSScriptRoot -ChildPath 'Sub', 'Child.ps1')"), ['ops/Sub/Child.ps1']);
+  assert.deepEqual(deps('ops/V.ps1', '. (Join-Path $PSScriptRoot "$name.ps1")'), []);
+  // The alert's shape: an opening Join-Path followed by many repetitions of a quoted piece and a tab.
+  // The old pattern backtracked exponentially on this; the linear one must answer at once.
+  const evil = '. (Join-Path\t$_\t' + '"!"\t'.repeat(5000) + '!';
+  const t0 = Date.now();
+  assert.deepEqual(deps('ops/V.ps1', evil), []);
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+});
+
 test('PowerShell: Import-Module and & by a relative path', () => {
   assert.deepEqual(deps('ops/V.ps1', 'Import-Module "$PSScriptRoot/M.psm1" -Force'), ['ops/M.psm1']);
   assert.deepEqual(deps('ops/V.ps1', "Import-Module (Join-Path $PSScriptRoot 'M.psm1')"), ['ops/M.psm1']);
