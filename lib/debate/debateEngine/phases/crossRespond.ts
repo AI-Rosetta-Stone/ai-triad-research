@@ -26,6 +26,7 @@ import { runModeratorSelection, executeTurnWithRetry, type ModeratorSelectionCal
 import { pruneSessionData, pruneModeratorState } from '../../sessionPruning.js';
 import type { DriftTelemetryEntry } from '../../calibrationLogger/schema.js';
 import { getGlobalRecorder } from '../../../flight-recorder/index.js';
+import { embedTexts } from '../embedTexts.js';
 import { runTurnPipeline, assemblePipelineResult, type TurnPipelineInput } from '../../turnPipeline.js';
 import { DEFAULT_TEMPERATURE } from '../../../ai-client/defaults.js';
 import { resolveStageModel, resolveModelForSpeaker, recordRateLimit, clearRateLimitBackoff, isRateLimitError } from '../modelResolution.js';
@@ -1054,9 +1055,8 @@ export async function runCrossRespondRound(engine: DebateEngineInternals, round:
   // Compute per-(frame,turn) cosine similarity series for frame survival metrics — t/2045
   if (engine.session.frame_embeddings && Object.keys(engine.session.frame_embeddings).length > 0) {
     try {
-      const { computeEmbeddings } = await import('../../../embeddings/onnxEmbedding.js');
       const paras = entry.content.split(/\n\n+/).filter(p => p.trim().length > 0);
-      const paraVecs = paras.length > 0 ? await computeEmbeddings(paras) : [];
+      const paraVecs = paras.length > 0 ? await embedTexts(engine.adapter, paras, engine.session?.id) : [];
       engine.session.frame_similarity_series ??= {};
       for (const [speakerKey, frameData] of Object.entries(engine.session.frame_embeddings)) {
         engine.session.frame_similarity_series[speakerKey] ??= frameData.frames.map(f => ({ frame: f.frame, sims: {} as Record<string, number> }));

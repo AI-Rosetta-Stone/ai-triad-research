@@ -6,6 +6,7 @@ import path from 'path';
 import { POVER_INFO } from '../../types.js';
 import { formatVocabularyContext } from '../../vocabularyContext.js';
 import { getGlobalRecorder } from '../../../flight-recorder/index.js';
+import { embedTexts } from '../embedTexts.js';
 import { runOpeningPipelineWithRepair, assembleOpeningPipelineResult, type OpeningPipelineInput } from '../../turnPipeline.js';
 import { getModelMinTimeout } from '../../../ai-client/index.js';
 import { resolveModelForSpeaker } from '../modelResolution.js';
@@ -244,8 +245,7 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
           .filter(f => typeof f?.frame === 'string' && (f.frame as string).trim().length > 0)
           .map(f => f.frame);
         if (frames.length > 0) {
-          const { computeEmbeddings } = await import('../../../embeddings/onnxEmbedding.js');
-          const vecs = await computeEmbeddings(frames);
+          const vecs = await embedTexts(engine.adapter, frames, engine.session?.id);
           engine.session.frame_embeddings ??= {};
           engine.session.frame_embeddings[poverId] = {
             model: 'all-MiniLM-L6-v2',
