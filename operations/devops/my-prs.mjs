@@ -36,7 +36,9 @@ const FAILING = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED',
 export function ticketRefs({ title = '', body = '', branch = '' }) {
   const primary = new Set();
   const loose = /(?<![A-Za-z0-9])t[/-]?(\d{1,6})(?![0-9])/g;
-  for (const s of [title, branch]) for (const m of String(s ?? '').matchAll(loose)) primary.add(Number(m[1]));
+  // t/535: t/0-t/2 are tier tokens in the loose form (`ci(t1-approval-guard)`, `t2-promotion`), not
+  // tickets; reading them as tickets once routed a PR to whoever holds t/1.
+  for (const s of [title, branch]) for (const m of String(s ?? '').matchAll(loose)) if (Number(m[1]) > 2) primary.add(Number(m[1]));
   const inBody = new Set();
   for (const m of String(body ?? '').matchAll(/(?<![A-Za-z0-9])t\/(\d{1,6})(?![0-9])/g)) inBody.add(Number(m[1]));
   return { primary, body: inBody };

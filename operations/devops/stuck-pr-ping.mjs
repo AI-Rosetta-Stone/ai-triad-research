@@ -64,15 +64,8 @@ export function latestBlocker(comments) {
   return null;
 }
 
-/**
- * PURE. my-prs.mjs's ticketRefs, minus t/0-t/2: its loose title/branch form reads tier tokens as
- * tickets (`ci(t1-approval-guard)`, `(Tier: T2)` -> t/1, t/2), which would ping whoever holds t/1.
- */
-export function citedTickets(pr) {
-  const refs = ticketRefs({ title: pr.title, body: pr.body, branch: pr.branch });
-  const real = (set) => new Set([...set].filter((n) => n > 2));
-  return { primary: real(refs.primary), body: real(refs.body) };
-}
+/** PURE. The tickets a PR cites (my-prs.mjs's ticketRefs, which ignores the t/0-t/2 tier tokens). */
+export const citedTickets = (pr) => ticketRefs({ title: pr.title, body: pr.body, branch: pr.branch });
 
 export const isDependabot = (pr) => /dependabot/i.test(pr.author ?? '') || String(pr.branch ?? '').startsWith('dependabot/');
 
@@ -85,8 +78,10 @@ export function resolveOwner(pr, { ticketAssignee, fileOwners, known }) {
   const toLead = (why) => ({ to: DEVOPS_LEAD, why, fallback: true });
   if (isDependabot(pr)) return toLead('Dependabot PR (DevOps Lead, t/535#3 Q3)');
   const refs = citedTickets(pr);
-  for (const [set, where] of [[refs.primary, 'title/branch'], [refs.body, 'body']]) {
-    if (!set.size) continue;
+  const notes = [];
+  // One ticket set -> an owner, a terminal refusal (human or archived assignee), or null to fall through.
+  const fromTickets = (set, where) => {
+    if (!set.size) return null;
     const missing = [];
     for (const n of [...set].sort((a, b) => a - b)) {
       const a = ticketAssignee(n);
@@ -96,12 +91,19 @@ export function resolveOwner(pr, { ticketAssignee, fileOwners, known }) {
       if (!known.has(a.id)) return toLead(`no owner found: t/${n}'s assignee ${a.id} is not a live collaborator`);
       return { to: a.id, why: `${where} cites t/${n}`, fallback: false };
     }
-    const notHere = missing.length ? ` (${missing.map((n) => `t/${n}`).join(', ')} not found in this tracker)` : '';
-    return toLead(`no owner found: the ${where} cites ${[...set].map((n) => `t/${n}`).join(', ')}, none assigned${notHere}`);
-  }
+    notes.push(`the ${where} cites ${[...set].map((n) => `t/${n}`).join(', ')}, none assigned${missing.length ? ` (${missing.map((n) => `t/${n}`).join(', ')} not found in this tracker)` : ''}`);
+    return null;
+  };
+  // Order (Lead, t/535#5): title/branch ticket, then the changed files' majority owner, then a ticket
+  // named in the body as the last fallback (bodies also cite other people's tickets for context).
+  const primary = fromTickets(refs.primary, 'title/branch');
+  if (primary) return primary;
   const m = fileOwners ? majorityOwner(fileOwners) : null;
-  if (m && known.has(m.owner)) return { to: m.owner, why: `no ticket ref; owns ${m.count}/${m.of} changed files`, fallback: false };
-  return toLead('no owner found: no ticket ref and no majority owner of the changed files');
+  if (m && known.has(m.owner)) return { to: m.owner, why: `owns ${m.count}/${m.of} changed files`, fallback: false };
+  notes.push('no majority owner of the changed files');
+  const body = fromTickets(refs.body, 'body');
+  if (body) return body;
+  return toLead(`no owner found: ${notes.join('; ')}`);
 }
 
 // The key uses the head the ALERT was raised at (the marker's SHA), not the PR's current head: a
@@ -128,8 +130,12 @@ export function planRun(items, ledger, nowMs) {
   const keys = ledger?.keys ?? {};
   const byOwner = new Map();
   const escalate = [];
+  const stale = [];
   for (const it of items) {
     const key = keyOf(it.pr, it.blocker);
+    // An alert raised at an older head is not pinged (t/535#5): the PR moved since, so the blocker
+    // may be fixed; pr-triage raises a new alert for the new head if it is still stuck.
+    if (isStale(it)) { stale.push({ ...it, key }); continue; }
     const seen = keys[key];
     if (!seen) {
       if (!byOwner.has(it.owner.to)) byOwner.set(it.owner.to, []);
@@ -154,7 +160,8 @@ export function planRun(items, ledger, nowMs) {
         ...escalate.map((x) => `${line(x)}; owner pinged: ${x.pingedTo} at ${x.firstPingedAt}`)].join('\n'),
     });
   }
-  return { messages };
+  stale.sort((a, b) => a.pr.number - b.pr.number);
+  return { messages, stale };
 }
 
 /** PURE. The ledger after `sent` messages were accepted (only those). */
@@ -275,8 +282,11 @@ export async function run(o, deps = {}) {
   const dirOwner = new Map();
   const root = deps.checkoutRoot ?? (() => path.dirname(execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim()));
   const fileOwnersFor = deps.fileOwnersFor ?? (async (pr) => {
-    const refs = citedTickets(pr);
-    if (refs.primary.size || refs.body.size || isDependabot(pr)) return null;
+    // Files are needed unless the title/branch ticket already names a live agent (files come
+    // before the body ticket in the owner order, t/535#5).
+    if (isDependabot(pr)) return null;
+    const primaryResolves = [...citedTickets(pr).primary].some((n) => { const a = ticketAssignee(n); return a && a.kind === 'agent' && known.has(a.id); });
+    if (primaryResolves) return null;
     let files;
     try {
       files = gh(['api', '--paginate', `repos/${o.repo}/pulls/${pr.number}/files?per_page=100`, '--jq', '.[].filename']).split('\n').filter(Boolean);
@@ -307,7 +317,8 @@ export async function run(o, deps = {}) {
   const ledgerPath = o.ledger;
   const ledger = deps.ledger ?? (existsSync(ledgerPath) ? JSON.parse(readFileSync(ledgerPath, 'utf8')) : { keys: {} });
   const nowMs = deps.nowMs ?? Date.now();
-  const { messages } = planRun(items, ledger, nowMs);
+  const { messages, stale } = planRun(items, ledger, nowMs);
+  for (const x of stale) log(`stale alert, not pinged: #${x.pr.number} \`${x.blocker.class}\` raised at ${x.blocker.sha.slice(0, 9)}, head is now ${x.pr.head.slice(0, 9)} (owner would be ${x.owner.to}).`);
 
   const sent = [];
   const failed = [];
@@ -331,7 +342,7 @@ export async function run(o, deps = {}) {
     else { mkdirSync(path.dirname(ledgerPath), { recursive: true }); writeFileSync(ledgerPath, JSON.stringify(next, null, 2)); }
   }
   log(`stuck-pr-ping: ${numbers.length} alerted PR(s); ${messages.length} message(s) ${o.send ? `sent ${sent.length}, failed ${failed.length}` : 'planned (dry-run, nothing sent; pass --send to send)'}.`);
-  return { messages, sent, failed, items };
+  return { messages, stale, sent, failed, items };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

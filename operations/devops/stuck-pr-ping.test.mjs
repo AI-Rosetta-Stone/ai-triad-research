@@ -128,16 +128,18 @@ function deps({ sendFails = new Set(), queryError = null, ledger = { keys: {} } 
   const sent = [];
   const logs = [];
   const written = [];
+  const at = (p, b) => ({ pr: p, blocker: { ...b, sha: p.head } }); // alert raised at the PR's own head
   const facts = new Map([
-    [10, { pr: pr(10, { branch: 'devops/t501-x' }), blocker: blocker('merge-conflict') }],
-    [11, { pr: pr(11, { branch: 'feat/t502-y' }), blocker: blocker('ci-red', 'fix the failing job') }],
-    [12, { pr: pr(12, { author: 'app/dependabot', branch: 'dependabot/npm/jest-dom' }), blocker: blocker('merge-conflict') }],
+    [10, at(pr(10, { branch: 'devops/t501-x' }), blocker('merge-conflict'))],
+    [11, at(pr(11, { branch: 'feat/t502-y' }), blocker('ci-red', 'fix the failing job'))],
+    [12, at(pr(12, { author: 'app/dependabot', branch: 'dependabot/npm/jest-dom' }), blocker('merge-conflict'))],
+    [13, { pr: pr(13, { branch: 'feat/t501-z' }), blocker: blocker('ci-red') }], // raised at an older head
   ]);
   return {
     sent, logs, written,
     d: {
       log: (s) => logs.push(s),
-      readAlerts: () => (queryError ? { QueryError: queryError } : { OwnerAlerts: [{ number: 10 }, { number: 12 }], TLAlerts: [{ number: 11 }, { number: 10 }] }),
+      readAlerts: () => (queryError ? { QueryError: queryError } : { OwnerAlerts: [{ number: 10 }, { number: 12 }, { number: 13 }], TLAlerts: [{ number: 11 }, { number: 10 }] }),
       readPrFacts: (_repo, numbers) => new Map(numbers.map((n) => [n, facts.get(n)])),
       knownCollaborators: async () => known,
       fileOwnersFor: async () => null,
@@ -164,7 +166,8 @@ test('run, DEFAULT dry-run: plans one message per owner, sends nothing, writes n
   assert.equal(written.length, 0);
   assert.deepEqual(r.messages.map((m) => m.to).sort(), [A, B, DEVOPS_LEAD].sort());
   assert.ok(logs.some((l) => l.startsWith('[dry-run] would send to')));
-  assert.match(logs.at(-1), /3 alerted PR\(s\); 3 message\(s\) planned \(dry-run, nothing sent; pass --send to send\)/);
+  assert.ok(logs.some((l) => /^stale alert, not pinged: #13 `ci-red`/.test(l)), logs.join(' | '));
+  assert.match(logs.at(-1), /4 alerted PR\(s\); 3 message\(s\) planned \(dry-run, nothing sent; pass --send to send\)/);
 });
 
 test('run --send: sends as the DevOps Worker, records only accepted messages', async () => {
@@ -192,12 +195,24 @@ test('parseArgs: dry-run unless --send; only a loopback daemon', () => {
   assert.throws(() => parseArgs(['--sned']), /unknown argument/);
 });
 
-test('keys use the head the alert was raised at: a push alone does not re-ping; a stale alert is marked as such', () => {
+test('an alert raised at an older head is not pinged: it is listed as stale; a push alone never re-pings', () => {
   const raised = { class: 'ci-red', sha: 'c'.repeat(40), remedy: null };
   const it = (head) => ({ pr: pr(7, { head }), blocker: raised, owner: { to: A, why: 'x', fallback: false } });
-  const first = planRun([it('c'.repeat(40))], { keys: {} }, NOW).messages;
-  const ledger = recordSent({ keys: {} }, first, NOW);
-  assert.deepEqual(planRun([it('d'.repeat(40))], ledger, NOW + 1).messages, [], 'same alert, new head: no re-ping');
-  const fresh = planRun([it('d'.repeat(40))], { keys: {} }, NOW).messages[0].body;
-  assert.match(fresh, /raised at an older head `ccccccccc`, so it may already be fixed/);
+  const first = planRun([it('c'.repeat(40))], { keys: {} }, NOW);
+  assert.equal(first.messages.length, 1);
+  const moved = planRun([it('d'.repeat(40))], { keys: {} }, NOW);
+  assert.deepEqual(moved.messages, []);
+  assert.deepEqual(moved.stale.map((x) => x.pr.number), [7]);
+  const ledger = recordSent({ keys: {} }, first.messages, NOW);
+  assert.deepEqual(planRun([it('d'.repeat(40))], ledger, NOW + 2 * ESCALATE_AFTER_MS).messages, [], 'a stale alert is not escalated either');
+});
+
+test('owner order (t/535#5): title/branch ticket, then the changed files, then a body ticket as the last fallback', () => {
+  const tickets = { 501: { id: A, kind: 'agent' }, 502: { id: B, kind: 'agent' } };
+  const ta = (n) => tickets[n] ?? null;
+  assert.equal(resolveOwner(pr(1, { branch: 'feat/t501', body: 'see t/502' }), { ticketAssignee: ta, fileOwners: [B, B], known }).to, A);
+  assert.equal(resolveOwner(pr(1, { branch: 'feat/x', body: 'see t/502' }), { ticketAssignee: ta, fileOwners: [A, A, B], known }).to, A, 'files beat the body ticket');
+  assert.equal(resolveOwner(pr(1, { branch: 'feat/x', body: 'see t/502' }), { ticketAssignee: ta, fileOwners: [A, B], known }).to, B, 'no majority -> the body ticket');
+  const missingPrimary = resolveOwner(pr(1, { branch: 'feat/t4971', body: '' }), { ticketAssignee: () => undefined, fileOwners: [B, B, B], known });
+  assert.equal(missingPrimary.to, B, 'a title/branch ticket not found here falls through to the files');
 });
