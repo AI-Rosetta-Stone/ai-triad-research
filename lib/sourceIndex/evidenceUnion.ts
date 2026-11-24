@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { ActionableError } from '../debate/errors.js';
+
 /**
  * Evidence union across a duplicate group: `docs/specs/source-identity.md`
  * section 7, fixture `tests/fixtures/evidence-union-cases.json` (t/4337#60,
@@ -192,26 +194,128 @@ export interface EvidenceLinkLike {
   quote: string;
 }
 
-/** A group member: its exact id and its links, in any order — spec 7.1
- *  order (the canonical first, then marked members by ordinal id) is
- *  applied inside `mergeGroupEvidence`, not by the caller. */
+/** A group member: its exact id and its links, in any order. `kind` and `viaCopy` come from
+ *  `groupMembers` (spec 7.1). With no `kind` a member is a marked copy, as on the PowerShell side.
+ *  `chunkGeneratedAt` and `chunkModel` are the chunk summary's own provenance (spec 7.6a), optional. */
 export interface EvidenceUnionMember<T extends EvidenceLinkLike> {
   id: string;
   links: readonly T[];
+  kind?: GroupMemberKind;
+  /** For a `chunk_copy`: the marked copy whose chunk this is. */
+  viaCopy?: string;
+  chunkGeneratedAt?: string;
+  chunkModel?: string;
 }
 
 /** A kept link, attributed to the canonical. `via` is set only on a link
- *  kept from a marked member — provenance, never shown, never stored over
- *  an exact id (spec 7.6).
+ *  kept from a marked member; `chunk_of` only on a link kept from a chunk of
+ *  the canonical itself (spec 7.6, 7.6a). A link never carries both.
  *
  *  FORENSICS ONLY on the TS side: nothing here, in `nodeSourceIndex.ts`, or
- *  in the Electron equivalent branches on `via` to make a decision. THE
+ *  in the Electron equivalent branches on `via` or `chunk_of` to make a decision. THE
  *  EXEMPTION LAPSES the moment a TS consumer reads `via` to make a
  *  decision (routing, filtering, counting). Spec 7.6 already names the one
  *  accepted branching reader project-wide — PowerShell's entity-extraction
  *  skip — any additional branching reader, in either stack, is a contract
- *  change to spec section 7.6, not a silent addition. */
-export type UnionedEvidenceLink<T extends EvidenceLinkLike> = T & { doc: string; via?: string };
+ *  change to spec section 7.6, not a silent addition. `chunk_of`,
+ *  `chunk_generated_at` and `chunk_model` are provenance too: nothing branches
+ *  on them (spec 7.6a). */
+export type UnionedEvidenceLink<T extends EvidenceLinkLike> = T & {
+  doc: string;
+  via?: string;
+  chunk_of?: string;
+  chunk_generated_at?: string;
+  chunk_model?: string;
+};
+
+// ── 6.2 resolver and 7.1 group (t/355, R1/R2) ──
+
+/** A document's record in the group index: whether it has a source dir, and its mark. */
+export interface EvidenceDoc {
+  has_source: boolean;
+  mark?: string | null;
+}
+
+export type GroupMemberKind = 'copy' | 'chunk_D' | 'chunk_copy';
+
+function docOf(docs: Readonly<Record<string, EvidenceDoc>>, id: string): EvidenceDoc | undefined {
+  return Object.prototype.hasOwnProperty.call(docs, id) ? docs[id] : undefined;
+}
+
+/** Spec 6.2 (t/355, R1): the base X when `id` is a summary-only chunk `<X>-N` of X, else null. */
+export function chunkBase(id: string, docs: Readonly<Record<string, EvidenceDoc>>): string | null {
+  const m = /^(.+)-(\d+)$/.exec(id);
+  if (!m) return null;
+  if (docOf(docs, id)?.has_source) return null;
+  const base = m[1];
+  return docOf(docs, base)?.has_source ? base : null;
+}
+
+/** Spec 6.1: the target of `id`'s mark when it names another document in `docs`, else null. */
+function validMark(id: string, docs: Readonly<Record<string, EvidenceDoc>>): string | null {
+  const target = docOf(docs, id)?.mark;
+  if (typeof target === 'string' && target.length > 0 && target !== id && docOf(docs, target)) return target;
+  return null;
+}
+
+/** Spec 6.2 (t/355, R1, transitive): the document `id` resolves to. A valid mark, or a chunk's
+ *  base, is followed to the end. A cycle is an error. */
+export function resolveDocId(
+  id: string, docs: Readonly<Record<string, EvidenceDoc>>, seen: readonly string[] = [],
+): string {
+  if (seen.includes(id)) {
+    throw new ActionableError({
+      goal: 'Resolve the evidence document for a summary id',
+      problem: `The mark or chunk chain loops back to '${id}'.`,
+      location: 'lib/sourceIndex/evidenceUnion.ts: resolveDocId',
+      nextSteps: ['Remove or correct one mark in the loop (spec 6.1)', 'Check that no chunk names its own copy as its base'],
+    });
+  }
+  const target = validMark(id, docs);
+  if (target) return resolveDocId(target, docs, [...seen, id]);
+  const base = chunkBase(id, docs);
+  if (base) return resolveDocId(base, docs, [...seen, id]);
+  return id;
+}
+
+function byOrdinal(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** The trailing decimal N of a chunk id, for ordering chunks (spec 7.1). */
+function chunkNumber(id: string): number {
+  const m = /(\d+)$/.exec(id);
+  return m ? Number(m[1]) : 0;
+}
+
+/**
+ * Spec 7.1 (t/355, R2): the members of a canonical's group, excluding the canonical itself.
+ * Order: marked copies by ordinal id, then the canonical's own chunks, then each copy's chunks,
+ * each set by N ascending. `kind` is `copy`, `chunk_D` (a chunk of the canonical) or `chunk_copy`
+ * (a chunk of a marked copy; `viaCopy` is that copy).
+ */
+export function groupMembers(
+  canonical: string, docs: Readonly<Record<string, EvidenceDoc>>,
+): Array<{ id: string; kind: GroupMemberKind; viaCopy?: string }> {
+  const ids = Object.keys(docs).filter(id => id !== canonical).sort(byOrdinal);
+  const byN = (list: string[]) => [...list].sort((a, b) => chunkNumber(a) - chunkNumber(b) || byOrdinal(a, b));
+  const copies = ids.filter(id =>
+    chunkBase(id, docs) === null && validMark(id, docs) !== null && resolveDocId(id, docs) === canonical);
+  const out: Array<{ id: string; kind: GroupMemberKind; viaCopy?: string }> = [];
+  for (const c of copies) out.push({ id: c, kind: 'copy' });
+  for (const k of byN(ids.filter(id => chunkBase(id, docs) === canonical))) out.push({ id: k, kind: 'chunk_D' });
+  for (const c of copies) {
+    for (const k of byN(ids.filter(id => chunkBase(id, docs) === c))) out.push({ id: k, kind: 'chunk_copy', viaCopy: c });
+  }
+  return out;
+}
+
+// ── 7.4 union ──
+
+export interface EvidenceLinkLike {
+  node: string;
+  quote: string;
+}
 
 /**
  * Spec 7.4: the de-duplicated union of a duplicate group's links, attributed
@@ -222,30 +326,44 @@ export type UnionedEvidenceLink<T extends EvidenceLinkLike> = T & { doc: string;
  *
  * - The canonical's own links are all kept, in order, unchanged, including
  *   repeats — never de-duped against each other.
- * - Marked members are processed in ordinal id order (not the order passed
- *   in), each in its own link order. A member's link is kept only if it
- *   isn't near-equal (7.3) to any link already kept on that node — the
- *   canonical wins ties, because its links are kept first.
+ * - Marked copies are processed in ordinal id order, then chunks in the order
+ *   given (`groupMembers` builds that order), each in its own link order. A
+ *   member's link is kept only if it isn't near-equal (7.3) to any link already
+ *   kept on that node — the canonical wins ties, because its links are kept first.
+ * - Attribution (7.4 step 3): a copy's link carries `via`; a chunk of the canonical
+ *   carries `chunk_of`; a chunk of a marked copy carries `via` (the copy). Never both.
  * - De-dup is per node; node order isn't significant.
  */
 export function mergeGroupEvidence<T extends EvidenceLinkLike>(
   canonicalId: string, members: readonly EvidenceUnionMember<T>[],
 ): Record<string, Array<UnionedEvidenceLink<T>>> {
   const canonicalMembers = members.filter(m => m.id === canonicalId);
-  const marked = [...members.filter(m => m.id !== canonicalId)].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const others = members.filter(m => m.id !== canonicalId);
+  const isCopy = (m: EvidenceUnionMember<T>) => !m.kind || m.kind === 'copy';
+  const copies = others.filter(isCopy).sort((a, b) => byOrdinal(a.id, b.id));
+  const chunks = others.filter(m => !isCopy(m));
 
   const out: Record<string, Array<UnionedEvidenceLink<T>>> = {};
   const keysByNode = new Map<string, string[]>();
 
-  for (const m of [...canonicalMembers, ...marked]) {
+  for (const m of [...canonicalMembers, ...copies, ...chunks]) {
     const own = m.id === canonicalId;
+    const kind: GroupMemberKind = m.kind ?? 'copy';
     for (const link of m.links) {
       const key = evidenceKey(link.quote);
       if (!out[link.node]) { out[link.node] = []; keysByNode.set(link.node, []); }
       const keys = keysByNode.get(link.node)!;
       if (!own && keys.some(k => evidenceNearEqual(key, k))) continue;
       const entry = { ...link, doc: canonicalId } as UnionedEvidenceLink<T>;
-      if (!own) entry.via = m.id;
+      if (!own) {
+        if (kind === 'copy') entry.via = m.id;
+        else if (kind === 'chunk_D') entry.chunk_of = m.id;
+        else if (kind === 'chunk_copy') entry.via = m.viaCopy;
+        if (kind !== 'copy') {
+          if (m.chunkGeneratedAt) entry.chunk_generated_at = m.chunkGeneratedAt;
+          if (m.chunkModel) entry.chunk_model = m.chunkModel;
+        }
+      }
       out[link.node].push(entry);
       keys.push(key);
     }
