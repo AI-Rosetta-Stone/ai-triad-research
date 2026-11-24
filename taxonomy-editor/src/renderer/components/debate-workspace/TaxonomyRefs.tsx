@@ -340,6 +340,17 @@ function attackStatus(attack: ParsedAttack): string {
   return 'Unverified';
 }
 
+/** The verdict pill, plus the steelman's node id once the tag has resolved to a real node (Design p/14#91).
+ *  A tag that resolves to nothing shows no id (TL p/11#53). */
+function AttackFooter({ attack }: { attack: ParsedAttack }) {
+  return (
+    <div className="claim-map-attack-footer">
+      <span className="claim-map-attack-status">{attackStatus(attack)}</span>
+      {attack.steelman && attack.steelmanId && <span className="claim-map-attack-id">{attack.steelmanId}</span>}
+    </div>
+  );
+}
+
 function attackEyebrowSuffix(attack: ParsedAttack): string {
   return attack.steelman ? ` · STEELMAN OF THE ${attack.steelman.camp.toUpperCase()}` : '';
 }
@@ -423,9 +434,7 @@ function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
           <div className="claim-map-attack-card">
             <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}{attackEyebrowSuffix(claim.attack)}</div>
             <p className="claim-map-attack-text">{attackText(claim.attack)}</p>
-            <div className="claim-map-attack-footer">
-              <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
-            </div>
+            <AttackFooter attack={claim.attack} />
           </div>
         ) : (
           <div className="claim-map-no-attack">
@@ -471,9 +480,7 @@ function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSele
                 {/* t/388: an unmapped attack names no claim, so its eyebrow is only the steelman label. Without it the steelman's text would read as the attack. */}
                 {attack.steelman && <div className="claim-map-attack-eyebrow">STEELMAN OF THE {attack.steelman.camp.toUpperCase()}</div>}
                 <p className="claim-map-attack-text">{attackText(attack)}</p>
-                <div className="claim-map-attack-footer">
-                  <span className="claim-map-attack-status">{attackStatus(attack)}</span>
-                </div>
+                <AttackFooter attack={attack} />
               </div>
             </div>
           ))}

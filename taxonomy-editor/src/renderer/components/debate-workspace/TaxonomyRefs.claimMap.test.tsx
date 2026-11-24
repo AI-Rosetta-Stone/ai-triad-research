@@ -219,6 +219,18 @@ describe('How → Plan claim map: motion, stage word, no synthetic ids (t/388)',
 });
 
 describe('claim-map steelman card (t/388)', () => {
+  it('shows no id when an offered tag resolves to no steelman node', () => {
+    useDebateStore.setState({ activeDebate: { transcript: [{ id: 'entry-2' }], argument_network: { nodes: [], edges: [] } } as never });
+    const wp = { ...PLAN_WORK_PRODUCT, steelman_refs_offered: ['AN-7'], anticipated_challenges: ['ATTACK [AN-7]: Pledges erode targeting node acc-B-001'] };
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: wp }];
+    render(<TaxonomyRefsSection refs={[]} entry={{ id: 'entry-2', type: 'statement', speaker: 'skeptic' } as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+    const c1 = screen.getByRole('group', { name: 'Attack on C1' });
+    expect(within(c1).getByText('Pledges erode')).toBeTruthy();
+    expect(within(c1).getByText('Unverified')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('AN-7');
+    useDebateStore.setState({ activeDebate: null } as never);
+  });
+
   it('labels the steelman on an unmapped attack too (a tagged attack that names no claim)', () => {
     useDebateStore.setState({
       activeDebate: {
@@ -246,7 +258,9 @@ describe('claim-map steelman card (t/388)', () => {
     expect(within(cards[1] as HTMLElement).queryByText(/STEELMAN OF/)).toBeNull();
     // An unchecked steelman adds no "N verified" term to the counts line.
     expect(screen.queryByText(/\d+ verified/)).toBeNull();
-    expect(document.body.textContent).not.toContain('AN-3');
+    // The id shows only on the card whose steelman resolved.
+    expect(within(cards[0] as HTMLElement).getByText('AN-3')).toHaveClass('claim-map-attack-id');
+    expect(cards[1].querySelector('.claim-map-attack-id')).toBeNull();
     useDebateStore.setState({ activeDebate: null } as never);
   });
 
@@ -272,7 +286,7 @@ describe('claim-map steelman card (t/388)', () => {
     expect(within(c1).getByText(/STEELMAN OF THE SAFETYIST/)).toBeTruthy();
     expect(within(c1).getByText('Faithful to target')).toBeTruthy();
     expect(screen.getByText(/1 verified/)).toBeTruthy();
-    expect(document.body.textContent).not.toContain('AN-7');
+    expect(within(c1).getByText('AN-7')).toHaveClass('claim-map-attack-id');
     useDebateStore.setState({ activeDebate: null } as never);
   });
 });

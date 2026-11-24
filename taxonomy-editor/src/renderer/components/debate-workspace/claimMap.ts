@@ -11,7 +11,7 @@ export interface AttackSteelman {
 export interface ParsedAttack {
   text: string;
   targetAnchor?: string; // the node the attack names, from "targeting node X"
-  // Only set when the tag is in steelman_refs_offered. No id is shown on the card (t/388).
+  // Only set when the tag is in steelman_refs_offered. The card shows it only when the steelman below resolved (t/388).
   steelmanId?: string;
   steelman?: AttackSteelman; // set only when the tagged node resolves on this debate's network
 }
