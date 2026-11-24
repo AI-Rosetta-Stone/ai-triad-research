@@ -101,6 +101,20 @@
   text-underline-offset: 2px;
 }
 
+/* t/472: the id, its relevance score and the primary marker share one line. */
+.debate-reasoning-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.debate-reasoning-score,
+.debate-reasoning-primary {
+  font-family: monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+
 .debate-reasoning-node:hover {
   text-decoration-style: solid;
 }

@@ -8,7 +8,7 @@ import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import { humanizeSpeakerIds } from '../../utils/humanizeSpeakers';
 import {
-  nodeIdToTab, getNodeLabel, focusMainWindowNode,
+  nodeIdToTab, getNodeLabel,
   buildExplainPrompt, buildSelectionExplainPrompt, fixMarkdownLinks, resolvePolRef, getPolicyAction,
 } from './utils';
 import type { PolicyRefEntry } from './utils';
@@ -60,41 +60,6 @@ export function CoverageBadge({ coverageMap, strengthWeighted }: { coverageMap: 
     </span>
   );
 }
-
-export function TaxonomyPill({ taxRef, onSelect, selected }: {
-  taxRef: TaxonomyRef;
-  /** When provided, a click toggles inline selection instead of navigating to the main window (t/1724 pattern). */
-  onSelect?: (nodeId: string) => void;
-  selected?: boolean;
-}) {
-  const { colorVar } = nodeIdToTab(taxRef.node_id);
-  const label = getNodeLabel(taxRef.node_id);
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onSelect) onSelect(taxRef.node_id);
-    else focusMainWindowNode(taxRef.node_id);
-  };
-
-  const scoreLabel = taxRef.relevance_score != null
-    ? ` (${taxRef.relevance_score.toFixed(2)})`
-    : '';
-  const primaryMarker = taxRef.primary ? '★ ' : '';
-
-  return (
-    <span
-      className={`debate-taxonomy-pill debate-taxonomy-pill-clickable${taxRef.primary ? ' debate-taxonomy-pill-primary' : ''}${selected ? ' debate-taxonomy-pill-selected' : ''}`}
-      // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-      style={{ borderColor: colorVar, color: colorVar }}
-      title={`${primaryMarker}${label}${scoreLabel}\n${taxRef.relevance}`}
-      aria-pressed={onSelect ? selected === true : undefined}
-      onClick={handleClick}
-    >
-      {primaryMarker}{taxRef.node_id}{scoreLabel}
-    </span>
-  );
-}
-
 
 function CaveatsBox({ caveats }: { caveats: string[] }) {
   const qualityCaveats = caveats.filter(c => !c.startsWith('[Ungrounded]'));
@@ -684,7 +649,7 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   toggleBdiNode: (nodeId: string) => void;
 }) {
   // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
-  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the row's button already
   // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
   const resolved = getNodeLabel(taxRef.node_id);
   const isMissing = !taxRef.label && resolved === taxRef.node_id;
@@ -694,15 +659,22 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   const { colorVar } = nodeIdToTab(taxRef.node_id);
   return (
     <div className="debate-reasoning-item">
-      <button
-        className="debate-reasoning-node"
-        // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-        style={{ color: colorVar }}
-        aria-expanded={selectedBdiNodeId === taxRef.node_id}
-        onClick={() => toggleBdiNode(taxRef.node_id)}
-      >
-        {taxRef.node_id}
-      </button>
+      {/* t/472: the chip row above each group is gone; the score and primary marker it carried sit beside the id. */}
+      <div className="debate-reasoning-head">
+        {taxRef.primary && <span className="debate-reasoning-primary" title="Primary reference" aria-label="Primary reference">★</span>}
+        <button
+          className="debate-reasoning-node"
+          // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
+          style={{ color: colorVar }}
+          aria-expanded={selectedBdiNodeId === taxRef.node_id}
+          onClick={() => toggleBdiNode(taxRef.node_id)}
+        >
+          {taxRef.node_id}
+        </button>
+        {taxRef.relevance_score != null && (
+          <span className="debate-reasoning-score" title="Relevance score">· {taxRef.relevance_score.toFixed(2)}</span>
+        )}
+      </div>
       {isMissing
         ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
         : <span className="debate-reasoning-label">{label}</span>}
@@ -753,11 +725,6 @@ function BdiGroup({ label, refs, selectedBdiNodeId, toggleBdiNode }: {
   return (
     <div className="taxrefs-bdi-group" role="group" aria-label={`${label}, ${refs.length} node${refs.length === 1 ? '' : 's'}`}>
       <div className="taxrefs-bdi-group-label">{label} ({refs.length})</div>
-      <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {refs.map((taxRef) => (
-          <TaxonomyPill key={taxRef.node_id} taxRef={taxRef} onSelect={toggleBdiNode} selected={selectedBdiNodeId === taxRef.node_id} />
-        ))}
-      </div>
       {refs.map((taxRef) => (
         <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
       ))}
@@ -810,7 +777,7 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
 }
 
 /**
- * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
+ * The BDI grounding content: per-node entries (policy refs keep their chips), and the inline POV detail when a ref is
  * clicked. t/187: grouped Desires → Intentions → Beliefs (→ Situations), policy refs last. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
  * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
  * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).
