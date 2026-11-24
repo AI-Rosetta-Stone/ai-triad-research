@@ -58,17 +58,84 @@ test('NOT skipped: latest queue run failed for an ordinary reason', () => {
   assert.equal(v.verdict, 'not_ejected');
 });
 
-test('NOT skipped: only an OLDER run was ejected and the latest run is clean', () => {
-  const runs = [run(10, 42, '2026-11-14T10:00:00Z'), run(11, 42, '2026-11-14T12:00:00Z')];
+test('NOT skipped: only an OLDER queue entry was ejected and the latest entry is clean', () => {
+  // Run 10 belongs to an older queue commit (different head_branch); run 11 is the latest entry.
+  const older = run(10, 42, '2026-11-14T10:00:00Z', { head_branch: 'gh-readonly-queue/main/pr-42-oldsha' });
+  const latest = run(11, 42, '2026-11-14T12:00:00Z');
   const v = ejectedBatchVerdict({
     prNumber: 42,
     pushedAt: Date.parse('2026-11-14T00:00:00Z'),
-    runs,
+    runs: [older, latest],
     readJobs: (id) => (id === 10 ? [{ id: 100, conclusion: 'failure' }] : [{ id: 200, conclusion: 'success' }]),
     readLog: () => EJECT_LOG,
   });
-  assert.equal(v.verdict, 'not_ejected', 'the rule is the latest run, not any run');
+  assert.equal(v.verdict, 'not_ejected', 'the rule is the latest queue entry, not any entry');
   assert.equal(v.runId, 11);
+});
+
+// SO t/423 fault: CI and CodeQL are two runs of one queue entry, created in the same second.
+// The EJECTED line is printed by the CI run. Both orders must skip.
+const SAME_SECOND = '2026-11-14T12:00:00Z';
+const CI_RUN = (id, extra = {}) => run(id, 42, SAME_SECOND, { name: 'CI', ...extra });
+const CODEQL_RUN = (id) => run(id, 42, SAME_SECOND, { name: 'CodeQL' });
+const jobsFor = (id) => (id === 10 ? [{ id: 100, conclusion: 'failure' }] : [{ id: 200, conclusion: 'failure' }]);
+const logsFor = (jobId) => (jobId === 100 ? EJECT_LOG : PLAIN_FAIL_LOG);
+
+test('SKIP: same-second entry, CodeQL listed first, CI (EJECTED) second', () => {
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
+    runs: [CODEQL_RUN(11), CI_RUN(10)],
+    readJobs: jobsFor,
+    readLog: logsFor,
+  });
+  assert.equal(v.verdict, 'ejected', 'the ejection on the non-newest run of the entry must count');
+  assert.equal(v.runId, 10);
+});
+
+test('SKIP: same-second entry, CI (EJECTED) listed first, CodeQL second', () => {
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
+    runs: [CI_RUN(10), CODEQL_RUN(11)],
+    readJobs: jobsFor,
+    readLog: logsFor,
+  });
+  assert.equal(v.verdict, 'ejected');
+  assert.equal(v.runId, 10);
+});
+
+test('NOT skipped: same-second entry where neither run printed EJECTED', () => {
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
+    runs: [CODEQL_RUN(11), CI_RUN(10)],
+    readJobs: jobsFor,
+    readLog: () => PLAIN_FAIL_LOG,
+  });
+  assert.equal(v.verdict, 'not_ejected');
+});
+
+test('NOT skipped: same-second entry still running on one run (fail open, decided next sweep)', () => {
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
+    runs: [CODEQL_RUN(11), CI_RUN(10, { status: 'in_progress' })],
+    readJobs: jobsFor,
+    readLog: logsFor,
+  });
+  assert.equal(v.verdict, 'not_ejected');
+});
+
+test('unknown (never skip) when a same-second run cannot be read', () => {
+  const v = ejectedBatchVerdict({
+    prNumber: 42,
+    pushedAt: Date.parse('2026-11-14T00:00:00Z'),
+    runs: [CODEQL_RUN(11), CI_RUN(10)],
+    readJobs: (id) => { if (id === 11) throw new Error('boom'); return jobsFor(id); },
+    readLog: logsFor,
+  });
+  assert.equal(v.verdict, 'unknown');
 });
 
 test('NOT skipped: latest queue run still running (not a confirmed exit 3)', () => {
