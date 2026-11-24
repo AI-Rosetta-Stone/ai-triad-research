@@ -104,8 +104,9 @@ export function documentSourceProblem(serverMessage: string): string | null {
  *  sent, not as the plan-limit copy, which would mislabel a spend pause as a plan limit. */
 function anonLimitError(goal: string, data: Record<string, unknown>): ActionableError {
   const problem = (data.message as string) || 'Too many requests. Try again later.';
+  // The spend-ceiling text already ends with the sign-in advice, so the next step says only to wait.
   const nextSteps = data.error === 'spend_ceiling'
-    ? ['Try again later', 'Sign in to keep creating op-eds']
+    ? ['Try again later']
     : ['Try again later', 'Use a topic instead of a web page'];
   return new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps });
 }
@@ -114,6 +115,7 @@ function anonLimitError(goal: string, data: Record<string, unknown>): Actionable
 function createNextSteps(status: number, problem: string): string[] {
   if (status !== 403) return ['Check your topic and selected voices, then try again'];
   if (/no price on file/.test(problem)) return ['Choose a different model in Settings'];
+  if (/anonymous session/.test(problem)) return ['Reload the page, or sign in with GitHub or Google'];
   return ['Sign in with GitHub or Google to create op-eds'];
 }
 

@@ -23,7 +23,7 @@ describe('create errors for anonymous users (t/467)', () => {
     const e = await errorFor(429, { error: 'spend_ceiling', ceiling: 'daily', message: 'Anonymous op-ed creation is paused: the spend limit has been reached. Sign in or try again later.' });
     expect(e.problem).toBe('Anonymous op-ed creation is paused: the spend limit has been reached. Sign in or try again later.');
     expect(e.problem).not.toMatch(/op-ed limit/);
-    expect(e.nextSteps).toContain('Sign in to keep creating op-eds');
+    expect(e.nextSteps).toEqual(['Try again later']);
     expect(e.httpStatus).toBe(429);
   });
 
@@ -41,7 +41,7 @@ describe('create errors for anonymous users (t/467)', () => {
 
   it('an unkeyed anonymous session still points to sign-in or a fresh session', async () => {
     const e = await errorFor(403, { error: 'Start an anonymous session to create op-eds: reload the page, or sign in.' });
-    expect(e.nextSteps).toEqual(['Sign in with GitHub or Google to create op-eds']);
+    expect(e.nextSteps).toEqual(['Reload the page, or sign in with GitHub or Google']);
   });
 
   it('a concurrency limit keeps its own wording', async () => {
