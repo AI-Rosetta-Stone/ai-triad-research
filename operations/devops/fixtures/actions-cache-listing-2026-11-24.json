@@ -1,0 +1,630 @@
+{
+ "source": "GET /repos/AI-Rosetta-Stone/ai-triad-research/actions/caches (all pages)",
+ "captured_at": "2026-11-24T22:28:51.813Z",
+ "actions_caches": [
+  {
+   "created_at": "2026-10-27T10:57:18.927457Z",
+   "id": 9576869656,
+   "key": "pester-5.7.1-Linux",
+   "last_accessed_at": "2026-11-24T22:28:52.278706Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 254999
+  },
+  {
+   "created_at": "2026-11-23T06:17:11.568263Z",
+   "id": 10949321875,
+   "key": "ms-playwright-Linux-976782cacdb18ed9a25c745fe420d2adcd8d8f4d8fa67bc6a056fcc02e7b2cfe",
+   "last_accessed_at": "2026-11-24T22:28:51.528154Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 307329316
+  },
+  {
+   "created_at": "2026-11-19T04:15:50.530208Z",
+   "id": 10766182621,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-7149bb0adc9e278fc38f1b558b0b6687fa876eb495167b730d08a6dbb90de57b",
+   "last_accessed_at": "2026-11-24T22:28:51.273417Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 543522586
+  },
+  {
+   "created_at": "2026-11-24T02:43:38.491922Z",
+   "id": 11008543986,
+   "key": "ai-triad-data-v2-2026-11-24",
+   "last_accessed_at": "2026-11-24T22:28:49.713447Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 1594175647
+  },
+  {
+   "created_at": "2026-11-10T02:56:42.203706Z",
+   "id": 10272209394,
+   "key": "onnx-model-all-MiniLM-L6-v2-fp32-751bff37182d3f1213fa05d7196b954e230abad9",
+   "last_accessed_at": "2026-11-24T22:28:47.441499Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 82988563
+  },
+  {
+   "created_at": "2026-11-23T06:14:30.223117Z",
+   "id": 10949239831,
+   "key": "node-cache-Linux-x64-pnpm-9aa5a420e5e51f8e614a46c85f320d8ef4a2911dd98022d3824dc48193517942",
+   "last_accessed_at": "2026-11-24T22:28:36.438168Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 413560623
+  },
+  {
+   "created_at": "2026-11-24T22:13:08.538578Z",
+   "id": 11063817704,
+   "key": "codeql-trap-1-2.27.5-javascript-85aac706e104487128370728d3692bd76f1d6765",
+   "last_accessed_at": "2026-11-24T22:28:20.463609Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34987137
+  },
+  {
+   "created_at": "2026-11-24T20:06:54.149421Z",
+   "id": 11057907620,
+   "key": "index-shared-docker-1-f921bd05#97",
+   "last_accessed_at": "2026-11-24T22:27:27.108494Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 25249
+  },
+  {
+   "created_at": "2026-11-23T06:17:07.156527Z",
+   "id": 10949319708,
+   "key": "apt-playwright-Linux-976782cacdb18ed9a25c745fe420d2adcd8d8f4d8fa67bc6a056fcc02e7b2cfe",
+   "last_accessed_at": "2026-11-24T22:27:16.015350Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 21791172
+  },
+  {
+   "created_at": "2026-11-24T22:27:10.368409Z",
+   "id": 11064426817,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-cd5097df7f86cadba106f148b0e38178d49a5063aef030f42ef729f8063dbccc",
+   "last_accessed_at": "2026-11-24T22:27:10.368409Z",
+   "ref": "refs/heads/gh-readonly-queue/main/pr-5119-f0c70be78ff21eec79915252f92ed866597dbba9",
+   "size_in_bytes": 563780979
+  },
+  {
+   "created_at": "2026-11-10T10:03:37.138163Z",
+   "id": 10287116292,
+   "key": "hf-embed-Linux-ade95ce65eaf558259805e7a784f5186166b947eb9b8ab7ea70f62313d8bf8f7",
+   "last_accessed_at": "2026-11-24T22:25:16.930780Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 682001166
+  },
+  {
+   "created_at": "2026-11-24T22:23:55.500041Z",
+   "id": 11064286121,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-cd5097df7f86cadba106f148b0e38178d49a5063aef030f42ef729f8063dbccc",
+   "last_accessed_at": "2026-11-24T22:24:11.456203Z",
+   "ref": "refs/heads/gh-readonly-queue/main/pr-5390-f03f49b68feffaa6a53060b51b05cc7a77aab1ec",
+   "size_in_bytes": 563783268
+  },
+  {
+   "created_at": "2026-11-24T22:02:56.755634Z",
+   "id": 11063366417,
+   "key": "node-cache-Linux-x64-pnpm-3448946a4c3cc8f495a598f08f868222fd02b1b4119ce5b28705471459366502",
+   "last_accessed_at": "2026-11-24T22:16:10.453995Z",
+   "ref": "refs/heads/fix/t506-fast-xml-parser-512",
+   "size_in_bytes": 413475114
+  },
+  {
+   "created_at": "2026-11-24T22:12:16.483337Z",
+   "id": 11063778967,
+   "key": "ms-playwright-Linux-0fcd44d79e01cd9aa77f06c812376a629e3015763f66c5f06b115d34f518ee11",
+   "last_accessed_at": "2026-11-24T22:12:16.483337Z",
+   "ref": "refs/heads/fix/t506-fast-xml-parser-512",
+   "size_in_bytes": 307086413
+  },
+  {
+   "created_at": "2026-11-24T22:12:11.522765Z",
+   "id": 11063775848,
+   "key": "apt-playwright-Linux-0fcd44d79e01cd9aa77f06c812376a629e3015763f66c5f06b115d34f518ee11",
+   "last_accessed_at": "2026-11-24T22:12:11.522765Z",
+   "ref": "refs/heads/fix/t506-fast-xml-parser-512",
+   "size_in_bytes": 21775717
+  },
+  {
+   "created_at": "2026-11-24T21:29:38.413014Z",
+   "id": 11061862231,
+   "key": "codeql-trap-1-2.27.5-javascript-7d4ffaeec74d79ea2c837094ff8be4b5ae5cb3de",
+   "last_accessed_at": "2026-11-24T22:12:11.201954Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34981365
+  },
+  {
+   "created_at": "2026-11-24T19:08:26.539354Z",
+   "id": 11055064756,
+   "key": "node-cache-Linux-x64-pnpm-3448946a4c3cc8f495a598f08f868222fd02b1b4119ce5b28705471459366502",
+   "last_accessed_at": "2026-11-24T22:08:12.784164Z",
+   "ref": "refs/pull/5417/merge",
+   "size_in_bytes": 413473840
+  },
+  {
+   "created_at": "2026-11-24T21:47:08.421691Z",
+   "id": 11062656422,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-cd5097df7f86cadba106f148b0e38178d49a5063aef030f42ef729f8063dbccc",
+   "last_accessed_at": "2026-11-24T21:47:08.421691Z",
+   "ref": "refs/heads/gh-readonly-queue/main/pr-5437-d1d2ec84aa40e26c548bf5fe90c7a6f2e82594a7",
+   "size_in_bytes": 563532747
+  },
+  {
+   "created_at": "2026-11-24T21:40:46.244680Z",
+   "id": 11062363290,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-cd5097df7f86cadba106f148b0e38178d49a5063aef030f42ef729f8063dbccc",
+   "last_accessed_at": "2026-11-24T21:41:02.437306Z",
+   "ref": "refs/heads/gh-readonly-queue/main/pr-5298-7f91825a08cabe4687483c71c8135ffa91e685a0",
+   "size_in_bytes": 563534279
+  },
+  {
+   "created_at": "2026-11-24T19:13:33.188674Z",
+   "id": 11055317532,
+   "key": "apt-playwright-Linux-0fcd44d79e01cd9aa77f06c812376a629e3015763f66c5f06b115d34f518ee11",
+   "last_accessed_at": "2026-11-24T21:41:01.413247Z",
+   "ref": "refs/pull/5417/merge",
+   "size_in_bytes": 21791149
+  },
+  {
+   "created_at": "2026-11-24T19:13:37.991046Z",
+   "id": 11055320812,
+   "key": "ms-playwright-Linux-0fcd44d79e01cd9aa77f06c812376a629e3015763f66c5f06b115d34f518ee11",
+   "last_accessed_at": "2026-11-24T21:40:56.311192Z",
+   "ref": "refs/pull/5417/merge",
+   "size_in_bytes": 307324632
+  },
+  {
+   "created_at": "2026-11-24T21:16:07.529631Z",
+   "id": 11061242034,
+   "key": "codeql-trap-1-2.27.5-javascript-963c34c3ddf3fba8cd62a03b16515a3deec5bdc5",
+   "last_accessed_at": "2026-11-24T21:29:00.400748Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34918670
+  },
+  {
+   "created_at": "2026-11-24T21:21:07.582199Z",
+   "id": 11061471530,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-cd5097df7f86cadba106f148b0e38178d49a5063aef030f42ef729f8063dbccc",
+   "last_accessed_at": "2026-11-24T21:21:07.582199Z",
+   "ref": "refs/pull/5298/merge",
+   "size_in_bytes": 563783289
+  },
+  {
+   "created_at": "2026-11-24T21:11:06.154558Z",
+   "id": 11061004064,
+   "key": "codeql-trap-1-2.27.5-javascript-d462195190888fb825a34aef8898a5342f976e82",
+   "last_accessed_at": "2026-11-24T21:14:01.322197Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34916752
+  },
+  {
+   "created_at": "2026-11-24T20:52:43.322945Z",
+   "id": 11060133757,
+   "key": "codeql-trap-1-2.27.5-javascript-5fc66fe244afa85bb15aab819abbfbca209ceeff",
+   "last_accessed_at": "2026-11-24T21:10:15.869578Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34803590
+  },
+  {
+   "created_at": "2026-11-24T20:45:01.333822Z",
+   "id": 11059773108,
+   "key": "codeql-trap-1-2.27.5-javascript-d57e61496efe964f7f35f2b7a42b6f15bcb0d1ea",
+   "last_accessed_at": "2026-11-24T20:51:47.870469Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34799165
+  },
+  {
+   "created_at": "2026-11-24T20:40:21.235146Z",
+   "id": 11059553759,
+   "key": "codeql-trap-1-2.27.5-javascript-8e570672bd4b7ea443e6f77902b161bff044fa1e",
+   "last_accessed_at": "2026-11-24T20:43:56.474668Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34799939
+  },
+  {
+   "created_at": "2026-11-24T20:24:52.458540Z",
+   "id": 11058806170,
+   "key": "codeql-trap-1-2.27.5-javascript-ebee280351f4773a8334c8d6986adfeae9c0809c",
+   "last_accessed_at": "2026-11-24T20:38:00.647764Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34797794
+  },
+  {
+   "created_at": "2026-11-24T20:20:00.390651Z",
+   "id": 11058567911,
+   "key": "codeql-trap-1-2.27.5-javascript-483d2e53f2adf84aa909ed83ce3dc6703788efd5",
+   "last_accessed_at": "2026-11-24T20:20:00.390651Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34799859
+  },
+  {
+   "created_at": "2026-11-24T20:15:07.589511Z",
+   "id": 11058323188,
+   "key": "codeql-trap-1-2.27.5-javascript-0999eab90dfe2b401e7ec5336d8d067b34dd2d47",
+   "last_accessed_at": "2026-11-24T20:19:54.767356Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34800730
+  },
+  {
+   "created_at": "2026-11-24T16:54:19.873994Z",
+   "id": 11047714681,
+   "key": "index-shared-docker-1-f921bd05#96",
+   "last_accessed_at": "2026-11-24T20:06:53.793846Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 25245
+  },
+  {
+   "created_at": "2026-11-24T02:58:55.311191Z",
+   "id": 11009057504,
+   "key": "buildkit-blob-1-sha256:ecd44f3873b36fa80379b6609ff28e8189e6a90be57d0e4b7fde2b97ee533c2d",
+   "last_accessed_at": "2026-11-24T20:06:53.696007Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 93
+  },
+  {
+   "created_at": "2026-11-24T20:06:53.642417Z",
+   "id": 11057907271,
+   "key": "buildkit-blob-1-sha256:e7f66851ae550ee2a4700a8c6e67a187d09425caabfbb20759164464c02f2b13",
+   "last_accessed_at": "2026-11-24T20:06:53.642417Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 1760
+  },
+  {
+   "created_at": "2026-11-24T02:58:55.191919Z",
+   "id": 11009057440,
+   "key": "buildkit-blob-1-sha256:e51cadda7c25681e60133c464eb41dd45a3795da923a7c9a97477f587d68c355",
+   "last_accessed_at": "2026-11-24T20:06:53.328299Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 140770
+  },
+  {
+   "created_at": "2026-11-24T02:19:50.596026Z",
+   "id": 11007728999,
+   "key": "buildkit-blob-1-sha256:e06275ee73d750320b7ac701e5cc09a92a38e8756def3555cd27fbe00b83d4b7",
+   "last_accessed_at": "2026-11-24T20:06:53.285417Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 116045063
+  },
+  {
+   "created_at": "2026-11-21T13:57:14.336607Z",
+   "id": 10892824669,
+   "key": "buildkit-blob-1-sha256:d6e5aae5bdd3e1957bb639d1672c645f6e7e9b5f68a15f327a9f2672515d7c40",
+   "last_accessed_at": "2026-11-24T20:06:53.239122Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 3314
+  },
+  {
+   "created_at": "2026-11-24T02:58:54.466716Z",
+   "id": 11009057044,
+   "key": "buildkit-blob-1-sha256:cc3b89a7b8f566e994b577b20d0a64188f3a4b01d4b6d8e73480d4112a5c0b6c",
+   "last_accessed_at": "2026-11-24T20:06:53.186912Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 10270
+  },
+  {
+   "created_at": "2026-11-24T20:06:53.129943Z",
+   "id": 11057906886,
+   "key": "buildkit-blob-1-sha256:b9d0835b6974ece5ef22cad94cae6925168ee4e0164968c6314c3002f655f67b",
+   "last_accessed_at": "2026-11-24T20:06:53.129943Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 252
+  },
+  {
+   "created_at": "2026-11-24T20:06:52.757721Z",
+   "id": 11057902419,
+   "key": "buildkit-blob-1-sha256:b51fae743e3e9d8730bf3b55a079d0a4ad98dd3ed4b60de2f447a36c025f4487",
+   "last_accessed_at": "2026-11-24T20:06:52.757721Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 79300351
+  },
+  {
+   "created_at": "2026-11-24T02:19:37.052331Z",
+   "id": 11007727694,
+   "key": "buildkit-blob-1-sha256:b2517621373b2a3af8b3e5f63ad24895964c268a6faa970354860bcbd43d4f44",
+   "last_accessed_at": "2026-11-24T20:06:47.064374Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 13744358
+  },
+  {
+   "created_at": "2026-11-24T20:06:47.008112Z",
+   "id": 11057900545,
+   "key": "buildkit-blob-1-sha256:b0211e943ca5ab3e33c51514bb3a4ccd5ce45fdb1f594e60f42f392a6d8c0e5b",
+   "last_accessed_at": "2026-11-24T20:06:47.008112Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 29170675
+  },
+  {
+   "created_at": "2026-11-24T02:58:54.307985Z",
+   "id": 11009056987,
+   "key": "buildkit-blob-1-sha256:ae241db51aa5af9c1de1d094baf16691524c78c6c9cbea5608237a258a7015ed",
+   "last_accessed_at": "2026-11-24T20:06:44.718693Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 8983
+  },
+  {
+   "created_at": "2026-11-24T20:06:44.664399Z",
+   "id": 11057900267,
+   "key": "buildkit-blob-1-sha256:ab9e2d29f9fa77f5fa2df12cb26832244fcd64be0363bab341d3ae1c97984d5d",
+   "last_accessed_at": "2026-11-24T20:06:44.664399Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 243
+  },
+  {
+   "created_at": "2026-11-24T20:06:44.295531Z",
+   "id": 11057899131,
+   "key": "buildkit-blob-1-sha256:a84cbd707a9d217a025e74ec35bbf4fb96a22b244d3474ed057a3e6b7efd42e4",
+   "last_accessed_at": "2026-11-24T20:06:44.295531Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 6711917
+  },
+  {
+   "created_at": "2026-11-24T20:06:42.807056Z",
+   "id": 11057898940,
+   "key": "buildkit-blob-1-sha256:98bd498858de7d8dbafe67a5906c9bb1d46705fd70ebff5fee69c3a3b9bc91ef",
+   "last_accessed_at": "2026-11-24T20:06:42.807056Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 15994
+  },
+  {
+   "created_at": "2026-11-24T20:06:42.540354Z",
+   "id": 11057892459,
+   "key": "buildkit-blob-1-sha256:97dc1e579c843f258ee63366d177681f26622376594c0d99a6d06b0925d5fee6",
+   "last_accessed_at": "2026-11-24T20:06:42.540354Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 83000633
+  },
+  {
+   "created_at": "2026-11-24T20:06:34.120379Z",
+   "id": 11057892125,
+   "key": "buildkit-blob-1-sha256:97782816fc1f9fa2d595a1890665599712f54fc6cbf012aa3f5fc3c2fc740b57",
+   "last_accessed_at": "2026-11-24T20:06:34.120379Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 115002
+  },
+  {
+   "created_at": "2026-11-24T20:06:33.658852Z",
+   "id": 11057891524,
+   "key": "buildkit-blob-1-sha256:8e42b6ba686d63ebb2581e467c2a97899b3b08e1663cba605a6ff77aa1de0469",
+   "last_accessed_at": "2026-11-24T20:06:33.658852Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 2615148
+  },
+  {
+   "created_at": "2026-11-24T02:58:54.082775Z",
+   "id": 11009056852,
+   "key": "buildkit-blob-1-sha256:882c6fb7aa28a1c4b53b1957eddd82d3e0d9fad1d64c662b8ffe57f25fad640b",
+   "last_accessed_at": "2026-11-24T20:06:32.924339Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 6524
+  },
+  {
+   "created_at": "2026-11-24T20:06:32.864772Z",
+   "id": 11057891207,
+   "key": "buildkit-blob-1-sha256:83f24154ff3ddc5f53954bd2164543caa6881be8e5cf6caa9f1bb79db6630169",
+   "last_accessed_at": "2026-11-24T20:06:32.864772Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 41180
+  },
+  {
+   "created_at": "2026-11-24T02:19:34.643459Z",
+   "id": 11007727256,
+   "key": "buildkit-blob-1-sha256:8390a0ba2a30213b611fe0ddb88cc1f07218a4e460593c7f6a066655ac4cbf52",
+   "last_accessed_at": "2026-11-24T20:06:32.490076Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 63238
+  },
+  {
+   "created_at": "2026-11-24T02:19:33.801122Z",
+   "id": 11007721736,
+   "key": "buildkit-blob-1-sha256:7f295f14fcfe2e5527ebab26810c62537c1fa840ea9624a191e439449397bb8d",
+   "last_accessed_at": "2026-11-24T20:06:32.416206Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 83003816
+  },
+  {
+   "created_at": "2026-11-24T02:58:53.271261Z",
+   "id": 11009039179,
+   "key": "buildkit-blob-1-sha256:783f75ed439ab61e73ad866b7812f50a173ab9c780df9f831206ec9986b398ee",
+   "last_accessed_at": "2026-11-24T20:06:32.362931Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 801612079
+  },
+  {
+   "created_at": "2026-11-24T20:06:32.303571Z",
+   "id": 11057890857,
+   "key": "buildkit-blob-1-sha256:6924debdfe9bc7331cb4a90d080f9451b85f4de6f0c495dab3fd285c9018760b",
+   "last_accessed_at": "2026-11-24T20:06:32.303571Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 8987
+  },
+  {
+   "created_at": "2026-11-24T02:19:23.666149Z",
+   "id": 11007712492,
+   "key": "buildkit-blob-1-sha256:68e1227f2d34e4bacfe39facbb625b7879c514ade0e828746e9731ddabf79cba",
+   "last_accessed_at": "2026-11-24T20:06:32.011501Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 83000621
+  },
+  {
+   "created_at": "2026-11-24T20:06:31.954238Z",
+   "id": 11057889030,
+   "key": "buildkit-blob-1-sha256:674aecb516ea9507e9aacdfdbf013b8ccd20d275df8e4ce349dc476c040551ee",
+   "last_accessed_at": "2026-11-24T20:06:31.954238Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 16676336
+  },
+  {
+   "created_at": "2026-11-24T02:19:08.471258Z",
+   "id": 11007711632,
+   "key": "buildkit-blob-1-sha256:660ab5002220636a4b9388ed28a43e9dcef51971dedb0721c9a528f05ac53da2",
+   "last_accessed_at": "2026-11-24T20:06:29.549154Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 41726
+  },
+  {
+   "created_at": "2026-11-24T02:19:07.112085Z",
+   "id": 11007710802,
+   "key": "buildkit-blob-1-sha256:5b8388dd9f43a51dbc2fa34f095e9fb123c27a4bd805f20b713d9f6b426ce358",
+   "last_accessed_at": "2026-11-24T20:06:29.506432Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 1078705
+  },
+  {
+   "created_at": "2026-11-21T13:56:32.526328Z",
+   "id": 10892809070,
+   "key": "buildkit-blob-1-sha256:513be7fbd56f1d7020b35174d5307c950c4f79068c5ab33156534a955827c925",
+   "last_accessed_at": "2026-11-24T20:06:29.461683Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 447
+  },
+  {
+   "created_at": "2026-11-21T13:56:31.789170Z",
+   "id": 10892808871,
+   "key": "buildkit-blob-1-sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+   "last_accessed_at": "2026-11-24T20:06:29.395898Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 32
+  },
+  {
+   "created_at": "2026-11-24T02:19:05.566430Z",
+   "id": 11007710126,
+   "key": "buildkit-blob-1-sha256:47fcf315d9d35039a69e2c63d42a324536d338c959084dc948c3a2b198db230d",
+   "last_accessed_at": "2026-11-24T20:06:29.242181Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 338211
+  },
+  {
+   "created_at": "2026-11-24T20:06:29.192565Z",
+   "id": 11057888486,
+   "key": "buildkit-blob-1-sha256:41ccbda121ce3d6fcfe1057b09d6758489c90667c55111b95e7054ed90daf4c8",
+   "last_accessed_at": "2026-11-24T20:06:29.192565Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 16043
+  },
+  {
+   "created_at": "2026-11-24T20:06:28.795016Z",
+   "id": 11057887910,
+   "key": "buildkit-blob-1-sha256:3fd68944e85535acb4c5eedfd8e8cec82555277f3b448e026110d2ccb4ba6c28",
+   "last_accessed_at": "2026-11-24T20:06:28.795016Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 1912278
+  },
+  {
+   "created_at": "2026-11-21T13:56:28.232585Z",
+   "id": 10892806064,
+   "key": "buildkit-blob-1-sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41",
+   "last_accessed_at": "2026-11-24T20:06:28.108240Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 29856132
+  },
+  {
+   "created_at": "2026-11-24T02:19:04.488234Z",
+   "id": 11007709562,
+   "key": "buildkit-blob-1-sha256:2cdd0a5a625540bc52494e777a4b0ffa524419861a848cd5ab7fe959000beed6",
+   "last_accessed_at": "2026-11-24T20:06:28.059415Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 741083
+  },
+  {
+   "created_at": "2026-11-21T13:56:22.124815Z",
+   "id": 10892800618,
+   "key": "buildkit-blob-1-sha256:1e9bef032521d6c7a201c1fdfdf135ff3b47c9b9f7dd49ee8cc456d8bbd70d14",
+   "last_accessed_at": "2026-11-24T20:06:28.004169Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 55880183
+  },
+  {
+   "created_at": "2026-11-24T02:58:11.171539Z",
+   "id": 11009033801,
+   "key": "buildkit-blob-1-sha256:1e3ed477f2a72ef01286c6b59f6e9e7e58e1632f581d6f7db7f67704e64d31d9",
+   "last_accessed_at": "2026-11-24T20:06:27.948541Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 302
+  },
+  {
+   "created_at": "2026-11-24T20:06:27.864818Z",
+   "id": 11057887468,
+   "key": "buildkit-blob-1-sha256:11a4e62427072fc2f6a57ad77c2aa50b2c54d16295dd041ff16f5ca33715e1db",
+   "last_accessed_at": "2026-11-24T20:06:27.864818Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 15848
+  },
+  {
+   "created_at": "2026-11-24T19:59:42.017374Z",
+   "id": 11057564451,
+   "key": "codeql-trap-1-2.27.5-javascript-a666c41b5615cb294e8fd94b4c7c16a9d815516b",
+   "last_accessed_at": "2026-11-24T20:05:33.669088Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34349318
+  },
+  {
+   "created_at": "2026-11-24T20:04:41.708087Z",
+   "id": 11057802527,
+   "key": "taxonomy-snapshot-126b51d6f1263ad825b5c3a50a7d6d4130fe056c",
+   "last_accessed_at": "2026-11-24T20:04:41.708087Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 30984672
+  },
+  {
+   "created_at": "2026-11-24T19:46:09.464880Z",
+   "id": 11056919850,
+   "key": "codeql-trap-1-2.27.5-javascript-ceacecb60248a2de5e4f8e623787ec43630e971d",
+   "last_accessed_at": "2026-11-24T20:04:12.896275Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34366594
+  },
+  {
+   "created_at": "2026-11-24T16:52:25.931832Z",
+   "id": 11047603552,
+   "key": "taxonomy-snapshot-28d8d2a5e9c31c623c182b44d19334f69d722f7e",
+   "last_accessed_at": "2026-11-24T20:04:04.209453Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 30984610
+  },
+  {
+   "created_at": "2026-11-24T19:02:55.124194Z",
+   "id": 11054787621,
+   "key": "node-cache-Linux-x64-pnpm-c5b0fbc84269d0486b166f4d042939f67beb2c75f1bd0df22d4899548394cb70",
+   "last_accessed_at": "2026-11-24T19:58:53.228535Z",
+   "ref": "refs/heads/t162-block-flip",
+   "size_in_bytes": 412452954
+  },
+  {
+   "created_at": "2026-11-24T19:06:13.284101Z",
+   "id": 11054953359,
+   "key": "setup-python-Linux-x64-26.04-Ubuntu-python-3.12.16-pip-de9fae1a6bb2b99ae8e9b670b1b758e0727af1b87a6dfa596376f3081f278060",
+   "last_accessed_at": "2026-11-24T19:48:04.334049Z",
+   "ref": "refs/heads/t162-block-flip",
+   "size_in_bytes": 563114050
+  },
+  {
+   "created_at": "2026-11-24T19:04:51.189398Z",
+   "id": 11054885376,
+   "key": "apt-playwright-Linux-29a4f632efb706a4f3ed82d3cedf1889e34b7df1bba59235a640a30b25c14b61",
+   "last_accessed_at": "2026-11-24T19:46:34.264706Z",
+   "ref": "refs/heads/t162-block-flip",
+   "size_in_bytes": 21791126
+  },
+  {
+   "created_at": "2026-11-24T19:04:55.624140Z",
+   "id": 11054887850,
+   "key": "ms-playwright-Linux-29a4f632efb706a4f3ed82d3cedf1889e34b7df1bba59235a640a30b25c14b61",
+   "last_accessed_at": "2026-11-24T19:46:30.901493Z",
+   "ref": "refs/heads/t162-block-flip",
+   "size_in_bytes": 306847423
+  },
+  {
+   "created_at": "2026-11-24T19:23:17.492646Z",
+   "id": 11055796565,
+   "key": "codeql-trap-1-2.27.5-javascript-fca271de2d42e76219cb9d03f3a842b91713d189",
+   "last_accessed_at": "2026-11-24T19:44:50.617930Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34136525
+  },
+  {
+   "created_at": "2026-11-24T17:48:27.776727Z",
+   "id": 11050875447,
+   "key": "codeql-trap-1-2.27.5-javascript-87235c9812004eb11a68b4a21d7e668e61a51bf6",
+   "last_accessed_at": "2026-11-24T19:22:20.830550Z",
+   "ref": "refs/heads/main",
+   "size_in_bytes": 34127747
+  }
+ ]
+}
