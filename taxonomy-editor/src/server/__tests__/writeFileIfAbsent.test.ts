@@ -171,10 +171,63 @@ describe('GitHubAPIBackend.writeFileIfAbsent (t/181)', () => {
       expect(request.mock.calls[0][1]).toBe('PUT');
     });
 
-    it('422 "sha wasn\'t supplied" (the file exists) → exists', async () => {
-      const { backend, request } = makeBackend({ session: false });
-      request.mockResolvedValue({ ok: false, status: 422, data: null, error: 'Invalid request.\n\n"sha" wasn\'t supplied.' });
+    const SHA_422 = { ok: false, status: 422, data: null, error: 'Invalid request.\n\n"sha" wasn\'t supplied.' };
+
+    it('422 "sha wasn\'t supplied", and a read confirms the file is there → exists (t/268 item 3)', async () => {
+      const { backend, internals, request } = makeBackend({ session: false });
+      request.mockResolvedValueOnce(SHA_422);
+      internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'present', content: '{}', sha: 's1' });
       expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(internals.getSessionBranchFileStatus).toHaveBeenCalledWith(REPO_PATH, 'main');
+    });
+
+    it('422 that mentions sha but the file is absent → a validation failure that throws, never exists (t/268 item 3)', async () => {
+      const { backend, internals, request } = makeBackend({ session: false });
+      request.mockResolvedValueOnce({ ok: false, status: 422, data: null, error: 'sha is not a valid blob reference for this tree' });
+      internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'absent' });
+      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(/422/);
+    });
+
+    it('422 that mentions sha but the file cannot be read → throws GITHUB_EXISTS_UNVERIFIED (503), never exists (t/268 item 3)', async () => {
+      const { backend, internals, request } = makeBackend({ session: false });
+      request.mockResolvedValueOnce(SHA_422);
+      internals.getSessionBranchFileStatus = vi.fn().mockResolvedValueOnce({ kind: 'unavailable' });
+      await expect(backend.writeFileIfAbsent('/abs/job-1.json', '{}')).rejects.toThrow(expect.objectContaining({ code: 'GITHUB_EXISTS_UNVERIFIED', httpStatus: 503 }));
+    });
+
+    it('409, absent, then the retry gets the sha 422: confirmed by a second read → exists (t/268 item 3)', async () => {
+      const { backend, internals, request } = makeBackend({ session: false });
+      request.mockResolvedValueOnce({ ok: false, status: 409, data: null, error: 'Conflict' });
+      request.mockResolvedValueOnce(SHA_422);
+      internals.getSessionBranchFileStatus = vi.fn()
+        .mockResolvedValueOnce({ kind: 'absent' })
+        .mockResolvedValueOnce({ kind: 'present', content: '{}', sha: 's1' });
+      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      expect(internals.getSessionBranchFileStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it('the confirming read is unconditional, so a cached ETag cannot turn it into a 304 and a spurious 503 (t/268 item 4)', async () => {
+      const { backend, request } = makeBackend({ session: false });
+      // A GitHub that answers 304 to a conditional GET, as it does when the manifest's ETag is sent.
+      request.mockImplementation(async (_creds: unknown, method: string, _p: string, _body: unknown, _callId: unknown, opts?: { unconditional?: boolean }) => {
+        if (method === 'PUT') return SHA_422;
+        if (!opts?.unconditional) return { ok: true, status: 304, data: null };
+        return { ok: true, status: 200, data: { type: 'file', encoding: 'base64', sha: 's1', size: 2, content: Buffer.from('{}').toString('base64') } };
+      });
+      expect(await backend.writeFileIfAbsent('/abs/job-1.json', '{}')).toBe('exists');
+      const get = request.mock.calls.find(c => c[1] === 'GET');
+      expect(get?.[5]).toMatchObject({ optional: true, unconditional: true });
+    });
+
+    it('getSessionBranchFileStatus on the base branch reads the file even when GitHub would 304 a conditional GET (t/268 item 4)', async () => {
+      const { internals, request } = makeBackend({ session: false });
+      request.mockImplementation(async (_creds: unknown, _method: string, _p: string, _body: unknown, _callId: unknown, opts?: { unconditional?: boolean }) => {
+        if (!opts?.unconditional) return { ok: true, status: 304, data: null };
+        return { ok: true, status: 200, data: { type: 'file', encoding: 'base64', sha: 's1', size: 2, content: Buffer.from('{}').toString('base64') } };
+      });
+      const status = await (internals.getSessionBranchFileStatus as (p: string, ref: string) => Promise<{ kind: string }>).call(internals, REPO_PATH, 'main');
+      // Before the fix this was 'unavailable', which the 409 path turns into a 503.
+      expect(status.kind).toBe('present');
     });
 
     it('any other 422 is a real validation failure and throws — never exists', async () => {
