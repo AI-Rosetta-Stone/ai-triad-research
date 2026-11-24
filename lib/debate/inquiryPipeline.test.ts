@@ -370,6 +370,38 @@ describe('runInquiryPipeline — question relevance (t/284 item 5)', () => {
   });
 });
 
+describe('runInquiryPipeline — persistSession (t/284 item 5, t/476)', () => {
+  it('is called once, after relevance is recorded, with the session that carries it', async () => {
+    const session = makeSession();
+    let relevanceAtSave: unknown = 'not called';
+    const persistSession = vi.fn(async (s: DebateSession) => { relevanceAtSave = s.relevance; });
+    const deps = makeDeps({ runDebate: vi.fn().mockResolvedValue({ session }), persistSession });
+    await runInquiryPipeline(makeRequest(), deps);
+    expect(persistSession).toHaveBeenCalledTimes(1);
+    expect(persistSession.mock.calls[0][0]).toBe(session);
+    expect(relevanceAtSave).toBeDefined();
+    expect(relevanceAtSave).toBe(session.relevance);
+  });
+
+  it('returns the same result with and without the dep', async () => {
+    const without = await runInquiryPipeline(makeRequest(), makeDeps());
+    const withDep = await runInquiryPipeline(makeRequest(), makeDeps({ persistSession: vi.fn().mockResolvedValue(undefined) }));
+    expect(withDep).toEqual(without);
+  });
+
+  it('still returns the answer when the save rejects', async () => {
+    const deps = makeDeps({ persistSession: vi.fn().mockRejectedValue(new Error('disk full')) });
+    await expect(runInquiryPipeline(makeRequest(), deps)).resolves.toBeDefined();
+  });
+
+  it('is not called when the debate throws', async () => {
+    const persistSession = vi.fn();
+    const deps = makeDeps({ runDebate: vi.fn().mockRejectedValue(new Error('debate failed')), persistSession });
+    await expect(runInquiryPipeline(makeRequest(), deps)).rejects.toThrow('debate failed');
+    expect(persistSession).not.toHaveBeenCalled();
+  });
+});
+
 describe('runInquiryPipeline — empty transcript relevance (t/284 item 5, CL note 2)', () => {
   it('stores unavailable with a reason, never a clean no-drift reading', async () => {
     const session = { ...makeSession(), transcript: [] } as unknown as DebateSession;

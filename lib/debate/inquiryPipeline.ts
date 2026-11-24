@@ -73,6 +73,14 @@ export interface InquiryPipelineDeps {
    * (`debateProgressMapping.ts`) through to its own poll/IPC response.
    */
   onDebateProgress?: (p: DebateProgressUpdate) => void;
+  /**
+   * Optional: save the debate session (t/284 item 5, t/476). Called once, after the debate returns
+   * and the question relevance is recorded on the session, so post-debate fields are stored. A
+   * host that saves inside `runDebate` stores the session without them. The pipeline awaits it;
+   * a rejection is logged with a WARN and the inquiry continues, since the session is an audit
+   * copy and a failed save must not break the answer. Absent: the pipeline saves nothing.
+   */
+  persistSession?: (session: DebateSession) => Promise<void>;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -108,6 +116,16 @@ async function recordQuestionRelevance(
   } catch (err) {
     session.relevance = { question_similarity: [], mean: null, drift_warning: false, unavailable_reason: String(err) };
     warn(`inquiry relevance unavailable (session ${session.id ?? 'unknown'}): ${String(err)}`);
+  }
+}
+
+/** Hand the finished session to the host's save, if it supplied one. A failed save never fails the inquiry. */
+async function persistSessionIfSupplied(session: DebateSession, persistSession: InquiryPipelineDeps['persistSession']): Promise<void> {
+  if (!persistSession) return;
+  try {
+    await persistSession(session);
+  } catch (err) {
+    warn(`inquiry session save failed (session ${session.id ?? 'unknown'}); the answer is returned without a stored debate: ${String(err)}`);
   }
 }
 
@@ -266,6 +284,8 @@ export async function runInquiryPipeline(
 
   // t/284 item 5: per-turn similarity to the literal question, stored on the session.
   await recordQuestionRelevance(session, request.question, deps.embed);
+  // Save only now, so the stored session carries the relevance metric (t/476).
+  await persistSessionIfSupplied(session, deps.persistSession);
 
   // ── Stage 4: project trust ─────────────────────────────────────────────────
   deps.onStage?.('projecting');
