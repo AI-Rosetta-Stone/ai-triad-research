@@ -50,6 +50,12 @@ export interface OpEdGeneratorDeps {
   repoRoot: string;
   /** Optional recorder for guard warnings — pass getGlobalRecorder() from the host. */
   recorder?: { record: (event: Record<string, unknown>) => void } | null;
+  /**
+   * t/541: embeds the grounding query. Defaults to the in-process ONNX session (computeEmbedding), which
+   * is today's behaviour. A host that already holds an embedding session (the server, with the worker
+   * offload on) passes its own query embed so the op-ed run does not load a second session.
+   */
+  embedQuery?: (text: string) => Promise<number[]>;
 }
 
 // ── Progress event union ──────────────────────────────────────────────────────
@@ -1038,7 +1044,8 @@ async function selectSetGrounding(
 ): Promise<{ groundingByPov: Map<PovKey, ScoredPovNode[]>; appliedByPov: Map<PovKey, AppliedTag | undefined>; sitNodes: ScoredSituationNode[]; nodeCount: number }> {
   const taxonomy = loadTaxonomy(deps.repoRoot);
   const queryParts = [request.topic, request.params.newsHook, request.params.thesis].filter(Boolean);
-  const vec = await computeEmbedding(queryParts.join('. '));
+  const embed = deps.embedQuery ?? computeEmbedding; // t/541: the host's embed when provided
+  const vec = await embed(queryParts.join('. '));
   const scores = scoreNodeRelevance(vec, taxonomy.embeddings);
   const groundingByPov = new Map<PovKey, ScoredPovNode[]>();
   const appliedByPov = new Map<PovKey, AppliedTag | undefined>();
