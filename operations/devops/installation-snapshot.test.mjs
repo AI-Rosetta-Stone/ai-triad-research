@@ -82,6 +82,50 @@ test('run: no change against an earlier snapshot exits 0', () => {
   assert.doesNotMatch(r.out, /ALERT/);
 });
 
+const snapshotFiles = (snapDir) => fs.readdirSync(snapDir).filter((f) => f.startsWith('snapshot-')).sort();
+
+test('run, same day: a second run with no change writes nothing and exits 0', () => {
+  const dir = tmp();
+  const snapDir = path.join(dir, 'snaps');
+  const fixture = writeJson(path.join(dir, 'fixture.json'), { installations: [installation()] });
+  assert.equal(cli('run', snapDir, '--from-file', fixture).code, 0);
+  const r = cli('run', snapDir, '--from-file', fixture);
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /ALERT/);
+  assert.deepEqual(snapshotFiles(snapDir), [`snapshot-${today()}.json`]);
+});
+
+test('run, same day: a change after the first run exits 2, writes a timestamped file, keeps the first (t/486#7)', () => {
+  const dir = tmp();
+  const snapDir = path.join(dir, 'snaps');
+  const before = writeJson(path.join(dir, 'before.json'), { installations: [installation()] });
+  const after = writeJson(path.join(dir, 'after.json'), { installations: [installation({ updated_at: '2026-11-24T13:24:31Z' })] });
+  assert.equal(cli('run', snapDir, '--from-file', before).code, 0);
+  const firstBytes = fs.readFileSync(path.join(snapDir, `snapshot-${today()}.json`), 'utf8');
+
+  const r = cli('run', snapDir, '--from-file', after);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /ALERT: app-a \(1\): updated_at changed/);
+  const files = snapshotFiles(snapDir);
+  assert.equal(files.length, 2, files.join(', '));
+  assert.equal(files[0], `snapshot-${today()}.json`, 'the day file sorts first');
+  assert.match(files[1], new RegExp(`^snapshot-${today()}T\\d{4}Z\\.json$`));
+  assert.equal(fs.readFileSync(path.join(snapDir, files[0]), 'utf8'), firstBytes, 'the first file is not overwritten');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(snapDir, files[1]), 'utf8')).installations[0].updated_at, '2026-11-24T13:24:31Z');
+
+  // The next run is compared with the LATEST file (the timestamped one), so the same state is quiet...
+  const quiet = cli('run', snapDir, '--from-file', after);
+  assert.equal(quiet.code, 0, quiet.out);
+  assert.equal(snapshotFiles(snapDir).length, 2);
+  // ...and going back to the first state is a change again, not a match with the day file.
+  const back = cli('run', snapDir, '--from-file', before);
+  assert.match(back.out, /ALERT: app-a \(1\): updated_at changed/);
+  const n = snapshotFiles(snapDir).length;
+  // Same minute as the timestamped file: fails closed without overwriting. Next minute: a third file.
+  assert.ok((back.code === 3 && n === 2) || (back.code === 2 && n === 3), `code ${back.code}, files ${n}: ${back.out}`);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(snapDir, files[1]), 'utf8')).installations[0].updated_at, '2026-11-24T13:24:31Z', 'the timestamped file is not overwritten');
+});
+
 test('run: an unreadable previous snapshot fails closed (exit 3) and writes nothing', () => {
   const dir = tmp();
   const snapDir = path.join(dir, 'snaps');

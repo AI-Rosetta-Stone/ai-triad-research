@@ -8,17 +8,21 @@
 // it needs no new credential.
 //
 // WHERE SNAPSHOTS GO: <snapshotDir> is a folder you name, and it must be OUTSIDE this repository
-// and OUTSIDE ai-triad-data. Snapshots list the org's App installations and their permissions,
-// and this repository is public. The folder in use is C:\tmp\c\app-snapshots\snapshots (t/486#5).
-// Never commit a snapshot file.
+// and OUTSIDE ai-triad-data. A snapshot maps the org's App installations and their permissions:
+// it is not for publication, and this repository is public. The folder in use is
+// C:\tmp\c\app-snapshots\snapshots (t/486#5). Never commit a snapshot file.
 //
 // Usage:
 //   node installation-snapshot.mjs run  <snapshotDir> [--org AI-Rosetta-Stone] [--from-file <json>]
 //   node installation-snapshot.mjs diff <previous.json> <current.json>
 //   node installation-snapshot.mjs selftest
-// Exit codes: 0 ok (no change, first snapshot, or today's snapshot already exists: nothing is
-// written or compared), 2 change found (alert), 3 fail-closed (incomplete read or unreadable
-// previous snapshot; no file written), 4 no change but the previous snapshot is more than 2 days
+// Every `run` compares the live read with the latest snapshot in the folder, whatever its date.
+//   - First run of a day: writes snapshot-YYYY-MM-DD.json, changed or not.
+//   - A later run the same day: writes nothing when identical; when different it writes
+//     snapshot-YYYY-MM-DDTHHMMZ.json, so the day's first file is never overwritten.
+// Exit codes: 0 ok (no change, or the first snapshot ever), 2 change found (an ALERT line per
+// field), 3 fail-closed (incomplete read, unreadable previous snapshot, or a second change in the
+// same minute; nothing is overwritten), 4 no change but the previous snapshot is more than 2 days
 // old (a missed run).
 // Tests: installation-snapshot.test.mjs (fixtures only, no gh call).
 
@@ -69,9 +73,12 @@ export function readInstallations(org, fromFile) {
   return recs.map(project).sort((a, b) => a.id - b.id);
 }
 
+// Snapshot files, oldest first. A day's first file is snapshot-YYYY-MM-DD.json; a later file on
+// the same day (written only when something changed) is snapshot-YYYY-MM-DDTHHMMZ.json. Plain
+// string order is time order: '.' sorts before 'T', so the day's first file comes first.
 function listSnapshots(dir) {
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((f) => /^snapshot-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+  return fs.readdirSync(dir).filter((f) => /^snapshot-\d{4}-\d{2}-\d{2}(T\d{4}Z)?\.json$/.test(f)).sort();
 }
 
 function dayOf(name) { return name.slice(9, 19); }
@@ -93,16 +100,39 @@ export function run(snapDir, org, fromFile) {
     try { prev = JSON.parse(fs.readFileSync(path.join(snapDir, names[names.length - 1]), 'utf8')); }
     catch (err) { console.error(`FAIL-CLOSED: previous snapshot unreadable: ${err.message}`); return 3; }
   }
-  const lastDay = names.length ? dayOf(names[names.length - 1]) : null;
+  const lastName = names.length ? names[names.length - 1] : null;
+  const lastDay = lastName ? dayOf(lastName) : null;
   const missed = lastDay && (Date.parse(today) - Date.parse(lastDay)) > 2 * 86_400_000;
-  const file = path.join(snapDir, `snapshot-${today}.json`);
-  if (fs.existsSync(file)) { console.error(`already have ${file}; nothing written`); return 0; }
-  fs.writeFileSync(file, JSON.stringify(snap, null, 2) + '\n');
-  if (!prev) { console.log(`first snapshot written: ${file} (${installations.length} installations)`); return 0; }
+  const dayFile = path.join(snapDir, `snapshot-${today}.json`);
+  if (!prev) {
+    fs.writeFileSync(dayFile, JSON.stringify(snap, null, 2) + '\n');
+    console.log(`first snapshot written: ${dayFile} (${installations.length} installations)`);
+    return 0;
+  }
+  // Every run compares the live read with the LATEST snapshot, whatever its date (t/486#7), so a
+  // change made after the day's first run is reported by the next run, not the next day.
   const alerts = diffSnapshots(prev, snap);
   if (missed) console.log(`MISSED RUN: previous snapshot is from ${lastDay}; the gap is reported here.`);
+  if (lastDay === today) {
+    if (alerts.length === 0) { console.log(`no change since ${lastName}; nothing written`); return 0; }
+    // A second file today: the time goes in the name, and nothing already written is overwritten.
+    const hhmm = new Date().toISOString().slice(11, 16).replace(':', '');
+    const file = path.join(snapDir, `snapshot-${today}T${hhmm}Z.json`);
+    if (fs.existsSync(file)) {
+      for (const a of alerts) console.log(`ALERT: ${a}`);
+      console.error(`FAIL-CLOSED: ${file} already exists (two changes in one minute); not overwritten. Run again in a minute.`);
+      return 3;
+    }
+    fs.writeFileSync(file, JSON.stringify(snap, null, 2) + '\n');
+    for (const a of alerts) console.log(`ALERT: ${a}`);
+    console.log(`snapshot written: ${file}`);
+    return 2;
+  }
+  // First run of a new day: always write the day's file, changed or not, so the missed-run check
+  // above measures the gap since the last RUN and not since the last change.
+  fs.writeFileSync(dayFile, JSON.stringify(snap, null, 2) + '\n');
   if (alerts.length) { for (const a of alerts) console.log(`ALERT: ${a}`); return 2; }
-  console.log(`no change since ${lastDay}: ${file}`);
+  console.log(`no change since ${lastDay}: ${dayFile}`);
   return missed ? 4 : 0;
 }
 
