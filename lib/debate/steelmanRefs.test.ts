@@ -154,10 +154,32 @@ describe('anticipated challenges returned as objects (t/485)', () => {
     expect(toPromptJson(planForLaterStages(p))).not.toContain('AN-2');
   });
 
-  it('an ATTACK object whose target is not offered becomes a plain ATTACK, never a tag', () => {
-    const p = plan([{ type: 'ATTACK', target: 'AN-9', description: 'invented id' }]);
+  it('an AN id that was not offered is dropped: plain ATTACK, description kept, id nowhere in the plan or later prompts', () => {
+    const record = vi.fn();
+    vi.mocked(getGlobalRecorder).mockReturnValue({ record } as never);
+    const p = plan([{ type: 'ATTACK', target: 'AN-7', description: 'invented id' }]);
+    try {
+      applyPlanSteelmanRefs(p, ['AN-2']);
+    } finally {
+      vi.mocked(getGlobalRecorder).mockReturnValue(undefined as never);
+    }
+    expect(p.anticipated_challenges).toEqual(['ATTACK: invented id']);
+    expect(toPromptJson(planForLaterStages(p))).not.toContain('AN-7');
+    const warn = record.mock.calls.map(c => c[0]).find(e => String(e.message).includes('t/485'));
+    expect(warn.message).toContain('target AN-7 is not in steelman_refs_offered and was dropped');
+    expect(warn.data.dropped_target).toBe('AN-7');
+  });
+
+  it('an unoffered AN id is dropped even when the item has no usable text', () => {
+    const p = plan([{ type: 'ATTACK', target: 'AN-7' }]);
     applyPlanSteelmanRefs(p, ['AN-2']);
-    expect(p.anticipated_challenges).toEqual(['ATTACK: invented id (target: AN-9)']);
+    expect(p.anticipated_challenges).toEqual(['ATTACK: {"type":"ATTACK"}']);
+  });
+
+  it('keeps the type label the model wrote, and uses OTHER when there is none', () => {
+    const p = plan([{ type: 'risk', description: 'a risk' }, { description: 'untyped' }, { type: '{bad}', description: 'odd' }]);
+    applyPlanSteelmanRefs(p, []);
+    expect(p.anticipated_challenges).toEqual(['RISK: a risk', 'OTHER: untyped', 'OTHER: odd']);
   });
 
   it('a taxonomy node id as target never matches the steelman list, even with a non-empty offer', () => {
@@ -188,9 +210,9 @@ describe('anticipated challenges returned as objects (t/485)', () => {
   });
 
   it('keeps an item with no usable text as its JSON, so nothing is dropped', () => {
-    const p = plan([{ type: 'ATTACK', target: 'AN-2' }, 42]);
+    const p = plan([{ type: 'ATTACK', target: 'acc-intentions-099' }, 42]);
     applyPlanSteelmanRefs(p, []);
-    expect(p.anticipated_challenges).toEqual(['ATTACK: {"type":"ATTACK","target":"AN-2"} (target: AN-2)', 'ATTACK: 42']);
+    expect(p.anticipated_challenges).toEqual(['ATTACK: {"type":"ATTACK","target":"acc-intentions-099"} (target: acc-intentions-099)', 'OTHER: 42']);
   });
 
   it('records one WARN per converted object, with the original, and none for strings', () => {

@@ -27,20 +27,38 @@ function firstText(o: Record<string, unknown>, keys: string[]): string | undefin
 /**
  * One anticipated challenge in the string form the prompt asks for (t/485). A model sometimes
  * returns an object ({ type, target, description }) instead. The object becomes "TYPE: text".
- * An ATTACK keeps "[target]" only when the target is an offered steelman id; any other target
- * (a taxonomy node id, for example) is kept as trailing text, never as a tag. An item with no
- * usable text is kept as its JSON, so nothing the model wrote is dropped.
+ * An ATTACK keeps "[target]" only when the target is an offered steelman id. An argument-network
+ * id (AN-n) that was not offered is dropped from the text, so it cannot reach a later prompt. Any
+ * other target (a taxonomy node id, for example) is kept as trailing text, never as a tag. The
+ * model's own type label is kept; a missing or unusable one becomes OTHER. An item with no usable
+ * text is kept as its JSON, minus an unoffered AN target.
  */
 export function challengeToString(item: unknown, allowed: ReadonlySet<string>): string {
   if (typeof item === 'string') return item;
-  if (!item || typeof item !== 'object' || Array.isArray(item)) return `ATTACK: ${JSON.stringify(item)}`;
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return `OTHER: ${JSON.stringify(item)}`;
   const o = item as Record<string, unknown>;
-  const rawType = typeof o.type === 'string' ? o.type.trim().toUpperCase() : '';
-  const type = CHALLENGE_TYPES.has(rawType) ? rawType : 'ATTACK';
-  const text = firstText(o, ['description', 'text', 'challenge', 'claim']) ?? JSON.stringify(item);
+  const type = challengeType(o.type);
   const target = typeof o.target === 'string' ? o.target.trim() : '';
+  const unofferedAn = AN_ID.test(target) && !allowed.has(target);
+  const text = firstText(o, ['description', 'text', 'challenge', 'claim'])
+    ?? JSON.stringify(unofferedAn ? { ...o, target: undefined } : o);
   if (type === 'ATTACK' && target && allowed.has(target)) return `ATTACK [${target}]: ${text}`;
-  return target ? `${type}: ${text} (target: ${target})` : `${type}: ${text}`;
+  return target && !unofferedAn ? `${type}: ${text} (target: ${target})` : `${type}: ${text}`;
+}
+
+const AN_ID = /^AN-\d+$/;
+
+/** The model's type label in upper case, when it is a short plain label; otherwise OTHER. */
+function challengeType(raw: unknown): string {
+  const t = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  if (CHALLENGE_TYPES.has(t)) return t;
+  return /^[A-Z][A-Z_ -]{0,30}$/.test(t) ? t : 'OTHER';
+}
+
+/** The target of an object item when it is an argument-network id that was not offered, else undefined. */
+function unofferedAnTarget(item: unknown, allowed: ReadonlySet<string>): string | undefined {
+  const target = item && typeof item === 'object' ? (item as Record<string, unknown>).target : undefined;
+  return typeof target === 'string' && AN_ID.test(target.trim()) && !allowed.has(target.trim()) ? target.trim() : undefined;
 }
 
 /** Put every anticipated challenge in string form, with one WARN per object that had to be converted (t/485). */
@@ -48,10 +66,11 @@ function normalizeChallenges(challenges: unknown[], allowed: ReadonlySet<string>
   return challenges.map(c => {
     if (typeof c === 'string') return c;
     const asString = challengeToString(c, allowed);
+    const dropped = unofferedAnTarget(c, allowed);
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'turn-pipeline', level: 'warn', debate_id: debateId,
-      message: `plan anticipated_challenges item was not a string; converted to "${asString.slice(0, 80)}" (t/485)`,
-      data: { original: JSON.stringify(c).slice(0, 600) },
+      message: `plan anticipated_challenges item was not a string; converted to "${asString.slice(0, 80)}"${dropped ? `; target ${dropped} is not in steelman_refs_offered and was dropped` : ''} (t/485)`,
+      data: { original: JSON.stringify(c).slice(0, 600), ...(dropped ? { dropped_target: dropped } : {}) },
     });
     return asString;
   });
