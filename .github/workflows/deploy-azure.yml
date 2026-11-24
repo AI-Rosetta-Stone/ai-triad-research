@@ -529,6 +529,19 @@ jobs:
           SYNC_GITHUB_APP_INSTALLATION_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }}
           SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING: ${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
 
+      - name: Overshoot bound gate (t/467) - prod and staging maxReplicas above 1 need a reviewed anonymous-spend bound
+        # BLOCKING, no continue-on-error. Runs before the what-if and the Bicep apply, so a raise of
+        # prod or staging maxReplicas fails the deploy before anything is changed. The bound grows with
+        # replicas (replicaOvershootBoundUsd, opedRunSlots.ts). Staging resolves with the same load-test
+        # flag the Bicep apply receives; the gate fails on any staging count other than the one it expects.
+        shell: pwsh
+        env:
+          STAGING_LOAD_TEST_SIZE: ${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./operations/devops/Test-OvershootBoundGate.ps1 -BicepPath ./deploy/azure/main.bicep `
+            -StagingLoadTestSize ([bool]::Parse($env:STAGING_LOAD_TEST_SIZE))
+
       - name: Preview Bicep changes (what-if)
         env:
           # t/4326: passed through env (not inlined) so bash never interprets the value.

@@ -64,6 +64,19 @@ export function isAnonymousUser(): boolean {
   return als.getStore()?.isAnonymous ?? true;
 }
 
+// Same shape as accessControl's ANON_SESSION_UUID_RE (crypto.randomUUID output). Copied here to keep
+// userContext free of accessControl's file-I/O imports.
+const ANON_SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** t/467 (TL p/16#209, PI option a): the storage id for an ANONYMOUS visitor. Each visitor with a valid
+ *  anon_session_id cookie gets its own `anon-<uuid>` key, so their data and run slot are not shared with
+ *  each other or with the local user's '_local' store. Without a valid cookie it returns '_local' (the
+ *  legacy behaviour); op-ed creation refuses that case before any write. The cookie must come from
+ *  parseCookies(req), never a query, body or header. */
+export function anonymousStorageUserId(sessionId: string | undefined): string {
+  return sessionId !== undefined && ANON_SESSION_UUID_RE.test(sessionId) ? `anon-${sessionId}` : '_local';
+}
+
 /** Anonymous session ID from cookie, or undefined if not anonymous. */
 export function getAnonymousSessionId(): string | undefined {
   return als.getStore()?.anonymousSessionId;

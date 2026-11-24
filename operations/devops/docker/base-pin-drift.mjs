@@ -199,7 +199,17 @@ export function checkOutputLines(verdictOutputs, latest, pin) {
   const validLatest = latest && !latest.error && DATE_TAG.test(String(latest.tag)) && DIGEST.test(String(latest.digest));
   if (validLatest) lines.push(`latest_tag=${latest.tag}`, `latest_digest=${latest.digest}`, `branch=${repinBranch(latest)}`);
   if (pin) lines.push(`pinned_tag=${pin.tag}`, `pinned_digest=${pin.digest}`);
+  return dropLineBreakLines(lines);
+}
+
+/** PURE. The one filter for every $GITHUB_OUTPUT line: a line holding a CR/LF is dropped whole, never split (t/377). */
+export function dropLineBreakLines(lines) {
   return lines.filter((l) => !/[\r\n]/.test(l));
+}
+
+/** PURE. The $GITHUB_OUTPUT lines for `pr-body` (t/474), through the same filter as `check`. */
+export function tierOutputLines(tier, tierReason) {
+  return dropLineBreakLines([`tier=${tier}`, `tier_reason=${tierReason}`]);
 }
 
 function appendFile(envName, text) {
@@ -251,6 +261,12 @@ function repin(dockerfilePath, tag, digest) {
 function prBody(beforePath, afterPath, bodyFile) {
   const env = process.env;
   const { tier, reason: tierReason } = classifyRepinTier(fs.readFileSync(beforePath, 'utf8'), fs.readFileSync(afterPath, 'utf8'));
+  // t/474: fail closed before anything is written if a tier value carried a line break.
+  const outputLines = tierOutputLines(tier, tierReason);
+  if (outputLines.length !== 2) {
+    console.log(`::error::${GATE}: tier or tier_reason contained a line break and was dropped; failing closed (t/474).`);
+    return 1;
+  }
   const body = repinPrBody({
     tier,
     tierReason,
@@ -262,7 +278,7 @@ function prBody(beforePath, afterPath, bodyFile) {
     driftRun: env.DRIFT_RUN,
   });
   fs.writeFileSync(bodyFile, body);
-  appendFile('GITHUB_OUTPUT', `tier=${tier}\ntier_reason=${tierReason}\n`);
+  appendFile('GITHUB_OUTPUT', `${outputLines.join('\n')}\n`);
   console.log(`${GATE}: re-pin PR tier ${tier} (${tierReason})`);
   if (tier !== 'T0') console.log(`::warning::WARN: ${GATE}: re-pin PR opens as ${tier}, not T0: ${tierReason}`);
   return 0;

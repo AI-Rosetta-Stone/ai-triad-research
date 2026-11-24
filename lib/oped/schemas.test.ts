@@ -119,3 +119,23 @@ describe('parseOpEdSet — claims + document_claims survive save/reparse (t/2917
     expect(round.opeds[0].grounding[0].document_claims).toBeUndefined();
   });
 });
+
+describe('parseOpEdSet — editing_meta and coherence_meta survive save/reparse (t/435)', () => {
+  it('round-trips both observability records through the serialize→Zod persist path', () => {
+    const editing = { edited: true, fk_before: 14.2, fk_after: 11.8, checks_failed_after: ['word-band'] };
+    const coherence = {
+      any_flagged: true,
+      checks_fired: ['C1'],
+      flags: [{ check_id: 'C1', span_a: 'first claim', span_b: 'second claim', why: 'contradiction' }],
+      judge_model: 'gemini-3.7-flash',
+      body_length_before: 800,
+      body_length_after: 790,
+      rewritten: true,
+      checks_still_flagged_after: [],
+    };
+    const set = makeSet({ opeds: [makeMember({ editing_meta: editing, coherence_meta: coherence })] });
+    const round = parseOpEdSet(JSON.parse(JSON.stringify(set)));
+    expect(round.opeds[0].editing_meta).toEqual(editing);
+    expect(round.opeds[0].coherence_meta).toEqual(coherence);
+  });
+});

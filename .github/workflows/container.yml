@@ -234,6 +234,46 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # t/236, t/238: docker/metadata-action calls the GitHub API for some template fields.
+      # Give it a quota check first so a run that lands while we're near the REST limit waits
+      # for the reset instead of metadata-action failing outright. continue-on-error: true —
+      # this step is a courtesy wait, never a gate; if the quota check itself fails for any
+      # reason, fall through and let metadata-action run (and retry) as it would without this
+      # step at all.
+      - name: Wait for API quota recovery if rate-limited (t/236, t/238)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            # `gh api rate_limit`'s top-level keys are `resources` (per-endpoint) and `rate`
+            # (REST core, same numbers as resources.core) — there is NO `.rate_limit` key.
+            RESP=$(gh api rate_limit --jq '.rate | "\(.limit),\(.used),\(.reset)"' 2>&1) || RESP=""
+            if [ -z "$RESP" ]; then
+              echo "API call failed (attempt $attempt/3); will retry metadata-action"
+              sleep 5
+              continue
+            fi
+            IFS=',' read -r LIMIT USED RESET <<< "$RESP"
+            REMAINING=$((LIMIT - USED))
+            NOW=$(date +%s)
+            if [ "$REMAINING" -gt 100 ]; then
+              echo "API quota OK: $REMAINING/$LIMIT remaining"
+              exit 0
+            fi
+            SECS_UNTIL_RESET=$((RESET - NOW))
+            if [ "$SECS_UNTIL_RESET" -gt 0 ]; then
+              echo "Rate-limited; quota resets in ${SECS_UNTIL_RESET}s. Waiting..."
+              sleep $((SECS_UNTIL_RESET + 2))
+              echo "Quota should be reset; metadata-action will retry"
+              exit 0
+            fi
+            echo "Rate-limited but the reset time already passed; rechecking (attempt $attempt/3)"
+            sleep 5
+          done
+          echo "Could not confirm quota recovered after 3 attempts; metadata-action will retry if needed"
+
       - name: Extract version from tag
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6

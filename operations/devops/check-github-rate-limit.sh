@@ -15,7 +15,31 @@ set -uo pipefail
 HEALTH_URL="$1"
 LIMIT_CEILING="${2:-5000}"
 
-if ! BODY=$(curl -fsS --max-time 15 "$HEALTH_URL" 2>&1); then
+# t/4970: prod runs minReplicas:0 (scale-to-zero). A cold start can take longer than a single
+# 15s attempt, which was misread as "unreachable" -- a false health-check-failed alarm on every
+# check that happened to land on a cold replica (alert #5279, reopening since 2026-11-19; live
+# 2026-11-21: first attempt timed out at 20s, the next two returned 200 in under a second).
+# Retry up to 3 times with a longer per-attempt timeout and a short backoff; only alert once
+# every attempt has failed. Still fail-closed: a genuinely unreachable /health after all
+# retries is still health-check-failed, never silently read as "quota healthy".
+MAX_ATTEMPTS=3
+ATTEMPT_TIMEOUT_SECONDS=45
+BACKOFF_SECONDS=5
+
+ATTEMPT=1
+BODY=""
+while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+  if BODY=$(curl -fsS --max-time "$ATTEMPT_TIMEOUT_SECONDS" "$HEALTH_URL" 2>&1); then
+    break
+  fi
+  if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+    echo "WARN: health check attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed (cold start?) -- retrying in ${BACKOFF_SECONDS}s" >&2
+    sleep "$BACKOFF_SECONDS"
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+done
+
+if [ "$ATTEMPT" -gt "$MAX_ATTEMPTS" ]; then
   echo '{"shouldAlert": true, "kind": "health-check-failed", "remaining": null, "resetsAt": null, "percent": null}'
   exit 0
 fi

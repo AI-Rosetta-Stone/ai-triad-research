@@ -28,6 +28,7 @@ const fakeFs = new Map<string, string>();
 
 vi.mock('fs/promises', () => ({
   default: {
+    realpath: vi.fn(async (p: string) => p), // t/432: confineToDir resolves real paths
     mkdir: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn(async (p: string) => {
       const v = fakeFs.get(p);
@@ -196,7 +197,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend main-pinned reads via raw.git
   it('raw 404 for a path NOT in the tree: returns null, no REST fallback', async () => {
     const calls: FetchCall[] = [];
     globalThis.fetch = makeFetchMock({
-      treeFiles: [], // repoPath absent from the tree
+      treeFiles: ['taxonomy/other.json'], // repoPath absent from the tree
       rawHandler: () => jsonResponse(404, { message: 'Not Found' }),
       calls,
     });
@@ -255,7 +256,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend main-pinned reads via raw.git
   it('raw 404 for a path NOT in the tree, with a FRESH manifest: still a genuine not_found (no regression)', async () => {
     const calls: FetchCall[] = [];
     globalThis.fetch = makeFetchMock({
-      treeFiles: [],
+      treeFiles: ['taxonomy/other.json'],
       rawHandler: () => jsonResponse(404, { message: 'Not Found' }),
       calls,
     });
@@ -334,7 +335,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend main-pinned reads via raw.git
     const calls: FetchCall[] = [];
     let rawAttempts = 0;
     globalThis.fetch = makeFetchMock({
-      treeFiles: [], // every path "not in tree" would normally short-circuit to not_found —
+      treeFiles: ['taxonomy/other.json'], // every path "not in tree" would normally short-circuit to not_found —
       // use distinct unknown paths that still count as fallbacks via 5xx instead, so the
       // disable counter actually increments (a true not_found never reaches recordRawFallback).
       rawHandler: () => { rawAttempts++; return new Response('error', { status: 500 }); },

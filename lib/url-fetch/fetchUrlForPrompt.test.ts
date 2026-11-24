@@ -108,6 +108,25 @@ describe('isPrivateIp', () => {
     expect(isPrivateIp('::ffff:c0a8:0101')).toBe(true);  // 192.168.1.1
     expect(isPrivateIp('::ffff:10.0.0.1')).toBe(true);
   });
+
+  // t/467 (TL request via TaxonomyServer): multicast, reserved and IPv4-compatible ranges are blocked.
+  it('blocks multicast 224.0.0.0/4 and reserved 240.0.0.0/4', () => {
+    expect(isPrivateIp('224.0.0.1')).toBe(true);
+    expect(isPrivateIp('239.255.255.255')).toBe(true);
+    expect(isPrivateIp('240.0.0.1')).toBe(true);
+    expect(isPrivateIp('223.255.255.255')).toBe(false);
+  });
+
+  it('blocks IPv4-compatible ::/96 addresses (dotted and hex tails)', () => {
+    expect(isPrivateIp('::127.0.0.1')).toBe(true);
+    expect(isPrivateIp('::8.8.8.8')).toBe(true);
+    expect(isPrivateIp('::0:1')).toBe(true);
+    expect(isPrivateIp('::7f00:1')).toBe(true);
+  });
+
+  it('keeps global IPv6 unblocked', () => {
+    expect(isPrivateIp('2001:4860:4860::8888')).toBe(false);
+  });
 });
 
 // ── fetchUrlForPrompt integration tests ───────────────────────────────────

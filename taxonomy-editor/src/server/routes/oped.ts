@@ -16,9 +16,11 @@
 // DELETE is deliberately left anon-blocked by the default auth gate
 // (isAnonAllowedRoute) — an anon caller has no oped-sets to delete.
 
-import type { Router } from '../httpKit.js';
+import type { Router, Handler } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param } from '../httpKit.js';
+import { MAX_CONCURRENT_OPED_RUNS, reserveOpedRunSlot } from './opedRunSlots.js';
+import { refuseAnonymousOpEdGate, refuseAnonymousUrlFetch, opedModelError } from './opedAnonGate.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { clientSafeMessage } from '../security/accessControl.js';
@@ -33,7 +35,7 @@ import { getStorageUserId, isAnonymousUser } from '../security/userContext.js';
 import { checkRate } from '../security/rateLimiter.js';
 import { publishOpedShare, unpublishOpedShare, refreshOpedShareIfShared } from '../storage/opedShareStore.js';
 import { resolveGenerationContext, enforceBackendAllowed } from './generationContext.js';
-import { resolveBackend, isRegisteredModel } from '../ai/aiBackends.js';
+import { resolveBackend } from '../ai/aiBackends.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { getProjectRoot } from '../config.js';
 import { createWebOpEdAdapter } from '../ai/opedAdapter.js';
@@ -56,7 +58,6 @@ const MAX_TOPIC_LEN = 2000;
 // store — a cross-replica reconnect / replica recycle recovers via the sets GET (TL Q2, t/2610#3).
 // The store lazy-expires stale 'running' blobs (crashed-A protection); no local sweep needed.
 // The in-memory job-store marker is removed — this ticket IS that migration.
-const MAX_CONCURRENT_OPED_RUNS = 1;          // per user, P1 (TL Q1)
 const OPED_HEARTBEAT_MS = 15_000;
 
 // ── create-request parsing (FromTopic + FromSource-URL) ──
@@ -292,9 +293,13 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   // runs the shared lib/oped core server-side (the desktop app runs New-OpEd; the web
   // container can't, so generation moved into the TS core). Mirrors routes/chat.ts:
   // POST opens text/event-stream; every JSON error must be sent BEFORE writeHead(200).
-  post('/api/oped-sets', async (req, res, body) => {
+  const createOpEdRun: Handler = async (req, res, body) => {
     // ── Pre-start gate (JSON errors — must precede the SSE headers, TL condition 4) ──
-    if (isAnonymousUser()) { error(res, 'Sign in to create op-eds', 403); return; }
+    // t/467 (PI option A): anonymous callers may create op-eds. They route to the free pool via
+    // resolveGenerationContext below (t/201), under the PI's monthly provider cap on that key.
+    // TL p/16#209: an anonymous caller needs their own storage key (anon_session_id cookie). Without
+    // one they would share the '_local' store with the local user, so refuse before any write.
+    if (await refuseAnonymousOpEdGate(res)) return;
     const parsed = parseOpEdCreateRequest(body);
     if (!parsed.ok) { error(res, parsed.message, parsed.status); return; }
     const { topic, povs, params, url, documentText, sourceName } = parsed.value;
@@ -308,7 +313,9 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // doesn't (resolveBackend only prefix-guesses unknown → 'gemini', so an unregistered id would
     // reach the provider and fail silently mid-generation, "voice failed — 0 words"). Free tier is
     // pinned to a registered model, so this only rejects a caller-chosen unregistered id.
-    if (!isRegisteredModel(model)) { error(res, `Model '${model}' is not available — choose another model in Settings.`, 400); return; }
+    // t/467 (SO condition 2, TL p/16#213): an unpriced model can't run for an anonymous caller (see opedModelError).
+    const modelErr = opedModelError(model, isAnonymousUser());
+    if (modelErr) { error(res, modelErr.message, modelErr.status); return; }
     if (enforceBackendAllowed(res, tier, backend)) return;
     // t/3993: validate tagSelection at the server boundary — unknown tag → 400 before SSE commits.
     const tagErr = tagSelectionError(body);
@@ -331,6 +338,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // and BEFORE the SSE stream commits so a fetch failure returns a clean HTTP error
     // instead of a mid-stream frame — never proceed with empty sourceMaterial (t/2722). (TL MUST)
     let sourceMaterial: string | undefined = documentText; // t/276: an extracted document is the source, no fetch
+    if (refuseAnonymousUrlFetch(req, res, url)) return;
     if (url) {
       const fetched = await fetchUrlContent(url);
       if (fetched.error || !fetched.content) {
@@ -365,6 +373,19 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // Generate with the entitlement-resolved (free-tier-pinned) model, not the raw request.
     const request: GenerateOpEdRequest = { set_id: setId, topic, params: { ...params, model }, povs: povs as PovKey[], sourceMaterial, ...documentSourceFields(documentText, sourceName), signal: ac.signal };
     await driveOpEdRun(res, run, request, writeFrame, heartbeat, () => clientGone);
+  };
+
+  post('/api/oped-sets', async (req, res, body) => {
+    const userId = getStorageUserId();
+    const release = reserveOpedRunSlot(userId, isAnonymousUser());
+    if (!release) {
+      json(res, { error: 'concurrency_limit', message: 'An op-ed is already generating for you, or the service is busy with anonymous runs. Wait for it to finish, then try again.', limit: MAX_CONCURRENT_OPED_RUNS }, 429); return;
+    }
+    try {
+      await createOpEdRun(req, res, body);
+    } finally {
+      release();
+    }
   });
 
   // t/2610: observational run status — a dropped SSE stream re-fetches here instead of
@@ -441,6 +462,9 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   post('/api/oped-sets/:setId/share', async (req, res) => {
     const setId = param(req, 'setId', SHARE_ROUTE);
     if (rejectUnsafeId(res, setId)) return;
+    // t/467: anonymous creation is open, but publishing writes a PUBLIC copy. That is not in the
+    // PI's approved scope, so publish stays signed-in only.
+    if (isAnonymousUser()) { error(res, 'Sign in to publish op-eds', 403); return; }
     // Modest per-user rate guard — this writes to a public container.
     if (!checkRate(`oped-share-write:${getStorageUserId()}`, 20, 60_000).allowed) {
       json(res, { error: 'rate_limited' }, 429); return;
