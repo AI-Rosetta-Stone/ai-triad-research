@@ -9,6 +9,7 @@ import {
   workflowEnvironmentNames,
   requiredEnvironments,
   EXEMPT_ENVIRONMENTS,
+  CREDENTIAL_LESS_ENVIRONMENTS,
 } from './environment-branch-policy-predicate.mjs';
 
 test('FIRE ARM: deployment_branch_policy null -> fail (the staging shape found in t/4340)', () => {
@@ -117,6 +118,55 @@ test('INFO applies equally to the custom_branch_policies-empty and neither-flag-
   });
   assert.equal(neitherFlag.pass, true);
   assert.equal(neitherFlag.info, true);
+});
+
+// ── t/4958, Tech Lead review of #5285: 0/0 is not proof of no credential ─────────────────────
+// OIDC trust (Azure federated credential `repo:...:environment:<name>`) is keyed on the NAME; the
+// client id can be a repo-level variable. `production`/`staging` in this repo hold 0 secrets and
+// 0 variables and are trusted by the deploy app. Only an allowlisted environment is informational.
+for (const name of ['production', 'staging', 'some-new-env']) {
+  test(`FIRE ARM: a policy-less 0/0 environment NOT on the allowlist fails (${name})`, () => {
+    const r = evaluateEnvironmentBranchPolicy({ name, deploymentBranchPolicy: null, policyCount: 0, secretsCount: 0, variablesCount: 0 });
+    assert.equal(r.pass, false);
+    assert.equal(r.info, undefined);
+    assert.match(r.reason, /not on CREDENTIAL_LESS_ENVIRONMENTS/);
+    assert.match(r.reason, /OIDC trust is keyed on the environment name/);
+  });
+}
+
+test('INFO arm: the allowlisted 0/0 environment is informational and names why it is on the list', () => {
+  const r = evaluateEnvironmentBranchPolicy({ name: 'copilot', deploymentBranchPolicy: null, policyCount: 0, secretsCount: 0, variablesCount: 0 });
+  assert.equal(r.pass, true);
+  assert.equal(r.info, true);
+  assert.match(r.reason, /credential-less allowlist \(GitHub Copilot coding agent environment/);
+});
+
+test('FIRE ARM: an allowlisted environment that gains a secret or a variable fails again', () => {
+  for (const [s, v] of [[1, 0], [0, 1]]) {
+    const r = evaluateEnvironmentBranchPolicy({ name: 'copilot', deploymentBranchPolicy: null, policyCount: 0, secretsCount: s, variablesCount: v });
+    assert.equal(r.pass, false, `${s}/${v}`);
+  }
+});
+
+test('FIRE ARM: an allowlisted environment with unreadable counts still fails closed', () => {
+  const r = evaluateEnvironmentBranchPolicy({ name: 'copilot', deploymentBranchPolicy: null, policyCount: 0, countsError: 'HTTP 403' });
+  assert.equal(r.pass, false);
+});
+
+test('allowlist hygiene: every CREDENTIAL_LESS_ENVIRONMENTS entry carries a non-empty reason, and the deploy environments are never on it', () => {
+  assert.ok(CREDENTIAL_LESS_ENVIRONMENTS.size >= 1);
+  for (const [name, why] of CREDENTIAL_LESS_ENVIRONMENTS) {
+    assert.ok(typeof why === 'string' && why.trim().length > 20, `${name} needs a reason`);
+  }
+  for (const name of ['production', 'staging', 'monitoring', 'auth-smoke', 'author-app']) {
+    assert.equal(CREDENTIAL_LESS_ENVIRONMENTS.has(name), false, name);
+  }
+});
+
+test('evaluateAll: a non-allowlisted 0/0 environment IS a gap', () => {
+  const result = evaluateAll([{ name: 'staging', deploymentBranchPolicy: null, policyCount: 0, secretsCount: 0, variablesCount: 0 }]);
+  assert.equal(result.pass, false);
+  assert.equal(result.gaps.length, 1);
 });
 
 test('evaluateAll never counts an INFO result as a gap', () => {

@@ -23,6 +23,27 @@
 export const EXEMPT_ENVIRONMENTS = [];
 
 /**
+ * t/4958 (Tech Lead review of #5285): environments KNOWN to mint no credential. Only these may be
+ * downgraded to informational when they have no branch policy, and only while they also hold 0
+ * secrets and 0 variables. "0 secrets and 0 variables" alone is NOT evidence of no credential:
+ * cloud OIDC trust (an Azure federated credential with subject
+ * `repo:<owner>/<repo>:environment:<name>`) is keyed on the environment's NAME, and the client id
+ * can live in repo-level variables. `production` and `staging` here are exactly that shape (0/0,
+ * trusted by the deploy app). Every entry needs a comment saying why it is safe and how that was
+ * checked; an environment that cannot be shown credential-less stays off this list and keeps
+ * failing.
+ */
+export const CREDENTIAL_LESS_ENVIRONMENTS = new Map([
+  // Created by GitHub's Copilot coding agent for its own runs; no workflow here deploys with it.
+  // Checked 2026-11-24 (t/4958): 0 secrets, 0 variables, no branch policy; no Azure federated
+  // credential in the tenant names `environment:copilot` (all 8 app registrations scanned; this
+  // repo's subjects are only staging, production and monitoring; 0 user-assigned managed
+  // identities). Limit: other clouds and package-registry trusted publishing were not checked,
+  // and this repo publishes to neither. Re-check before adding OIDC trust for this name.
+  ['copilot', 'GitHub Copilot coding agent environment; no OIDC trust or secret (checked 2026-11-24, t/4958)'],
+]);
+
+/**
  * Pure: extract every `environment: <name>` scalar value referenced in a set of workflow file
  * texts. Skips templated values (`environment: ${{ inputs.x }}`), since those can't be resolved
  * statically and are each already a developer error finding of their own (unresolvable at the
@@ -64,9 +85,10 @@ export function requiredEnvironments(repoEnvironmentNames, workflowReferencedNam
  * Pure: does one environment's branch-policy configuration actually restrict which ref can get
  * its credential?
  *
- * t/4958: a policy-less environment that mints no credential at all -- 0 secrets AND 0
- * variables -- has nothing for a branch policy to protect, so it's reported as informational,
- * not a failing gap (the `copilot` environment GitHub's Copilot coding agent creates, e.g.).
+ * t/4958: a policy-less environment is reported as informational, not a failing gap, ONLY when
+ * it is on CREDENTIAL_LESS_ENVIRONMENTS AND holds 0 secrets AND 0 variables (e.g. `copilot`, the
+ * environment GitHub's Copilot coding agent creates). 0/0 alone fails: OIDC trust is keyed on the
+ * environment name, so a 0/0 environment can still mint a cloud credential (Tech Lead, #5285).
  * Fail CLOSED whenever the counts aren't both known integers: an unreadable or unprovided count
  * is never read as "credential-less" (same discipline as the existing `missing` arm).
  * @param {{name: string, deploymentBranchPolicy: {protected_branches: boolean, custom_branch_policies: boolean} | null, policyCount: number, missing?: boolean, secretsCount?: number, variablesCount?: number, countsError?: string}} env
@@ -101,7 +123,11 @@ export function evaluateEnvironmentBranchPolicy(env) {
     return { name, pass: false, reason: `${noPolicyReason}, and this environment's secret/variable counts were not provided -- fail closed, never read an unknown count as credential-less` };
   }
   if (secretsCount === 0 && variablesCount === 0) {
-    return { name, pass: true, info: true, reason: `${noPolicyReason}, but this environment has 0 secrets and 0 variables -- no credential to restrict, reported as informational only` };
+    const why = CREDENTIAL_LESS_ENVIRONMENTS.get(name);
+    if (why) {
+      return { name, pass: true, info: true, reason: `${noPolicyReason}, but this environment has 0 secrets and 0 variables and is on the credential-less allowlist (${why}) -- reported as informational only` };
+    }
+    return { name, pass: false, reason: `${noPolicyReason}; it has 0 secrets and 0 variables, but that does not prove it mints no credential (OIDC trust is keyed on the environment name, and the client id can be a repo variable) and it is not on CREDENTIAL_LESS_ENVIRONMENTS -- any branch could get a credential trusted for this environment` };
   }
   return { name, pass: false, reason: `${noPolicyReason}, and this environment has ${secretsCount} secret(s)/${variablesCount} variable(s) -- a real credential with no branch restriction, any branch can get it` };
 }
