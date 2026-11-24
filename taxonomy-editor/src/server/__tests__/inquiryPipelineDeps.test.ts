@@ -123,11 +123,14 @@ describe('t/4289/t/4290 — server inquiry adapter wires computeQueryEmbedding',
 
 // t/4338: runHeadlessDebate's session was never persisted, so result.debateId (session.id)
 // pointed at nothing — "View raw run" (t/3617) 404'd for every inquiry answer ever produced.
-describe('t/4338 — runDebate persists the headless debate session', () => {
-  it('calls saveDebateSession with mustNotExist:true, listedButExempt:true, and the typed origin marker', async () => {
+describe('t/4338 + t/476 — the debate session is saved by persistSession, not inside runDebate', () => {
+  it('persistSession saves with mustNotExist:true, listedButExempt:true, and the typed origin marker', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
     const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     await h.capturedDeps!.runDebate(config, 'q');
+    expect(h.saveDebateSessionSpy).not.toHaveBeenCalled(); // t/476: runDebate no longer saves
+
+    await h.capturedDeps!.persistSession!({ id: 'session-1' } as never);
 
     expect(h.saveDebateSessionSpy).toHaveBeenCalledTimes(1);
     const [savedSession, caller, opts] = h.saveDebateSessionSpy.mock.calls[0];
@@ -137,21 +140,17 @@ describe('t/4338 — runDebate persists the headless debate session', () => {
     expect(opts).toEqual({ mustNotExist: true, listedButExempt: true });
   });
 
-  it('still returns the session/terminationReason to the pipeline on a successful save', async () => {
+  it('runDebate still returns the session/terminationReason to the pipeline', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
     const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     const result = await h.capturedDeps!.runDebate(config, 'q');
     expect(result.session).toEqual({ id: 'session-1' });
   });
 
-  it('a save failure is logged, not swallowed silently, and does not break the inquiry result', async () => {
+  it('a save failure is logged, does not throw, and the job result drops its debate link', async () => {
     h.saveDebateSessionSpy.mockRejectedValueOnce(new Error('WRITE_CONFLICT'));
     await buildInquiryRunPipeline()(REQUEST, CTX);
-    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
-
-    const result = await h.capturedDeps!.runDebate(config, 'q');
-
-    expect(result.session).toEqual({ id: 'session-1' }); // the answer still completes
+    await expect(h.capturedDeps!.persistSession!({ id: 'session-1' } as never)).resolves.toBeUndefined();
     expect(h.warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: 'job-123' }),
       expect.stringContaining('Failed to persist inquiry debate session'),
