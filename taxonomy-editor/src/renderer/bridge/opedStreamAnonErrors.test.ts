@@ -49,3 +49,11 @@ describe('create errors for anonymous users (t/467)', () => {
     expect(e.nextSteps).toEqual(['Wait for the current op-ed to finish, then try again']);
   });
 });
+
+describe('the auth gate refusal reaches the user (t/475)', () => {
+  it('shows the gate detail as the next step', async () => {
+    const e = await errorFor(403, { error: 'Sign in required', reason: 'anon_route_blocked', detail: 'AI features and editing require authentication. Sign in at /.auth/login/github to unlock full access.' });
+    expect(e.problem).toBe('Sign in required');
+    expect(e.nextSteps).toEqual(['AI features and editing require authentication. Sign in at /.auth/login/github to unlock full access.']);
+  });
+});
