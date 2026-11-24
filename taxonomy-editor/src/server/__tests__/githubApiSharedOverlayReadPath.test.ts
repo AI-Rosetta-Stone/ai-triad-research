@@ -226,6 +226,38 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4311 follow-up shared o
     expect(await replica.readFile('/taxonomy/own-write.json')).toBe('written just now');
   });
 
+  // t/549 (SO t/503#10): a stage whose `_gen` bump failed is still acknowledged, so a reader must not trust an
+  // unchanged `_gen` forever. It re-lists once its listing is older than SHARED_OVERLAY_RELIST_MS.
+  it('t/549: a save whose _gen bump failed becomes visible on another replica at the periodic re-list', async () => {
+    const { SHARED_OVERLAY_RELIST_MS } = await import('../storage/githubAPIBackend');
+    const storeA = makeStore(prefix);
+    const replicaB = await createReplica(makeStore(prefix));
+    replicaB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    await storeA.stage('alice', 'taxonomy/seed.json', { content: 'seed', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'seed-1' }, { absent: true });
+    expect(await replicaB.readFile('/taxonomy/seed.json')).toBe('seed'); // B has listed at this generation
+
+    const ctor = Object.getPrototypeOf(service.getContainerClient(CONTAINER).getBlockBlobClient('x')).constructor;
+    const realUpload = ctor.prototype.upload;
+    const spy = vi.spyOn(ctor.prototype, 'upload').mockImplementation(function (this: { name: string }, ...args: unknown[]) {
+      return this.name.endsWith('/_gen') ? Promise.reject(new Error('simulated _gen bump failure')) : realUpload.apply(this, args);
+    });
+    const r = await storeA.stage('alice', 'taxonomy/late.json', { content: 'late', baseSha: null, stagedAt: new Date().toISOString(), stageId: 'late-1' }, { absent: true });
+    spy.mockRestore();
+    expect(r).toMatchObject({ ok: true, genBumped: false });
+
+    // Same generation and a fresh listing: B still serves its cached listing.
+    expect(await replicaB.fileExists('/taxonomy/late.json')).toBe(false);
+
+    const realNow = Date.now.bind(Date);
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + SHARED_OVERLAY_RELIST_MS + 1_000);
+    try {
+      expect(await replicaB.readFile('/taxonomy/late.json')).toBe('late');
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('two different users\' overlays never leak into each other via the shared store', async () => {
     const store = makeStore(prefix);
     const replicaA = await createReplica(store);
