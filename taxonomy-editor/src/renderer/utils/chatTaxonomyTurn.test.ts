@@ -92,6 +92,7 @@ describe('buildChatTaxonomyTurn — cap and statements', () => {
     expect(payload.threshold).toBe(0);
     expect(payload.session.sourceType).toBe('chat');
     expect(payload.session.anClaimEmbeddings).toHaveLength(1);
+    expect(payload.maxTotal).toBeGreaterThan(ctx().povNodes.length);
   });
 });
 
@@ -139,6 +140,15 @@ describe('buildChatTaxonomyTurn — fallback', () => {
 });
 
 describe('buildChatTaxonomyTurn — Scope and Prioritize', () => {
+  it('Scope: the relevance cap is not narrowed to the scoped size, so no in-scope node is dropped', async () => {
+    const full = ctx();
+    const scoped: TaxonomyContext = { povNodes: full.povNodes.filter(n => n.id.startsWith('acc-bel')), situationNodes: full.situationNodes };
+    const d = deps({}, full);
+    await buildChatTaxonomyTurn({ pov: 'accelerationist', ctx: scoped, query: QUERY }, d);
+    const payload = (d.fetchRelevantNodes as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(payload.maxTotal).toBeGreaterThan(full.povNodes.length);
+  });
+
   it('Scope: a node outside the scoped pool is never selected, even if relevance returns it', async () => {
     const full = ctx();
     const scoped: TaxonomyContext = { povNodes: full.povNodes.filter(n => n.id.startsWith('acc-bel')), situationNodes: full.situationNodes };
