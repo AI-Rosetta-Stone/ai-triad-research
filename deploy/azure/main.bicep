@@ -122,8 +122,8 @@ param azureUserContentContainerStaging string = 'staging-user-content'
 // NOT SET: the default '' adds no rule. Every flag defaults off, so merging this changes nothing.
 // Order: staging first (anonOpEdLifecycleStagingEnabled), then prod before the prod deploy that
 // carries the t/500 code (anonOpEdLifecycleProdEnabled). Each needs SO clearance and the dry listing.
-@description('Blob name prefix (inside the container) for anonymous op-ed storage. Must be a top-level prefix no signed-in storage id can produce. Empty adds no rule.')
-param anonOpEdLifecyclePrefix string = ''
+@description('Blob name prefix (inside the container) for anonymous op-ed storage. Must be a top-level prefix no signed-in storage id can produce. Set to anon-oped/ (TaxonomyServer, t/500). Empty adds no rule.')
+param anonOpEdLifecyclePrefix string = 'anon-oped/'
 @description('Apply the anonymous op-ed delete rule to staging-user-content. Staging first.')
 param anonOpEdLifecycleStagingEnabled bool = false
 @description('Apply the anonymous op-ed delete rule to user-content (prod). Only after staging has run clean and the PI is told.')
