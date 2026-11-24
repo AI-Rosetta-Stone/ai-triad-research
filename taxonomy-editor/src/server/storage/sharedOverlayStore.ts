@@ -226,14 +226,29 @@ export class SharedOverlayStore {
    *  read, then upload ifMatch / ifNoneMatch on what was read, up to `maxCasRetries` times; an entry
    *  with a later `stagedAt` is never overwritten (`newer_exists`).
    *
-   *  `entry.stagedAt` and `entry.stageId` are the caller's, set once per save; they are written as given. */
+   *  `entry.stagedAt` and `entry.stageId` are the caller's, set once per save; they are written as given.
+   *
+   *  **Our own write behind a failed condition (Quality on #5459).** The SDK retries an upload whose
+   *  response was lost. If the first attempt landed, the retry's condition fails against our own write
+   *  (412, or 409 for ifNoneMatch). So whenever a condition fails, the entry found is checked first: if
+   *  its `stageId` is ours, the save landed and is acknowledged.
+   *
+   *  **Read-back window.** The read-back after an ambiguous failure, and the re-read after a failed
+   *  condition, see only what the store holds at that moment. A write the service applies after that read
+   *  (a request still in flight when the client gave up) is reported as not saved although it exists. That
+   *  is the one residual case of "exists but not acknowledged"; a later save of the path replaces it, and
+   *  its content was the user's own intended edit.
+   *
+   *  **stagedAt ordering** (`latestWins` only) uses replica clocks. Skew between replicas can order two
+   *  overlapping saves either way. That is acceptable only because `newer_exists` arises only when the two
+   *  saves were in flight together, where either order is a valid outcome (SO t/503#14). */
   async stage(userId: string, repoPath: string, entry: SharedOverlayEntry & { stageId: string }, expect: SharedOverlayStageExpect): Promise<SharedOverlayStageResult> {
     const client = this.entryBlobClient(userId, encodePathKey(repoPath));
     if ('latestWins' in expect) return this.stageLatestWins(userId, repoPath, client, entry);
 
     const conditions = 'etag' in expect ? { ifMatch: expect.etag } : { ifNoneMatch: '*' };
     const uploaded = await this.conditionalUpload(userId, repoPath, client, entry, conditions);
-    if (uploaded.kind === 'precondition_failed') return this.preconditionFailed(userId, repoPath, client);
+    if (uploaded.kind === 'precondition_failed') return this.preconditionFailed(userId, repoPath, client, entry.stageId);
     if (uploaded.kind === 'failed') return { ok: false, reason: 'storage_unavailable' };
     return this.acknowledge(userId, client, uploaded.etag);
   }
@@ -251,6 +266,8 @@ export class SharedOverlayStore {
         });
         return { ok: false, reason: 'storage_unavailable' };
       }
+      // A previous attempt's upload landed although its condition then failed on an SDK retry (see stage()).
+      if (current && current.entry.stageId === entry.stageId) return this.acknowledge(userId, client, current.etag);
       if (current && isLater(current.entry.stagedAt, entry.stagedAt)) return { ok: false, reason: 'newer_exists', current };
       const conditions = current ? { ifMatch: current.etag } : { ifNoneMatch: '*' };
       const uploaded = await this.conditionalUpload(userId, repoPath, client, entry, conditions);
@@ -295,10 +312,10 @@ export class SharedOverlayStore {
     } catch (readErr) {
       // The upload's outcome stays unknown, so it is not acknowledged.
       getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'error',
-          message: `stage upload failed ambiguously (${String(uploadErr)}) and the read-back failed; reported as not saved: ${client.name}`,
-          error: { name: (readErr as Error).name ?? 'Error', message: String(readErr), stack: (readErr as Error).stack },
-        });
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `stage upload failed ambiguously (${String(uploadErr)}) and the read-back failed; reported as not saved: ${client.name}`,
+        error: { name: (readErr as Error).name ?? 'Error', message: String(readErr), stack: (readErr as Error).stack },
+      });
       return { kind: 'failed' };
     }
     if (back && back.entry.stageId === stageId) {
@@ -313,18 +330,22 @@ export class SharedOverlayStore {
     return { kind: 'failed' };
   }
 
-  private async preconditionFailed(userId: string, repoPath: string, client: BlockBlobClient): Promise<SharedOverlayStageResult> {
+  private async preconditionFailed(userId: string, repoPath: string, client: BlockBlobClient, stageId: string): Promise<SharedOverlayStageResult> {
+    let current: SharedOverlayEntryWithEtag | null;
     try {
-      return { ok: false, reason: 'precondition_failed', current: await this.getEntryWithEtag(userId, repoPath) };
+      current = await this.getEntryWithEtag(userId, repoPath);
     } catch (err) {
-      // Nothing of ours was written (the upload's condition was not met).
+      // The re-read failed, so whether an SDK retry hid our own landed write is unknown: not acknowledged.
       getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'error',
-          message: `stage could not re-read the entry after its condition failed; refusing: ${client.name}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `stage could not re-read the entry after its condition failed; refusing: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
       return { ok: false, reason: 'storage_unavailable' };
     }
+    // Our own write, landed on an earlier SDK attempt (see stage()): the save succeeded.
+    if (current && current.entry.stageId === stageId) return this.acknowledge(userId, client, current.etag);
+    return { ok: false, reason: 'precondition_failed', current };
   }
 
   /** The upload landed, so the save is acknowledged whatever happens to the `_gen` bump. */
@@ -353,25 +374,15 @@ export class SharedOverlayStore {
       current = await this.getEntryWithEtag(userId, repoPath);
     } catch (err) {
       getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'error',
-          message: `rebaseEntry could not read the entry: ${client.name}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
+        type: 'system.error', component: 'shared-overlay-store', level: 'error',
+        message: `rebaseEntry could not read the entry: ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
       return 'failed';
     }
     if (!current || current.etag !== opts.ifMatch) return 'changed';
-    const body = JSON.stringify({ ...current.entry, baseSha: opts.baseSha });
-    try {
-      await client.upload(body, Buffer.byteLength(body), { conditions: { ifMatch: opts.ifMatch } });
-    } catch (err) {
-      if (isPreconditionFailed(err)) return 'changed';
-      getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'error',
-          message: `rebaseEntry upload failed: ${client.name}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-      return 'failed';
-    }
+    const uploaded = await this.uploadRebase(userId, repoPath, client, current.entry, opts);
+    if (uploaded !== 'rebased') return uploaded;
     try {
       await this.bumpGeneration(userId);
     } catch (err) {
@@ -382,6 +393,41 @@ export class SharedOverlayStore {
       });
     }
     return 'rebased';
+  }
+
+  /** Extracted from rebaseEntry() to keep its complexity under budget: the conditional upload of the new base. */
+  private async uploadRebase(
+    userId: string, repoPath: string, client: BlockBlobClient, before: SharedOverlayEntry, opts: { ifMatch: string; baseSha: string | null },
+  ): Promise<'rebased' | 'changed' | 'failed'> {
+    const body = JSON.stringify({ ...before, baseSha: opts.baseSha });
+    try {
+      await client.upload(body, Buffer.byteLength(body), { conditions: { ifMatch: opts.ifMatch } });
+      return 'rebased';
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: isPreconditionFailed(err) ? 'warn' : 'error',
+        message: `rebaseEntry upload failed (${isPreconditionFailed(err) ? 'condition not met' : 'store error'}): ${client.name}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      if (!isPreconditionFailed(err)) return 'failed';
+      // A 412 can be an SDK retry hitting our own landed rebase (see stage()): same save, our new base.
+      return (await this.isOwnRebase(userId, repoPath, before, opts.baseSha)) ? 'rebased' : 'changed';
+    }
+  }
+
+  /** True when the entry now holds the same save (`stageId`) with the base we just wrote. */
+  private async isOwnRebase(userId: string, repoPath: string, before: SharedOverlayEntry, baseSha: string | null): Promise<boolean> {
+    try {
+      const now = await this.getEntryWithEtag(userId, repoPath);
+      return !!now && before.stageId !== undefined && now.entry.stageId === before.stageId && now.entry.baseSha === baseSha;
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `rebaseEntry could not re-read after a failed condition; reporting 'changed': ${repoPath}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return false;
+    }
   }
 
   private recordFailure(message: string, blobName: string, err: unknown): void {

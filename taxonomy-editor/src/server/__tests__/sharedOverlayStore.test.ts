@@ -408,6 +408,55 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
       expect(await store.rebaseEntry('alice', 'taxonomy/none.json', { ifMatch: got.etag, baseSha: 'x' })).toBe('changed');
     });
 
+    // Quality on #5459: the SDK retries an upload whose response was lost; if the first attempt landed, the
+    // retry's condition fails against our own write. That must be acknowledged, not reported as a conflict.
+    function landThenReject(status: 412 | 409) {
+      return spyUploads(async (self, real, args) => {
+        if (!self.name.endsWith('.json')) return real(...args);
+        await real(...args); // the first attempt lands...
+        throw new RestError(status === 412 ? 'ConditionNotMet' : 'BlobAlreadyExists', // ...the retry fails its condition
+          { statusCode: status, code: status === 412 ? 'ConditionNotMet' : 'BlobAlreadyExists' });
+      });
+    }
+
+    it.each([
+      ['etag (412)', 412, 'etag'],
+      ['absent (409 BlobAlreadyExists)', 409, 'absent'],
+      ['latestWins over an entry (412)', 412, 'latestWins'],
+      ['latestWins with no entry (409 BlobAlreadyExists)', 409, 'latestWinsFresh'],
+    ] as const)('an upload that landed but then failed its condition is acknowledged: %s', async (_name, status, kind) => {
+      const store = makeStore(container, `_test-${++counter}`);
+      let expectArg: { etag: string } | { absent: true } | { latestWins: true } = kind === 'absent' ? { absent: true } : LW;
+      if (kind === 'etag' || kind === 'latestWins') {
+        await store.stage('alice', FOO, entryAt('before', '2026-11-24T10:00:00.000Z'), { absent: true });
+        if (kind === 'etag') expectArg = { etag: (await store.getEntryWithEtag('alice', FOO))!.etag };
+      }
+      const mine = entryAt('mine', '2026-11-24T12:00:00.000Z');
+      const spy = landThenReject(status);
+      const result = await store.stage('alice', FOO, mine, expectArg);
+      spy.mockRestore();
+      expect(result).toMatchObject({ ok: true, etag: expect.any(String) });
+      expect(await store.getEntry('alice', FOO)).toEqual(mine);
+    });
+
+    it('a failed condition against someone else\'s write is still precondition_failed (control)', async () => {
+      const store = makeStore(container, `_test-${++counter}`);
+      await store.stage('alice', FOO, entryAt('theirs', new Date().toISOString()), { absent: true });
+      const result = await store.stage('alice', FOO, entryAt('mine', new Date().toISOString()), { absent: true });
+      expect(result).toMatchObject({ ok: false, reason: 'precondition_failed', current: { entry: { content: 'theirs' } } });
+    });
+
+    it('rebaseEntry: a rebase that landed but then got a 412 on retry is "rebased", not "changed"', async () => {
+      const store = makeStore(container, `_test-${++counter}`);
+      await store.stage('alice', FOO, entryAt('content', new Date().toISOString(), null), { absent: true });
+      const got = (await store.getEntryWithEtag('alice', FOO))!;
+      const spy = landThenReject(412);
+      const result = await store.rebaseEntry('alice', FOO, { ifMatch: got.etag, baseSha: 'committed-blob' });
+      spy.mockRestore();
+      expect(result).toBe('rebased');
+      expect((await store.getEntry('alice', FOO))?.baseSha).toBe('committed-blob');
+    });
+
     it('baseSha null (absent when staged) round-trips, distinct from "unknown"', async () => {
       const store = makeStore(container, `_test-${++counter}`);
       await store.stage('alice', FOO, entryAt('x', new Date().toISOString(), null), { absent: true });
