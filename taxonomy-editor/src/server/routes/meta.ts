@@ -89,6 +89,12 @@ function logDataRootReadyzFailure(reason: string | undefined): void {
   });
 }
 
+/** t/499: the public empty state and entry count of the node source index; both null before any build. */
+function nodeSourceIndexPublicFields(status: ReturnType<typeof getNodeSourceIndexStatus>): { nodeSourceIndexEmpty: boolean | null; nodeSourceIndexEntryCount: number | null } {
+  if (status === null) return { nodeSourceIndexEmpty: null, nodeSourceIndexEntryCount: null };
+  return { nodeSourceIndexEmpty: status.empty, nodeSourceIndexEntryCount: status.entryCount };
+}
+
 export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
   const { get, put } = r;
 
@@ -210,8 +216,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     const nodeSourceIndexStatus = getNodeSourceIndexStatus();
     const nodeSourceIndexComplete = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.complete;
     // t/499 (t/498): an index can be complete and still empty. Both fields are null before any build, like the one above.
-    const nodeSourceIndexEmpty = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.empty;
-    const nodeSourceIndexEntryCount = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.entryCount;
+    const { nodeSourceIndexEmpty, nodeSourceIndexEntryCount } = nodeSourceIndexPublicFields(nodeSourceIndexStatus);
     // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): the
     // installation's shared rate limit is the signal that would have caught
     // this before it became a user-visible outage — public (not admin-gated,
