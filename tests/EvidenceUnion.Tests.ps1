@@ -198,7 +198,7 @@ Describe 'Summary-only chunks, chunk_of and N2 (fixture v3, t/355 R1 to R7)' -Ta
         }
     }
 
-    It 'R6: extraction keeps chunk_of and skips via, for each chunk case' {
+    It 'R6: extraction keeps every kept fact, including via and chunk_of, for each chunk case' {
         foreach ($c in $script:FixtureObj.chunk_union_cases) {
             $d = & $script:V3Docs $c.docs
             $got = InModuleScope AITriad -Parameters @{ H = $d.H; S = $d.S; M = $d.M; C = [string]$c.canonical } {
