@@ -5,6 +5,7 @@ import type { StateCreator } from 'zustand';
 import type { DebateStore } from '../types';
 import { buildClarificationPrompt, buildSynthesisPrompt } from '../shared/prompts';
 import { seatSouls } from '../shared/seatSouls';
+import { openingAnchorQuestion } from './openingAnchorQuestion';
 import type {
   DebateSession,
   SpeakerId,
@@ -675,6 +676,8 @@ async function buildOpeningContextForSpeaker(
     topic, taxonomyContext: taxonomyBlock, priorStatements: priorBlock,
     isFirst: priorStatements.length === 0,
     priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
+    // t/284 item 3: the literal question an inquiry opening must answer.
+    anchorQuestion: openingAnchorQuestion(activeDebate, topic),
     sourceContent: activeDebate.document_analysis ? undefined : (activeDebate.source_content || undefined),
     documentAnalysis: activeDebate.document_analysis,
     audience: activeDebate.audience,

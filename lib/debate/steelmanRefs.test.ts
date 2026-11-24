@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { offeredSteelmanRefs } from './steelman.js';
 import { applyPlanSteelmanRefs, planForLaterStages, stripSteelmanIdsFromStatement } from './turnPipeline/steelmanRefs.js';
 import { toPromptJson } from './turnPipeline/runTurn-stages.js';
-import { planOpeningStagePrompt } from './prompts/opening.js';
+import { planOpeningStagePrompt, draftOpeningStagePrompt } from './prompts/opening.js';
 import type { ArgumentNetworkNode } from './types/argumentNetwork.js';
 import type { OpeningPlanWorkProduct } from './types/pipeline.js';
 import { POVER_INFO } from './types.js';
@@ -107,5 +107,30 @@ describe('plan prompt steelman block (t/388)', () => {
     expect(out).toContain('=== STEELMAN REFERENCES ===');
     expect(out).toContain('[AN-2] (steelman of skeptic): the skeptic case');
     expect(out).toContain('"ATTACK [<id>]: ..."');
+  });
+});
+
+describe('inquiry opening with both the question and steelman references (t/284 item 3 + t/388, CL note t/284#62)', () => {
+  const both = {
+    label: 'Sentinel', pov: 'safetyist', soul: POVER_INFO['safetyist'], personality: 'test', topic: 'topic',
+    taxonomyContext: '', priorStatements: '', isFirst: false,
+    anchorQuestion: 'Does regulation slow AI progress?',
+    steelmanRefsOffered: [{ id: 'AN-2', steelman_of: 'skeptic', text: 'the skeptic case' }],
+  } as never;
+
+  it('puts the steelman block in the plan prompt only, and the question block in the draft prompt only', () => {
+    const plan = { strategic_goal: 'g', core_thesis: 't', argument_structure: [], framing_choices: [], anticipated_challenges: ['ATTACK [AN-2]: the strongest objection'] } as OpeningPlanWorkProduct;
+    applyPlanSteelmanRefs(plan, ['AN-2']);
+
+    const planPrompt = planOpeningStagePrompt(both, '{}');
+    expect(planPrompt).toContain('=== STEELMAN REFERENCES ===');
+    expect(planPrompt).not.toContain('=== THE QUESTION ===');
+
+    const draftPrompt = draftOpeningStagePrompt(both, '{}', toPromptJson(planForLaterStages(plan)));
+    expect(draftPrompt).toContain('=== THE QUESTION ===');
+    expect(draftPrompt).toContain('Does regulation slow AI progress?');
+    expect(draftPrompt).not.toContain('STEELMAN REFERENCES');
+    expect(draftPrompt).not.toContain('AN-2');
+    expect(draftPrompt).toContain('ATTACK: the strongest objection');
   });
 });

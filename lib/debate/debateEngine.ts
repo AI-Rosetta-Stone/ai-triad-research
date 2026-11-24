@@ -516,6 +516,9 @@ export class DebateEngine {
       // Phase 1: Clarification (optional)
       if (this.config.enableClarification) {
         await this._topicPipeline.runClarification();
+      } else if (this.config.anchorToResolution) {
+        // t/284 item 2: ArCo anchoring runs after scope extraction without clarification.
+        await this._topicPipeline.runResolutionAnchoring();
       }
 
       // Phase 1.5: Document pre-analysis

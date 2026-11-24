@@ -3,4 +3,4 @@
 // Source: lib/debate/calibrationLogger/genBehaviourRevision.ts
 
 // Files hashed: 28 (see behaviourRevisionFiles.ts)
-export const BEHAVIOUR_REVISION = '419d0baf097f';
+export const BEHAVIOUR_REVISION = '32575c55edb3';

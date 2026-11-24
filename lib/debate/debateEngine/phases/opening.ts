@@ -19,6 +19,11 @@ import { runNarrativeVoicing, finalizeNarrativeReference } from './narrativeVoic
 
 // ── Phase: Opening statements ──────────────────────────────
 
+// t/284 item 3: the literal question an inquiry opening must answer (anchorToResolution gate).
+function anchorQuestionFor(engine: DebateEngineInternals): string | undefined {
+  return engine.config.anchorToResolution ? engine.session.topic.final : undefined;
+}
+
 // t/388: steelman AN nodes from earlier entries that the plan may cite as attacks.
 function steelmanRefsForPlan(engine: DebateEngineInternals, pov: string) {
   return offeredSteelmanRefs(engine.session.argument_network?.nodes ?? [], pov);
@@ -122,6 +127,8 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
       taxonomyContext: fullContext,
       priorStatements: priorBlock,
       isFirst: priorStatements.length === 0,
+      // t/284 item 3: inquiry openings answer the user's literal question (anchorToResolution gate).
+      anchorQuestion: anchorQuestionFor(engine),
       priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
       // t/388: steelman AN nodes from earlier entries, as attack references for this plan.
       steelmanRefsOffered: steelmanRefsForPlan(engine, info.pov),

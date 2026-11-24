@@ -66,6 +66,8 @@ export interface OpeningPipelineInput {
   isFirst: boolean;
   /** Labels of speakers who have already given their opening, in order. */
   priorSpeakerLabels?: string[];
+  /** t/284 item 3: the literal question an inquiry opening must answer. */
+  anchorQuestion?: string;
   /** t/388: steelman AN nodes offered to the plan as attack references (from earlier entries). */
   steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
   sourceContent?: string;
@@ -141,6 +143,7 @@ export async function runOpeningPipeline(
     narrativeVoicing: input.narrativeVoicing,
     soul: input.soul!,
     opponentSouls: input.opponentSouls,
+    anchorQuestion: input.anchorQuestion,
   };
   const stageDiags: StageDiagnostics[] = [];
   const pipelineStart = Date.now();

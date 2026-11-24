@@ -153,20 +153,24 @@ function createInquiryAdapter(): AIAdapter {
  * finds it via a fallback, so "View raw run" is unaffected.
  *
  * Never lets a save failure break the inquiry answer itself: the result is the user-facing
- * artifact, the debate is an audit copy. A failed save just means "View raw run" 404s for this
- * one result, same as it always has — logged, not silently swallowed.
+ * artifact, the debate is an audit copy. A failed save is logged (WARN + flight recorder) and
+ * returns false, so the caller can drop the debate link: the job must not point at a session that
+ * was never stored (t/476). Before t/476 the save ran inside runDebate and failed the same way: it
+ * was logged, the inquiry continued, and the job still linked to the unstored debate.
  */
-async function persistInquiryDebateSession(session: unknown, jobId: string): Promise<void> {
+async function persistInquiryDebateSession(session: unknown, jobId: string): Promise<boolean> {
   const marked = { ...(session as object), origin: { mode: 'inquiry', inquiry_id: jobId } };
   try {
     await saveDebateSession(marked, 'inquiry', { mustNotExist: true, listedButExempt: true });
+    return true;
   } catch (err) {
-    log.server.warn({ err, jobId }, 'Failed to persist inquiry debate session — "View raw run" will 404 for this result (t/4338)');
+    log.server.warn({ err, jobId }, 'Failed to persist inquiry debate session — the job will not link to this debate (t/4338, t/476)');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'inquiry', level: 'warn',
       message: `Failed to persist inquiry debate session for job ${jobId}`,
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
+    return false;
   }
 }
 
@@ -177,6 +181,9 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
   const adapter = createInquiryAdapter();
   return async (request: InquiryRequest, ctx: InquiryPipelineContext): Promise<InquiryResult> => {
     const taxonomy = await buildGroundingTaxonomy();
+    // t/476 (TL p/16#236): the job's debate link comes from result.debateId. If this run's save failed, the
+    // result must not point at the unstored session, so the link is dropped (job.debateId becomes null).
+    let debateSaveFailed = false;
     const deps: InquiryPipelineDeps = {
       registry: getModelRegistry(),
       taxonomy,
@@ -186,17 +193,18 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
       // t/4025: inject soulResolver so server inquiry debates record soul_provenance.
       // t/4917: relay the pipeline's raw onProgress to the engine. Dropping it left hosted Ask runs
       // with no debate events, so the poll sat at the 15% debate floor with no stage detail.
-      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
-        .then(async (r) => {
-          await persistInquiryDebateSession(r.session, ctx.jobId); // t/4338
-          return { session: r.session, terminationReason: r.terminationReason };
-        }),
+      // t/476 (t/284 item 5): the session is NOT saved here. It is saved by persistSession, after the pipeline
+      // records the question relevance, so the stored session carries the relevance metric.
+      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress),
+      // t/476: called once by the pipeline, after relevance is recorded, with the same session object.
+      persistSession: async (session) => { if (!(await persistInquiryDebateSession(session, ctx.jobId))) debateSaveFailed = true; }, // t/4338
       adapter,
       onStage: (stage: InquiryStage) => mapStage(stage, ctx),
       // The pipeline maps raw events to monotonic {fraction, detail} updates before calling this.
       onDebateProgress: ctx.onDebateProgress,
     };
-    return runInquiryPipeline(request, deps);
+    const result = await runInquiryPipeline(request, deps);
+    return debateSaveFailed ? { ...result, debateId: undefined } : result;
   };
 }
 
