@@ -9,13 +9,14 @@ const h = vi.hoisted(() => ({
   getKeys: vi.fn(async (_backend: string, _userId: string): Promise<string[]> => ['OWNER-KEY-DO-NOT-USE']),
   addKey: vi.fn(async () => []),
   set: vi.fn(async () => undefined),
+  warn: vi.fn(),
 }));
 
 vi.mock('../security/keyStore.js', () => ({
   getKeyStore: () => ({ getKeys: h.getKeys, addKey: h.addKey, removeKey: vi.fn(), set: h.set, delete: vi.fn() }),
 }));
 vi.mock('../logger.js', () => ({
-  log: { server: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }, api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } },
+  log: { server: { info: vi.fn(), warn: h.warn, error: vi.fn(), debug: vi.fn() }, api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } },
 }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
@@ -27,7 +28,8 @@ const SIGNED_CTX = { principalName: 'alice', idp: 'github', storageUserId: 'alic
 
 const saved = { gemini: process.env.GEMINI_API_KEY, ai: process.env.AI_API_KEY };
 beforeEach(() => {
-  h.getKeys.mockClear(); h.addKey.mockClear(); h.set.mockClear();
+  h.getKeys.mockClear(); h.addKey.mockClear(); h.set.mockClear(); h.warn.mockClear();
+  config._resetKeyWithheldWarnsForTest();
   delete process.env.GEMINI_API_KEY; delete process.env.AI_API_KEY;
 });
 afterEach(() => {
@@ -89,3 +91,59 @@ describe('t/501: AUTH_DISABLED single-operator mode keeps the owner\'s key looku
   });
 });
 
+
+// SO p/252#30 (3): the gate changes nothing outside a request, nor for a signed-in request with an env key.
+describe('t/501: lookups the gate must not touch', () => {
+  it('outside any request context (background job), getApiKey and getApiKeys still return the env key', async () => {
+    process.env.GEMINI_API_KEY = 'ENV-KEY';
+    expect(await config.getApiKey('gemini')).toBe('ENV-KEY');
+    expect(await config.getApiKeys('gemini')).toEqual(['ENV-KEY']);
+    expect(h.warn).not.toHaveBeenCalled();
+  });
+
+  it('outside any request context with no env key, the key-store key is returned', async () => {
+    expect(await config.getApiKey('gemini')).toBe('OWNER-KEY-DO-NOT-USE');
+    expect(h.getKeys).toHaveBeenCalled();
+    expect(h.warn).not.toHaveBeenCalled();
+  });
+
+  it('a signed-in request with an env key gets the env key, unchanged, with no key-store read', async () => {
+    process.env.GEMINI_API_KEY = 'ENV-KEY';
+    expect(await runWithUser(SIGNED_CTX, () => config.getApiKey('gemini'))).toBe('ENV-KEY');
+    expect(await runWithUser(SIGNED_CTX, () => config.getApiKeys('gemini'))).toEqual(['ENV-KEY']);
+    expect(h.getKeys).not.toHaveBeenCalled();
+    expect(h.warn).not.toHaveBeenCalled();
+  });
+});
+
+// SO p/252#30 (2): a withheld key is logged, never silent, and the log is rate-limited.
+describe('t/501: the gate logs a WARN when it withholds a key', () => {
+  it('one WARN per backend and caller per minute, naming both, with no key in it', async () => {
+    process.env.GEMINI_API_KEY = 'OWNER-ENV-KEY';
+    await runWithUser(ANON_CTX, () => config.getApiKey('gemini'));
+    await runWithUser(ANON_CTX, () => config.getApiKey('gemini'));
+    await runWithUser(ANON_CTX, () => config.getApiKey('gemini'));
+    expect(h.warn).toHaveBeenCalledTimes(1);
+    const [fields, msg] = h.warn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({ reason: 'anon-key-withheld', backend: 'gemini', caller: 'getApiKey' });
+    expect(JSON.stringify(fields) + msg).not.toMatch(/OWNER-|anon-0f8f/);
+
+    await runWithUser(ANON_CTX, () => config.getApiKeys('gemini'));
+    await runWithUser(ANON_CTX, () => config.getApiKey('claude'));
+    expect(h.warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('after the minute, the next WARN counts the withholds it suppressed', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-11-24T20:00:00Z'));
+      for (let i = 0; i < 4; i++) await runWithUser(ANON_CTX, () => config.getApiKey('gemini'));
+      vi.setSystemTime(new Date('2026-11-24T20:01:01Z'));
+      await runWithUser(ANON_CTX, () => config.getApiKey('gemini'));
+      expect(h.warn).toHaveBeenCalledTimes(2);
+      expect(h.warn.mock.calls[1][0]).toMatchObject({ suppressedSinceLast: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

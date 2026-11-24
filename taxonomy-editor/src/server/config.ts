@@ -245,7 +245,26 @@ import { getKeyStore, type KeyRotationResult } from './security/keyStore.js';
 import { getCurrentUserId, isAnonymousUser, isHostedAnonymousRequest } from './security/userContext.js';
 import { resolveGenericFallbackKey, assertKeyForBackend, isKeyRoutingRefusal, LISTING_WARN, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../lib/ai-client/apiKeyFallback.js';
 
-/** The backend's OWN key: its env var, then the keyStore. Never the AI_API_KEY fallback. */
+/** t/501 (SO p/252#30): the gate withholds a key from a hosted anonymous request with a WARN, never silently. Rate-limited
+ *  to one line per backend and caller per minute; the line counts the withholds it suppressed. No key and no caller id
+ *  is logged, only the backend and the function that asked. Returns true when the key is withheld. */
+const KEY_WITHHELD_WARN_MS = 60_000;
+const keyWithheldWarns = new Map<string, { at: number; suppressed: number }>();
+function withholdKeyFromAnonymous(backend: AIBackend, caller: string): boolean {
+  if (!isHostedAnonymousRequest()) return false;
+  const k = `${backend}:${caller}`;
+  const now = Date.now();
+  const prev = keyWithheldWarns.get(k);
+  if (prev && now - prev.at < KEY_WITHHELD_WARN_MS) { prev.suppressed++; return true; }
+  keyWithheldWarns.set(k, { at: now, suppressed: 0 });
+  log.server.warn({ component: 'config', reason: 'anon-key-withheld', backend, caller, suppressedSinceLast: prev?.suppressed ?? 0 },
+    `Key withheld from an anonymous request: ${caller}(${backend}) returns none (t/501)`);
+  return true;
+}
+
+/** Test-only: forget the WARN rate-limit state. */
+export function _resetKeyWithheldWarnsForTest(): void { keyWithheldWarns.clear(); }
+
 /** t/501: an anonymous visitor has no key store. A write under the caller's principal would overwrite the owner's _local key. */
 function refuseAnonymousKeyWrite(): void {
   if (!isHostedAnonymousRequest()) return;
@@ -257,10 +276,11 @@ function refuseAnonymousKeyWrite(): void {
   });
 }
 
+/** The backend's OWN key: its env var, then the keyStore. Never the AI_API_KEY fallback. */
 async function ownApiKey(backend: AIBackend): Promise<string | null> {
   // t/501: an anonymous request never reads the platform env key or the key store. Its principal is
   // '_local', so the key-store read would return the owner's own key.
-  if (isHostedAnonymousRequest()) return null;
+  if (withholdKeyFromAnonymous(backend, 'ownApiKey')) return null;
   const envKey = process.env[ENV_KEY_NAMES[backend]];
   if (envKey) return envKey;
 
@@ -295,7 +315,7 @@ async function ownApiKey(backend: AIBackend): Promise<string | null> {
  * user via getCurrentUserId(). Locally, a single shared key is used per backend.
  */
 export async function getApiKey(backend: AIBackend = 'gemini'): Promise<string | null> {
-  if (isHostedAnonymousRequest()) return null; // t/501: no owned key and no AI_API_KEY fallback for an anonymous request
+  if (withholdKeyFromAnonymous(backend, 'getApiKey')) return null; // t/501: no owned key and no AI_API_KEY fallback for an anonymous request
   return (await ownApiKey(backend)) ?? resolveGenericFallbackKey(backend) ?? null;
 }
 
@@ -345,7 +365,7 @@ export async function getStoredUserKeysBeforeFreePool(backend: AIBackend): Promi
  * none. Used by the key rotator for round-robin selection.
  */
 export async function getApiKeys(backend: AIBackend = 'gemini'): Promise<string[]> {
-  if (isHostedAnonymousRequest()) return []; // t/501: anonymous never reads the env or key store (see ownApiKey)
+  if (withholdKeyFromAnonymous(backend, 'getApiKeys')) return []; // t/501: anonymous never reads the env or key store (see ownApiKey)
   const envKey = process.env[ENV_KEY_NAMES[backend]];
   if (envKey) return [envKey];
 
@@ -379,7 +399,7 @@ export async function getApiKeys(backend: AIBackend = 'gemini'): Promise<string[
 export async function getApiKeySource(backend: AIBackend): Promise<string> {
   // Keyless backends (ollama has ENV_KEY_NAMES[backend] === '' which is falsy)
   if (!ENV_KEY_NAMES[backend]) return 'none';
-  if (isHostedAnonymousRequest()) return ''; // t/501: no source is visible to an anonymous request
+  if (withholdKeyFromAnonymous(backend, 'getApiKeySource')) return ''; // t/501: no source is visible to an anonymous request
   // Own env var
   const envVarName = ENV_KEY_NAMES[backend];
   if (process.env[envVarName]) return `env:${envVarName}`;
@@ -404,7 +424,7 @@ export async function getApiKeySource(backend: AIBackend): Promise<string> {
 /** The user's stored BYOK keys for a backend (t/835) — excludes env/platform
  *  keys; for the Settings key-management list. */
 export async function getStoredApiKeys(backend: AIBackend = 'gemini'): Promise<string[]> {
-  if (isHostedAnonymousRequest()) return []; // t/501
+  if (withholdKeyFromAnonymous(backend, 'getStoredApiKeys')) return []; // t/501
   return getKeyStore(getStateRoot).getKeys(backend, getCurrentUserId());
 }
 
