@@ -37,6 +37,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ticketRefs, majorityOwner } from './my-prs.mjs';
+import { ENQUEUE_REMEDY } from './stuck-pr-classifier.mjs';
 
 export const SENDER = 'd6bbb177-724b-466d-8382-67dd16bb3bb9'; // DevOps Worker (Lead t/535#3 Q1)
 export const DEVOPS_LEAD = 'cad2074a-520d-414b-a665-d505a9d24de5';
@@ -59,9 +60,23 @@ export function latestBlocker(comments) {
     const m = MARKER_RE.exec(body);
     if (!m) continue;
     const remedy = /^Remedy:\s*(.+)$/m.exec(body);
-    return { class: m[1], sha: m[2], remedy: remedy ? remedy[1].trim() : null };
+    return { class: m[1], sha: m[2], remedy: remedy ? safeRemedy(remedy[1].trim()) : null };
   }
   return null;
+}
+
+// t/535 (Lead p/233#56, t/537#27): an alert comment written before the classifier fix can still say
+// "arm it (gh pr merge --auto ...)" or "merge directly". That route skips enqueue-pr.mjs and its
+// gate-file check, so such a remedy is never forwarded: it is replaced by the one safe remedy.
+// ENQUEUE_REMEDY itself names `gh pr merge` only to forbid it, so it is taken out before the test.
+const FORBIDDEN_REMEDY_RE = /gh\s+pr\s+merge|merge\s+(?:it\s+)?directly|direct\s+merge|toggle\s+auto-merge|(?<![-\w])arm\s+it\b/i; // "re-arm it" / "disarm it" are not "arm it"
+
+/** PURE. The remedy to forward: unchanged, or ENQUEUE_REMEDY when it suggests a route around enqueue-pr.mjs. */
+export function safeRemedy(remedy) {
+  if (remedy == null) return null;
+  const text = String(remedy);
+  if (!FORBIDDEN_REMEDY_RE.test(text.split(ENQUEUE_REMEDY).join(''))) return text;
+  return `(the alert comment's remedy was replaced: it named a merge route that skips the gates) ${ENQUEUE_REMEDY}`;
 }
 
 /** PURE. The tickets a PR cites (my-prs.mjs's ticketRefs, which ignores the t/0-t/2 tier tokens). */

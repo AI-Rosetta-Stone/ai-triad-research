@@ -11,8 +11,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   latestBlocker, resolveOwner, citedTickets, planRun, recordSent, keyOf, run, parseArgs,
-  DEVOPS_LEAD, TECH_LEAD, SENDER, HEADER, ESCALATE_AFTER_MS,
+  DEVOPS_LEAD, TECH_LEAD, SENDER, HEADER, ESCALATE_AFTER_MS, safeRemedy,
 } from './stuck-pr-ping.mjs';
+import { ENQUEUE_REMEDY } from './stuck-pr-classifier.mjs';
 
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
@@ -215,4 +216,32 @@ test('owner order (t/535#5): title/branch ticket, then the changed files, then a
   assert.equal(resolveOwner(pr(1, { branch: 'feat/x', body: 'see t/502' }), { ticketAssignee: ta, fileOwners: [A, B], known }).to, B, 'no majority -> the body ticket');
   const missingPrimary = resolveOwner(pr(1, { branch: 'feat/t4971', body: '' }), { ticketAssignee: () => undefined, fileOwners: [B, B, B], known });
   assert.equal(missingPrimary.to, B, 'a title/branch ticket not found here falls through to the files');
+});
+
+// ── t/535 (Lead p/233#56, t/537#27): an old alert comment's unsafe remedy is never forwarded ──
+const OLD_ARM_REMEDY = 'Every required context is green and the PR has an approved review, but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.';
+const OLD_T0_REMEDY = 'Every required context is green and this is a T0 PR with no outstanding GitHub review required by default -- arm it, UNLESS the linked ticket\'s own acceptance criteria name a required review.';
+
+test('t/535 safeRemedy: a remedy naming gh pr merge, a direct merge, toggling auto-merge or "arm it" is replaced by ENQUEUE_REMEDY', () => {
+  for (const r of [OLD_ARM_REMEDY, OLD_T0_REMEDY, 'merge it directly', 'do a direct merge', 'Re-trigger first (toggle auto-merge or a label)', 'run gh  pr  merge 5 --squash']) {
+    const out = safeRemedy(r);
+    assert.ok(out.endsWith(ENQUEUE_REMEDY), out);
+    assert.match(out, /^\(the alert comment's remedy was replaced/);
+    assert.ok(!out.includes('--auto'), out);
+  }
+});
+
+test('t/535 safeRemedy: a safe remedy, the new classifier remedy, and null pass through unchanged', () => {
+  for (const r of ['rebase onto main.', `Every required context is green ... -- ${ENQUEUE_REMEDY}`, 'disarm it first', 'it is already armed, do not re-arm it.', 'check run 123 for a hang']) {
+    assert.equal(safeRemedy(r), r);
+  }
+  assert.equal(safeRemedy(null), null);
+});
+
+test('t/535: latestBlocker rewrites an old alert comment\'s arm remedy, so planRun never forwards it', () => {
+  const c = [{ body: `Blocker: \`approved-not-armed\`\nRemedy: ${OLD_ARM_REMEDY}\n<!-- stuck-pr-alert:approved-not-armed:0123456789abcdef -->` }];
+  const b = latestBlocker(c);
+  assert.equal(b.class, 'approved-not-armed');
+  assert.ok(b.remedy.endsWith(ENQUEUE_REMEDY));
+  assert.doesNotMatch(b.remedy.split(ENQUEUE_REMEDY).join(''), /gh pr merge|merge directly/);
 });
