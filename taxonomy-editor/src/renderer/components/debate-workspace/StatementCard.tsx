@@ -38,6 +38,7 @@ import { CommentOverlay, useEntryCommentCount } from '../chat/CommentHighlights'
 import { useCommentStore } from '../../hooks/useCommentStore';
 import type { DetailTier } from '@lib/debate/comments';
 import { TaxonomyRefsSection, BdiGroundingView } from './TaxonomyRefs';
+import { StatementHowLayout } from './StatementHowLayout';
 import { StatementTierPills, type SetEntryDisplayTier } from './StatementTierPills';
 import { StatementSteelmans } from '../shared/Steelman';
 import { useDiagnoseEntry } from './useDiagnoseEntry';
@@ -734,13 +735,14 @@ function StatementBody({
           <ConvergenceInlineCard signal={convergenceSignalFor(activeDebate, entry.id)} />
         </div>
       ) : displayedTier === 'reasoning' ? (
-        <TaxonomyRefsSection
-          refs={entry.taxonomy_refs}
-          policyRefs={entry.policy_refs}
-          metaPolicyRefs={metaPolicyRefsOf(entry)}
+        // t/469 Layout A: the statement's own claims, focus, moves, assumptions and responses.
+        <StatementHowLayout
           entry={entry}
-          stageDiagnostics={stageDiagnosticsFor(activeDebate, entry.id)}
-          forceExpanded
+          nodes={activeDebate?.argument_network?.nodes}
+          edges={activeDebate?.argument_network?.edges}
+          convergence={convergenceSignalFor(activeDebate, entry.id)}
+          vocabResolutions={vocabResolutions}
+          ambiguities={meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined}
         />
       ) : WHY_TIERS.has(displayedTier) ? (
         <div className="debate-statement-content">
