@@ -26,6 +26,7 @@ export const FREE_TIER_AI_POST_PATHS: readonly string[] = [
   '/api/ai/chat-stream', // t/2489: anonymous users may use AI chat (free-tier Gemini)
   '/api/taxonomy/relevant-nodes', // t/3284: anon debates reach server-side relevance (local ONNX, free-tier rate-limited)
   '/api/argument-network/attribution', // t/3297: anon debates reach server-side claim attribution — the post-turn sibling of relevant-nodes, same flow/risk profile (cosine over cache-backed local-ONNX embeddings, no generative backend), free-tier rate-limited
+  '/api/oped-sets', // t/475 (TL-approved): anonymous op-ed creation. Exact match, POST only; exempt only while the free tier is enabled. Share and PUT/DELETE stay refused.
 ];
 
 /**
@@ -35,4 +36,19 @@ export const FREE_TIER_AI_POST_PATHS: readonly string[] = [
  */
 export function isFreeTierAiPath(method: string, urlPath: string): boolean {
   return method === 'POST' && FREE_TIER_AI_POST_PATHS.includes(urlPath);
+}
+
+/**
+ * t/475 (TL-approved): THE decision for whether an anonymous (keyless) request may reach a route. It is the only
+ * implementation: server.ts calls it from both the optional-auth gate and the anonymous route guard, and keeps no
+ * copy. A route passes if it is a free-tier exempt AI route while the free tier is enabled, or if the anonymous
+ * allowlist (`anonAllowed`, injected so this module stays free of accessControl's file-I/O imports) allows it.
+ */
+export function anonRouteDecision(
+  method: string,
+  urlPath: string,
+  freeTierEnabled: boolean,
+  anonAllowed: (method: string, urlPath: string) => boolean,
+): boolean {
+  return (isFreeTierAiPath(method, urlPath) && freeTierEnabled) || anonAllowed(method, urlPath);
 }
