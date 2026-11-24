@@ -134,7 +134,9 @@ function handleDefaultGithubApi(url: string, method: string): Response {
     compareCalls++;
     return mockFetchResponse(200, { files: changedFilesOnNextCompare.map(f => ({ filename: f, status: 'modified' })) });
   }
-  if (method === 'GET' && p.match(/\/git\/commits\/[a-f0-9-]+/)) return mockFetchResponse(200, { sha: currentMainSha, tree: { sha: TREE_SHA } });
+  // t/483: this pattern was [a-f0-9-]+, which does not match this file's SHAs (they start with "sha-"), so
+  // the commit lookup 404ed and every tree load failed. The polls ignored that until t/483; they no longer do.
+  if (method === 'GET' && p.match(/\/git\/commits\/[\w-]+/)) return mockFetchResponse(200, { sha: currentMainSha, tree: { sha: TREE_SHA } });
   if (method === 'GET' && p.includes('/git/trees/')) {
     treeCalls++;
     return mockFetchResponse(200, { sha: TREE_SHA, truncated: false, tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }] });

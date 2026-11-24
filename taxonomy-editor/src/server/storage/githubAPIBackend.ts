@@ -3598,6 +3598,43 @@ export class GitHubAPIBackend implements StorageBackend {
     return this.pollAsNonHolder();
   }
 
+  /** t/483: apply a new head commit seen by a poll. The tree is loaded first, and nothing else happens
+   *  unless that load succeeds: fetchRepoTree returns false on a failed, zero-blob or wrong-shaped load
+   *  and leaves the live tree as it was. The callers used to ignore that result, drop the changed
+   *  entries from the manifest before the fetch, and advance the manifest commit after it, so a failed
+   *  fetch left the manifest naming a commit whose tree was never loaded, and the next poll saw
+   *  "nothing changed". #5309 (t/463) fixed the same thing in initialize().
+   *  Returns the changed paths, or null when the tree load failed and nothing was applied. */
+  private async applyPolledCommit(currentSha: string): Promise<string[] | null> {
+    const previousSha = this.manifest?.lastCommitSha ?? '';
+    const changed = previousSha ? await this.getChangedFiles(previousSha, currentSha) : [];
+
+    const loaded = await this.fetchRepoTree(currentSha);
+    if (!loaded) {
+      log.storage.warn({ previousSha, currentSha, changedCount: changed.length },
+        'poll: tree load failed for the new commit; manifest and live tree left unchanged, will retry on the next poll (t/483)');
+      return null;
+    }
+
+    if (changed.length > 0) {
+      this.recordEvent({
+        type: 'cache.invalidate',
+        component: 'cache',
+        level: 'info',
+        message: `Poll: ${changed.length} files changed`,
+        data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
+      });
+      await this.withManifestLock(async () => {
+        for (const filePath of changed) {
+          if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
+        }
+      });
+    }
+
+    await this.updateManifestSha(currentSha);
+    return changed;
+  }
+
   /** The pre-t/4179 poll body, unchanged — used when no pollLease is
    *  configured, and as the fallback when coordination is unavailable
    *  (TL t/4179#2 §2 point 2: fail toward coherence, never toward silent
@@ -3607,27 +3644,7 @@ export class GitHubAPIBackend implements StorageBackend {
       const currentSha = await this.getLatestCommitSha();
       if (!currentSha || currentSha === this.manifest?.lastCommitSha) return;
 
-      const changed = this.manifest?.lastCommitSha
-        ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
-        : [];
-
-      if (changed.length > 0) {
-        this.recordEvent({
-          type: 'cache.invalidate',
-          component: 'cache',
-          level: 'info',
-          message: `Poll: ${changed.length} files changed`,
-          data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-        });
-        await this.withManifestLock(async () => {
-          for (const filePath of changed) {
-            if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-          }
-        });
-      }
-
-      await this.fetchRepoTree(currentSha);
-      await this.updateManifestSha(currentSha);
+      await this.applyPolledCommit(currentSha);
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -3655,27 +3672,10 @@ export class GitHubAPIBackend implements StorageBackend {
     try {
       currentSha = await this.getLatestCommitSha();
       if (currentSha && currentSha !== this.manifest?.lastCommitSha) {
-        changed = this.manifest?.lastCommitSha
-          ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
-          : [];
-
-        if (changed.length > 0) {
-          this.recordEvent({
-            type: 'cache.invalidate',
-            component: 'cache',
-            level: 'info',
-            message: `Poll: ${changed.length} files changed`,
-            data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-          });
-          await this.withManifestLock(async () => {
-            for (const filePath of changed) {
-              if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-            }
-          });
-        }
-
-        await this.fetchRepoTree(currentSha);
-        await this.updateManifestSha(currentSha);
+        const applied = await this.applyPolledCommit(currentSha);
+        // t/483: a failed tree load applied nothing, so there is nothing to publish to non-holders.
+        if (applied === null) return;
+        changed = applied;
       }
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
