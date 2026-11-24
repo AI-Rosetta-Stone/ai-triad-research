@@ -673,7 +673,10 @@ export async function readEntities(): Promise<Entity[] | null> {
     const raw = await readFileMainStrict(p);
     entitiesReadDegradedReason = null; // t/4584: reaching here means readFileMainStrict didn't throw.
     if (raw === null) {
-      log.server.warn({ path: p, ref: 'main' }, 'readEntities: file absent');
+      // t/478: log the ref the read used. On github-api that is the base branch (GITHUB_BRANCH), not
+      // always 'main'; the literal cost time in a staging diagnosis.
+      const ref = STORAGE_MODE === 'github-api' ? (process.env.GITHUB_BRANCH ?? 'main') : 'main';
+      log.server.warn({ path: p, ref }, 'readEntities: file absent');
       return null;
     }
     const data = JSON.parse(raw) as { entities?: Entity[] };

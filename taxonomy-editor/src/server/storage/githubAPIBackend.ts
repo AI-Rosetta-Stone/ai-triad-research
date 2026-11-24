@@ -3189,6 +3189,38 @@ export class GitHubAPIBackend implements StorageBackend {
     }
   }
 
+  /** t/478: the contents GET for a caller that needs the body. A conditional request is only valid when
+   *  the caller has a body to serve on a 304, and no caller of fetchFileFromGitHub has one (each arrives
+   *  after a cache miss, or on a strict read that skips the disk cache, t/4778). So a strict read sends
+   *  no If-None-Match, and any 304 is repeated once without the ETag instead of being read as "absent".
+   *  Before this, a manifest ETag made GitHub answer 304 and the file read as absent on every attempt.
+   *  Returns null only when the 304 persists on a non-strict read; a strict read throws transient. */
+  private async requestContentsBody(
+    creds: SyncCredentials, endpoint: string, repoPath: string, ref: string,
+    optional: boolean | undefined, strict: boolean,
+  ): Promise<ApiResult | null> {
+    if (strict) {
+      log.github.info({ path: repoPath, ref, manifestEtagPresent: !!this.manifest?.files[repoPath]?.etag },
+        'fetchFileFromGitHub: strict read goes to REST without If-None-Match (t/478)');
+    }
+    const first = await this.rest.request(creds, 'GET', endpoint,
+      undefined, undefined, { optional: !!optional, unconditional: strict });
+    if (first.status !== 304) return first;
+
+    log.github.warn({ path: repoPath, ref, strict },
+      'fetchFileFromGitHub: 304 with no cached body to serve; retrying once without If-None-Match (t/478)');
+    const second = await this.rest.request(creds, 'GET', endpoint,
+      undefined, undefined, { optional: !!optional, unconditional: true });
+    if (second.status !== 304) return second;
+
+    log.github.warn({ path: repoPath, ref, strict },
+      'fetchFileFromGitHub: 304 again on an unconditional retry; the file could not be read (t/478)');
+    if (strict) {
+      throw Object.assign(new Error(`GitHub answered 304 to an unconditional read — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'status=304' as const });
+    }
+    return null;
+  }
+
   private async fetchFileFromGitHub(
     repoPath: string,
     ref: string,
@@ -3199,16 +3231,11 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!creds) { this.handleMissingCreds(repoPath, optional, strict); return null; }
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-    const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
-      undefined, undefined, optional ? { optional: true } : undefined);
-
-    // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
-    // from a cached etag — getCachedEtag() no longer sends one for a non-main
-    // ref, but treat it as a miss defensively rather than crash on null data.
-    if (resp.status === 304) return null;
+    const endpoint = `/repos/${creds.repo}/contents/${repoPath}${qRef}`;
+    const resp = await this.requestContentsBody(creds, endpoint, repoPath, ref, optional, strict);
+    if (resp === null) return null;
     if (!resp.ok) {
-      this.logContents404Detail(resp, repoPath, `/repos/${creds.repo}/contents/${repoPath}${qRef}`, ref, creds.mode);
+      this.logContents404Detail(resp, repoPath, endpoint, ref, creds.mode);
       this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
       return null;
     }
@@ -3262,11 +3289,22 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!creds) return null;
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-    const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
+    const endpoint = `/repos/${creds.repo}/contents/${repoPath}${qRef}`;
+    let resp = await this.rest.request(creds, 'GET', endpoint);
 
-    // t/4258/t/4295: see fetchFileFromGitHub — a 304 carries no data.
-    if (!resp.ok || resp.status === 304) return null;
+    // t/478 guard: this runs after a binary cache miss, so a 304 has no body to serve. Repeat once
+    // without the ETag instead of returning null as "absent".
+    if (resp.status === 304) {
+      log.github.warn({ path: repoPath, ref },
+        'fetchBinaryFileFromGitHub: 304 with no cached body to serve; retrying once without If-None-Match (t/478)');
+      resp = await this.rest.request(creds, 'GET', endpoint, undefined, undefined, { unconditional: true });
+    }
+    if (resp.status === 304) {
+      log.github.warn({ path: repoPath, ref },
+        'fetchBinaryFileFromGitHub: 304 again on an unconditional retry; the file could not be read (t/478)');
+      return null;
+    }
+    if (!resp.ok) return null;
 
     const data = resp.data as {
       content?: string;
@@ -3307,9 +3345,10 @@ export class GitHubAPIBackend implements StorageBackend {
     etag: string,
   ): Promise<{ content: Buffer; sha: string; etag: string } | null> {
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true });
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true, unconditional: true });
 
-    if (!resp.ok) return null;
+    // t/478: a 304 is ok with null data; never return that as the file's bytes.
+    if (!resp.ok || resp.status === 304) return null;
 
     return { content: resp.data as Buffer, sha, etag: resp.etag ?? etag };
   }
