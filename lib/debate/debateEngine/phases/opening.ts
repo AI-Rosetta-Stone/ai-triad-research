@@ -245,7 +245,7 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
           .filter(f => typeof f?.frame === 'string' && (f.frame as string).trim().length > 0)
           .map(f => f.frame);
         if (frames.length > 0) {
-          const vecs = await embedTexts(engine.adapter, frames, engine.session?.id);
+          const vecs = await embedTexts(engine.adapter, frames, engine.session.id);
           engine.session.frame_embeddings ??= {};
           engine.session.frame_embeddings[poverId] = {
             model: 'all-MiniLM-L6-v2',

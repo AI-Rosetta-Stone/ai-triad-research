@@ -1056,7 +1056,7 @@ export async function runCrossRespondRound(engine: DebateEngineInternals, round:
   if (engine.session.frame_embeddings && Object.keys(engine.session.frame_embeddings).length > 0) {
     try {
       const paras = entry.content.split(/\n\n+/).filter(p => p.trim().length > 0);
-      const paraVecs = paras.length > 0 ? await embedTexts(engine.adapter, paras, engine.session?.id) : [];
+      const paraVecs = paras.length > 0 ? await embedTexts(engine.adapter, paras, engine.session.id) : [];
       engine.session.frame_similarity_series ??= {};
       for (const [speakerKey, frameData] of Object.entries(engine.session.frame_embeddings)) {
         engine.session.frame_similarity_series[speakerKey] ??= frameData.frames.map(f => ({ frame: f.frame, sims: {} as Record<string, number> }));
