@@ -190,7 +190,7 @@ describe('/api/oped-sets routes (t/2573)', () => {
   });
 
   it('DELETE /api/oped-sets/:id deletes and returns { ok: true }', async () => {
-    deleteOpedSet.mockResolvedValue(undefined);
+    deleteOpedSet.mockResolvedValue(true); // t/475: the store returns true when it deleted the set
     const res = fakeRes();
     await handlers['DELETE /api/oped-sets/:id'](fakeReq('/api/oped-sets/set-1'), res, undefined);
     expect(deleteOpedSet).toHaveBeenCalledWith('set-1');

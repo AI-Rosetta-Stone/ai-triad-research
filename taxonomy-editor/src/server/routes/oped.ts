@@ -27,7 +27,8 @@ import { clientSafeMessage } from '../security/accessControl.js';
 import { isSafeId, fetchUrlContent, upsertOpedRun, countRunningOpedRuns, getOpedRun } from '../storage/fileIO.js';
 import type { RunControlRecord, VoiceState } from '../storage/opedRunStore.js';
 import { log } from '../logger.js';
-import { listOpedSets, loadOpedSet, deleteOpedSet, getOpedSetsQuotaStatus, finalizeOpedSet } from '../storage/opedStore.js';
+import { listOpedSets, loadOpedSet, getOpedSetsQuotaStatus, finalizeOpedSet } from '../storage/opedStore.js';
+import { deleteOpEdSetRoute } from './opedDelete.js';
 import type { OpEdSet, OpEdMember, OpEdParams, PovKey } from '../../../../lib/oped/types.js';
 import { parseOpEdRequest } from '../../../../lib/oped/schemas.js';
 import type { GenerateOpEdRequest, OpEdGeneratorDeps, OpEdProgressEvent } from '../../../../lib/oped/generate.js';
@@ -444,13 +445,7 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
   del('/api/oped-sets/:id', async (req, res) => {
     const id = param(req, 'id', ROUTE_ID);
     if (rejectUnsafeId(res, id)) return;
-    try {
-      await deleteOpedSet(id);
-      json(res, { ok: true });
-    } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'oped', level: 'error', message: 'Failed to delete oped-set', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      error(res, String(err), 500, err);
-    }
+    await deleteOpEdSetRoute(res, id); // t/475: anonymous callers delete only from their own key (routes/opedDelete.ts)
   });
 
   // ── Op-ed public share (t/2727; design t/2723#3, SO-approved e/106#2) ──

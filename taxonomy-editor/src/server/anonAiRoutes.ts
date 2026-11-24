@@ -50,5 +50,15 @@ export function anonRouteDecision(
   freeTierEnabled: boolean,
   anonAllowed: (method: string, urlPath: string) => boolean,
 ): boolean {
-  return (isFreeTierAiPath(method, urlPath) && freeTierEnabled) || anonAllowed(method, urlPath);
+  return (isFreeTierAiPath(method, urlPath) && freeTierEnabled)
+    || isAnonOpEdDeleteRoute(method, urlPath)
+    || anonAllowed(method, urlPath);
+}
+
+/** t/475 (PI decision): an anonymous visitor may delete their own op-ed. Exactly DELETE /api/oped-sets/<one id>.
+ *  Not gated on the free tier: a delete spends nothing. The handler refuses an unkeyed caller and deletes only from
+ *  the caller's own storage key (routes/opedDelete.ts). PUT on the same path, and share, stay refused. */
+const OPED_SET_ID_PATH = /^\/api\/oped-sets\/[^/]+$/;
+export function isAnonOpEdDeleteRoute(method: string, urlPath: string): boolean {
+  return method === 'DELETE' && OPED_SET_ID_PATH.test(urlPath);
 }

@@ -204,19 +204,28 @@ export async function finalizeOpedSet(set: OpEdSet): Promise<void> {
     .catch((err) => { log.server.warn({ err, setId: set.set_id }, 'Oped-set .inprogress cleanup failed (best-effort)'); });
 }
 
-/** Delete a finalized oped-set + remove from index. Revokes any share first. Cleans up .inprogress if present. */
-export async function deleteOpedSet(setId: string): Promise<void> {
+/** Delete a finalized oped-set + remove from index. Revokes any share first. Cleans up .inprogress if present.
+ *  Returns false when the set is not in the CALLER'S OWN store (t/475: an anonymous visitor may delete only from
+ *  their own key, so another visitor's id is not found). A signed-in caller keeps the existing no-op-if-missing
+ *  behaviour and gets true. An anonymous caller never reaches the public share revocation: an anonymous visitor
+ *  cannot publish, so there is no share to revoke, and the public container is not touched for them. */
+export async function deleteOpedSet(setId: string): Promise<boolean> {
   assertSafeId(setId, 'oped-set id');
-  if (isAnonymousUser()) return;
   const backend = getUserContentBackend();
   const dir = getOpedSetsDir();
-  await unpublishOpedShare(setId).catch((err) => {
-    log.server.warn({ err, setId }, 'Oped-set share revocation failed (best-effort); continuing with delete');
-  });
-  await backend.deleteFile(path.join(dir, `oped-set-${setId}.json`));
+  const file = path.join(dir, `oped-set-${setId}.json`);
+  if (isAnonymousUser()) {
+    if ((await backend.readFile(file)) === null) return false; // not in this visitor's own store
+  } else {
+    await unpublishOpedShare(setId).catch((err) => {
+      log.server.warn({ err, setId }, 'Oped-set share revocation failed (best-effort); continuing with delete');
+    });
+  }
+  await backend.deleteFile(file);
   void removeFromOpedSetIndex(setId).catch((err) => {
     log.server.warn({ err, setId }, 'Oped-set index removal failed (best-effort)');
   });
   void backend.deleteFile(path.join(dir, `oped-set-${setId}.json.inprogress`))
     .catch(() => { /* best-effort — .inprogress may not exist */ });
+  return true;
 }

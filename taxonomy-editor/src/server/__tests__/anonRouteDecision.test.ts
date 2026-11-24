@@ -31,11 +31,21 @@ describe('anonymous op-ed creation (t/475, condition 1 & acceptance)', () => {
     expect(decide('POST', '/api/oped-sets/abc/share', OFF)).toBe(false);
   });
 
-  it('PUT and DELETE on /api/oped-sets/:id stay refused, free tier on or off (condition 4)', () => {
-    for (const method of ['PUT', 'DELETE']) {
-      expect(decide(method, '/api/oped-sets/abc', ON)).toBe(false);
-      expect(decide(method, '/api/oped-sets/abc', OFF)).toBe(false);
-    }
+  it('PUT on /api/oped-sets/:id stays refused, free tier on or off (rename is not in scope, t/475#8)', () => {
+    expect(decide('PUT', '/api/oped-sets/abc', ON)).toBe(false);
+    expect(decide('PUT', '/api/oped-sets/abc', OFF)).toBe(false);
+  });
+
+  it('DELETE of one op-ed id is allowed for an anonymous caller, free tier on or off (PI decision, t/475#8)', () => {
+    expect(decide('DELETE', '/api/oped-sets/abc', ON)).toBe(true);
+    expect(decide('DELETE', '/api/oped-sets/abc', OFF)).toBe(true);
+  });
+
+  it('DELETE is exact: the collection, a sub-path, a trailing slash or a share are NOT allowed', () => {
+    expect(decide('DELETE', '/api/oped-sets', ON)).toBe(false);
+    expect(decide('DELETE', '/api/oped-sets/', ON)).toBe(false);
+    expect(decide('DELETE', '/api/oped-sets/abc/share', ON)).toBe(false);
+    expect(decide('DELETE', '/api/oped-sets/abc/extra', ON)).toBe(false);
   });
 
   it('GET of an op-ed run and of an op-ed set are reachable by an anonymous caller (the handler scopes them per visitor)', () => {
@@ -79,7 +89,9 @@ describe('other routes are unchanged (condition 2: table over the current lists)
     ];
     for (const [m, p] of routes) {
       const after = decide(m, p, ON);
-      if (p === '/api/oped-sets' && m === 'POST') {
+      if ((p === '/api/oped-sets' && m === 'POST') || (p === '/api/oped-sets/x' && m === 'DELETE')) {
+        // The two intended changes: anonymous create (free tier) and anonymous delete of one id (PI).
+        if (m === 'DELETE') { expect(isAnonAllowedRoute(m, p)).toBe(false); expect(after).toBe(true); continue; }
         // Before this change the free-tier list lacked the path, so only the anonymous allowlist could allow it.
         expect(isAnonAllowedRoute(m, p)).toBe(false);
         expect(after).toBe(true); // the one change
