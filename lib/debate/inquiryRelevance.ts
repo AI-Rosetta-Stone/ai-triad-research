@@ -7,7 +7,8 @@
 // embedding model as the ArCo anchors. Pure functions here; the pipeline does the I/O.
 //
 // What it is: an internal signal that a debate has left the question's field. Off-field and
-// unrelated turns score well below the lines here and raise the flag.
+// unrelated turns score below RELEVANCE_MEAN_WARN, and their consecutive runs fall under
+// RELEVANCE_LOW_TURN, so they raise the flag.
 // What it is not: a measure of whether the debate answers the question. A debate on a
 // neighbouring question in the same field scores in the same range as one on the question itself,
 // so no threshold on this number separates the two (controls on t/284#77 and t/284#80). That
