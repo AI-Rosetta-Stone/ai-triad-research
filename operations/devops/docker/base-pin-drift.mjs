@@ -207,7 +207,7 @@ export function dropLineBreakLines(lines) {
   return lines.filter((l) => !/[\r\n]/.test(l));
 }
 
-/** PURE. The $GITHUB_OUTPUT lines for `pr-body` (t/473), through the same filter as `check`. */
+/** PURE. The $GITHUB_OUTPUT lines for `pr-body` (t/474), through the same filter as `check`. */
 export function tierOutputLines(tier, tierReason) {
   return dropLineBreakLines([`tier=${tier}`, `tier_reason=${tierReason}`]);
 }
@@ -261,10 +261,10 @@ function repin(dockerfilePath, tag, digest) {
 function prBody(beforePath, afterPath, bodyFile) {
   const env = process.env;
   const { tier, reason: tierReason } = classifyRepinTier(fs.readFileSync(beforePath, 'utf8'), fs.readFileSync(afterPath, 'utf8'));
-  // t/473: fail closed before anything is written if a tier value carried a line break.
+  // t/474: fail closed before anything is written if a tier value carried a line break.
   const outputLines = tierOutputLines(tier, tierReason);
   if (outputLines.length !== 2) {
-    console.log(`::error::${GATE}: tier or tier_reason contained a line break and was dropped; failing closed (t/473).`);
+    console.log(`::error::${GATE}: tier or tier_reason contained a line break and was dropped; failing closed (t/474).`);
     return 1;
   }
   const body = repinPrBody({
