@@ -164,6 +164,8 @@ export interface DebateConfig {
    * Shared lib/debate code must not import either loader directly.
    */
   soulResolver?: import('../soulDocSchema.js').SoulResolverFn;
+  /** t/492: document titles for evidence citations (doc_id → title, link, provenance label), supplied by a host that has no sources directory on disk, such as the hosted server, which builds it from sources-index.json with `docMetaMapFromSourcesIndex`. When present the engine uses it and does not read the filesystem. When absent the engine reads the sources directory, as before. */
+  docTitles?: import('../evidenceFromSummaries.js').DocMetaMap;
 }
 
 export interface DebateProgress {
