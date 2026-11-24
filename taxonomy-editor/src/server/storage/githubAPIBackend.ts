@@ -135,6 +135,14 @@ function isBlobNotFoundForPoll(err: unknown): boolean {
 const DEFAULT_MAX_OVERLAY_BYTES_PER_USER = 20 * 1024 * 1024; // 20 MB
 
 const POLL_INTERVAL_MS = 60_000;
+
+/** t/505: the ref callers pass to mean "the shared base data, not a session branch". It is the literal
+ *  'main' for historical reasons: callers across the server pin reads with `{ ref: 'main' }`. It is NOT
+ *  a branch name. The backend maps it to its base branch (GITHUB_BRANCH, default 'main'), so on a
+ *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
+ *  this mapping such a read went to the repository's default branch, a different branch from the tree,
+ *  the listings and the strict reads. */
+export const BASE_BRANCH_REF = 'main';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
@@ -608,7 +616,19 @@ export class GitHubAPIBackend implements StorageBackend {
     if (this.leaseRenewTimer) { clearInterval(this.leaseRenewTimer); this.leaseRenewTimer = null; }
   }
 
+  /** t/505: map the base-branch alias to this deployment's base branch. Any other ref (a real session
+   *  branch, a commit SHA) passes through unchanged, and undefined stays undefined so the caller's
+   *  own default applies. */
+  private resolveReadRef(ref: string | undefined): string | undefined {
+    return ref === BASE_BRANCH_REF ? this.baseBranch : ref;
+  }
+
   private async runInitialize(): Promise<void> {
+    if (this.baseBranch !== BASE_BRANCH_REF) {
+      // t/505: say once, at start-up, that pinned reads do not go to a branch called 'main' here.
+      log.storage.info({ baseBranch: this.baseBranch },
+        `base branch is '${this.baseBranch}': reads pinned with ref '${BASE_BRANCH_REF}' are mapped to it (t/505)`);
+    }
     this.recordEvent({
       type: 'storage.mode',
       component: 'storage',
@@ -1049,7 +1069,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
     // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // t/4510: skip the overlay only when genuinely pinned away from the
     // session's own ref, unless the caller explicitly opts back in (see the
@@ -1368,7 +1388,7 @@ export class GitHubAPIBackend implements StorageBackend {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     // t/4224 (TL design, p/538#40/#43): an edit-load on a session branch with
     // no pending overlay entry must read the branch's own current content and
@@ -1432,7 +1452,7 @@ export class GitHubAPIBackend implements StorageBackend {
   // serve or pollute the main cache from a non-main session branch.
   async readBinaryFile(filePath: string, opts?: { ref?: string }): Promise<Buffer | null> {
     const repoPath = this.toRepoPath(filePath);
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     if (ref === this.baseBranch) {
       const cached = await this.readBinaryFromDiskCache(repoPath);
@@ -1450,7 +1470,8 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
-  async readFileAtRef(repoPath: string, ref: string): Promise<string | null> {
+  async readFileAtRef(repoPath: string, requestedRef: string): Promise<string | null> {
+    const ref = this.resolveReadRef(requestedRef) ?? requestedRef;
     if (ref === this.baseBranch) {
       const cached = await this.readFromDiskCache(repoPath);
       if (cached !== null) return cached;
@@ -1983,7 +2004,7 @@ export class GitHubAPIBackend implements StorageBackend {
         ],
       });
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${this.toRepoPath(dirPath)}${qRef}`);
@@ -2009,7 +2030,7 @@ export class GitHubAPIBackend implements StorageBackend {
       log.server.warn({ dir: repoPath, cause: 'no-credentials' }, 'listDirectory returning [] — no GitHub credentials available, may be false-empty (t/3300)');
       return 'no-credentials';
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
@@ -2100,7 +2121,7 @@ export class GitHubAPIBackend implements StorageBackend {
   async fileExists(filePath: string, opts?: { ref?: string }): Promise<boolean> {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // Check session overlay — only when this call isn't pinned away from the
     // session's own ref (t/4428#2 condition 1). An explicit opts.ref that
@@ -2263,7 +2284,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const creds = await this.getCredsCached();
     if (!creds) return { contents, fallbackCount: filePaths.length, graphqlCost: 0 };
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const [owner, name] = creds.repo.split('/');
     // repoPath (the GraphQL expression's path) <-> the caller's original
     // absolute filePath, so the result map is keyed the same way callers
@@ -2714,8 +2735,12 @@ export class GitHubAPIBackend implements StorageBackend {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
     }
 
+    // t/505: callers pass the base-branch alias ('main') for either side. Compare against this
+    // deployment's base branch, not a branch that happens to be called 'main'.
+    const baseRef = this.resolveReadRef(base) ?? base;
+    const headRef = this.resolveReadRef(head) ?? head;
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/compare/${base}...${head}`);
+      `/repos/${creds.repo}/compare/${baseRef}...${headRef}`);
 
     if (!resp.ok) {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
