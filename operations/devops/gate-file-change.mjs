@@ -43,6 +43,52 @@ export const GATE_SCRIPTS = [
   'operations/devops/docker/repin-tier.mjs',
 ];
 
+// Every operations/devops script that a required-check workflow runs or loads (ci.yml,
+// joint-gv-guard.yml, consult-hold-guard.yml, codeql.yml, t1-approval-guard.yml, tier-check.yml).
+// A PR that edits one of these changes what its own required check runs. Kept current by
+// gate-file-change.test.mjs, which walks those workflows and fails on a script missing here.
+export const WORKFLOW_RUN_SCRIPTS = [
+  'operations/devops/AgentAppToken.psm1',
+  'operations/devops/DataRepoHooksVerdict.ps1',
+  'operations/devops/FlakeVerdict.ps1',
+  'operations/devops/GateVerdict.ps1',
+  'operations/devops/Get-BicepBaseEnv.ps1',
+  'operations/devops/Get-PesterExcludePaths.ps1',
+  'operations/devops/Get-TestPowerShellAbnormalEndVerdict.ps1',
+  'operations/devops/ShardBalancer.ps1',
+  'operations/devops/Test-BicepAcaResourcePairs.ps1',
+  'operations/devops/Test-BicepEnvDrift.ps1',
+  'operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1',
+  'operations/devops/Test-ContainerVarIsolation.ps1',
+  'operations/devops/Test-EnvBicepWiring.ps1',
+  'operations/devops/Test-InMemoryJobStoreScaleGuard.ps1',
+  'operations/devops/azure/Test-BicepExpressionLength.ps1',
+  'operations/devops/check-action-pin-resolution.mjs',
+  'operations/devops/check-code-root-allowlist.mjs',
+  'operations/devops/check-dockerfile-store-mounts.mjs',
+  'operations/devops/check-merge-queue-liveness.sh',
+  'operations/devops/check-vitest-shard-blobs.sh',
+  'operations/devops/ci-merge-group-scope.sh',
+  'operations/devops/ci-shared-input-coverage-predicate.mjs',
+  'operations/devops/ci-shared-inputs.json',
+  'operations/devops/cl-path-check-predicate.mjs',
+  'operations/devops/create-coldstore-builder.sh',
+  'operations/devops/css-brace-check.mjs',
+  'operations/devops/env-var-allowlist.json',
+  'operations/devops/gate-verdict.mjs',
+  'operations/devops/get-merge-group-prs.sh',
+  'operations/devops/guard-pr-read.sh',
+  'operations/devops/rate-limit-snapshot-step.yml',
+  'operations/devops/run-merge-guard-tests.sh',
+  'operations/devops/scheduled-workflows.json',
+  'operations/devops/test-check-merge-queue-liveness-headgreen.sh',
+  'operations/devops/test-check-merge-queue-liveness-lookup-failure.sh',
+  'operations/devops/test-check-vitest-shard-blobs.sh',
+  'operations/devops/test-get-merge-group-prs-ejected.sh',
+  'operations/devops/test-get-merge-group-prs-f4.sh',
+  'operations/devops/test-powershell-shard-durations.json',
+];
+
 // Directory prefixes that count in full. `.github/ci/` holds data the gates load
 // (required-contexts.json, tier-paths.json, the allowlists).
 export const GATE_PREFIXES = ['.github/workflows/', '.github/actions/', '.github/ci/'];
@@ -59,7 +105,7 @@ function gh(args) {
 export function isGateFile(path) {
   if (typeof path !== 'string' || !path) return false;
   const p = path.replace(/\\/g, '/').replace(/^\.\//, '');
-  return GATE_PREFIXES.some((pre) => p.startsWith(pre)) || GATE_SCRIPTS.includes(p);
+  return GATE_PREFIXES.some((pre) => p.startsWith(pre)) || GATE_SCRIPTS.includes(p) || WORKFLOW_RUN_SCRIPTS.includes(p);
 }
 
 /**
