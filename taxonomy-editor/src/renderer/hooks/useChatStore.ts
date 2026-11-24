@@ -180,11 +180,17 @@ function getTaxonomyContext(pov: string, chat: Pick<ChatSession, 'id' | 'pov_tag
 
 /** The taxonomy block for a chat turn (t/348): per-turn relevance selection, the 12-node and 4-situation
  *  caps, statements instead of descriptions, and the trace. See utils/chatTaxonomyTurn.ts. */
+/** The POVer's most recent turn text, for the selection query. */
+function lastPoverText(transcript: ChatEntry[]): string {
+  return [...transcript].reverse().find(e => e.speaker !== 'user')?.content ?? '';
+}
+
 async function chatTaxonomyTurnFor(
   pov: string,
-  chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode'>,
-  query: ChatTurnQuery,
+  chat: Pick<ChatSession, 'id' | 'pov_tag' | 'tag_mode' | 'topic' | 'transcript'>,
+  lastUserMessage: string,
 ): Promise<ChatTurnResult> {
+  const query: ChatTurnQuery = { topic: chat.topic, previousPoverText: lastPoverText(chat.transcript), lastUserMessage };
   const ctx = getTaxonomyContext(pov, chat);
   const tagSelection = chatTagSelection(chat);
   // Setup refuses a Prioritize tag with no tagged nodes (t/3959), but tags can change after a chat starts.
@@ -482,7 +488,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     try {
       const info = chatSoul(activeChat);
-      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, { topic: activeChat.topic, previousPoverText: '', lastUserMessage: '' });
+      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, '');
       if (!isStillValid()) return;
       const model = getConfiguredModel();
       const temperature = resolveChatTemperature(activeChat);
@@ -594,8 +600,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     try {
       const info = chatSoul(activeChat);
-      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, { topic: activeChat.topic, previousPoverText: [...activeChat.transcript].reverse().find(e => e.speaker !== 'user')?.content ?? '', lastUserMessage: message.trim() });
-      if (!isStillValid()) return;
+      const turn = await chatTaxonomyTurnFor(info.pov, activeChat, message.trim());
       const model = getConfiguredModel();
       const temperature = resolveChatTemperature(activeChat);
 

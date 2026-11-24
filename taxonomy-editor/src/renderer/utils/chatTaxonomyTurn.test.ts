@@ -5,6 +5,9 @@
 // with one WARN per skip, the deterministic fallback, Scope, Prioritize (▲), situations, and the trace.
 
 import { describe, it, expect, vi } from 'vitest';
+
+const mockRecord = vi.hoisted(() => vi.fn());
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 import { buildChatTaxonomyTurn, type ChatTurnDeps, type ChatRelevantResult } from './chatTaxonomyTurn';
 import type { TaxonomyContext } from './taxonomyContext';
 import type { PovNode, SituationNode } from '../../../../lib/debate/taxonomyTypes';
@@ -129,7 +132,7 @@ describe('buildChatTaxonomyTurn — fallback', () => {
     expect(turn.trace.context_node_ids).toContain('acc-bel-0');
     expect(turn.trace.context_node_ids).toContain('acc-des-0');
     expect(turn.trace.context_node_ids).toContain('acc-int-0');
-    const relevanceWarns = (d.warn as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0] as string).filter(m => m.includes('relevance-unavailable'));
+    const relevanceWarns = mockRecord.mock.calls.map(c => c[0].message as string).filter(m => m.includes('relevance-unavailable'));
     expect(relevanceWarns).toHaveLength(1);
     expect(turn.block).not.toContain(DESC);
   });
