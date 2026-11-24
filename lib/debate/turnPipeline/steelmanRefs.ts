@@ -30,3 +30,45 @@ export function applyPlanSteelmanRefs(plan: OpeningPlanWorkProduct | undefined, 
     return c.replace(ATTACK_TAG, 'ATTACK:');
   });
 }
+
+/**
+ * The plan as later stages see it (draft, cite): ATTACK tags reduced to plain "ATTACK:" and the
+ * offered list removed. The ids are for the plan card only, so they never enter a later prompt,
+ * and with nothing offered the later prompts are unchanged.
+ */
+export function planForLaterStages<T extends OpeningPlanWorkProduct | undefined>(plan: T): T {
+  if (!plan) return plan;
+  const { steelman_refs_offered: _offered, ...rest } = plan;
+  const challenges = Array.isArray(rest.anticipated_challenges)
+    ? rest.anticipated_challenges.map(c => (typeof c === 'string' ? c.replace(ATTACK_TAG, 'ATTACK:') : c))
+    : rest.anticipated_challenges;
+  return { ...rest, anticipated_challenges: challenges } as T;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Guard for the statement text: remove any bracketed offered id ("[AN-3]") that reached it, with a
+ * WARN. Later stages get the plan without tags, so this should find nothing.
+ */
+export function stripSteelmanIdsFromStatement(statement: string, offeredIds: string[], debateId?: string): string {
+  if (!statement || offeredIds.length === 0) return statement;
+  const pattern = new RegExp(` ?\\[(?:${offeredIds.map(escapeRegExp).join('|')})\\]`, 'g');
+  let removed = 0;
+  const out = statement.replace(pattern, () => { removed++; return ''; });
+  if (removed > 0) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'turn-pipeline', level: 'warn', debate_id: debateId,
+      message: `statement carried ${removed} steelman reference id(s) from the plan; removed (t/388)`,
+    });
+  }
+  return out;
+}
+
+/** Apply the statement guard to a parsed draft, in place. A draft with no statement is left alone. */
+export function stripSteelmanIdsFromDraft(draft: { statement?: string } | undefined, offeredIds: string[], debateId?: string): void {
+  if (!draft?.statement) return;
+  draft.statement = stripSteelmanIdsFromStatement(draft.statement, offeredIds, debateId);
+}

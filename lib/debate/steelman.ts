@@ -96,15 +96,16 @@ export interface SteelmanRefOffer { id: string; steelman_of: string; text: strin
 
 /**
  * Steelman AN nodes from earlier entries that target a camp other than the speaker's (t/388).
- * The current entry's own nodes are not minted yet at plan time, so they are never offered.
+ * At plan time the current entry has no id and none of its nodes are minted, so every node with a
+ * source entry is from an earlier entry.
  * Most recent first, capped at max.
  */
-export function offeredSteelmanRefs(nodes: ArgumentNetworkNode[], speakerCamp: string, currentEntryId: string | undefined, max = 6): SteelmanRefOffer[] {
+export function offeredSteelmanRefs(nodes: ArgumentNetworkNode[], speakerCamp: string, max = 6): SteelmanRefOffer[] {
   const out: SteelmanRefOffer[] = [];
   for (let i = nodes.length - 1; i >= 0 && out.length < max; i--) {
     const n = nodes[i];
     if (!n.steelman_of || n.steelman_of === speakerCamp) continue;
-    if (!n.source_entry_id || n.source_entry_id === currentEntryId) continue;
+    if (!n.source_entry_id) continue;
     out.push({ id: n.id, steelman_of: n.steelman_of, text: n.text });
   }
   return out;

@@ -21,7 +21,7 @@ import { runNarrativeVoicing, finalizeNarrativeReference } from './narrativeVoic
 
 // t/388: steelman AN nodes from earlier entries that the plan may cite as attacks.
 function steelmanRefsForPlan(engine: DebateEngineInternals, pov: string) {
-  return offeredSteelmanRefs(engine.session.argument_network?.nodes ?? [], pov, undefined);
+  return offeredSteelmanRefs(engine.session.argument_network?.nodes ?? [], pov);
 }
 
 export async function runOpeningStatements(engine: DebateEngineInternals): Promise<void> {

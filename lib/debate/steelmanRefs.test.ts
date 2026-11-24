@@ -5,7 +5,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { offeredSteelmanRefs } from './steelman.js';
-import { applyPlanSteelmanRefs } from './turnPipeline/steelmanRefs.js';
+import { applyPlanSteelmanRefs, planForLaterStages, stripSteelmanIdsFromStatement } from './turnPipeline/steelmanRefs.js';
+import { toPromptJson } from './turnPipeline/runTurn-stages.js';
 import { planOpeningStagePrompt } from './prompts/opening.js';
 import type { ArgumentNetworkNode } from './types/argumentNetwork.js';
 import type { OpeningPlanWorkProduct } from './types/pipeline.js';
@@ -21,18 +22,18 @@ describe('offeredSteelmanRefs (t/388)', () => {
       an('AN-2', 'skeptic', 'e2'),
       an('AN-3', 'safetyist', 'e3'),
     ];
-    const out = offeredSteelmanRefs(nodes, 'safetyist', 'e4');
+    const out = offeredSteelmanRefs(nodes, 'safetyist');
     expect(out.map(r => r.id)).toEqual(['AN-2', 'AN-1']);
   });
 
-  it('never offers the current entry or a non-steelman node', () => {
-    const nodes = [an('AN-1', 'accelerationist', 'e4'), an('AN-2', undefined, 'e1')];
-    expect(offeredSteelmanRefs(nodes, 'safetyist', 'e4')).toEqual([]);
+  it('never offers a non-steelman node or a node with no source entry', () => {
+    const nodes = [an('AN-1', 'accelerationist', ''), an('AN-2', undefined, 'e1')];
+    expect(offeredSteelmanRefs(nodes, 'safetyist')).toEqual([]);
   });
 
   it('caps the list', () => {
     const nodes = ['e1', 'e2', 'e3'].map((e, i) => an(`AN-${i}`, 'accelerationist', e));
-    expect(offeredSteelmanRefs(nodes, 'safetyist', 'e9', 2)).toHaveLength(2);
+    expect(offeredSteelmanRefs(nodes, 'safetyist', 2)).toHaveLength(2);
   });
 });
 
@@ -57,6 +58,34 @@ describe('applyPlanSteelmanRefs (t/388)', () => {
     const p = plan(['ATTACK: x']);
     applyPlanSteelmanRefs(p, []);
     expect(p.steelman_refs_offered).toEqual([]);
+  });
+});
+
+describe('plan to statement path (t/388, CL review t/388#11)', () => {
+  const plan = (challenges: string[]): OpeningPlanWorkProduct =>
+    ({ strategic_goal: 'g', core_thesis: 't', argument_structure: [], framing_choices: [], anticipated_challenges: challenges }) as OpeningPlanWorkProduct;
+
+  it('gives later stages the plan with no tag and no offered list, and leaves the stored plan tagged', () => {
+    const p = plan(['ATTACK [AN-2]: the strongest objection', 'ASSUMPTION: a premise']);
+    applyPlanSteelmanRefs(p, ['AN-2']);
+    const later = planForLaterStages(p);
+    expect(later.anticipated_challenges).toEqual(['ATTACK: the strongest objection', 'ASSUMPTION: a premise']);
+    expect(toPromptJson(later)).not.toContain('AN-2');
+    expect(p.anticipated_challenges[0]).toBe('ATTACK [AN-2]: the strongest objection');
+    expect(p.steelman_refs_offered).toEqual(['AN-2']);
+  });
+
+  it('gives later stages the same JSON as before when nothing was offered', () => {
+    const before = toPromptJson(plan(['ATTACK: x']));
+    const p = plan(['ATTACK: x']);
+    applyPlanSteelmanRefs(p, []);
+    expect(toPromptJson(planForLaterStages(p))).toBe(before);
+  });
+
+  it('removes an offered id that reached the statement, and only an offered id', () => {
+    const s = 'They will object [AN-2] that costs rise. See note [1] and [AN-9].';
+    expect(stripSteelmanIdsFromStatement(s, ['AN-2'])).toBe('They will object that costs rise. See note [1] and [AN-9].');
+    expect(stripSteelmanIdsFromStatement(s, [])).toBe(s);
   });
 });
 
