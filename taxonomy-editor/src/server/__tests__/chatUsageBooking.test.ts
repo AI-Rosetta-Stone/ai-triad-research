@@ -44,7 +44,7 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: 
 
 import {
   chatTurnTokens, trackFreePoolReservation, recordChatTokenUsage, enforceChatAccess,
-  promptCharsOf, CHAT_OUTPUT_TOKEN_ALLOWANCE, settleProviderTurn,
+  promptCharsOf, CHAT_OUTPUT_TOKEN_ALLOWANCE, settleProviderTurn, chargesVisitorDailyBucket,
 } from '../routes/chat.js';
 
 beforeEach(() => {
@@ -97,7 +97,14 @@ describe('t/494: chat turn tokens are the real usage', () => {
     const commit = vi.fn(async () => undefined);
     await settleProviderTurn({ commit }, { limitKey: 'user-b', dailyTokenLimit: 500_000, promptChars: 40_000 }, undefined);
     expect(commit).toHaveBeenCalledWith(expect.objectContaining({ inputTokens: 10_000, outputTokens: CHAT_OUTPUT_TOKEN_ALLOWANCE, estimated: true }));
-    expect(h.recordTokenUsage).toHaveBeenCalledWith('user-b', 10_000, CHAT_OUTPUT_TOKEN_ALLOWANCE, 500_000);
+    // TL p/16#260: a turn with no provider usage is booked to the free pool but NOT to the visitor's bucket.
+    expect(h.recordTokenUsage).not.toHaveBeenCalled();
+  });
+
+  it('a turn with reported usage charges the visitor bucket; no usage does not (TL p/16#260)', () => {
+    expect(chargesVisitorDailyBucket({ promptTokens: 1, completionTokens: 1 })).toBe(true);
+    expect(chargesVisitorDailyBucket({ promptTokens: 1 })).toBe(false);
+    expect(chargesVisitorDailyBucket(undefined)).toBe(false);
   });
 
   it('promptCharsOf counts the system instruction and every message', () => {

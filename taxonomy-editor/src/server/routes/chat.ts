@@ -299,10 +299,19 @@ export async function settleProviderTurn(
   usage: TurnUsage | undefined,
 ): Promise<void> {
   const turn = chatTurnTokens(usage, pt.promptChars);
-  // Per-user bucket first: it is in-process and cannot fail, so the user's daily limit reflects the
-  // turn even if the free-pool store commit below throws (Second Opinion, p/252#15).
-  recordChatTokenUsage(pt.limitKey, turn, pt.dailyTokenLimit);
+  // The free pool books every provider turn, reported usage or not.
+  // The visitor's daily bucket is a separate decision (TL p/16#260): charged only when the provider
+  // reported usage. Whether a failed turn counts against the user is the PI's call; this is the default.
+  // Per-user first: it is in-process and cannot fail, so the daily limit reflects the turn even if the
+  // free-pool store commit below throws (Second Opinion, p/252#15).
+  if (chargesVisitorDailyBucket(usage)) recordChatTokenUsage(pt.limitKey, turn, pt.dailyTokenLimit);
   await budget.commit(turn);
+}
+
+/** t/494 (TL p/16#260): does this turn count against the visitor's daily token bucket? Only when the
+ *  provider reported both prompt and completion tokens. A failed turn with no usage does not. */
+export function chargesVisitorDailyBucket(usage: TurnUsage | undefined): boolean {
+  return usage !== undefined && typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number';
 }
 
 /** t/4485 (+ t/4485#9 debate reconciliation): pure mirror of routes/ai.ts's
