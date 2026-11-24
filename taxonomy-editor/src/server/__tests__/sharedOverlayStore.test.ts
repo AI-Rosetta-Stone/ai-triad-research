@@ -439,6 +439,20 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
       expect(await store.getEntry('alice', FOO)).toEqual(mine);
     });
 
+    // SO on #5459: the same entry staged twice with the now-stale condition (what an SDK retry does).
+    it('staging the same entry twice with the stale condition acknowledges both (absent, then etag)', async () => {
+      const store = makeStore(container, `_test-${++counter}`);
+      const first = entryAt('mine', new Date().toISOString());
+      expect((await store.stage('alice', FOO, first, { absent: true })).ok).toBe(true);
+      expect(await store.stage('alice', FOO, first, { absent: true })).toMatchObject({ ok: true, etag: expect.any(String) });
+
+      const staleEtag = (await store.getEntryWithEtag('alice', FOO))!.etag;
+      const second = entryAt('mine again', new Date().toISOString());
+      expect((await store.stage('alice', FOO, second, { etag: staleEtag })).ok).toBe(true);
+      expect(await store.stage('alice', FOO, second, { etag: staleEtag })).toMatchObject({ ok: true });
+      expect(await store.getEntry('alice', FOO)).toEqual(second);
+    });
+
     it('a failed condition against someone else\'s write is still precondition_failed (control)', async () => {
       const store = makeStore(container, `_test-${++counter}`);
       await store.stage('alice', FOO, entryAt('theirs', new Date().toISOString()), { absent: true });
