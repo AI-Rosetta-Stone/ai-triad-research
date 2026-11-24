@@ -1677,7 +1677,9 @@ export class GitHubAPIBackend implements StorageBackend {
     if (resp.status === 409) {
       return this.handleCreateConflict(repoPath, content, ref, creds, callId);
     }
-    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) return 'exists';
+    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) {
+      return this.confirmExistsAfter422(repoPath, ref, resp.error ?? '', callId);
+    }
     if (!resp.ok) {
       throw new ActionableError({
         goal: `Create ${repoPath} on GitHub only if absent`,
@@ -1689,6 +1691,35 @@ export class GitHubAPIBackend implements StorageBackend {
     const newSha = (resp.data as { content?: { sha?: string } })?.content?.sha ?? '';
     await this.writeToDiskCache(repoPath, content, newSha, '');
     return 'created';
+  }
+
+  /** t/268 (item 3): GitHub's 422 text mentioning "sha" is a hint that the file exists, not proof: the
+   *  wording is not a contract, and another validation error could mention sha. Confirm with a read, the
+   *  way the 409 path does. Present → 'exists'. Absent → the 422 was a real validation failure: WARN with
+   *  the raw message and throw. Unavailable → cannot verify, so fail closed with a 503. */
+  private async confirmExistsAfter422(repoPath: string, ref: string, rawError: string, callId: string): Promise<WriteIfAbsentResult> {
+    const status = await this.getSessionBranchFileStatus(repoPath, ref);
+    if (status.kind === 'present') return 'exists';
+    if (status.kind === 'unavailable') {
+      log.github.warn({ callId, repoPath, ref, githubMessage: rawError },
+        'writeFileIfAbsent: 422 mentions sha but the file could not be read to confirm it exists; failing closed (t/268)');
+      throw new ActionableError({
+        goal: `Verify whether ${repoPath} exists after GitHub refused the create`,
+        problem: 'GitHub API returned 422 for a create without sha, but the file could not be read to confirm it exists.',
+        location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+        nextSteps: ['Retry the operation', 'Check GitHub API status'],
+        httpStatus: 503,
+        code: 'GITHUB_EXISTS_UNVERIFIED',
+      });
+    }
+    log.github.warn({ callId, repoPath, ref, githubMessage: rawError },
+      'writeFileIfAbsent: 422 mentions sha but the file is absent; treating it as a validation failure, not as exists (t/268)');
+    throw new ActionableError({
+      goal: `Create ${repoPath} on GitHub only if absent`,
+      problem: `GitHub API returned 422: ${rawError}`,
+      location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+      nextSteps: ['Check the path and content are valid for the GitHub contents API', 'Retry the operation'],
+    });
   }
 
   private async handleCreateConflict(
@@ -1717,7 +1748,9 @@ export class GitHubAPIBackend implements StorageBackend {
       content: Buffer.from(content, 'utf-8').toString('base64'),
       branch: ref,
     }, callId);
-    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) return 'exists';
+    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) {
+      return this.confirmExistsAfter422(repoPath, ref, retryResp.error ?? '', callId);
+    }
     if (retryResp.ok) {
       const newSha = (retryResp.data as { content?: { sha?: string } })?.content?.sha ?? '';
       await this.writeToDiskCache(repoPath, content, newSha, '');
@@ -4096,7 +4129,9 @@ export class GitHubAPIBackend implements StorageBackend {
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
-      undefined, undefined, { optional: true });
+      // t/268 (item 4): unconditional. This read always needs the body, and on the base branch a cached
+      // ETag turned it into a 304, which read as 'unavailable' and surfaced a spurious 503.
+      undefined, undefined, { optional: true, unconditional: true });
 
     if (resp.status === 404) return { kind: 'absent' };
     // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
