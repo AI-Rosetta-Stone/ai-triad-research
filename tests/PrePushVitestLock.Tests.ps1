@@ -146,10 +146,9 @@ exit 0
         $script:Env = @{ AITRIAD_PREPUSH_LOCK_DIR = (ConvertTo-ShPath $script:LockDir); AITRIAD_TEST_LOG = (ConvertTo-ShPath $script:Log) }
     }
 
-    # KNOWN FLAKE, NON-BLOCKING (t/436, TL p/9#322). This test still runs and still reports red in the
-    # output. Its failure does not fail test-powershell or any PR: ci.yml lists its exact name in
-    # $nonBlocking. Removal condition (t/436): the flake fixed and 50 consecutive green runs on the runner.
-    # Then remove it from $nonBlocking. The lock's overlap is not fixed yet (the second path, t/436 trace).
+    # BLOCKING (t/436). It was non-blocking from #5277 until the lock fix (#5270) had 107 consecutive green
+    # runs on the runner (t/436#33). A failure here fails test-powershell like any other test, after the
+    # verdict's one rerun.
     It 'THREE CONCURRENT PUSHES: all pass, and their vitest runs never overlap (serialized by the lock)' {
         $repos = 1..3 | ForEach-Object { New-PushRepo }
         $procs = $repos | ForEach-Object { Start-Push $_ $script:Env }
