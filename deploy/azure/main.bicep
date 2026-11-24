@@ -285,6 +285,13 @@ param githubRunnerWebhookSecret string = ''
 var prodCpu = '1.5'
 var prodMemory = '3Gi'
 
+// Staging's ordinary size, used whenever stagingLoadTestSize is off. Raised from 0.25 vCPU /
+// 0.5Gi to 0.5 / 1Gi (t/520, PI-approved spend 2026-11-24): at 0.5Gi one anonymous request
+// that loads a second embedding model pushed the working set past the limit, and the
+// container was killed. Container Apps pairs 1Gi with 0.5 vCPU only.
+var stagingCpu = '0.5'
+var stagingMemory = '1Gi'
+
 var googleEnabled = !empty(googleClientId) && !empty(googleClientSecret)
 var githubEnabled = !empty(githubClientId) && !empty(githubClientSecret)
 var aadEnabled = !empty(aadClientId) && !empty(aadClientSecret)
@@ -1097,7 +1104,7 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
           // size — if prod's own resources change (e.g. t/4263), this follows automatically.
           resources: stagingLoadTestSize
             ? { cpu: json(prodCpu), memory: prodMemory }
-            : { cpu: json('0.25'), memory: '0.5Gi' }
+            : { cpu: json(stagingCpu), memory: stagingMemory }
           env: stagingContainerEnv
           probes: [
             {
