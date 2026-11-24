@@ -328,7 +328,7 @@ export type TagSelection = { tag: string; mode: TagMode };
 
 export interface DebateSession {
   id: string;
-  /** Inquiry relevance to the literal question (t/284 item 5). Absent for non-inquiry debates. */
+  /** Inquiry gross-drift signal: per-turn similarity to the question (t/284 item 5). Internal. It shows a debate leaving the question's field, not whether the debate answers the question (t/496). Absent for non-inquiry debates. */
   relevance?: RelevanceResult;
   /** Execution run — regenerated each time the debate loop starts or resumes. */
   run_id?: string;
