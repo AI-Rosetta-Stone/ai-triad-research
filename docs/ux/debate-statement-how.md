@@ -80,12 +80,19 @@ are shown under their own names, below.
 - Claim labels are the argument-graph node ids, such as `AN-34`, not positions (`C1`, `C2`). A claim keeps its
   id across statements and matches the ids the planned moves refer to. Claim card: the id badge, claim text,
   `Evidence ·` line when present, and the anchor chip as on Openings.
-- Each attack and support card leads with the pair in the form `AN-34 ATTACKED by Safetyist AN-42` or
-  `AN-34 SUPPORTED by Skeptic AN-39`. The first id is the claim it targets. The second id is the attacking or
-  supporting statement's own node, and its speaker is that statement's speaker. The eyebrow is the position
-  for the reader; keep the verb in capitals so it scans. Attack card: warning tint, that eyebrow, attack text, and a status pill. The status reads
-  `Unverified` until a verdict exists. Never colour alone.
-- Support card: neutral surface, `AN-{claim} SUPPORTED by {speaker} AN-{source}` eyebrow.
+- **Fallback id:** not every claim node is `AN-n`. About 2% are `D-n` or `user-seed-n`. Show such an id as it
+  is. Do not reformat or renumber it.
+- **Speaker:** the attacking or supporting node's own speaker, read from its `source_entry_id` entry. Only
+  about half of attacks come from a POV speaker (Accelerationist, Safetyist, Skeptic). The rest come from
+  other speaker values, or from a `system` entry. The label shows the speaker only for POV speakers. For any
+  other value, omit the speaker: `AN-34 ATTACKED by AN-42`. This keeps the label from naming a non-debater.
+- Each attack and support card leads with its pair: `AN-34 ATTACKED by Safetyist AN-42` or
+  `AN-34 SUPPORTED by Skeptic AN-39`. The first id is the claim it targets. The second is the attacking or
+  supporting node. The eyebrow stays in capitals so the verb scans.
+- Attack card: warning tint, that eyebrow, attack text, and a status pill. The status reads `Unverified`
+  until a verdict exists. Never colour alone.
+- Support card: neutral surface, `AN-{claim} SUPPORTED by {speaker} AN-{source}` eyebrow, with the speaker
+  rule above.
 - A claim with no attacks shows the dashed `No attack mapped to AN-{claim}` slot, as on Openings.
 - Open: whether the attack and support cards sit to the right of the claim, as now, or to its left. The
   request asks for the attacker's label to the left of the claim number. This spec keeps claim left, as on
