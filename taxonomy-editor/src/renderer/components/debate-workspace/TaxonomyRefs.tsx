@@ -667,7 +667,7 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
     // t/472 (Design p/14#76): the open entry is marked by a caret and a left rule in its POV colour, not by colour alone.
     // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
     <div className={`debate-reasoning-item${open ? ' debate-reasoning-item--open' : ''}`} style={open ? { borderLeftColor: colorVar } : undefined}>
-      {/* t/472: the chip row above each group is gone; the score and primary marker it carried sit beside the id. */}
+      {/* t/472: the chip row above each group is gone. Its primary marker sits beside the id; its relevance score is not shown (PI decision, p/6#150). Entries stay sorted by it. */}
       <div className="debate-reasoning-head">
         {taxRef.primary && <span className="debate-reasoning-primary" title="Primary reference" aria-label="Primary reference">★</span>}
         <button
@@ -679,9 +679,6 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
         >
           <EntryCaret open={open} />{taxRef.node_id}
         </button>
-        {taxRef.relevance_score != null && (
-          <span className="debate-reasoning-score" title="Relevance score">· {taxRef.relevance_score.toFixed(2)}</span>
-        )}
       </div>
       {isMissing
         ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>

@@ -73,22 +73,21 @@
   text-underline-offset: 2px;
 }
 
-/* t/472: the id, its relevance score and the primary marker share one line. */
+/* t/472: the primary marker and the id share one line. */
 .debate-reasoning-head {
   display: flex;
   align-items: baseline;
   gap: 4px;
 }
 
-/* A long id breaks inside its own button and the star and score keep their places on its first line.
-   flex-wrap would instead drop the id and the score onto lines of their own (tried, t/472). */
+/* A long id breaks inside its own button and the star keeps its place on its first line.
+   flex-wrap would instead drop the id onto a line of its own (tried, t/472). */
 .debate-reasoning-head .debate-reasoning-node {
   flex: 0 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.debate-reasoning-score,
 .debate-reasoning-primary {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -111,7 +110,6 @@
   border-left-color: var(--color-sit);
 }
 
-.debate-reasoning-score,
 .debate-reasoning-primary {
   font-family: monospace;
   font-size: var(--text-2xs);

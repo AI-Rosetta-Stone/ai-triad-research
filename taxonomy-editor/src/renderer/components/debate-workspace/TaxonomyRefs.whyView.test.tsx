@@ -92,12 +92,14 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     expect(screen.queryByText(/Relevance/)).not.toBeInTheDocument();
   });
 
-  it('t/472: no chip row above the group; the id shows once and the score sits beside it', () => {
+  it('t/472: no chip row above the group; the id shows once and the relevance score is not shown', () => {
     const { container } = render(<BdiGroundingView refs={REFS} />);
     expect(container.querySelector('.debate-taxonomy-pill')).toBeNull();
     expect(screen.queryByText(`${NODE} (0.66)`)).not.toBeInTheDocument();
     expect(screen.getAllByText(NODE)).toHaveLength(1);
-    expect(screen.getByText('· 0.66')).toHaveClass('debate-reasoning-score');
+    // PI decision (p/6#150): the score leaves the panel.
+    expect(container.querySelector('.debate-reasoning-score')).toBeNull();
+    expect(container.textContent).not.toContain('0.66');
   });
 
   it('t/472: the policy block has no chip row either; the policy id shows once, as its entry button', () => {
@@ -120,9 +122,8 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     expect(container.querySelector('.debate-reasoning-item--open')).toHaveClass('taxrefs-item-sit');
   });
 
-  it('t/472: a ref with no score shows no score; a primary ref keeps its marker', () => {
-    const { container } = render(<BdiGroundingView refs={[{ node_id: NODE, relevance: 'r', primary: true }]} />);
-    expect(container.querySelector('.debate-reasoning-score')).toBeNull();
+  it('t/472: a primary ref keeps its marker', () => {
+    render(<BdiGroundingView refs={[{ node_id: NODE, relevance: 'r', primary: true }]} />);
     expect(screen.getByLabelText('Primary reference')).toHaveTextContent('★');
   });
 
