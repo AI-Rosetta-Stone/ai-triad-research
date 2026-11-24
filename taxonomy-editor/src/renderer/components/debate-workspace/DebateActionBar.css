@@ -430,9 +430,10 @@
   color: var(--text-on-focus-ring, #fff);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring, #3b82f6) 20%, transparent);
 }
+/* t/190 (Design, S13 green): a fixed fill that carries the white check in every theme (5.02). */
 .session-step.completed .session-step-dot {
-  border-color: #10b981;
-  background: #10b981;
+  border-color: #15803d;
+  background: #15803d;
   color: #fff;
 }
 .session-step-label {
@@ -572,22 +573,11 @@
   color: var(--bg-primary);
 }
 
+/* t/190 (Design, S13 green): fixed in every theme, so bkc no longer needs its dark-glyph override. */
 .unified-phase-step.completed .unified-phase-dot {
-  border-color: var(--success);
-  background: var(--success);
+  border-color: #15803d;
+  background: #15803d;
   color: #fff;
-}
-
-/*
- * bkc's `--success` is neon (#00ff4c, luminance 0.72), so the white checkmark
- * above lands at ~1.4:1 — effectively invisible. Dark-on-neon instead gives
- * ~12:1. The other three themes keep the white glyph, which their darker greens
- * carry. Caught auditing the flag-on path before DEBATE_CHAT_REDESIGN defaults
- * ON (t/2257); the theme-aware token is otherwise an improvement over the
- * hardcoded #10b981 this replaced — it is only bkc that inverts.
- */
-[data-theme="bkc"] .unified-phase-step.completed .unified-phase-dot {
-  color: #1f1f1f;
 }
 
 .unified-phase-label {

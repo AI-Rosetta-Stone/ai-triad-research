@@ -642,10 +642,12 @@
 
 .debate-fact-check-verdict.debate-fact-check-supported {
   color: var(--success-text);
+  background: var(--success-bg);
 }
 
 .debate-fact-check-verdict.debate-fact-check-disputed {
   color: var(--warning-text);
+  background: var(--warning-bg);
 }
 
 .debate-fact-check-verdict.debate-fact-check-unverifiable {
@@ -654,6 +656,7 @@
 
 .debate-fact-check-verdict.debate-fact-check-false {
   color: var(--error-text);
+  background: var(--error-bg);
 }
 
 .debate-fact-check-sources-inline {
