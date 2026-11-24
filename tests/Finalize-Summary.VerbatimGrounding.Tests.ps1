@@ -299,4 +299,33 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $R.Snapped | Should -Be 40
         $Sw.Elapsed.TotalSeconds | Should -BeLessThan 20
     }
+
+    It 'a repeated page header inside the sentence makes the quote interleaved, not a snap that stores the header' {
+        $Header = 'Journal of Applied Policy 14(2)'
+        $Src = "$Header`nRegulators have begun to ask for results.`n$Header`nDevelopers answer that the evaluations they run today`n$Header`nwere never designed to support a licensing decision.`n"
+        $Quote = 'Developers answer that the evaluations they run today were never designed to support the licensing decision.'
+        $Out = & $script:Run $Src $Quote 'doc-header-inside'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.R.Snapped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+        $Out.Stored | Should -Not -Match 'Journal'
+    }
+
+    It 'other text inside the sentence makes the quote interleaved, even when the span is short' {
+        $Src = 'Developers answer that the evaluations they run today (see Table 3 overleaf) were never designed to support a licensing decision and say so in every filing they make to the regulator.'
+        $Quote = 'Developers answer that the evaluations they run today were never designed to support a licensing decision and say so in every filing they make to the regulator!'
+        $Out = & $script:Run $Src $Quote 'doc-insert-inside'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.R.Snapped | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'an elided quote with one interleaved segment is counted as interleaved, not snapped' {
+        $Src = "Regulators in several countries have begun to ask for evaluation results before release.`nDevelopers answer that the evaluations they run`nTable 3 reports the share of respondents in each income group`ntoday were never designed to support a licensing decision.`n"
+        $Quote = 'Regulators in several countries have begun to ask for evaluation results [...] Developers answer that the evaluations they run today were never designed to support a licensing decision.'
+        $Out = & $script:Run $Src $Quote 'doc-elide-interleaved'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.R.Snapped | Should -Be 0
+        @($Out.Stored).Count | Should -Be 2
+    }
 }
