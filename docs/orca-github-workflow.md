@@ -29,7 +29,7 @@ Every non-trivial change follows the same path, codified in the `/land-from-work
 3. **Commit on the named branch.** Conventional message, ticket reference, and a `Co-Authored-By` trailer for every contributing role.
 4. **Verify on the committed state.** `npm run verify` (and `Invoke-Pester ./tests/` for PowerShell). Definition of Done applies where the commit is born.
 5. **Push the branch, open a PR.** `git push origin HEAD:<branch>`, then `gh pr create`.
-6. **Merge on green.** When the required checks pass, self-merge with `gh pr merge --rebase --delete-branch`. One GitHub identity means no human reviewer is possible, so green checks *are* the merge gate. A role reviews another role's PR through the ticket and PR flow, not a GitHub approval.
+6. **Merge on green.** When the required checks pass, land it with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` from a checkout at origin/main (see docs/pr-landing.md; `gh pr merge` is not used, t/535). One GitHub identity means no human reviewer is possible, so green checks *are* the merge gate. A role reviews another role's PR through the ticket and PR flow, not a GitHub approval.
 7. **Sync the hub.** `git pull --ff-only` on the hub, so the next worktree branches from the current tip.
 
 ### 2.3 The commit guard
