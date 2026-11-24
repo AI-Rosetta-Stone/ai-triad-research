@@ -67,6 +67,7 @@ function makeGitHub() {
     'pulls.listCommits': () => [{ commit: { committer: { date: state.pr.pushAt } } }],
     'issues.listComments': () => state.comments,
     'pulls.listReviews': () => state.reviews,
+    'repos.listPullRequestsAssociatedWithCommit': (p) => (p.commit_sha === state.pr.head ? [{ number: state.pr.number, state: 'open', head: { sha: state.pr.head } }] : []),
     'issues.createComment': () => ({}),
     'issues.updateComment': () => ({}),
     'checks.listForRef': (p) => {
@@ -102,7 +103,7 @@ function makeGitHub() {
   return { state, github };
 }
 
-async function runGuard(gh, { predicateText } = {}) {
+async function runGuard(gh, { predicateText, payload } = {}) {
   const log = { info: [], warning: [], error: [], failed: [] };
   const execSync = (cmd) => {
     if (/^git fetch origin /.test(cmd)) return '';
@@ -121,7 +122,7 @@ async function runGuard(gh, { predicateText } = {}) {
   };
   const context = {
     repo: { owner: 'o', repo: 'r' },
-    payload: { pull_request: { number: 7 }, repository: { default_branch: 'main' } },
+    payload: { ...(payload ?? { pull_request: { number: 7 } }), repository: { default_branch: 'main' } },
   };
   const prevWs = process.env.GITHUB_WORKSPACE;
   process.env.GITHUB_WORKSPACE = root;
@@ -278,4 +279,33 @@ test('t/534 NOT LOOSENED: enqueue-pr.mjs refuses an in_progress or queued guard 
       assert.equal(v.reason, `guard_${status}`);
     }
   }
+});
+
+// ── t/534 part B: reviews arrive as workflow_run from the permission-less relay (runs from main) ──
+const relayRun = (prs, headSha = HEAD) => ({ workflow_run: { name: 't1-approval-review-relay', event: 'pull_request_review', head_sha: headSha, pull_requests: prs } });
+
+test('t/534 B: a workflow_run from the relay (same-repo PR in pull_requests) settles the same row on approval', async () => {
+  const gh = makeGitHub();
+  await runGuard(gh); // the push opened the pending row
+  gh.state.comments.push(comment('Approved (Quality): looks right.', AFTER));
+  const log = await runGuard(gh, { payload: relayRun([{ number: 7, head: { sha: HEAD } }]) });
+  assert.deepEqual(log.failed, []);
+  assert.equal(ours(gh).length, 1);
+  assert.equal(ours(gh)[0].conclusion, 'success');
+});
+
+test('t/534 B: a workflow_run with no pull_requests (fork) finds the open PR by the relay head_sha', async () => {
+  const gh = makeGitHub();
+  const log = await runGuard(gh, { payload: relayRun([]) });
+  assert.deepEqual(log.failed, []);
+  assert.ok(gh.state.calls.includes('repos.listPullRequestsAssociatedWithCommit'));
+  assert.equal(ours(gh)[0].status, 'in_progress');
+});
+
+test('t/534 B: a workflow_run whose head is no open PR posts nothing and does not fail', async () => {
+  const gh = makeGitHub();
+  const log = await runGuard(gh, { payload: relayRun([], 'e'.repeat(40)) });
+  assert.deepEqual(log.failed, []);
+  assert.equal(gh.state.checkRuns.length, 0);
+  assert.ok(log.info.some((m) => /not a PR event/.test(m)));
 });

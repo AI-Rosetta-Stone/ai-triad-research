@@ -18,9 +18,10 @@ name: t1-approval-guard
 #   - an approval added by EDITING an older comment in place -> covered: the predicate uses the
 #     comment's effective time (`updatedAt ?? createdAt`), and `issue_comment: [edited]` re-runs
 #     this check so the PR isn't stuck red waiting for a new comment.
-#   - t/4096 Reviewer switch-over: a real bot APPROVED review -> covered by `pull_request_review:
-#     [submitted]`, so the check re-runs the moment the reviewer App leaves its review, same as a
-#     new comment does. The legacy `Approved (<role>):` comment path is unchanged during the
+#   - t/4096 Reviewer switch-over: a real bot APPROVED review -> covered by the review relay
+#     (t1-approval-review-relay.yml on `pull_request_review: [submitted, dismissed]`, then
+#     `workflow_run` here, from main; t/534 part B), so the check re-runs seconds after the reviewer
+#     App leaves its review, same as a new comment does. The legacy `Approved (<role>):` comment path is unchanged during the
 #     transition; both forms satisfy the predicate (t1-approval-guard-predicate.mjs).
 #
 # ROLLOUT: ships warn-only (not a required context) for >=1 green cycle against real T1 PRs.
@@ -63,17 +64,17 @@ name: t1-approval-guard
 # DELETED PR comment always runs it. To re-run this check by hand, post a PR comment containing
 # `/recheck-guards`. The list and its reasons are on the job.
 #
-# REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and
-# `pull_request_review: [dismissed]` are triggers, so deleting an approval comment or dismissing an
+# REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and a review
+# `dismissed` (through the relay, t/534) are triggers, so deleting an approval comment or dismissing an
 # approving review re-evaluates at once. Without them the last `success` check run stayed on the
 # head, and enqueue-pr.mjs reads that check run. The run lists comments and reviews afresh: a
 # deleted comment is no longer in the list, and a dismissed review comes back with state DISMISSED,
 # which the predicate never counts as an approval. EVERY deleted PR comment runs the job, whatever
 # its text: filtering a deletion would depend on the event carrying the deleted comment's body,
 # which is not confirmed, and an empty body there would skip a deleted sole approval and leave the
-# stale `success` (Second Opinion on 3ebe74158). One run per deletion is cheap. LIMIT: GitHub takes a
-# `pull_request_review` run's workflow file from the PR side, so a branch cut before `dismissed`
-# was added here does not run on a dismissal until it is rebased onto main.
+# stale `success` (Second Opinion on 3ebe74158). One run per deletion is cheap. LIMIT (t/534): the relay runs
+# from the PR's side, so a branch cut before the relay existed re-evaluates a review only on its
+# next comment, push or sweep, until it is rebased onto main.
 
 on:
   pull_request_target:
@@ -81,8 +82,12 @@ on:
     types: [opened, reopened, synchronize, edited, labeled]
   issue_comment:
     types: [created, edited, deleted]
-  pull_request_review:
-    types: [submitted, dismissed]
+  # t/534 part B (t/537): NOT `pull_request_review`, whose runs take this file from the PR's side.
+  # Reviews reach this guard through the permission-less relay (t1-approval-review-relay.yml); a
+  # `workflow_run` run always takes this file from the default branch.
+  workflow_run:
+    workflows: [t1-approval-review-relay]
+    types: [completed]
 
 permissions:
   pull-requests: write
@@ -118,7 +123,7 @@ jobs:
     # (`if:` and `concurrency.group`). comment-filter-workflow.test.mjs fails if the copies differ
     # or if a body the predicate reacts to would not run this job.
     #
-    # `pull_request_review` events (submitted, dismissed) are not filtered: every one runs the job.
+    # Review events arrive as `workflow_run` from the relay (t/534) and are not filtered: every one runs the job.
     #
     # A job skipped here reports as `evaluate` (the job id), on the default branch's tip. It never
     # creates or changes a `t1-approval-guard` check run, so it cannot read as a verdict.
@@ -265,9 +270,19 @@ jobs:
               }));
             }
 
-            function resolvePrNumber() {
+            // t/534 part B: a `workflow_run` from the review relay carries the PR in
+            // workflow_run.pull_requests (same-repo PRs); otherwise the open PR whose head is the
+            // relay run's head_sha. Read from the API, never from the relay's own output.
+            async function resolvePrNumber() {
               if (context.payload.pull_request) return context.payload.pull_request.number;
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
+              const wr = context.payload.workflow_run;
+              if (wr) {
+                if (wr.pull_requests && wr.pull_requests.length) return wr.pull_requests[0].number;
+                const { data: prs } = await withRetry('repos.listPullRequestsAssociatedWithCommit', () => github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: wr.head_sha }));
+                const open = (prs || []).find((p) => p.state === 'open' && p.head && p.head.sha === wr.head_sha);
+                return open ? open.number : null;
+              }
               return null;
             }
 
@@ -275,7 +290,10 @@ jobs:
               await run();
             } catch (err) {
               // A crash must never read as a pass (t/4103's own lesson on tier-check, PR #3155).
-              const prNumber = resolvePrNumber();
+              // resolvePrNumber can call the API (workflow_run fallback); its failure here must not
+              // skip the setFailed below.
+              let prNumber = null;
+              try { prNumber = await resolvePrNumber(); } catch (e) { core.error(`t1-approval-guard: could not resolve the PR after the crash either — ${e && e.message}`); }
               core.error(`t1-approval-guard CRASHED: ${err && err.stack ? err.stack : String(err)}`);
               if (prNumber) {
                 // t/4819: best-effort. If GitHub is still down (the usual reason we are here),
@@ -313,7 +331,7 @@ jobs:
             }
 
             async function run() {
-            const prNumber = resolvePrNumber();
+            const prNumber = await resolvePrNumber();
             if (!prNumber) {
               core.info('t1-approval-guard: not a PR event (a plain issue comment) — nothing to do.');
               return;

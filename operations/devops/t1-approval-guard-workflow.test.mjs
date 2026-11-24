@@ -26,10 +26,21 @@ test('P1: the PR trigger is pull_request_target, not pull_request (a PR can no l
   assert.ok(!/^\s*pull_request:\s*\n\s*branches:/m.test(workflow), 'must not also trigger on plain pull_request');
 });
 
-test('P1: issue_comment and pull_request_review triggers are unaffected (no "target" variant exists for them)', () => {
+test('P1: issue_comment triggers are unaffected; reviews reach the guard only through the relay (t/534 part B)', () => {
   // `deleted` and `dismissed` (SO condition on #5176): a removed approval must re-evaluate.
   assert.match(workflow, /^\s*issue_comment:\s*\n\s*types: \[created, edited, deleted\]/m);
-  assert.match(workflow, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
+  // t/537 (Security, high): a pull_request_review run takes its workflow file from the PR's side, so
+  // the guard must not run on it. It follows the relay via workflow_run, which runs from main.
+  const on = workflow.slice(workflow.indexOf('\non:\n'), workflow.indexOf('\npermissions:'));
+  assert.ok(!/pull_request_review:/.test(on), 'the guard must not trigger on pull_request_review');
+  assert.match(on, /^\s*workflow_run:\s*\n\s*workflows: \[t1-approval-review-relay\]\s*\n\s*types: \[completed\]/m);
+  const relay = readFileSync(path.join(root, '.github', 'workflows', 't1-approval-review-relay.yml'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(relay, /^name: t1-approval-review-relay$/m, 'the workflow_run name must match the relay\'s name');
+  assert.match(relay, /^\s*pull_request_review:\s*\n\s*types: \[submitted, dismissed\]/m);
+  assert.match(relay, /^permissions: \{\}$/m, 'the relay holds no token permissions');
+  const code = relay.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.ok(!/uses:|actions\/checkout|github-script|gh api|curl/.test(code), 'the relay runs no action, script or API call');
+  assert.equal((code.match(/^\s*run:/gm) || []).length, 1, 'the relay has exactly one step, an echo');
 });
 
 test('P1: checkout never persists credentials, and the predicate is loaded only from the explicitly-fetched BASE tip', () => {
