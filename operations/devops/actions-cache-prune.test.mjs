@@ -3,7 +3,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planPrune, DEFAULT_KEEP_PER_PREFIX } from './actions-cache-prune.mjs';
+import { readFileSync } from 'node:fs';
+import { planPrune, DEFAULT_KEEP_PER_PREFIX, isPrunableKey, formatPlanSummary, SUPERSEDING_FAMILIES } from './actions-cache-prune.mjs';
 
 const MAIN = 'refs/heads/main';
 
@@ -54,12 +55,12 @@ test('a non-main ref is never pruned, even when it duplicates a main-ref prefix'
 
 test('keeps the N most recent per prefix when keep > 1', () => {
   const caches = [
-    cache(`codeql-trap-1-2.27.4-javascript-${HEX(1)}`, { created_at: '2026-11-16T14:06:45Z' }),
-    cache(`codeql-trap-1-2.27.4-javascript-${HEX(2)}`, { created_at: '2026-11-19T04:02:20Z' }),
-    cache(`codeql-trap-1-2.27.4-javascript-${HEX(3)}`, { created_at: '2026-11-19T21:41:26Z' }),
+    cache(`taxonomy-snapshot-${HEX(1)}`, { created_at: '2026-11-16T14:06:45Z' }),
+    cache(`taxonomy-snapshot-${HEX(2)}`, { created_at: '2026-11-19T04:02:20Z' }),
+    cache(`taxonomy-snapshot-${HEX(3)}`, { created_at: '2026-11-19T21:41:26Z' }),
   ];
   const result = planPrune(caches, { keep: 2 });
-  assert.deepEqual(result.map((c) => c.key), [`codeql-trap-1-2.27.4-javascript-${HEX(1)}`]);
+  assert.deepEqual(result.map((c) => c.key), [`taxonomy-snapshot-${HEX(1)}`]);
 });
 
 test('different prefixes on main are pruned independently', () => {
@@ -102,4 +103,70 @@ test('result is sorted oldest-first regardless of input order', () => {
     `hf-embed-Linux-${HEX(3)}`,
     `hf-embed-Linux-${HEX(1)}`,
   ]);
+});
+
+// ── #5281 review (Quality + TL, t/539): content-addressed families are never pruned ──
+
+const SHA = (n) => n.toString(16).padStart(64, '0');
+
+test('BuildKit layer blobs are content-addressed: many on main, none planned for deletion', () => {
+  const caches = Array.from({ length: 53 }, (_, i) =>
+    cache(`buildkit-blob-1-sha256:${SHA(i + 1)}`, { created_at: new Date(Date.UTC(2026, 10, 1 + (i % 28))).toISOString(), id: i + 1 }));
+  caches.push(cache('index-shared-docker-1-f921bd05#96', { created_at: '2026-11-20T00:00:00Z', id: 'i96' }));
+  caches.push(cache('index-shared-docker-1-f921bd05#97', { created_at: '2026-11-21T00:00:00Z', id: 'i97' }));
+  assert.deepEqual(planPrune(caches), []);
+});
+
+test('only allowlisted families are pruned: codeql-trap, pester and an unknown family are left alone', () => {
+  const caches = [
+    cache(`codeql-trap-1-2.27.5-javascript-${HEX(1)}`, { created_at: '2026-11-10T00:00:00Z' }),
+    cache(`codeql-trap-1-2.27.5-javascript-${HEX(2)}`, { created_at: '2026-11-20T00:00:00Z' }),
+    cache(`brand-new-family-${HEX(3)}`, { created_at: '2026-11-10T00:00:00Z' }),
+    cache(`brand-new-family-${HEX(4)}`, { created_at: '2026-11-20T00:00:00Z' }),
+    cache('pester-5.7.1-Linux', { created_at: '2026-11-20T00:00:00Z' }),
+  ];
+  assert.deepEqual(planPrune(caches), []);
+});
+
+test('isPrunableKey: NEVER_PRUNE wins over the allowlist; families match whole segments', () => {
+  assert.equal(isPrunableKey(`buildkit-blob-1-sha256:${SHA(1)}`), false);
+  assert.equal(isPrunableKey('index-shared-docker-1-f921bd05#97'), false);
+  assert.equal(isPrunableKey('ai-triad-data-v2-2026-11-24'), true);
+  assert.equal(isPrunableKey(`hf-embed-Linux-${HEX(1)}`), true);
+  assert.equal(isPrunableKey(`hf-embedder-Linux-${HEX(1)}`), false, 'a family is a whole segment, not a string prefix');
+  assert.ok(SUPERSEDING_FAMILIES.every((f) => !/^(buildkit|index)/.test(f)));
+});
+
+// TL condition (p/9#510): a test built from the REAL cache listing. Snapshot of
+// GET /repos/{owner}/{repo}/actions/caches (all pages), 2026-11-24, in fixtures/.
+test('real cache listing (2026-11-24 snapshot): every Docker layer blob and index is kept; only superseded allowlisted keys go', () => {
+  const snap = JSON.parse(readFileSync(new URL('./fixtures/actions-cache-listing-2026-11-24.json', import.meta.url), 'utf8'));
+  const caches = snap.actions_caches;
+  const mainBlobs = caches.filter((c) => c.ref === MAIN && c.key.startsWith('buildkit-blob-'));
+  assert.ok(mainBlobs.length >= 30, `the snapshot should hold the live blob set (got ${mainBlobs.length})`);
+
+  const plan = planPrune(caches);
+  const planned = new Set(plan.map((c) => c.id));
+  for (const b of mainBlobs) assert.ok(!planned.has(b.id), `blob ${b.key} must be kept`);
+  assert.ok(plan.every((c) => !/^(buildkit|index)-/.test(c.key)), 'no BuildKit entry in the plan');
+  assert.ok(plan.every((c) => c.ref === MAIN && isPrunableKey(c.key)));
+
+  // Every allowlisted prefix on main keeps exactly its newest entry.
+  const kept = caches.filter((c) => c.ref === MAIN && isPrunableKey(c.key) && !planned.has(c.id));
+  const newestByPrefix = new Map();
+  for (const c of caches.filter((x) => x.ref === MAIN && isPrunableKey(x.key))) {
+    const p = c.key.replace(/-[0-9a-f]{12,}$|-\d{4}-\d{2}-\d{2}$/i, '');
+    const cur = newestByPrefix.get(p);
+    if (!cur || new Date(c.created_at) > new Date(cur.created_at)) newestByPrefix.set(p, c);
+  }
+  assert.deepEqual(kept.map((c) => c.id).sort(), [...newestByPrefix.values()].map((c) => c.id).sort());
+});
+
+test('formatPlanSummary names the mode, the count and every planned key', () => {
+  const plan = [cache('ai-triad-data-v2-2026-11-18', { created_at: '2026-11-18T00:00:00Z', id: 11, size_in_bytes: 1.5e9 })];
+  const dry = formatPlanSummary(plan, { dryRun: true });
+  assert.match(dry, /DRY RUN \(nothing deleted\)/);
+  assert.match(dry, /1 entry planned, 1\.50 GB/);
+  assert.match(dry, /`ai-triad-data-v2-2026-11-18` \| 11 \|/);
+  assert.match(formatPlanSummary([], { dryRun: false }), /DELETE[\s\S]*0 entries planned/);
 });
