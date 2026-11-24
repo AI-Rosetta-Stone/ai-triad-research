@@ -20,12 +20,15 @@ import {
   PROJECT_ROOT,
 } from '../fileIO.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { usableTitle } from '../../../../lib/debate/docTitlesFromSourcesIndex.js';
 
 /** Build a doc-title map entry from one source's parsed metadata.json, or null when it
  *  has no title. Extracted verbatim from loadDocTitles (t/1914 complexity split). */
-function buildDocMeta(meta: { title?: string; resolved_url?: string; url?: string; provenance?: { id?: string }[] }): { title: string; resolved_url?: string; provenance_label?: string } | null {
-  if (!meta.title) return null;
-  const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title: meta.title };
+/** t/521: a bare identifier (arXiv id) or a title equal to the doc id is not a title; such a document is left out. */
+function buildDocMeta(docId: string, meta: { title?: string; resolved_url?: string; url?: string; provenance?: { id?: string }[] }): { title: string; resolved_url?: string; provenance_label?: string } | null {
+  const title = usableTitle(meta.title, docId);
+  if (!title) return null;
+  const docMeta: { title: string; resolved_url?: string; provenance_label?: string } = { title };
   if (meta.resolved_url) docMeta.resolved_url = meta.resolved_url;
   if (meta.provenance?.length && meta.provenance[0].id) {
     docMeta.provenance_label = meta.provenance[0].id;
@@ -89,7 +92,7 @@ export function registerSourceHandlers(): void {
         const metaPath = path.join(sourcesRoot, entry.name, 'metadata.json');
         if (!fs.existsSync(metaPath)) continue;
         try {
-          const docMeta = buildDocMeta(JSON.parse(fs.readFileSync(metaPath, 'utf-8')));
+          const docMeta = buildDocMeta(entry.name, JSON.parse(fs.readFileSync(metaPath, 'utf-8')));
           if (docMeta) metaMap[entry.name] = docMeta;
         } catch { /* telemetry — silent by design;  skip malformed metadata */ }
       }
