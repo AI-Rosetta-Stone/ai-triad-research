@@ -12,11 +12,17 @@ contract (lib/debate/evidenceFromSummaries.ts) and docs/specs/source-identity.md
   - section 6.3: every citation is attributed to resolve(id), so a marked copy's evidence lands
     on its canonical and the copy is never a separate document;
   - section 7: a group's evidence is the de-duplicated union of its members' links, and a link
-    kept from a marked copy carries `via: <copy id>`. Entity extraction skips those (7.6).
+    kept from a marked copy carries `via: <copy id>`. `via` is provenance only; entity extraction
+    reads those facts like any other (7.6, t/373);
+  - sections 6.2 and 7.1 (t/355): a summary `<X>-N` with no source dir, whose `X` has one, is a
+    chunk of `X` and folds into resolve(X)'s group as one document. A link kept from a chunk of
+    the canonical carries `chunk_of: <chunk id>`; from a chunk of a marked copy, `via: <copy id>`.
+    A kept chunk link also carries `chunk_generated_at` and `chunk_model` when the chunk
+    summary records them (7.6a; nothing branches on them).
 
 Shape: { node_id: { "facts": [...], "keyPoints": [...] } }. A fact is
-{claim, label, doc_id, specificity, temporal_bound[, via]}; a key point is
-{stance, pov, point (first 250 chars), verbatim (first 200), doc_id[, via]}.
+{claim, label, doc_id, specificity, temporal_bound[, via | chunk_of]}; a key point is
+{stance, pov, point (first 250 chars), verbatim (first 200), doc_id[, via | chunk_of]}.
 
 Read-only against the data and sources roots. It writes only to --out, which must be inside
 neither root: replacing the committed index is a data change and goes through /data-mutation.
@@ -29,6 +35,7 @@ on a node in ordinal order of their canonical id.
 import argparse
 import json
 import os
+import re
 import sys
 import unicodedata
 from pathlib import Path
@@ -37,6 +44,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 POINT_MAX = 250
 VERBATIM_MAX = 200
+N2_FIELDS = ("chunk_generated_at", "chunk_model")
+_CHUNK_RE = re.compile(r"^(.+)-(\d+)$")
 
 
 def _log(msg):
@@ -193,23 +202,90 @@ def summary_links(summary):
 
 # ── Spec 7.4: the union of one group ─────────────────────────────────────────
 
-def union_group(canonical, members):
+def union_group(canonical, members, order=None):
     """members: {exact id: [links]}. Returns {node: [kept links]}; each kept link has doc = the
-    canonical and, when it came from a marked member, via = that member's exact id."""
-    order = [canonical] + sorted((m for m in members if m != canonical), key=ordinal_key)
+    canonical and its provenance (7.4 step 3): via = the copy's id for a marked copy,
+    chunk_of = the chunk's id for a chunk of the canonical, via = the copy's id for a chunk of
+    a marked copy. A link never carries both.
+
+    order: the non-canonical members as group_members() returns them. Without it every
+    non-canonical member is a marked copy, in ordinal order (the groups before t/355)."""
+    if order is None:
+        order = [{"id": m, "kind": "copy", "via": None}
+                 for m in sorted((m for m in members if m != canonical), key=ordinal_key)]
     out, keys = {}, {}
-    for mid in order:
-        own = mid == canonical
+    for member in [{"id": canonical, "kind": "canonical", "via": None}] + list(order):
+        mid, kind = member["id"], member["kind"]
+        own = kind == "canonical"
         for link in members.get(mid, []):
             n, k = link["node"], evidence_key(link["quote"])
             kept, kk = out.setdefault(n, []), keys.setdefault(n, [])
             if not own and any(near_equal(k, x) for x in kk):
                 continue
             e = dict(link, doc=canonical)
-            if not own:
+            if kind == "copy":
                 e["via"] = mid
+            elif kind == "chunk_D":
+                e["chunk_of"] = mid
+            elif kind == "chunk_copy":
+                e["via"] = member["via"]
+            if kind in ("chunk_D", "chunk_copy"):
+                # N2 (7.6a): the chunk summary's own provenance, when it is known.
+                for f in N2_FIELDS:
+                    if member.get(f):
+                        e[f] = member[f]
             kept.append(e)
             kk.append(k)
+    return out
+
+
+# ── Spec 6.2 / 7.1: summary-only chunks (t/355) ───────────────────────────────
+
+def chunk_base(doc, has_source):
+    """The base X when doc is a summary-only chunk <X>-N: doc has no source dir and X has one.
+    Otherwise None."""
+    m = _CHUNK_RE.match(doc)
+    if not m or doc in has_source:
+        return None
+    return m.group(1) if m.group(1) in has_source else None
+
+
+def resolve_doc(doc, marks, has_source):
+    """Spec 6.2, transitive: follow a valid mark, or a chunk's base, to the end."""
+    seen = []
+    while True:
+        if doc in seen:
+            _fail("Resolve the evidence document for a summary id",
+                  f"the mark or chunk chain loops back to {doc!r}: {' -> '.join(seen)}",
+                  "build-evidence-index.py resolve_doc",
+                  "Remove or correct one mark in the loop (spec 6.1).")
+        seen.append(doc)
+        nxt = marks.get(doc) or chunk_base(doc, has_source)
+        if not nxt:
+            return doc
+        doc = nxt
+
+
+def group_members(canonical, docs, marks, has_source):
+    """Spec 7.1: the non-canonical members of canonical's group among docs, in group order:
+    marked copies by ordinal id, then the canonical's own chunks, then each copy's chunks in
+    copy order, each block by N ascending. Each is {id, kind, via}; kind is 'copy', 'chunk_D'
+    or 'chunk_copy' (via = that copy)."""
+    copies, own_chunks, copy_chunks = [], [], []
+    for d in docs:
+        if d == canonical or resolve_doc(d, marks, has_source) != canonical:
+            continue
+        base = chunk_base(d, has_source)
+        if base is None:
+            copies.append(d)
+            continue
+        n = int(_CHUNK_RE.match(d).group(2))
+        (own_chunks if base == canonical else copy_chunks).append((base, n, d))
+    out = [{"id": c, "kind": "copy", "via": None} for c in sorted(copies, key=ordinal_key)]
+    out += [{"id": d, "kind": "chunk_D", "via": None}
+            for _b, _n, d in sorted(own_chunks, key=lambda t: (t[1], ordinal_key(t[2])))]
+    out += [{"id": d, "kind": "chunk_copy", "via": b}
+            for b, _n, d in sorted(copy_chunks, key=lambda t: (ordinal_key(t[0]), t[1], ordinal_key(t[2])))]
     return out
 
 
@@ -275,22 +351,33 @@ def load_summaries(summaries_dir):
     return docs
 
 
-def build_index(summaries, marks):
-    """summaries: {doc_id: summary}; marks: {copy id: canonical id} (valid marks only)."""
+def build_index(summaries, marks, has_source=frozenset()):
+    """summaries: {doc_id: summary}; marks: {copy id: canonical id} (valid marks only);
+    has_source: the ids that have a source dir. A summary with no source dir whose base has
+    one is a chunk (6.2) and folds into its base's group; with the default empty set no
+    summary is a chunk."""
     groups = {}
     for doc in summaries:
-        groups.setdefault(marks.get(doc, doc), []).append(doc)
+        groups.setdefault(resolve_doc(doc, marks, has_source), []).append(doc)
     index = {}
     for canonical in sorted(groups, key=ordinal_key):
         members = {m: summary_links(summaries[m]) for m in groups[canonical]}
-        for node, kept in union_group(canonical, members).items():
+        order = group_members(canonical, groups[canonical], marks, has_source)
+        for member in order:
+            if member["kind"] != "copy":
+                s = summaries[member["id"]]
+                for field, source in zip(N2_FIELDS, ("generated_at", "ai_model")):
+                    if isinstance(s.get(source), str) and s[source]:
+                        member[field] = s[source]
+        for node, kept in union_group(canonical, members, order).items():
             entry = index.setdefault(node, {"facts": [], "keyPoints": []})
             for link in kept:
                 if link["record"] is None:
                     continue
                 rec = dict(link["record"], doc_id=canonical)
-                if "via" in link:
-                    rec["via"] = link["via"]
+                for f in ("via", "chunk_of") + N2_FIELDS:
+                    if f in link:
+                        rec[f] = link[f]
                 entry["facts" if link["field"] == "factual_claim" else "keyPoints"].append(rec)
     return {n: e for n, e in index.items() if e["facts"] or e["keyPoints"]}
 
@@ -319,13 +406,22 @@ def main(argv=None):
         _fail("Read the summaries to build the index", f"{summaries_dir} does not exist",
               "build-evidence-index.py main", "Pass --data-root or --summaries-dir.")
     summaries = load_summaries(summaries_dir)
-    marks, _ids, errors = load_marks(sources_root)
-    index = build_index(summaries, marks)
+    marks, ids, errors = load_marks(sources_root)
+    index = build_index(summaries, marks, ids)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(serialize(index), encoding="utf-8", newline="\n")
-    via = sum(1 for e in index.values() for r in e["facts"] + e["keyPoints"] if "via" in r)
+    records = [r for e in index.values() for r in e["facts"] + e["keyPoints"]]
+    via = sum(1 for r in records if "via" in r)
+    chunk_of = sum(1 for r in records if "chunk_of" in r)
+    chunks = sorted((d for d in summaries if chunk_base(d, ids)), key=ordinal_key)
+    orphans = sorted((d for d in summaries if d not in ids and not chunk_base(d, ids)), key=ordinal_key)
+    if orphans:
+        # t/355#9: a summary with no source dir and no base with one stays its own document.
+        _log(f"WARN: source_missing: {len(orphans)} summaries have no source dir and no chunk base; "
+             f"each counts as its own document: {', '.join(orphans)}")
     _log(f"wrote {out}: {len(index)} nodes from {len(summaries)} summaries; "
          f"{sum(1 for d in summaries if d in marks)} marked copies folded, {via} via-tagged entries, "
+         f"{len(chunks)} summary-only chunks folded, {chunk_of} chunk_of-tagged entries, "
          f"{len(errors)} invalid mark(s)")
     return 0
 
