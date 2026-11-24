@@ -36,6 +36,9 @@ type Internals = {
   shutdown: () => void;
   _dataLoadStatus: string;
   isCommitInHistory: (sha: string) => Promise<boolean>;
+  fetchRepoTree: (sha: string) => Promise<boolean>;
+  repoTree: Map<string, unknown>;
+  treeSha: string | null;
 };
 
 let tmp: string;
@@ -43,6 +46,7 @@ let cacheDir: string;
 let inHistory: boolean;
 let writeFails: boolean;
 let treeFails: boolean;
+let treeZero: boolean;
 let writeSpy: ReturnType<typeof vi.spyOn> | null;
 
 /** A GitHub that answers for the current commit; OLD is in history only when `inHistory`. */
@@ -58,7 +62,8 @@ function router(_creds: unknown, _method: string, p: string): Promise<Resp> {
     return Promise.resolve(treeFails ? { ok: false, status: 503, data: {} } : { ok: true, data: { tree: { sha: TREE } } });
   }
   if (p.startsWith(`/repos/testowner/testrepo/git/trees/${TREE}`)) {
-    return Promise.resolve({ ok: true, data: { tree: [{ path: 'taxonomy/a.json', type: 'blob', mode: '100644', sha: 'NEWBLOB' }], truncated: false } });
+    const tree = treeZero ? [] : [{ path: 'taxonomy/a.json', type: 'blob', mode: '100644', sha: 'NEWBLOB' }];
+    return Promise.resolve({ ok: true, data: { tree, truncated: false } });
   }
   return Promise.resolve({ ok: false, status: 404, data: {} });
 }
@@ -76,6 +81,7 @@ beforeEach(async () => {
   inHistory = false;
   writeFails = false;
   treeFails = false;
+  treeZero = false;
   writeSpy = null;
 });
 
@@ -185,6 +191,43 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend re-seeds a
       const b = await makeBackend();
       b.getCredsCached = async () => { throw new Error('credentials unavailable'); };
       await expect(b.isCommitInHistory(OLD)).resolves.toBe(true);
+    });
+  });
+
+  describe('a zero-blob load never empties the live tree (t/463 Second Opinion)', () => {
+    it('fetchRepoTree on a zero-blob response returns false and leaves the live tree and treeSha untouched', async () => {
+      const b = await makeBackend();
+      b.repoTree.set('keep/live.json', { path: 'keep/live.json', mode: '100644', type: 'blob', sha: 'LIVE' });
+      b.treeSha = 'PREV-TREE';
+      treeZero = true;
+      await expect(b.fetchRepoTree(NEW)).resolves.toBe(false);
+      expect(b.repoTree.has('keep/live.json')).toBe(true);
+      expect(b.repoTree.size).toBe(1);
+      expect(b.treeSha).toBe('PREV-TREE');
+    });
+
+    it('a successful load replaces the live tree and sets treeSha', async () => {
+      const b = await makeBackend();
+      b.repoTree.set('stale/gone.json', { path: 'stale/gone.json', mode: '100644', type: 'blob', sha: 'OLD' });
+      b.treeSha = 'PREV-TREE';
+      await expect(b.fetchRepoTree(NEW)).resolves.toBe(true);
+      expect(b.repoTree.has('stale/gone.json')).toBe(false);
+      expect(b.repoTree.has('taxonomy/a.json')).toBe(true);
+      expect(b.treeSha).toBe(TREE);
+    });
+
+    it('initialize on a zero-blob response reports failed and persists nothing', async () => {
+      treeZero = true;
+      const b = await makeBackend();
+      await expect(b.initialize()).resolves.toBeUndefined();
+      try {
+        expect(b._dataLoadStatus).toBe('failed');
+        expect(b.manifest?.lastCommitSha).toBe(OLD);
+      } finally {
+        b.shutdown();
+      }
+      const onDisk = JSON.parse(await fsp.readFile(path.join(cacheDir, 'manifest.json'), 'utf-8'));
+      expect(onDisk.lastCommitSha).toBe(OLD);
     });
   });
 });

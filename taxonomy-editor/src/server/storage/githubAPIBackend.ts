@@ -3370,18 +3370,19 @@ export class GitHubAPIBackend implements StorageBackend {
     const treeSha = (commitResp.data as { tree: { sha: string } }).tree.sha;
     const entries = await this.getTree(treeSha, true);
 
-    this.repoTree.clear();
+    // t/463 (Second Opinion): build the tree locally and assign it only on success. A zero-blob or failed
+    // load must not empty or replace the live tree.
+    const loadedTree = new Map<string, TreeEntry>();
     for (const entry of entries) {
       if (entry.type === 'blob') {
-        this.repoTree.set(entry.path, entry);
+        loadedTree.set(entry.path, entry);
       }
     }
-    this.treeSha = treeSha;
 
     // Zero blobs = undici session-reuse returning stale/empty response (t/2053).
     // A valid taxonomy repo always has files — treat 0 as a load failure and
     // log at error-level so ops has a signal instead of a silent /healthz 503.
-    if (this.repoTree.size === 0) {
+    if (loadedTree.size === 0) {
       this.recordEvent({
         type: 'github.api.error',
         component: 'github-api',
@@ -3395,6 +3396,10 @@ export class GitHubAPIBackend implements StorageBackend {
       log.github.error({ commitSha, treeSha }, 'github.api.error: fetchRepoTree 0 blobs loaded — data-load failed');
       return false;
     }
+
+    this.repoTree.clear();
+    for (const [p, entry] of loadedTree) this.repoTree.set(p, entry);
+    this.treeSha = treeSha;
 
     this.recordEvent({
       type: 'cache.hit',
