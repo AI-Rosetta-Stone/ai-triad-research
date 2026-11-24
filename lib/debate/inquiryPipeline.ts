@@ -25,7 +25,7 @@ import { getGlobalRecorder } from '../flight-recorder/index.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { AIAdapter } from './aiAdapter.js';
 import type { DebateSession } from './types/session.js';
-import { debaterTurns, scoreTurns, relevanceResult } from './inquiryRelevance.js';
+import { debaterTurns, scoreTurns, relevanceResult, fieldCentroid, residualScores } from './inquiryRelevance.js';
 import type { DebateConfig } from './debateEngine/internals.js';
 import type { InquiryRequest, InquiryResult } from '../inquiry/schema.js';
 import type { TerminationReason } from './calibrationLogger/extract.js';
@@ -90,10 +90,26 @@ export interface InquiryPipelineDeps {
  * session, as an internal gross-drift signal. It does not say whether the debate answers the question.
  * If embedding fails or the counts do not line up, store "unavailable" and WARN. Never a fake value.
  */
+/**
+ * t/496: add the residual similarity to the stored signal, for study only. No threshold, no drift
+ * flag. Without taxonomy vectors there is no field centroid, so it is left off, with a WARN.
+ */
+function recordResidual(
+  session: DebateSession, entries: ReturnType<typeof debaterTurns>, turnVectors: number[][], questionVector: number[], fieldVectors: number[][],
+): void {
+  const centroid = fieldCentroid(fieldVectors, questionVector.length);
+  if (!centroid) {
+    warn(`inquiry residual similarity not recorded (session ${session.id ?? 'unknown'}): no taxonomy vectors of dimension ${questionVector.length} to take a field centroid from (${fieldVectors.length} supplied)`);
+    return;
+  }
+  Object.assign(session.relevance!, residualScores(entries, turnVectors, questionVector, centroid));
+}
+
 async function recordQuestionRelevance(
   session: DebateSession,
   question: string,
   embed: (texts: string[]) => Promise<number[][]>,
+  fieldVectors: number[][] = [],
 ): Promise<void> {
   const entries = debaterTurns(session.transcript ?? []);
   if (entries.length === 0) {
@@ -111,6 +127,7 @@ async function recordQuestionRelevance(
       });
     }
     session.relevance = relevanceResult(scoreTurns(entries, turnVectors, questionVector));
+    recordResidual(session, entries, turnVectors, questionVector, fieldVectors);
     if (session.relevance.drift_warning) {
       warn(`inquiry gross-drift signal raised (session ${session.id ?? 'unknown'}): ${session.relevance.drift_reason}`);
     }
@@ -284,7 +301,7 @@ export async function runInquiryPipeline(
   const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
 
   // t/284 item 5: per-turn similarity to the question, stored on the session as a gross-drift signal.
-  await recordQuestionRelevance(session, request.question, deps.embed);
+  await recordQuestionRelevance(session, request.question, deps.embed, Object.values(deps.taxonomy.nodeEmbeddings).map(e => e.vector));
   // Save only now, so the stored session carries the relevance metric (t/476).
   await persistSessionIfSupplied(session, deps.persistSession);
 
