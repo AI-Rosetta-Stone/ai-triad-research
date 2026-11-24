@@ -23,7 +23,8 @@
 // Exit codes: 0 ok (no change, or the first snapshot ever), 2 change found (an ALERT line per
 // field), 3 fail-closed (incomplete read, unreadable previous snapshot, or a second change in the
 // same minute; nothing is overwritten), 4 no change but the previous snapshot is more than 2 days
-// old (a missed run).
+// old (a missed run). Whoever runs this treats exit 3 as an alarm, the same as exit 2 (Security,
+// t/486#8): on a same-minute collision the change is printed but not saved.
 // Tests: installation-snapshot.test.mjs (fixtures only, no gh call).
 
 import { execFileSync } from 'node:child_process';
@@ -77,11 +78,19 @@ export function readInstallations(org, fromFile) {
 // the same day (written only when something changed) is snapshot-YYYY-MM-DDTHHMMZ.json. Plain
 // string order is time order: '.' sorts before 'T', so the day's first file comes first.
 function listSnapshots(dir) {
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((f) => /^snapshot-\d{4}-\d{2}-\d{2}(T\d{4}Z)?\.json$/.test(f)).sort();
+  let entries;
+  try { entries = fs.readdirSync(dir); } catch (err) { if (err.code === 'ENOENT') return []; throw err; }
+  return entries.filter((f) => /^snapshot-\d{4}-\d{2}-\d{2}(T\d{4}Z)?\.json$/.test(f)).sort();
 }
 
 function dayOf(name) { return name.slice(9, 19); }
+
+// Write a snapshot with exclusive create ('wx'): an existing file is never overwritten, and there
+// is no check-then-write gap. Returns false when the file already exists.
+function writeNew(file, snap) {
+  try { fs.writeFileSync(file, JSON.stringify(snap, null, 2) + '\n', { flag: 'wx' }); return true; }
+  catch (err) { if (err.code === 'EEXIST') return false; throw err; }
+}
 
 export function run(snapDir, org, fromFile) {
   fs.mkdirSync(snapDir, { recursive: true });
@@ -105,7 +114,7 @@ export function run(snapDir, org, fromFile) {
   const missed = lastDay && (Date.parse(today) - Date.parse(lastDay)) > 2 * 86_400_000;
   const dayFile = path.join(snapDir, `snapshot-${today}.json`);
   if (!prev) {
-    fs.writeFileSync(dayFile, JSON.stringify(snap, null, 2) + '\n');
+    if (!writeNew(dayFile, snap)) { console.error(`FAIL-CLOSED: ${dayFile} already exists; not overwritten.`); return 3; }
     console.log(`first snapshot written: ${dayFile} (${installations.length} installations)`);
     return 0;
   }
@@ -118,20 +127,19 @@ export function run(snapDir, org, fromFile) {
     // A second file today: the time goes in the name, and nothing already written is overwritten.
     const hhmm = new Date().toISOString().slice(11, 16).replace(':', '');
     const file = path.join(snapDir, `snapshot-${today}T${hhmm}Z.json`);
-    if (fs.existsSync(file)) {
-      for (const a of alerts) console.log(`ALERT: ${a}`);
+    for (const a of alerts) console.log(`ALERT: ${a}`);
+    if (!writeNew(file, snap)) {
       console.error(`FAIL-CLOSED: ${file} already exists (two changes in one minute); not overwritten. Run again in a minute.`);
       return 3;
     }
-    fs.writeFileSync(file, JSON.stringify(snap, null, 2) + '\n');
-    for (const a of alerts) console.log(`ALERT: ${a}`);
     console.log(`snapshot written: ${file}`);
     return 2;
   }
   // First run of a new day: always write the day's file, changed or not, so the missed-run check
   // above measures the gap since the last RUN and not since the last change.
-  fs.writeFileSync(dayFile, JSON.stringify(snap, null, 2) + '\n');
-  if (alerts.length) { for (const a of alerts) console.log(`ALERT: ${a}`); return 2; }
+  for (const a of alerts) console.log(`ALERT: ${a}`);
+  if (!writeNew(dayFile, snap)) { console.error(`FAIL-CLOSED: ${dayFile} already exists; not overwritten.`); return 3; }
+  if (alerts.length) return 2;
   console.log(`no change since ${lastDay}: ${dayFile}`);
   return missed ? 4 : 0;
 }
