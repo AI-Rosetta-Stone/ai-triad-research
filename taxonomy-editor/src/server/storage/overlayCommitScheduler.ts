@@ -22,10 +22,18 @@ import type { StorageBackend } from './storageBackend.js';
 import { sessionBranchNameFor } from './sessionBranchManager.js';
 import { getBackend } from './fileIO.js';
 
+/** What `commitOverlay` returns today: the commit, or null when there was nothing to commit. */
+export type OverlayCommitResult = { commitSha: string; filesCommitted: number; conflictedPaths?: string[] };
+
+/** t/549 (t/503 PR 1, type only): the outcome once the cross-replica commit lease exists (t/550). 'busy'
+ *  means another replica holds this user's commit lease: nothing was committed and nothing failed, so the
+ *  scheduler re-arms without counting a retry. Not returned by anything yet. */
+export type OverlayCommitOutcome = OverlayCommitResult | { kind: 'busy' } | null;
+
 interface OverlayCommittable {
   commitOverlay(
     userId: string, message?: string, opts?: { branchName?: string },
-  ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null>;
+  ): Promise<OverlayCommitResult | null>;
 }
 function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & OverlayCommittable {
   return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
@@ -74,6 +82,14 @@ function recordCommitRate(userId: string): number {
 
 /** Surfaced by the sync-status route so the UI can show "not yet saved to GitHub". */
 export function getOverlayCommitStatus(userId: string): OverlayCommitStatus | undefined {
+  return overlayCommitStatus.get(userId);
+}
+
+/** t/549 (t/503 PR 1): the commit status any replica can answer. In this PR it returns the local value,
+ *  exactly as getOverlayCommitStatus does. t/551 (PR 3) reads the per-user status blob, with a ~2 s
+ *  per-process TTL and a 1.5 s read timeout; on a timeout or a storage error it returns the local value
+ *  with a WARN and never throws (TaxonomyServer t/503#7). routes/sync.ts moves to it in t/553. */
+export async function getOverlayCommitStatusShared(userId: string): Promise<OverlayCommitStatus | undefined> {
   return overlayCommitStatus.get(userId);
 }
 
