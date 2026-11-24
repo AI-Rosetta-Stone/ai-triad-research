@@ -117,9 +117,9 @@
   white-space: nowrap;
   line-height: 1.4;
 }
-.coverage-badge-green { background: rgba(34,197,94,0.15); color: #16a34a; }
-.coverage-badge-yellow { background: rgba(234,179,8,0.15); color: #a16207; }
-.coverage-badge-red { background: rgba(239,68,68,0.15); color: #dc2626; }
+.coverage-badge-green { background: var(--success-bg); color: var(--success-text); }
+.coverage-badge-yellow { background: var(--warning-bg); color: var(--warning-text); }
+.coverage-badge-red { background: var(--error-bg); color: var(--error-text); }
 
 
 /* ─── Monolith-extracted styles (Phase 3 co-location, t/2989) ─── */
@@ -236,8 +236,8 @@
 .taxrefs-directive-badge {
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(245, 158, 11, 0.2);
-  color: #d97706;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -305,8 +305,8 @@
   display: inline-block;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(168, 85, 247, 0.2);
-  color: #a855f7;
+  background: var(--violet-bg);
+  color: var(--violet-text);
   font-size: var(--text-2xs);
   font-weight: 600;
 }
