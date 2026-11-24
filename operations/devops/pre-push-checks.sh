@@ -196,14 +196,16 @@ find_python() {
 # t/379: one `vitest related` at a time per MACHINE. Many agents push from one box; concurrent
 # runs each start a full fork pool and starve one another ('Failed to start forks worker', 20
 # unrelated files failing, 25-minute runs), so agents reached for AITRIAD_PREPUSH=skip. The lock
-# is a directory (mkdir is atomic on Windows and Linux) holding "<pid> <epoch> <worktree>".
+# is an owner file holding "<pid> <epoch> <worktree>", created exclusively inside a directory
+# (see lock_try; t/436: mkdir alone was not exclusive on uutils coreutils).
 #   - Busy: wait, printing who holds it every 30s. Never fail for a busy lock: after
 #     AITRIAD_PREPUSH_LOCK_WAIT seconds (default 1200) WARN and skip vitest; CI still runs it.
 #   - Stale: the holder's pid is gone (kill -0; hooks all run under Git's one sh, so pids are
 #     comparable), or the lock is older than AITRIAD_PREPUSH_LOCK_STALE seconds (default 2700):
 #     WARN and take it over. Two waiters can both judge one lock stale in the same instant; the
 #     cost of that race is one overlapping run, never a wrong verdict.
-#   - Released on exit, interrupt or termination, only by its owner.
+#   - Released on exit, interrupt or termination, only by its owner (rename, then verify the owner
+#     of what was moved; see remove_lock_if_owner).
 # Workers are capped at half the cores, so even an unlocked run (timeout) cannot take the box.
 LOCK_DIR=${AITRIAD_PREPUSH_LOCK_DIR:-${LOCALAPPDATA:-${XDG_CACHE_HOME:-$HOME/.cache}}/aitriad/prepush.lock}
 LOCK_WAIT=${AITRIAD_PREPUSH_LOCK_WAIT:-1200}
@@ -212,22 +214,15 @@ LOCK_OWNED=""
 CORES=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 VITEST_WORKERS=$(( CORES / 2 )); [ "$VITEST_WORKERS" -ge 1 ] || VITEST_WORKERS=1
 
-release_vitest_lock() {
-  [ -n "$LOCK_OWNED" ] || return 0
-  case "$(cat "$LOCK_DIR/owner" 2>/dev/null)" in "$$ "*) rm -rf "$LOCK_DIR" ;; esac
-  LOCK_OWNED=""
-}
-trap release_vitest_lock EXIT
-trap 'release_vitest_lock; exit 130' INT
-trap 'release_vitest_lock; exit 143' TERM HUP
-
-# t/436 (TL p/9#314, option a): take over a lock judged stale WITHOUT deleting a live holder's lock.
-# $1 is the owner we judged stale. Renaming the lock dir is atomic, so after the rename we check the
-# owner of what we moved: if it is still the stale holder, delete it; if a live holder took the lock
-# in the window between our read and our rename, put it back. The race that remains (someone takes
-# the free slot in the instant between our rename and our put-back) is reported with a WARN; the
-# live holder keeps its lock directory under the .reap name and is never deleted by this path.
-reap_stale_lock() {
+# t/436 (TL p/9#314, option a; Quality t/436#23): remove the lock ONLY if its owner is exactly $1,
+# without ever deleting another holder's lock. Used by the stale takeover and by release. A check of
+# the owner followed by rm -rf is not atomic: the lock can change hands in between. Renaming the
+# lock dir is atomic, so after the rename we check the owner of what we moved: if it is still $1,
+# delete it; if another holder took the lock in the window between our read and our rename, put it
+# back. The race that remains (someone takes the free slot in the instant between our rename and our
+# put-back) is reported with a WARN; that holder keeps its lock directory under the .reap name and
+# is never deleted by this path.
+remove_lock_if_owner() {
   reap="$LOCK_DIR.reap.$$"
   mv "$LOCK_DIR" "$reap" 2>/dev/null || return 0
   if [ "$(cat "$reap/owner" 2>/dev/null)" = "$1" ]; then
@@ -235,10 +230,24 @@ reap_stale_lock() {
     return 0
   fi
   if [ -e "$LOCK_DIR" ] || ! mv "$reap" "$LOCK_DIR" 2>/dev/null; then
-    echo "pre-push: WARN a live vitest lock was taken during a stale takeover; it is kept at $reap" >&2
+    echo "pre-push: WARN a live vitest lock was taken while another lock was being removed; it is kept at $reap" >&2
   fi
   return 0
 }
+
+release_vitest_lock() {
+  [ -n "$LOCK_OWNED" ] || return 0
+  LOCK_OWNED=""
+  mine=$(cat "$LOCK_DIR/owner" 2>/dev/null)
+  case "$mine" in "$$ "*) ;; *) return 0 ;; esac
+  # t/436 test hook (unset in production): pause after reading our owner line and before removing
+  # the lock, and say so with a marker, so a test can replace the lock inside that window.
+  if [ -n "${AITRIAD_TEST_RELEASE_PAUSE:-}" ]; then : >"$LOCK_DIR.releasing"; sleep "$AITRIAD_TEST_RELEASE_PAUSE"; fi
+  remove_lock_if_owner "$mine"
+}
+trap release_vitest_lock EXIT
+trap 'release_vitest_lock; exit 130' INT
+trap 'release_vitest_lock; exit 143' TERM HUP
 
 # t/436 (TL p/9#318): the lock is won by EXCLUSIVE creation of the owner file (set -C, O_EXCL), not by
 # mkdir. mkdir let two concurrent callers both succeed on the same path here (WSL), so two pushes both
@@ -262,7 +271,7 @@ acquire_vitest_lock() {
     if [ -n "${AITRIAD_TEST_STALE_PAUSE:-}" ]; then : >"$LOCK_DIR.paused"; sleep "$AITRIAD_TEST_STALE_PAUSE"; fi
     if { [ -n "$hpid" ] && ! kill -0 "$hpid" 2>/dev/null; } || [ $(( now - born )) -gt "$LOCK_STALE" ]; then
       echo "pre-push: WARN removing a stale vitest lock (holder: ${holder:-unknown}, age $(( now - born ))s): its process is gone or it outlived ${LOCK_STALE}s." >&2
-      reap_stale_lock "$holder"
+      remove_lock_if_owner "$holder"
       continue
     fi
     if [ "$waited" -ge "$LOCK_WAIT" ]; then

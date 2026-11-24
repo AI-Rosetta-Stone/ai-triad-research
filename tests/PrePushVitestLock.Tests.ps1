@@ -192,6 +192,28 @@ exit 0
         @(Get-VitestRuns $script:Log).Count | Should -Be 1
     }
 
+    # t/436 (Quality t/436#23). A holder reads its own owner line at release and pauses. Meanwhile
+    # its lock is taken over and a live holder owns the lock. The releasing push must not delete the
+    # live holder's lock. With "check the owner, then rm -rf" it did. The pause is the
+    # AITRIAD_TEST_RELEASE_PAUSE hook, which marks the window.
+    It 't436: a releasing holder does not delete a live holder that took the lock in the window' {
+        $p = Start-Push (New-PushRepo) ($script:Env + @{ AITRIAD_TEST_VITEST_SECS = 0; AITRIAD_TEST_RELEASE_PAUSE = 3 })
+        $marker = "$script:LockDir.releasing"
+        for ($i = 0; $i -lt 600 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 100 }
+        Test-Path $marker | Should -BeTrue -Because 'the holder must reach the release window'
+
+        # The lock changes hands inside the window. The live holder is this test process itself.
+        Remove-Item -Recurse -Force $script:LockDir
+        New-Item -ItemType Directory -Path $script:LockDir | Out-Null
+        Set-Content -Path (Join-Path $script:LockDir 'owner') -Value "$PID 0 /live" -NoNewline
+        $r = Wait-Push $p
+        $r.Code | Should -Be 0 -Because $r.Out
+        @(Get-VitestRuns $script:Log).Count | Should -Be 1
+        Test-Path (Join-Path $script:LockDir 'owner') | Should -BeTrue -Because 'the live lock must survive the release'
+        (Get-Content (Join-Path $script:LockDir 'owner')) | Should -Be "$PID 0 /live"
+        @(Get-ChildItem -Path $script:Work -Filter 'prepush.lock.reap.*').Count | Should -Be 0 -Because 'the live lock must be put back under its own name'
+    }
+
     It 'caps vitest workers: --pool=forks --maxWorkers set to half the cores, at least 1' {
         $r = Wait-Push (Start-Push (New-PushRepo) ($script:Env + @{ AITRIAD_TEST_VITEST_SECS = 0 }))
         $r.Code | Should -Be 0 -Because $r.Out
