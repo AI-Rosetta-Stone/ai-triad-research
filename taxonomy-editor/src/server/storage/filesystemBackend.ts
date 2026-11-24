@@ -252,7 +252,9 @@ export class FilesystemBackend implements StorageBackend {
           message: `writeFileIfAbsent: hard links unsupported (${code}), falling back to an exclusive 'wx' write: ${filePath}`,
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
-        return this.createWithExclusiveFlag(filePath, content);
+        // await here: a bare return hands back the promise while the finally below is still awaiting the
+        // temp-file unlink, and a rejection in that window is reported as unhandled (t/268).
+        return await this.createWithExclusiveFlag(filePath, content);
       }
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'filesystem-backend', level: 'error',
