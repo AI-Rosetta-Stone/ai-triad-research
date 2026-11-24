@@ -2,11 +2,11 @@
 // (claim grid, lens cards, assumption cards, More) over a statement's own data. Each part is shown
 // only where its field exists; no plan-stage section is used.
 
-import type { ArgumentNetworkNode, ArgumentNetworkEdge, ConvergenceSignals, TranscriptEntry } from '../../types/debate';
+import type { ArgumentNetworkNode, ArgumentNetworkEdge, TranscriptEntry } from '../../types/debate';
 import type { VocabResolution } from '../../utils/vocabularyAnnotations';
 import { buildStatementHow, readDebateHow, statementCounts, type StatementHowClaim, type StatementHowModel } from './statementHow';
 import { ClaimRow } from './StatementHowClaims';
-import { ConvergenceSection, HowVocabulary } from './StatementHowSections';
+import { HowVocabulary } from './StatementHowSections';
 import { speakerLabel } from './utils';
 import './TaxonomyRefs.css';
 import './StatementHowLayout.css';
@@ -15,9 +15,10 @@ import './StatementHowLayout.css';
 /** The debate fields the HOW view reads. */
 export interface StatementHowDebate {
   argument_network?: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] };
-  convergence_signals?: ConvergenceSignals[];
 }
 
+/** Planned moves: one row per move. The chip names the move; its full detail sits beside it (below it
+ *  under 767px). A target that is a claim links to that claim. */
 function HowMoves({ moves, claims }: { moves: StatementHowModel['moves']; claims: StatementHowClaim[] }) {
   const linked = (target: string | undefined) => {
     const idx = claims.find(c => c.node.id === target)?.index;
@@ -27,9 +28,12 @@ function HowMoves({ moves, claims }: { moves: StatementHowModel['moves']; claims
     <div className="sh-moves" aria-label="Planned moves">
       <span className="sh-moves-label">Planned moves</span>
       {moves.map((m, i) => (
-        <span key={i} className="sh-move-chip" tabIndex={0} title={m.detail ?? m.move}>
-          {m.move}{linked(m.target) && <span className="sh-move-target"> {linked(m.target)}</span>}
-        </span>
+        <div key={i} className="sh-move-row">
+          <span className="sh-move-chip">
+            {m.move}{linked(m.target) && <span className="sh-move-target"> {linked(m.target)}</span>}
+          </span>
+          {m.detail && <p className="sh-move-detail">{m.detail}</p>}
+        </div>
       ))}
     </div>
   );
@@ -68,7 +72,7 @@ export function StatementHowLayout({ entry, debate, vocabResolutions, meta }: {
   vocabResolutions: VocabResolution[] | undefined;
   meta: Record<string, unknown> | undefined;
 }) {
-  const { nodes, edges, convergence } = readDebateHow(debate, entry.id);
+  const { nodes, edges } = readDebateHow(debate);
   if (!nodes || nodes.length === 0) return <div className="claims-empty">No argument network yet</div>;
   const model = buildStatementHow(entry, nodes, edges);
   const ambiguities = meta?.vocabulary_ambiguities as { colloquial: string; offset?: number }[] | undefined;
@@ -92,7 +96,6 @@ export function StatementHowLayout({ entry, debate, vocabResolutions, meta }: {
 
       {model.assumptions.length > 0 && <HowAssumptions assumptions={model.assumptions} />}
       {model.anticipated.length > 0 && <HowAnticipated items={model.anticipated} />}
-      <ConvergenceSection signal={convergence} />
       <HowVocabulary entry={entry} vocabResolutions={vocabResolutions} ambiguities={ambiguities} />
     </div>
   );

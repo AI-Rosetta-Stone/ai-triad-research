@@ -2,7 +2,7 @@
 // No React. Every field is read from the statement's own record or its argument network; nothing
 // is synthesised, and nothing from the plan stage is used (no statement has one).
 
-import type { ArgumentNetworkNode, ArgumentNetworkEdge, ConvergenceSignals, TranscriptEntry } from '../../types/debate';
+import type { ArgumentNetworkNode, ArgumentNetworkEdge, TranscriptEntry } from '../../types/debate';
 
 export interface StatementHowItem {
   id: string; // the attacking or supporting node id
@@ -85,23 +85,6 @@ export function buildStatementHow(entry: TranscriptEntry, nodes: ArgumentNetwork
   };
 }
 
-/** The seven convergence signals as [label, value] cells. All seven are present on every row in the
- *  data (t/469 measurement); only the counterargument and the concession outcome can be null. */
-export function convergenceCells(s: ConvergenceSignals): [string, string][] {
-  const mp = s.move_polarity;
-  const de = s.dialectical_engagement;
-  const r = (n: number) => String(Math.round(n * 100) / 100);
-  return [
-    ['Move polarity', `${r(mp.ratio)} (${mp.confrontational} confrontational, ${mp.collaborative} collaborative)`],
-    ['Dialectical engagement', `${r(de.ratio)} (${de.targeted} targeted, ${de.standalone} standalone)`],
-    ['Argument redundancy', `avg overlap ${r(s.argument_redundancy.avg_self_overlap)}`],
-    ['Dominant counterargument', s.dominant_counterargument ? String(s.dominant_counterargument) : 'None'],
-    ['Concession opportunity', s.concession_opportunity.outcome ?? 'none'],
-    ['Position drift', r(s.position_drift.drift)],
-    ['Crux engagement', `${s.crux_engagement_rate.cumulative_follow_through} follow-through`],
-  ];
-}
-
 /** The counts line, with zero terms left out: "2 claims · 5 attacks · 1 support". */
 export function statementCounts(m: StatementHowModel): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -113,10 +96,6 @@ export function statementCounts(m: StatementHowModel): string {
 }
 
 /** The debate fields the HOW view reads, looked up for one statement. */
-export function readDebateHow(debate: { argument_network?: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] }; convergence_signals?: ConvergenceSignals[] } | null | undefined, entryId: string) {
-  return {
-    nodes: debate?.argument_network?.nodes,
-    edges: debate?.argument_network?.edges ?? [],
-    convergence: debate?.convergence_signals?.find(s => s.entry_id === entryId),
-  };
+export function readDebateHow(debate: { argument_network?: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] } } | null | undefined) {
+  return { nodes: debate?.argument_network?.nodes, edges: debate?.argument_network?.edges ?? [] };
 }

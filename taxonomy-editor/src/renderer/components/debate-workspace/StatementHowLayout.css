@@ -24,10 +24,21 @@
 
 .sh-moves {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sh-move-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sh-move-detail {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  line-height: 1.4;
 }
 
 .sh-moves-label {
@@ -37,6 +48,7 @@
 }
 
 .sh-move-chip {
+  flex: 0 0 auto;
   display: inline-block;
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -130,26 +142,10 @@
   gap: 8px;
 }
 
-.sh-convergence {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.sh-convergence .claim-map-lens-card {
-  margin: 0;
-}
-
-.sh-convergence-value {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
 
 @media (max-width: 766px) {
-  .sh-convergence {
-    grid-template-columns: 1fr;
+  .sh-move-row {
+    flex-direction: column;
+    gap: 4px;
   }
 }

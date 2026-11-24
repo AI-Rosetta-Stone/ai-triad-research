@@ -84,11 +84,11 @@ describe('StatementHowLayout', () => {
   beforeEach(() => vi.clearAllMocks());
 
   function renderHow(over: Record<string, unknown> = {}) {
-    const props = { nodes: NODES, edges: EDGES, convergence: CONVERGENCE, entry: ENTRY, ...over };
+    const props = { nodes: NODES, edges: EDGES, entry: ENTRY, ...over };
     return render(
       <StatementHowLayout
         entry={props.entry as never}
-        debate={{ argument_network: { nodes: props.nodes as never, edges: props.edges as never }, convergence_signals: props.convergence ? [props.convergence as never] : [] }}
+        debate={{ argument_network: { nodes: props.nodes as never, edges: props.edges as never } }}
         vocabResolutions={undefined}
         meta={undefined}
       />,
@@ -138,6 +138,7 @@ describe('StatementHowLayout', () => {
     const { container } = renderHow({ entry: e });
     expect(screen.getByText('Answer the audit point')).toBeTruthy();
     expect(screen.getByLabelText('Planned moves')).toBeTruthy();
+    expect(screen.getByText('Separate the cases')).toBeTruthy();
     expect(screen.getByText('→ C2')).toBeTruthy();
     expect(screen.getByText('Audits can be staffed')).toBeTruthy();
     expect(screen.getByText('Then pledges are unverifiable', { exact: false })).toBeTruthy();
@@ -155,16 +156,7 @@ describe('StatementHowLayout', () => {
     expect(screen.getByText('No claims extracted for this statement')).toBeTruthy();
   });
 
-  it('shows the absent-convergence copy, and reads a null counterargument as None', () => {
-    renderHow({ convergence: undefined });
-    expect(screen.getByText('No convergence data for this turn.')).toBeTruthy();
-  });
 
-  it('renders the seven convergence cells, with a null counterargument as None', () => {
-    const { container } = renderHow();
-    expect(container.querySelectorAll('.sh-convergence > li')).toHaveLength(7);
-    expect(screen.getByText('None', { selector: '.sh-convergence-value' })).toBeTruthy();
-  });
 
   it('hides the vocabulary and lineage section when both are empty', () => {
     const { container } = renderHow({ vocabResolutions: [] });
@@ -173,7 +165,7 @@ describe('StatementHowLayout', () => {
   });
 });
 
-describe('anchor chip and convergence rounding (t/469)', () => {
+describe('anchor chip (t/469)', () => {
   it('toggles the node detail from the claim anchor chip, and keeps it a keyboard button', async () => {
     const anchored = [{ id: 'AN-1', text: 'Claim one', source_entry_id: 'e2', taxonomy_refs: ['skp-beliefs-001'] }] as never;
     render(<StatementHowLayout entry={ENTRY} debate={{ argument_network: { nodes: anchored, edges: [] } }} vocabResolutions={undefined} meta={undefined} />);
@@ -185,10 +177,14 @@ describe('anchor chip and convergence rounding (t/469)', () => {
     expect(await screen.findByTestId('node-detail')).toBeTruthy();
   });
 
-  it('rounds convergence values to two decimal places', () => {
-    const { container } = render(<StatementHowLayout entry={ENTRY} debate={{ argument_network: { nodes: NODES, edges: EDGES }, convergence_signals: [{ ...CONVERGENCE, move_polarity: { confrontational: 2, collaborative: 1, ratio: 1 / 3 }, position_drift: { overlap_with_opening: 1, drift: 0.8114285714 } } as never] }} vocabResolutions={undefined} meta={undefined} />);
-    expect(container.textContent).toContain('0.33 (2 confrontational, 1 collaborative)');
-    expect(container.textContent).toContain('0.81');
-    expect(container.textContent).not.toContain('0.3333');
+});
+
+describe('planned moves show their detail (t/469 amendment)', () => {
+  it('renders each move detail in full, beside its chip, with no convergence section', () => {
+    const e = { ...ENTRY, metadata: { move_types: [{ move: 'BURDEN SHIFT', detail: 'Demand that opponents provide a viable rollback plan for capabilities that surpass verification.' }] } };
+    const { container } = render(<StatementHowLayout entry={e as never} debate={{ argument_network: { nodes: NODES, edges: EDGES } }} vocabResolutions={undefined} meta={undefined} />);
+    expect(screen.getByText(/Demand that opponents provide a viable rollback plan/)).toBeTruthy();
+    expect(container.querySelector('.sh-move-row .sh-move-detail')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Convergence"]')).toBeNull();
   });
 });
