@@ -43,14 +43,19 @@ Describe 'pre-push-checks.sh machine-wide vitest lock (t/379)' -Tag 'devops' {
 
         # Stub pnpm: eslint/tsc succeed at once; vitest logs start/end (ms) around a sleep and
         # exits with AITRIAD_TEST_VITEST_RC.
+        # t/436: the stamp is `date +%s%N` cut to ms, never `date +%s%3N`. The uutils `date`
+        # (0.10.0, the default on ubuntu-26.04) drops the leading zeros of the nanoseconds
+        # before it truncates, so about 1 stamp in 10 came out up to 0.9 s late and the
+        # overlap check below failed on a lock that had serialized the runs correctly.
         $script:StubDir = New-TempDir 't379-stub'
         [IO.File]::WriteAllText((Join-Path $script:StubDir 'pnpm'), @'
 #!/bin/sh
+now_ms() { _ns=$(date +%s%N); echo "${_ns%??????}"; }
 case " $* " in
   *" vitest "*)
-    echo "start $$ $(date +%s%3N) $*" >>"$AITRIAD_TEST_LOG"
+    echo "start $$ $(now_ms) $*" >>"$AITRIAD_TEST_LOG"
     sleep "${AITRIAD_TEST_VITEST_SECS:-2}"
-    echo "end $$ $(date +%s%3N)" >>"$AITRIAD_TEST_LOG"
+    echo "end $$ $(now_ms)" >>"$AITRIAD_TEST_LOG"
     exit "${AITRIAD_TEST_VITEST_RC:-0}" ;;
 esac
 exit 0
