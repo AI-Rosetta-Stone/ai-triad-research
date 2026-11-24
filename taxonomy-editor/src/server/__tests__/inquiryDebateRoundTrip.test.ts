@@ -101,7 +101,8 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
     await userContext.runWithUser(USER_CTX, async () => {
       await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-1' });
       const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
-      await h.capturedDeps!.runDebate(config, 'q');
+      const debate = await h.capturedDeps!.runDebate(config, 'q');
+      await h.capturedDeps!.persistSession!(debate.session as never); // t/476: the pipeline saves via persistSession
     });
 
     const { status, body } = await userContext.runWithUser(USER_CTX, () => invokeGetDebate('inquiry-session-1'));
@@ -127,7 +128,8 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
 
       await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-2' });
       const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
-      await h.capturedDeps!.runDebate(config, 'q');
+      const debate = await h.capturedDeps!.runDebate(config, 'q');
+      await h.capturedDeps!.persistSession!(debate.session as never); // t/476: the pipeline saves via persistSession
 
       expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
       const list = await fileIO.listDebateSessions() as { id: string; origin_mode?: string; inquiry_id?: string }[];
@@ -155,7 +157,8 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
         await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-3' });
         const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
         // Must not throw the 429 a normal save would at this point.
-        await expect(h.capturedDeps!.runDebate(config, 'q')).resolves.toBeDefined();
+        const debate = await h.capturedDeps!.runDebate(config, 'q');
+        await expect(h.capturedDeps!.persistSession!(debate.session as never)).resolves.toBeUndefined(); // t/476
       });
 
       const { status } = await userContext.runWithUser(USER_CTX, () => invokeGetDebate('inquiry-session-1'));
