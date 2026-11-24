@@ -190,6 +190,9 @@ jobs:
     runs-on: ubuntu-latest
     if: needs.gate.outputs.proceed == 'true'
     environment: staging
+    env:
+      # One definition for the pre-revision gate and the env sync (t/77 Option B, SO t/404#10 condition 1).
+      SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
     timeout-minutes: 30  # SO C2 (t/4194, p/682#16): same rationale as deploy-azure.yml's job —
                          # staging's own runtime is normally shorter, so a tighter cap.
     steps:
@@ -364,55 +367,19 @@ jobs:
             -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
 
       - name: "Pre-revision gate (t/77 condition 4): staging config must not target prod repo or App"
-        # BLOCKING -- no continue-on-error. t/77 condition 4 (SO t/77#3, t/77#9; reorder per SO
-        # round-2 condition 1, t/404#3). Runs BEFORE the env sync, not after: Sync-StagingEnv.ps1
-        # calls `az containerapp update --set-env-vars`, which itself creates a revision, so a gate
-        # that reads the LIVE template only after that write cannot prove no bad revision was ever
-        # created in between. Instead this checks the exact values the sync is about to apply --
-        # Get-BicepBaseEnv.ps1 -ForStaging, main.bicep's stagingEnvOverrides merged over baseEnv,
-        # the same source Sync-StagingEnv.ps1 itself reads. Fail closed: an unset value, or an
-        # unset prod reference (vars.SYNC_GITHUB_REPO / SYNC_GITHUB_APP_ID), refuses the deploy.
+        # BLOCKING. Runs BEFORE the env sync, on the same resolver and the same input the sync uses
+        # (SYNC_GITHUB_APP_ID_STAGING, defined once at job level). Logic: operations/devops/Test-StagingPreRevisionGate.ps1
+        # (t/404, SO t/404#10).
         shell: pwsh
         env:
           PROD_REPO: ${{ vars.SYNC_GITHUB_REPO }}
           PROD_APP_ID: ${{ vars.SYNC_GITHUB_APP_ID }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($env:PROD_REPO) -or [string]::IsNullOrWhiteSpace($env:PROD_APP_ID)) {
-            Write-Host "::error::t/77 pre-revision gate: vars.SYNC_GITHUB_REPO or SYNC_GITHUB_APP_ID is unset, so the prod identity cannot be compared. NOT deploying (fail-closed)."
-            exit 1
-          }
-          $BicepEnv = ./operations/devops/Get-BicepBaseEnv.ps1 -ForStaging
-          $Repo   = $BicepEnv['GITHUB_REPO']
-          $AppId  = $BicepEnv['GITHUB_APP_ID']
-          $Branch = $BicepEnv['GITHUB_BRANCH']
-          $Missing = @()
-          if ([string]::IsNullOrWhiteSpace($Repo))   { $Missing += 'GITHUB_REPO' }
-          if ([string]::IsNullOrWhiteSpace($AppId))  { $Missing += 'GITHUB_APP_ID' }
-          if ([string]::IsNullOrWhiteSpace($Branch)) { $Missing += 'GITHUB_BRANCH' }
-          if ($Missing.Count -gt 0) {
-            Write-Host "::error::t/77 pre-revision gate: main.bicep's staging config has no value for $($Missing -join ', '). NOT deploying (fail-closed)."
-            exit 1
-          }
-          if ($Repo -eq $env:PROD_REPO) {
-            Write-Host "::error::t/77 pre-revision gate: staging config GITHUB_REPO is the prod repo '$Repo'. NOT deploying: the sync would write prod data to staging."
-            exit 1
-          }
-          if ($AppId -eq $env:PROD_APP_ID) {
-            Write-Host "::error::t/77 pre-revision gate: staging config GITHUB_APP_ID is the prod App. NOT deploying: the sync would use prod's credential on staging."
-            exit 1
-          }
-          if ($Branch -eq 'main') {
-            Write-Host "::error::t/77 pre-revision gate: staging config GITHUB_BRANCH is 'main'. NOT deploying: the sync would point staging at prod main."
-            exit 1
-          }
-          Write-Host "t/77 pre-revision gate PASSED: staging repo '$Repo', branch '$Branch', App id differs from prod."
+          ./operations/devops/Test-StagingPreRevisionGate.ps1 -BicepPath ./deploy/azure/main.bicep
 
       - name: Sync Bicep baseEnv to staging template (t/2630)
         shell: pwsh
-        env:
-          # t/77 Option B: the staging App id, resolved by Get-BicepBaseEnv -ForStaging (fails closed when empty).
-          SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
         run: |
           $ErrorActionPreference = 'Stop'
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
