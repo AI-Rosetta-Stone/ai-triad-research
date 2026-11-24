@@ -168,7 +168,7 @@ export class GitHubRestClient {
     pathAndQuery: string,
     body?: unknown,
     callId?: string,
-    apiOpts?: { optional?: boolean; raw?: boolean },
+    apiOpts?: { optional?: boolean; raw?: boolean; unconditional?: boolean },
   ): Promise<ApiResult> {
     // t/803: correlate GitHub API calls to the originating HTTP request. Never
     // embed the user's email/principal in the id (it was PII in every log line).
@@ -253,7 +253,7 @@ export class GitHubRestClient {
 
   private buildRequestHeaders(
     creds: SyncCredentials, method: string, pathAndQuery: string,
-    body: unknown, requestId: string, apiOpts: { raw?: boolean } | undefined,
+    body: unknown, requestId: string, apiOpts: { raw?: boolean; unconditional?: boolean } | undefined,
   ): Record<string, string> {
     const headers: Record<string, string> = {
       // t/4286: raw asks the Contents API for the file's bytes directly — no JSON
@@ -266,7 +266,8 @@ export class GitHubRestClient {
     };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (requestId) headers['X-Request-ID'] = requestId;
-    const cachedEtag = this.deps.getEtag(pathAndQuery);
+    // t/478: a caller that has no cached body to pair with a 304 asks for an unconditional GET.
+    const cachedEtag = apiOpts?.unconditional ? null : this.deps.getEtag(pathAndQuery);
     if (cachedEtag && method === 'GET') headers['If-None-Match'] = cachedEtag;
     return headers;
   }
