@@ -771,6 +771,38 @@ export const EMBEDDINGS_REQUEST_TIMEOUT_MS = 45_000;
 // timeout by chunk count instead of lowering this constant.
 export const EMBEDDING_COMPUTE_CHUNK = 128;
 
+// t/520: the most cache-miss texts one ONNX call embeds. The chunk above splits all INPUTS; the misses
+// inside one chunk still went to ONNX as one batch, and an ONNX batch's working memory sits on top of the
+// resident model. Measured on origin/main's built worker path, one session, 20 distinct ~400-char misses,
+// peak process RSS (3 runs each): one batch of 20: 605-616 MiB; 8: 477-481; 4: 418-425; 2: 386-400;
+// 1: 375-397, the same as embedding a single text (382-396 MiB, the resident-model floor). At 100 misses,
+// 1 per call was also the fastest (1.2 s vs 2.0 s at 2 and 1.6 s at 4), so the bound costs no time. Staging
+// has a 512 MiB container (t/520#12). Two sessions (today's query path plus the worker) peaked at 731-744.
+export const ONNX_MISS_BATCH = 1;
+
+const MiB = (bytes: number): number => Math.round(bytes / 1048576);
+
+/** t/520: run `compute` over `texts` in sub-batches of at most `size`, in order. Before each sub-batch, log
+ *  the process RSS and the batch size at info: an out-of-memory kill is a SIGKILL, which no handler can
+ *  catch, so the last of these lines is the trail it leaves. Exported for tests. */
+export async function computeInSubBatches<V>(
+  texts: string[],
+  size: number,
+  requester: string,
+  compute: (batch: string[]) => Promise<V[]>,
+): Promise<V[]> {
+  const out: V[] = [];
+  for (let i = 0; i < texts.length; i += size) {
+    const batch = texts.slice(i, i + size);
+    log.api.info({
+      component: 'api', subsystem: 'ai-backends', requester,
+      batchSize: batch.length, batchIndex: i / size, totalTexts: texts.length, rssMiB: MiB(process.memoryUsage().rss),
+    }, 'embedding batch start');
+    for (const v of await compute(batch)) out.push(v);
+  }
+  return out;
+}
+
 // t/3183 C6 (t/2977#6) — PROVISIONAL demand baseline for the novel-text class's 3rd recurrence.
 // The worker (Item B) raises the compute CEILING (a big batch no longer blocks the loop) but does
 // NOT bound DEMAND. When a single request's NOVEL (cacheHits=0) count exceeds this, we emit ONE
@@ -912,7 +944,8 @@ export async function computeEmbeddings(
     // which the canary sees — no silent in-thread fallback.
     chain.push({
       name: 'onnx-batch-worker',
-      compute: (t) => computeEmbeddingsOffThread(t, { requester })
+      // t/520: misses go to the worker in sub-batches of ONNX_MISS_BATCH, so the batch's working memory stays bounded.
+      compute: (t) => computeInSubBatches(t, ONNX_MISS_BATCH, requester, (b) => computeEmbeddingsOffThread(b, { requester }))
         .then(vecs => vecs.map(v => Array.from(v)))
         .catch((err: unknown) => {
           // t/3373: emit the clean shed token HERE, then re-throw UNCHANGED (byte-identical resolve
@@ -925,7 +958,7 @@ export async function computeEmbeddings(
     });
   } else if (await onnxTryWarmup()) {
     // Flag OFF → today's exact in-thread call (warms + uses the main-thread session) → byte-identical.
-    chain.push({ name: 'onnx-batch', compute: (t) => onnxComputeEmbeddings(t) });
+    chain.push({ name: 'onnx-batch', compute: (t) => computeInSubBatches(t, ONNX_MISS_BATCH, requester, (b) => onnxComputeEmbeddings(b)) });
   }
 
   // t/3165 observability: emit the RESOLVED chain + the offload-flag value to Pino/stdout. The
@@ -1111,9 +1144,32 @@ export async function computeQueryEmbedding(text: string, _explicitApiKey?: stri
     }
   }
 
+  // t/520: one ONNX session per process. With the worker offload on, the worker owns the only session
+  // (t/3209 C1), so a query embed goes there too. Before this, the query loaded a second, main-thread session
+  // next to the worker's, which took a 0.5 GiB staging container past its limit (t/520#12, #13). No in-process
+  // fallback under the flag: that would load the second session again. Costs about 20 ms per query, warm
+  // (Shared Lib, t/520#15).
+  if (isEmbeddingWorkerOffloadEnabled()) {
+    try {
+      const [vec] = await computeInSubBatches([text], 1, 'query', (b) => computeEmbeddingsOffThread(b, { requester: 'query' }));
+      const out = Array.from(vec);
+      setCachedQueryEmbedding(text, out);
+      return out;
+    } catch (err) {
+      logWorkerPoolShedIfApplicable(err, { requester: 'query', inputCount: 1 });
+      log.api.error({ component: 'api', subsystem: 'ai-backends', requester: 'query', err: String(err) }, 'query embedding via the worker failed');
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'ai-backends', level: 'error',
+        message: 'Query embedding via the ONNX worker failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err;
+    }
+  }
+
   // In-process ONNX all-MiniLM-L6-v2 (shared lib t/1651) — hosted fallback when the
   // Python ML venv is absent (DevOps venv slim, t/1642). Same 384-dim space as the
-  // stored corpus; no API key, no network.
+  // stored corpus; no API key, no network. Offload off: the main thread owns the only session.
   if (await onnxTryWarmup()) {
     try {
       const vec = await onnxComputeEmbedding(text);
@@ -1169,6 +1225,27 @@ export async function updateNodeEmbeddings(nodes: { id: string; text: string; po
       }
     }
 
+    // t/520: with the offload on, the worker owns the only ONNX session; never warm a second one here.
+    if (!vecs && isEmbeddingWorkerOffloadEnabled()) {
+      try {
+        vecs = (await computeInSubBatches(texts, ONNX_MISS_BATCH, 'update-node-embeddings',
+          (b) => computeEmbeddingsOffThread(b, { requester: 'update-node-embeddings' }))).map(v => Array.from(v));
+      } catch (err) {
+        logWorkerPoolShedIfApplicable(err, { requester: 'update-node-embeddings', inputCount: texts.length });
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'ai-backends', level: 'error',
+          message: 'ONNX worker batch embedding failed (updateNodeEmbeddings)',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        throw new ActionableError({
+          goal: 'Update node embeddings',
+          problem: `The ONNX embedding worker failed while embedding a node batch: ${(err as Error).message ?? String(err)}`,
+          location: 'aiBackends.updateNodeEmbeddings',
+          nextSteps: ['Check the worker log lines (embedding batch start, worker-pool shed) for the cause', 'Retry; a shed worker recovers after its backoff'],
+        });
+      }
+    }
+
     if (!vecs) {
       if (!(await onnxTryWarmup())) {
         throw new ActionableError({
@@ -1182,7 +1259,7 @@ export async function updateNodeEmbeddings(nodes: { id: string; text: string; po
         });
       }
       try {
-        vecs = await onnxComputeEmbeddings(texts);
+        vecs = await computeInSubBatches(texts, ONNX_MISS_BATCH, 'update-node-embeddings', (b) => onnxComputeEmbeddings(b));
       } catch (err) {
         getGlobalRecorder()?.record({
           type: 'system.error', component: 'ai-backends', level: 'error',
