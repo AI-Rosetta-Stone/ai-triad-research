@@ -45,6 +45,14 @@ export interface OpeningStagePromptInput {
   anchorQuestion?: string;
   /** t/388: steelman AN nodes offered as attack references. Empty or absent = the prompt is unchanged. */
   steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
+  /** t/388: ask each ATTACK to name the speaker's own claim it hits. Off or absent = the prompt is unchanged. */
+  attackAnchors?: boolean;
+}
+
+/** t/388: the attack-anchor instruction for the plan prompt. Returns '' when the flag is off. */
+function attackAnchorsBlock(on: boolean | undefined): string {
+  if (!on) return '';
+  return `=== ATTACK ANCHORS ===\nEnd every ATTACK with "targeting node <taxonomy_anchor>", where <taxonomy_anchor> is the taxonomy_anchor of the argument_structure claim of YOURS that the attack hits. Use only an anchor that appears in your own argument_structure, written exactly, as the last thing in the item. Example: "ATTACK: <objection> targeting node <taxonomy_anchor>". An ASSUMPTION takes no anchor.\n\n`;
 }
 
 /** t/388: the steelman references block for the plan prompt. Returns '' when none are offered. */
@@ -165,7 +173,7 @@ ANTICIPATED CHALLENGES - forecast where you are actually vulnerable, not where y
   that objection rather than inventing a weaker one. It is the strongest known attack on the
   node; anticipate it, don't dodge it.
 
-${steelmanRefsBlock(input.steelmanRefsOffered)}Respond ONLY with a JSON object (no markdown, no code fences):
+${steelmanRefsBlock(input.steelmanRefsOffered)}${attackAnchorsBlock(input.attackAnchors)}Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "strategic_goal": "1-2 sentences: what your opening should accomplish",
   "core_thesis": "1 sentence: your central claim in this debate",

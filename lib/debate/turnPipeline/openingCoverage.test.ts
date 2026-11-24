@@ -71,6 +71,11 @@ const FIELD_EXEMPTIONS: Record<string, { engineRequired: boolean; rendererRequir
     rendererRequired: false,
     note: 'PENDING t/388: the type lands before its consumer (TL p/32#123). The renderer field is Rosetta\'s PR (branch t388-steelman-slice-field), which removes this exemption',
   },
+  attackAnchors: {
+    engineRequired: true,
+    rendererRequired: false,
+    note: 'intentional for now: default-off experiment flag (config.planAttackAnchors, t/388#47). The renderer sets it only if the flag is turned on for the desktop path; remove this exemption then',
+  },
   opponentSouls: {
     engineRequired: false,
     rendererRequired: true,

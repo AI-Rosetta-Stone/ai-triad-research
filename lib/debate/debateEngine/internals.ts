@@ -118,6 +118,8 @@ export interface DebateConfig {
   useDebateGrounding?: boolean;
   /** t/412 experiment arm B: each node's prompt text is its best-matching synthetic statement against the debate query, with skip-and-backfill for nodes without one. Never description or plain_description (TL p/140#24). Takes precedence over useDebateGrounding. Off by default. */
   useSyntheticStatementGrounding?: boolean;
+  /** t/388: the opening plan prompt asks each ATTACK to end with "targeting node <taxonomy_anchor>", naming the speaker's own claim it hits, so the claim-map card can place the attack. Changes every opening plan prompt, so it is off by default; default-on needs the PI's go (Comp-Linguist ruling t/388#47). The engine checks the anchor either way. */
+  planAttackAnchors?: boolean;
   /** Rank situation selection by weighted breadth score (relevance + freshness + bdi_entropy via PRE_DEBATE_WEIGHTS) instead of pure relevance (t/3411 experiment). Off by default. */
   breadthAwareSituationSelection?: boolean;
   /** Enable over-generate/select/rewrite pipeline: N=3 drafts, dedup, greedy top-K, rewrite, coherence gate (t/1581). */

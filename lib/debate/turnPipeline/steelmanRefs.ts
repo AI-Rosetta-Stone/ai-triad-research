@@ -6,6 +6,7 @@
 
 import type { OpeningPlanWorkProduct } from '../types/pipeline.js';
 import { getGlobalRecorder } from '../../flight-recorder/index.js';
+import { anchorPhrase, planClaimAnchors, verifyAttackAnchors, withoutAnchorPhrase } from './attackAnchors.js';
 
 const ATTACK_TAG = /^ATTACK \[([^\]]+)\]:/;
 
@@ -33,7 +34,7 @@ function firstText(o: Record<string, unknown>, keys: string[]): string | undefin
  * model's own type label is kept; a missing or unusable one becomes OTHER. An item with no usable
  * text is kept as its JSON, minus an unoffered AN target.
  */
-export function challengeToString(item: unknown, allowed: ReadonlySet<string>): string {
+export function challengeToString(item: unknown, allowed: ReadonlySet<string>, claimAnchors: ReadonlySet<string> = new Set()): string {
   if (typeof item === 'string') return item;
   if (!item || typeof item !== 'object' || Array.isArray(item)) return `OTHER: ${JSON.stringify(item)}`;
   const o = item as Record<string, unknown>;
@@ -42,8 +43,22 @@ export function challengeToString(item: unknown, allowed: ReadonlySet<string>): 
   const unofferedAn = AN_ID.test(target) && !allowed.has(target);
   const text = firstText(o, ['description', 'text', 'challenge', 'claim'])
     ?? JSON.stringify(unofferedAn ? { ...o, target: undefined } : o);
-  if (type === 'ATTACK' && target && allowed.has(target)) return `ATTACK [${target}]: ${text}`;
+  if (type === 'ATTACK') {
+    const attack = attackWithKnownTarget(text, target, allowed, claimAnchors);
+    if (attack) return attack;
+  }
   return target && !unofferedAn ? `${type}: ${text} (target: ${target})` : `${type}: ${text}`;
+}
+
+/**
+ * An ATTACK whose target the engine recognises: an offered steelman id becomes the tag, and one of
+ * the plan's own claim anchors becomes the phrase the card reads (t/388). Otherwise undefined.
+ */
+function attackWithKnownTarget(text: string, target: string, allowed: ReadonlySet<string>, claimAnchors: ReadonlySet<string>): string | undefined {
+  if (!target) return undefined;
+  if (allowed.has(target)) return `ATTACK [${target}]: ${text}`;
+  if (claimAnchors.has(target)) return `ATTACK: ${text}${anchorPhrase(target)}`;
+  return undefined;
 }
 
 const AN_ID = /^AN-\d+$/;
@@ -62,10 +77,10 @@ function unofferedAnTarget(item: unknown, allowed: ReadonlySet<string>): string 
 }
 
 /** Put every anticipated challenge in string form, with one WARN per object that had to be converted (t/485). */
-function normalizeChallenges(challenges: unknown[], allowed: ReadonlySet<string>, debateId?: string): string[] {
+function normalizeChallenges(challenges: unknown[], allowed: ReadonlySet<string>, claimAnchors: ReadonlySet<string>, debateId?: string): string[] {
   return challenges.map(c => {
     if (typeof c === 'string') return c;
-    const asString = challengeToString(c, allowed);
+    const asString = challengeToString(c, allowed, claimAnchors);
     const dropped = unofferedAnTarget(c, allowed);
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'turn-pipeline', level: 'warn', debate_id: debateId,
@@ -85,7 +100,7 @@ export function applyPlanSteelmanRefs(plan: OpeningPlanWorkProduct | undefined, 
   plan.steelman_refs_offered = offeredIds;
   if (!Array.isArray(plan.anticipated_challenges)) return;
   const allowed = new Set(offeredIds);
-  plan.anticipated_challenges = normalizeChallenges(plan.anticipated_challenges as unknown[], allowed, debateId);
+  plan.anticipated_challenges = normalizeChallenges(plan.anticipated_challenges as unknown[], allowed, planClaimAnchors(plan), debateId);
   plan.anticipated_challenges = plan.anticipated_challenges.map(c => {
     const m = typeof c === 'string' ? ATTACK_TAG.exec(c) : null;
     if (!m || allowed.has(m[1])) return c;
@@ -95,18 +110,20 @@ export function applyPlanSteelmanRefs(plan: OpeningPlanWorkProduct | undefined, 
     });
     return c.replace(ATTACK_TAG, 'ATTACK:');
   });
+  // t/388: keep a "targeting node <anchor>" phrase only when the anchor is one of this plan's claims.
+  verifyAttackAnchors(plan, debateId);
 }
 
 /**
  * The plan as later stages see it (draft, cite): ATTACK tags reduced to plain "ATTACK:" and the
- * offered list removed. The ids are for the plan card only, so they never enter a later prompt,
- * and with nothing offered the later prompts are unchanged.
+ * offered list removed, and any "targeting node <anchor>" phrase removed. Both are for the plan
+ * card only, so they never enter a later prompt, and a plan with neither is passed on unchanged.
  */
 export function planForLaterStages<T extends OpeningPlanWorkProduct | undefined>(plan: T): T {
   if (!plan) return plan;
   const { steelman_refs_offered: _offered, ...rest } = plan;
   const challenges = Array.isArray(rest.anticipated_challenges)
-    ? rest.anticipated_challenges.map(c => (typeof c === 'string' ? c.replace(ATTACK_TAG, 'ATTACK:') : c))
+    ? rest.anticipated_challenges.map(c => (typeof c === 'string' ? withoutAnchorPhrase(c).replace(ATTACK_TAG, 'ATTACK:') : c))
     : rest.anticipated_challenges;
   return { ...rest, anticipated_challenges: challenges } as T;
 }

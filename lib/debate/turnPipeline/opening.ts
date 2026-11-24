@@ -70,6 +70,8 @@ export interface OpeningPipelineInput {
   anchorQuestion?: string;
   /** t/388: steelman AN nodes offered to the plan as attack references (from earlier entries). */
   steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
+  /** t/388: ask each plan ATTACK to end with "targeting node <anchor>" (config.planAttackAnchors). Off by default. */
+  attackAnchors?: boolean;
   sourceContent?: string;
   documentAnalysis?: DocumentAnalysis;
   audience?: import('../types.js').DebateAudience;
@@ -136,6 +138,7 @@ export async function runOpeningPipeline(
     isFirst: input.isFirst,
     priorSpeakerLabels: input.priorSpeakerLabels,
     steelmanRefsOffered: input.steelmanRefsOffered,
+    attackAnchors: input.attackAnchors,
     sourceContent: input.sourceContent,
     documentAnalysis: input.documentAnalysis,
     audience: input.audience,

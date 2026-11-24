@@ -132,6 +132,8 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
       priorSpeakerLabels: priorStatements.length > 0 ? priorStatements.map(ps => ps.speaker) : undefined,
       // t/388: steelman AN nodes from earlier entries, as attack references for this plan.
       steelmanRefsOffered: steelmanRefsForPlan(engine, info.pov),
+      // t/388: default-off flag; asks each plan ATTACK to name the speaker's own claim it hits.
+      attackAnchors: engine.config.planAttackAnchors,
       sourceContent: engine.session.document_analysis ? undefined : engine.config.sourceContent,
       documentAnalysis: engine.session.document_analysis,
       audience: engine.config.audience,

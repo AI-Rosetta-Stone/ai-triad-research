@@ -2,5 +2,5 @@
 // Run `npm run gen:behaviour-revision` to regenerate.
 // Source: lib/debate/calibrationLogger/genBehaviourRevision.ts
 
-// Files hashed: 28 (see behaviourRevisionFiles.ts)
-export const BEHAVIOUR_REVISION = 'e5dd9ad6b7a9';
+// Files hashed: 29 (see behaviourRevisionFiles.ts)
+export const BEHAVIOUR_REVISION = '64ea2f405dc5';
