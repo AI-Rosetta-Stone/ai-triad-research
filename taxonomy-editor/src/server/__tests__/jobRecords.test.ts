@@ -234,14 +234,20 @@ describe('listUserJobRecords: user-id code and bounded reads (t/268 item 6)', ()
 
   it('returns the records in listing order, whatever order the reads finish in', async () => {
     seed(12);
+    const finished: number[] = [];
     uc.backend.readFile = async (p: string) => {
-      // Earlier names take longer, so reads finish in reverse.
-      const n = Number(/job-(d+).json$/.exec(p)?.[1] ?? 0);
-      await new Promise(r => setTimeout(r, (12 - n) * 2));
-      return realRead.call(uc.backend, p);
+      // Earlier names take longer, so within each batch the reads finish in reverse.
+      const n = Number(/job-(\d+)\.json$/.exec(p)?.[1] ?? 0);
+      await new Promise(r => setTimeout(r, (12 - n) * 4));
+      const body = await realRead.call(uc.backend, p);
+      finished.push(n);
+      return body;
     };
-    const listed = (await uc.backend.listDirectory(getInquiryJobsDir('owner-1'))).map((n: string) => n.replace(/.json$/, ''));
+    const listed = (await uc.backend.listDirectory(getInquiryJobsDir('owner-1'))).map((n: string) => n.replace(/\.json$/, ''));
     expect((await listUserJobRecords('owner-1', 'inquiry')).map(r => r.jobId)).toEqual(listed);
+    // The premise: the reads really did finish out of listing order. Without this the case proves nothing.
+    expect(finished).toHaveLength(12);
+    expect(finished).not.toEqual([...finished].sort((a, b) => a - b));
   });
 
   it('one failed read among many throws JOB_RECORD_LIST_FAILED: never a shorter list', async () => {
