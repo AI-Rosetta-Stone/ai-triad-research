@@ -526,6 +526,11 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       this._dataLoadStatus = 'ready';
     } else {
+      // t/463: a cached commit that is no longer in repo history re-seeds from mainSha, in memory, before
+      // the tree loads. This does not depend on the manifest file being writable (a read-only share is the case).
+      if (this.manifest?.lastCommitSha && mainSha && !(await this.isCommitInHistory(this.manifest.lastCommitSha))) {
+        this.reseedManifestInMemory();
+      }
       const loaded = await this.fetchRepoTree(mainSha);
       if (loaded) {
         this._dataLoadStatus = 'ready';
@@ -544,11 +549,21 @@ export class GitHubAPIBackend implements StorageBackend {
         // ContainerAppConsoleLogs_CL to count this as a GitHub-outage/auth-failure signal.
         log.github.error({ sha: mainSha }, 'github.api.error: initialize data load failed — /healthz will report 503 until recovery');
       }
-      if (this.manifest && mainSha) {
-        await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+      // t/463: a failed manifest write must not abort start-up before polling starts. The in-memory state
+      // is already correct; the next successful save persists it. Each failure is logged (fallback WARN).
+      if (this.manifest?.lastCommitSha && mainSha) {
+        try {
+          await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+        } catch (err: unknown) {
+          log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
+        }
       }
       if (mainSha) {
-        await this.updateManifestSha(mainSha);
+        try {
+          await this.updateManifestSha(mainSha);
+        } catch (err: unknown) {
+          log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
+        }
       }
     }
 
@@ -3786,6 +3801,38 @@ export class GitHubAPIBackend implements StorageBackend {
       level: 'info',
       message: `Invalidated ${changed.length} files on startup diff`,
       data: { paths: changed.slice(0, 20), trigger: 'startup' },
+    });
+  }
+
+  /** t/463: is `sha` still in repo history? A 404 or 422 says it is not. Any other outcome (a transient
+   *  failure, no credentials) counts as present: a cache is never wiped on an unknown answer. */
+  private async isCommitInHistory(sha: string): Promise<boolean> {
+    const creds = await this.getCredsCached();
+    if (!creds) return true;
+    const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/commits/${sha}`);
+    if (resp.ok) return true;
+    const status = (resp as { status?: number }).status;
+    return !(status === 404 || status === 422);
+  }
+
+  /** t/463: drop the cached commit and its file entries in memory, so start-up re-seeds from the current
+   *  commit. The in-memory state is authoritative for this process; persistence is best-effort. */
+  private reseedManifestInMemory(): void {
+    const staleSha = this.manifest?.lastCommitSha ?? '';
+    if (this.manifest) {
+      this.manifest.files = {};
+      this.manifest.lastCommitSha = '';
+      this.manifest.generation++;
+    }
+    this.repoTree.clear();
+    this.treeSha = null;
+    log.storage.warn({ staleSha }, 'Cached commit is not in repo history — re-seeding from the current commit (t/463)');
+    this.recordEvent({
+      type: 'cache.invalidate',
+      component: 'cache',
+      level: 'warn',
+      message: 'Cached commit not in repo history — re-seeding from current commit',
+      data: { staleSha, trigger: 'not-in-history' },
     });
   }
 
