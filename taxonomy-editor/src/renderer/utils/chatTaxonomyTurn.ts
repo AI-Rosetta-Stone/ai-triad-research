@@ -21,6 +21,8 @@ import { chatSkipWarnings, buildChatTurnTrace, type ChatTurnTrace } from './chat
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
 const QUERY_TRIM = 1000;
+/** Above any POV's size, so relevance returns the whole pool (t/348, CL condition 2). */
+const ALL_POV_NODES = 100000;
 
 export interface ChatTurnQuery {
   topic: string;
@@ -104,7 +106,8 @@ export async function buildChatTaxonomyTurn(input: ChatTurnInput, deps: ChatTurn
       recentTranscript: trimQuery(query.previousPoverText),
       threshold: 0,
       minPerCategory: 0,
-      maxTotal: ctx.povNodes.length,
+      // The server does not know Scope, so the cap must cover the whole POV; Scope is applied below.
+      maxTotal: ALL_POV_NODES,
       session: { anClaimEmbeddings: [{ id: 'chat-query', vector }], sourceType: 'chat' },
     });
     pool = result.povNodes
