@@ -55,7 +55,7 @@ import path from 'path';
 import { setUserContentBackend, setBriefExportBackend, getUserContentBackend, getBriefExportBackend } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { runWithUser, type UserContext } from '../security/userContext.js';
-import { listUserJobRecords } from '../storage/jobRecords.js';
+import { listUserJobRecords, JOB_RECORD_READ_CONCURRENCY } from '../storage/jobRecords.js';
 import { createInquiryJobRecordIfAbsent, getInquiryJobsDir, type InquiryJobRecord } from '../storage/inquiryJobStore.js';
 import { createBriefExportJobRecordIfAbsent, getBriefExportJobsDir, type BriefExportJobRecord } from '../storage/briefExportJobStore.js';
 import { resolveDataPath } from '../config.js';
@@ -192,5 +192,76 @@ describe('listUserJobRecords (t/181)', () => {
     const id = 'a+b-at-example-com';
     put(uc, getInquiryJobsDir(id), 'job-1.json', inquiry('job-1', id));
     expect(await listUserJobRecords(id, 'inquiry')).toHaveLength(1);
+  });
+});
+
+describe('listUserJobRecords: user-id code and bounded reads (t/268 item 6)', () => {
+  const realRead = uc.backend.readFile;
+  beforeEach(() => {
+    uc.files.clear(); serverWarn.mockClear();
+    delete uc.fail.list; delete uc.fail.read;
+    uc.backend.readFile = realRead;
+  });
+  afterAll(() => { uc.backend.readFile = realRead; });
+
+  const seed = (count: number): void => {
+    for (let i = 0; i < count; i++) {
+      const id = `job-${String(i).padStart(2, '0')}`;
+      uc.files.set(path.join(getInquiryJobsDir('owner-1'), `${id}.json`), JSON.stringify(inquiry(id)));
+    }
+  };
+
+  it.each(['', '..', 'a/b'])('an unsafe userId %j is refused with the code INVALID_STORAGE_USER_ID', async (bad) => {
+    await expect(listUserJobRecords(bad, 'inquiry')).rejects.toMatchObject({ code: 'INVALID_STORAGE_USER_ID', httpStatus: 400 });
+  });
+
+  it('reads at most JOB_RECORD_READ_CONCURRENCY records at once, and more than one', async () => {
+    seed(30);
+    let inFlight = 0;
+    let peak = 0;
+    uc.backend.readFile = async (p: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise(r => setTimeout(r, 5));
+      inFlight--;
+      return realRead.call(uc.backend, p);
+    };
+    const records = await listUserJobRecords('owner-1', 'inquiry');
+    expect(records).toHaveLength(30);
+    expect(peak).toBeLessThanOrEqual(JOB_RECORD_READ_CONCURRENCY);
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it('returns the records in listing order, whatever order the reads finish in', async () => {
+    seed(12);
+    const finished: number[] = [];
+    uc.backend.readFile = async (p: string) => {
+      // Earlier names take longer, so within each batch the reads finish in reverse.
+      const n = Number(/job-(\d+)\.json$/.exec(p)?.[1] ?? 0);
+      await new Promise(r => setTimeout(r, (12 - n) * 4));
+      const body = await realRead.call(uc.backend, p);
+      finished.push(n);
+      return body;
+    };
+    const listed = (await uc.backend.listDirectory(getInquiryJobsDir('owner-1'))).map((n: string) => n.replace(/\.json$/, ''));
+    expect((await listUserJobRecords('owner-1', 'inquiry')).map(r => r.jobId)).toEqual(listed);
+    // The premise: the reads really did finish out of listing order. Without this the case proves nothing.
+    expect(finished).toHaveLength(12);
+    expect(finished).not.toEqual([...finished].sort((a, b) => a - b));
+  });
+
+  it('one failed read among many throws JOB_RECORD_LIST_FAILED: never a shorter list', async () => {
+    seed(20);
+    uc.backend.readFile = async (p: string) => {
+      if (p.endsWith('job-13.json')) throw new Error('read timeout');
+      return realRead.call(uc.backend, p);
+    };
+    await expect(listUserJobRecords('owner-1', 'inquiry')).rejects.toMatchObject({ code: 'JOB_RECORD_LIST_FAILED', httpStatus: 503 });
+  });
+
+  it('a record deleted between the listing and its read is skipped, not an error', async () => {
+    seed(5);
+    uc.backend.readFile = async (p: string) => (p.endsWith('job-02.json') ? null : realRead.call(uc.backend, p));
+    expect((await listUserJobRecords('owner-1', 'inquiry')).map(r => r.jobId)).toEqual(['job-00', 'job-01', 'job-03', 'job-04']);
   });
 });
