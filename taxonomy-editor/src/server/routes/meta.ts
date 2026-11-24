@@ -209,6 +209,9 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // admin-only below, since those are operational detail, not a liveness signal.
     const nodeSourceIndexStatus = getNodeSourceIndexStatus();
     const nodeSourceIndexComplete = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.complete;
+    // t/499 (t/498): an index can be complete and still empty. Both fields are null before any build, like the one above.
+    const nodeSourceIndexEmpty = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.empty;
+    const nodeSourceIndexEntryCount = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.entryCount;
     // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): the
     // installation's shared rate limit is the signal that would have caught
     // this before it became a user-visible outage — public (not admin-gated,
@@ -236,7 +239,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       json(res, {
         status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
         ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
-        eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
+        eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete, nodeSourceIndexEmpty, nodeSourceIndexEntryCount,
         githubRateLimitRemaining, githubRateLimitResetsAt, githubRateLimitObservedAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
         blobBackend: blobBackendHealth(),
