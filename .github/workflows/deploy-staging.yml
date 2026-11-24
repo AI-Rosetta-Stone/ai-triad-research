@@ -190,6 +190,9 @@ jobs:
     runs-on: ubuntu-latest
     if: needs.gate.outputs.proceed == 'true'
     environment: staging
+    env:
+      # One definition for the pre-revision gate and the env sync (t/77 Option B, SO t/404#10 condition 1).
+      SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
     timeout-minutes: 30  # SO C2 (t/4194, p/682#16): same rationale as deploy-azure.yml's job —
                          # staging's own runtime is normally shorter, so a tighter cap.
     steps:
@@ -363,11 +366,20 @@ jobs:
             -OutFile (Join-Path $env:RUNNER_TEMP 't4935-env-before.json') `
             -KeyFile (Join-Path $env:RUNNER_TEMP 't4935-env-hash.key')
 
-      - name: Sync Bicep baseEnv to staging template (t/2630)
+      - name: "Pre-revision gate (t/77 condition 4): staging config must not target prod repo or App"
+        # BLOCKING. Runs BEFORE the env sync, on the same resolver and the same input the sync uses
+        # (SYNC_GITHUB_APP_ID_STAGING, defined once at job level). Logic: operations/devops/Test-StagingPreRevisionGate.ps1
+        # (t/404, SO t/404#10).
         shell: pwsh
         env:
-          # t/77 Option B: the staging App id, resolved by Get-BicepBaseEnv -ForStaging (fails closed when empty).
-          SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
+          PROD_REPO: ${{ vars.SYNC_GITHUB_REPO }}
+          PROD_APP_ID: ${{ vars.SYNC_GITHUB_APP_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./operations/devops/Test-StagingPreRevisionGate.ps1 -BicepPath ./deploy/azure/main.bicep
+
+      - name: Sync Bicep baseEnv to staging template (t/2630)
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
