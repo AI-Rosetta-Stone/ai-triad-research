@@ -28,6 +28,7 @@ import { hasApiKey, getPaidGeminiFallbackKey, getStoredUserKeysBeforeFreePool, t
 import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
+import { callerHasKey } from '../ai/keyPresenceForCaller.js';
 import { resolveGenerationContext, enforceBackendAllowed, enforceAnonDebateGate } from './generationContext.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
 import {
@@ -672,7 +673,8 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       const registry = await fileIO.loadAIModels() as { backends?: { id: string }[]; models?: { id: string; backend: string }[] };
       const ids = (registry.backends ?? []).map(b => b.id);
       const keyPresence: Record<string, boolean> = {};
-      await Promise.all(ids.map(async (id) => { keyPresence[id] = await hasApiKey(id as AIBackend); }));
+      // t/516: an anonymous caller is answered from the free pool, never from the owner's _local slots.
+      await Promise.all(ids.map(async (id) => { keyPresence[id] = await callerHasKey(id); }));
       json(res, { backends: ai.computeAvailableBackends(registry, tier.allowedBackends, keyPresence) });
     } catch (err) {
       getGlobalRecorder()?.record({

@@ -59,20 +59,22 @@ export function getStorageUserId(): string {
   return als.getStore()?.storageUserId || '_local';
 }
 
-/** t/501: true only inside a request that is positively anonymous. Unlike isAnonymousUser(), it is false outside
+/** t/516: true only inside a request that is positively anonymous. Unlike isAnonymousUser(), it is false outside
  *  any request context, so background jobs keep their keys. */
 export function isAnonymousRequest(): boolean {
   return als.getStore()?.isAnonymous === true;
 }
 
-/** SO p/252#24: single-operator local mode (AUTH_DISABLED=1, outside production). Every request is then anonymous,
- *  but the operator is the owner, so the owner's keys apply. Same rule as accessControl's isAuthDisabledAllowed
- *  (L1); copied so userContext stays free of accessControl's file-I/O imports; a test pins the two together. */
+/** t/516 (SO p/252#24): single-operator local mode (AUTH_DISABLED=1, outside production). Every request is then
+ *  anonymous, but the operator is the owner, so the owner's keys apply. Same rule as accessControl's
+ *  isAuthDisabledAllowed (L1); copied here so userContext stays free of accessControl's file-I/O imports, and a
+ *  test pins the two together. */
 export function isAuthDisabledMode(): boolean {
   return process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'production';
 }
 
-/** A hosted anonymous request: positively anonymous AND not single-operator local mode. The key gate applies to these only. */
+/** t/516: a hosted anonymous request: positively anonymous AND not single-operator local mode. The key lookup
+ *  and the free-pool answer apply to these only. */
 export function isHostedAnonymousRequest(): boolean {
   return isAnonymousRequest() && !isAuthDisabledMode();
 }

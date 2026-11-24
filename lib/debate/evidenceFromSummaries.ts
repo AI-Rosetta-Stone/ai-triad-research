@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { getGlobalRecorder } from '../flight-recorder/index.js';
+
 /**
  * Source evidence retrieval from the pre-built index.
  * No filesystem access — operates on an in-memory index object.
@@ -319,6 +321,7 @@ export function retrieveSourceEvidence(
   const totalCandidates = deduped.length + uniqueKPs.length;
   const nodesCovered = [...nodeSet].filter(n => index[n]?.facts?.length || index[n]?.keyPoints?.length);
 
+  warnUntitledEvidence([...selectedFacts, ...selectedKPs].map(x => x.doc_id), docTitles);
   const formattedBlock = formatEvidenceBrief(selectedFacts, selectedKPs, docTitles);
 
   // Phase 3: Diagnostics
@@ -340,12 +343,28 @@ export function retrieveSourceEvidence(
 
 // ── Formatting ────────────────────────────────────────────
 
+/**
+ * t/492: an evidence item whose document has no title is given to the model with its document id
+ * in the title position, and the model then cites the id. That fallback was silent. One WARN per
+ * evidence brief says how many items it affects and which documents.
+ */
+function warnUntitledEvidence(docIds: string[], docTitles?: DocTitleMap | DocMetaMap): void {
+  const untitled = [...new Set(docIds.filter(id => !resolveMeta(id, docTitles).hasTitle))];
+  if (untitled.length === 0) return;
+  const count = docIds.filter(id => untitled.includes(id)).length;
+  getGlobalRecorder()?.record({
+    type: 'state.error', component: 'debate-engine', level: 'warn',
+    message: `evidence brief: ${count} of ${docIds.length} items have no document title, so the document id is given to the model in its place and may be cited as written (${docTitles ? 'titles loaded, these documents are missing from them' : 'no document titles were loaded at all'}) (t/492)`,
+    data: { untitled_items: count, total_items: docIds.length, titles_loaded: Boolean(docTitles), doc_ids: untitled.slice(0, 10) },
+  });
+}
+
 /** Resolve doc_id to metadata. Handles both legacy DocTitleMap (string values) and DocMetaMap (object values). */
-function resolveMeta(docId: string, docTitles?: DocTitleMap | DocMetaMap): DocMeta {
+function resolveMeta(docId: string, docTitles?: DocTitleMap | DocMetaMap): DocMeta & { hasTitle: boolean } {
   const entry = docTitles?.[docId];
-  if (!entry) return { title: docId };
-  if (typeof entry === 'string') return { title: entry };
-  return entry;
+  if (!entry) return { title: docId, hasTitle: false };
+  if (typeof entry === 'string') return { title: entry, hasTitle: true };
+  return { ...entry, hasTitle: Boolean(entry.title) };
 }
 
 /** Format a source attribution line for the evidence block (plain text — LLM-friendly).

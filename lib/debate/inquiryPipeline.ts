@@ -86,7 +86,8 @@ export interface InquiryPipelineDeps {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**
- * t/284 item 5: score each debater turn against the question and store the result on the session.
+ * t/284 item 5: score each debater turn's similarity to the question and store the result on the
+ * session, as an internal gross-drift signal. It does not say whether the debate answers the question.
  * If embedding fails or the counts do not line up, store "unavailable" and WARN. Never a fake value.
  */
 async function recordQuestionRelevance(
@@ -111,11 +112,11 @@ async function recordQuestionRelevance(
     }
     session.relevance = relevanceResult(scoreTurns(entries, turnVectors, questionVector));
     if (session.relevance.drift_warning) {
-      warn(`inquiry relevance drift (session ${session.id ?? 'unknown'}): ${session.relevance.drift_reason}`);
+      warn(`inquiry gross-drift signal raised (session ${session.id ?? 'unknown'}): ${session.relevance.drift_reason}`);
     }
   } catch (err) {
     session.relevance = { question_similarity: [], mean: null, drift_warning: false, unavailable_reason: String(err) };
-    warn(`inquiry relevance unavailable (session ${session.id ?? 'unknown'}): ${String(err)}`);
+    warn(`inquiry gross-drift signal unavailable (session ${session.id ?? 'unknown'}): ${String(err)}`);
   }
 }
 
@@ -282,7 +283,7 @@ export async function runInquiryPipeline(
     : undefined;
   const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
 
-  // t/284 item 5: per-turn similarity to the literal question, stored on the session.
+  // t/284 item 5: per-turn similarity to the question, stored on the session as a gross-drift signal.
   await recordQuestionRelevance(session, request.question, deps.embed);
   // Save only now, so the stored session carries the relevance metric (t/476).
   await persistSessionIfSupplied(session, deps.persistSession);
