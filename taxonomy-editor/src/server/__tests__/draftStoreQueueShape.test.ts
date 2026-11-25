@@ -135,10 +135,10 @@ describe('DraftStore queue shape and count fail-closed (t/185 B2, B5)', () => {
     expect([...files.keys()].some(k => k.includes('/_drafts/'))).toBe(false);
   });
 
-  it('B2: a corrupt draft record makes the count fail closed, not return a partial count', async () => {
+  it('t/507 item 3: a corrupt draft record no longer blocks creation; it is counted conservatively and logged', async () => {
     const store = createDraftStore({ backend: mockBackend, now });
     files.set(normalize('community/_drafts/drf_corrupt.json'), '{not json');
-    await expect(store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-5' }))
-      .rejects.toMatchObject({ httpStatus: 503 });
+    const result = await store.createDraft(basePayload, { nodesById: FIXTURE_NODES, clientId: 'client-5' });
+    expect(result.ok).toBe(true);
   });
 });
