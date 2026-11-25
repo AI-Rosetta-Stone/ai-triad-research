@@ -241,7 +241,7 @@ export function chatErrorText(err: unknown, prefix: string): string {
 
 /** Plain copy for the two ways a send can wait on the taxonomy and not start (t/490, Design p/25#115). */
 const TAXONOMY_LOAD_FAILED_COPY = "The taxonomy couldn't load, so the chat can't start. Check your connection, then send again.";
-const TAXONOMY_STILL_LOADING_COPY = 'The taxonomy is still loading, so the chat cannot start. Try again in a moment.';
+const TAXONOMY_STILL_LOADING_COPY = "The taxonomy is still loading, so the chat can't start. Try again in a moment.";
 
 /** An error whose text is shown to the user exactly as written. */
 function taxonomyStartError(problem: string, nextSteps: string[]): ActionableError {
