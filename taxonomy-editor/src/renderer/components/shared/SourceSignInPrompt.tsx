@@ -5,7 +5,7 @@
 // Titles, summaries, quotes and publisher links stay visible elsewhere; only the full text is behind sign-in.
 import './SourceSignInPrompt.css';
 
-export const SOURCE_SIGN_IN_LINE = 'Sign in to read the full text of this source. Its title, summary, key quotes and publisher link stay available without signing in.';
+export const SOURCE_SIGN_IN_LINE = 'Sign in to read the full text of this source. The title, summary, key quotes and publisher link are available without signing in.';
 
 export function SourceSignInPrompt() {
   return (
