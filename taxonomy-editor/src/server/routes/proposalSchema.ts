@@ -18,18 +18,39 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 const text = (max: number) => z.string().max(max).refine(s => !EMAIL.test(s), { message: 'must not contain an email address' });
 const id = z.string().regex(/^[a-z0-9-]{1,64}$/);
 
+// A SPLIT child or a DEPTH_EXPAND sub-group (Invoke-ProposalApply.ps1 reads suggested_id, label, description, an optional
+// category, and for a sub-group the assigned_children it re-parents).
+const ChildSchema = z.object({
+  suggested_id: id,
+  label: text(200),
+  description: text(2000),
+  category: z.string().regex(/^[A-Za-z /-]{1,48}$/).nullable().optional(),
+  pov: z.string().regex(/^[a-z-]{1,32}$/).nullable().optional(),
+  assigned_children: z.array(id).max(200).optional(),
+}).strip();
+
+// t/641 (Security p/93#98): every field Invoke-ProposalApply needs is KEPT. A status-only save from the review dialog
+// must not drop children, merge_node_ids, surviving_node_id or new_parent_id, or SPLIT, MERGE, REORDER and
+// DEPTH_EXPAND proposals would become unappliable without an error. Shape checked against taxonomy-proposal.prompt
+// and the real files in taxonomy/proposals/ (category is null on situation proposals; status is absent until reviewed).
 const ProposalSchema = z.object({
   action: z.enum(['NEW', 'SPLIT', 'MERGE', 'RELABEL', 'REORDER', 'DEPTH_EXPAND', 'WIDTH_EXPAND']),
   target_node_id: id.nullable(),
   suggested_id: id.nullable(),
   pov: z.string().regex(/^[a-z-]{1,32}$/),
-  category: z.string().regex(/^[A-Za-z /-]{1,48}$/),
-  label: text(200),
-  description: text(2000),
+  category: z.string().regex(/^[A-Za-z /-]{1,48}$/).nullable(),
+  label: text(200).nullable(), // null on MERGE/REORDER proposals in real files
+  description: text(2000).nullable(),
   rationale: text(4000),
   evidence_doc_ids: z.array(z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)).max(200),
   evidence_count: z.number().int().min(0).max(100_000),
-  status: z.enum(['pending', 'approved', 'rejected']),
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+  children: z.array(ChildSchema).max(50).nullable().optional(),
+  merge_node_ids: z.array(id).max(50).nullable().optional(),
+  surviving_node_id: id.nullable().optional(),
+  new_parent_id: id.nullable().optional(),
+  density_signal: text(500).nullable().optional(),
+  vocabulary_terms: z.array(text(100)).max(100).nullable().optional(),
 }).strip();
 
 const ProposalFileSchema = z.object({

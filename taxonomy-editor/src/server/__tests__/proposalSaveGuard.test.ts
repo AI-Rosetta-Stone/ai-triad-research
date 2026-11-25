@@ -20,7 +20,10 @@ vi.mock('../community/community.js', async (importActual) => ({
 import type { ServerCtx } from '../routes/context.js';
 import { createRouter, type Handler } from '../httpKit.js';
 import { registerSourcesRoutes } from '../routes/sources.js';
-import { PROPOSAL_MAX_COUNT } from '../routes/proposalSchema.js';
+import { PROPOSAL_MAX_COUNT, validateProposalFile } from '../routes/proposalSchema.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const proposal = (over: Record<string, unknown> = {}) => ({
   action: 'NEW', target_node_id: null, suggested_id: 'acc-beliefs-099', pov: 'accelerationist', category: 'Beliefs',
@@ -92,5 +95,37 @@ describe('t/641: PUT /api/proposals/:filename', () => {
       }
       expect(h.save).not.toHaveBeenCalled();
     });
+  });
+});
+
+// Security p/93#98: a review save must keep every field Invoke-ProposalApply needs. Round-trip every real proposal file
+// in taxonomy/proposals/ (the generator's own output): it validates, and nothing it carries is dropped or changed.
+describe('t/641: real proposal files round-trip unchanged', () => {
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'taxonomy', 'proposals');
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+
+  it('there are real files to check', () => { expect(files.length).toBeGreaterThan(0); });
+
+  for (const f of files) {
+    it(`${f} validates and round-trips with no field dropped`, () => {
+      const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8').replace(/^﻿/, ''));
+      const r = validateProposalFile(data);
+      expect(r.ok, r.ok ? '' : r.reason).toBe(true);
+      expect(r.ok && r.value).toEqual(data);
+    });
+  }
+
+  it('a status-only save keeps SPLIT children (with assigned_children), MERGE ids and the REORDER parent', async () => {
+    h.isAdmin.mockReturnValue(true);
+    const body = file({ proposals: [
+      proposal({ action: 'SPLIT', target_node_id: 'saf-beliefs-001', children: [
+        { suggested_id: 'saf-beliefs-101', label: 'Child A', description: 'A.', assigned_children: ['saf-beliefs-010'] },
+        { suggested_id: 'saf-beliefs-102', label: 'Child B', description: 'B.' },
+      ], status: 'approved' }),
+      proposal({ action: 'MERGE', merge_node_ids: ['acc-beliefs-001', 'acc-beliefs-002'], surviving_node_id: 'acc-beliefs-001', status: 'rejected' }),
+      proposal({ action: 'REORDER', target_node_id: 'skp-beliefs-004', new_parent_id: 'skp-beliefs-001', status: 'pending' }),
+    ] });
+    expect((await put(body)).status).toBe(200);
+    expect((h.save.mock.calls.at(-1) as unknown[])[1]).toEqual(body);
   });
 });
