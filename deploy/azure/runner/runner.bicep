@@ -122,7 +122,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = if (enabled) {
     serverFarmId: hostingPlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'NODE|20'
+      linuxFxVersion: 'NODE|22'
       appSettings: [
         // Managed-identity storage for runtime (C3) — replaces connection string
         { name: 'AzureWebJobsStorage__accountName', value: storageAccount.name }
@@ -131,7 +131,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = if (enabled) {
         { name: 'WEBSITE_CONTENTSHARE', value: 'runner-func-${uniqueSuffix}' }
         { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
         { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }
-        { name: 'WEBSITE_NODE_DEFAULT_VERSION', value: '~20' }
+        { name: 'WEBSITE_NODE_DEFAULT_VERSION', value: '~22' }
         { name: 'WEBSITE_RUN_FROM_PACKAGE', value: '1' }
         { name: 'AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }
         { name: 'RUNNER_RESOURCE_GROUP', value: resourceGroup().name }
