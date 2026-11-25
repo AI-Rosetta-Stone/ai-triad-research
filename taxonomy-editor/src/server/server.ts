@@ -43,6 +43,7 @@ import {
 import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
+import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
@@ -257,9 +258,13 @@ if (STORAGE_MODE === 'github-api') {
   validateStagingBootGuard();
   validateStagingBranchPrefix();
 
+  // t/509 (t/504): pass the poll lease. Inert at one replica (the backend arms it only when maxReplicas > 1).
+  const pollLease = pollLeaseConfigFromEnv(process.env, getMaxReplicas());
+  log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
+    ...(pollLease ? { pollLease } : {}),
   });
   sessionManager = new SessionBranchManager(githubBackend, serverRecorder);
   fileIO.setBackend(githubBackend);
