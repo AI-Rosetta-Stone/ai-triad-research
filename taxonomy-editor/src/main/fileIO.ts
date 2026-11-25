@@ -1154,9 +1154,10 @@ function sortChunkMembers<T extends { id: string; kind?: GroupMemberKind; viaCop
  *  listed id is a chunk, whether or not it has a source dir. An unlisted `<X>-N` stays its own
  *  source. A chunk of a marked copy lands on the copy's canonical as `chunk_copy`.
  *
- *  A listed chunk whose base is absent is reported in `missingBase` and left unfolded. Spec 6.2
- *  says refuse; whether the live builders refuse or log is awaiting the TL on t/572 (agreed with
- *  ServerStorage, t/586, so the two builders stay identical). */
+ *  A listed chunk whose base is absent is reported in `missingBase` and left unfolded; the caller
+ *  logs it at error level, naming the id. Spec 6.2 says refuse, which the PowerShell pipeline does;
+ *  the TL ruled the two live builders log and leave it unfolded instead (option (b), p/50#178),
+ *  identically in src/server/storage/nodeSourceIndex.ts (t/586). */
 function foldManifestChunks(
   resolved: Record<string, string>, docIds: ReadonlySet<string>, manifest: LegacyChunkManifest,
 ): { resolved: Record<string, string>; chunkKinds: Map<string, ChunkMemberKind>; missingBase: string[] } {
