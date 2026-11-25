@@ -21,7 +21,7 @@ Target: **≤20 new PRs a day** team-wide (7-day average). Most PRs are features
   - Commit to that week's branch instead of opening your own docs PR.
   - An urgent rule change, such as an incident, can still go alone with a TL go.
   - Overlay-only guidance (role AGENTS.md, playbooks, Interweave apps) never needs a main-repo PR: commit it with `ogit`.
-- **Team daily budget:** DevOps Lead's metric job posts the day's PR count at 12:00Z and 18:00Z. Once 15 new PRs have opened that day, non-exempt PRs wait until the next day; keep committing to your branch meanwhile. If the 3-day average goes over 25, the cap becomes hard: the PR-creation guard refuses non-exempt PRs past 20 a day.
+- **Team daily budget (t/564, PI directive 2026-11-25):** `enqueue-pr.mjs` refuses non-exempt PRs past 20 new PRs in a UTC day (`feat/` and `train/` branches count once). At 15 the TL and that day's authors are warned. Over-budget PRs wait, oldest first, for a later day's free slots (t/564). DevOps Lead's metric job still posts the day's count at 12:00Z and 18:00Z.
 
 ## PR-Flow Practice Rules
 
