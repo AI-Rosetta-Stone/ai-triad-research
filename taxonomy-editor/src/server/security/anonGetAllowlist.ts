@@ -57,11 +57,7 @@ export const ANON_GET_ROUTES: Readonly<Record<string, AnonGetEntry>> = {
   '/api/organizations/by-topic/:topicRef': { class: 'shared', why: 'organizations by topic' },
   '/api/policy-registry': { class: 'shared', why: 'policy registry' },
   '/api/policy-source-index': { class: 'shared', why: 'policy sources panel' },
-  // TL t/574#5: whether anonymous visitors may read a source's full text or file is a PI decision (open; report-only
-  // keeps today's behaviour until it is made).
-  '/api/snapshots/:sourceId': { class: 'shared', why: 'source snapshot text (PI decision pending, t/574#5)' },
   '/api/source-documents/:docId': { class: 'shared', why: 'source metadata' },
-  '/api/source-documents/:docId/file': { class: 'shared', why: 'source file (PI decision pending, t/574#5)' },
   '/api/source-evidence-index': { class: 'shared', why: 'evidence index' },
   '/api/sources': { class: 'shared', why: 'source list' },
   '/api/summaries/:docId': { class: 'shared', why: 'summaries tab' },
@@ -148,6 +144,10 @@ export const ANON_GET_ROUTES: Readonly<Record<string, AnonGetEntry>> = {
   '/api/keys/:backend': { class: 'deny', why: 'BYOK keys are sign-in only (t/501)' },
 
   // ── deny: sign-in-only features ──
+  // PI decision t/574#13 (decision doc 5e): a source's FULL snapshot text and its file are sign-in only (the sources
+  // repo is private for copyright reasons). Metadata, summaries, quotes and publisher links stay anonymous.
+  '/api/snapshots/:sourceId': { class: 'deny', why: 'full source text: sign-in only (PI, t/574#13)' },
+  '/api/source-documents/:docId/file': { class: 'deny', why: 'source file: sign-in only (PI, t/574#13)' },
   '/api/brief-exports/quota-status': { class: 'deny', why: 'export is sign-in only' },
   '/api/debates/:debateId/exports': { class: 'deny', why: 'export is sign-in only' },
   '/api/export-jobs/:jobId': { class: 'deny', why: 'export is sign-in only' },

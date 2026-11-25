@@ -64,6 +64,15 @@ describe('t/590: every GET route is classified for anonymous callers', () => {
     expect(mismatches).toEqual([]);
   });
 
+  it('PI t/574#13: full source text and source files are sign-in only; source metadata and summaries stay anonymous', () => {
+    expect(ANON_GET_ROUTES['/api/snapshots/:sourceId'].class).toBe('deny');
+    expect(ANON_GET_ROUTES['/api/source-documents/:docId/file'].class).toBe('deny');
+    expect(isAnonGetAllowlisted('/api/snapshots/src-1').allowed).toBe(false);
+    expect(isAnonGetAllowlisted('/api/source-documents/doc-1/file').allowed).toBe(false);
+    expect(isAnonGetAllowlisted('/api/source-documents/doc-1').allowed).toBe(true);
+    expect(isAnonGetAllowlisted('/api/summaries/doc-1').allowed).toBe(true);
+  });
+
   it('an unrouted /api/ path is denied; non-/api paths (SPA shell) are not gated here', () => {
     expect(isAnonGetAllowlisted('/api/nope/at/all').allowed).toBe(false);
     expect(isAnonGetAllowlisted('/').allowed).toBe(true);
