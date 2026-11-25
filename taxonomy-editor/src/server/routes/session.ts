@@ -34,6 +34,7 @@ import { internalTesterCookie, isInternalTester, internalTesterPage, unintendedT
 import { parseExclusionParams } from './analyticsExclusionParams.js';
 import * as allowlistStore from '../storage/allowlistStore.js';
 import type { UserSession } from '../../../../lib/allowlist/types.js';
+import { verifyAnonSessionCookie } from '../security/anonSessionSigning.js';
 // Re-exported so server.ts's pre-route anon mint sites import it here (keeps the
 // server.ts import list flat / at its max-lines ceiling — t/2493).
 export { anonSessionCookiesWithCreated } from './anonSessionCreated.js';
@@ -42,7 +43,8 @@ export { anonSessionCookiesWithCreated } from './anonSessionCreated.js';
  *  Returns 'anon:' + first 12 chars of anon_session_id (HttpOnly — server-reads only),
  *  or '_anonymous' when the cookie is absent (cookie-less fallback). */
 export function resolveAnonSessionKey(req: IncomingMessage): string {
-  const id = parseCookies(req).get('anon_session_id');
+  // t/664: only a verified signed cookie counts; the key is the verified uuid's first 12 characters.
+  const id = verifyAnonSessionCookie(parseCookies(req).get('anon_session_id'));
   return id ? `anon:${id.slice(0, 12)}` : '_anonymous';
 }
 
@@ -146,7 +148,7 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
     // string derived from a validated ms. Authenticated users: omitted (no
     // reliable account-creation source in Easy Auth headers).
     let sessionCreatedAt: string | undefined;
-    if (isAnon && parseCookies(req).get('anon_session_id') !== undefined) {
+    if (isAnon && verifyAnonSessionCookie(parseCookies(req).get('anon_session_id')) !== undefined) { // t/664: verified only
       const now = Date.now();
       let createdMs = readValidCreatedMs(req, now);
       if (createdMs === null) {
