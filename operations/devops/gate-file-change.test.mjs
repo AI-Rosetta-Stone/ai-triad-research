@@ -5,19 +5,22 @@
 // workflow that produces a required check (or a verdict the enqueue reads), extracts each
 // operations/devops script it names, and fails if one is not covered by isGateFile.
 //
-// Scope and limits, on purpose:
-//   - Test files (*.test.mjs, *.Tests.ps1) are not required to be listed: they are the checks'
-//     subject matter, reviewed as code.
-//   - Only scripts NAMED in the workflow text are found. A module that a listed script imports
-//     is not; GATE_SCRIPTS lists those by hand for the enqueue path.
-//   - Scripts outside operations/devops are not walked.
+// The first walk below is the original t/537 one (operations/devops scripts only, test files
+// skipped). t/543 adds two wider walks:
+//   - every repo file a required-check workflow (or a composite action) names must be protected
+//     by isGateFile or listed in CODE_UNDER_TEST (deliberately unprotected product code or tests);
+//   - every repo file a protected script imports, dot-sources, sources or runs, transitively
+//     through protected files, must be protected or listed in CODE_UNDER_TEST. The walk does not
+//     descend into CODE_UNDER_TEST files: what product code loads is product code.
+// The extraction and the resolver live in gate-path-walk.mjs (limits listed there).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GATE_SCRIPTS, WORKFLOW_RUN_SCRIPTS, isGateFile } from './gate-file-change.mjs';
+import { CODE_UNDER_TEST, GATE_SCRIPTS, VERDICT_SCRIPTS, WORKFLOW_RUN_SCRIPTS, isGateFile } from './gate-file-change.mjs';
+import { listRepoFiles, localDependenciesOf, pathsNamedInWorkflow, readRepoText, walkDependencies } from './gate-path-walk.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -74,4 +77,71 @@ test('every listed script exists (a deleted or renamed script must leave the lis
   for (const p of [...GATE_SCRIPTS, ...WORKFLOW_RUN_SCRIPTS]) {
     assert.ok(fs.existsSync(path.join(REPO_ROOT, p)), `${p} is listed but does not exist`);
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// t/543: the wider walks.
+
+let repoFiles = null;
+const files = () => (repoFiles ??= listRepoFiles(REPO_ROOT));
+const classified = (p) => isGateFile(p) || CODE_UNDER_TEST.includes(p);
+const NEXT = 'classify each one in gate-file-change.mjs: VERDICT_SCRIPTS (or GATE_SCRIPTS/WORKFLOW_RUN_SCRIPTS under ' +
+  'operations/devops) when it decides or can change a check verdict without product code changing; CODE_UNDER_TEST ' +
+  '(with a one-line reason) when it is product code or a test of it';
+
+/** The six workflows plus every composite action under .github/actions (they run inside those workflows). */
+export function workflowLikeFiles(fileSet) {
+  const actions = [...fileSet].filter((f) => /^\.github\/actions\/.+\/action\.ya?ml$/.test(f)).sort();
+  return [...REQUIRED_CHECK_WORKFLOWS.map((w) => `.github/workflows/${w}`), ...actions];
+}
+
+test('t/543: every repo file a required-check workflow or composite action names is protected or CODE_UNDER_TEST', () => {
+  const fileSet = files();
+  const unclassified = [];
+  let seen = 0;
+  for (const w of workflowLikeFiles(fileSet)) {
+    const text = readRepoText(REPO_ROOT, w);
+    assert.ok(text != null, `${w} could not be read`);
+    for (const { path: p, line } of pathsNamedInWorkflow(text, fileSet)) {
+      seen += 1;
+      if (!classified(p)) unclassified.push(`${p}  (named in ${w}:${line})`);
+    }
+  }
+  assert.ok(seen > 100, `the walk found only ${seen} named repo file(s); the extraction is broken`);
+  assert.deepEqual(unclassified, [], `unclassified repo files named in required-check workflows; ${NEXT}`);
+});
+
+test('t/543: every file a protected script loads or runs, transitively, is protected or CODE_UNDER_TEST', () => {
+  const fileSet = files();
+  const starts = [...fileSet].filter(isGateFile).sort();
+  const read = (f) => {
+    const text = readRepoText(REPO_ROOT, f);
+    if (text == null) console.warn(`WARN gate-file-change.test: git tracks ${f} but it could not be read; its imports are not walked`);
+    return text;
+  };
+  const edges = starts.reduce((n, f) => n + localDependenciesOf(f, read(f) ?? '', fileSet).length, 0);
+  assert.ok(edges > 50, `the protected files load only ${edges} repo file(s) between them; the resolver is broken`);
+  const reached = walkDependencies(starts, read, fileSet, { descend: isGateFile });
+  const unclassified = [...reached].filter(([p]) => !classified(p)).map(([p, from]) => `${p}  (loaded by ${from})`).sort();
+  assert.deepEqual(unclassified, [], `unprotected files loaded by protected scripts; ${NEXT}`);
+});
+
+test('t/543: every VERDICT_SCRIPTS and CODE_UNDER_TEST entry exists, once, and no path is both protected and CODE_UNDER_TEST', () => {
+  const fileSet = files();
+  for (const p of [...VERDICT_SCRIPTS, ...CODE_UNDER_TEST]) {
+    assert.ok(fileSet.has(p), `${p} is listed in gate-file-change.mjs but git does not track it (deleted or renamed?)`);
+  }
+  const dupes = (xs) => xs.filter((x, i) => xs.indexOf(x) !== i);
+  assert.deepEqual(dupes(VERDICT_SCRIPTS), [], 'VERDICT_SCRIPTS lists a path twice');
+  assert.deepEqual(dupes(CODE_UNDER_TEST), [], 'CODE_UNDER_TEST lists a path twice');
+  assert.deepEqual(CODE_UNDER_TEST.filter(isGateFile), [], 'these CODE_UNDER_TEST paths are also protected; keep each path in one class');
+  assert.deepEqual(VERDICT_SCRIPTS.filter((p) => p.startsWith('operations/devops/') || p.startsWith('.github/')), [],
+    'VERDICT_SCRIPTS is for paths outside operations/devops and .github; use GATE_SCRIPTS/WORKFLOW_RUN_SCRIPTS or GATE_PREFIXES');
+});
+
+test('t/543: the new prefixes and a VERDICT_SCRIPTS entry are protected; CODE_UNDER_TEST is not', () => {
+  assert.equal(isGateFile('.github/scripts/check-control-chars.mjs'), true);
+  assert.equal(isGateFile('.github/codeql/codeql-config.yml'), true);
+  assert.equal(isGateFile('./scripts/check-quality-gates.sh'), true);
+  assert.equal(isGateFile(CODE_UNDER_TEST[0]), false);
 });
