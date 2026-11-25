@@ -397,6 +397,43 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         ($Out2.Stored -join '|') | Should -Not -Match '\. \. \.'
     }
 
+    It 'a label and the chart values printed on their own lines after it are not a passage (p/70#93, sample 5 D18)' {
+        # The source prints them in this order, so the words match exactly. It is still a label and two
+        # cells, not a sentence.
+        $Label = 'Skills gaps in the labour market'
+        $Src = "ECONOMY GLOBAL`n`n$Label`n`n72%`n`n63%`n`n47%`n`n46%`n`nGrowing`n`nMore text about the survey of employers.`n"
+        $Out = & $script:Run $Src "$Label 72% 63%" 'doc-chart-label'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+    }
+
+    It 'prose that ends with a figure on its own line keeps the prose and not the figure (p/70#93)' {
+        $Prose = 'Employers surveyed expect that skills gaps in the labour market will hinder their transformation over the next five years'
+        $Src = "Some other text about the survey.`n`n$Prose`n`n63%`n`nMore text about the survey of employers.`n"
+        $Out = & $script:Run $Src "$Prose 63%" 'doc-prose-figure'
+        $Out.R.Interleaved | Should -Be 1
+        $Out.Stored | Should -Be $Prose
+    }
+
+    It 'a figure inside a line of prose is part of the passage' {
+        $Prose = 'Employers report that 63% of firms see skills gaps in the labour market as the main barrier.'
+        $Src = "Some other text.`n`n$Prose`n`nMore text about the survey of employers.`n"
+        $Out = & $script:Run $Src $Prose 'doc-inline-figure'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Snapped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be $Prose
+    }
+
+    It 'a numbered paragraph after a blank line is not a figure line' {
+        $Src = "The framework has two commitments, stated in the first section of the text.`n`n1. Developers will publish their evaluation results before deployment.`n"
+        $Quote = 'The framework has two commitments, stated in the first section of the text. 1. Developers will publish their evaluation results before deployment.'
+        $Out = & $script:Run $Src $Quote 'doc-numbered'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
     It 'a line that repeats away from any page boundary is document text, not a header (t/389#30)' {
         # A row label printed in every section: no form feed and no page-number line next to it.
         $Label = 'Skills gaps in the labour market'
