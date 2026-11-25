@@ -594,60 +594,6 @@ a.lineage-link,
   opacity: 0.5;
 }
 
-/* Convergence grid — hoisted from inline */
-.convergence-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 4px;
-  padding: 4px 0;
-}
-
-.convergence-cell {
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
-}
-
-.convergence-cell-span {
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
-  grid-column: 1 / -1;
-}
-
-.convergence-label {
-  color: var(--text-muted);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-/* t/4656 follow-up: reading prose matched to the Text pane's statement body size (--text-md),
-   per Design's measured gap (t/4656#3). */
-.convergence-value {
-  color: var(--text-primary);
-  font-size: var(--text-md);
-}
-
-.convergence-badge {
-  margin-left: 4px;
-  font-size: var(--text-2xs);
-}
-
-.convergence-empty {
-  padding: 8px;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-/* Concession badge — hoisted from inline */
-.concession-badge {
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-}
-
 /* ── Meta-view surface (Plan/Terms/Claims/CC) (t/1401) ── */
 
 .debate-statement-body.meta-view {

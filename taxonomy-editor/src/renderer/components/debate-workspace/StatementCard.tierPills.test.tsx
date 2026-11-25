@@ -221,11 +221,20 @@ describe('Why panel: BDI | Vocabulary tabs', () => {
     expect(debateState.setEntryDisplayTier).toHaveBeenLastCalledWith('e1', 'reasoning');
   });
 
-  it('t/643: a statement already on Convergence (global control or an old save) still lists it, so the dropdown is not blank', () => {
+  it('t/697: a statement saved on Convergence opens on Reasoning, and Convergence is not offered', () => {
     render(<StatementCard entry={makeEntry({ display_tier: 'convergence' })} />);
     const how = screen.getByRole('combobox', { name: 'How view' }) as HTMLSelectElement;
-    expect(how.value).toBe('convergence');
-    expect(how.selectedOptions[0].textContent).toBe('Convergence');
+    expect(how.value).toBe('reasoning');
+    expect(Array.from(how.options).some(o => /conv/i.test(o.textContent ?? ''))).toBe(false);
+    expect(screen.getByRole('radio', { name: 'How' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByText('No convergence data for this turn.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Help: convergence signals/)).not.toBeInTheDocument();
+  });
+
+  it('t/697: a saved global default of Convergence also opens statements on Reasoning', () => {
+    debateState.defaultDisplayTier = 'convergence';
+    render(<StatementCard entry={makeEntry({ display_tier: undefined })} />);
+    expect((screen.getByRole('combobox', { name: 'How view' }) as HTMLSelectElement).value).toBe('reasoning');
   });
 
   it('How no longer offers Vocabulary', () => {

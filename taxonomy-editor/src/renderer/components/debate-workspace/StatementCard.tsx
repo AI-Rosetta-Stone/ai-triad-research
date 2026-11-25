@@ -7,7 +7,7 @@ import { escapeMarkdownEmphasis } from '../../hooks/useDebateStore/shared/factCh
 import { useShallow } from 'zustand/react/shallow';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { POVER_INFO } from '../../types/debate';
-import type { SpeakerId, TranscriptEntry, TaxonomyRef, ConvergenceSignals } from '../../types/debate';
+import type { SpeakerId, TranscriptEntry, TaxonomyRef } from '../../types/debate';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkColorizePov } from '../../utils/colorizePovPlugin';
@@ -16,10 +16,8 @@ import { getDebateMarkdownComponents, type VocabResolution } from '../../utils/v
 import {
   speakerLabel, speakerColor, pctFmt, focusMainWindowNode,
   fixMarkdownLinks, stripLeadingHeadings,
-  META_TIERS, WHY_TIERS, TIER_LABELS, modeOfTier,
+  META_TIERS, WHY_TIERS, TIER_LABELS, modeOfTier, shownTier,
 } from './utils';
-import { bandColor as computeBandColor } from '../../lib/bandColor';
-import type { BandEntry } from '../../lib/bandColor';
 import type { AnchorHTMLAttributes, HTMLAttributes } from 'react';
 import { parseEntityRef } from '@lib/entities/types';
 import type { FactVerdict, FactDiscrepancy } from '@lib/debate/types';
@@ -111,131 +109,6 @@ export function PhaseHairline({ label }: { label: string }) {
   return (
     <div className="phase-hairline">
       <span className="phase-hairline-label">{label}</span>
-    </div>
-  );
-}
-
-function ConvBadge({ text, color }: { text: string; color: string }) {
-  return <span className="convergence-badge" style={{ color }}>{text}</span>;
-}
-
-type LabeledBand = BandEntry & { label: string };
-
-function bandBadge(value: number, bands: readonly LabeledBand[]): ReactNode {
-  const color = computeBandColor(value, bands);
-  const label = (bands.find(b => value >= b.threshold) ?? bands.at(-1))!.label;
-  return <ConvBadge text={label} color={color} />;
-}
-
-function ConvCell({ label, span, children }: { label: string; span?: boolean; children: ReactNode }) {
-  return (
-    <div className={span ? 'convergence-cell-span' : 'convergence-cell'}>
-      <div className="convergence-label">{label}</div>
-      <div className="convergence-value">{children}</div>
-    </div>
-  );
-}
-
-const CONCESSION_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
-  taken: { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e', label: 'Taken' },
-  missed: { bg: 'rgba(239,68,68,0.15)', fg: '#ef4444', label: 'Missed' },
-};
-const CONCESSION_DEFAULT = { bg: 'rgba(148,163,184,0.15)', fg: '#94a3b8', label: 'N/A' };
-
-// ── ConvergenceInlineCard cells (t/1911 ADR-007 line-slice) ─────────────
-function PolarityCell({ md }: { md: ConvergenceSignals['move_polarity'] }) {
-  return (
-    <ConvCell label="Polarity">
-      <span style={{ color: '#ef4444' }}>{md?.confrontational ?? 0}C</span>{' / '}
-      <span style={{ color: '#22c55e' }}>{md?.collaborative ?? 0}S</span>
-      {' = '}<strong>{pctFmt(md?.ratio ?? 0)}</strong>
-      {bandBadge(md?.ratio ?? 0, [{ threshold: 0.5, label: 'cooperative', color: '#22c55e' }, { threshold: 0, label: 'confrontational', color: '#ef4444' }])}
-    </ConvCell>
-  );
-}
-
-function EngagementCell({ ed }: { ed: ConvergenceSignals['dialectical_engagement'] }) {
-  const edTargeted = ed?.targeted ?? 0;
-  const edTotal = edTargeted + (ed?.standalone ?? 0);
-  return (
-    <ConvCell label="Dialectical Engagement">
-      {edTargeted}/{edTotal} targeted = <strong>{pctFmt(ed?.ratio ?? 0)}</strong>
-      {bandBadge(ed?.ratio ?? 0, [{ threshold: 0.7, label: 'deep', color: '#22c55e' }, { threshold: 0.4, label: 'moderate', color: '#f59e0b' }, { threshold: 0, label: 'standalone', color: '#ef4444' }])}
-    </ConvCell>
-  );
-}
-
-function RedundancyCell({ rr }: { rr: ConvergenceSignals['argument_redundancy'] }) {
-  const rrMaxOverlap = rr?.max_self_overlap ?? 0;
-  return (
-    <ConvCell label="Argument Redundancy">
-      avg <strong>{pctFmt(rr?.avg_self_overlap ?? 0)}</strong>, max <strong>{pctFmt(rrMaxOverlap)}</strong>
-      {rr?.semantic_max_similarity != null && <>, sem <strong>{pctFmt(rr.semantic_max_similarity)}</strong></>}
-      {rr?.semantically_recycled ? <ConvBadge text="semantic repeat" color="#ef4444" />
-        : bandBadge(rrMaxOverlap, [{ threshold: 0.5, label: 'repeating', color: '#f59e0b' }, { threshold: 0, label: 'fresh', color: '#22c55e' }])}
-    </ConvCell>
-  );
-}
-
-function CounterargCell({ so }: { so: ConvergenceSignals['dominant_counterargument'] }) {
-  return (
-    <ConvCell label="Dominant Counterargument">
-      {so ? (
-        <>{so.node_id} str={so.strength?.toFixed(2)}
-          {bandBadge(so.strength ?? 0, [{ threshold: 0.7, label: 'strong', color: '#ef4444' }, { threshold: 0.5, label: 'moderate', color: '#f59e0b' }, { threshold: 0, label: 'weak', color: '#22c55e' }])}
-        </>
-      ) : <span style={{ color: 'var(--text-muted)' }}>none</span>}
-    </ConvCell>
-  );
-}
-
-function ConcessionCell({ co }: { co: ConvergenceSignals['concession_opportunity'] }) {
-  const coStyle = CONCESSION_STYLES[co?.outcome ?? ''] ?? CONCESSION_DEFAULT;
-  return (
-    <ConvCell label="Concession">
-      {co?.strong_attacks_faced ?? 0} attacks, used: {co?.concession_used ? 'Y' : 'N'} —{' '}
-      <span className="concession-badge" style={{ background: coStyle.bg, color: coStyle.fg }}>
-        {coStyle.label}
-      </span>
-    </ConvCell>
-  );
-}
-
-function DriftCell({ pd }: { pd: ConvergenceSignals['position_drift'] }) {
-  const pdOverlap = pd?.overlap_with_opening ?? 0;
-  return (
-    <ConvCell label="Position Drift">
-      opening: <strong>{pctFmt(pdOverlap)}</strong>, drift: <strong>{pctFmt(pd?.drift ?? 0)}</strong>
-      {bandBadge(pdOverlap, [{ threshold: 0.6, label: 'anchored', color: '#f59e0b' }, { threshold: 0.3, label: 'evolved', color: '#22c55e' }, { threshold: 0, label: 'shifted', color: '#3b82f6' }])}
-    </ConvCell>
-  );
-}
-
-function CruxCell({ cr }: { cr: ConvergenceSignals['crux_engagement_rate'] }) {
-  const crCount = cr?.cumulative_count ?? 0;
-  const crFollow = cr?.cumulative_follow_through ?? 0;
-  return (
-    <ConvCell label="Crux Engagement" span>
-      this turn: {cr?.used_this_turn ? 'Yes' : 'No'} | cumulative: {crCount} | follow-through: {crFollow}
-      {crCount > 0 && crFollow === 0 && <ConvBadge text="no follow-through" color="#f59e0b" />}
-      {crCount > 0 && crFollow > 0 && <ConvBadge text="resolving" color="#22c55e" />}
-    </ConvCell>
-  );
-}
-
-export function ConvergenceInlineCard({ signal }: { signal: ConvergenceSignals | undefined }) {
-  if (!signal) {
-    return <div className="convergence-empty">No convergence data for this turn.</div>;
-  }
-  return (
-    <div className="convergence-grid">
-      <PolarityCell md={signal.move_polarity} />
-      <EngagementCell ed={signal.dialectical_engagement} />
-      <RedundancyCell rr={signal.argument_redundancy} />
-      <CounterargCell so={signal.dominant_counterargument} />
-      <ConcessionCell co={signal.concession_opportunity} />
-      <DriftCell pd={signal.position_drift} />
-      <CruxCell cr={signal.crux_engagement_rate} />
     </div>
   );
 }
@@ -374,9 +247,6 @@ function metaPolicyRefsOf(entry: TranscriptEntry): string[] | undefined {
 }
 function findAnNodeId(activeDebate: ActiveDebateT, entryId: string): string | null {
   return activeDebate?.argument_network?.nodes?.find(n => n.source_entry_id === entryId)?.id ?? null;
-}
-function convergenceSignalFor(activeDebate: ActiveDebateT, entryId: string) {
-  return activeDebate?.convergence_signals?.find(s => s.entry_id === entryId);
 }
 
 // ── StatementCard sub-parts (t/1911 ADR-007 line-slice) ─────────────────
@@ -679,14 +549,6 @@ function MetaModeLabel({ entryId, displayedTier, hasVocab, setEntryDisplayTier }
         <a href="#" className="debate-meta-mode-spec-link" title="Open the Taxonomy Vocabulary System spec"
           onClick={(e) => { e.preventDefault(); void api.openExternal(VOCAB_SPEC_URL); }}>🔖 spec</a>
       )}
-      {displayedTier === 'convergence' && (
-        <TheoryLink
-          docPath="research/comp-linguist/docs/convergence-signals-guide.md"
-          anchor="the-seven-fields"
-          label="Help: convergence signals"
-          size={12}
-        />
-      )}
     </div>
   );
 }
@@ -729,10 +591,6 @@ function StatementBody({
       ) : displayedTier === 'claims' ? (
         <div className="debate-statement-content">
           <ClaimsView entryId={entry.id} debate={activeDebate!} />
-        </div>
-      ) : displayedTier === 'convergence' ? (
-        <div className="debate-statement-content">
-          <ConvergenceInlineCard signal={convergenceSignalFor(activeDebate, entry.id)} />
         </div>
       ) : displayedTier === 'reasoning' ? (
         // t/469 Layout A: the statement's own claims, focus, moves, assumptions and responses.
@@ -885,7 +743,8 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
   );
 
   const isSubstantive = SUBSTANTIVE_TYPES.has(entry.type);
-  const activeTier = isSubstantive ? (entry.display_tier ?? defaultTier) : 'detailed';
+  // t/697: the Convergence view is gone; a saved 'convergence' tier (entry or global) opens on Reasoning.
+  const activeTier = isSubstantive ? shownTier(entry.display_tier ?? defaultTier) : 'detailed';
   const showTierPills = isSubstantive;
 
   // Flip animation: displayedTier lags activeTier — content swaps at the midpoint of the rotateY flip

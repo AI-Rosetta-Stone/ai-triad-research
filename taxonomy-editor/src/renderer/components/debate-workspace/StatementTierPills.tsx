@@ -13,7 +13,7 @@ import { TIER_LABELS, modeOfTier, type DisplayMode } from './utils';
 export type SetEntryDisplayTier = ReturnType<typeof useDebateStore.getState>['setEntryDisplayTier'];
 
 type TextTier = 'brief' | 'medium' | 'detailed';
-type AnalysisTier = 'reasoning' | 'lineage' | 'claims' | 'convergence';
+type AnalysisTier = 'reasoning' | 'lineage' | 'claims';
 type WhyTier = 'why' | 'terms';
 const TEXT_TIERS: TextTier[] = ['brief', 'medium', 'detailed'];
 // t/4625: Text | Why | How; `analysis` id unchanged (label-only rename).
@@ -23,7 +23,7 @@ export const TIER_TITLES: Record<string, string> = {
   brief: '2-3 sentences', medium: '1-2 paragraphs', detailed: 'Full response',
   reasoning: 'Brief, plan & BDI (replaces text)', claims: 'Argument network claims',
   terms: 'Vocabulary disambiguation', lineage: 'Intellectual lineage references',
-  convergence: 'Convergence diagnostics', why: "This statement's BDI grounding",
+  why: "This statement's BDI grounding",
 };
 
 export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, hasLineageRefs }: {
@@ -48,14 +48,9 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
     else if (mode === 'text') setLastText(activeTier as TextTier);
   }, [activeTier]);
 
-  // t/643: Convergence is no longer offered per statement. It is still listed when this statement is
-  // already on it (the global How control, or a saved override), so the dropdown never shows a blank value.
-  // There it reads "Convergence" in full (Design p/14#102); the shared TIER_LABELS keeps "Conv" for the global control.
   const analysisOptions = useMemo<AnalysisTier[]>(
-    () => (['reasoning', 'lineage', 'claims'] as AnalysisTier[])
-      .filter(t => t !== 'lineage' || hasLineageRefs)
-      .concat(activeTier === 'convergence' ? ['convergence'] : []),
-    [hasLineageRefs, activeTier],
+    () => (['reasoning', 'lineage', 'claims'] as AnalysisTier[]).filter(t => t !== 'lineage' || hasLineageRefs),
+    [hasLineageRefs],
   );
   const subTiers: readonly string[] = activeMode === 'text' ? TEXT_TIERS : analysisOptions;
   const isOverridden = entry.display_tier != null;
@@ -125,7 +120,7 @@ export function StatementTierPills({ entry, activeTier, setEntryDisplayTier, has
           }}
         >
           {subTiers.map(tier => (
-            <option key={tier} value={tier}>{tier === 'convergence' ? 'Convergence' : TIER_LABELS[tier]}</option>
+            <option key={tier} value={tier}>{TIER_LABELS[tier]}</option>
           ))}
           {isOverridden && <option value="__match_global__">Match global default</option>}
         </select>

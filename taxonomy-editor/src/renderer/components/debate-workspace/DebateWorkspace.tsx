@@ -16,7 +16,7 @@ import { computeCoverageMap, computeStrengthWeightedCoverage } from '@lib/debate
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import {
   speakerLabel, speakerColor, nodeIdToTab, focusMainWindowNode, countOccurrences, renderedOffsetOf,
-  TIER_LABELS, modeOfTier, type DisplayMode, copyPromptForGemini,
+  TIER_LABELS, modeOfTier, shownTier, type DisplayMode, copyPromptForGemini,
 } from './utils';
 import type { AdaptivePhase } from './utils';
 import { TOAST_DURATION_FEEDBACK } from '../../constants';
@@ -395,14 +395,14 @@ type ActiveDebateSession = NonNullable<DWStore['activeDebate']>;
 type ActiveTranscriptEntry = ActiveDebateSession['transcript'][number];
 
 type GlobalTextTier = 'brief' | 'medium' | 'detailed';
-type GlobalAnalysisTier = 'reasoning' | 'claims' | 'convergence';
+type GlobalAnalysisTier = 'reasoning' | 'claims';
 const GLOBAL_TEXT_TIERS: GlobalTextTier[] = ['brief', 'medium', 'detailed'];
-const GLOBAL_ANALYSIS_TIERS: GlobalAnalysisTier[] = ['reasoning', 'claims', 'convergence'];
+const GLOBAL_ANALYSIS_TIERS: GlobalAnalysisTier[] = ['reasoning', 'claims'];
 const GLOBAL_WHY_TIERS = ['why'] as const;
 const GLOBAL_TIER_TITLES: Record<string, string> = {
   brief: 'Set all turns to brief (2–3 sentences)', medium: 'Set all turns to medium (key points)',
   detailed: 'Set all turns to full content', reasoning: 'Show brief, plan & BDI (replaces text)',
-  claims: 'Show argument network claims', convergence: 'Show convergence diagnostics',
+  claims: 'Show argument network claims',
   why: "Show every turn's BDI grounding",
 };
 // t/4625: Text | Why | How. `analysis` id unchanged (label-only rename: Analysis → How).
@@ -1318,8 +1318,8 @@ export function DebateWorkspace({ onExport, exportStatus }: {
       diagPopoutOpen: s.diagPopoutOpen, setDiagPopoutOpen: s.setDiagPopoutOpen,
       // Header Text/Analysis control + statement display fallback bind to the
       // display tier (defaultDisplayTier, default Medium), NOT responseLength
-      // (generation verbosity, default Detailed) — t/2318.
-      defaultTier: s.defaultDisplayTier, setDefaultTier: s.setDefaultDisplayTier,
+      // (generation verbosity, default Detailed) — t/2318. shownTier: a saved 'convergence' opens on Reasoning (t/697).
+      defaultTier: shownTier(s.defaultDisplayTier), setDefaultTier: s.setDefaultDisplayTier,
       driverIsRemote: s.driverIsRemote,
       selectedRef: s.selectedRef, setSelectedRef: s.setSelectedRef,
       explorationSummary: s.explorationSummary,
