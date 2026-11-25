@@ -72,8 +72,10 @@ function fakeWorld({ prs = {}, queue = null, installRepos = [FULL], fail = {}, o
     throw new Error(`unexpected paginate ${String(route)}`);
   };
   const graphql = async () => { maybeFail('graphql'); return queue; };
-  const github = { rest, paginate, graphql };
-  const appGithub = { rest, paginate };
+  // t/566: the App token does every call. `github` (a GITHUB_TOKEN client) is a trap: any use of it
+  // is recorded and throws, so every test also proves runMergeApproval never touches GITHUB_TOKEN.
+  const appGithub = { rest, paginate, graphql };
+  const github = new Proxy({}, { get(_t, k) { calls.push(`GITHUB_TOKEN:${String(k)}`); throw new Error('GITHUB_TOKEN client used (t/566 forbids it)'); } });
   return { github, appGithub, posts, calls };
 }
 
@@ -96,15 +98,15 @@ const appApproval = (commit, role = 'Quality') => ({ id: 5, user: { login: REVIE
 
 test('resolvePullRequestTarget: the head comes from a fresh pulls.get, not the payload', async () => {
   const w = fakeWorld({ prs: { 3: { head: H('a') } } });
-  const r = await resolvePullRequestTarget(w.github, prCtx(3));
+  const r = await resolvePullRequestTarget(w.appGithub, prCtx(3));
   assert.deepEqual(r, { action: 'evaluate', kind: 'pr', prNumber: 3, headSha: H('a') });
 });
 
 test('resolvePullRequestTarget: skips a plain-issue comment, a closed PR, a non-main base', async () => {
   const w = fakeWorld({ prs: { 3: { head: H('a'), state: 'closed' }, 4: { head: H('b'), base: 'epic/x' } } });
-  assert.equal((await resolvePullRequestTarget(w.github, commentCtx(9, false))).action, 'skip');
-  assert.equal((await resolvePullRequestTarget(w.github, commentCtx(3))).action, 'skip');
-  assert.equal((await resolvePullRequestTarget(w.github, prCtx(4))).action, 'skip');
+  assert.equal((await resolvePullRequestTarget(w.appGithub, commentCtx(9, false))).action, 'skip');
+  assert.equal((await resolvePullRequestTarget(w.appGithub, commentCtx(3))).action, 'skip');
+  assert.equal((await resolvePullRequestTarget(w.appGithub, prCtx(4))).action, 'skip');
 });
 
 test('resolveMergeGroup: Security conditions, each one refuses (skip, no post)', async () => {
@@ -117,7 +119,7 @@ test('resolveMergeGroup: Security conditions, each one refuses (skip, no post)',
     { name: 'something-else' },
   ];
   for (const c of cases) {
-    const r = await resolveMergeGroup(w.github, relayCtx(c));
+    const r = await resolveMergeGroup(w.appGithub, relayCtx(c));
     assert.equal(r.action, 'skip', JSON.stringify(c));
   }
   assert.equal(w.calls.includes('graphql'), false, 'nothing is read before the conditions pass');
@@ -125,7 +127,7 @@ test('resolveMergeGroup: Security conditions, each one refuses (skip, no post)',
 
 test('resolveMergeGroup: exactly one entry at the head SHA; it and every entry ahead are members', async () => {
   const w = fakeWorld({ queue: queueOf([entry(3, 14, H('c'), H('7')), entry(1, 10, H('a'), H('5')), entry(2, 12, H('b'), GROUP_SHA)]) });
-  const r = await resolveMergeGroup(w.github, relayCtx({}));
+  const r = await resolveMergeGroup(w.appGithub, relayCtx({}));
   assert.equal(r.action, 'evaluate');
   assert.equal(r.headSha, GROUP_SHA);
   assert.deepEqual(r.members.map((m) => m.number), [10, 12]);
@@ -133,19 +135,19 @@ test('resolveMergeGroup: exactly one entry at the head SHA; it and every entry a
 
 test('resolveMergeGroup: 0 or 2 matching entries, or a PR mismatch with the branch, is a failure on the SHA', async () => {
   for (const nodes of [[entry(1, 12, H('a'), H('5'))], [entry(1, 12, H('a'), GROUP_SHA), entry(2, 13, H('b'), GROUP_SHA)], [entry(1, 99, H('a'), GROUP_SHA)]]) {
-    const r = await resolveMergeGroup(fakeWorld({ queue: queueOf(nodes) }).github, relayCtx({}));
+    const r = await resolveMergeGroup(fakeWorld({ queue: queueOf(nodes) }).appGithub, relayCtx({}));
     assert.equal(r.action, 'fail');
     assert.equal(r.headSha, GROUP_SHA);
   }
-  const none = await resolveMergeGroup(fakeWorld({ queue: { repository: { mergeQueue: null } } }).github, relayCtx({}));
+  const none = await resolveMergeGroup(fakeWorld({ queue: { repository: { mergeQueue: null } } }).appGithub, relayCtx({}));
   assert.equal(none.action, 'fail');
 });
 
 test('resolveReviewRelay: accepts only pull_request_review from this repo; resolves the PR from head_sha', async () => {
   const w = fakeWorld({ prs: { 5: { head: H('a') } } });
-  assert.deepEqual(await resolveReviewRelay(w.github, reviewCtx({})), { action: 'evaluate', kind: 'pr', prNumber: 5, headSha: H('a'), requireHead: H('a') });
+  assert.deepEqual(await resolveReviewRelay(w.appGithub, reviewCtx({})), { action: 'evaluate', kind: 'pr', prNumber: 5, headSha: H('a'), requireHead: H('a') });
   for (const c of [{ event: 'pull_request' }, { event: 'merge_group' }, { head_repository: { full_name: 'fork/x' } }, { name: 'other' }, { head_sha: 'zz' }]) {
-    assert.equal((await resolveReviewRelay(w.github, reviewCtx(c))).action, 'skip', JSON.stringify(c));
+    assert.equal((await resolveReviewRelay(w.appGithub, reviewCtx(c))).action, 'skip', JSON.stringify(c));
   }
 });
 
@@ -158,8 +160,8 @@ test('resolveReviewRelay: no open PR at that head (it moved) skips without posti
 
 test('resolveTarget: workflow_run from any other event is skipped', async () => {
   const w = fakeWorld();
-  assert.equal((await resolveTarget(w.github, relayCtx({ event: 'workflow_dispatch' }))).action, 'skip');
-  assert.equal((await resolveTarget(w.github, { eventName: 'push', repo: repoCtx, payload: {} })).action, 'skip');
+  assert.equal((await resolveTarget(w.appGithub, relayCtx({ event: 'workflow_dispatch' }))).action, 'skip');
+  assert.equal((await resolveTarget(w.appGithub, { eventName: 'push', repo: repoCtx, payload: {} })).action, 'skip');
 });
 
 // ---- scope + post ---------------------------------------------------------------------------
@@ -262,10 +264,10 @@ test('run: a head that keeps changing ends in a failure post after MAX_PASSES', 
   let n = 0;
   const heads = ['1', '2', '3', '4', '5', '6', '7', '8'];
   const w = fakeWorld({ prs });
-  const origPaginate = w.github.paginate;
-  w.github.paginate = async (route, params) => {
+  const origPaginate = w.appGithub.paginate;
+  w.appGithub.paginate = async (route, params) => {
     // Move the head once per evaluation (on its comments read, between the two pulls.get calls' window is avoided).
-    if (route === w.github.rest.repos.listPullRequestsAssociatedWithCommit) {
+    if (route === w.appGithub.rest.repos.listPullRequestsAssociatedWithCommit) {
       const res = await origPaginate(route, params);
       prs[3].head = H(heads[n++]);
       return res.length ? res : [];
@@ -281,10 +283,10 @@ test('run: a head that keeps changing ends in a failure post after MAX_PASSES', 
 test('run: review relay whose PR head moved after resolution skips without posting', async () => {
   const prs = { 5: { head: H('a') } };
   const w = fakeWorld({ prs });
-  const origPaginate = w.github.paginate;
-  w.github.paginate = async (route, params) => {
+  const origPaginate = w.appGithub.paginate;
+  w.appGithub.paginate = async (route, params) => {
     const res = await origPaginate(route, params);
-    if (route === w.github.rest.repos.listPullRequestsAssociatedWithCommit && prs[5].head === H('a')) prs[5].head = H('b');
+    if (route === w.appGithub.rest.repos.listPullRequestsAssociatedWithCommit && prs[5].head === H('a')) prs[5].head = H('b');
     return res;
   };
   const r = await runMergeApproval({ github: w.github, appGithub: w.appGithub, context: reviewCtx({}), tierConfig: TIER_CONFIG });
@@ -349,4 +351,41 @@ test('wiring (Security p/131#58): the /recheck-guards arm runs only for OWNER, M
   assert.ok(commentArm, 'the issue_comment arm is delimited');
   assert.match(commentArm[1], /github\.event\.comment\.user\.login == 'ai-triad-reviewer-jpsnover\[bot\]'/);
   assert.doesNotMatch(commentArm[1].replace(/\(contains\(github\.event\.comment\.body, '\/recheck-guards'\) && contains\(fromJSON\([^)]*\), github\.event\.comment\.author_association\)\)/, ''), /contains\(github\.event\.comment\.body/);
+});
+
+// ── t/566 (Security p/131#63): App-token reads fail closed, never fall back to GITHUB_TOKEN ──
+for (const [name, err] of [['pulls.get', httpError(403)], ['listReviews', httpError(502)], ['listComments', httpError(404)]]) {
+  test(`t/566: a failing App-token read (${name}) posts failure and makes no GITHUB_TOKEN call`, async () => {
+    const w = fakeWorld({ prs: { 3: { head: H('c') } }, fail: { [name]: err } });
+    await assert.rejects(runMergeApproval({ github: w.github, appGithub: w.appGithub, context: prCtx(3), tierConfig: TIER_CONFIG }));
+    assert.ok(w.calls.includes(name), `the App read ${name} was attempted`);
+    assert.deepEqual(w.calls.filter((c) => c.startsWith('GITHUB_TOKEN:')), [], 'no GITHUB_TOKEN call at all');
+    const failures = w.posts.filter((p) => p.conclusion === 'failure');
+    assert.ok(failures.length >= 1 || name === 'pulls.get', 'a failure check run is posted once the SHA is known');
+    assert.ok(w.posts.every((p) => p.conclusion !== 'success'), 'never success');
+  });
+}
+
+test('t/566: the happy path makes every read through the App token (no GITHUB_TOKEN call)', async () => {
+  const w = fakeWorld({ prs: { 3: { head: H('c') } } });
+  await runMergeApproval({ github: w.github, appGithub: w.appGithub, context: prCtx(3), tierConfig: TIER_CONFIG });
+  assert.ok(w.calls.includes('pulls.get') && w.calls.includes('listFiles') && w.calls.includes('listReviews') && w.calls.includes('listComments'));
+  assert.deepEqual(w.calls.filter((c) => c.startsWith('GITHUB_TOKEN:')), []);
+  assert.ok(w.posts.length >= 1);
+});
+
+test('t/566: runMergeApproval takes no GITHUB_TOKEN client (signature)', () => {
+  const src = fs.readFileSync(new URL('./merge-approval-run.mjs', import.meta.url), 'utf8');
+  assert.match(src, /export async function runMergeApproval\(\{ appGithub, context, tierConfig, retry = noRetry, log = \(\) => \{\} \}\)/);
+});
+
+test('t/566 wiring: no diagnostic step; runMergeApproval gets only appGithub; the App token is only in the Evaluate step; GITHUB_TOKEN is contents: read', () => {
+  const yml = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'merge-approval.yml'), 'utf8').replace(/\r\n/g, '\n');
+  assert.doesNotMatch(yml, /Probe App-token read access/);
+  assert.match(yml, /runMergeApproval\(\{ appGithub, context, tierConfig, retry, log: /);
+  assert.doesNotMatch(yml, /runMergeApproval\(\{ github,/);
+  assert.equal((yml.match(/steps\.app\.outputs\.token/g) || []).length, 1, 'the App token is referenced once (the Evaluate step env)');
+  assert.match(yml, /- name: Evaluate and post merge-approval[\s\S]*?APP_TOKEN: \$\{\{ steps\.app\.outputs\.token \}\}/);
+  assert.match(yml, /    permissions:\n      contents: read {2}# the checkout only/);
+  assert.doesNotMatch(yml, /pull-requests: read/);
 });
