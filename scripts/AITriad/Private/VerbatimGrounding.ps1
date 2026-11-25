@@ -77,6 +77,11 @@ $script:VerbatimSourceNfkc = $true          # (1) the source's letters are NFKC-
 $script:VerbatimNoSpaceDeletion = 'source'  # (2) a space is never deleted: 'source' fails a source space inside a quote word; 'both' also fails glued source words; 'none'
 $script:VerbatimStoreModelWords = $true     # (3) where the normalised match holds, the model's own words are stored, not the source's text
 $script:VerbatimNbspWordEdge = $true        # t/389#67 (1): the a-acute no-break space also at a word's start or end, never at the quote's own start or end
+# CL t/389#70: matching lower-cases both sides (the spec 7.2 key does), so a quote can differ from the source in
+# case alone. That is allowed only at the quote's first letter, or where the source word is all capitals (two
+# letters or more; the model may write it in any capitalisation, t/389#72). Anywhere else the quote fails.
+$script:VerbatimCaseRule = $true
+$script:VerbatimCaseMaxPlaces = 25          # places in the source tried for a quote kept as written
 $script:VerbatimHyphenBreakPattern = '^[-' + [char]0xAD + [char]0x2010 + [char]0x2011 + '][ \t]*\r?\n\s*$'   # a word broken over a line end
 $script:VerbatimHeadAcrossRef = $true       # the snap reaches back over a reference to the quote's first words ("Causation 344 poses ...")
 $script:VerbatimRejectDamagedWord = $true    # a stored piece with a word that is not the quote's word fails (CL t/389#56 (3))
@@ -212,6 +217,7 @@ function Get-VerbatimSource {
     # quote's letters are (CL t/389#64 (1)). WordMap[i] then gives, for each folded letter of word i, the
     # offset in the word of the character it came from. A ligature the converter dropped is not restored.
     $CharsOut = [System.Text.StringBuilder]::new($Lower.Length)
+    $CasedOut = [System.Text.StringBuilder]::new($Lower.Length)   # the same letters before lower-casing (CL t/389#70)
     $WordMap = @{}
     $KC = [System.Text.NormalizationForm]::FormKC
     $At = 0; $WordIx = 0
@@ -234,12 +240,21 @@ function Get-VerbatimSource {
             }
         }
         [void]$CharsOut.Append($Word)
+        # The cased copy of the word must line up with the lowered one letter for letter; where it does not,
+        # the lowered word stands in (its case is then unknown and reads as lower case).
+        $CasedWord = $W.Substring($M.Index, $M.Length)
+        if ($CasedWord.Length -ne $Word.Length -or $CasedWord.ToLowerInvariant() -cne $Word) {
+            $CasedWord = [regex]::Replace($CasedWord.Normalize($KC), '[^\p{L}\p{Nd}]', '')
+            if ($CasedWord.Length -ne $Word.Length -or $CasedWord.ToLowerInvariant() -cne $Word) { $CasedWord = $Word }
+        }
+        [void]$CasedOut.Append($CasedWord)
         $At += $Word.Length; $WordIx++
     }
     [pscustomobject]@{
         Text       = $Text
         Key        = ' ' + (ConvertTo-EvidenceKey -Quote $Work) + ' '
         Chars      = $CharsOut.ToString()
+        CharsCased = $CasedOut.ToString()   # Chars before lower-casing, letter for letter
         WordAt     = $WordAt
         WordOffset = $WordOffset
         WordMap    = $WordMap         # word index -> offsets within the word, for the words NFKC changed
@@ -271,8 +286,9 @@ function Get-VerbatimWordGap {
     $S = $Text
     foreach ($Pair in $script:EvidenceMojibakeSequences) { $S = $S.Replace($Pair[0], $Pair[1]) }
     foreach ($Pair in $script:EvidenceMojibakeSingles) { $S = $S.Replace($Pair[0], $Pair[1]) }
-    $S = $S.Normalize([System.Text.NormalizationForm]::FormKC).ToLowerInvariant()
+    $S = $S.Normalize([System.Text.NormalizationForm]::FormKC)
     $Letters = [System.Text.StringBuilder]::new($S.Length)
+    $Cased = [System.Text.StringBuilder]::new($S.Length)
     $Any = [System.Collections.Generic.List[bool]]::new()
     $Space = [System.Collections.Generic.List[bool]]::new()
     $GapFrom = -1
@@ -284,11 +300,77 @@ function Get-VerbatimWordGap {
                 $HasSpace = $Gap -match '\s' -and $Gap -notmatch $script:VerbatimHyphenBreakPattern
             }
             $Any.Add($GapFrom -ge 0); $Space.Add($HasSpace)
-            [void]$Letters.Append($S[$I])
+            [void]$Letters.Append([char]::ToLowerInvariant($S[$I]))
+            [void]$Cased.Append($S[$I])
             $GapFrom = -1
         } elseif ($GapFrom -lt 0) { $GapFrom = $I }
     }
-    [pscustomobject]@{ Letters = $Letters.ToString(); Any = $Any.ToArray(); Space = $Space.ToArray() }
+    [pscustomobject]@{ Letters = $Letters.ToString(); Cased = $Cased.ToString(); Any = $Any.ToArray(); Space = $Space.ToArray() }
+}
+
+function Get-VerbatimCaseVerdict {
+    # Compares the case of a quote's letters with the source's, where the letters already agree when
+    # lower-cased (CL t/389#70). $WordStart[i] says a source word begins at letter i.
+    # Returns @{ Fail; First; Caps; At }: Fail when a difference is not permitted (At names the two words),
+    # First when the quote's first letter differs, Caps when an all-capitals source word is in lower case.
+    # $Declared: places in the quote's letters where the model marked the changed capital itself, as "[F]uture"
+    # (read as the letter since t/389#20). A marked change is permitted and counted.
+    param([string]$SourceCased, [bool[]]$WordStart, [string]$QuoteCased, [bool]$FirstAllowed, [int[]]$Declared = @())
+    $R = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; Unchecked = $false }
+    if ($SourceCased -ceq $QuoteCased) { return $R }
+    if ($SourceCased.Length -ne $QuoteCased.Length) { $R.Unchecked = $true; return $R }
+    $N = $SourceCased.Length
+    for ($I = 0; $I -lt $N; $I++) {
+        if ($SourceCased[$I] -ceq $QuoteCased[$I]) { continue }
+        if ($Declared -contains $I) { $R.Bracket = $true; continue }
+        $W0 = $I; while ($W0 -gt 0 -and -not $WordStart[$W0]) { $W0-- }
+        $W1 = $I + 1; while ($W1 -lt $N -and -not $WordStart[$W1]) { $W1++ }
+        $SW = $SourceCased.Substring($W0, $W1 - $W0); $QW = $QuoteCased.Substring($W0, $W1 - $W0)
+        # The source's word in capitals (a heading, small caps): the model may write it in any capitalisation
+        # (CL t/389#72). Lower case and other capitalisations ("Introduction" for "INTRODUCTION") are counted apart.
+        if ($SW.Length -ge 2 -and $SW -ceq $SW.ToUpperInvariant()) {
+            if ($QW -ceq $QW.ToLowerInvariant()) { $R.Caps = $true } else { $R.Title = $true }
+            $I = $W1 - 1; continue
+        }
+        if ($I -eq 0 -and $FirstAllowed) { $R.First = $true; continue }
+        $R.Fail = $true; $R.At = "$SW | $QW"
+        return $R
+    }
+    $R
+}
+
+function Get-VerbatimDeclaredCase {
+    # Where, in a quote's letters, the model put a single letter in square brackets before a word ("[F]uture").
+    param([string]$Text)
+    @(foreach ($M in [regex]::Matches($Text, '\[\p{L}\](?=\p{L})')) { (Get-VerbatimWordGap -Text $Text.Substring(0, $M.Index)).Letters.Length })
+}
+
+function Get-VerbatimExactCaseVerdict {
+    # The case verdict for a quote whose key is in the source as written. The key says nothing of where, so
+    # the quote's letters are looked up in the source's; any place where the case passes will do.
+    # $DeclaredFrom: the quote before its noise was removed; that removal turns "[F]uture" into "Future".
+    param([object]$Source, [string]$Quote, [bool]$FirstAllowed, [string]$DeclaredFrom = $Quote)
+    $Q = Get-VerbatimWordGap -Text $Quote
+    $None = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; Unchecked = $false }
+    $Declared = @(Get-VerbatimDeclaredCase -Text $DeclaredFrom)
+    if ($Q.Letters.Length -eq 0 -or -not $Source.PSObject.Properties['CharsCased']) { $None.Unchecked = $true; return $None }
+    if ($Source.CharsCased.Contains($Q.Cased, [System.StringComparison]::Ordinal)) { return $None }
+    $Best = $null
+    $P = 0
+    for ($Tried = 0; $Tried -lt $script:VerbatimCaseMaxPlaces; $Tried++) {
+        $P = $Source.Chars.IndexOf($Q.Letters, $P, [System.StringComparison]::Ordinal)
+        if ($P -lt 0) { break }
+        $WordStart = [bool[]]::new($Q.Letters.Length)
+        $W = [Array]::BinarySearch($Source.WordAt, $P)
+        if ($W -lt 0) { $W = -bnot $W }
+        for (; $W -lt $Source.WordAt.Count -and $Source.WordAt[$W] -lt $P + $Q.Letters.Length; $W++) { $WordStart[$Source.WordAt[$W] - $P] = $true }
+        $V = Get-VerbatimCaseVerdict -SourceCased $Source.CharsCased.Substring($P, $Q.Letters.Length) -WordStart $WordStart -QuoteCased $Q.Cased -FirstAllowed $FirstAllowed -Declared $Declared
+        if (-not $V.Fail) { return $V }
+        if ($null -eq $Best) { $Best = $V }
+        $P++
+    }
+    if ($null -eq $Best) { $None.Unchecked = $true; return $None }
+    $Best
 }
 
 function Get-VerbatimQuoteCut {
@@ -808,7 +890,26 @@ function Resolve-VerbatimSegment {
     # Start/End are the segment's place in the source text when it was located ($null when it was not).
     # An interleaved segment is stored as its matched source pieces, each the source's own text: kept as
     # the model wrote it, it would read as one continuous passage, which it isn't (CL ruling p/70#77).
-    param([object]$Source, [string]$Segment)
+    # $QuoteStart: the segment begins the quote (its first letter may differ in case, CL t/389#70).
+    param([object]$Source, [string]$Segment, [bool]$QuoteStart = $true)
+    # The case rule for a segment kept as written. True when it fails; what was permitted is counted.
+    $CaseFails = {
+        param($Text)
+        if (-not $script:VerbatimCaseRule) { return $false }
+        $V = Get-VerbatimExactCaseVerdict -Source $Source -Quote $Text -FirstAllowed $QuoteStart -DeclaredFrom $Segment
+        if ($V.Unchecked) { $script:VerbatimDiag.Add('case not checked: the quote was not placed letter for letter'); return $false }
+        if ($V.Fail) { $script:VerbatimDiag.Add("case word: $($V.At)"); $script:VerbatimDiag.Add('case differs (as written)'); return $true }
+        if ($V.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
+        if ($V.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
+        if ($V.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
+        if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
+        $false
+    }
+    $CaseDrop = {
+        $D = [pscustomobject]@{ Decision = 'dropped'; Texts = @(); Coverage = 1.0; Start = $null; End = $null }
+        Add-Member -InputObject $D -NotePropertyName Rejected -NotePropertyValue $true
+        $D
+    }
     $Result = {
         param($Decision, $Texts, $Coverage, $Snap)
         [pscustomobject]@{ Decision = $Decision; Texts = @($Texts); Coverage = $Coverage
@@ -826,6 +927,7 @@ function Resolve-VerbatimSegment {
                 return (& $Result 'dropped' @() $(if ($Snap) { [double]$Snap.Coverage } else { 0.0 }) $null)
             }
         }
+        if (& $CaseFails $Segment) { return (& $CaseDrop) }
         return (& $Result 'exact' @($Segment) 1.0 $Snap)
     }
     $Clean = Remove-VerbatimQuoteNoise -Source $Source -Quote $Segment
@@ -836,6 +938,7 @@ function Resolve-VerbatimSegment {
                 return (& $Result 'dropped' @() $(if ($Snap) { [double]$Snap.Coverage } else { 0.0 }) $null)
             }
         }
+        if (& $CaseFails $Clean) { return (& $CaseDrop) }
         return (& $Result 'snapped' @($Clean) 1.0 $Snap)
     }
     # The quote exactly as the model wrote it, URL and all, with only marker lines between its lines (F01: a
@@ -848,6 +951,7 @@ function Resolve-VerbatimSegment {
             if ($WholeFigure.Verdict -ne 'drop' -and $WholeFigure.Markers -gt 0) {
                 $WholeLetters = ((ConvertTo-EvidenceKey -Quote $Source.Text.Substring($Whole.Start, $Whole.End - $Whole.Start)) -replace ' ', '').Length
                 if ($WholeLetters - $WholeFigure.MarkerLetters -eq $Whole.QuoteLetters) {
+                    if ($script:VerbatimCaseRule) { $script:VerbatimDiag.Add('case not checked: marker lines inside the passage') }
                     return (& $Result 'snapped' @($Segment) 1.0 $Whole)
                 }
             }
@@ -864,6 +968,7 @@ function Resolve-VerbatimSegment {
             $QLetters = (ConvertTo-EvidenceKey -Quote $Clean) -replace ' ', ''
             $TailEnd = Find-VerbatimTailAfterFootnote -Source $Source -Tail $QLetters.Substring($Only.QEnd) -After $Only.End
             if ($TailEnd -gt 0) {
+                if ($script:VerbatimCaseRule) { $script:VerbatimDiag.Add('case not checked: footnote inside the passage') }
                 $R = & $Result 'snapped' @($Segment) 1.0 $Snap
                 $R.End = $TailEnd
                 return $R
@@ -879,6 +984,7 @@ function Resolve-VerbatimSegment {
         if ($Figure.Markers -gt 0 -and $Snap.Contiguous -and $Clean -ceq $Segment -and $Coverage -ge 1.0) {
             $SpanLetters = ((ConvertTo-EvidenceKey -Quote $Source.Text.Substring($Snap.Start, $Snap.End - $Snap.Start)) -replace ' ', '').Length
             if ($SpanLetters - $Figure.MarkerLetters -eq $Snap.QuoteLetters) {
+                if ($script:VerbatimCaseRule) { $script:VerbatimDiag.Add('case not checked: marker lines inside the passage') }
                 return (& $Result 'snapped' @($Segment) 1.0 $Snap)
             }
         }
@@ -1017,7 +1123,8 @@ function Resolve-VerbatimSegment {
                 # "artificial") fails. Source words printed with no space between them, where the quote has
                 # one, are counted, and fail only when the switch says 'both'.
                 $Glued = 0
-                if (-not $Why -and $null -ne $Want -and $script:VerbatimNoSpaceDeletion -ne 'none') {
+                $CaseSeen = $null
+                if (-not $Why -and $null -ne $Want -and ($script:VerbatimNoSpaceDeletion -ne 'none' -or $script:VerbatimCaseRule)) {
                     $Shown = [System.Text.StringBuilder]::new($PieceWork)
                     # A space the working copy has only as padding (a repaired mojibake mark or ligature, a blanked
                     # tag) is not a space of the source: "EU" + a damaged apostrophe + "s" is one word.
@@ -1035,8 +1142,15 @@ function Resolve-VerbatimSegment {
                     if ($SGap.Letters -cne $Want -or $QGap.Letters -cne $QLetters) {
                         $script:VerbatimDiag.Add('space check not run: letters differ between the two readings')
                     } else {
+                        if ($script:VerbatimCaseRule) {
+                            $WordStart = [bool[]]$SGap.Any.Clone(); $WordStart[0] = $true
+                            $CaseSeen = Get-VerbatimCaseVerdict -SourceCased $SGap.Cased -WordStart $WordStart `
+                                -QuoteCased $QGap.Cased.Substring($P.QStart, $Want.Length) -FirstAllowed ($QuoteStart -and $P.QStart -eq 0) `
+                                -Declared @(Get-VerbatimDeclaredCase -Text $Segment | ForEach-Object { $_ - $P.QStart })
+                        }
                         $Split = 0
                         for ($K = 1; $K -lt $Want.Length; $K++) {
+                            if ($script:VerbatimNoSpaceDeletion -eq 'none') { break }
                             if ($SGap.Space[$K] -and -not $QGap.Any[$P.QStart + $K]) {
                                 if ($Split -eq 0) {
                                     # For audits: the quote's word that the source has in two.
@@ -1050,6 +1164,16 @@ function Resolve-VerbatimSegment {
                         }
                         if ($Split -gt 0) { $Why = 'source splits a word' }
                         elseif ($Glued -gt 0 -and $script:VerbatimNoSpaceDeletion -eq 'both') { $Why = 'source glues words' }
+                        if (-not $Why -and $null -ne $CaseSeen) {
+                            if ($CaseSeen.Fail) { $script:VerbatimDiag.Add("case word: $($CaseSeen.At)"); $Why = 'case differs' }
+                            elseif ($CaseSeen.Unchecked) { $script:VerbatimDiag.Add('case not checked: the quote was not placed letter for letter') }
+                            else {
+                                if ($CaseSeen.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
+                                if ($CaseSeen.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
+                                if ($CaseSeen.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
+                                if ($CaseSeen.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
+                            }
+                        }
                     }
                 }
                 if ($Glued -gt 0 -and -not $Why) { $script:VerbatimDiag.Add('source glues words, stored') }
@@ -1227,7 +1351,7 @@ function Resolve-VerbatimQuote {
         $AllLetters += $PartLetters
         # A fragment shorter than one run can't be placed in the source, so it can't be kept as a quote.
         if ($PartLetters -lt $script:VerbatimMinRun) { continue }
-        $R = Resolve-VerbatimSegment -Source $Source -Segment $Part
+        $R = Resolve-VerbatimSegment -Source $Source -Segment $Part -QuoteStart ([object]::ReferenceEquals($Part, $Parts[0]))
         if ($R.Coverage -gt $BestCoverage) { $BestCoverage = $R.Coverage }
         if ($R.Decision -eq 'dropped') {
             if ($R.PSObject.Properties['Rejected'] -and $R.Rejected) { $AnyRejected = $true }

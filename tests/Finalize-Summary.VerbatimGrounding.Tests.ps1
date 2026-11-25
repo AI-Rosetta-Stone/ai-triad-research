@@ -732,6 +732,72 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         }
     }
 
+    Context 'case (CL t/389#70, #72): matching lower-cases both sides, so a case-only difference is judged apart' {
+        BeforeAll {
+            $script:Decide = {
+                param($Src, $Quote)
+                InModuleScope AITriad -Parameters @{ S = $Src; Q = $Quote } {
+                    param($S, $Q)
+                    $script:VerbatimDiag.Clear()
+                    $R = Resolve-VerbatimQuote -Source (Get-VerbatimSource -Text $S) -Quote $Q
+                    [pscustomobject]@{ Decision = $R.Decision; Texts = @($R.Texts); Diag = @($script:VerbatimDiag.ToArray()) }
+                }
+            }
+            $script:CaseSrc = "In the report, our internal leak rate was measured by the lab before the release of the model.`r`n`r`nINTRODUCTION TO THE METHOD`r`n`r`nThe method rests on three assumptions about the evaluation. A model is tested twice.`r`n"
+        }
+
+        It 'the first letter of the quote may differ in case, in a quote kept as written' {
+            $R = & $script:Decide $script:CaseSrc 'Our internal leak rate was measured by the lab before the release of the model.'
+            $R.Decision | Should -Be 'exact'
+            $R.Diag | Should -Contain 'case: first letter of the quote, permitted'
+        }
+
+        It 'a case difference anywhere else fails a quote kept as written' {
+            $R = & $script:Decide $script:CaseSrc 'our Internal leak rate was measured by the lab before the release of the model.'
+            $R.Decision | Should -Be 'dropped'
+            $R.Diag | Should -Contain 'case differs (as written)'
+            $R.Diag | Should -Contain 'case word: internal | Internal'
+        }
+
+        It 'a source word in capitals may be written in any capitalisation; lower case and others are counted apart' {
+            $Lower = & $script:Decide $script:CaseSrc 'introduction to the method'
+            $Lower.Decision | Should -Be 'exact'
+            $Lower.Diag | Should -Contain 'case: capitals in the source, lower case in the quote, permitted'
+            $Title = & $script:Decide $script:CaseSrc 'Introduction to the Method'
+            $Title.Decision | Should -Be 'exact'
+            $Title.Diag | Should -Contain 'case: capitals in the source, other capitalisation in the quote, permitted'
+        }
+
+        It 'a one-letter source word in capitals does not permit a lower-case letter' {
+            $R = & $script:Decide $script:CaseSrc 'The method rests on three assumptions about the evaluation. a model is tested twice.'
+            $R.Decision | Should -Be 'dropped'
+        }
+
+        It 'the same quote with the source''s case has nothing to report' {
+            $R = & $script:Decide $script:CaseSrc 'our internal leak rate was measured by the lab before the release of the model.'
+            $R.Decision | Should -Be 'exact'
+            @($R.Diag | Where-Object { $_ -match '^case' }).Count | Should -Be 0
+        }
+
+        It 'only the first segment of an elided quote begins the quote; a capital the model put in brackets is a marked change' {
+            $R = & $script:Decide $script:CaseSrc 'Our internal leak rate was measured by the lab [...] A Model is tested twice.'
+            $R.Decision | Should -Be 'dropped' -Because 'the second segment has a capital the source lacks'
+            $B = & $script:Decide $script:CaseSrc 'Our internal leak rate was measured by the lab [...] [t]he method rests on three assumptions about the evaluation.'
+            $B.Decision | Should -Not -Be 'dropped'
+            $B.Diag | Should -Contain 'case: letter the model put in brackets, permitted'
+        }
+
+        It 'the rule holds for a stored snap: a line break mends, a changed capital fails' {
+            $Src = "Evaluators say that the systems were tested`r`nby the lab before the release of the model to the public.`r`n"
+            (& $script:Decide $Src 'Evaluators say that the systems were tested by the lab before the release of the model to the public.').Decision | Should -Be 'exact'
+            $Src2 = "Evaluators say that the sys-`r`ntems were tested by the lab before the release of the model to the public.`r`n"
+            (& $script:Decide $Src2 'evaluators say that the systems were tested by the lab before the release of the model to the public.').Decision | Should -Be 'snapped'
+            $R = & $script:Decide $Src2 'Evaluators say that the Systems were tested by the lab before the release of the model to the public.'
+            $R.Decision | Should -Be 'dropped'
+            $R.Diag | Should -Contain 'case differs (one piece)'
+        }
+    }
+
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
         # Two-column layout: a line of the other column sits between the quote's two halves, and the source
         # has "Meta CEO" where the model wrote only the name.
