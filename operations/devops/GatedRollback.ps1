@@ -46,6 +46,27 @@
 # rollback must not be refused on a stale first read.
 $script:GatedRollbackFailedStates = @('Failed')
 
+<#
+.SYNOPSIS
+    PURE (t/513, Quality p/262#9). Whether the -DeactivateAfterMeasure drill may deactivate the revision
+    it measured. Only a revision the drill ACTIVATED itself may be deactivated again. A revision that was
+    already active before the drill (staging's weight-0 rollback standby) is left alone: deactivating it
+    would remove staging's ready rollback target. The traffic-weight guard alone cannot tell, since the
+    standby carries 0. Returns @{ Skip = bool; Reason = string }.
+#>
+function Get-DrillDeactivateDecision {
+    param(
+        [Parameter(Mandatory)] $Result,
+        [switch] $DeactivateAfterMeasure
+    )
+    if (-not $DeactivateAfterMeasure) { return @{ Skip = $true; Reason = '-DeactivateAfterMeasure not given' } }
+    if ($Result.Action -ne 'measured') { return @{ Skip = $true; Reason = "the run ended '$($Result.Action)', not 'measured'" } }
+    if ($Result.AlreadyActive) {
+        return @{ Skip = $true; Reason = 'it was already active before the drill (a standby rollback target); the drill only deactivates what it activated' }
+    }
+    @{ Skip = $false; Reason = 'the drill activated it, so it deactivates it again (subject to the traffic guard)' }
+}
+
 function Invoke-GatedRollbackCore {
     param(
         [Parameter(Mandatory)][string] $RevisionName,

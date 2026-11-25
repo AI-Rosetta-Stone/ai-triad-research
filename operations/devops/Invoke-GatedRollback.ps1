@@ -75,7 +75,9 @@ Write-Host "Gated rollback: $($r.Action) - $($r.Reason)"
 if ($r.AlreadyActive) { Write-Host "  target was already active: the activate step was skipped (t/513); every gate still ran" }
 Write-Host ("  activate->provisioned: {0}s   activate->healthy+warm: {1}s   fqdn: {2}" -f $r.ActivateToProvisionedSec, $r.ActivateToWarmSec, $r.Fqdn)
 
-if ($r.Action -eq 'measured' -and $DeactivateAfterMeasure) {
+$drill = Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure:$DeactivateAfterMeasure
+if ($drill.Skip -and $DeactivateAfterMeasure) { Write-Host "  drill: NOT deactivating '$RevisionName': $($drill.Reason)" }
+if (-not $drill.Skip) {
     # SO round 2: never deactivate a revision that carries traffic. Same double-sourced t/4242 guard
     # as the deploy's cleanup (the revision's own weight AND the ingress traffic config, read fresh).
     . (Join-Path $PSScriptRoot 'Get-RevisionDeactivationVerdict.ps1')

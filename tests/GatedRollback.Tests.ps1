@@ -166,6 +166,31 @@ Describe 'Invoke-GatedRollbackCore (t/266 b, SO condition 1)' -Tag 'devops' {
             }
         }
 
+        It 'Quality p/262#9: a -MeasureOnly -DeactivateAfterMeasure drill on an already-active standby never deactivates it' {
+            $a = New-Args @{ Activate = $script:RefusingActivate; GetActive = { @{ Active = $true; Weight = 0 } } }
+            $r = Invoke-GatedRollbackCore @a -MeasureOnly
+            $r.Action | Should -Be 'measured'
+            $d = Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure
+            $d.Skip | Should -BeTrue
+            $d.Reason | Should -Match 'already active before the drill'
+        }
+
+        It 'a drill that activated the revision itself still deactivates it again; no switch or no measure never does' {
+            $a = New-Args @{ GetActive = { @{ Active = $false; Weight = 0 } } }
+            $r = Invoke-GatedRollbackCore @a -MeasureOnly
+            (Get-DrillDeactivateDecision -Result $r -DeactivateAfterMeasure).Skip | Should -BeFalse
+            (Get-DrillDeactivateDecision -Result $r).Skip | Should -BeTrue
+            $b = New-Args; $shifted = Invoke-GatedRollbackCore @b
+            (Get-DrillDeactivateDecision -Result $shifted -DeactivateAfterMeasure).Skip | Should -BeTrue
+        }
+
+        It 'the wrapper deactivates only when Get-DrillDeactivateDecision says so' {
+            $src = Get-Content "$PSScriptRoot/../operations/devops/Invoke-GatedRollback.ps1" -Raw
+            $src | Should -Match '\$drill = Get-DrillDeactivateDecision -Result \$r -DeactivateAfterMeasure:\$DeactivateAfterMeasure'
+            $src | Should -Match 'if \(-not \$drill\.Skip\) \{'
+            $src | Should -Not -Match "if \(\`$r\.Action -eq 'measured' -and \`$DeactivateAfterMeasure\)"
+        }
+
         It 'no -GetActive at all (older callers): activate runs as before' {
             $script:Calls = 0
             $a = New-Args @{ Activate = { $script:Calls++ } }
