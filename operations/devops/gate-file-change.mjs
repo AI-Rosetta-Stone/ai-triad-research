@@ -25,6 +25,11 @@ export const GATE_SCRIPTS = [
   'operations/devops/enqueue-pr.mjs',
   'operations/devops/gate-file-change.mjs',
   'operations/devops/running-copy-current.mjs', // t/556: enqueue-pr.mjs's origin/main currency check
+  // t/564: the PR budget enqueue-pr.mjs enforces, and the modules its refusal ping loads (all in
+  // enqueue-pr.mjs's import closure, so they run inside the wrapper).
+  'operations/devops/pr-budget.mjs',
+  'operations/devops/pr-budget-notify.mjs',
+  'operations/devops/my-prs.mjs',
   'operations/devops/t1-approval-at-head.mjs',
   'operations/devops/t1-approval-guard-predicate.mjs',
   'operations/devops/t1-approval-guard-merge-group-predicate.mjs',

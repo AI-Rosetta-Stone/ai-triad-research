@@ -290,6 +290,9 @@ function fakeGhTracking() {
 
 // t/556: every shim test runs as if the copy were origin/main's; the currency check itself is tested
 // in running-copy-current.test.mjs and by the refusal test below.
+// t/564: likewise every shim test runs as if the PR were within the budget; the budget check is tested
+// in pr-budget.test.mjs and by the ordering tests there.
+function BUDGET_OK() { return { allow: true, reason: 'within_budget_today', today: '2026-11-24', day: '2026-11-24', units: 1, budget: 20, mean: 0, rank: 1 }; }
 function CURRENT() { return { ok: true, reason: 'current', mainSha: 'f'.repeat(40), paths: ['operations/devops/enqueue-pr.mjs'] }; }
 
 test('t/556 shim: a stale running copy is refused BEFORE any gh call (no PR read, no guard read, no merge)', async () => {
@@ -368,7 +371,7 @@ function forgedRowFake(approval) {
 
 test('t/534 A (Security t/534#5): a FORGED green t1-approval-guard check run does not get an unapproved T1 PR enqueued', async () => {
   const fakeGh = forgedRowFake(approvalState({ reviews: [] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /refusing to arm\/enqueue.*\(no_approval\)/s);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /refusing to arm\/enqueue.*\(no_approval\)/s);
   assert.equal(mergeCalls(fakeGh), 0);
   assert.equal(checkRunReads(fakeGh), 0, 'the check run is never read for the decision');
 });
@@ -377,13 +380,13 @@ test('t/534 A: a forged green row does not override an outstanding changes-reque
   const fakeGh = forgedRowFake(approvalState({
     reviews: [appReview(), appReview({ state: 'CHANGES_REQUESTED', body: 'Changes requested (Security): fix it.', submitted_at: '2026-11-09T02:00:00Z' })],
   }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(changes_requested\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
 test('t/534 A (Security condition 1): an approval only from the shared jpsnover login (comment) is refused', async () => {
   const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.')] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(no_approval\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
@@ -396,7 +399,7 @@ const humanReview = (association, over = {}) => ({
 test('t/534 A (3): a CHANGES_REQUESTED review from an OWNER, MEMBER or COLLABORATOR account blocks', async () => {
   for (const assoc of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
     const fakeGh = forgedRowFake(approvalState({ reviews: [appReview(), humanReview(assoc)] }));
-    await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/, assoc);
+    await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(changes_requested\)/, assoc);
     assert.equal(mergeCalls(fakeGh), 0, assoc);
   }
 });
@@ -404,28 +407,28 @@ test('t/534 A (3): a CHANGES_REQUESTED review from an OWNER, MEMBER or COLLABORA
 test('t/534 A (3): a changes-request from a public account (review or comment), or a shared-login comment, does NOT block', async () => {
   for (const assoc of ['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR']) {
     const fakeGh = forgedRowFake(approvalState({ reviews: [appReview(), humanReview(assoc)] }));
-    const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+    const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh });
     assert.equal(result.state, 'queued', assoc);
   }
   const fakeGh = forgedRowFake(approvalState({ comments: [sharedComment('Changes requested (Quality): no.', '2026-11-09T02:00:00Z'), sharedComment('Changes requested (Security): no.', '2026-11-09T02:00:00Z', 'drive-by-account')] }));
-  assert.equal((await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh })).state, 'queued');
+  assert.equal((await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh })).state, 'queued');
 });
 
 test('t/534 A (3): a changes-request COMMENT from the reviewer App still blocks', async () => {
   const fakeGh = forgedRowFake(approvalState({ comments: [sharedComment('Changes requested (Security): fix it.', '2026-11-09T02:00:00Z', APP)] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(changes_requested\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
 test('t/534 A: an App review bound to an OLDER head is not an approval at this head', async () => {
   const fakeGh = forgedRowFake(approvalState({ reviews: [appReview({ commit_id: '0ldhead00' })] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(no_approval\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
 test('t/534 A: self-approval by the branch owner role is refused', async () => {
   const fakeGh = forgedRowFake(approvalState({ reviews: [appReview({ body: 'Approved (DevOps): mine.' })] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /refusing to arm\/enqueue/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /refusing to arm\/enqueue/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
@@ -434,7 +437,7 @@ test('t/534 A (Security condition 2): a failed API read is refused with a WARN, 
   fakeGh.approvalError = 'gh: HTTP 502';
   const warnMock = mock.method(console, 'warn', () => {});
   try {
-    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /could not verify the approval at cafebabe[\s\S]*HTTP 502/);
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /could not verify the approval at cafebabe[\s\S]*HTTP 502/);
     assert.ok(warnMock.mock.calls.some((c) => /WARN: enqueue-pr could not read the reviews/.test(String(c.arguments[0]))));
   } finally {
     warnMock.mock.restore();
@@ -446,7 +449,7 @@ test('t/534 A (Security condition 2): a head that moved between the PR view and 
   const fakeGh = forgedRowFake(approvalState({ pr: { head: { sha: 'feedface', ref: 'devops/t1-change' }, body: 'Tier: T1', created_at: PUSHED } }));
   const warnMock = mock.method(console, 'warn', () => {});
   try {
-    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /head moved: expected cafebabe, the API reads feedface/);
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /head moved: expected cafebabe, the API reads feedface/);
   } finally { warnMock.mock.restore(); }
   assert.equal(mergeCalls(fakeGh), 0);
 });
@@ -456,14 +459,14 @@ test('t/534 A (Security condition 2): a commit list the API may have cut short i
   fakeGh.prCommits = 3; // the PR reports more commits than the list returned
   const warnMock = mock.method(console, 'warn', () => {});
   try {
-    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /commit list may be cut short \(listed 1, the PR reports 3/);
+    await assert.rejects(() => enqueuePR('o/r', 9, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /commit list may be cut short \(listed 1, the PR reports 3/);
   } finally { warnMock.mock.restore(); }
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
 test('t/534 A: positive control -- a reviewer-App approval bound to the head DOES reach gh pr merge, without reading any check run', async () => {
   const fakeGh = forgedRowFake();
-  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh });
   assert.equal(result.state, 'queued');
   assert.equal(mergeCalls(fakeGh), 1);
   assert.equal(checkRunReads(fakeGh), 0);
@@ -479,14 +482,14 @@ test('t/534 A (1): BACKDATED PUSH -- an old App approval comment does not approv
     comments: [sharedComment('Approved (Quality): fine.', '2026-11-09T01:00:00Z', APP)],    // its comment form
     commits: [{ commit: { committer: { date: '2026-11-09T00:00:00Z' } } }],                // new head, back-dated before both
   }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(no_approval\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
 test('t/534 A (1): an App approval COMMENT alone never approves, whatever its time', async () => {
   for (const at of ['2026-11-09T01:00:00Z', '2099-01-01T00:00:00Z']) {
     const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.', at, APP)] }));
-    await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/, at);
+    await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(no_approval\)/, at);
   }
 });
 
@@ -508,13 +511,13 @@ function t2Fake(approval) {
 
 test('t/534 A (2): a T2 PR with no reviewer-App review at the head is refused (no longer exempt)', async () => {
   const fakeGh = t2Fake(approvalState({ reviews: [] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(no_approval\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
 test('t/534 A (2): a T2 PR with a reviewer-App review at the head proceeds', async () => {
   const fakeGh = t2Fake(approvalState());
-  assert.equal((await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh })).state, 'queued');
+  assert.equal((await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh })).state, 'queued');
 });
 
 test('t/534 A: a T0 PR reads no approval data at all (exempt, unchanged)', async () => {
@@ -528,7 +531,7 @@ test('t/534 A: a T0 PR reads no approval data at all (exempt, unchanged)', async
     if (r !== undefined) return r;
     throw new Error(`unexpected gh call: ${joined}`);
   };
-  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh });
   assert.equal(result.state, 'queued');
   assert.equal(fakeGh.calls.filter((a) => a.includes('--slurp')).length, 0);
 });
@@ -543,7 +546,7 @@ test('t/534 A: an undeclared tier is evaluated as T1 (fail closed): no approval 
     if (r !== undefined) return r;
     throw new Error(`unexpected gh call: ${joined}`);
   };
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /\(no_approval\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
@@ -754,7 +757,7 @@ test('enqueuePR shim: a T0 PR whose tier-check lookup fails still proceeds (non-
   const warnMock = mock.method(console, 'warn', () => {});
   let result;
   try {
-    result = await enqueuePR('o/r', 11, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+    result = await enqueuePR('o/r', 11, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh });
     assert.ok(warnMock.mock.calls.some((c) => /WARN: .*tier-check.*simulated tier-check API failure/.test(String(c.arguments[0]))));
   } finally {
     warnMock.mock.restore();
@@ -831,7 +834,7 @@ const guardSuccessNext = (prView) => {
 test('enqueuePR shim (t/73): expectedHeadOid that no longer matches the head is refused before any guard read or gh pr merge', async () => {
   const fakeGh = fakeGhTracking();
   fakeGh.next = guardSuccessNext(T1_PR_VIEW);
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, expectedHeadOid: 'deadbeef' }), /head moved from deadbeef to cafebabe/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, expectedHeadOid: 'deadbeef' }), /head moved from deadbeef to cafebabe/);
   assert.equal(fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge').length, 0);
   assert.equal(fakeGh.calls.filter((a) => a.join(' ').includes('check-runs')).length, 0);
 });
@@ -839,7 +842,7 @@ test('enqueuePR shim (t/73): expectedHeadOid that no longer matches the head is 
 test('enqueuePR shim (t/73): a matching expectedHeadOid proceeds and pins --match-head-commit to it', async () => {
   const fakeGh = fakeGhTracking();
   fakeGh.next = guardSuccessNext(T1_PR_VIEW);
-  await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, expectedHeadOid: 'cafebabe' });
+  await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, expectedHeadOid: 'cafebabe' });
   const merges = fakeGh.calls.filter((a) => a[0] === 'pr' && a[1] === 'merge');
   assert.equal(merges.length, 1);
   assert.deepEqual(merges[0].slice(-2), ['--match-head-commit', 'cafebabe']);
@@ -866,14 +869,14 @@ const T0_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T0\n\nbody
 
 test('t/537 shim: a T1 PR with a green guard that changes a workflow is refused before any guard read or merge', async () => {
   const fakeGh = gateFake(T1_PR_VIEW, ['README.md', '.github/workflows/ci.yml']);
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /gate_files_no_override[\s\S]*\.github\/workflows\/ci\.yml/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /gate_files_no_override[\s\S]*\.github\/workflows\/ci\.yml/);
   assert.equal(merges(fakeGh), 0);
   assert.equal(guardReads(fakeGh), 0);
 });
 
 test('t/537 shim: the refusal applies to T0 too, and to a gate script', async () => {
   const fakeGh = gateFake(T0_VIEW, ['operations/devops/t1-approval-at-head.mjs']);
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /gate_files_no_override/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /gate_files_no_override/);
   assert.equal(merges(fakeGh), 0);
 });
 
@@ -881,7 +884,7 @@ test('t/537 shim: an unreadable change list is refused (fail closed), with a WAR
   const fakeGh = gateFake(T1_PR_VIEW, 'throw');
   const warn = mock.method(console, 'warn', () => {});
   try {
-    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /files_unreadable/);
+    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /files_unreadable/);
     assert.ok(warn.mock.calls.some((c) => /could not read the changed files/.test(String(c.arguments[0]))));
   } finally { warn.mock.restore(); }
   assert.equal(merges(fakeGh), 0);
@@ -890,7 +893,7 @@ test('t/537 shim: an unreadable change list is refused (fail closed), with a WAR
 test('t/537 shim: a change list shorter than the PR reports is refused (possibly cut short)', async () => {
   const fakeGh = gateFake(T1_PR_VIEW, ['README.md']);
   fakeGh.changedFilesCount = 2;
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /files_unreadable[\s\S]*listed 1 changed file\(s\) but the PR reports 2/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh }), /files_unreadable[\s\S]*listed 1 changed file\(s\) but the PR reports 2/);
   assert.equal(merges(fakeGh), 0);
 });
 
@@ -899,7 +902,7 @@ test('t/537 shim: a named Tech Lead review at the head releases it, is logged, a
   const log = mock.method(console, 'log', () => {});
   let line;
   try {
-    const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, gateChangeReviewId: '77', by: 'lead-id' });
+    const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, gateChangeReviewId: '77', by: 'lead-id' });
     assert.equal(result.ok, true);
     line = log.mock.calls.map((c) => String(c.arguments[0])).find((l) => l.startsWith('GATE-CHANGE-OVERRIDE'));
   } finally { log.mock.restore(); }
@@ -911,7 +914,7 @@ test('t/537 shim: a Security review releases it too', async () => {
   const fakeGh = gateFake(T1_PR_VIEW, ['.github/workflows/ci.yml'], tlReview({ body: 'Approved (Security): read.' }));
   const log = mock.method(console, 'log', () => {});
   try {
-    await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, gateChangeReviewId: '77', by: 'lead-id' });
+    await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, gateChangeReviewId: '77', by: 'lead-id' });
   } finally { log.mock.restore(); }
   assert.equal(merges(fakeGh), 1);
 });
@@ -928,7 +931,7 @@ for (const [name, review, re] of [
     const fakeGh = gateFake(T1_PR_VIEW, ['.github/workflows/ci.yml'], review);
     const warn = mock.method(console, 'warn', () => {});
     try {
-      await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, gateChangeReviewId: '77', by: 'lead-id' }), re);
+      await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, gateChangeReviewId: '77', by: 'lead-id' }), re);
     } finally { warn.mock.restore(); }
     assert.equal(merges(fakeGh), 0);
   });
@@ -936,7 +939,7 @@ for (const [name, review, re] of [
 
 test('t/537 shim: a valid override without --by is refused', async () => {
   const fakeGh = gateFake(T1_PR_VIEW, ['.github/workflows/ci.yml'], tlReview());
-  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, gateChangeReviewId: '77' }), /override_without_by/);
+  await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, gateChangeReviewId: '77' }), /override_without_by/);
   assert.equal(merges(fakeGh), 0);
 });
 
@@ -944,14 +947,14 @@ test('t/537 shim: a review id that is not a number is never sent to the API', as
   const fakeGh = gateFake(T1_PR_VIEW, ['.github/workflows/ci.yml'], tlReview());
   const warn = mock.method(console, 'warn', () => {});
   try {
-    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh, gateChangeReviewId: '77/../../x', by: 'lead-id' }), /override_unreadable/);
+    await assert.rejects(() => enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh, gateChangeReviewId: '77/../../x', by: 'lead-id' }), /override_unreadable/);
   } finally { warn.mock.restore(); }
   assert.equal(fakeGh.calls.filter((a) => a.join(' ').includes('/reviews/')).length, 0);
 });
 
 test('t/537 shim: a PR with no gate files proceeds as before', async () => {
   const fakeGh = gateFake(T1_PR_VIEW, ['taxonomy-editor/src/a.ts']);
-  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, budget: BUDGET_OK, gh: fakeGh });
   assert.equal(result.ok, true);
   assert.equal(merges(fakeGh), 1);
 });
@@ -960,7 +963,7 @@ test('t/537 pure: isGateFile covers workflows, composite actions and the gate sc
   for (const p of ['.github/workflows/ci.yml', '.github/workflows/sub/x.yaml', '.github/actions/setup/action.yml', '.github/ci/required-contexts.json', 'operations/devops/t0-enqueue-sweep.mjs', 'operations/devops/infra-rearm-sweep.mjs', ...GATE_SCRIPTS, './.github/workflows/a.yml', '.github\\workflows\\a.yml']) {
     assert.equal(isGateFile(p), true, p);
   }
-  for (const p of ['README.md', 'docs/.github/workflows/ci.yml', '.github/dependabot.yml', '.github/cicd/x.json', 'operations/devops/my-prs.mjs', 'operations/devops/t0-enqueue-sweep.test.mjs', 'operations/devops/enqueue-pr.test.mjs', '', null, undefined]) {
+  for (const p of ['README.md', 'docs/.github/workflows/ci.yml', '.github/dependabot.yml', '.github/cicd/x.json', 'operations/devops/gh-budget.mjs', 'operations/devops/t0-enqueue-sweep.test.mjs', 'operations/devops/enqueue-pr.test.mjs', '', null, undefined]) {
     assert.equal(isGateFile(p), false, String(p));
   }
 });

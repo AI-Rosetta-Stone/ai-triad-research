@@ -20,11 +20,18 @@
 // genuine absence of an autoMergeRequest after the CLI arm is the t/4731#1/t/4740#1 class
 // this wrapper exists to catch.
 //
-//   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id> --by=<collaborator id>]
+//   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id>]
+//        [--budget-exempt-review=<review id>] [--by=<collaborator id>]
 //
 // t/556: before anything else, the wrapper refuses unless its running copy (this file,
 // gate-file-change.mjs and every local module they import) is origin/main's
 // (running-copy-current.mjs). A stale copy can lack a refusal entirely (t/537#40). Fail closed.
+//
+// t/564: right after the currency check, the team PR budget (pr-budget.mjs): a non-Dependabot PR
+// past its creation day's budget, or waiting in the carryover pool with no free slot today, is
+// refused unless a TL/Security `budget-exempt:` review at its head is named with
+// --budget-exempt-review (logged as BUDGET-EXEMPT). Unreadable counts refuse. The CLI (never a
+// library caller) pings the PR's owner once on an over-budget refusal (pr-budget-notify.mjs).
 //
 // t/537: a PR that changes a workflow or a gate script is refused at every tier unless a
 // reviewer-App `Approved (Tech Lead):` or `Approved (Security):` review bound to the current head is
@@ -60,6 +67,8 @@ import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
 import { fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
 import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
+import { budgetOkLine, budgetRefusalMessage, checkPrBudget } from './pr-budget.mjs';
+import { pingBudgetRefusal } from './pr-budget-notify.mjs';
 import {
   approvalAtHeadVerdict, approvalFromApiVerdict, classifyT1GuardForEnqueue, fetchApprovalInputs, fetchGuardRun, pickAuthoritativeGuardRun,
 } from './t1-approval-at-head.mjs';
@@ -180,7 +189,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, currency = checkRunningCopy } = {}) {
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, currency = checkRunningCopy, budget = checkPrBudget, budgetExemptReviewId = null } = {}) {
   // t/556: BEFORE ANY OTHER CHECK, refuse unless this running copy (this file, gate-file-change.mjs
   // and every local module they import) is origin/main's. A stale copy can lack a refusal entirely
   // (t/537#40). Fail closed: a failed fetch or read refuses. `currency` is injectable for tests only.
@@ -192,9 +201,32 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   }
   console.log(currencyOkLine(current));
 
+  // t/564: the team PR budget, before the gate-file check and any other PR read. Fail closed: a
+  // check that throws or returns nothing refuses. `budget` is injectable for tests only.
+  let bv;
+  try {
+    bv = budget(repo, prNumber, { gh: ghFn, exemptReviewId: budgetExemptReviewId, by });
+  } catch (err) {
+    bv = { allow: false, reason: 'budget_read_failed', detail: `the budget check threw: ${err?.message ?? err}` };
+  }
+  if (!bv?.allow) {
+    const verdict = bv ?? { allow: false, reason: 'budget_read_failed', detail: 'the budget check returned nothing' };
+    throw Object.assign(new Error(budgetRefusalMessage({ repo, prNumber, verdict })), {
+      name: 'ActionableError', reason: verdict.reason, budget: verdict,
+    });
+  }
+  if (bv.reason !== 'budget_exempt') console.log(budgetOkLine({ repo, prNumber, verdict: bv }));
+
   const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
+  // t/564 (Second Opinion on #5473, C): the budget (and any budget-exempt review) was judged on the head
+  // the budget check read. Refuse if the head this enqueue pins is a different one.
+  if (bv.pr && bv.pr.headRefOid !== headSha) {
+    const verdict = { allow: false, reason: 'budget_read_failed', today: bv.today, nextDayStart: bv.nextDayStart,
+      detail: `the head moved between the budget check (${String(bv.pr.headRefOid).slice(0, 9)}) and the enqueue read (${String(headSha).slice(0, 9)}); rerun` };
+    throw Object.assign(new Error(budgetRefusalMessage({ repo, prNumber, verdict })), { name: 'ActionableError', reason: verdict.reason, budget: verdict });
+  }
 
   // t/73: a caller that verified the approval at a specific head pins the enqueue to it. Both
   // arming paths below already pass `headSha` (`--match-head-commit`, `expectedHeadOid`), so
@@ -328,13 +360,28 @@ const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process
 if (isCliEntry) {
   const [repo, prNumberArg, ...flags] = process.argv.slice(2);
   const flag = (name) => flags.map((f) => new RegExp(`^--${name}=(.+)$`).exec(f)).find(Boolean)?.[1] ?? null;
-  const unknown = flags.filter((f) => !/^--(gate-change-review|by)=.+$/.test(f));
+  const unknown = flags.filter((f) => !/^--(gate-change-review|budget-exempt-review|by)=.+$/.test(f));
   if (!repo || !prNumberArg || unknown.length) {
-    console.error('Usage: node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id> --by=<collaborator id>]');
+    console.error('Usage: node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id>] [--budget-exempt-review=<review id>] [--by=<collaborator id>]');
     process.exit(1);
   }
-  enqueuePR(repo, Number(prNumberArg), { gateChangeReviewId: flag('gate-change-review'), by: flag('by') }).then(
-    (result) => { console.log(JSON.stringify(result)); },
-    (err) => { console.error(err.message ?? err); process.exit(1); },
+  runCli(repo, Number(prNumberArg), { gateChangeReviewId: flag('gate-change-review'), budgetExemptReviewId: flag('budget-exempt-review'), by: flag('by') }).then(
+    (code) => { process.exitCode = code; },
   );
+}
+
+/**
+ * The CLI: enqueuePR, and on an over-budget refusal ONE ping to the PR's owner (t/564; library callers
+ * such as the sweeps never ping). Returns the exit code. `deps` ({ enqueue, ping, log, error }) is for tests.
+ */
+export async function runCli(repo, prNumber, opts, deps = {}) {
+  const { enqueue = enqueuePR, ping = pingBudgetRefusal, log = console.log, error = console.error } = deps;
+  try {
+    log(JSON.stringify(await enqueue(repo, prNumber, opts)));
+    return 0;
+  } catch (err) {
+    error(err?.message ?? err);
+    if (err?.budget) await ping({ repo, pr: err.budget.pr, reason: err.reason, message: err.message, by: opts.by });
+    return 1;
+  }
 }
