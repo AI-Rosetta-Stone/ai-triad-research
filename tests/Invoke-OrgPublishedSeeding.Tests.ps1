@@ -91,7 +91,10 @@ Describe 'Invoke-OrgPublishedSeeding (t/1553 Stage 0)' -Tag 'taxonomy' {
             $anthropicProposal            | Should -Not -BeNullOrEmpty
             $anthropicProposal.type       | Should -Be 'PUBLISHED'
             $anthropicProposal.status     | Should -Be 'proposed'
-            $anthropicProposal.rationale  | Should -Match 'match_basis=exact_url'
+            $anthropicProposal.match_meta.basis | Should -Be 'exact_url'
+            $anthropicProposal.match_meta.stage | Should -Be 0
+            $anthropicProposal.rationale  | Should -Match "^Published on .+'s own site \(.+\)\.$" -Because 'the rationale is a sentence, not a diagnostic (t/584)'
+            $anthropicProposal.rationale  | Should -Not -Match 'match_basis'
             $anthropicProposal.source_refs | Should -Contain 'src-anthropic'
         }
     }
@@ -103,7 +106,8 @@ Describe 'Invoke-OrgPublishedSeeding (t/1553 Stage 0)' -Tag 'taxonomy' {
 
             $openaiProposal = $script:capturedProposals | Where-Object { $_.source -eq 'org-002' -and $_.target -eq 'src-openai' } | Select-Object -First 1
             $openaiProposal             | Should -Not -BeNullOrEmpty
-            $openaiProposal.rationale   | Should -Match 'match_basis=domain'
+            $openaiProposal.match_meta.basis | Should -Be 'domain'
+            $openaiProposal.rationale   | Should -Not -Match 'match_basis'
             $openaiProposal.status      | Should -Be 'proposed'
         }
     }

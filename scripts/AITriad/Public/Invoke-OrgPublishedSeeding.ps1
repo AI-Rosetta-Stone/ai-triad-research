@@ -85,6 +85,8 @@ function Invoke-OrgPublishedSeeding {
         $orgs = @($orgs | Where-Object { $_.id -in $wanted })
     }
 
+    $orgNameById = @{}      # org-id → display name (t/584)
+    foreach ($o in $orgs) { if ($o.PSObject.Properties['name'] -and -not [string]::IsNullOrWhiteSpace([string]$o.name)) { $orgNameById[[string]$o.id] = ([string]$o.name).Trim() } }
     $orgUrlIndex    = @{}   # url  → @(org-id, ...)
     $orgDomainIndex = @{}   # host → @(org-id, ...)
     foreach ($o in $orgs) {
@@ -144,6 +146,7 @@ function Invoke-OrgPublishedSeeding {
         $sourceId = [string]$meta.id
 
         $matches = New-Object 'System.Collections.Generic.Dictionary[string,string]'  # org-id → match_basis
+        $matchHost = @{}                                                             # org-id → the source's host that matched
 
         foreach ($fld in @('url','resolved_url')) {
             if (-not $meta.PSObject.Properties[$fld]) { continue }
@@ -155,12 +158,14 @@ function Invoke-OrgPublishedSeeding {
             if ($u.Url -and $orgUrlIndex.ContainsKey($u.Url)) {
                 foreach ($oid in $orgUrlIndex[$u.Url]) {
                     $matches[$oid] = 'exact_url'
+                    if ($u.Host) { $matchHost[$oid] = $u.Host }
                 }
             }
             if ($u.Host -and $orgDomainIndex.ContainsKey($u.Host)) {
                 foreach ($oid in $orgDomainIndex[$u.Host]) {
                     if (-not $matches.ContainsKey($oid)) {
                         $matches[$oid] = 'domain'
+                        $matchHost[$oid] = $u.Host
                     }
                 }
             }
@@ -189,6 +194,7 @@ function Invoke-OrgPublishedSeeding {
                 Target     = $sourceId
                 Type       = 'PUBLISHED'
                 MatchBasis = $basis
+                SiteHost   = $(if ($matchHost.ContainsKey($oid)) { [string]$matchHost[$oid] } else { '' })
                 SourceUrl  = $meta.url
             })
         }
@@ -198,7 +204,11 @@ function Invoke-OrgPublishedSeeding {
     $written = 0
     $failed  = [System.Collections.Generic.List[string]]::new()
     foreach ($p in $proposed) {
-        $rationale = "match_basis=$($p.MatchBasis) (t/1553 Stage 0)"
+        # t/584: the rationale is what a researcher reads on the org page, so it is a sentence. How the
+        # edge was found goes in match_meta (provenance only; nothing branches on it).
+        $orgName = if ($orgNameById.ContainsKey([string]$p.Source)) { $orgNameById[[string]$p.Source] } else { [string]$p.Source }
+        $rationale = New-OrgEdgeRationale -Kind Published -OrgName $orgName -SiteHost $p.SiteHost
+        $matchMeta = New-OrgEdgeMatchMeta -Stage 0 -Basis $p.MatchBasis
         $target = "$($p.Source)->$($p.Target) [$($p.MatchBasis)]"
         if ($PSCmdlet.ShouldProcess($target, 'Propose PUBLISHED edge')) {
             try {
@@ -209,6 +219,7 @@ function Invoke-OrgPublishedSeeding {
                     target        = $p.Target
                     type          = 'PUBLISHED'
                     rationale     = $rationale
+                    match_meta    = $matchMeta
                     source_refs   = @($p.Target)
                     status        = 'proposed'
                     discovered_at = (Get-Date).ToString('yyyy-MM-dd')
