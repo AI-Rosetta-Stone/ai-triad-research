@@ -120,6 +120,8 @@ function Test-AnalyticsBackend {
         return [PSCustomObject]@{
             Backend   = $BaseUrl
             Healthy   = @($Checks | Where-Object { -not $_.Pass }).Count -eq 0
+            # Healthy here rests on the write alone. A scripted caller reads this field, not the WARN.
+            PersistenceConfirmed = $false
             Checks    = @($Checks)
             Timestamp = (Get-Date).ToString('o')
         }
@@ -174,6 +176,8 @@ function Test-AnalyticsBackend {
     [PSCustomObject]@{
         Backend   = $BaseUrl
         Healthy   = $AllPass
+        # True only when the read probe ran and saw the probe event: the write was persisted.
+        PersistenceConfirmed = [bool]$ReadPass
         Checks    = @($Checks)
         Timestamp = (Get-Date).ToString('o')
     }

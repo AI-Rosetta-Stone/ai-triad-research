@@ -71,6 +71,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
                 $readCheck = @($r.Checks | Where-Object { $_.Check -match 'Read' })
                 $readCheck[0].Pass | Should -Be $true
                 $readCheck[0].Detail | Should -Match 'confirmed'
+                $r.PersistenceConfirmed | Should -BeTrue
             }
         }
     }
@@ -185,6 +186,8 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
             $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -WarningVariable warn -WarningAction SilentlyContinue
             Should -Invoke Invoke-RemoteCheck -Times 0 -Exactly -ParameterFilter { $Path -like '/api/analytics/query*' }
             @($r.Checks | Where-Object { $_.Check -match 'Read' }).Count | Should -Be 0 -Because 'a probe that was not run is not reported as a check'
+            $r.Healthy | Should -BeTrue -Because 'the write check passed'
+            $r.PersistenceConfirmed | Should -BeFalse -Because 'Healthy rests on the write alone; a scripted caller must be able to see that'
             @($warn | Where-Object { "$_" -match 'read probe needs admin \(t/579\), skipped' }).Count | Should -Be 1
         }
     }
@@ -201,6 +204,7 @@ Describe 'Test-AnalyticsBackend' -Tag 'analytics' {
             $r = Test-AnalyticsBackend -BaseUrl 'http://fake' -WaitSec 0 -AuthHeaders @{ Cookie = 'admin' }
             $r.PSObject.Properties.Name | Should -Contain 'Backend'
             $r.PSObject.Properties.Name | Should -Contain 'Healthy'
+            $r.PSObject.Properties.Name | Should -Contain 'PersistenceConfirmed'
             $r.PSObject.Properties.Name | Should -Contain 'Checks'
             $r.PSObject.Properties.Name | Should -Contain 'Timestamp'
         }
