@@ -76,6 +76,15 @@ export async function extractDocumentText(file: File, deps: {
     });
     throw new Error(documentExtractErrorMessage(res.status, code, file.name));
   }
+  // A 200 that isn't JSON is the sign-in page served in place of the API (an expired session behind
+  // the auth proxy). Parsing it would surface a raw SyntaxError, so it gets the sign-in line (Quality p/57#90).
+  if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'web-bridge', level: 'warn',
+      message: `WARN: POST /api/documents/extract answered ${res.status} with ${res.headers.get('content-type') ?? 'no content-type'}; treating it as a lost session`,
+    });
+    throw new Error(documentExtractErrorMessage(401, undefined, file.name));
+  }
   const body = await res.json() as { text: string };
   return body.text;
 }

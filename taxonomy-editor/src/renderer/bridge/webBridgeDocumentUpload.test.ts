@@ -115,6 +115,14 @@ describe('web-bridge pickDocumentFile (t/276)', () => {
     expect(err?.message).not.toMatch(/Goal:|Location:|Resolve:|HTTP \d{3}/);
   });
 
+  it('a 200 HTML sign-in page rejects with the sign-in line, not a SyntaxError', async () => {
+    stubPicker(pdf());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('<!doctype html><title>Sign in</title>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    ));
+    await expect(api.pickDocumentFile()).rejects.toThrow(/^Sign in to upload a document\.$/);
+  });
+
   it('a non-JSON error body still gets a plain line from the status', async () => {
     stubPicker(pdf());
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>Bad gateway</html>', { status: 502 })));
