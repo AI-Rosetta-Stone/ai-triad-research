@@ -616,6 +616,21 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     expect(finalizeOpedSet.mock.calls[0][0].opeds[0].stages).toEqual(stages);
   });
 
+  // t/467 (Rosetta Stone p/74#28): a run-level failure's SSE error frame carries the ActionableError's stable code, so
+  // the client maps on it, never on message text.
+  it('t/467: the SSE error frame carries the ActionableError code (e.g. FREE_POOL_EXHAUSTED)', async () => {
+    const { ActionableError: AE } = await import('../../../../lib/debate/errors.js');
+    generateOpEdSet.mockImplementation(async function* () {
+      yield* [];
+      throw new AE({ goal: 'g', problem: 'pool spent', location: 'l', nextSteps: [], code: 'FREE_POOL_EXHAUSTED', httpStatus: 429 });
+    });
+    const res = fakeRes();
+    await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, validBody);
+    const frames = (res.write as unknown as { mock: { calls: string[][] } }).mock.calls.map(c => c[0]).filter(f => f.startsWith('data: '));
+    const err = frames.map(f => JSON.parse(f.slice(6))).find(f => f.event?.type === 'error');
+    expect(err.event.code).toBe('FREE_POOL_EXHAUSTED');
+  });
+
   // t/2807 MUST: a fetch failure returns a clean HTTP error and NEVER proceeds with
   // empty sourceMaterial (the t/2722 empty-source regression). No SSE, no generation.
   it('URL source: a fetch failure returns 502 and does NOT start generation', async () => {

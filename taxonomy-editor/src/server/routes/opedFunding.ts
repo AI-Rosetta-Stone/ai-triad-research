@@ -65,7 +65,8 @@ export async function resolveOpEdFunding(
   if (!pool.ok) return { ok: false }; // 403 free_pool_region already written
   if (pool.keys.length === 0) {
     res.writeHead(503, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Free tier is not available' }));
+    // t/467 (Rosetta Stone p/74#26): a stable code for the client to map on; the sentence moves to `message`.
+    res.end(JSON.stringify({ error: 'free_pool_empty', message: 'Free tier is not available' }));
     return { ok: false };
   }
   const requesterId = requesterIdFor(req);
