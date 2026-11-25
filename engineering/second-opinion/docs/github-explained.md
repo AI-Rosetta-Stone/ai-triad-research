@@ -182,7 +182,7 @@ Practice rules (approved q/40):
 
 ### 4.5 Pre-self-merge verification: the four checks
 
-Before any `gh pr merge`, confirm all four. Each exists because of a specific incident.
+Before you enqueue a PR, confirm all four. Each exists because of a specific incident. Never land a PR with `gh pr merge`, in any form: it skips `enqueue-pr.mjs` and its gate-file check (see 5.3 and `docs/pr-landing.md`).
 
 1. **Base is `main`.** GitHub silently suggests a parent feature branch as base if your branch was cut from one, and "merging" into a branch that later squash-dies strands your content off-main with no error anywhere.
 2. **The PR's head SHA equals the commit you just pushed.** GitHub's PR head can lag your push by minutes; merging against a stale head ships the *old* code. (`gh pr view <N> --json headRefOid`.)
@@ -240,9 +240,14 @@ The standard landing, start to finish:
 ```
 cd .worktrees/my-fix && git push -u origin my-fix
 cd .worktrees/my-fix && gh pr create --base main --title "fix: ..." --body "..."
-# wait for CI green, run the four checks from 4.5
-cd .worktrees/my-fix && gh pr merge <N> --squash
+# wait for CI green and the approvals the tier needs, run the four checks from 4.5
+# then, from a checkout at origin/main (not the PR branch):
+node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>
+# a PR that changes a gate file also names the review that approved the change, and who is enqueuing:
+node operations/devops/enqueue-pr.mjs <owner>/<repo> <N> --gate-change-review=<review id> --by=<collaborator id>
 ```
+
+`enqueue-pr.mjs` pins the PR to its current head, checks that it really entered the merge queue, and refuses a gate-file change without a named approving review. If it refuses, stop and escalate; never fall back to `gh pr merge` or the raw auto-merge mutation. The queue squash-merges the PR when its checks pass.
 
 What squash does to history is turn your branch's five commits into **one new commit** on `main` with a fresh SHA. GitHub then deletes the remote branch. Afterward, clean up locally from the *shared tree* (the worktree must be removed before its branch can be deleted):
 
@@ -252,7 +257,7 @@ git branch -D my-fix
 git pull --ff-only          # bring the squashed commit into the shared checkout
 ```
 
-One practical lesson from experience is to run `gh pr merge` *without* `--delete-branch` when working from a worktree. That flag tries to switch your local checkout back to `main`, which fails because the shared tree already holds `main`. Merge first, clean up after.
+Clean up only after the queue has merged the PR, and never push to the branch while it is queued. Removing the worktree first is what lets you delete its branch: git won't delete a branch that a worktree still has checked out.
 
 ### 5.4 Main moved while you were working
 

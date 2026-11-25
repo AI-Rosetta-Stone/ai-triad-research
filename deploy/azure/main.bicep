@@ -569,7 +569,9 @@ resource stagingBriefExportsContainer 'Microsoft.Storage/storageAccounts/blobSer
 // Anonymous op-ed rules (t/500). Included only when a prefix is set AND the flag is on.
 // Fail-safe: a prefix under users/ (signed-in storage ids) is never a rule target, and an unset
 // prefix adds nothing. A silent skip here deletes nothing, which is the safe direction.
-var anonOpEdPrefixSafe = !empty(anonOpEdLifecyclePrefix) && !startsWith(anonOpEdLifecyclePrefix, 'users/')
+// The prefix must end in '/' (t/500#43): Azure matches a literal prefix, so 'anon-oped' without
+// the slash would also match anon-oped-spend/ and delete the spend ledger.
+var anonOpEdPrefixSafe = !empty(anonOpEdLifecyclePrefix) && !startsWith(anonOpEdLifecyclePrefix, 'users/') && endsWith(anonOpEdLifecyclePrefix, '/')
 var anonOpEdLifecycleRules = concat(
   (anonOpEdLifecycleStagingEnabled && anonOpEdPrefixSafe)
     ? [

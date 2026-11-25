@@ -20,7 +20,7 @@ import { log } from '../logger.js';
 import { STORAGE_MODE, CACHE_DIR } from '../config.js';
 import * as community from '../community/community.js';
 import { requireAdmin } from '../community/admin/reviewRegistry.js';
-import { getCurrentUserId, isAnonymousUser } from '../security/userContext.js';
+import { getCurrentUserId, isAnonymousUser, isHostedAnonymousRequest } from '../security/userContext.js';
 import { setRuntimeCredentials, clearRuntimeCredentials, getCredentials } from '../security/githubAppAuth.js';
 import { diffNodes, changedFields } from '../storage/editMeta.js';
 import { computeNodeConflicts } from '../community/nodeConflicts.js';
@@ -119,6 +119,14 @@ async function resolveSyncBranchState(
   }
 }
 
+/** t/548: what GET /api/sync/status answers a hosted anonymous visitor. The same body anonymous visitors already got
+ *  on staging and prod (t/548#3), so the status bar does not change; built without any session or GitHub read. */
+export const ANON_SYNC_STATUS = Object.freeze({
+  enabled: true, mode: 'github-api' as const, unsynced_count: 0, session_branch: null, pr_number: null, pr_url: null,
+  push_pending: false, github_configured: true, main_updated_available: false, rebase_in_progress: false,
+  overlay_commit: null, behind_by: 0, has_conflicts: false,
+});
+
 export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
   const { get, post } = r;
 
@@ -170,6 +178,14 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
     try {
       if (!githubBackend || !sessionManager) {
         json(res, { enabled: false, unsynced_count: 0, session_branch: null, pr_number: null, pr_url: null, push_pending: false, github_configured: false, main_updated_available: false, rebase_in_progress: false, overlay_commit: null });
+        return;
+      }
+      // t/548 (Security p/93#44): a hosted anonymous caller is keyed as '_local', the owner's principal, so the reads
+      // below would report the owner's branch and PR, and resolveSyncBranchState could mergeBranch (a GitHub write with
+      // the App's credentials) on an anonymous GET. Anonymous visitors have no session branch: answer with the empty
+      // status before any session or GitHub call. Never a 401: the status bar polls this for every visitor.
+      if (isHostedAnonymousRequest()) {
+        json(res, ANON_SYNC_STATUS);
         return;
       }
       const userId = getCurrentUserId();

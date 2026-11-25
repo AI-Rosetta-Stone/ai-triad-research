@@ -739,17 +739,9 @@ jobs:
             Write-Host "::error::test-powershell: Pester returned no result object — failing safe."
             exit 1
           }
-          # t/436 (TL p/9#322): a KNOWN FLAKE runs and reports red, but does not fail this job or any PR
-          # until its removal condition on t/436 is met (flake fixed and 50 consecutive green runs on the
-          # runner). Only the exact test names listed here are non-blocking; every other failure is blocking.
-          $nonBlocking = @('THREE CONCURRENT PUSHES: all pass, and their vitest runs never overlap (serialized by the lock)')
-          $nbFailed = @($r.Tests | Where-Object { $_.Result -eq 'Failed' -and $nonBlocking -contains $_.ExpandedName })
-          foreach ($t in $nbFailed) { Write-Host "::warning::NON-BLOCKING (t/436, known flake): $($t.ExpandedName) FAILED. It does not fail this job until t/436 closes." }
-          $blockingFailed = @($r.Tests | Where-Object { $_.Result -eq 'Failed' -and -not ($nonBlocking -contains $_.ExpandedName) })
-          if ($r.Result -ne 'Passed' -and $r.FailedContainersCount -eq 0 -and $nbFailed.Count -gt 0 -and $blockingFailed.Count -eq 0) {
-            Write-Host "test-powershell: the only failure is the non-blocking t/436 flake; the job passes. It stays red in the output above."
-            exit 0
-          }
+          # t/436: the #5277 non-blocking exemption for THREE CONCURRENT PUSHES is removed. Its condition
+          # was met: the lock fixed (#5270) and 107 consecutive green runs on the runner (t/436#33). No
+          # test is exempt; every failure goes through the verdict below.
           if ($r.Result -eq 'Passed') { exit 0 }
           # Container/discovery error (syntax error, throwing BeforeAll): FailedContainersCount>0,
           # often with FailedCount=0. Nothing to rerun — fail immediately (R1/R3).
@@ -766,7 +758,7 @@ jobs:
             exit 1
           }
           # Pure test failure(s) — eligible for ONE flake rerun of only those tests (R3), no coverage.
-          $failedTests = $blockingFailed
+          $failedTests = @($r.Tests | Where-Object { $_.Result -eq 'Failed' })
           $failedNames = @($failedTests | ForEach-Object { $_.ExpandedPath })
           # t/4080: rerun the failing test FILES, not a Filter.FullName name filter. A name filter cannot
           # match data-driven `It '... <Name>' -ForEach` tests (it matched NOTHING -> every test NotRun ->

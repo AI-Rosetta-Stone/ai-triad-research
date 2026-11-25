@@ -4,31 +4,35 @@
 function Invoke-VerifiedMerge {
     <#
     .SYNOPSIS
-        Merge a GitHub PR only after verifying headRefOid matches the actual remote tip.
+        DEPRECATED. Does not merge: refuses and names the one supported way to land a PR.
     .DESCRIPTION
-        Guards against GitHub's PR headRefOid cache lag (failure class: stale-head-merge,
-        recurrences #701, #830, #1805). Compares `gh pr view --json headRefOid` with
-        `git ls-remote origin <branch>`. If they differ, refuses to merge and prints both
-        SHAs. If they match, invokes `gh pr merge` with any extra arguments supplied.
+        This cmdlet used to run `gh pr merge` after checking the PR's head against the remote
+        branch (t/3225). That is a merge path outside the merge queue: it skips the approval
+        check and the gate-file check that `operations/devops/enqueue-pr.mjs` makes (t/537,
+        t/558). The rule is never `gh pr merge` in any form.
 
-        Use this instead of bare `gh pr merge` for every self-merge to prevent stranded
-        commits. When the guard fires, re-push the branch or wait 30-60 s for GitHub's
-        PR cache to sync, then retry.
+        It now makes no `gh` or `git` call and merges nothing. Every call fails with an error
+        that names the command to run instead, from a checkout at origin/main:
+
+            node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>
+
+        `enqueue-pr.mjs` pins the PR's head when it enqueues, which is the stale-head
+        protection this cmdlet existed for. The name and parameters are kept so an old call
+        fails with this message, not with a binding error.
     .PARAMETER PrNumber
-        GitHub PR number to merge.
+        GitHub PR number. Used only in the error message.
     .PARAMETER MergeArgs
-        Extra arguments passed through to gh pr merge (e.g. '--squash', '--delete-branch').
+        Ignored. Kept so existing calls still bind.
     .EXAMPLE
         Invoke-VerifiedMerge -PrNumber 1820
-    .EXAMPLE
-        Invoke-VerifiedMerge -PrNumber 1820 -MergeArgs '--squash','--delete-branch'
+        Fails, and names: node operations/devops/enqueue-pr.mjs <owner>/<repo> 1820
     .LINK
         Show-AITriadHelp
     .LINK
         Test-GitHubHealth
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([PSCustomObject])]
+    [OutputType([void])]
     param(
         [Parameter(Mandatory, Position = 0)]
         [ValidateRange(1, [int]::MaxValue)]
@@ -40,73 +44,16 @@ function Invoke-VerifiedMerge {
 
     Set-StrictMode -Version Latest
 
-    # ── Fetch PR metadata ────────────────────────────────────────────────────
-    Write-Verbose "Fetching PR #$PrNumber metadata from GitHub..."
-    $PrJson = gh pr view $PrNumber --json headRefOid,headRefName 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError -AsErrorRecord `
-            -Goal "Verify PR #$PrNumber before merging" `
-            -Problem "gh pr view failed: $PrJson" `
-            -Location 'Invoke-VerifiedMerge' `
-            -NextSteps 'Ensure gh is authenticated and the PR number is correct.')
-    }
-    $Pr = $PrJson | ConvertFrom-Json
-    $CachedOid = $Pr.headRefOid
-    $Branch = $Pr.headRefName
-
-    # ── Fetch actual remote tip ──────────────────────────────────────────────
-    Write-Verbose "Resolving remote tip for origin/$Branch via git ls-remote..."
-    $LsOutput = git ls-remote origin "refs/heads/$Branch" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError -AsErrorRecord `
-            -Goal "Verify PR #$PrNumber before merging" `
-            -Problem "git ls-remote failed: $LsOutput" `
-            -Location 'Invoke-VerifiedMerge' `
-            -NextSteps 'Ensure the git remote is reachable and you are authenticated.')
-    }
-
-    # ls-remote output: "<sha>\trefs/heads/<branch>", or empty if branch is gone
-    $RemoteOid = if ($LsOutput) { ($LsOutput -split '\s+')[0].Trim() } else { '' }
-
-    if (-not $RemoteOid) {
-        throw (New-ActionableError -AsErrorRecord `
-            -Goal "Verify PR #$PrNumber before merging" `
-            -Problem "Branch '$Branch' not found on origin (ls-remote returned empty)." `
-            -Location 'Invoke-VerifiedMerge' `
-            -NextSteps 'Confirm the branch has been pushed to origin before merging.')
-    }
-
-    # ── Guard: refuse when SHAs differ (stale-head-merge prevention) ─────────
-    if ($CachedOid -ne $RemoteOid) {
-        throw (New-ActionableError -AsErrorRecord `
-            -Goal "Merge PR #$PrNumber without stranding commits" `
-            -Problem ("PR headRefOid cache lag detected — cached and actual tips differ.`n" +
-                      "  PR cached (gh):    $CachedOid`n" +
-                      "  Remote actual:     $RemoteOid") `
-            -Location 'Invoke-VerifiedMerge' `
-            -NextSteps ("Re-push the branch or wait 30-60 s for GitHub's PR cache to sync, " +
-                        'then retry Invoke-VerifiedMerge.'))
-    }
-
-    Write-Verbose "SHAs match ($CachedOid) — safe to merge."
-
-    # ── Merge ────────────────────────────────────────────────────────────────
-    if ($PSCmdlet.ShouldProcess("PR #$PrNumber ($Branch @ $CachedOid)", 'gh pr merge')) {
-        $MergeOutput = gh pr merge $PrNumber @MergeArgs 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            throw (New-ActionableError -AsErrorRecord `
-                -Goal "Merge PR #$PrNumber" `
-                -Problem "gh pr merge exited ${LASTEXITCODE}: $MergeOutput" `
-                -Location 'Invoke-VerifiedMerge' `
-                -NextSteps 'Check PR status: required reviews, conflicts, branch protection rules.')
-        }
-        Write-Verbose 'Merge complete.'
-    }
-
-    [PSCustomObject]@{
-        PrNumber  = $PrNumber
-        Branch    = $Branch
-        MergedOid = $CachedOid
-        Verified  = $true
-    }
+    $Command = "node operations/devops/enqueue-pr.mjs <owner>/<repo> $PrNumber"
+    Write-Warning "Invoke-VerifiedMerge is deprecated and merges nothing (t/558). Use: $Command"
+    # Refuses under -WhatIf as well: there is no merge left to preview.
+    throw (New-ActionableError -AsErrorRecord `
+        -Goal "Land PR #$PrNumber" `
+        -Problem ('Invoke-VerifiedMerge no longer merges. It ran gh pr merge, which lands a PR outside ' +
+                  'the merge queue and skips the approval and gate-file checks.') `
+        -Location 'Invoke-VerifiedMerge' `
+        -NextSteps @(
+            "From a checkout at origin/main, run: $Command",
+            'If it refuses, stop and escalate; do not fall back to gh pr merge (docs/pr-landing.md).'
+        ))
 }

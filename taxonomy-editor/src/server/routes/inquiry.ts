@@ -50,6 +50,8 @@ export function jobProjection(job: InquiryJob): InquiryPollProjection {
     // t/4917: tier 1 (in-memory job) is the only tier with a live debate fraction —
     // buildPollView needs it to move progressPct past the debating-stage floor (15%).
     debateFraction: job.currentDebateFraction,
+    // t/326: stage start and end times, for the status response (tier 1).
+    stageTimings: job.stageTimings,
   };
   if (job.currentStageDetail) projection.stageDetail = job.currentStageDetail;
   return projection;
@@ -233,7 +235,7 @@ export function registerInquiryRoutes(r: Router, _ctx: ServerCtx): void {
         }
         if (tier3?.verdict === 'live') {
           // Fresh heartbeat — another process is still running this job (e.g. deploy overlap).
-          json(res, buildPollView({ jobId, status: tier3.record.status, resultId: tier3.record.resultId, error: null, debateId: tier3.record.debateId, terminationReason: null }));
+          json(res, buildPollView({ jobId, status: tier3.record.status, resultId: tier3.record.resultId, error: null, debateId: tier3.record.debateId, terminationReason: null, stageTimings: tier3.record.stageTimings }));
           return;
         }
         // t/3724: only on this branch — !hasInquiryJob(jobId) is genuine absence, not the

@@ -24,6 +24,7 @@ export const GATE_CHANGE_APPROVER_ROLES = ['Tech Lead', 'Security'];
 export const GATE_SCRIPTS = [
   'operations/devops/enqueue-pr.mjs',
   'operations/devops/gate-file-change.mjs',
+  'operations/devops/running-copy-current.mjs', // t/556: enqueue-pr.mjs's origin/main currency check
   'operations/devops/t1-approval-at-head.mjs',
   'operations/devops/t1-approval-guard-predicate.mjs',
   'operations/devops/t1-approval-guard-merge-group-predicate.mjs',
