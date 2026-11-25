@@ -12,14 +12,14 @@
  * ships) so this PR's wiring can be exercised before that flag ever flips
  * for real.
  *
- * Own Azurite port (10007), distinct from every other githubApi- or
- * sharedOverlayStore-prefixed test file's port.
+ * Own Azurite on a free port per run (azuriteFreePort.ts).
  *
  * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on
  * isUndiciMajorAlignedWithRuntime, same as the other githubApi* test files.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -33,7 +33,8 @@ const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10007;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10007 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 const CONTAINER = 'user-content';

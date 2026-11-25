@@ -8,10 +8,11 @@
  * acknowledged only after its stage to the shared store succeeds. Two GitHubAPIBackend instances act as two replicas on
  * one Azurite-backed SharedOverlayStore; `forceActiveForTesting` turns shared state on (it is inert everywhere else).
  *
- * Own Azurite port (10011). Gated on skipForUndiciSkewOutsideCi: skipped only locally, never in CI (TL t/503#22).
+ * Own Azurite on a free port per run (azuriteFreePort.ts). Gated on skipForUndiciSkewOutsideCi: skipped only locally, never in CI (TL t/503#22).
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -26,7 +27,8 @@ import { SharedOverlayStore } from '../storage/sharedOverlayStore.js';
 const SKIP_LOCAL_SKEW = skipForUndiciSkewOutsideCi();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10011;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10011 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 const CONTAINER = 'overlay-state';

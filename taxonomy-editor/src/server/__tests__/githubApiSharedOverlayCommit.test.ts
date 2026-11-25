@@ -7,10 +7,11 @@
  * t/550 commit 2 (t/503 rulings, SO t/503#8 conditions 3 and 4): with shared overlay state active, a commit takes the
  * user's commit lease, takes its batch from the shared store alone, clears by ETag, and rebases an entry rewritten
  * mid-commit. Two GitHubAPIBackend replicas on one Azurite store and a small fake GitHub that records the trees, commits
- * and ref updates. Own Azurite port (10012). Gated on skipForUndiciSkewOutsideCi: skipped only locally, never in CI (TL t/503#22).
+ * and ref updates. Own Azurite on a free port per run (azuriteFreePort.ts). Gated on skipForUndiciSkewOutsideCi: skipped only locally, never in CI (TL t/503#22).
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -26,7 +27,8 @@ import { BlobLease } from '../storage/blobLease.js';
 const SKIP_LOCAL_SKEW = skipForUndiciSkewOutsideCi();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10012;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10012 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const ACCOUNT_URL = `http://127.0.0.1:${PORT}/devstoreaccount1`;
 const CONTAINER = 'overlay-state';

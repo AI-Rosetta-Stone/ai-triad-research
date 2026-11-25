@@ -2,12 +2,13 @@
 
 /**
  * t/4179 — BlobLease integration tests against Azurite (the Azure Storage
- * emulator), same pattern as azureBlobBackend.test.ts but on a different port
- * (10001) so the two Azurite instances never collide when test files run
- * concurrently.
+ * emulator), same pattern as azureBlobBackend.test.ts, on a free port per run
+ * (azuriteFreePort.ts) so no two Azurite instances collide, across test files or
+ * across overlapping runs on one machine.
  */
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { freeAzuritePort } from './azuriteFreePort.js';
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -18,7 +19,8 @@ import { BlobLease } from '../storage/blobLease.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
-const PORT = 10001;
+// t/503 (Quality p/58#75): its own emulator per run; the fixed port 10001 let overlapping runs share one.
+const PORT = await freeAzuritePort();
 const CONN = `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:${PORT}/devstoreaccount1;`;
 const CONTAINER = 'poll-coordination';
 
@@ -179,6 +181,21 @@ describe('BlobLease (Azurite)', () => {
     expect(await lease.acquireOrRenew()).toBe(true);
     expect(await service.getContainerClient(CONTAINER).getBlockBlobClient(blobName).exists()).toBe(true);
     await lease.release();
+  });
+
+  // Quality p/58#75: a lone first acquire on a blob that doesn't exist must hold, never read 'busy'. The 412 accepted
+  // on the seed upload only skips the create; whether we hold is decided by acquireLease, which returns false only on
+  // a 409 (someone else's lease). Ten fresh blobs in a row, one instance each.
+  it('a lone first acquire on a fresh blob always holds (never busy), and creates the blob', async () => {
+    for (let i = 0; i < 10; i++) {
+      const name = `${blobName}-lone-${i}`;
+      const lease = makeLease(name);
+      expect(await service.getContainerClient(CONTAINER).getBlockBlobClient(name).exists()).toBe(false);
+      expect(await lease.acquireOrRenew()).toBe(true);
+      expect(lease.isHolder()).toBe(true);
+      expect((await service.getContainerClient(CONTAINER).getBlockBlobClient(name).getProperties()).leaseState).toBe('leased');
+      await lease.release();
+    }
   });
 
   // t/503 N1 (TL t/503#22): a renewal that fails for a non-conflict reason (network, 5xx) must keep the lease id.
