@@ -58,7 +58,7 @@
           "description": "Free tier defaults (server-provided key).",
           "properties": {
             "requestsPerMinute": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Requests per minute. Default 6." },
-            "tokensPerDay": { "type": "integer", "minimum": 0, "maximum": 100000000, "description": "Tokens per day. Default 500000." },
+            "tokensPerDay": { "type": "integer", "minimum": 0, "maximum": 100000000, "description": "Tokens per day. Default 1500000 (t/494, PI 2026-11-25)." },
             "allowedBackends": { "$ref": "#/$defs/backends", "description": "Permitted AI backends. Default ['gemini']." },
             "pinnedModel": { "type": "string", "minLength": 1, "description": "Model the free tier is pinned to. Default 'gemini-flash-lite-latest'." }
           }

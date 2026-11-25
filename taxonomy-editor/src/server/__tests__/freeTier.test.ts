@@ -81,7 +81,7 @@ describe('free tier (t/793)', () => {
     expect(tier.pinnedModel).toBe('gemini-3.5-flash-lite'); // = DEFAULT_MODEL (t/2687)
     // t/812: no per-prompt char cap — cost is bounded by tokensPerDay + per-IP RPM.
     expect(tier.maxPromptChars).toBeUndefined();
-    expect(tier.limits).toEqual({ requestsPerMinute: 12, tokensPerDay: 500_000 }); // t/3111: 24→12 (free-tier-safe per-key; pool size K=2 clears the burst)
+    expect(tier.limits).toEqual({ requestsPerMinute: 12, tokensPerDay: 1_500_000 }); // t/3111: 24→12 (free-tier-safe per-key; pool size K=2 clears the burst). t/494 (PI 2026-11-25): 500K → 1.5M a day
     expect(tier.allowedBackends).toEqual(['gemini']);
   });
 
