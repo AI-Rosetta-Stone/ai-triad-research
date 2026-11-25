@@ -87,7 +87,7 @@ test('t/534 A: an approved PR is selected with no guard row at all (a missing ru
 
 test('t/534 A (Security condition 1): an approval only from a shared-login comment is not selected', () => {
   const comment = { body: 'Approved (Quality): fine', login: 'jpsnover', createdAt: '2026-11-09T11:00:00Z', updatedAt: null };
-  assert.equal(skipReason(pr({ reviews: [], comments: [comment] })), 'approval at head is approval_not_from_allowed_source');
+  assert.equal(skipReason(pr({ reviews: [], comments: [comment] })), 'approval at head is no_approval');
 });
 
 // ---- refusal arms ----
@@ -95,9 +95,9 @@ test('REFUSE: stale-head approval (review bound to the previous head) is not enq
   assert.equal(skipReason(pr({ reviews: [approvalAt(OLD_HEAD)] })), 'approval at head is no_approval');
 });
 
-test('REFUSE: a comment-only approval (not bound to a SHA) is not auto-enqueued', () => {
+test('REFUSE: a comment-only approval (not bound to a SHA), even the reviewer App\'s, is not auto-enqueued (comments never approve, Lead t/534)', () => {
   const comment = { body: 'Approved (Quality): looks good', login: REVIEWER, createdAt: '2026-11-09T11:00:00Z', updatedAt: null };
-  assert.match(skipReason(pr({ reviews: [], comments: [comment] })), /bound to the current head SHA/);
+  assert.equal(skipReason(pr({ reviews: [], comments: [comment] })), 'approval at head is no_approval');
 });
 
 test('REFUSE: self-approval (the branch owner role approving its own devops/ branch) is not enqueued', () => {

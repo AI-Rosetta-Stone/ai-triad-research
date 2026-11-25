@@ -383,12 +383,36 @@ test('t/534 A: a forged green row does not override an outstanding changes-reque
 
 test('t/534 A (Security condition 1): an approval only from the shared jpsnover login (comment) is refused', async () => {
   const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.')] }));
-  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(approval_not_from_allowed_source\)/);
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
 
-test('t/534 A (Security condition 1): a changes-request from the shared login still BLOCKS (never filtered out)', async () => {
-  const fakeGh = forgedRowFake(approvalState({ comments: [sharedComment('Changes requested (Quality): no.', '2026-11-09T02:00:00Z')] }));
+// Lead t/534 (3): blocking comes only from the reviewer App and OWNER/MEMBER/COLLABORATOR reviews.
+const humanReview = (association, over = {}) => ({
+  state: 'CHANGES_REQUESTED', body: 'Please fix the edge case.', submitted_at: '2026-11-09T02:00:00Z',
+  commit_id: 'cafebabe', user: { login: `user-${association.toLowerCase()}` }, author_association: association, ...over,
+});
+
+test('t/534 A (3): a CHANGES_REQUESTED review from an OWNER, MEMBER or COLLABORATOR account blocks', async () => {
+  for (const assoc of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+    const fakeGh = forgedRowFake(approvalState({ reviews: [appReview(), humanReview(assoc)] }));
+    await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/, assoc);
+    assert.equal(mergeCalls(fakeGh), 0, assoc);
+  }
+});
+
+test('t/534 A (3): a changes-request from a public account (review or comment), or a shared-login comment, does NOT block', async () => {
+  for (const assoc of ['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR']) {
+    const fakeGh = forgedRowFake(approvalState({ reviews: [appReview(), humanReview(assoc)] }));
+    const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
+    assert.equal(result.state, 'queued', assoc);
+  }
+  const fakeGh = forgedRowFake(approvalState({ comments: [sharedComment('Changes requested (Quality): no.', '2026-11-09T02:00:00Z'), sharedComment('Changes requested (Security): no.', '2026-11-09T02:00:00Z', 'drive-by-account')] }));
+  assert.equal((await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh })).state, 'queued');
+});
+
+test('t/534 A (3): a changes-request COMMENT from the reviewer App still blocks', async () => {
+  const fakeGh = forgedRowFake(approvalState({ comments: [sharedComment('Changes requested (Security): fix it.', '2026-11-09T02:00:00Z', APP)] }));
   await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(changes_requested\)/);
   assert.equal(mergeCalls(fakeGh), 0);
 });
@@ -445,10 +469,52 @@ test('t/534 A: positive control -- a reviewer-App approval bound to the head DOE
   assert.equal(checkRunReads(fakeGh), 0);
 });
 
-test('t/534 A: an approval comment from the reviewer App itself (allowlisted) counts', async () => {
-  const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.', '2026-11-09T01:00:00Z', APP)] }));
-  const result = await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh });
-  assert.equal(result.state, 'queued');
+// Lead t/534 (1): the real forgery path. lastPushAt used to be the head commit's committer date, which
+// the PR author sets. An App approval comment posted at 01:00 for an OLD head; the author then pushes
+// new code whose commit is back-dated to 00:00 (git commit --date). The old code read the comment as
+// "after the push" and enqueued the new, unreviewed head. Comments never approve now.
+test('t/534 A (1): BACKDATED PUSH -- an old App approval comment does not approve a new head whose commit is back-dated', async () => {
+  const fakeGh = forgedRowFake(approvalState({
+    reviews: [appReview({ commit_id: '0ldhead00', submitted_at: '2026-11-09T01:00:00Z' })], // the real approval, on the old head
+    comments: [sharedComment('Approved (Quality): fine.', '2026-11-09T01:00:00Z', APP)],    // its comment form
+    commits: [{ commit: { committer: { date: '2026-11-09T00:00:00Z' } } }],                // new head, back-dated before both
+  }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A (1): an App approval COMMENT alone never approves, whatever its time', async () => {
+  for (const at of ['2026-11-09T01:00:00Z', '2099-01-01T00:00:00Z']) {
+    const fakeGh = forgedRowFake(approvalState({ reviews: [], comments: [sharedComment('Approved (Quality): fine.', at, APP)] }));
+    await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/, at);
+  }
+});
+
+// Lead t/534 (2): T2 needs the same reviewer-App review as T1 (TL ruling; merge-approval does it).
+const T2_VIEW = JSON.stringify({ headRefOid: 'cafebabe', body: 'Tier: T2\n\nA consult-gated change.', isDraft: false });
+function t2Fake(approval) {
+  const fakeGh = forgedRowFake(approval);
+  fakeGh.approval.pr = { ...fakeGh.approval.pr, body: 'Tier: T2\n\nA consult-gated change.' };
+  const happy = happyPathNext(T2_VIEW);
+  fakeGh.next = (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('check-runs')) return FORGED_GREEN;
+    const r = happy(args);
+    if (r !== undefined) return r;
+    throw new Error(`unexpected gh call: ${joined}`);
+  };
+  return fakeGh;
+}
+
+test('t/534 A (2): a T2 PR with no reviewer-App review at the head is refused (no longer exempt)', async () => {
+  const fakeGh = t2Fake(approvalState({ reviews: [] }));
+  await assert.rejects(() => enqueuePR('o/r', 7, { sleepMs: 0, currency: CURRENT, gh: fakeGh }), /\(no_approval\)/);
+  assert.equal(mergeCalls(fakeGh), 0);
+});
+
+test('t/534 A (2): a T2 PR with a reviewer-App review at the head proceeds', async () => {
+  const fakeGh = t2Fake(approvalState());
+  assert.equal((await enqueuePR('o/r', 42, { sleepMs: 0, currency: CURRENT, gh: fakeGh })).state, 'queued');
 });
 
 test('t/534 A: a T0 PR reads no approval data at all (exempt, unchanged)', async () => {

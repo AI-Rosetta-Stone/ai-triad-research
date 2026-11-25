@@ -236,8 +236,9 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
   // t/534 part A: the approval is decided HERE, from the PR's reviews and comments read from the
   // API at this head, by the guard's own predicate (approvalFromApiVerdict). No check run is read
   // for the decision: the `t1-approval-guard` row on the PR is display only (Security condition 3).
-  // T0 and T2 are exempt as before, so nothing is read for them.
-  const needsApproval = !prMeta.isDraft && tier !== 'T0' && tier !== 'T2';
+  // T0 is exempt, so nothing is read for it. T2 needs the same reviewer-App review as T1 (TL ruling,
+  // Lead t/534; merge-approval does the same).
+  const needsApproval = !prMeta.isDraft && tier !== 'T0';
   const inputs = needsApproval ? fetchApprovalInputs(repo, prNumber, headSha, ghFn) : null;
   // A tier-check lookup error is non-blocking: tierCheckDisagreesAt already WARNed (t/4950).
   const tierCheckDisagreesOnT0 = tier === 'T0' ? tierCheckDisagreesAt(repo, headSha, ghFn).disagrees : false;

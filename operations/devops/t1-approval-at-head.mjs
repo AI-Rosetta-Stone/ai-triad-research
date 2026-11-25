@@ -20,11 +20,18 @@
 // read the PR, its commits, comments and reviews from the API at the head (fetchApprovalInputs)
 // and call the guard's own predicate on them (approvalFromApiVerdict). Security's binding
 // conditions:
-//   1. an approval counts only from a reviewer-App review bound to the head, or a comment by an
-//      account on COMMENT_APPROVER_ALLOWLIST -- never the shared `jpsnover` comment path;
+//   1. an approval counts only from a reviewer-App REVIEW bound to the head by commit_id. Comments
+//      never approve (Lead t/534, mirroring merge-approval-verdict.mjs in #5470): a comment is bound
+//      to the head only through `lastPushAt`, the head commit's committer date, which the PR author
+//      sets (git commit --date), so a back-dated push would make an old App approval comment count
+//      for new code. lastPushAt is therefore far in the future: every comment is "before the push",
+//      so an App comment can still block (and clear its own role's block) but never approve;
 //   2. every API read fails closed (any error, a non-array page, a head that moved, a commit list
 //      the API may have cut short);
 //   3. the `t1-approval-guard` row on the PR is display only and is never an input.
+// WHO CAN BLOCK: the reviewer App (reviews and comments) and reviews from OWNER / MEMBER /
+// COLLABORATOR accounts. On a public repo anyone else can comment or review, so they are dropped.
+// T2 needs the same App review as T1 (TL ruling); T0 is exempt.
 // The row helpers below (classifyT1GuardForEnqueue, pickAuthoritativeGuardRun, fetchGuardRun,
 // approvalAtHeadVerdict) stay for display and for their existing tests; no enqueue path calls them.
 
@@ -38,10 +45,14 @@ function gh(args, options = {}) {
 // REST login of the reviewer App (what reviews and comments carry). Same value as
 // gate-file-change.mjs's REVIEWER_APP_REST_LOGIN and t1-approval-guard.yml's REVIEWER_APP_LOGIN.
 export const REVIEWER_APP_REST_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
-// Security condition 1 (t/534#5): the ONLY accounts whose `Approved (<role>):` COMMENT counts as an
-// approval for enqueue. The shared `jpsnover` login is deliberately absent: any agent can post as it.
-// A comment from anyone can still BLOCK (a changes-request is never filtered out).
+// The only accounts whose comments are read at all (to block, never to approve). Exactly the reviewer
+// App: the shared `jpsnover` login and every other account are dropped (Security t/534#5).
 export const COMMENT_APPROVER_ALLOWLIST = Object.freeze([REVIEWER_APP_REST_LOGIN]);
+// Review author associations whose CHANGES_REQUESTED blocks. Their approvals never count: the
+// predicate counts only the reviewer App's reviews as approvals. Same list as merge-approval (#5470).
+export const BLOCKING_REVIEW_ASSOCIATIONS = Object.freeze(['OWNER', 'MEMBER', 'COLLABORATOR']);
+// Later than any real push, so no comment is "after the push" (see condition 1 above).
+export const FAR_FUTURE_PUSH = '9999-12-31T23:59:59Z';
 // GET /pulls/{n}/commits returns at most 250 commits; past that the last commit is not the head's.
 export const PR_COMMITS_API_CAP = 250;
 
@@ -74,34 +85,48 @@ export function fetchApprovalInputs(repo, prNumber, expectedHeadSha, ghFn = gh) 
   }
 }
 
-/** PURE. The predicate's inputs from the API reads, mapped exactly as t1-approval-guard.yml maps them. */
-export function toPredicateInputs({ pr, commits, comments, reviews }) {
-  const last = commits[commits.length - 1];
+/**
+ * PURE. The predicate's inputs from the API reads. Mirrors merge-approval-verdict.mjs (#5470):
+ * comments only from COMMENT_APPROVER_ALLOWLIST; reviews only from the reviewer App or a
+ * BLOCKING_REVIEW_ASSOCIATIONS account; lastPushAt FAR_FUTURE_PUSH, so no comment approves.
+ * `commits` is still read and checked by fetchApprovalInputs (a cut-short list fails closed), but
+ * its committer date is deliberately not used: the PR author controls it.
+ */
+export function toPredicateInputs({ pr, comments, reviews }) {
   return {
     body: pr.body ?? '',
     headRefName: pr.head.ref,
     headSha: pr.head.sha,
-    lastPushAt: last ? (last.commit?.committer?.date || last.commit?.author?.date) : pr.created_at,
-    approvalComments: comments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at, login: c.user?.login })),
-    botReviews: reviews.map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id })),
+    lastPushAt: FAR_FUTURE_PUSH,
+    approvalComments: comments
+      .filter((c) => COMMENT_APPROVER_ALLOWLIST.includes(c?.user?.login))
+      .map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at, login: c.user?.login })),
+    botReviews: reviews
+      .filter((r) => r?.user?.login === REVIEWER_APP_REST_LOGIN || BLOCKING_REVIEW_ASSOCIATIONS.includes(r?.author_association))
+      .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body, commitId: r.commit_id })),
   };
+}
+
+/** PURE. The body the predicate reads: it acts only on a `Tier: T1` first line, so T2 is rewritten to it. */
+function bodyAsT1(body, tier) {
+  if (tier === 'T1') return body;
+  if (tier === 'T2') return String(body).replace(/^(\s*Tier:\s*)T2\b/i, '$1T1');
+  return `Tier: T1\n${body}`; // undeclared or unreadable tier: evaluated as T1 (fail closed)
 }
 
 /**
  * PURE. The approval verdict every enqueue path acts on (t/534 part A). Returns `{ allow, reason,
  * warn, approver?, detail? }`. `reason`:
- *   'draft' | 'tier_exempt' (T0/T2, unchanged rule) | 'approved_at_head' (allow) |
+ *   'draft' | 'tier_exempt' (T0 only) | 'approved_at_head' (allow) |
  *   'approval_lookup_error' | 'approval_cannot_evaluate' | 'changes_requested' | 'no_approval' |
- *   'approval_not_from_allowed_source' (only a shared-login comment approves) | 'missing_head_sha' |
- *   'approval_<other predicate reason>'.
- * The predicate runs TWICE and both must pass: on every comment (so any changes-request blocks,
- * whoever posted it) and on the allowlisted comments only (so an approval counts only from a
- * head-bound reviewer-App review or an allowlisted account). An undeclared tier is evaluated as
- * T1 (fail closed, as before). No check run is read.
+ *   'missing_head_sha' | 'approval_<other predicate reason>'.
+ * One predicate run on the filtered inputs (toPredicateInputs): an approval counts only from a
+ * reviewer-App review bound to the head; the App and write-level reviewers can block. T1 and T2
+ * both need the approval; an undeclared tier is evaluated as T1 (fail closed). No check run is read.
  */
 export function approvalFromApiVerdict({ tier, isDraft, headSha, inputs, tierCheckDisagreesOnT0 = false, evaluate = evaluateT1ApprovalGuard }) {
   if (isDraft) return { allow: false, reason: 'draft', warn: null };
-  if (tier === 'T0' || tier === 'T2') {
+  if (tier === 'T0') {
     const warn = tier === 'T0' && tierCheckDisagreesOnT0
       ? "tier-check's completed run at this head disagrees with the declared Tier: T0 -- review " +
         'manually; enqueue-pr does not block on this signal yet (t/4939 follow-up).'
@@ -118,32 +143,23 @@ export function approvalFromApiVerdict({ tier, isDraft, headSha, inputs, tierChe
     return { allow: false, reason: 'approval_lookup_error', warn: null, detail: `unreadable API data (${err.message ?? err})` };
   }
   if (base.headSha !== headSha) return { allow: false, reason: 'approval_lookup_error', warn: null, detail: `the API read is for ${base.headSha}, not ${headSha}` };
-  const body = tier === 'T1' ? base.body : `Tier: T1\n${base.body}`;
-  let all;
-  let restricted;
+  let r;
   try {
-    all = evaluate({ ...base, body, reviewerAppLogin: REVIEWER_APP_REST_LOGIN });
-    restricted = evaluate({
-      ...base, body, reviewerAppLogin: REVIEWER_APP_REST_LOGIN,
-      approvalComments: base.approvalComments.filter((c) => COMMENT_APPROVER_ALLOWLIST.includes(c.login)),
-    });
+    r = evaluate({ ...base, body: bodyAsT1(base.body, tier), reviewerAppLogin: REVIEWER_APP_REST_LOGIN });
   } catch (err) {
     return { allow: false, reason: 'approval_cannot_evaluate', warn: null, detail: String(err?.message ?? err) };
   }
-  if (!all?.pass) {
-    const reason = all?.reason === 'changes-requested-outstanding' ? 'changes_requested'
-      : all?.reason === 'no-post-push-approval' ? 'no_approval'
-        : all?.reason === 'missing-head-sha' ? 'missing_head_sha'
-          : `approval_${String(all?.reason ?? 'unknown').replace(/-/g, '_')}`;
-    return { allow: false, reason, warn: null, detail: all?.summary ?? (all?.blockers ? JSON.stringify(all.blockers) : null) };
+  if (!r?.pass || r.reason !== 'approved-after-push') {
+    const reason = r?.reason === 'changes-requested-outstanding' ? 'changes_requested'
+      : r?.reason === 'no-post-push-approval' ? 'no_approval'
+        : r?.reason === 'missing-head-sha' ? 'missing_head_sha'
+          : `approval_${String(r?.reason ?? 'unknown').replace(/-/g, '_')}`;
+    const detail = r?.blockers ? JSON.stringify(r.blockers)
+      : reason === 'no_approval' ? 'no reviewer-App approval review bound to this head from a role other than the branch owner (comments never approve)'
+        : (r?.summary ?? null);
+    return { allow: false, reason, warn: null, detail };
   }
-  if (!restricted?.pass || restricted.reason !== 'approved-after-push') {
-    return {
-      allow: false, reason: 'approval_not_from_allowed_source', warn: null,
-      detail: 'the only approval at this head is a comment from an account not on COMMENT_APPROVER_ALLOWLIST (e.g. the shared login); a reviewer-App review bound to the head is needed',
-    };
-  }
-  return { allow: true, reason: 'approved_at_head', warn: null, approver: restricted.approver };
+  return { allow: true, reason: 'approved_at_head', warn: null, approver: r.approver };
 }
 
 /**
