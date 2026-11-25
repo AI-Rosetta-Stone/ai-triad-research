@@ -346,6 +346,7 @@ export function gateFileChangeVerdict({ files, headSha, override, reviewerLogin 
   if (!r || typeof r !== 'object') return { allow: false, reason: 'override_unreadable', gateFiles, detail: 'the named review could not be read' };
   const why = [];
   if (r.user?.login !== reviewerLogin) why.push(`it is from ${r.user?.login ?? 'an unknown account'}, not the reviewer App`);
+  // lint:review-state-ok: one review named by id (--gate-change-review), bound to the head; its role comes from the body
   if (r.state !== 'APPROVED') why.push(`its state is ${r.state ?? 'unknown'}, not APPROVED`);
   if (!headSha || r.commit_id !== headSha) why.push(`it is bound to ${String(r.commit_id).slice(0, 9)}, not the current head ${String(headSha).slice(0, 9)}`);
   const role = /^Approved \(([^)]+)\):/.exec(String(r.body ?? '').trimStart())?.[1] ?? null;
