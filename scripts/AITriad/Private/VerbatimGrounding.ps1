@@ -115,9 +115,7 @@ function Get-VerbatimSource {
     # Ligatures whose UTF-8 bytes were read as code page 437 ("signi" + U+2229 U+00BC U+00FC + "cant" for
     # "significant"; t/389#45, H06). Without this the word does not match the model's quote, and the stored
     # piece starts after it. Same length, like the repairs above; only the matching copy changes.
-    # The padding is a zero-width space, not a space: a space would read as the source splitting the word
-    # in two, and a space is never deleted (CL t/389#64 (2)).
-    foreach ($P in $script:VerbatimLigatureMojibake) { $W = $W.Replace($P[0], $P[1].PadRight(3, [char]0x200B)) }
+    foreach ($P in $script:VerbatimLigatureMojibake) { $W = $W.Replace($P[0], $P[1].PadRight(3)) }
     # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
     # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
     $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
@@ -1021,6 +1019,13 @@ function Resolve-VerbatimSegment {
                 $Glued = 0
                 if (-not $Why -and $null -ne $Want -and $script:VerbatimNoSpaceDeletion -ne 'none') {
                     $Shown = [System.Text.StringBuilder]::new($PieceWork)
+                    # A space the working copy has only as padding (a repaired mojibake mark or ligature, a blanked
+                    # tag) is not a space of the source: "EU" + a damaged apostrophe + "s" is one word.
+                    if ($KeyText.Length -eq $Source.Text.Length) {
+                        for ($K = 0; $K -lt $PieceWork.Length; $K++) {
+                            if ([char]::IsWhiteSpace($PieceWork[$K]) -and -not [char]::IsWhiteSpace($Source.Text[$P.Start + $K])) { $Shown[$K] = [char]0x200B }
+                        }
+                    }
                     foreach ($M in (@($Remove) + @($Ignore) | Sort-Object Index -Descending)) {
                         [void]$Shown.Remove($M.Index, $M.Length)
                         if ($Ignore.Contains($M)) { [void]$Shown.Insert($M.Index, ' ') }
@@ -1032,7 +1037,15 @@ function Resolve-VerbatimSegment {
                     } else {
                         $Split = 0
                         for ($K = 1; $K -lt $Want.Length; $K++) {
-                            if ($SGap.Space[$K] -and -not $QGap.Any[$P.QStart + $K]) { $Split++ }
+                            if ($SGap.Space[$K] -and -not $QGap.Any[$P.QStart + $K]) {
+                                if ($Split -eq 0) {
+                                    # For audits: the quote's word that the source has in two.
+                                    $W0 = $K; while ($W0 -gt 0 -and -not $QGap.Any[$P.QStart + $W0]) { $W0-- }
+                                    $W1 = $K; while ($W1 -lt $Want.Length -and -not $QGap.Any[$P.QStart + $W1]) { $W1++ }
+                                    $script:VerbatimDiag.Add("split word: $($Want.Substring($W0, $K - $W0)) | $($Want.Substring($K, $W1 - $K))")
+                                }
+                                $Split++
+                            }
                             elseif ($QGap.Space[$P.QStart + $K] -and -not $SGap.Any[$K]) { $Glued++ }
                         }
                         if ($Split -gt 0) { $Why = 'source splits a word' }

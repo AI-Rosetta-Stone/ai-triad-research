@@ -674,6 +674,10 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out = & $script:Run $Src2 $Quote 'doc-space-runs'
         $Out.R.Dropped | Should -Be 0
         $Out.Stored | Should -Be $Quote
+        # The padding left by a repaired mojibake mark is not a space of the source: "EU's" with a damaged apostrophe is one word.
+        $Apos = [string][char]0x393 + [char]0xC7 + [char]0xD6
+        $Src4 = "Regulators range from the EU${Apos}s precautionary approach to the lighter rules that other states have adopted.`r`n"
+        (& $script:Run $Src4 'Regulators range from the EUs precautionary approach to the lighter rules that other states have adopted.' 'doc-mojibake-padding').R.Dropped | Should -Be 0
         # A hyphen where the source has a space is not a deleted space.
         $Src3 = "Evaluators say that the long term effects were tested by the lab before the release of the model.`r`n"
         (& $script:Run $Src3 'Evaluators say that the long-term effects were tested by the lab before the release of the model.' 'doc-hyphen-for-space').R.Dropped | Should -Be 0
