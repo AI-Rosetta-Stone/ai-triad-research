@@ -69,6 +69,98 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
         }
     }
 
+    Context 'Rationale is a sentence, diagnostics are match_meta (t/584)' {
+
+        BeforeEach {
+            # One claim, cosine 0.7071 to acc-beliefs-001, over the 0.60 threshold used here.
+            $script:t584Run = {
+                param([object[]]$Claims, [object[]]$Edges, [hashtable]$Names, [switch]$Write)
+                InModuleScope AITriad -Parameters @{
+                    ClaimsPath = $script:claimsPath; EmbPath = $script:embeddingsPath; VecC = [double[]]$script:vecCn
+                    Claims = $Claims; Edges = $Edges; Names = $Names; Write = [bool]$Write
+                } {
+                    param($ClaimsPath, $EmbPath, $VecC, $Claims, $Edges, $Names, $Write)
+                    @{ claims = $Claims } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+                    $vecCref = $VecC
+                    function python {
+                        process {
+                            $payload = $input | Out-String | ConvertFrom-Json
+                            $out = [ordered]@{}
+                            foreach ($item in $payload) { $out[$item.id] = $vecCref }
+                            $out | ConvertTo-Json -Depth 5 -Compress
+                        }
+                    }
+                    $edgeList = @($Edges); $nameMap = $Names
+                    Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = $edgeList } }
+                    Mock Get-OrgDisplayNameMap { $nameMap }
+                    Mock Get-OrgEdgeDocumentTitle { if ($SourceId -eq 'rmf-1.0-2024') { 'AI Risk Management Framework' } else { '' } }
+                    Mock Test-NliDirectionalGateFrozen { $false }
+                    $script:t584Written = [System.Collections.Generic.List[object]]::new()
+                    Mock Import-OrganizationEdge { $script:t584Written.Add($InputObject) }
+                    $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath -MatchThreshold 0.60 `
+                        -SkipDirectionalGate -SkipEndorsementGate -WriteProposals:$Write -Confirm:$false -Verbose:$false 3>$null 6>$null
+                    [PSCustomObject]@{ R = $r; Written = @($script:t584Written) }
+                }
+            }
+            $script:t584Claim = [PSCustomObject]@{
+                org_id = 'org-014'; source_id = 'rmf-1.0-2024'; polarity = 'asserts'; extraction_confidence = 0.9
+                canonical_proposition = 'Organizations ought to manage AI risk.'; text = 'AI risk management is a key component of responsible development.'; text_verbatim = $true
+            }
+            $script:t584Published = [PSCustomObject]@{ source = 'org-014'; target = 'rmf-1.0-2024'; type = 'PUBLISHED'; status = 'approved' }
+            $script:L = [string][char]0x201C; $script:R = [string][char]0x201D
+        }
+
+        It "quotes the org's own words when the org published the document" {
+            $o = & $script:t584Run -Claims @($script:t584Claim) -Edges @($script:t584Published) -Names @{ 'org-014' = 'NIST' }
+            $p = $o.R.Proposals[0]
+            $p.Rationale | Should -BeExactly "NIST states: $($script:L)AI risk management is a key component of responsible development.$($script:R) (AI Risk Management Framework)."
+            $p.MatchMeta.stage | Should -Be 3
+            $p.MatchMeta.basis | Should -Be 'high-cosine'
+            $p.MatchMeta.families | Should -Be 1
+            $p.MatchMeta.best_cosine | Should -Be 0.707
+            $p.MatchMeta.claim_source_id | Should -Be 'rmf-1.0-2024'
+            $p.MatchMeta.claim_text_sha256 | Should -Match '^[0-9a-f]{64}$'
+            $p.Diagnostics | Should -Match 'match_basis=high-cosine'
+        }
+
+        It 'does not attribute a claim to the org when the org has no approved PUBLISHED edge to the document' {
+            $rejected = [PSCustomObject]@{ source = 'org-014'; target = 'rmf-1.0-2024'; type = 'PUBLISHED'; status = 'rejected' }
+            $o = & $script:t584Run -Claims @($script:t584Claim) -Edges @($rejected) -Names @{ 'org-014' = 'NIST' }
+            $o.R.Proposals[0].Rationale | Should -BeExactly "Matched claim from AI Risk Management Framework (not the org's own statement): $($script:L)AI risk management is a key component of responsible development.$($script:R)."
+        }
+
+        It 'a claim flagged text_verbatim=false is shown as a paraphrase, with no quotation marks' {
+            $c = $script:t584Claim.PSObject.Copy(); $c.text_verbatim = $false
+            $o = & $script:t584Run -Claims @($c) -Edges @($script:t584Published) -Names @{ 'org-014' = 'NIST' }
+            $o.R.Proposals[0].Rationale | Should -BeExactly "Matched claim (paraphrase, not the org's words): Organizations ought to manage AI risk. (AI Risk Management Framework)."
+        }
+
+        It 'an OPPOSES edge says so in the sentence, and a document with no title is named by its id' {
+            $c = $script:t584Claim.PSObject.Copy(); $c.polarity = 'denies'; $c.source_id = 'untitled-2025'
+            $pub = [PSCustomObject]@{ source = 'org-014'; target = 'untitled-2025'; type = 'PUBLISHED' }   # no status: approved
+            $o = & $script:t584Run -Claims @($c) -Edges @($pub) -Names @{ 'org-014' = 'NIST' }
+            $o.R.Proposals[0].EdgeType | Should -Be 'OPPOSES'
+            $o.R.Proposals[0].Rationale | Should -BeExactly "NIST states, in opposition: $($script:L)AI risk management is a key component of responsible development.$($script:R) (untitled-2025)."
+        }
+
+        It 'writes the sentence and match_meta, never the diagnostic string' {
+            $o = & $script:t584Run -Claims @($script:t584Claim) -Edges @($script:t584Published) -Names @{ 'org-014' = 'NIST' } -Write
+            $o.R.Proposed | Should -Be 1
+            $o.Written.Count | Should -Be 1
+            $o.Written[0].rationale | Should -Match '^NIST states: '
+            $o.Written[0].rationale | Should -Not -Match 'match_basis|best_cosine|families='
+            $o.Written[0].match_meta.basis | Should -Be 'high-cosine'
+        }
+
+        It 'refuses to write an edge whose organization has no display name' {
+            $o = & $script:t584Run -Claims @($script:t584Claim) -Edges @($script:t584Published) -Names @{} -Write
+            $o.R.Proposed | Should -Be 0
+            $o.Written.Count | Should -Be 0
+            @($o.R.Failed).Count | Should -Be 1
+            $o.R.Failed[0] | Should -Match 'no display name'
+        }
+    }
+
     Context 'Family-independence rule (t/1553#12)' {
 
         It 'Two variants of the same doc (rmf-1.0-2024 vs rmf-1.0-2024-1) collapse to ONE family — sub-threshold cosine, so no proposal without multi-agreement' {
@@ -963,7 +1055,9 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 $r.Proposals[0].EdgeType          | Should -Be 'OPPOSES' -Because 'the directional gate flipped it'
                 $r.Proposals[0].Endorsement       | Should -Be 'endorses'
                 $r.Proposals[0].DirectionConflict | Should -BeTrue -Because 'endorses + OPPOSES is exactly the unresolved conflict a reviewer must see'
-                $r.Proposals[0].Rationale         | Should -Match 'direction_conflict=true'
+                $r.Proposals[0].Diagnostics       | Should -Match 'direction_conflict=true'
+                $r.Proposals[0].MatchMeta.direction_conflict | Should -BeTrue -Because 'the stored match_meta carries the flag (t/584)'
+                $r.Proposals[0].Rationale         | Should -Not -Match 'direction_conflict|match_basis' -Because 'the rationale is a sentence for researchers (t/584)'
                 $r.DirectionConflicts             | Should -Be 1
             }
         }

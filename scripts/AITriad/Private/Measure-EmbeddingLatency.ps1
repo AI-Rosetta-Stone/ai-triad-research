@@ -17,7 +17,9 @@ function Measure-EmbeddingLatency {
 
         Returns a status object; does NOT gate anything itself (the caller decides). A
         breach of -CeilingSec, or a completed non-200 (503 load-shed / 500 / typed
-        timeout), is reported as `degraded`. A connection-level failure (the server never
+        timeout), is reported as `degraded`. So is a 200 that carries NO vectors (t/621):
+        nothing was looked up, so the round trip is fast whatever state the cache is in,
+        and its time says nothing about the cache. A connection-level failure (the server never
         answered) raises New-ActionableError — that is "server unreachable", a different
         condition from "answered slowly".
     .PARAMETER BaseUrl
@@ -108,8 +110,13 @@ function Measure-EmbeddingLatency {
     }
 
     # degraded = answered but over the ceiling, OR answered non-200 (a completed 503/500/
-    # typed-timeout is a real degradation signal, not unreachable). ok = 200 within ceiling.
+    # typed-timeout is a real degradation signal, not unreachable), OR answered 200 with no
+    # vectors (t/621: prod returned `0 vectors, http 200` in 109ms and the probe said PASS;
+    # the latency of a response that looked nothing up measures nothing).
+    # ok = 200, at least one vector, within the ceiling.
+    $problem = $check.Error
     $status = if (-not $check.Success) { 'degraded' }
+    elseif ($count -eq 0) { $problem = 'no vectors returned; latency not measured'; 'degraded' }
     elseif ($ms -gt ($CeilingSec * 1000)) { 'degraded' }
     else { 'ok' }
 
@@ -120,6 +127,6 @@ function Measure-EmbeddingLatency {
         HttpStatus = $check.StatusCode
         CeilingSec = $CeilingSec
         NodeIds    = $ids
-        Error      = $check.Error
+        Error      = $problem
     }
 }

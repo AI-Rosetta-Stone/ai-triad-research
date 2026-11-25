@@ -14,6 +14,75 @@
     placeholder, or under the 100-word floor). They stay separate because spec 4.4 lets only a
     recorded hash veto a suffix edge.
 #>
+# Internal helpers (NOT exported; private to this file). They take the shape-preserving metadata
+# object (or $null) and the ordered $entry they append to, so Get-SourcesIndexEntry reads as the
+# fixed field order it documents. Each stays well under the CC ceiling.
+
+function Get-SourcesIndexMetaField {
+    param($Meta, [string]$Name)
+    if ($null -ne $Meta -and $Meta.PSObject.Properties[$Name]) { $Meta.$Name } else { $null }
+}
+
+function Add-SourcesIndexStringField {
+    # Copies each named field verbatim as a string when it is a non-empty string (absent fields and
+    # empties are omitted, never emitted as null). Call order fixes the key order in $Entry.
+    param([System.Collections.Specialized.OrderedDictionary]$Entry, $Meta, [string[]]$Names)
+    foreach ($name in $Names) {
+        $v = Get-SourcesIndexMetaField -Meta $Meta -Name $name
+        if (-not [string]::IsNullOrEmpty([string]$v)) { $Entry[$name] = [string]$v }
+    }
+}
+
+function Add-SourcesIndexListField {
+    # Emits a string[] of the named field's non-blank elements, omitting the key when none remain.
+    param([System.Collections.Specialized.OrderedDictionary]$Entry, $Meta, [string]$Name)
+    $raw = Get-SourcesIndexMetaField -Meta $Meta -Name $Name
+    if ($null -eq $raw) { return }
+    $list = [string[]]@(@($raw) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
+    if ($list.Count -gt 0) { $Entry[$Name] = $list }
+}
+
+function Add-SourcesIndexHash {
+    # content_sha256 = RECORDED hash only; snapshot_sha256 = hash computed from snapshot.md under
+    # spec section 1, present only when nothing is recorded (absent under the floor). They stay
+    # distinct because spec 4.4 lets only a recorded hash veto a suffix edge.
+    param([System.Collections.Specialized.OrderedDictionary]$Entry, $Meta, [string]$DocDir)
+    $recorded = [string](Get-SourcesIndexMetaField -Meta $Meta -Name 'content_sha256')
+    if (-not [string]::IsNullOrEmpty($recorded)) {
+        $Entry['content_sha256'] = $recorded
+        return
+    }
+    $snap = Join-Path $DocDir 'snapshot.md'
+    $computed = if (Test-Path -LiteralPath $snap) { Get-SourceContentHash -Text ([System.IO.File]::ReadAllText($snap)) } else { $null }
+    if ($computed) { $Entry['snapshot_sha256'] = $computed }
+}
+
+function Get-SourcesIndexProvenanceItem {
+    # One provenance record: scheme/id/confidence copied verbatim when non-empty, else $null when the
+    # record contributes nothing.
+    param($Prov)
+    if ($null -eq $Prov) { return $null }
+    $item = [ordered]@{}
+    foreach ($k in 'scheme', 'id', 'confidence') {
+        if ($Prov.PSObject.Properties[$k] -and -not [string]::IsNullOrEmpty([string]$Prov.$k)) { $item[$k] = [string]$Prov.$k }
+    }
+    if ($item.Count -gt 0) { $item } else { $null }
+}
+
+function Add-SourcesIndexProvenance {
+    # Raw marks only (t/4337): no validity filtering or resolution here; each stack's loader applies
+    # spec section 6 itself. Emits provenance only when at least one record contributes a field.
+    param([System.Collections.Specialized.OrderedDictionary]$Entry, $Meta)
+    $prov = Get-SourcesIndexMetaField -Meta $Meta -Name 'provenance'
+    if ($null -eq $prov) { return }
+    $items = [System.Collections.Generic.List[object]]::new()
+    foreach ($p in @($prov)) {
+        $item = Get-SourcesIndexProvenanceItem -Prov $p
+        if ($null -ne $item) { $items.Add($item) }
+    }
+    if ($items.Count -gt 0) { $Entry['provenance'] = $items.ToArray() }
+}
+
 function Get-SourcesIndexEntry {
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -29,64 +98,23 @@ function Get-SourcesIndexEntry {
         try { $meta = ConvertFrom-JsonPreserveShape -Json ([System.IO.File]::ReadAllText($metaPath)) }
         catch { Write-Warning "Export-SourcesIndex: unreadable metadata.json for '$DocId', indexing it by id and content hash only: $($_.Exception.Message)" }
     }
-    $field = {
-        param($name)
-        if ($null -ne $meta -and $meta.PSObject.Properties[$name]) { $meta.$name } else { $null }
-    }
 
     $entry = [ordered]@{ id = $DocId }
     # Source-card fields (t/4333 PI scope), then identity fields (docs/specs/source-identity.md).
-    foreach ($name in 'title', 'url', 'resolved_url') {
-        $v = & $field $name
-        if (-not [string]::IsNullOrEmpty([string]$v)) { $entry[$name] = [string]$v }
-    }
-    $authors = & $field 'authors'
-    if ($null -ne $authors) {
-        $list = [string[]]@(@($authors) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
-        if ($list.Count -gt 0) { $entry['authors'] = $list }
-    }
-    foreach ($name in 'date_published', 'one_liner') {
-        $v = & $field $name
-        if (-not [string]::IsNullOrEmpty([string]$v)) { $entry[$name] = [string]$v }
-    }
-    $topics = & $field 'topic_tags'
-    if ($null -ne $topics) {
-        $list = [string[]]@(@($topics) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
-        if ($list.Count -gt 0) { $entry['topic_tags'] = $list }
-    }
+    Add-SourcesIndexStringField -Entry $entry -Meta $meta -Names 'title', 'url', 'resolved_url'
+    Add-SourcesIndexListField -Entry $entry -Meta $meta -Name 'authors'
+    Add-SourcesIndexStringField -Entry $entry -Meta $meta -Names 'date_published', 'one_liner'
+    Add-SourcesIndexListField -Entry $entry -Meta $meta -Name 'topic_tags'
 
     # Recorded and computed hashes stay distinct (spec 4.0 / 4.4: only a RECORDED hash may veto a
-    # suffix edge; review of #3560). content_sha256 = recorded only; snapshot_sha256 = computed from
-    # snapshot.md under spec section 1, present only when nothing is recorded (absent under the floor).
-    $recorded = [string](& $field 'content_sha256')
-    if (-not [string]::IsNullOrEmpty($recorded)) {
-        $entry['content_sha256'] = $recorded
-    } else {
-        $snap = Join-Path $DocDir 'snapshot.md'
-        $computed = if (Test-Path -LiteralPath $snap) { Get-SourceContentHash -Text ([System.IO.File]::ReadAllText($snap)) } else { $null }
-        if ($computed) { $entry['snapshot_sha256'] = $computed }
-    }
+    # suffix edge; review of #3560).
+    Add-SourcesIndexHash -Entry $entry -Meta $meta -DocDir $DocDir
 
-    $prov = & $field 'provenance'
-    if ($null -ne $prov) {
-        $items = [System.Collections.Generic.List[object]]::new()
-        foreach ($p in @($prov)) {
-            if ($null -eq $p) { continue }
-            $item = [ordered]@{}
-            foreach ($k in 'scheme', 'id', 'confidence') {
-                if ($p.PSObject.Properties[$k] -and -not [string]::IsNullOrEmpty([string]$p.$k)) { $item[$k] = [string]$p.$k }
-            }
-            if ($item.Count -gt 0) { $items.Add($item) }
-        }
-        if ($items.Count -gt 0) { $entry['provenance'] = $items.ToArray() }
-    }
+    Add-SourcesIndexProvenance -Entry $entry -Meta $meta
     # Raw marks only (t/4337, agreed with Server Storage p/783#18): no validity filtering or
     # resolution here. Each stack's loader applies spec section 6 itself, so a hosted reader, which
     # sees marks only through this index, validates them with the same rules as everything else.
     # duplicate_of_ref is the mark's provenance (its frozen-list entry), copied verbatim.
-    foreach ($name in 'same_as', 'parent_doc_id', 'duplicate_of', 'duplicate_of_ref') {
-        $v = & $field $name
-        if (-not [string]::IsNullOrEmpty([string]$v)) { $entry[$name] = [string]$v }
-    }
+    Add-SourcesIndexStringField -Entry $entry -Meta $meta -Names 'same_as', 'parent_doc_id', 'duplicate_of', 'duplicate_of_ref'
     $entry
 }
