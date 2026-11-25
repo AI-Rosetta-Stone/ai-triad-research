@@ -158,3 +158,39 @@ Describe 'Invoke-PrePushPsLint: what runs' -Tag 'devops' {
         } finally { Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue }
     }
 }
+
+Describe 'Invoke-PrePushPsLint: a huge push (Lead t/607#6)' -Tag 'devops' {
+    It 'a push changing ~5,000 lint-input paths reaches the runner through a file, not the command line' {
+        if (-not $script:Sh) { Set-ItResult -Skipped -Because 'no POSIX sh available'; return }
+        $r = Join-Path ([IO.Path]::GetTempPath()) "prepush-huge-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        try {
+            & git init -q -b main $r
+            & git -C $r config core.autocrlf false
+            & git -C $r config user.email t@example.invalid
+            & git -C $r config user.name t
+            foreach ($rel in 'operations/devops/pre-push-checks.sh', 'operations/devops/Invoke-PrePushPsLint.ps1') {
+                $dest = Join-Path $r $rel
+                New-Item -ItemType Directory -Path (Split-Path $dest) -Force | Out-Null
+                Copy-Item (Join-Path $script:RepoRoot $rel) $dest
+            }
+            & git -C $r add -A; & git -C $r commit -q -m base
+            $base = (& git -C $r rev-parse HEAD).Trim()
+            # 5,000 paths of ~70 characters: ~350 K, ten times Windows' ~32 K command line. Plain .txt under
+            # tests/, so only the ps-lint step plans (no parse step), and the runner selects ModelLiteralLint.
+            $dir = Join-Path $r 'tests' 'fixtures' 'a-deliberately-long-directory-name-for-the-huge-push'
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            1..5000 | ForEach-Object { [IO.File]::WriteAllText((Join-Path $dir ('file-{0:d5}.txt' -f $_)), "x$_") }
+            & git -C $r add -A; & git -C $r commit -q -m huge
+            $head = (& git -C $r rev-parse HEAD).Trim()
+            Push-Location $r
+            try { $out = & $script:Sh (Join-Path $r 'operations/devops/pre-push-checks.sh') $base $head 2>&1 | Out-String; $code = $LASTEXITCODE }
+            finally { Pop-Location }
+            # The scratch repo has no ci.yml, so the runner WARNs and exits 3 (skip) AFTER reading the list: it
+            # was launched, so the 5,000 paths did not overflow the command line. Anything else blocks.
+            $code | Should -Be 0 -Because $out
+            $out | Should -Match 'could not read PESTER_VERSION'
+            $out | Should -Match 'skip  PowerShell repo lints'
+            $out | Should -Not -Match 'too long|Argument list|filename or extension is too long'
+        } finally { Remove-Item -Recurse -Force $r -ErrorAction SilentlyContinue }
+    }
+}

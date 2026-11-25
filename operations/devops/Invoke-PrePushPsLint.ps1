@@ -35,8 +35,12 @@
 .PARAMETER RepoRoot
     The checkout to lint (default: two levels above this script).
 
+.PARAMETER ChangedFilesPath
+    A file holding the repo-relative paths the push changes, one per line. This is how the hook passes
+    them (Lead t/607#6): a train push can list thousands of paths, past Windows' ~32 K command line.
+
 .PARAMETER ChangedFiles
-    Repo-relative paths the push changes (forward slashes).
+    The same paths as bare arguments, for a short direct run. Combined with -ChangedFilesPath if both given.
 
 .PARAMETER Plan
     Print the selected suites (one 'name<TAB>file' per line) and exit 0, without running Pester.
@@ -44,14 +48,23 @@
 [CmdletBinding(PositionalBinding = $false)]  # every bare argument is a changed file, never -RepoRoot
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path,
+    [string]$ChangedFilesPath = '',
     [switch]$Plan,
-    # Remaining arguments: `pwsh -File` cannot bind `-ChangedFiles a b c` as an array, so the hook passes
-    # the files positionally after the named parameters.
+    # Remaining arguments: `pwsh -File` cannot bind `-ChangedFiles a b c` as an array, so short direct runs
+    # pass the files positionally after the named parameters.
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ChangedFiles = @()
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($ChangedFilesPath) {
+    if (-not (Test-Path -LiteralPath $ChangedFilesPath)) {
+        Write-Warning "pre-push: WARN ps-lint skipped: the changed-file list $ChangedFilesPath is missing. CI still runs these lints."
+        exit 3
+    }
+    $ChangedFiles = @($ChangedFiles) + @(Get-Content -LiteralPath $ChangedFilesPath | Where-Object { $_ })
+}
 
 # ── SUITES: the one table (t/607). Paths are prefixes of repo-relative paths. ──
 $script:Suites = @(

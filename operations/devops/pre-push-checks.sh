@@ -370,8 +370,13 @@ for step in $PLAN; do
       LINT_DIRTY=$(git status --porcelain --untracked-files=all -- $PSLINT_TRIGGERS 2>/dev/null | head -5)
       [ -n "$LINT_DIRTY" ] && echo "pre-push: WARN uncommitted changes to lint inputs, so a lint failure below will warn, not block:
 $LINT_DIRTY" >&2
-      pwsh -NoProfile -NonInteractive -File "$ROOT/operations/devops/Invoke-PrePushPsLint.ps1" -RepoRoot "$ROOT" "$@" >&2
+      # The changed paths go through a temp file, never the command line (Lead t/607#6): a train push
+      # after a main merge can list thousands of paths and pass Windows' ~32 K command-line limit, which
+      # would block the push with an unrelated error. printf is a shell builtin, so it has no such limit.
+      lintlist=$(mktemp) && printf '%s\n' "$@" > "$lintlist"
+      "$PWSH" -NoProfile -NonInteractive -File "$ROOT/operations/devops/Invoke-PrePushPsLint.ps1" -RepoRoot "$ROOT" -ChangedFilesPath "$lintlist" >&2
       rc=$?
+      rm -f "$lintlist"
       if [ $rc -eq 3 ]; then
         echo "pre-push:   skip  $label (see the WARN above; not a pass)"
         IFS='
