@@ -77,15 +77,13 @@ Describe 'Invoke-TaxEditorSmokeTest analytics write probe (t/2667; read-back rem
                     Body = $Body; ContentType = 'application/json'; RawBody = ''; Error = $(if (-not $Success) { "HTTP $Status" } else { $null })
                 }
             }
-        }
-    }
 
-    # Incident t/579: GET /api/analytics/query exposed user identifiers to anonymous callers and now
-    # refuses them (#5500); it becomes admin-only (t/592). The smoke no longer reads it: an anonymous
-    # read-back could only fail, and a failing smoke rolls the deploy back. These tests make the query
-    # route answer 403, as production does, so a smoke that still read it would fail them.
-    BeforeEach {
-        InModuleScope AITriad {
+            # Incident t/579: GET /api/analytics/query exposed user identifiers to anonymous callers and now
+            # refuses them (#5500); it becomes admin-only (t/592). The smoke no longer reads it: an anonymous
+            # read-back could only fail, and a failing smoke rolls the deploy back. Every test here makes the
+            # query route answer 403, as production does, so a smoke that still read it would fail them.
+            # (In this one BeforeEach on purpose: a second BeforeEach in the same Describe replaces the first
+            # under the CI's Pester, which left these tests with no mocks at all.)
             Mock Invoke-RemoteCheck -ParameterFilter { $Path -like '/api/analytics/query*' } -MockWith {
                 New-RCResult $false 403 $null
             }
