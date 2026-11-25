@@ -144,6 +144,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -244,6 +248,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   changes:
@@ -1831,6 +1838,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -1934,6 +1945,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   dependency-audit:
@@ -2174,6 +2188,16 @@ jobs:
       - name: staging Key Vault what-if guard suite
         run: node --test operations/devops/staging-keyvault-whatif-guard.test.mjs
 
+      # t/627: the staging data account what-if guard (staging-data-account.yml) allows only the
+      # account and its share, and never a change naming the prod account.
+      - name: staging data account what-if guard suite
+        run: node --test operations/devops/staging-data-account-whatif-guard.test.mjs
+
+      # t/9 (PI rule p/4#32): the post-merge worktree sweep removes a worktree only when its PR merged
+      # and its tree is clean; WARN and skip otherwise; never --force.
+      - name: post-merge worktree sweep suite
+        run: node --test operations/devops/sweep-landed-worktrees.test.mjs
+
       - name: tier-check predicate + workflow-extraction suites
         run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
@@ -2251,14 +2275,13 @@ jobs:
         run: node --test operations/devops/*.test.mjs
 
       # t/420: brace balance in every tracked .css file (nothing else in the gate parses CSS).
-      # WARN-ONLY: the script exits 0 on every verdict and the step is continue-on-error, so it
-      # cannot fail this job or ci-gate. The verdict (PASS, FAIL or GATE-UNREADABLE) is in the step
-      # outputs, the step summary, and a ::warning:: for anything but PASS. Making it blocking
-      # (adding --strict) is a separate T2 change after a clean run on main (gate-signal-integrity §3).
-      - name: CSS brace check (warn-only, t/420)
+      # BLOCKING since t/420's T2 flip, after clean runs on main (CI 45519299663 and later: PASS,
+      # 260 files; gate-signal-integrity §3). --strict exits 1 on FAIL and 2 on GATE-UNREADABLE, so
+      # an unbalanced brace or an unreadable file list fails this job and ci-gate; it never passes
+      # silently. The verdict is also in the step outputs and the step summary.
+      - name: CSS brace check (blocking, t/420)
         id: css-brace-check
-        continue-on-error: true
-        run: node operations/devops/css-brace-check.mjs
+        run: node operations/devops/css-brace-check.mjs --strict
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -3276,6 +3299,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -3330,6 +3357,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   pov-tag-orphan-check:
@@ -3555,18 +3585,17 @@ jobs:
         run: ./operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1
 
   # ── Container-var prod/staging isolation (t/4794#9 item 2) ─────────────────────────────────
-  # NOT YET in ci-gate's needs: list (t/4794 incident). This check correctly fails right now --
-  # AZURE_ANALYTICS_CONTAINER has no stagingEnvOverrides entry at all (Azure's fix, t/4794#9 item
-  # 1, hasn't landed yet). Adding it to ci-gate's needs before that lands would red every PR's CI
-  # on an unrelated, already-known incident. Add it to ci-gate's needs in the SAME PR that lands
-  # item 1, or immediately after, once this job itself reports green on main.
+  # In ci-gate's needs since t/135: it has reported green on every main push checked (14 in a row,
+  # 2026-11-25), and tests/ContainerVarIsolation.Tests.ps1 proves its refusing arms on the real code
+  # (dropping, or equalling prod's, AZURE_ANALYTICS_CONTAINER override fails). No `if:` and no filter
+  # keys, so it never skips (JOB_FAMILIES lists it with no families); a red here blocks the merge.
   container-var-isolation:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - name: Container var prod/staging isolation (BLOCKING once wired into ci-gate, t/4794)
+      - name: Container var prod/staging isolation (BLOCKING via ci-gate, t/4794, t/135)
         shell: pwsh
         run: ./operations/devops/Test-ContainerVarIsolation.ps1
 
@@ -3841,6 +3870,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -3955,6 +3988,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   merge-queue-f4-shim-test:
@@ -4025,6 +4061,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -4208,12 +4248,15 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
 
   ci-gate:
     name: ci-gate
-    needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test, gate-self-health]
+    needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test, gate-self-health, container-var-isolation]
     # ── never-gating jobs and the merge queue ──
     # Seven jobs are deliberately NOT in the needs above, so their result cannot hold a
     # merge-queue batch back: verify-config, dependency-audit, pov-tag-orphan-check, schema-drift,
@@ -4260,6 +4303,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -4299,7 +4346,7 @@ jobs:
         if: always() && github.event_name == 'merge_group'
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          JOB_FAMILIES: '{"test-powershell":["powershell"],"test-electron":["electron"],"test-electron-vitest":["electron"],"test-electron-coverage":["electron"],"test-electron-matrix-membership":[],"test-container":["container"],"python-embed-smoke":["embed-models"],"test-python":["python"],"dependency-coverage":["container","lib"],"lockfile-overrides-check":["lockfile-sync"],"lib-lint":["lib"],"renderer-tsc":["electron","lib"],"contrast-check":["electron"],"test-server-prod-config":["container"],"workflow-lint":[],"bicep-env-drift":["bicep-env"],"schema-version-bump":["lib"],"render-smoke":["electron"],"bicep-aca-resources":["bicep-resources"],"embedding-onnx-equivalence":["embeddings"],"complexity-budget":["powershell"],"agents-md-budget":[],"merge-queue-f4-shim-test":[],"gate-self-health":[]}'
+          JOB_FAMILIES: '{"test-powershell":["powershell"],"test-electron":["electron"],"test-electron-vitest":["electron"],"test-electron-coverage":["electron"],"test-electron-matrix-membership":[],"test-container":["container"],"python-embed-smoke":["embed-models"],"test-python":["python"],"dependency-coverage":["container","lib"],"lockfile-overrides-check":["lockfile-sync"],"lib-lint":["lib"],"renderer-tsc":["electron","lib"],"contrast-check":["electron"],"test-server-prod-config":["container"],"workflow-lint":[],"bicep-env-drift":["bicep-env"],"schema-version-bump":["lib"],"render-smoke":["electron"],"bicep-aca-resources":["bicep-resources"],"embedding-onnx-equivalence":["embeddings"],"complexity-budget":["powershell"],"agents-md-budget":[],"merge-queue-f4-shim-test":[],"gate-self-health":[],"container-var-isolation":[]}'
         run: |
           node -e '
             const needs = JSON.parse(process.env.NEEDS_JSON);
@@ -4526,6 +4573,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   consult-hold-guard:
@@ -4562,6 +4612,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -4617,6 +4671,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
 
@@ -4654,6 +4711,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -4725,6 +4786,9 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
   t1-approval-guard:
@@ -4763,6 +4827,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -4894,5 +4962,8 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi

@@ -16,6 +16,7 @@ import type { ServerCtx } from './context.js';
 import { json, error } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getCurrentUserId } from '../security/userContext.js';
+import { log } from '../logger.js';
 
 export function registerOverlayConflictsRoutes(r: Router, ctx: ServerCtx): void {
   const { post } = r;
@@ -27,9 +28,17 @@ export function registerOverlayConflictsRoutes(r: Router, ctx: ServerCtx): void 
         json(res, { discarded: [] }); // filesystem mode — no overlay semantics
         return;
       }
-      const discarded = githubBackend.discardConflictedOverlayEntries(getCurrentUserId());
+      // t/553 (ServerStorage p/52#48): the async variant clears the conflict across replicas when shared overlay state is
+      // on (the sync one only cleared this replica's cache). It takes the user's commit lease, so it can throw
+      // OVERLAY_COMMIT_BUSY while another replica is committing: that's a 409 the client can retry, not a 500.
+      const discarded = await githubBackend.discardConflictedOverlayEntriesAsync(getCurrentUserId());
       json(res, { discarded });
     } catch (err) {
+      if ((err as { code?: unknown })?.code === 'OVERLAY_COMMIT_BUSY') {
+        log.server.warn({ component: 'sync', code: 'OVERLAY_COMMIT_BUSY' }, 'overlay-conflicts/use-theirs: another replica holds the commit lease; refused 409 (t/553)');
+        json(res, { error: 'overlay_commit_busy', message: 'Your changes are being saved right now. Try again in a moment.' }, 409);
+        return;
+      }
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'sync', level: 'error', message: 'overlay-conflicts/use-theirs failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },

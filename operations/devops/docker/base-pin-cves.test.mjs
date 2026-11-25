@@ -203,7 +203,8 @@ test('cveSection: the PR body names the runtime CVEs; undecidable names the fail
   const pr = cveSection({ kind: 'pr', route: 'pr', undecidable: '', runtime: 'CVE-2026-14456', buildOnly: 'CVE-2026-73566', jobResult: 'success' });
   assert.match(pr, /Reaches the shipped image: CVE-2026-14456/);
   assert.match(pr, /Build-only \(the runtime stage removes it\): CVE-2026-73566/);
-  assert.match(pr, /budget-exempt:/);
+  assert.match(pr, /automated landing vehicle \(t\/656\)/);
+  assert.doesNotMatch(pr, /budget-exempt/);
   assert.match(cveSection({ kind: 'pr', route: 'pr', undecidable: 'scan-timeout:latest', runtime: '', buildOnly: '', jobResult: 'success' }),
     /\*\*Undecidable, so treated as reaching the shipped image:\*\* scan-timeout:latest\./);
   assert.match(cveSection({ kind: 'pr', jobResult: 'failure' }), /the cves job did not complete \(result: failure\)/);

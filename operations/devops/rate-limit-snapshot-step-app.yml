@@ -29,5 +29,8 @@
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/318: could not read GET /rate_limit with the App token, so no App-pool snapshot for this job (${out:-no output})."
           fi
