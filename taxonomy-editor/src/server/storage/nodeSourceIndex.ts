@@ -15,8 +15,9 @@
  */
 
 import path from 'path';
+import fsSync from 'fs';
 import { createHash } from 'crypto';
-import { loadDataConfig, resolveDataPath } from '../config.js';
+import { loadDataConfig, resolveDataPath, getProjectRoot } from '../config.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import {
@@ -24,7 +25,9 @@ import {
   type SourceReference, type SourceCardMeta, type NodeSourceIndex, type SourceIdentityDoc, type SourceIdentityMeta,
   type SourceUrlConflict,
 } from '../../../../lib/sourceIndex/types.js';
-import { mergeGroupEvidence, type EvidenceUnionMember } from '../../../../lib/sourceIndex/evidenceUnion.js';
+import {
+  mergeGroupEvidence, loadLegacyChunkManifest, type EvidenceUnionMember, type GroupMemberKind, type LegacyChunkManifest,
+} from '../../../../lib/sourceIndex/evidenceUnion.js';
 import { getBackend, getSourcesDir, readFilesBatchOrEmpty } from './fileIO.js';
 import {
   type SnapshotHashCache, gitBlobSha, loadSnapshotHashCache, lookupCachedHash, recordHash, pruneAndSaveSnapshotHashCache,
@@ -449,6 +452,98 @@ function warnMissingMetaIds(missingMetaIds: Set<string>): void {
  *  collapses to one member and so is likewise untouched. See
  *  `lib/sourceIndex/evidenceUnion.ts` for the shared algorithm (also used by
  *  Electron's `main/fileIO.ts`, for parity). */
+// ── t/572 (t/586): the legacy-chunk manifest (spec 6.2) ──
+
+/** Where the manifest lives: one shared file, also read by PowerShell and Python. It is versioned config that ships
+ *  with the code, not data, so it is read from local disk, not through the storage backend. */
+const LEGACY_CHUNK_MANIFEST_REL = path.join('docs', 'specs', 'source-identity-legacy-chunks.json');
+let legacyChunkManifestPathOverride: string | null = null;
+
+/** Test-only: read the manifest from another path (a mkdtemp fixture), or null for the shipped file. */
+export function setLegacyChunkManifestPathForTests(p: string | null): void {
+  legacyChunkManifestPathOverride = p;
+}
+
+/** Spec 6.2: the chunk id to base id map. A missing file folds nothing, with a WARN, as PowerShell's
+ *  Get-EvidenceLegacyChunkManifest does; so does a file of the wrong shape (logged at error level). Read once per build. */
+function readLegacyChunkManifest(): LegacyChunkManifest {
+  const p = legacyChunkManifestPathOverride ?? path.join(getProjectRoot(), LEGACY_CHUNK_MANIFEST_REL);
+  let raw: string;
+  try {
+    raw = fsSync.readFileSync(p, 'utf-8');
+  } catch (err) {
+    log.server.warn({ path: p, code: (err as NodeJS.ErrnoException)?.code },
+      'Node source index: legacy-chunk manifest not found; no summary is folded into a base as a chunk (spec 6.2, t/586)');
+    return {};
+  }
+  try {
+    return loadLegacyChunkManifest(JSON.parse(raw));
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'error',
+      message: `legacy-chunk manifest unreadable; no chunk is folded this build: ${p}`,
+      error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+    });
+    log.server.error({ path: p, err: String(err) }, 'Node source index: legacy-chunk manifest unreadable; no chunk is folded (t/586)');
+    return {};
+  }
+}
+
+/** Spec 6.2 (t/586): extend the duplicate_of resolution with the manifest's chunks. A listed chunk in this build resolves
+ *  to its base's resolved id, so a chunk of a marked copy lands on the copy's canonical. A listed chunk whose base is not
+ *  in the build is reported at error level (log and flight recorder) and left as its own source: the live reader degrades
+ *  loudly, while the build-time PowerShell refusal keeps a bad manifest from landing (TL p/50#178, t/572). Returns the
+ *  ids reported. */
+function applyChunkResolution(
+  resolved: Record<string, string>, allDocIds: ReadonlySet<string>, manifest: LegacyChunkManifest,
+): string[] {
+  const missingBase: string[] = [];
+  for (const [chunk, base] of Object.entries(manifest)) {
+    if (!allDocIds.has(chunk)) continue;
+    if (!allDocIds.has(base)) { missingBase.push(chunk); continue; }
+    resolved[chunk] = resolved[base] ?? base;
+  }
+  if (missingBase.length > 0) {
+    missingBase.sort();
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'error',
+      message: `legacy chunk(s) listed against a base that is not in the corpus, left unfolded: ${missingBase.join(', ')}`,
+      data: { code: 'missing_base', ids: missingBase },
+    });
+    log.server.error({ code: 'missing_base', ids: missingBase },
+      'Node source index: legacy chunk listed against a missing base; left as its own source (spec 6.2, t/586)');
+  }
+  return missingBase;
+}
+
+type GroupMemberRef = { id: string; kind: GroupMemberKind; viaCopy?: string };
+
+/** The member kind of a non-canonical doc in a group: a chunk of the canonical, a chunk of a marked copy, or a copy. */
+function memberKind(docId: string, resolvedId: string, manifest: LegacyChunkManifest): { kind: GroupMemberKind; viaCopy?: string } {
+  const base = Object.prototype.hasOwnProperty.call(manifest, docId) ? manifest[docId] : null;
+  if (base === null) return { kind: 'copy' };
+  return base === resolvedId ? { kind: 'chunk_D' } : { kind: 'chunk_copy', viaCopy: base };
+}
+
+function trailingN(id: string): number {
+  const m = /(\d+)$/.exec(id);
+  return m ? Number(m[1]) : 0;
+}
+
+function ordinal(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Spec 7.1 order, as lib `groupMembers` builds it: marked copies by ordinal id, then the canonical's chunks, then each
+ *  copy's chunks (copies by ordinal id), chunks by their trailing N. */
+function compareMembers(a: GroupMemberRef, b: GroupMemberRef): number {
+  const rank = (m: GroupMemberRef) => (m.kind === 'copy' ? 0 : m.kind === 'chunk_D' ? 1 : 2);
+  if (rank(a) !== rank(b)) return rank(a) - rank(b);
+  if (a.kind === 'copy') return ordinal(a.id, b.id);
+  if (a.kind === 'chunk_copy' && a.viaCopy !== b.viaCopy) return ordinal(a.viaCopy ?? '', b.viaCopy ?? '');
+  return trailingN(a.id) - trailingN(b.id) || ordinal(a.id, b.id);
+}
+
 /** A `SourceReference` plus the `node`/`quote` the shared evidence-union
  *  helper needs (`lib/sourceIndex/evidenceUnion.ts`, spec section 7).
  *  `node` is constant within one call (one nodeId at a time, below);
@@ -468,6 +563,7 @@ type SourceEvidenceLink = SourceReference & { node: string; quote: string };
  *  untagged entry just mirrors an own ref already pushed. */
 function resolveGroupRefs(
   nodeId: string, resolvedId: string, groupRefs: SourceReference[], metaCache: Record<string, NodeSourceMeta>,
+  manifest: LegacyChunkManifest = {},
 ): SourceReference[] {
   const ownRefs = groupRefs.filter(r => r.docId === resolvedId);
   const markedRefs = groupRefs.filter(r => r.docId !== resolvedId);
@@ -479,15 +575,22 @@ function resolveGroupRefs(
     if (bucket) bucket.push(r); else byDocId.set(r.docId, [r]);
   }
   const toLink = (r: SourceReference) => ({ ...r, node: nodeId, quote: r.verbatim || r.point });
+  // t/586: a member is a marked copy, a chunk of the canonical (chunk_D) or a chunk of a marked copy (chunk_copy).
+  const others = [...byDocId.entries()]
+    .map(([docId, docRefs]) => ({ id: docId, links: docRefs.map(toLink), ...memberKind(docId, resolvedId, manifest) }))
+    .sort(compareMembers);
   const members: EvidenceUnionMember<SourceEvidenceLink>[] = [
     ...(ownRefs.length > 0 ? [{ id: resolvedId, links: ownRefs.map(toLink) }] : []),
-    ...[...byDocId.entries()].map(([docId, docRefs]) => ({ id: docId, links: docRefs.map(toLink) })),
+    ...others,
   ];
 
   const target = metaCache[resolvedId];
   const kept = [...ownRefs];
-  for (const { quote: _quote, doc: _doc, via, ...r } of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
-    if (!via) continue; // an own ref's entry — already pushed above, unchanged
+  for (const { quote: _quote, doc: _doc, via, chunk_of, chunk_generated_at: _cga, chunk_model: _cm, ...r }
+    of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
+    // An own ref's entry carries neither tag: already pushed above, unchanged. via and chunk_of are stripped
+    // (t/586, agreed with ElectronMain's fileIO.ts), so SourceReference keeps its shape.
+    if (!via && !chunk_of) continue;
     kept.push({
       ...r, docId: resolvedId, canonicalDocId: resolvedId,
       title: target?.title ?? r.title, url: target?.url ?? r.url,
@@ -498,6 +601,7 @@ function resolveGroupRefs(
 
 function dedupeByResolvedId(
   index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
+  manifest: LegacyChunkManifest = {},
 ): void {
   for (const [nodeId, refs] of Object.entries(index)) {
     const byResolvedId = new Map<string, SourceReference[]>();
@@ -509,7 +613,7 @@ function dedupeByResolvedId(
 
     const kept: SourceReference[] = [];
     for (const [resolvedId, groupRefs] of byResolvedId) {
-      kept.push(...resolveGroupRefs(nodeId, resolvedId, groupRefs, metaCache));
+      kept.push(...resolveGroupRefs(nodeId, resolvedId, groupRefs, metaCache, manifest));
     }
     index[nodeId] = kept;
   }
@@ -527,8 +631,8 @@ function dedupeByResolvedId(
  *  log — all three are signals for a human, never applied as a merge. */
 function applyCanonicalDocIds(
   index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
-  metaCache: Record<string, NodeSourceMeta>,
-): { titleCollisions: string[][]; urlConflicts: SourceUrlConflict[]; duplicateOfErrorCount: number } {
+  metaCache: Record<string, NodeSourceMeta>, manifest: LegacyChunkManifest = {},
+): { titleCollisions: string[][]; urlConflicts: SourceUrlConflict[]; duplicateOfErrorCount: number; chunkMissingBaseCount: number } {
   // t/4357: every doc under sourcesDir participates, not just the ones cited
   // by a summary today — a `duplicate_of` target otherwise cited by nothing
   // would wrongly validate as `missing_target` (it genuinely IS in the
@@ -544,12 +648,19 @@ function applyCanonicalDocIds(
   for (const refs of Object.values(index)) {
     for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
-  dedupeByResolvedId(index, resolved, metaCache);
+  // t/586: a listed chunk resolves to its base's resolved id, and its refs take that canonical.
+  const chunkMissingBase = applyChunkResolution(resolved, allDocIds, manifest);
+  for (const refs of Object.values(index)) {
+    for (const r of refs) {
+      if (Object.prototype.hasOwnProperty.call(manifest, r.docId) && resolved[r.docId]) r.canonicalDocId = resolved[r.docId];
+    }
+  }
+  dedupeByResolvedId(index, resolved, metaCache, manifest);
   if (duplicateOfErrors.length > 0) {
     // spec 6.1: WARN, never throw — an invalid mark is visible and treated as absent.
     log.server.warn({ duplicateOfErrors }, 'Node source index: invalid duplicate_of marks found (treated as absent)');
   }
-  return { titleCollisions, urlConflicts, duplicateOfErrorCount: duplicateOfErrors.length };
+  return { titleCollisions, urlConflicts, duplicateOfErrorCount: duplicateOfErrors.length, chunkMissingBaseCount: chunkMissingBase.length };
 }
 
 /**
@@ -572,7 +683,7 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const { missingMetaIds, readFailures } = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
   warnMissingMetaIds(missingMetaIds);
   warnSummaryReadFailures(readFailures);
-  applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
+  applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache, readLegacyChunkManifest());
   return index;
 }
 
@@ -672,7 +783,8 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const summaryReadMs = Date.now() - t;
 
   t = Date.now();
-  const { titleCollisions, urlConflicts, duplicateOfErrorCount } = applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
+  const { titleCollisions, urlConflicts, duplicateOfErrorCount, chunkMissingBaseCount } =
+    applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache, readLegacyChunkManifest());
   const applyCanonicalMs = Date.now() - t;
 
   t = Date.now();
@@ -693,7 +805,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
       coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
       titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length,
       missingMetaCount: missingMetaIds.size, summaryReadFailures: readFailures.size, complete: readFailures.size === 0,
-      duplicateOfErrorCount, ...coverage, ...phaseMs,
+      duplicateOfErrorCount, chunkMissingBaseCount, ...coverage, ...phaseMs,
     },
     'Node source index rebuilt',
   );
