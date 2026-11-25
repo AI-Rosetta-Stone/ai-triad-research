@@ -160,6 +160,13 @@ export const VERDICT_SCRIPTS = [
   'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1',
   // Defines the deploy smoke's OverallPass, which the container smoke's gate is pinned to.
   'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1',
+  // The verdict helpers those phases call (SO p/273#14): the DataPresence verdict, and the Health and
+  // Endpoint checks whose callers include the rollback gates. Loosening one could hide a locked route.
+  // RECORDED RESIDUAL, deliberately unprotected: scripts/AITriad/Private/Invoke-RemoteCheck.ps1 is the
+  // shared HTTP transport (~70 callers); a change there shows everywhere, so it is not listed.
+  'scripts/AITriad/Private/Test-DataPresenceAssertion.ps1',
+  'scripts/AITriad/Public/Test-TaxEditorHealth.ps1',
+  'scripts/AITriad/Public/Test-TaxEditorEndpoints.ps1',
   // t/543 (Security p/131#48): its `test` block chooses which taxonomy-editor and lib tests the
   // required vitest run executes. Same class as poviewer/vitest.config.ts; read by default name.
   'taxonomy-editor/vite.config.ts',

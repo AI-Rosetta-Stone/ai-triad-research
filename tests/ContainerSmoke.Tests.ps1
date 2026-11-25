@@ -41,9 +41,13 @@ Describe 'Invoke-ContainerSmoke: nothing is skipped silently (t/611 step 4)' -Ta
 
     It 'the runner, the phase functions it runs, and the OverallPass it is pinned to are gate files (SO p/273#12)' {
         $gfc = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'operations' 'devops' 'gate-file-change.mjs')
-        foreach ($rel in 'operations/devops/Invoke-ContainerSmoke.ps1', 'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1', 'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1') {
+        foreach ($rel in 'operations/devops/Invoke-ContainerSmoke.ps1', 'scripts/AITriad/Private/TaxEditorSmokeTestPhases.ps1', 'scripts/AITriad/Public/Invoke-TaxEditorSmokeTest.ps1',
+            'scripts/AITriad/Private/Test-DataPresenceAssertion.ps1', 'scripts/AITriad/Public/Test-TaxEditorHealth.ps1', 'scripts/AITriad/Public/Test-TaxEditorEndpoints.ps1') {
             $gfc | Should -Match ([regex]::Escape("'$rel'")) -Because "a PR must not loosen $rel and lock a route in one change without a gate-change review"
         }
+        # The recorded residual (SO p/273#14): the transport stays unprotected, on purpose, and says so.
+        $gfc | Should -Not -Match ([regex]::Escape("'scripts/AITriad/Private/Invoke-RemoteCheck.ps1'"))
+        $gfc | Should -Match 'RECORDED RESIDUAL[^\n]*Invoke-RemoteCheck\.ps1'
     }
 
     It 'every run phase has a verdict rule (an unknown phase fails closed)' {
