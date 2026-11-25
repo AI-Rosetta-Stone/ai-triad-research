@@ -416,15 +416,11 @@ function triggerTypes(yml, event) {
 for (const [name, yml] of [['t1-approval-guard.yml', guardYml], ['tier-check.yml', tierYml]]) {
   test(`${name}: a deleted or edited comment and a dismissed review are triggers`, () => {
     assert.deepEqual(triggerTypes(yml, 'issue_comment'), ['created', 'edited', 'deleted']);
-    if (name.startsWith('t1')) {
-      // t/534 part B: the guard no longer runs on pull_request_review (PR-side workflow file);
-      // the permission-less relay does, and the guard follows it via workflow_run (from main).
-      assert.ok(!/^  pull_request_review:/m.test(yml.slice(yml.indexOf('\non:\n'))), 'the guard must not trigger on pull_request_review');
-      assert.match(yml.slice(yml.indexOf('\non:\n')), /^  workflow_run:\n    workflows: \[t1-approval-review-relay\]\n    types: \[completed\]/m);
-      assert.deepEqual(triggerTypes(read('.github', 'workflows', 't1-approval-review-relay.yml'), 'pull_request_review'), ['submitted', 'dismissed']);
-    } else {
-      assert.deepEqual(triggerTypes(yml, 'pull_request_review'), ['submitted', 'dismissed']);
-    }
+    // t/534 part B (the guard) and t/544 (tier-check): neither runs on pull_request_review (a PR-side
+    // workflow file); the permission-less relay does, and both follow it via workflow_run (from main).
+    assert.ok(!/^  pull_request_review:/m.test(yml.slice(yml.indexOf('\non:\n'))), `${name} must not trigger on pull_request_review`);
+    assert.match(yml.slice(yml.indexOf('\non:\n')), /^  workflow_run:\n    workflows: \[t1-approval-review-relay\]\n    types: \[completed\]/m);
+    assert.deepEqual(triggerTypes(read('.github', 'workflows', 't1-approval-review-relay.yml'), 'pull_request_review'), ['submitted', 'dismissed']);
   });
 }
 

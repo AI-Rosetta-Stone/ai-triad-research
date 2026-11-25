@@ -37,8 +37,14 @@ on:
     types: [opened, reopened, edited, synchronize, ready_for_review, labeled, unlabeled]
   issue_comment:
     types: [created, edited, deleted]
-  pull_request_review:
-    types: [submitted, dismissed]
+  # t/544 (t/537, Security p/131#33): NOT `pull_request_review`, whose runs take this file from the PR's
+  # side. A branch's stale copy then ran against main's modules and crashed (#5482, run 45706945776,
+  # ERR_MODULE_NOT_FOUND on role-review-verdicts.mjs; TL p/9#669). Reviews reach this check through the
+  # permission-less relay t1-approval-review-relay.yml (shared with t1-approval-guard); a `workflow_run`
+  # run always takes this file, and the predicate it loads, from the default branch.
+  workflow_run:
+    workflows: [t1-approval-review-relay]
+    types: [completed]
 
 permissions:
   pull-requests: write
@@ -157,12 +163,24 @@ jobs:
             const owner = context.repo.owner, repo = context.repo.repo;
             // t/4266 P2 fix 4: issue_comment fires on every issue, not just PRs -- filter to PRs
             // only (same check t1-approval-guard.yml's resolvePrNumber already applies).
-            function resolvePrNumber() {
+            // t/544: a `workflow_run` from the review relay, under the same rules Security set for the
+            // guard (t/537#18, t/534#16 a): only the relay's pull_request_review event counts;
+            // pull_requests[0] is trusted only for a run on THIS repository's branch; otherwise the open
+            // PR whose head is the relay's head_sha, read from the API. Never the relay's own output.
+            async function resolvePrNumber() {
               if (context.payload.pull_request) return context.payload.pull_request.number;
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
+              const wr = context.payload.workflow_run;
+              if (wr) {
+                if (wr.event !== 'pull_request_review') return null;
+                const sameRepo = wr.head_repository && wr.head_repository.full_name === `${owner}/${repo}`;
+                if (sameRepo && wr.pull_requests && wr.pull_requests.length) return wr.pull_requests[0].number;
+                const { data: prs } = await retry('repos.listPullRequestsAssociatedWithCommit', () => github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: wr.head_sha }));
+                const open = (prs || []).find((p) => p.state === 'open' && p.head && p.head.sha === wr.head_sha);
+                return open ? open.number : null;
+              }
               return null;
             }
-            const prNumber = resolvePrNumber();
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const MARKER = '<!-- tier-check:verdict -->';
 
@@ -194,6 +212,16 @@ jobs:
             }
             // END github-retry-loader
 
+            // t/544: resolved after the retry helper loads, so the relay's API lookup is retried too.
+            let prNumber = null;
+            try {
+              prNumber = await resolvePrNumber();
+            } catch (err) {
+              // A failed lookup is not a pass: it fails the run like any crash (t/4103).
+              core.setFailed(`CANNOT EVALUATE: could not resolve the PR for this ${context.eventName} event: ${String(err && err.message ? err.message : err)}`);
+              return;
+            }
+
             async function postVerdictComment(body, { createIfAbsent } = { createIfAbsent: true }) {
               const comments = await retry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
               const existing = comments.find((c) => c.body?.includes(MARKER));
@@ -206,7 +234,7 @@ jobs:
 
             try {
               if (!prNumber) {
-                core.info('tier-check: not a PR event (a plain issue comment) -- nothing to do.');
+                core.info('tier-check: not a PR event (a plain issue comment, or a relay run that is not a review on an open PR) -- nothing to do.');
               } else {
                 await run();
               }
@@ -245,6 +273,13 @@ jobs:
             // guarantee, since the PR's own commits are never on base's tip regardless).
             const { data: pr } = await retry('pulls.get', () => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
             const headSha = pr.head.sha;
+            // t/544 (as t/537#18): a relay event is about the head it ran on. If the PR has moved since,
+            // skip: that head's own push or comment events evaluate it.
+            const relayHead = context.payload.workflow_run && context.payload.workflow_run.head_sha;
+            if (relayHead && headSha !== relayHead) {
+              core.info(`tier-check: the review relay ran at ${relayHead}, but PR #${prNumber}'s head is now ${headSha} -- skipped (stale workflow_run).`);
+              return;
+            }
             execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
             const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
 
