@@ -53,6 +53,24 @@ $script:VerbatimLigatureMojibake = @(
 # author with initials ("Heiding, F." / "F. Heiding,").
 $script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s+\S|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
 $script:VerbatimFootnoteMaxGap = 500      # letters of footnote text that may sit between two words of a quote (CL t/389#52 (1), stipulated)
+# The three refinements of CL t/389#61. Each can be switched off by an audit script to count it on its own.
+$script:VerbatimRefAnywhere = $true        # (1) digits-only extra text is a reference wherever it sits
+$script:VerbatimSplitAtExtraLine = $true   # (2) extra text on lines of its own splits the piece; it does not fail it
+$script:VerbatimFoldMoreMojibake = $true   # (3) more mojibake folded in the model's quote; converter symbols blanked in the source
+# (1) A reference: one to three digits, more of them after commas or a hyphen, or bracketed numerals ("[8]",
+# "[8, 12]"). Never part of a longer number (a year), a decimal, a percentage or a word ("5G").
+$script:VerbatimRefAnywherePattern = '(?<![\p{Nd}$])(?<!\p{Nd}[.,])(?:\[\s*\p{Nd}{1,3}(?:\s*[,\-]\s*\p{Nd}{1,3})*\s*\]|\p{Nd}{1,3}(?:[,\-]\p{Nd}{1,3})*)(?![\p{Nd}%\p{L}]|[.,]\p{Nd})'
+# (3) Mojibake the model's quote can carry: the snapshot's damaged marks, damaged once more when the UTF-8
+# bytes were read as Windows-1252 or Latin-1. Longest first. Each is a mark or a space, never a letter.
+$script:VerbatimQuoteMojibakeMore = @(
+    @("`u{00E2}`u{20AC}`u{2122}", "'"), @("`u{00E2}`u{20AC}`u{02DC}", "'"),
+    @("`u{00E2}`u{20AC}`u{0153}", '"'), @("`u{00E2}`u{20AC}`u{009D}", '"'),
+    @("`u{00E2}`u{20AC}`u{201D}", '-'), @("`u{00E2}`u{20AC}`u{201C}", '-'), @("`u{00E2}`u{20AC}`u{00A6}", '...'),
+    @("`u{00E2}`u{20AC}", '"'),
+    @("`u{00C3}`u{2020}", "'"), @("`u{00C3}`u{00A1}", ' '), @("`u{00C3}`u{00A0}", ' '),
+    @("`u{00C3}`u{00BB}", '-'), @("`u{00C3}`u{00B9}", '-'),
+    @("`u{00EF}`u{00BF}`u{00BD}", ' '), @("`u{FFFD}", ' ')
+)
 $script:VerbatimRejectDamagedWord = $true    # a stored piece with a word that is not the quote's word fails (CL t/389#56 (3))
 $script:VerbatimDiag = [System.Collections.Generic.List[string]]::new()   # why the last quotes were rejected or changed; read and cleared by audit scripts only
 $script:VerbatimRejectPieceDeletion = 'all'   # which stored classes may not hold source words the quote lacks: 'all', 'interleaved', 'none' (CL t/389#52 (4), #54 (2))
@@ -98,6 +116,14 @@ function Get-VerbatimSource {
     # The same no-break space glued between a word and a mark ("are" + it + an opening quote; t/389#50, J08):
     # followed by a mark, it is not the last letter of a word.
     $W = [regex]::Replace($W, '\u00E1(?=[^\p{L}\p{Nd}\s])', ' ')
+    if ($script:VerbatimFoldMoreMojibake) {
+        # A fixed list of characters the converter leaves behind (CL t/389#61 (3)), blanked in the matching
+        # copy only: the replacement character, a "(cid:12)" glyph name, and the masculine ordinal that a
+        # section sign became, when it stands before a number or a capital ("DMCA " + it + "1202").
+        $W = $W.Replace([string][char]0xFFFD, ' ')
+        $W = [regex]::Replace($W, '\(cid:\p{Nd}{1,5}\)', { param($M) ' ' * $M.Length })
+        $W = [regex]::Replace($W, '(?<![\p{L}\p{Nd}])º(?=[\p{Nd}\p{Lu}])', ' ')
+    }
     $Lines = $W -split "(\r?\n)"
     # A page header or footer (CL rulings t/389#20, #24, p/70#83, t/389#30): a line of at most
     # VerbatimFooterMaxChars characters and at least VerbatimFooterMinWords words that occurs
@@ -566,6 +592,14 @@ function Remove-VerbatimQuoteNoise {
     # snapshot's "o-diaeresis" for a closing quote arrives as "A-tilde, pilcrow" (t/389#50, i406). They are
     # quote marks, not letters of a word.
     foreach ($P in $script:VerbatimQuoteMojibake) { $Q = $Q.Replace($P[0], $P[1]) }
+    if ($script:VerbatimFoldMoreMojibake) {
+        # The quote is folded like the source (CL t/389#61 (3)): the further forms of the same marks, the
+        # ligatures, and the no-break space that reads as a-acute.
+        foreach ($P in $script:VerbatimQuoteMojibakeMore) { $Q = $Q.Replace($P[0], $P[1]) }
+        foreach ($P in $script:VerbatimLigatureMojibake) { $Q = $Q.Replace($P[0], $P[1]) }
+        $Q = [regex]::Replace($Q, '(?<!\p{Ll})á(?!\p{Ll})', ' ')
+        $Q = [regex]::Replace($Q, 'á(?=[^\p{L}\p{Nd}\s])', ' ')
+    }
     # "[F]uture": the model's bracketed change of one letter's case. The letter is the source's.
     $Q = [regex]::Replace($Q, '\[(\p{L})\](?=\p{L})', '$1')
     # A header line is removed only when it is the smaller part of the quote. A quote that is mostly
@@ -747,25 +781,32 @@ function Resolve-VerbatimSegment {
         # not words: they come out of the stored piece where the quote does not have them.
         # VerbatimRejectPieceDeletion: 'all' (every stored class), 'interleaved', or 'none'.
         $CleanedPiece = @{}
+        $UsePieces = @($Snap.Pieces)
+        $IsContiguous = [bool]$Snap.Contiguous
         $Mode = [string]$script:VerbatimRejectPieceDeletion
         $CheckPieces = $Mode -eq 'all' -or ($Mode -eq 'interleaved' -and -not $Snap.Contiguous)
         if ($CheckPieces) {
             $KeyText = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
             $Letters = { param($T) (ConvertTo-EvidenceKey -Quote $T) -replace ' ', '' }
             $QLetters = & $Letters $Clean
-            foreach ($P in $Snap.Pieces) {
-                if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
+            $RefPattern = if ($script:VerbatimRefAnywhere) { $script:VerbatimRefAnywherePattern } else { $script:VerbatimGluedRefPattern }
+            $Queue = [System.Collections.Generic.List[object]]::new()
+            foreach ($P in $Snap.Pieces) { $Queue.Add($P) }
+            $Checked = [System.Collections.Generic.List[object]]::new()
+            $Guard = 0
+            while ($Queue.Count -gt 0) {
+                $P = $Queue[0]; $Queue.RemoveAt(0)
+                if ($P.QuoteLetters -lt $script:VerbatimMinRun -or ($Guard++) -gt 64) { $Checked.Add($P); continue }
                 # A part of a piece cut at a page header has no place of its own in the quote; it is judged by
                 # the count alone, below.
                 $Want = if ($P.QStart -ge 0 -and $P.QEnd -gt $P.QStart -and $P.QEnd -le $QLetters.Length) { $QLetters.Substring($P.QStart, $P.QEnd - $P.QStart) } else { $null }
                 $PieceWork = $KeyText.Substring($P.Start, $P.End - $P.Start)
-                # Walk the piece: its text between glued references, and each reference. A reference stays
-                # when the quote has those digits at that place (the model wrote them), and comes out when it
-                # does not (CL t/389#56 (1)).
+                # Walk the piece: its text between references, and each reference. A reference stays when the
+                # quote has those digits at that place (the model wrote them), and comes out when it does not.
                 $Have = [System.Text.StringBuilder]::new()
                 $Remove = [System.Collections.Generic.List[object]]::new()
                 $At = 0
-                foreach ($M in [regex]::Matches($PieceWork, $script:VerbatimGluedRefPattern)) {
+                foreach ($M in [regex]::Matches($PieceWork, $RefPattern)) {
                     [void]$Have.Append((& $Letters $PieceWork.Substring($At, $M.Index - $At)))
                     $Digits = [regex]::Replace($M.Value, '[^\p{Nd}]', '')
                     $Wrote = $null -ne $Want -and $Have.Length + $Digits.Length -le $Want.Length -and $Want.Substring($Have.Length, $Digits.Length) -ceq $Digits
@@ -778,10 +819,46 @@ function Resolve-VerbatimSegment {
                 if ($null -eq $Want) {
                     if ($Got.Length -gt $P.QuoteLetters) { $Why = 'left-out word' }
                 } elseif ($Got -cne $Want) {
-                    # More letters in the source: it has a word the model left out with no mark. The same number
-                    # or fewer: a word differs, damaged in the source or changed by the model; storing the
-                    # source's stores the misspelling, storing the model's stores text the source lacks.
+                    # More letters in the source: it has text the quote does not. The same number or fewer: a
+                    # word differs, damaged in the source or changed by the model.
                     $Why = if ($Got.Length -gt $Want.Length) { 'left-out word' } else { 'word differs' }
+                }
+                if ($Why -eq 'left-out word' -and $null -ne $Want -and $script:VerbatimSplitAtExtraLine) {
+                    # (2) Extra text that stands on lines of its own (a running header, a sidebar, table or chart
+                    # cells) is not part of the passage and is not a word the model left out. The piece is
+                    # split around those lines and the quote becomes interleaved. Only when the model's words
+                    # go on after it, and when everything else in the piece is the quote's, letter for letter.
+                    $I = 0; while ($I -lt $Want.Length -and $Got[$I] -ceq $Want[$I]) { $I++ }
+                    $J = 0; while ($J -lt $Want.Length - $I -and $Got[$Got.Length - 1 - $J] -ceq $Want[$Want.Length - 1 - $J]) { $J++ }
+                    if ($I + $J -eq $Want.Length -and $I -ge $script:VerbatimMinRun -and $J -ge 1) {
+                        # Where the extra letters are in the piece's text: count letters, skipping the references taken out.
+                        $Skip = [bool[]]::new($PieceWork.Length)
+                        foreach ($M in $Remove) { for ($K = $M.Index; $K -lt $M.Index + $M.Length; $K++) { $Skip[$K] = $true } }
+                        $Seen = 0; $ExtraFrom = -1; $ExtraTo = -1; $Total = 0
+                        for ($K = 0; $K -lt $PieceWork.Length; $K++) {
+                            if ($Skip[$K] -or -not [char]::IsLetterOrDigit($PieceWork[$K])) { continue }
+                            if ($Seen -eq $I -and $ExtraFrom -lt 0) { $ExtraFrom = $K }
+                            if ($Seen -eq $Got.Length - $J - 1) { $ExtraTo = $K + 1 }
+                            $Seen++; $Total++
+                        }
+                        if ($Total -eq $Got.Length -and $ExtraFrom -ge 0 -and $ExtraTo -gt $ExtraFrom) {
+                            $LineStart = $PieceWork.LastIndexOf([char]10, $ExtraFrom) + 1
+                            $LineEnd = $PieceWork.IndexOf([char]10, $ExtraTo); if ($LineEnd -lt 0) { $LineEnd = $PieceWork.Length }
+                            $OnLines = 0
+                            for ($K = $LineStart; $K -lt $LineEnd; $K++) { if (-not $Skip[$K] -and [char]::IsLetterOrDigit($PieceWork[$K])) { $OnLines++ } }
+                            if ($LineStart -gt 0 -and $LineEnd -lt $PieceWork.Length -and $OnLines -eq $Got.Length - $Want.Length) {
+                                $Left = [pscustomobject]@{ Start = $P.Start; End = $P.Start + $PieceWork.Substring(0, $LineStart).TrimEnd().Length
+                                    QuoteLetters = $I; QStart = $P.QStart; QEnd = $P.QStart + $I; TailAdded = 0; MidWordEnd = $false; HeadPartial = $P.HeadPartial }
+                                $RightStart = $LineEnd; while ($RightStart -lt $PieceWork.Length -and [char]::IsWhiteSpace($PieceWork[$RightStart])) { $RightStart++ }
+                                $Right = [pscustomobject]@{ Start = $P.Start + $RightStart; End = $P.End
+                                    QuoteLetters = $J; QStart = $P.QStart + $I; QEnd = $P.QEnd; TailAdded = $P.TailAdded; MidWordEnd = $P.MidWordEnd; HeadPartial = $false }
+                                $Queue.Insert(0, $Right); $Queue.Insert(0, $Left)
+                                $IsContiguous = $false
+                                $script:VerbatimDiag.Add('split at extra line')
+                                continue
+                            }
+                        }
+                    }
                 }
                 if ($Why -eq 'word differs' -and -not $script:VerbatimRejectDamagedWord) { $Why = $null; $Remove.Clear() }
                 if ($Why) {
@@ -791,15 +868,17 @@ function Resolve-VerbatimSegment {
                     return $Rejection
                 }
                 if ($Remove.Count -gt 0) {
-                    $script:VerbatimDiag.Add('glued digits removed')
+                    $script:VerbatimDiag.Add('reference digits removed')
                     # The same character ranges come out of the source's own text (the two copies share offsets).
                     $Raw = [System.Text.StringBuilder]::new($Source.Text.Substring($P.Start, $P.End - $P.Start))
-                    for ($I = $Remove.Count - 1; $I -ge 0; $I--) { [void]$Raw.Remove($Remove[$I].Index, $Remove[$I].Length) }
+                    for ($K = $Remove.Count - 1; $K -ge 0; $K--) { [void]$Raw.Remove($Remove[$K].Index, $Remove[$K].Length) }
                     $CleanedPiece[$P.Start] = $Raw.ToString()
                 }
+                $Checked.Add($P)
             }
+            $UsePieces = $Checked.ToArray()
         }
-        foreach ($P in $Snap.Pieces) {
+        foreach ($P in $UsePieces) {
             # A piece too short to have been placed by itself is not stored as a quote.
             if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
             $T = if ($CleanedPiece.ContainsKey($P.Start)) { $CleanedPiece[$P.Start].Trim() } else { $Source.Text.Substring($P.Start, $P.End - $P.Start).Trim() }
@@ -833,7 +912,7 @@ function Resolve-VerbatimSegment {
             }
         }
         if ($Texts.Count -gt 0 -and $Coverage -ge $script:VerbatimSnapThreshold) {
-            $Decision = if ($Snap.Contiguous) { 'snapped' } else { 'interleaved' }
+            $Decision = if ($IsContiguous) { 'snapped' } else { 'interleaved' }
             return (& $Result $Decision $Texts.ToArray() $Coverage $Snap)
         }
     }

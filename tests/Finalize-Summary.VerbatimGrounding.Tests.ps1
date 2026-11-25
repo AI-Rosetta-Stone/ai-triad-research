@@ -572,6 +572,44 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         "$($Kept.Stored)" | Should -Not -Match 'results,7'
     }
 
+    It 'digits-only extra text is a reference wherever it sits; a year and digits the model wrote are not (t/389#61 (1))' {
+        $Quote = 'This is a practical problem rather than a fundamental issue. AI unpredictability does not undermine liability, and Aquilian liability performs a two-fold function once the model has been trained.'
+        $Src = "This is a practical problem rather than a fundamental issue. 252 AI unpredictability does not undermine liability, and Aquilian liability18-performs a two-fold function once the model has been trained [8]. By monitoring it.`r`n"
+        $Out = & $script:Run $Src $Quote 'doc-ref-anywhere'
+        $Out.R.Dropped | Should -Be 0
+        "$($Out.Stored)" | Should -Not -Match '252|18|\[8\]'
+        # A four-digit number is not a reference: the source has a year the quote lacks, so a word is left out.
+        $Src2 = "Regulators have begun to ask for the evaluation results in 2024 and auditors want access to the weights of the model.`r`n"
+        (& $script:Run $Src2 'Regulators have begun to ask for the evaluation results in and auditors want access to the weights of the model.' 'doc-year-not-ref').R.Dropped | Should -Be 1
+    }
+
+    It 'extra text on lines of its own splits the piece: stored as two pieces, the stray line is not stored (t/389#61 (2))' {
+        $A = 'I suggest that a much faster rate of sustained annual growth'
+        $B = 'may be possible once these systems are widely deployed across the economy.'
+        $Src = "Earlier text. $A`r`nContents`r`n$B More text.`r`n"
+        $Out = & $script:Run $Src "$A $B" 'doc-extra-line'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 1
+        $Out.Stored | Should -Be @($A, $B.TrimEnd('.'))
+        # Chart cells on lines of their own inside the passage.
+        $Src2 = "Earlier text. $A`r`n51`r`n33`r`n15`r`n$B More text.`r`n"
+        $Cells = & $script:Run $Src2 "$A $B" 'doc-extra-cells'
+        $Cells.R.Dropped | Should -Be 0
+        # The cells are digits only, so they are references under (1): taken out, and the passage stays one piece.
+        "$($Cells.Stored)" | Should -Match 'annual growth\s+may be possible'
+        "$($Cells.Stored)" | Should -Not -Match '\d'
+        # The same word inside a line of the passage's own prose is a word the model left out.
+        (& $script:Run "Earlier text. $A Contents $B More text.`r`n" "$A $B" 'doc-extra-inline').R.Dropped | Should -Be 1
+    }
+
+    It 'mojibake in the model''s own quote is folded, and a converter symbol in the source is blanked (t/389#61 (3))' {
+        $Src = "Students fear being left behind if they don't use AI tools in their studies, and the firm would comply with DMCA $([char]0x00BA)1202 in its strictest form.`r`n"
+        # The model's quote carries a doubly damaged apostrophe: a-circumflex, euro sign, trade mark sign.
+        $Quote = "Students fear being left behind if they don$([char]0x00E2)$([char]0x20AC)$([char]0x2122)t use AI tools in their studies, and the firm would comply with DMCA 1202 in its strictest form."
+        $Out = & $script:Run $Src $Quote 'doc-quote-mojibake'
+        $Out.R.Dropped | Should -Be 0
+    }
+
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
         # Two-column layout: a line of the other column sits between the quote's two halves, and the source
         # has "Meta CEO" where the model wrote only the name.
