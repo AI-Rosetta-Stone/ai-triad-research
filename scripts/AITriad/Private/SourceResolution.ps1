@@ -16,7 +16,55 @@ function New-IdentitySourceResolution {
         MarkPairs  = [string[]]::new(0)
         Errors     = [object[]]::new(0)
         Source     = 'none'
+        Chunks     = (ConvertTo-SourceChunkTable)
     }
+}
+
+function Get-SourceResolutionChunk {
+    # The legacy-chunk manifest a resolution carries (spec 6.2, t/355): chunk id -> base id. A resolution
+    # object built without one (an older caller, a test double) has no chunks.
+    # Always a Hashtable with ordinal keys: a generic Dictionary's Contains is reachable only through a
+    # cast, which a return value doesn't keep.
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][pscustomobject]$Resolution)
+    $map = [hashtable]::new([System.StringComparer]::Ordinal)
+    if (-not $Resolution.PSObject.Properties['Chunks'] -or $null -eq $Resolution.Chunks) { return , $map }
+    if ($Resolution.Chunks -is [hashtable]) { return , $Resolution.Chunks }
+    foreach ($entry in ([System.Collections.IDictionary]$Resolution.Chunks).GetEnumerator()) { $map[[string]$entry.Key] = [string]$entry.Value }
+    , $map
+}
+
+function ConvertTo-SourceChunkTable {
+    # The legacy-chunk manifest as the ordinal Hashtable a resolution carries.
+    [OutputType([hashtable])]
+    param()
+    $map = [hashtable]::new([System.StringComparer]::Ordinal)
+    foreach ($entry in ([System.Collections.IDictionary](Get-EvidenceLegacyChunkManifest)).GetEnumerator()) { $map[[string]$entry.Key] = [string]$entry.Value }
+    , $map
+}
+
+function Get-SourceGroupRole {
+    <#
+    .SYNOPSIS
+        How a non-selectable id joins its canonical's group (spec 7.1, t/355): { CanonicalId; Kind; Via },
+        or $null for an id that is its own document.
+    .DESCRIPTION
+        Kind is 'copy' (a valid duplicate_of mark), 'chunk_D' (a listed chunk of the canonical itself) or
+        'chunk_copy' (a listed chunk of a marked copy; Via is that copy). A mark wins over a manifest entry.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][pscustomobject]$Resolution, [Parameter(Mandatory)][AllowEmptyString()][string]$Id)
+    Set-StrictMode -Version Latest
+    if ($Resolution.Marked.Contains($Id)) {
+        return [pscustomobject]@{ CanonicalId = (Resolve-SourceId -Resolution $Resolution -Id $Id); Kind = 'copy'; Via = $null }
+    }
+    $chunks = Get-SourceResolutionChunk -Resolution $Resolution
+    if (-not $chunks.Contains($Id)) { return $null }
+    $base = [string]$chunks[$Id]
+    $canonical = Resolve-SourceId -Resolution $Resolution -Id $Id
+    if ($Resolution.Marked.Contains($base)) { return [pscustomobject]@{ CanonicalId = $canonical; Kind = 'chunk_copy'; Via = $base } }
+    [pscustomobject]@{ CanonicalId = $canonical; Kind = 'chunk_D'; Via = $null }
 }
 
 <#
@@ -129,6 +177,7 @@ function Get-SourceResolution {
     $res = [pscustomobject]@{
         Resolved = $resolved; Marked = $marked; MarkPairs = [string[]]$pairArr
         Errors = [object[]]@($g.DuplicateOfErrors); Source = $source
+        Chunks = (ConvertTo-SourceChunkTable)
     }
     $script:SourceResolutionCache[$cacheKey] = $res
     $res
@@ -149,19 +198,34 @@ function Get-DefaultSourceResolution {
 }
 
 function Resolve-SourceId {
-    # Spec 6.2: the valid mark's target, else the id itself (an unknown id resolves to itself).
+    # Spec 6.2: the valid mark's target; else, for an id the legacy-chunk manifest lists, what its base
+    # resolves to (t/355, TL t/355#43: chunks are named, never inferred from the id's shape); else the id
+    # itself (an unknown id resolves to itself). Whether a listed chunk's base exists is checked where the
+    # documents are known (Build-NodeSourceIndex, the evidence union), not here.
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][pscustomobject]$Resolution, [Parameter(Mandatory)][AllowEmptyString()][string]$Id)
-    if ($Resolution.Resolved.ContainsKey($Id)) { [string]$Resolution.Resolved[$Id] } else { $Id }
+    $chunks = Get-SourceResolutionChunk -Resolution $Resolution
+    $cur = $Id
+    for ($hop = 0; $hop -le $chunks.Count; $hop++) {
+        if ($Resolution.Resolved.ContainsKey($cur)) { return [string]$Resolution.Resolved[$cur] }
+        if (-not $chunks.Contains($cur)) { return $cur }
+        $cur = [string]$chunks[$cur]
+    }
+    throw (New-ActionableError -AsErrorRecord -Goal 'Resolve a source id (spec 6.2)' `
+            -Problem "The legacy-chunk manifest loops: following '$Id' to its base never ends." `
+            -Location 'SourceResolution.ps1: Resolve-SourceId' `
+            -NextSteps @('Correct docs/specs/source-identity-legacy-chunks.json: no chunk may be the base of its own base (a reviewed change)'))
 }
 
 function Test-SourceSelectable {
-    # Spec 6.3: a doc with a valid mark is not selectable; lookup by id is unaffected.
+    # Spec 6.3: a doc with a valid mark is not selectable, and neither is a listed legacy chunk (spec 6.2,
+    # t/355): it is part of its base, not a document of its own. Lookup by id is unaffected.
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][pscustomobject]$Resolution, [Parameter(Mandatory)][AllowEmptyString()][string]$Id)
-    -not $Resolution.Marked.Contains($Id)
+    if ($Resolution.Marked.Contains($Id)) { return $false }
+    -not (Get-SourceResolutionChunk -Resolution $Resolution).Contains($Id)
 }
 
 function Select-SelectableSummaryFile {
@@ -177,12 +241,17 @@ function Select-SelectableSummaryFile {
     #>
     [CmdletBinding()]
     [OutputType([System.IO.FileInfo[]])]
-    param([Parameter(Mandatory)][AllowEmptyCollection()][System.IO.FileInfo[]]$Files, [Parameter(Mandatory)][pscustomobject]$Resolution)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][System.IO.FileInfo[]]$Files, [Parameter(Mandatory)][pscustomobject]$Resolution,
+        # Also drop the summaries of listed legacy chunks (spec 6.2, t/355). Only for a producer that adds
+        # them back with Get-MarkedCopySummary -IncludeChunks; without it a chunk summary is still read as
+        # a document of its own.
+        [switch]$ExcludeChunks)
     # Emits to the pipeline; callers wrap the call in @().
-    if ($Resolution.Marked.Count -eq 0) { return $Files }
-    $kept = [System.IO.FileInfo[]]@($Files | Where-Object { -not $Resolution.Marked.Contains($_.BaseName) })
+    $chunks = if ($ExcludeChunks) { Get-SourceResolutionChunk -Resolution $Resolution } else { @{} }
+    if ($Resolution.Marked.Count -eq 0 -and $chunks.Count -eq 0) { return $Files }
+    $kept = [System.IO.FileInfo[]]@($Files | Where-Object { -not $Resolution.Marked.Contains($_.BaseName) -and -not $chunks.Contains($_.BaseName) })
     $skipped = $Files.Count - $kept.Count
-    if ($skipped -gt 0) { Write-Verbose "Select-SelectableSummaryFile: skipped $skipped summary file(s) of docs marked duplicate_of." }
+    if ($skipped -gt 0) { Write-Verbose "Select-SelectableSummaryFile: skipped $skipped summary file(s) of docs marked duplicate_of$(if ($ExcludeChunks) { ' or listed as legacy chunks' })." }
     $kept
 }
 
@@ -196,27 +265,39 @@ function Get-MarkedCopySummary {
         (a file whose name is a marked id). Each result carries the copy's exact id and its canonical
         (resolved) id, ordered by canonical and then copy id, both ordinal: spec 7.1's group order.
         A file that won't parse is WARNed and skipped. Emits to the pipeline; wrap the call in @().
+        With -IncludeChunks the summaries of listed legacy chunks come too (spec 6.2, t/355), after the
+        copies of their canonical: the canonical's own chunks by N, then each copy's chunks by N.
     .OUTPUTS
-        [pscustomobject] { CopyId; CanonicalId; Summary }
+        [pscustomobject] { CopyId; CanonicalId; Summary; Kind; Via }. Kind is 'copy', 'chunk_D' or
+        'chunk_copy' (Via = the marked copy the chunk belongs to); see Get-SourceGroupRole.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][System.IO.FileInfo[]]$Files,
         [Parameter(Mandatory)][pscustomobject]$Resolution,
-        [string]$Caller = 'AITriad'
+        [string]$Caller = 'AITriad',
+        [switch]$IncludeChunks
     )
     Set-StrictMode -Version Latest
-    if ($Resolution.Marked.Count -eq 0) { return }
+    $chunks = if ($IncludeChunks) { Get-SourceResolutionChunk -Resolution $Resolution } else { @{} }
+    if ($Resolution.Marked.Count -eq 0 -and $chunks.Count -eq 0) { return }
     $found = [System.Collections.Generic.List[object]]::new()
-    foreach ($f in @($Files | Where-Object { $Resolution.Marked.Contains($_.BaseName) })) {
+    foreach ($f in @($Files | Where-Object { $Resolution.Marked.Contains($_.BaseName) -or $chunks.Contains($_.BaseName) })) {
         try { $s = [System.IO.File]::ReadAllText($f.FullName).TrimStart([char]0xFEFF) | ConvertFrom-Json }
-        catch { Write-Warning "${Caller}: unreadable summary $($f.Name) skipped in the duplicate_of evidence union: $($_.Exception.Message)"; continue }
-        $found.Add([pscustomobject]@{ CopyId = $f.BaseName; CanonicalId = (Resolve-SourceId -Resolution $Resolution -Id $f.BaseName); Summary = $s })
+        catch { Write-Warning "${Caller}: unreadable summary $($f.Name) skipped in the evidence union: $($_.Exception.Message)"; continue }
+        $role = Get-SourceGroupRole -Resolution $Resolution -Id $f.BaseName
+        $found.Add([pscustomobject]@{ CopyId = $f.BaseName; CanonicalId = $role.CanonicalId; Summary = $s; Kind = $role.Kind; Via = $role.Via })
     }
     if ($found.Count -eq 0) { return }
     $arr = $found.ToArray()
-    $keys = [string[]]@(foreach ($x in $arr) { "$($x.CanonicalId)`u{0001}$($x.CopyId)" })
+    # Spec 7.1 order inside a canonical: copies by id; then its own chunks by N; then each copy's chunks, in
+    # the copies' order, by N. N is zero-padded so the ordinal sort is numeric.
+    $rank = @{ copy = '0'; chunk_D = '1'; chunk_copy = '2' }
+    $keys = [string[]]@(foreach ($x in $arr) {
+            $n = if ($x.Kind -eq 'copy') { '' } else { ([regex]::Match($x.CopyId, '(\d+)$').Groups[1].Value).PadLeft(20, '0') }
+            "$($x.CanonicalId)`u{0001}$($rank[$x.Kind])`u{0001}$($x.Via)`u{0001}$n`u{0001}$($x.CopyId)"
+        })
     # Non-generic overload: the generic one sorts a converted copy of $arr (see EvidenceUnion.ps1).
     [Array]::Sort([Array]$keys, [Array]$arr, [System.Collections.IComparer][StringComparer]::Ordinal)
     $arr
