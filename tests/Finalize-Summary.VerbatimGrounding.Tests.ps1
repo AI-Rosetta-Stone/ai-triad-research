@@ -469,6 +469,35 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         $Out.Stored | Should -BeNullOrEmpty
     }
 
+    It 'a list numeral on a line of its own is a word of the quote, not a chart value (t/389#42, G05)' {
+        $Src = "We recommend that you:`r`n`r`n1.`r`n`r`nInventory AI assets across your organization. You cannot govern what you do not know.`r`n`r`n2.`r`n`r`nAssign an owner for each system.`r`n"
+        $Quote = 'We recommend that you: 1. Inventory AI assets across your organization. You cannot govern what you do not know.'
+        $Out = & $script:Run $Src $Quote 'doc-list-numeral'
+        $Out.R.Dropped | Should -Be 0
+        $Out.R.Interleaved | Should -Be 0
+        $Out.Stored | Should -Be $Quote
+    }
+
+    It 'one numbers-only line between two segments of an elided quote is a page number, not a chart; two are a chart (t/389#42 (1))' {
+        $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
+        $B = 'Auditors therefore ask for access to the weights and to the training data.'
+        $One = & $script:Run "$A`r`n`r`n17`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-one-number'
+        $One.R.Dropped | Should -Be 0
+        $One.Stored | Should -Be @($A, $B)
+        $Two = & $script:Run "$A`r`n`r`n64%`r`n`r`n39%`r`n`r`nSome text between the two.`r`n$B`r`n" "$A [...] $B" 'doc-elision-two-numbers'
+        $Two.R.Dropped | Should -Be 1
+    }
+
+    It 'a segment whose text occurs before and after the previous segment is placed after it (t/389#42 (2))' {
+        $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
+        $B = 'Auditors therefore ask for access to the weights and to the training data.'
+        # B is printed first in an abstract, then again after A in the body.
+        $Src = "$B An abstract sentence follows it here.`r`n`r`nThe body begins. $A A short sentence sits between them. $B`r`n"
+        $Out = & $script:Run $Src "$A [...] $B" 'doc-elision-later-occurrence'
+        $Out.R.Dropped | Should -Be 0
+        $Out.Stored | Should -Be @($A, $B)
+    }
+
     It 'an elided quote whose segments are out of source order, or have a page break between them, is dropped (t/389#40 (4))' {
         $A = 'Developers answer that the evaluations they run today were never designed for licensing.'
         $B = 'Auditors therefore ask for access to the weights and to the training data.'

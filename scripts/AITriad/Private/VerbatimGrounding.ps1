@@ -43,6 +43,7 @@ $script:VerbatimHtmlTagPattern = '(?i)</?(?:a|abbr|article|aside|b|blockquote|br
 $script:VerbatimBlankLineRegex = [regex]::new('\r?\n(?:[ \t]*\r?\n)+')   # one or more blank lines
 $script:VerbatimFigureLinePattern = '^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*$'      # a line with a digit and no letter
 $script:VerbatimFigureTokenPattern = '(?<!\S)[^\p{L}\s]*\p{Nd}[^\p{L}\s]*(?!\S)'  # a word with a digit and no letter
+$script:VerbatimListMarkerPattern = '^\(?\p{Nd}{1,3}[.)]$'   # "1." or "2)" on a line of its own: a list numeral, never a figure (CL t/389#42)
 $script:VerbatimElisionMaxGap = 1000   # letters between two segments of an elided quote (CL t/389#40, stipulated; to be revisited)
 $script:VerbatimWordTail = 2           # source letters past a quote word's end that a stored piece may take (a plural)
 $script:VerbatimElisionPattern = '\[\s*(?:\.{3,}|\u2026)\s*\]|\(\s*(?:\.{3,}|\u2026)\s*\)|(?:\.[ \u00A0]){2,}\.|\.{3,}|\u2026'
@@ -457,7 +458,9 @@ function Find-VerbatimSnap {
             $L1 = $Text.IndexOf([char]10, $G1); if ($L1 -lt 0) { $L1 = $Text.Length }
             # Trim: with CRLF line ends the line after the gap still carries its carriage return.
             foreach ($Line in @(@{ Start = $L0; End = $G0 }, @{ Start = $G1; End = $L1 })) {
-                if ($Text.Substring($Line.Start, $Line.End - $Line.Start).Trim() -match $script:VerbatimFigureLinePattern -and $FigureSeen.Add($Line.Start)) {
+                $LineText = $Text.Substring($Line.Start, $Line.End - $Line.Start).Trim()
+                # A list numeral ("1.") on its own line is a word of the text that follows it, not a chart value.
+                if ($LineText -match $script:VerbatimFigureLinePattern -and $LineText -notmatch $script:VerbatimListMarkerPattern -and $FigureSeen.Add($Line.Start)) {
                     $FigureLines.Add([pscustomobject]@{ Start = $Line.Start; End = $Line.End; PieceStart = $PS; PieceEnd = $PE })
                 }
             }
@@ -628,17 +631,50 @@ function Resolve-VerbatimSegment {
     & $Result 'dropped' @() $Coverage $null
 }
 
+function Find-VerbatimOccurrenceAfter {
+    # The first place at or after $AfterOffset where $Text stands in the source as whole words, as
+    # { Start; End } text offsets, or $null. Used to place a segment of an elided quote after the segment
+    # before it (CL ruling t/389#42 (2)): a phrase that occurs more than once is otherwise placed at
+    # whichever occurrence the matcher met first, which may be before the previous segment.
+    param([object]$Source, [string]$Text, [int]$AfterOffset)
+    $Key = (ConvertTo-EvidenceKey -Quote $Text) -replace ' ', ''
+    if ($Key.Length -lt $script:VerbatimMinRun) { return $null }
+    $W = [Array]::BinarySearch($Source.WordOffset, $AfterOffset)
+    if ($W -lt 0) { $W = -bnot $W }
+    if ($W -ge $Source.WordAt.Count) { return $null }
+    $P = $Source.WordAt[$W]
+    while ($true) {
+        $P = $Source.Chars.IndexOf($Key, $P, [System.StringComparison]::Ordinal)
+        if ($P -lt 0) { return $null }
+        # Whole words only: the match must begin where a source word begins and end where one ends.
+        $StartsWord = [Array]::BinarySearch($Source.WordAt, $P) -ge 0
+        $EndsWord = ($P + $Key.Length -ge $Source.Chars.Length) -or ([Array]::BinarySearch($Source.WordAt, $P + $Key.Length) -ge 0)
+        if ($StartsWord -and $EndsWord) {
+            return [pscustomobject]@{
+                Start = (Get-VerbatimTextOffset -Source $Source -Position $P)
+                End   = (Get-VerbatimTextOffset -Source $Source -Position ($P + $Key.Length - 1)) + 1
+            }
+        }
+        $P++
+    }
+}
+
 function Test-VerbatimElisionGap {
-    # May two segments of an elided quote stand as one quote (CL ruling t/389#40 (4), stipulated)? They must
-    # be in source order, at most VerbatimElisionMaxGap letters apart, with no layout marker in the gap: a
-    # page break, a blanked page header, a table row, or a numbers-only line (a chart value, a page number).
+    # May two segments of an elided quote stand as one quote (CL rulings t/389#40 (4) and t/389#42 (1),
+    # stipulated)? They must be in source order, at most VerbatimElisionMaxGap letters apart, with no layout
+    # marker in the gap: a page break, a blanked page header, a table row, or a chart (two or more
+    # numbers-only lines; one alone is a page or footnote number, and a list numeral is not counted).
     param([object]$Source, [int]$PrevEnd, [int]$NextStart)
     if ($NextStart -lt $PrevEnd) { return $false }
     $Gap = $Source.Text.Substring($PrevEnd, $NextStart - $PrevEnd)
     if (([regex]::Replace($Gap, '[^\p{L}\p{Nd}]', '')).Length -gt $script:VerbatimElisionMaxGap) { return $false }
     if ($Gap.IndexOf([char]12) -ge 0) { return $false }
     if ($Gap -match '(?m)^\s*\|' -or $Gap -match '\|\s[^|\r\n]*\|') { return $false }
-    if ($Gap -match '(?m)^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*\r?$') { return $false }
+    $NumberLines = 0
+    foreach ($M in [regex]::Matches($Gap, '(?m)^[^\p{L}\r\n]*\p{Nd}[^\p{L}\r\n]*\r?$')) {
+        if ($M.Value.Trim() -notmatch $script:VerbatimListMarkerPattern) { $NumberLines++ }
+    }
+    if ($NumberLines -ge 2) { return $false }
     if ($Source.BlankedAt.Count -gt 0) {
         $B = [Array]::BinarySearch($Source.BlankedAt, $PrevEnd)
         if ($B -lt 0) { $B = -bnot $B }
@@ -699,6 +735,13 @@ function Resolve-VerbatimQuote {
         foreach ($R in $Kept) {
             if ($Run.Count -gt 0) {
                 $Prev = $Run[$Run.Count - 1]
+                # Place the segment at its first occurrence after the one before it (t/389#42 (2)). Only a
+                # segment stored as one text can be placed again; with no later occurrence it stays where
+                # it was found, and the pair is then out of order.
+                if ($null -ne $Prev.End -and @($R.Texts).Count -eq 1) {
+                    $Later = Find-VerbatimOccurrenceAfter -Source $Source -Text $R.Texts[0] -AfterOffset $Prev.End
+                    if ($Later) { $R.Start = $Later.Start; $R.End = $Later.End }
+                }
                 $Together = ($null -ne $Prev.End -and $null -ne $R.Start) -and (Test-VerbatimElisionGap -Source $Source -PrevEnd $Prev.End -NextStart $R.Start)
                 if (-not $Together) { $Runs.Add($Run); $Run = [System.Collections.Generic.List[object]]::new() }
             }
