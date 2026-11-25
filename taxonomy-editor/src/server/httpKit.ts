@@ -236,6 +236,26 @@ export function requireBaseVersion(req: IncomingMessage, res: ServerResponse): s
   return baseSha;
 }
 
+/** t/553 (t/552, ServerStorage p/52#50): a save refused by shared overlay storage is retryable, not a server fault.
+ *  Whatever status the route's catch chose, the caller gets the backend's 503 with its `code`, a fixed message (the
+ *  OVERLAY_STAGE_FAILED problem text carries the storage error, so it is never echoed) and Retry-After, in production
+ *  too. Logged at WARN: the backend already logged the cause. */
+const RETRYABLE_STORAGE_REFUSALS: Record<string, { message: string; retryAfterSeconds: number }> = {
+  OVERLAY_DRAINING: { message: 'Saving is paused for a few minutes while pending changes are written out. Nothing was saved.', retryAfterSeconds: 120 },
+  OVERLAY_STAGE_FAILED: { message: 'Your change could not be saved right now. Nothing was saved. Retry in a moment.', retryAfterSeconds: 10 },
+};
+
+function replyRetryableStorageRefusal(res: ServerResponse, route: string, cause: unknown): boolean {
+  if (!(cause instanceof ActionableError) || !cause.code) return false;
+  const refusal = RETRYABLE_STORAGE_REFUSALS[cause.code];
+  if (!refusal) return false;
+  const status = cause.httpStatus ?? 503;
+  log.server.warn({ component: route, status, code: cause.code }, `${route}: save refused by shared overlay storage (${cause.code}); retryable`);
+  res.setHeader?.('Retry-After', String(refusal.retryAfterSeconds));
+  json(res, { error: refusal.message, code: cause.code, requestId: getRequestId() }, status);
+  return true;
+}
+
 export function error(res: ServerResponse, message: string, status = 500, cause?: unknown, extra?: Record<string, unknown>): void {
   // M4: don't leak internal detail (file paths, stack) to clients on server
   // errors in production — record the real message server-side, return generic.
@@ -246,6 +266,7 @@ export function error(res: ServerResponse, message: string, status = 500, cause?
     log.server.warn({ component: route, status }, `${route}: response already sent — skipping duplicate error(${status})`);
     return;
   }
+  if (replyRetryableStorageRefusal(res, route, cause)) return;
   // t/1362: every 500 logs at error level to Pino — the always-on safety net so
   // server errors are visible in container logs (az containerapp logs show)
   // without a browser-triggered FR dump. The FR record below is prod+dump-gated;
