@@ -29,6 +29,10 @@ import { BlobServiceClient } from '@azure/storage-blob';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
 import { SharedOverlayStore } from '../storage/sharedOverlayStore.js';
 
+// t/577: pay githubAPIBackend's cold import here, not inside the first test's timeout. Under the pre-push hook's
+// 8 workers the first test in this file timed out at 5-8 s although every test passes alone (TaxonomyServer p/52#36).
+beforeAll(async () => { await import('../storage/githubAPIBackend'); }, 60_000);
+
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
 
 const here = path.dirname(fileURLToPath(import.meta.url));

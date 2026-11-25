@@ -187,6 +187,19 @@ function logVoiceFailure(event: OpEdProgressEvent, model: string): void {
   });
 }
 
+/** The SSE error frame for a run-level failure. t/467 (Rosetta Stone p/74#28): an ActionableError's stable `code`
+ *  (e.g. FREE_POOL_EXHAUSTED, FREE_POOL_UNAVAILABLE, ANON_RUN_COST_CEILING) rides along, so the client maps on a code,
+ *  never on message text. */
+function runErrorFrame(err: unknown): Record<string, unknown> {
+  const ae = err instanceof ActionableError ? err : null;
+  return {
+    type: 'error',
+    ...(ae ? { goal: ae.goal, problem: clientSafeMessage(ae.problem, ae) } : {}),
+    ...(ae?.code ? { code: ae.code } : {}),
+    message: clientSafeMessage(String(err), err),
+  };
+}
+
 /** Drive the shared lib/oped generator, streaming each event as an SSE frame and
  *  persisting the assembled set on 'complete' (full OR partial — the core includes
  *  completed members + cancelled markers, so a cancel after 2/3 voices keeps the 2,
@@ -253,11 +266,7 @@ async function driveOpEdRun(
       try { await finalizeOpedSet({ schema_version: 1, set_id: request.set_id, topic: request.topic, params: request.params, created_at: new Date().toISOString(), opeds: completed } as OpEdSet); }
       catch { /* telemetry — silent by design (best-effort partial persist) */ }
     }
-    writeFrame({
-      type: 'error',
-      ...(err instanceof ActionableError ? { goal: err.goal, problem: clientSafeMessage(err.problem, err) } : {}),
-      message: clientSafeMessage(String(err), err),
-    });
+    writeFrame(runErrorFrame(err));
   } finally {
     clearInterval(heartbeat);
     // t/2893: no startedAt restart — that fed the removed in-process TTL sweep. The shared store

@@ -208,6 +208,7 @@ describe('t/501 + t/616: an anonymous POST /api/oped-sets over HTTP runs on the 
     delete process.env.FREE_TIER_GEMINI_KEY;
     const { status, text } = await post();
     expect(status).toBe(503);
+    expect(JSON.parse(text)).toEqual({ error: 'free_pool_empty', message: 'Free tier is not available' }); // t/467: stable code
     expect(text).not.toContain('text/event-stream');
     expect(h.providerCalls).toEqual([]);
     expect(h.keyStoreReads).toEqual([]);

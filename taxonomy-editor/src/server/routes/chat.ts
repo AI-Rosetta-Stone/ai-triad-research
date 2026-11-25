@@ -12,6 +12,7 @@ import { error, getClientIp } from '../httpKit.js';
 import { callerTierIdentity, missingApiKeyError, clientSafeMessage } from '../security/accessControl.js';
 import { getCurrentUser } from '../security/userContext.js';
 import { log } from '../logger.js';
+import { checkFinishedChatReply } from './chatReplyParseCheck.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { DEFAULT_MODEL, generateViaGeminiStream } from '../../../../lib/ai-client/index.js';
@@ -595,6 +596,7 @@ async function streamGeminiChat(
     writeReplyIncomplete(res, { stopReason, rawStopReason, partialText: fullText });
     return usage; // t/494: a cut-off reply was still billed by the provider, so its tokens are booked
   }
+  checkFinishedChatReply(fullText, { model: apiModelId, stopReason, jsonMode, path: 'gemini-stream' }); // t/618: observe only
   // t/4848: emit raw_prompt and raw_response for How panel
   writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText, stop_reason: stopReason });
   return usage;
@@ -658,6 +660,7 @@ async function streamNonGeminiChat(
   if (urlMeta.length) {
     writeSse(res, { type: 'chat-stream-url-metadata', urlContextMetadata: { urlMetadata: urlMeta }, source: 'app-fetch' });
   }
+  checkFinishedChatReply(result.text, { model: effectiveModel, stopReason: null, jsonMode: false, path: 'generate' }); // t/618: observe only
   // t/4848: emit raw_prompt and raw_response for How panel
   writeSse(res, { type: 'done', fullText: result.text, raw_prompt: combinedPrompt, raw_response: result.text });
 }

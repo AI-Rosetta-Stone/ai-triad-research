@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
   repoRead: vi.fn<[string, unknown?], Promise<string | null>>(),
   repoWrite: vi.fn<[string, string], Promise<{ version: string }>>(),
   sameBackend: false,
+  hostedAnon: false,
+  storageId: '_local',
   record: vi.fn(),
   warn: vi.fn(),
 }));
@@ -22,7 +24,7 @@ const userContent = { readFile: h.ucRead, writeFile: h.ucWrite };
 const dataRepo = { readFile: h.repoRead, writeFile: h.repoWrite };
 
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: h.record }) }));
-vi.mock('../security/userContext.js', () => ({ getStorageUserId: () => '_local', getCurrentUserId: () => '_local' }));
+vi.mock('../security/userContext.js', () => ({ getStorageUserId: () => h.storageId, getCurrentUserId: () => h.storageId, isHostedAnonymousRequest: () => h.hostedAnon }));
 vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
 vi.mock('../logger.js', () => ({ log: { server: { info: vi.fn(), warn: h.warn, error: vi.fn(), debug: vi.fn() } }, getRequestId: () => 'req-prefs' }));
 vi.mock('../storage/fileIO.js', () => ({
@@ -68,6 +70,8 @@ beforeEach(() => {
   h.ucRead.mockResolvedValue(null);
   h.repoRead.mockResolvedValue(null);
   h.sameBackend = false;
+  h.hostedAnon = false;
+  h.storageId = '_local';
 });
 
 describe('GET /api/preferences (t/2119, t/629)', () => {
@@ -133,5 +137,27 @@ describe('PUT /api/preferences (t/2119, t/629)', () => {
     h.ucWrite.mockRejectedValue(new Error('user content unavailable'));
     expect((await invoke('PUT', { viewMode: 'simple' })).status).toBe(500);
     expect(h.repoWrite).not.toHaveBeenCalled();
+  });
+});
+
+describe('t/574 stopgap: a hosted anonymous request with no session (storage id _local) gets 401 no_session', () => {
+  it('GET and PUT are refused, and neither backend is read or written', async () => {
+    h.hostedAnon = true;
+    expect((await invoke('GET')).status).toBe(401);
+    expect((await invoke('PUT', { viewMode: 'simple' })).status).toBe(401);
+    expect(h.ucRead).not.toHaveBeenCalled();
+    expect(h.repoRead).not.toHaveBeenCalled();
+    expect(h.ucWrite).not.toHaveBeenCalled();
+  });
+
+  it('a hosted anonymous request WITH a session (anon-<uuid>) is served from its own file', async () => {
+    h.hostedAnon = true;
+    h.storageId = 'anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11';
+    expect((await invoke('PUT', { viewMode: 'simple' })).status).toBe(204);
+    expect(h.ucWrite).toHaveBeenCalledWith(expect.stringContaining('anon-0f8fad5b'), expect.any(String));
+  });
+
+  it('local AUTH_DISABLED mode (_local, not hosted) is unaffected', async () => {
+    expect((await invoke('PUT', { viewMode: 'simple' })).status).toBe(204);
   });
 });
