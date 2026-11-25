@@ -190,6 +190,18 @@ test('t/563: an unreadable /rate_limit at job start WARNs only (exit 0), never a
   }
 });
 
+test('SO p/136#62: a multi-line gh error stays on ONE ::warning:: line in all three copies (no injected workflow command)', { skip: !BASH && 'no bash' }, () => {
+  // gh prints a CRLF and an LF; the second line tries to start a workflow command of its own.
+  const body = `printf 'HTTP 502\\r\\n::add-mask::secret\\n::set-env name=X::1\\n' >&2; exit 1`;
+  for (const [name, step] of [['start', START], ['end', CANONICAL], ['app', APP_STEP]]) {
+    const r = runWithFakeGh(body, step);
+    assert.equal(r.code, 0, name);
+    const lines = r.out.split('\n');
+    assert.ok(lines.some((l) => /^::warning::t\/(563|314|318): could not read GET \/rate_limit/.test(l) && l.includes('HTTP 502') && l.includes('::add-mask::secret')), `${name}: one warning line holding the whole error\n${r.out}`);
+    assert.ok(!lines.some((l) => /^::(add-mask|set-env)/.test(l)), `${name}: no line may start a workflow command\n${r.out}`);
+  }
+});
+
 test('t/563: firstStepBlock returns the first step only, not the comments of the next', () => {
   const wf = 'jobs:\n  a:\n    steps:\n      # c1\n      - name: one\n        run: x\n\n      # c2\n      - name: two\n';
   assert.equal(firstStepBlock(wf, 'a'), '      # c1\n      - name: one\n        run: x');

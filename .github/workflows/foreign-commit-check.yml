@@ -67,6 +67,10 @@ jobs:
             reset=$(date -u -d "@$creset" +%H:%M:%SZ 2>/dev/null || echo "$creset")
             echo "t/563 rate-limit-start: workflow=$GITHUB_WORKFLOW job=$GITHUB_JOB core used=$cu reset=$reset graphql used=$gu graphql_reset=$greset"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line
+            # and can never start a workflow-command line of its own.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/563: could not read GET /rate_limit at job start (${out:-no output})."
           fi
 
@@ -118,5 +122,8 @@ jobs:
               echo "REST core window resets at $reset."
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # SO p/136#62 (as t/238): gh's text is echoed inside ::warning::, so it must stay on one line.
+            out=${out//$'\r'/ }
+            out=${out//$'\n'/ }
             echo "::warning::t/314: could not read GET /rate_limit, so no rate-limit snapshot for this job (${out:-no output})."
           fi
