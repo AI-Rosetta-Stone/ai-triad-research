@@ -23,6 +23,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getStateRoot, getProjectRoot, STORAGE_MODE, isEmbeddingWorkerOffloadEnabled } from '../config.js';
 import { writeDump, isValidDumpId, readMergedDump } from '../flightRecorderDumps.js';
 import { escapeForInlineScript } from '../flightRecorderViewer.js';
+import { requireAdminOrOperator } from './adminGate.js';
 import { requireFlightRecorderAccess, resolveDumpFile } from './flightRecorderAccess.js';
 import { clientSafeMessage } from '../security/accessControl.js';
 import { getSessionBranchName } from '../security/userContext.js';
@@ -84,7 +85,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
   const { serverRecorder, appendServerLogs } = ctx;
 
   // ── Calibration log (per-debate metrics — JSONL from core/) ──
+  // t/592: admin-only in the handler (the anonymous gate, #5500, refused anonymous callers only).
   get('/api/calibration/log', (_req, res) => {
+    if (!requireAdminOrOperator(res)) return;
     try {
       const logPath = path.join(getStateRoot(), 'calibration', 'core', 'calibration-log.jsonl'); // t/2643: calibration is class-A writable state (read side)
       if (!fs.existsSync(logPath)) { json(res, { entries: [], validationReport: null }); return; }
@@ -105,7 +108,9 @@ export function registerDiagnosticsRoutes(r: Router, ctx: ServerCtx): void {
   });
 
   // ── Calibration parameter history ──
+  // t/592: admin-only in the handler (the anonymous gate, #5500, refused anonymous callers only).
   get('/api/calibration/history', async (_req, res) => {
+    if (!requireAdminOrOperator(res)) return;
     try {
       const { readParameterHistory, captureSnapshot } = await import('../../../../lib/debate/calibrationLogger.js');
       const history = readParameterHistory(getStateRoot()); // t/2643: calibration is class-A writable state

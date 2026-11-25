@@ -28,6 +28,7 @@ import { getRollbackStatus } from '../rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from '../errorAggregation.js';
 import { writeDump, isValidDumpId } from '../flightRecorderDumps.js';
 import * as community from '../community/community.js';
+import { requireAdminOrOperator } from './adminGate.js';
 import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
 import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 import * as fileIO from '../storage/fileIO.js';
@@ -661,7 +662,9 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
     }
   });
 
+  // t/592: admin-only in the handler too, not only at the anonymous gate (#5500); its comment already said so.
   get('/api/admin/health', async (_req, res) => {
+    if (!requireAdminOrOperator(res)) return;
     try {
       // t/837: read counts via the user-content backend (Blob in prod) — the same
       // store feedback/errors now persist to — not raw fs to ephemeral /tmp.
