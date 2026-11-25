@@ -523,6 +523,18 @@ describe('4-stage opening pipeline', () => {
       expect(result).not.toContain('"prior_positions_to_address"');
     });
 
+    it('asks the opening to answer the literal question when anchorQuestion is set (t/284 item 3)', () => {
+      const inp = makeOpeningInput({ anchorQuestion: 'Does regulation slow AI progress?' });
+      const result = draftOpeningStagePrompt(inp, '{}', '{}');
+      expectContains(result, 'The user asked: "Does regulation slow AI progress?"');
+      expectContains(result, 'The first sentence of your statement must state your answer to that question.');
+    });
+
+    it('omits the question instruction when anchorQuestion is not set (normal debates)', () => {
+      const result = draftOpeningStagePrompt(makeOpeningInput(), '{}', '{}');
+      expect(result).not.toContain('=== THE QUESTION ===');
+    });
+
     it('includes transcript-grounding constraint for non-first speakers', () => {
       const result = briefOpeningStagePrompt(makeOpeningInput({ isFirst: false, priorStatements: 'Skeptic spoke.' }));
       expectContains(result, 'Only speakers listed in the prior statements have actually spoken');

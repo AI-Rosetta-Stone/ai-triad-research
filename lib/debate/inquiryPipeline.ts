@@ -25,6 +25,7 @@ import { getGlobalRecorder } from '../flight-recorder/index.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { AIAdapter } from './aiAdapter.js';
 import type { DebateSession } from './types/session.js';
+import { debaterTurns, scoreTurns, relevanceResult, fieldCentroid, residualScores } from './inquiryRelevance.js';
 import type { DebateConfig } from './debateEngine/internals.js';
 import type { InquiryRequest, InquiryResult } from '../inquiry/schema.js';
 import type { TerminationReason } from './calibrationLogger/extract.js';
@@ -72,9 +73,79 @@ export interface InquiryPipelineDeps {
    * (`debateProgressMapping.ts`) through to its own poll/IPC response.
    */
   onDebateProgress?: (p: DebateProgressUpdate) => void;
+  /**
+   * Optional: save the debate session (t/284 item 5, t/476). Called once, after the debate returns
+   * and the question relevance is recorded on the session, so post-debate fields are stored. A
+   * host that saves inside `runDebate` stores the session without them. The pipeline awaits it;
+   * a rejection is logged with a WARN and the inquiry continues, since the session is an audit
+   * copy and a failed save must not break the answer. Absent: the pipeline saves nothing.
+   */
+  persistSession?: (session: DebateSession) => Promise<void>;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+/**
+ * t/284 item 5: score each debater turn's similarity to the question and store the result on the
+ * session, as an internal gross-drift signal. It does not say whether the debate answers the question.
+ * If embedding fails or the counts do not line up, store "unavailable" and WARN. Never a fake value.
+ */
+/**
+ * t/496: add the residual similarity to the stored signal, for study only. No threshold, no drift
+ * flag. Without taxonomy vectors there is no field centroid, so it is left off, with a WARN.
+ */
+function recordResidual(
+  session: DebateSession, entries: ReturnType<typeof debaterTurns>, turnVectors: number[][], questionVector: number[], fieldVectors: number[][],
+): void {
+  const centroid = fieldCentroid(fieldVectors, questionVector.length);
+  if (!centroid) {
+    warn(`inquiry residual similarity not recorded (session ${session.id ?? 'unknown'}): no taxonomy vectors of dimension ${questionVector.length} to take a field centroid from (${fieldVectors.length} supplied)`);
+    return;
+  }
+  Object.assign(session.relevance!, residualScores(entries, turnVectors, questionVector, centroid));
+}
+
+async function recordQuestionRelevance(
+  session: DebateSession,
+  question: string,
+  embed: (texts: string[]) => Promise<number[][]>,
+  fieldVectors: number[][] = [],
+): Promise<void> {
+  const entries = debaterTurns(session.transcript ?? []);
+  if (entries.length === 0) {
+    session.relevance = { question_similarity: [], mean: null, drift_warning: false, unavailable_reason: 'no debater turns' };
+    return;
+  }
+  try {
+    const [questionVector, ...turnVectors] = await embed([question, ...entries.map(e => e.content)]);
+    if (!questionVector || turnVectors.length !== entries.length) {
+      throw new ActionableError({
+        goal: 'Score debater turns against the literal question',
+        problem: `embedding count mismatch: ${turnVectors.length} vectors for ${entries.length} turns`,
+        location: 'inquiryPipeline.ts › recordQuestionRelevance',
+        nextSteps: ['Check that the embedding adapter returns one vector per input text'],
+      });
+    }
+    session.relevance = relevanceResult(scoreTurns(entries, turnVectors, questionVector));
+    recordResidual(session, entries, turnVectors, questionVector, fieldVectors);
+    if (session.relevance.drift_warning) {
+      warn(`inquiry gross-drift signal raised (session ${session.id ?? 'unknown'}): ${session.relevance.drift_reason}`);
+    }
+  } catch (err) {
+    session.relevance = { question_similarity: [], mean: null, drift_warning: false, unavailable_reason: String(err) };
+    warn(`inquiry gross-drift signal unavailable (session ${session.id ?? 'unknown'}): ${String(err)}`);
+  }
+}
+
+/** Hand the finished session to the host's save, if it supplied one. A failed save never fails the inquiry. */
+async function persistSessionIfSupplied(session: DebateSession, persistSession: InquiryPipelineDeps['persistSession']): Promise<void> {
+  if (!persistSession) return;
+  try {
+    await persistSession(session);
+  } catch (err) {
+    warn(`inquiry session save failed (session ${session.id ?? 'unknown'}); the answer is returned without a stored debate: ${String(err)}`);
+  }
+}
 
 function warn(message: string): void {
   getGlobalRecorder()?.record({
@@ -176,6 +247,21 @@ function assertGroundingNonEmpty(
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
+// t/284 item 1, pre-flight: the debate must run on the user's literal question with no reframe.
+// Checked before grounding and the debate spend, so a violation cannot throw after the spend.
+// topicPipeline sets topic.final = config.topic, and it reframes only when wisdomAutoReframe is on.
+function assertLiteralQuestionPreflight(request: InquiryRequest, config: DebateConfig): void {
+  if (config.topic === request.question && config.wisdomAutoReframe === false) return;
+  throw new ActionableError({
+    goal: 'Run the inquiry debate on the user\'s literal question',
+    problem: `debate config would not keep the question as topic.final (config.topic ${config.topic === request.question ? 'matches' : 'differs'}, wisdomAutoReframe=${String(config.wisdomAutoReframe)})`,
+    location: 'runInquiryPipeline',
+    nextSteps: [
+      'Check that inquiryConfig sets topic: request.question and wisdomAutoReframe: false',
+    ],
+  });
+}
+
 /**
  * Run the five inquiry pipeline stages and return a validated InquiryResult.
  *
@@ -191,6 +277,7 @@ export async function runInquiryPipeline(
   // ── Stage 1: derive debate config ──────────────────────────────────────────
   deps.onStage?.('deriving');
   const { config, derivation } = deriveDebateConfig(request, deps.registry);
+  assertLiteralQuestionPreflight(request, config);
 
   // ── Stage 2: build grounding envelope ─────────────────────────────────────
   // ADR-001: empty envelope on zero-hit / empty-corpus inputs — WARN logged in
@@ -212,6 +299,11 @@ export async function runInquiryPipeline(
     ? createDebateProgressTracker(deps.onDebateProgress)
     : undefined;
   const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
+
+  // t/284 item 5: per-turn similarity to the question, stored on the session as a gross-drift signal.
+  await recordQuestionRelevance(session, request.question, deps.embed, Object.values(deps.taxonomy.nodeEmbeddings).map(e => e.vector));
+  // Save only now, so the stored session carries the relevance metric (t/476).
+  await persistSessionIfSupplied(session, deps.persistSession);
 
   // ── Stage 4: project trust ─────────────────────────────────────────────────
   deps.onStage?.('projecting');

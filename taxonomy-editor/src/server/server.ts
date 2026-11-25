@@ -41,7 +41,7 @@ import {
   STORAGE_MODE, CACHE_DIR, isEmbeddingWorkerOffloadEnabled, getEmbeddingWorkerPoolSize, getMaxReplicas,
 } from './config.js';
 import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
-import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
+import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
@@ -50,7 +50,7 @@ import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetric
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, anonymousStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
-import { isFreeTierAiPath } from './anonAiRoutes.js';
+import { anonRouteDecision } from './anonAiRoutes.js';
 import { getRollbackStatus } from './rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from './errorAggregation.js';
 import { isCaseStatus } from './support/types.js';
@@ -78,6 +78,7 @@ import { stampNodeAuthorship, diffNodes, changedFields } from './storage/editMet
 import { computeNodeConflicts, type TaxNode, type NodeConflict } from './community/nodeConflicts.js';
 import { getConfig, getConfigState, writeConfig, forceReload as reloadRuntimeConfig, diffFromDefaults } from './runtimeConfig.js';
 import { setRuntimeCredentials, clearRuntimeCredentials, getCredentials } from './security/githubAppAuth.js';
+import { validateStagingBootGuard, validateStagingBranchPrefix } from './security/stagingBootGuard.js';
 import * as proxyTiers from './ai/proxyTiers.js';
 import * as rateLimiter from './security/rateLimiter.js';
 import * as analytics from './community/analytics.js';
@@ -252,6 +253,10 @@ let githubBackend: GitHubAPIBackend | null = null;
 let sessionManager: SessionBranchManager | null = null;
 
 if (STORAGE_MODE === 'github-api') {
+  // t/77 Phase 0: Validate staging boot guard (fail-closed: prevent staging from accessing prod data)
+  validateStagingBootGuard();
+  validateStagingBranchPrefix();
+
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
     recorder: serverRecorder,
@@ -793,14 +798,6 @@ interface AuthGateCtx {
   idp: string;
 }
 
-/** Free tier (t/793): keyless POSTs to the allowlisted AI/embeddings paths when
- *  configured. Path membership is the exact-match FREE_TIER_AI_POST_PATHS allowlist
- *  (t/2489, extracted to anonAiRoutes.ts for unit testing); the `freeTierEnabled()`
- *  gate keeps a matched route exempt only when the server has a free-tier key. */
-function isFreeTierRoute(method: string, urlPath: string): boolean {
-  return isFreeTierAiPath(method, urlPath) && proxyTiers.freeTierEnabled();
-}
-
 /** AUTH_OPTIONAL mode gate: show login page / 401 unless signed in or anonymous. */
 function enforceOptionalAuthGate(req: http.IncomingMessage, res: http.ServerResponse, ctx: AuthGateCtx): boolean {
   const { principalName, urlPath } = ctx;
@@ -818,7 +815,8 @@ function enforceOptionalAuthGate(req: http.IncomingMessage, res: http.ServerResp
   // and freeTierRoute are designed for truly cookie-less anonymous access.
   if (urlPath.startsWith('/api/')) {
     const m = req.method || 'GET';
-    if (!isFreeTierRoute(m, urlPath) && !isAnonAllowedRoute(m, urlPath)) {
+    // t/475: the one anonymous-route decision (anonRouteDecision), shared with the guard below.
+    if (!anonRouteDecision(m, urlPath, proxyTiers.freeTierEnabled(), isAnonAllowedRoute)) {
       recordAuthDenied('no_session', m, urlPath);
       res.writeHead(401, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'no_session' });
       res.end(JSON.stringify({ error: 'Anonymous session required', reason: 'no_session' }));
@@ -878,7 +876,8 @@ function enforceAnonRouteGuard(req: http.IncomingMessage, res: http.ServerRespon
     // Free tier (t/793): when configured, keyless users may reach AI generation;
     // the handler enforces the free-tier model pin, per-IP limits, and key. Inert
     // until FREE_TIER_GEMINI_KEY is set, so the AI block otherwise stands.
-    if (!isFreeTierRoute(method, urlPath) && !isAnonAllowedRoute(method, urlPath)) {
+    // t/475: the one anonymous-route decision (anonRouteDecision), shared with the optional-auth gate above.
+    if (!anonRouteDecision(method, urlPath, proxyTiers.freeTierEnabled(), isAnonAllowedRoute)) {
       recordAuthDenied('anon_route_blocked', method, urlPath);
       res.writeHead(403, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'anon_route_blocked' });
       res.end(JSON.stringify({ error: 'Sign in required', reason: 'anon_route_blocked', detail: 'AI features and editing require authentication. Sign in at /.auth/login/github to unlock full access.' }));
@@ -1399,7 +1398,13 @@ server.listen(PORT, BIND_HOST, () => {
   const poolSize = getEmbeddingWorkerPoolSize();
   configureEmbeddingWorkerPool(poolSize);
   log.server.info({ requestedPoolSize: poolSize }, 'embedding worker pool configured at boot');
-  void warmupEmbeddings().catch((err: unknown) => {
+  // t/520: one ONNX session per process. With the offload on, the worker owns the only session, so boot warms
+  // the worker; warming the main thread too kept a second ~300 MiB session resident from boot (t/520#13).
+  const bootWarmup: Promise<unknown> = isEmbeddingWorkerOffloadEnabled()
+    ? computeEmbeddingsOffThread(['warmup'], { requester: 'boot-warmup' })
+    : warmupEmbeddings();
+  log.server.info({ target: isEmbeddingWorkerOffloadEnabled() ? 'worker' : 'main-thread' }, 'ONNX embedding warmup at boot (t/520)');
+  void bootWarmup.catch((err: unknown) => {
     log.server.error({ err: String(err) }, 'ONNX embedding warmup failed at boot');
     getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'ONNX embedding warmup failed at boot', error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack } });
   });

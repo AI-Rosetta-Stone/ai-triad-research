@@ -281,7 +281,10 @@ export default defineConfig({
     // future-clock-setup.ts (t/4279) is a no-op unless FUTURE_CLOCK_OFFSET_DAYS is set —
     // only the weekly future-clock-weekly.yml workflow sets it, so this is a no-op on every
     // other run (PR, push, local dev).
-    setupFiles: ['./test-setup.ts', './future-clock-setup.ts'],
+    // lib-timeout-setup.ts (t/419) raises the test and hook timeouts to 60 s for files under
+    // ../lib only; renderer, main and server tests keep the 5 s / 10 s defaults.
+    setupFiles: ['./test-setup.ts', './future-clock-setup.ts', './lib-timeout-setup.ts'],
+    provide: { libTestDir: path.resolve(import.meta.dirname, '../lib') },
     // t/60 (t/59): prints a dataRootGuard hit summary at the end of every run. vitest 5 hides console
     // output from passing tests, so per-hit WARNs alone were invisible (t/57). Path is relative to root.
     globalSetup: ['../../../lib/test-support/dataRootGuardGlobalSetup.ts'],

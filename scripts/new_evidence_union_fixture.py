@@ -266,10 +266,132 @@ DERIVED_KEY_CASES = [
 ]
 
 
+# v3 (t/355, spec 6.2, 7.1, 7.4, 7.5, 7.6a; TL p/37#156): summary-only chunks, chunk_of, and the
+# N2 provenance fields. The reference rules are R1 to R7 on t/355#17. `docs` maps a document id to
+#   {"has_source": bool, "mark": <target id or None>, "summary": <summary dict>,
+#    "chunk_generated_at": <str or absent>, "chunk_model": <str or absent>}.
+
+import re
+
+CHUNK_RE = re.compile(r"^(.+)-(\d+)$")
+
+
+def chunk_base(doc_id, docs):
+    """R1 (6.2): the base X when doc_id is a summary-only chunk <X>-N (no source dir of its own) of X with a source dir."""
+    m = CHUNK_RE.match(doc_id)
+    if not m or docs.get(doc_id, {}).get("has_source"):
+        return None
+    base = m.group(1)
+    return base if docs.get(base, {}).get("has_source") else None
+
+
+def valid_mark(doc_id, docs):
+    target = docs.get(doc_id, {}).get("mark")
+    return target if target and target in docs and target != doc_id else None
+
+
+def resolve(doc_id, docs, _seen=()):
+    """R1 (6.2, transitive): a valid mark, or a chunk's base, followed to the end. A cycle refuses to resolve."""
+    if doc_id in _seen:
+        raise ValueError(f"cycle at {doc_id}")
+    target = valid_mark(doc_id, docs)
+    if target is not None:
+        return resolve(target, docs, _seen + (doc_id,))
+    base = chunk_base(doc_id, docs)
+    if base is not None:
+        return resolve(base, docs, _seen + (doc_id,))
+    return doc_id
+
+
+def group(canonical, docs):
+    """R2 (7.1): the canonical, valid-marked copies by ordinal, then chunks: D's own, then each copy's, each by N ascending.
+    Returns (member_id, kind, via) with kind in {copy, chunk_D, chunk_copy}."""
+    copies = sorted((i for i in docs if i != canonical and valid_mark(i, docs) and resolve(i, docs) == canonical), key=utf16_sort)
+    out = [(i, "copy", None) for i in copies]
+
+    def by_n(ids):
+        return sorted(ids, key=lambda i: int(CHUNK_RE.match(i).group(2)))
+
+    own = [i for i in docs if chunk_base(i, docs) == canonical]
+    out += [(i, "chunk_D", None) for i in by_n(own)]
+    for c in copies:
+        out += [(i, "chunk_copy", c) for i in by_n([j for j in docs if chunk_base(j, docs) == c])]
+    return out
+
+
+def union_v3(canonical, docs):
+    """R3 and R4 (7.4): the canonical's links first, then non-canonical members in group order, each dropped if near a kept link."""
+    out, keys = {}, {}
+    order = [(canonical, "canonical", None)] + group(canonical, docs)
+    for mid, kind, via in order:
+        summary = docs[mid]["summary"] if mid in docs else {}
+        for l in links(summary):
+            n, k = l["node"], key(l["quote"])
+            out.setdefault(n, [])
+            keys.setdefault(n, [])
+            if kind != "canonical" and any(near(k, kk) for kk in keys[n]):
+                continue
+            e = {"node": n, "field": l["field"], "quote": l["quote"], "doc": canonical}
+            if kind == "copy":
+                e["via"] = mid
+            elif kind == "chunk_D":
+                e["chunk_of"] = mid
+            elif kind == "chunk_copy":
+                e["via"] = via
+            if kind.startswith("chunk"):
+                # N2 (7.6a): the chunk summary's own provenance, copied only when it is known.
+                for f in ("chunk_generated_at", "chunk_model"):
+                    if f in docs[mid]:
+                        e[f] = docs[mid][f]
+            out[n].append(e)
+            keys[n].append(k)
+    return out
+
+
+def documents(canonical, docs):
+    """R5 (7.5): distinct resolved ids of the group (the canonical's own id included)."""
+    return len({resolve(i, docs) for i in [canonical] + [m for m, _k, _v in group(canonical, docs)]})
+
+
+def extract_keeps(entry):
+    """R6 (7.6a, as TL ruled on t/373#3 and t/160): entity extraction keeps every kept fact, including via and chunk_of.
+    The spec on main still says skip via; it must be amended first (AI Rosetta Stone, 7.6 and 7.6a)."""
+    return True
+
+
+def _s(*quotes_nodes, pov="accelerationist"):
+    return {"pov_summaries": {pov: {"key_points": [{"taxonomy_node_id": n, "verbatim": q} for n, q in quotes_nodes]}}}
+
+
+CHUNK_DOCS_A = {
+    "d-2026": {"has_source": True, "summary": _s(("n1", "The US will double down on exporting its tech stack."))},
+    "d-2026-1": {"has_source": False, "chunk_generated_at": "2026-03-26T10:00:00Z", "chunk_model": "gemini-3.5-flash-lite",
+                 "summary": _s(("n1", "the US will double-down on exporting its tech stack"),
+                               ("n1", "Countries think they must control AI before it controls them."))},
+}
+
+CHUNK_DOCS_E = {
+    "d-2026": {"has_source": True, "summary": _s(("n1", "The US will double down on exporting its tech stack."))},
+    "c-2026": {"has_source": True, "mark": "d-2026", "summary": _s(("n1", "The US will double down on exporting its tech stack."))},
+    "c-2026-1": {"has_source": False, "summary": _s(("n2", "Only the chunk of the copy found this."))},
+}
+
+RESOLVE_CASES_V3 = [
+    ("(d) a chunk whose base has no source dir resolves to itself", {"x-2026": {"has_source": False}, "x-2026-1": {"has_source": False}}, "x-2026-1", "x-2026-1"),
+    ("a chunk of a base with a source resolves to the base", CHUNK_DOCS_A, "d-2026-1", "d-2026"),
+    ("transitive: a chunk of a marked copy resolves to the copy's canonical (TL change 1)", CHUNK_DOCS_E, "c-2026-1", "d-2026"),
+]
+
+CHUNK_UNION_CASES_V3 = [
+    ("(a) chunk of the canonical: the near link is dropped, the distinct one is kept with chunk_of and N2", "d-2026", CHUNK_DOCS_A),
+    ("(e) chunk of a marked copy: kept with via the copy, never chunk_of", "d-2026", CHUNK_DOCS_E),
+]
+
+
 def main():
     fixture = {
         "spec": "docs/specs/source-identity.md section 7",
-        "version": 2,
+        "version": 3,
         "generator": "scripts/new_evidence_union_fixture.py",
         "key_cases": [{"name": n, "quote": q, "expected_key": key(q)} for n, q in KEY_INPUTS],
         "near_cases": [{"name": n, "a": a, "b": b, "expected": near(a, b)} for n, a, b in NEAR_INPUTS],
@@ -281,6 +403,12 @@ def main():
                                "expected_containers": mention_union(c, m)} for n, c, m in MENTION_INPUTS],
         "derived_key_regex": "^summary:[^#]+#via-",
         "derived_key_cases": [{"key": k, "derived": d} for k, d in DERIVED_KEY_CASES],
+        # v3 (t/355, R1 to R7): resolve, the group, the union with provenance, the document count, and extraction.
+        "resolve_cases": [{"name": n, "docs": d, "id": i, "expected": e} for n, d, i, e in RESOLVE_CASES_V3],
+        "chunk_union_cases": [{"name": n, "canonical": c, "docs": d,
+                               "expected": union_v3(c, d), "expected_documents": documents(c, d),
+                               "expected_extracted": {node: [e for e in es if extract_keeps(e)] for node, es in union_v3(c, d).items()}}
+                              for n, c, d in CHUNK_UNION_CASES_V3],
     }
     # Self-checks on the intended outcome of each boundary case, so a generator bug can't silently
     # bake a wrong expectation into the fixture.
@@ -316,6 +444,26 @@ def main():
     import re
     for c in fixture["derived_key_cases"]:
         assert bool(re.match(fixture["derived_key_regex"], c["key"])) == c["derived"], c["key"]
+    # v3 self-checks: the intended outcome of each case (t/355 cases a to e and d, R1 to R7).
+    rs = {c["name"]: c["expected"] for c in fixture["resolve_cases"]}
+    assert rs["(d) a chunk whose base has no source dir resolves to itself"] == "x-2026-1"
+    assert rs["a chunk of a base with a source resolves to the base"] == "d-2026"
+    assert rs["transitive: a chunk of a marked copy resolves to the copy's canonical (TL change 1)"] == "d-2026"
+    cu = {c["name"]: c for c in fixture["chunk_union_cases"]}
+    a = cu["(a) chunk of the canonical: the near link is dropped, the distinct one is kept with chunk_of and N2"]
+    n1 = a["expected"]["n1"]
+    assert [e.get("chunk_of") for e in n1] == [None, "d-2026-1"], n1
+    assert n1[1]["chunk_generated_at"] == "2026-03-26T10:00:00Z" and n1[1]["chunk_model"] == "gemini-3.5-flash-lite"
+    assert "via" not in n1[1], "a chunk of the canonical never carries via"
+    assert a["expected_documents"] == 1
+    e = cu["(e) chunk of a marked copy: kept with via the copy, never chunk_of"]
+    assert [x.get("via") for x in e["expected"]["n1"]] == [None], "the copy's near link is dropped"
+    n2 = e["expected"]["n2"]
+    assert n2[0].get("via") == "c-2026" and "chunk_of" not in n2[0], n2
+    assert e["expected_documents"] == 1
+    assert [x["quote"] for x in e["expected_extracted"]["n1"]] == ["The US will double down on exporting its tech stack."]
+    assert [x["quote"] for x in e["expected_extracted"]["n2"]] == ["Only the chunk of the copy found this."], "extraction keeps a via fact (t/373#3)"
+    assert [x["quote"] for x in a["expected_extracted"]["n1"]] == ["The US will double down on exporting its tech stack.", "Countries think they must control AI before it controls them."]
 
     path = os.path.join("tests", "fixtures", "evidence-union-cases.json")
     with open(path, "w", encoding="utf-8", newline="\n") as f:

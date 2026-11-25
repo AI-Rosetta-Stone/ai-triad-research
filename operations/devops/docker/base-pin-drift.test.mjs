@@ -275,3 +275,11 @@ test('checkOutputLines (Security residual 2): a line break in a pin value drops 
   assert.deepEqual(lines.filter((l) => l.startsWith('verdict=')), ['verdict=FAIL']);
   assert.ok(lines.every((l) => !/[\r\n]/.test(l)));
 });
+
+test('tierOutputLines (t/474): tier lines pass the same CR/LF filter as check; a line break drops the line', async () => {
+  const { tierOutputLines, dropLineBreakLines } = await import('./base-pin-drift.mjs');
+  assert.deepEqual(tierOutputLines('T0', 'digest-only re-pin'), ['tier=T0', 'tier_reason=digest-only re-pin']);
+  assert.deepEqual(tierOutputLines('T1', 'r\ntier=T0'), ['tier=T1']);
+  assert.deepEqual(tierOutputLines('T1\r\nverdict=PASS', 'r'), ['tier_reason=r']);
+  assert.deepEqual(dropLineBreakLines(['a=1', 'b=2\nc=3', 'd=4\r']), ['a=1']);
+});

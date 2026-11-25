@@ -50,6 +50,7 @@ export { markJobFailedIfStale, type InquiryTier3Result } from './storage/inquiry
 // importing them from '../inquiryJobs.js' with zero churn.
 import { isTerminalStatus, deriveTruncation } from '../../../lib/inquiry/index.js';
 import type { InquiryJobStatus, InquiryPipelineStage } from '../../../lib/inquiry/index.js';
+import { advanceStageTimings, type InquiryStageTimings } from '../../../lib/inquiry/jobStatus.js';
 export { isTerminalStatus, deriveTruncation } from '../../../lib/inquiry/index.js';
 export type { InquiryJobStatus, InquiryPipelineStage } from '../../../lib/inquiry/index.js';
 
@@ -73,6 +74,8 @@ export interface InquiryPollProjection {
   /** t/4917: current debate progress fraction [0,1], tier-1 (in-memory job) only. Tiers 2/3 have no
    *  fraction source and stay at the debating-stage floor — lagging, never backward (e/221#16). */
   debateFraction?: number;
+  /** t/326: per-stage start and end times. Omitted when the source has none (an old durable record). */
+  stageTimings?: InquiryStageTimings;
 }
 
 /** Build a poll-response record from a shared projection, deriving progressPct from stageProgress.
@@ -90,6 +93,7 @@ export function buildPollView(p: InquiryPollProjection): Record<string, unknown>
     resultId: p.resultId, error: p.error, debateId: p.debateId,
   };
   if (p.stageDetail) body.stageDetail = p.stageDetail;
+  if (p.stageTimings) body.stageTimings = p.stageTimings;
   return body;
 }
 
@@ -113,11 +117,32 @@ export interface InquiryJob {
   currentStageDetail?: string;
   /** t/4712: current debate progress fraction [0, 1] for detailed progress during debating stage. */
   currentDebateFraction: number;
+  /** t/326: when each pipeline stage started and ended. Filled in by setStatus as the job moves. */
+  stageTimings: InquiryStageTimings;
+}
+
+const PIPELINE_STAGES: ReadonlySet<string> = new Set(['grounding', 'debating', 'judging', 'synthesizing']);
+function isPipelineStage(status: string): status is InquiryPipelineStage {
+  return PIPELINE_STAGES.has(status);
+}
+/** t/326: an empty timings record, one entry per pipeline stage, none entered yet. */
+function emptyStageTimings(): InquiryStageTimings {
+  return { grounding: {}, debating: {}, judging: {}, synthesizing: {} };
 }
 
 const jobs = new Map<string, InquiryJob>();
 
 function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
+  const prev = job.status;
+  // t/326: record stage start and end times. A repeated status is not a transition, so it is not timed.
+  if (status !== prev) {
+    const now = Date.now();
+    if (isPipelineStage(status)) {
+      advanceStageTimings(job.stageTimings, isPipelineStage(prev) ? prev : undefined, status, now);
+    } else if (isTerminalStatus(status) && isPipelineStage(prev)) {
+      job.stageTimings[prev].endedAt = now; // the last running stage ends with the job
+    }
+  }
   job.status = status;
   // t/4712: use stageProgress() from lib instead of local PROGRESS table.
   // Pass debate fraction only during debating stage.
@@ -237,6 +262,7 @@ function buildRecord(job: InquiryJob, userId: string): InquiryJobRecord {
     debateId: job.debateId,
     startedAt: job.startedAt,
     idempotencyKey: job.idempotencyKey ?? null,
+    stageTimings: job.stageTimings,
   };
 }
 
@@ -256,6 +282,7 @@ export async function startInquiryJob(args: CreateInquiryJobArgs): Promise<Inqui
     debateId: null,
     startedAt: Date.now(),
     currentDebateFraction: 0,
+    stageTimings: emptyStageTimings(),
   };
   jobs.set(job.jobId, job);
   // Await the creation write (SO condition 3 — a lost creation write silently disables tier-3 recovery).

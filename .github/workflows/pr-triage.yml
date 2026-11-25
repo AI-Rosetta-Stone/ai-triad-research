@@ -495,7 +495,7 @@ jobs:
               REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, ARM_EVENT_RE,
               classifyHealLiveness, HEAL_WORKFLOW_PATH,
             } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/stuck-pr-classifier.mjs`).href);
-            const { SO_CLEARED_RE } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/fleet-delivery-metrics.mjs`).href);
+            const { SO_CLEARED_RE, soRepliedAtHead } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/fleet-delivery-metrics.mjs`).href);
 
             const owner = context.repo.owner, repo = context.repo.repo;
             const nowMs = Date.now();
@@ -522,6 +522,13 @@ jobs:
             // t/4533: also returns soClearanceDetected (any comment, bot or not -- the SO's own
             // reply is itself posted via an agent App account, so excluding bots here would hide
             // every real SO reply) -- reuses the SAME comments fetch rather than a second call.
+            // t/4972 (PR #5199): SO_CLEARED_RE only matches the "SO cleared/clearing/did not
+            // review" phrasing -- a "Second Opinion verdict: proceed with conditions" reply at
+            // the PR's CURRENT head is still an answer to the 2h time-box question, just not a
+            // clearance, so it ALSO suppresses consult-hold-aged (soRepliedAtHead, pinned to
+            // pr.head.sha so a reply to a since-superseded head never suppresses a later push).
+            // A "send back" verdict does NOT suppress it (Quality, #5286): the PR went back to
+            // its author, and this alert is the only thing that surfaces that state.
             // t/4557: also returns hasApproval -- ANY review in GitHub's native APPROVED state,
             // bot or not (the reviewer App posts real APPROVED reviews, e.g. PR #3911's
             // `ai-triad-reviewer-jpsnover` review) -- reuses the SAME reviews fetch.
@@ -534,7 +541,7 @@ jobs:
                 github.rest.issues.listComments({ owner, repo, issue_number: pr.number, per_page: 100 }),
                 github.rest.pulls.listReviews({ owner, repo, pull_number: pr.number, per_page: 100 }),
               ]);
-              let soClearanceDetected = false;
+              let soClearanceDetected = soRepliedAtHead(comments, pr.head?.sha);
               for (const c of comments) {
                 if (SO_CLEARED_RE.test(c.body ?? '')) soClearanceDetected = true;
                 if (c.user?.type === 'Bot') continue;

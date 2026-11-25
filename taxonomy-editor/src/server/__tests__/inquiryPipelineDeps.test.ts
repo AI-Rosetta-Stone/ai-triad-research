@@ -33,6 +33,9 @@ vi.mock('../ai/aiBackends.js', () => ({
   computeQueryEmbedding: (text: string) => computeQueryEmbeddingSpy(text),
   generateText: vi.fn(),
 }));
+// t/492: the server reads sources-index.json through the storage reader; the test controls what it returns.
+const sourcesIndexHolder = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock('../storage/sourcesIndexReader.js', () => ({ loadSourcesIndex: async () => sourcesIndexHolder.value }));
 vi.mock('../../../../lib/debate/headlessRunner.js', () => ({ runHeadlessDebate: h.runHeadlessDebateMock }));
 vi.mock('../storage/debateStore.js', () => ({ saveDebateSession: h.saveDebateSessionSpy }));
 vi.mock('../../../../lib/debate/taxonomyLoader.js', () => ({ loadTaxonomy: () => ({ embeddings: {} }) }));
@@ -123,11 +126,14 @@ describe('t/4289/t/4290 — server inquiry adapter wires computeQueryEmbedding',
 
 // t/4338: runHeadlessDebate's session was never persisted, so result.debateId (session.id)
 // pointed at nothing — "View raw run" (t/3617) 404'd for every inquiry answer ever produced.
-describe('t/4338 — runDebate persists the headless debate session', () => {
-  it('calls saveDebateSession with mustNotExist:true, listedButExempt:true, and the typed origin marker', async () => {
+describe('t/4338 + t/476 — the debate session is saved by persistSession, not inside runDebate', () => {
+  it('persistSession saves with mustNotExist:true, listedButExempt:true, and the typed origin marker', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
-    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     await h.capturedDeps!.runDebate(config, 'q');
+    expect(h.saveDebateSessionSpy).not.toHaveBeenCalled(); // t/476: runDebate no longer saves
+
+    await h.capturedDeps!.persistSession!({ id: 'session-1' } as never);
 
     expect(h.saveDebateSessionSpy).toHaveBeenCalledTimes(1);
     const [savedSession, caller, opts] = h.saveDebateSessionSpy.mock.calls[0];
@@ -137,21 +143,24 @@ describe('t/4338 — runDebate persists the headless debate session', () => {
     expect(opts).toEqual({ mustNotExist: true, listedButExempt: true });
   });
 
-  it('still returns the session/terminationReason to the pipeline on a successful save', async () => {
+  it('refuses to run the debate when the config topic is not the inquiry question (t/284 item 6), before any spend', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
-    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    const config = { model: 'test-model', topic: 'a different topic' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    await expect(h.capturedDeps!.runDebate(config, 'q')).rejects.toThrow(/does not match the inquiry question/);
+    expect(h.runHeadlessDebateMock).not.toHaveBeenCalled();
+  });
+
+  it('runDebate still returns the session/terminationReason to the pipeline', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     const result = await h.capturedDeps!.runDebate(config, 'q');
     expect(result.session).toEqual({ id: 'session-1' });
   });
 
-  it('a save failure is logged, not swallowed silently, and does not break the inquiry result', async () => {
+  it('a save failure is logged, does not throw, and the job result drops its debate link', async () => {
     h.saveDebateSessionSpy.mockRejectedValueOnce(new Error('WRITE_CONFLICT'));
     await buildInquiryRunPipeline()(REQUEST, CTX);
-    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
-
-    const result = await h.capturedDeps!.runDebate(config, 'q');
-
-    expect(result.session).toEqual({ id: 'session-1' }); // the answer still completes
+    await expect(h.capturedDeps!.persistSession!({ id: 'session-1' } as never)).resolves.toBeUndefined();
     expect(h.warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ jobId: 'job-123' }),
       expect.stringContaining('Failed to persist inquiry debate session'),
@@ -164,7 +173,7 @@ describe('t/4338 — runDebate persists the headless debate session', () => {
 // onDebateProgress, so no debate event reached the job and the poll sat at the 15% floor with no
 // stageDetail (observed live on prod 4b8d8830). These fail on that wiring.
 describe('t/4917 — debate progress reaches the job through the prod wiring', () => {
-  const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+  const config = { model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
 
   it('runDebate relays the pipeline-supplied onProgress to runHeadlessDebate', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
@@ -196,5 +205,30 @@ describe('t/4917 — debate progress reaches the job through the prod wiring', (
     expect(updates.length).toBeGreaterThanOrEqual(3);
     for (let i = 1; i < updates.length; i++) expect(updates[i].fraction).toBeGreaterThan(updates[i - 1].fraction);
     expect(updates.every(u => typeof u.detail === 'string' && u.detail.length > 0)).toBe(true);
+  });
+});
+
+describe('t/492 — the inquiry debate carries document titles from sources-index.json', () => {
+  const INDEX = { schema_version: 1, docs: [
+    { id: 'doc-a', title: 'The Title of A', resolved_url: 'https://example.org/a', provenance: [{ id: 'prov-a' }] },
+    { id: 'doc-b', title: '' },
+  ] } as unknown;
+
+  it('the config passed to runHeadlessDebate carries docTitles when the index has titles', async () => {
+    sourcesIndexHolder.value = INDEX;
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    await h.capturedDeps!.runDebate({ model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0], 'q');
+    const cfg = h.runHeadlessDebateMock.mock.calls[0][0] as unknown as { docTitles?: Record<string, unknown> };
+    expect(cfg.docTitles).toEqual({ 'doc-a': { title: 'The Title of A', resolved_url: 'https://example.org/a', provenance_label: 'prov-a' } });
+  });
+
+  it('the config carries no docTitles key when the reader returns null', async () => {
+    sourcesIndexHolder.value = null;
+    h.runHeadlessDebateMock.mockClear();
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    await h.capturedDeps!.runDebate({ model: 'test-model', topic: 'q' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0], 'q');
+    const cfg = h.runHeadlessDebateMock.mock.calls[0][0] as unknown as Record<string, unknown>;
+    expect('docTitles' in cfg).toBe(false);
+    expect(cfg.soulResolver).toBeDefined(); // the existing soulResolver injection is unchanged
   });
 });

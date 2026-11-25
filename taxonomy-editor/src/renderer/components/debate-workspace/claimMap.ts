@@ -1,11 +1,40 @@
 // t/331: pure data mapping for the How → Plan claim-map layout (no React).
+import { normalizeSteelmanTarget } from '@lib/debate/steelman';
+
+/** A steelman linked to an attack: the plan tagged it as ATTACK [id] and the node resolved (t/388). */
+export interface AttackSteelman {
+  text: string;
+  camp: string; // the camp whose position is steelmanned
+  verdict: 'faithful' | 'diverges' | 'unchecked';
+}
 
 export interface ParsedAttack {
   text: string;
   targetAnchor?: string; // the node the attack names, from "targeting node X"
-  // No annotation id: the plan doesn't record a real AN/steelman link yet (t/329#3, Design's (a)).
-  // An id derived from the list index could name a different node, so none is shown.
-  verificationStatus?: string; // NLI verdict; undefined until a check has run (wiring: t/388)
+  // Only set when the tag is in steelman_refs_offered. The card shows it only when the steelman below resolved (t/388).
+  steelmanId?: string;
+  steelman?: AttackSteelman; // set only when the tagged node resolves on this debate's network
+}
+
+/** The argument-network nodes and entry the steelman tags resolve against (t/388). */
+export interface SteelmanContext {
+  nodes: { id: string; text?: string; steelman_of?: string | null; steelman_check?: { verdict: AttackSteelman['verdict'] }; source_entry_id?: string }[];
+  entryId?: string;
+  speaker: string;
+}
+
+/**
+ * Resolves a tagged steelman. Shown only when the node is a steelman (steelman_of set), it came
+ * from an earlier entry (not this one), and its camp is not the speaker's (normalizeSteelmanTarget
+ * rejects a self-steelman). Anything else returns undefined, and the attack stays Unverified.
+ */
+export function resolveSteelman(ctx: SteelmanContext, id: string): AttackSteelman | undefined {
+  if (!ctx.entryId) return undefined;
+  const node = ctx.nodes.find(n => n.id === id);
+  if (!node || !node.steelman_of || !node.source_entry_id || node.source_entry_id === ctx.entryId) return undefined;
+  const { target } = normalizeSteelmanTarget(node.steelman_of, ctx.speaker);
+  if (!target) return undefined;
+  return { text: node.text ?? '', camp: target, verdict: node.steelman_check?.verdict ?? 'unchecked' };
 }
 
 export interface ParsedClaim {
@@ -25,6 +54,7 @@ export interface ParsedWorkProduct {
   claims: ParsedClaim[];
   unmappedAttacks: ParsedAttack[];
   assumptions: ParsedAssumption[];
+  verifiedAttacks: number; // attacks whose steelman has a verdict (faithful or diverges)
 }
 
 // Called once per skipped item, so the fallback is logged (a WARN), never silent.
@@ -67,7 +97,50 @@ function findClaim(claims: ParsedClaim[], target: string | undefined, body: stri
   return claims.find(c => c.taxonomy_anchor !== undefined && tokens.includes(c.taxonomy_anchor));
 }
 
-export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () => {}): ParsedWorkProduct {
+export interface ParsedLens {
+  title: string; // the frame
+  why?: string;
+}
+
+// framing_choices is an array of {frame, why}, or a plain string. A malformed entry is skipped with a WARN.
+export function parseLenses(framingChoices: unknown, warn: WarnFn = () => {}): ParsedLens[] {
+  if (framingChoices === undefined) return [];
+  if (typeof framingChoices === 'string') {
+    if (framingChoices.trim() !== '') return [{ title: framingChoices }];
+    warn('framing_choices is an empty string; skipped');
+    return [];
+  }
+  if (!Array.isArray(framingChoices)) {
+    warn(`framing_choices is not a list or a string (${framingChoices === null ? 'null' : typeof framingChoices}); skipped`);
+    return [];
+  }
+  const lenses: ParsedLens[] = [];
+  framingChoices.forEach((fc: unknown, i) => {
+    const entry = fc as { frame?: unknown; why?: unknown } | null;
+    if (typeof entry !== 'object' || entry === null || typeof entry.frame !== 'string' || entry.frame.trim() === '') {
+      warn(`framing_choices[${i}] has no frame; skipped`);
+      return;
+    }
+    const why = typeof entry.why === 'string' && entry.why.trim() !== '' ? entry.why : undefined;
+    lenses.push({ title: entry.frame, why });
+  });
+  return lenses;
+}
+
+const ATTACK_PREFIX = /^ATTACK(?:\s*\[([^\]]+)\])?:\s*/;
+
+// A tag links a steelman only when it is in steelman_refs_offered; any other tag is dropped and logged.
+function linkedSteelman(tag: string | undefined, offered: string[], ctx: SteelmanContext | undefined, warn: WarnFn, idx: number): { steelmanId?: string; steelman?: AttackSteelman } {
+  if (!tag) return {};
+  if (!offered.includes(tag)) {
+    warn(`anticipated_challenges[${idx}] tag "${tag}" is not in steelman_refs_offered; not linked`);
+    return {};
+  }
+  return { steelmanId: tag, steelman: ctx ? resolveSteelman(ctx, tag) : undefined };
+}
+
+export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () => {}, ctx?: SteelmanContext): ParsedWorkProduct {
+  const offered = Array.isArray(wp.steelman_refs_offered) ? (wp.steelman_refs_offered as unknown[]).map(String) : [];
   const claims: ParsedClaim[] = [];
   if (Array.isArray(wp.argument_structure)) {
     (wp.argument_structure as unknown[]).forEach((s, i) => {
@@ -95,8 +168,9 @@ export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () 
         warn(`anticipated_challenges[${idx}] has no readable text; skipped`);
         return;
       }
-      if (full.startsWith('ATTACK:')) {
-        const body = full.replace(/^ATTACK:\s*/, '');
+      const prefix = full.match(ATTACK_PREFIX);
+      if (prefix) {
+        const body = full.slice(prefix[0].length);
         const targetMatch = body.match(TARGET_PHRASE);
         const target = targetMatch ? cleanToken(targetMatch[1]) : undefined;
         const text = body.replace(TARGET_PHRASE, '').trim();
@@ -104,7 +178,9 @@ export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () 
           warn(`anticipated_challenges[${idx}] is an empty ATTACK; skipped`);
           return;
         }
-        const attack: ParsedAttack = { text, targetAnchor: target };
+        // A tag links a steelman only when it is in steelman_refs_offered; any other tag is dropped.
+        const { steelmanId, steelman } = linkedSteelman(prefix[1]?.trim(), offered, ctx, warn, idx);
+        const attack: ParsedAttack = { text, targetAnchor: target, steelmanId, steelman };
         const claim = findClaim(claims, target, body);
         if (claim && !claim.attack) {
           claim.attack = attack;
@@ -124,7 +200,9 @@ export function parseWorkProduct(wp: Record<string, unknown>, warn: WarnFn = () 
     });
   }
 
-  return { claims, unmappedAttacks, assumptions };
+  const allAttacks = [...claims.map(c => c.attack), ...unmappedAttacks].filter((a): a is ParsedAttack => a !== undefined);
+  const verifiedAttacks = allAttacks.filter(a => a.steelman && a.steelman.verdict !== 'unchecked').length;
+  return { claims, unmappedAttacks, assumptions, verifiedAttacks };
 }
 
 export function stripLeadingVerb(text: string): string {

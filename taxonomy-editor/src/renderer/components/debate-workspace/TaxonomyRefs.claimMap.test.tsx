@@ -145,6 +145,16 @@ describe('How → Plan claim map (t/331)', () => {
     expect(screen.getByText('MODERATOR DIRECTIVE')).toBeTruthy();
   });
 
+  it('skips a null or frameless lens; the valid lens still renders and no empty heading appears', () => {
+    const { container } = renderPlan({
+      ...PLAN_WORK_PRODUCT,
+      framing_choices: [null, { why: 'orphan reason' }, { frame: 'Governance', why: 'Regulators shape norms' }],
+    });
+    expect(screen.getByRole('heading', { name: 'Governance' })).toBeTruthy();
+    expect(container.querySelectorAll('.claim-map-lens-title')).toHaveLength(1);
+    expect(screen.getByRole('group', { name: 'Attack on C1' })).toBeTruthy();
+  });
+
   it('skips a malformed anticipated item without rendering it as text', () => {
     renderPlan({ ...PLAN_WORK_PRODUCT, anticipated_challenges: [null, { foo: 1 }, 'ASSUMPTION: Real assumption'] });
     expect(document.body.textContent).not.toContain('[object Object]');
@@ -205,5 +215,78 @@ describe('How → Plan claim map: motion, stage word, no synthetic ids (t/388)',
     expect(document.body.textContent).not.toMatch(/AN-\d/);
     // The attack still reads as Unverified.
     expect(screen.getByRole('group', { name: 'Attack on C1' }).textContent).toContain('Unverified');
+  });
+});
+
+describe('claim-map steelman card (t/388)', () => {
+  it('shows no id when an offered tag resolves to no steelman node', () => {
+    useDebateStore.setState({ activeDebate: { transcript: [{ id: 'entry-2' }], argument_network: { nodes: [], edges: [] } } as never });
+    const wp = { ...PLAN_WORK_PRODUCT, steelman_refs_offered: ['AN-7'], anticipated_challenges: ['ATTACK [AN-7]: Pledges erode targeting node acc-B-001'] };
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: wp }];
+    render(<TaxonomyRefsSection refs={[]} entry={{ id: 'entry-2', type: 'statement', speaker: 'skeptic' } as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+    const c1 = screen.getByRole('group', { name: 'Attack on C1' });
+    expect(within(c1).getByText('Pledges erode')).toBeTruthy();
+    expect(within(c1).getByText('Unverified')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('AN-7');
+    useDebateStore.setState({ activeDebate: null } as never);
+  });
+
+  it('labels the steelman on an unmapped attack too (a tagged attack that names no claim)', () => {
+    useDebateStore.setState({
+      activeDebate: {
+        transcript: [{ id: 'entry-2' }],
+        argument_network: {
+          nodes: [{ id: 'AN-3', text: 'Publishing tests hands exploits to attackers', steelman_of: 'accelerationist', steelman_check: { verdict: 'unchecked' }, source_entry_id: 'entry-1' }],
+          edges: [],
+        },
+      } as never,
+    });
+    const wp = {
+      ...PLAN_WORK_PRODUCT,
+      steelman_refs_offered: ['AN-3'],
+      anticipated_challenges: ['ATTACK [AN-3]: Raw data helps attackers', 'ATTACK: A plain unmapped objection'],
+    };
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: wp }];
+    const { container } = render(<TaxonomyRefsSection refs={[]} entry={{ id: 'entry-2', type: 'opening', speaker: 'safetyist' } as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+    const cards = container.querySelectorAll('.claim-map-unmapped-row .claim-map-attack-card');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0] as HTMLElement).getByText('STEELMAN OF THE ACCELERATIONIST')).toBeTruthy();
+    expect(within(cards[0] as HTMLElement).getByText('Publishing tests hands exploits to attackers')).toBeTruthy();
+    expect(within(cards[0] as HTMLElement).getByText('Unverified')).toBeTruthy();
+    // The untagged attack keeps its own text and gets no steelman label.
+    expect(within(cards[1] as HTMLElement).getByText('A plain unmapped objection')).toBeTruthy();
+    expect(within(cards[1] as HTMLElement).queryByText(/STEELMAN OF/)).toBeNull();
+    // An unchecked steelman adds no "N verified" term to the counts line.
+    expect(screen.queryByText(/\d+ verified/)).toBeNull();
+    // The id shows only on the card whose steelman resolved.
+    expect(within(cards[0] as HTMLElement).getByText('AN-3')).toHaveClass('claim-map-attack-id');
+    expect(cards[1].querySelector('.claim-map-attack-id')).toBeNull();
+    useDebateStore.setState({ activeDebate: null } as never);
+  });
+
+  it('shows a linked steelman on the attack card, with its verdict and the verified term', () => {
+    useDebateStore.setState({
+      activeDebate: {
+        transcript: [{ id: 'entry-2' }],
+        argument_network: {
+          nodes: [{ id: 'AN-7', text: 'Labs will keep their pledges', steelman_of: 'safetyist', steelman_check: { verdict: 'faithful' }, source_entry_id: 'entry-1' }],
+          edges: [],
+        },
+      } as never,
+    });
+    const wp = {
+      ...PLAN_WORK_PRODUCT,
+      steelman_refs_offered: ['AN-7'],
+      anticipated_challenges: ['ATTACK [AN-7]: Pledges erode targeting node acc-B-001'],
+    };
+    const stageDiagnostics = [{ stage: 'plan', raw_response: '', work_product: wp }];
+    render(<TaxonomyRefsSection refs={[]} entry={{ id: 'entry-2', type: 'statement', speaker: 'skeptic' } as never} stageDiagnostics={stageDiagnostics} forceExpanded />);
+    const c1 = screen.getByRole('group', { name: 'Attack on C1' });
+    expect(within(c1).getByText('Labs will keep their pledges')).toBeTruthy();
+    expect(within(c1).getByText(/STEELMAN OF THE SAFETYIST/)).toBeTruthy();
+    expect(within(c1).getByText('Faithful to target')).toBeTruthy();
+    expect(screen.getByText(/1 verified/)).toBeTruthy();
+    expect(within(c1).getByText('AN-7')).toHaveClass('claim-map-attack-id');
+    useDebateStore.setState({ activeDebate: null } as never);
   });
 });

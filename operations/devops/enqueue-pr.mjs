@@ -20,7 +20,16 @@
 // genuine absence of an autoMergeRequest after the CLI arm is the t/4731#1/t/4740#1 class
 // this wrapper exists to catch.
 //
-//   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber>
+//   node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id> --by=<collaborator id>]
+//
+// t/556: before anything else, the wrapper refuses unless its running copy (this file,
+// gate-file-change.mjs and every local module they import) is origin/main's
+// (running-copy-current.mjs). A stale copy can lack a refusal entirely (t/537#40). Fail closed.
+//
+// t/537: a PR that changes a workflow or a gate script is refused at every tier unless a
+// reviewer-App `Approved (Tech Lead):` or `Approved (Security):` review bound to the current head is
+// named with --gate-change-review (gate-file-change.mjs). The sweeps never pass it, so they skip
+// such PRs. Each use is logged as a GATE-CHANGE-OVERRIDE line.
 //
 // t/4939 (interim refusal, Quality-approved design + 3 should-fixes): #4648 merged with no
 // approval and CHANGES_REQUESTED still active, because `t1-approval-guard` isn't a required
@@ -42,6 +51,8 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractTier } from './tier-check-predicate.mjs';
+import { fetchChangedFiles, fetchReview, gateFileChangeVerdict, gateFileRefusalMessage } from './gate-file-change.mjs';
+import { checkRunningCopy, currencyOkLine, currencyRefusalMessage } from './running-copy-current.mjs';
 import {
   approvalAtHeadVerdict, classifyT1GuardForEnqueue, fetchGuardRun, pickAuthoritativeGuardRun,
 } from './t1-approval-at-head.mjs';
@@ -160,7 +171,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * autoMergeRequest at all). Throws (never silently returns ok:false) if even the fallback
  * doesn't result in the PR being queued or armed.
  */
-export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null } = {}) {
+export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh, expectedHeadOid = null, gateChangeReviewId = null, by = null, currency = checkRunningCopy } = {}) {
+  // t/556: BEFORE ANY OTHER CHECK, refuse unless this running copy (this file, gate-file-change.mjs
+  // and every local module they import) is origin/main's. A stale copy can lack a refusal entirely
+  // (t/537#40). Fail closed: a failed fetch or read refuses. `currency` is injectable for tests only.
+  const current = currency();
+  if (!current?.ok) {
+    throw Object.assign(new Error(currencyRefusalMessage(current ?? { reason: 'no_result', detail: 'the check returned nothing' })), {
+      name: 'ActionableError', reason: current?.reason ?? 'no_result',
+    });
+  }
+  console.log(currencyOkLine(current));
+
   const prMeta = JSON.parse(ghFn(['pr', 'view', String(prNumber), '-R', repo, '--json', 'headRefOid,body,isDraft']));
   const headSha = prMeta.headRefOid;
   const tier = extractTier(prMeta.body);
@@ -177,6 +199,29 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
       '  Location:   operations/devops/enqueue-pr.mjs (expectedHeadOid pin, t/73).\n' +
       '  Next steps: none for a sweep (the next run re-checks the new head); by hand, rerun after re-approval.',
     );
+  }
+
+  // t/537: a PR that changes a workflow or a gate script is refused, at every tier, unless a
+  // Tech Lead or Security reviewer-App approval bound to this head is named. Read from the API;
+  // unreadable is a refusal. Before any guard read, so nothing the PR's own checks say matters.
+  const changed = fetchChangedFiles(repo, prNumber, ghFn);
+  if (changed.error) console.warn(`WARN: enqueue-pr could not read the changed files of #${prNumber} on ${repo} (${changed.error.message ?? changed.error}); refusing.`);
+  const override = gateChangeReviewId == null ? null : fetchReview(repo, prNumber, gateChangeReviewId, ghFn);
+  if (override?.error) console.warn(`WARN: enqueue-pr could not read review ${gateChangeReviewId} on #${prNumber} (${override.error.message ?? override.error}); refusing.`);
+  const gateVerdict = gateFileChangeVerdict({ files: changed, headSha, override });
+  if (gateVerdict.allow && gateVerdict.reason === 'gate_files_overridden' && !(typeof by === 'string' && by.trim())) {
+    throw new Error(
+      `enqueue-pr: refusing to arm/enqueue #${prNumber} on ${repo} (override_without_by).\n` +
+      `  Goal:       land #${prNumber} via the merge queue.\n` +
+      '  Problem:    --gate-change-review was given without --by, so the override cannot be attributed.\n' +
+      '  Location:   operations/devops/enqueue-pr.mjs (t/537).\n' +
+      '  Next steps: rerun with --by=<your collaborator id>.',
+    );
+  }
+  if (!gateVerdict.allow) throw new Error(gateFileRefusalMessage({ repo, prNumber, headSha, verdict: gateVerdict }));
+  if (gateVerdict.reason === 'gate_files_overridden') {
+    console.log(`GATE-CHANGE-OVERRIDE repo=${repo} pr=${prNumber} head=${headSha} review=${gateChangeReviewId} approver="${gateVerdict.role}" by=${by.trim()} ` +
+      `at=${new Date().toISOString()} files=${gateVerdict.gateFiles.join(',')}`);
   }
 
   const guard = fetchGuardRun(repo, headSha, ghFn);
@@ -265,12 +310,14 @@ export async function enqueuePR(repo, prNumber, { sleepMs = 5000, gh: ghFn = gh,
 
 const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isCliEntry) {
-  const [repo, prNumberArg] = process.argv.slice(2);
-  if (!repo || !prNumberArg) {
-    console.error('Usage: node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber>');
+  const [repo, prNumberArg, ...flags] = process.argv.slice(2);
+  const flag = (name) => flags.map((f) => new RegExp(`^--${name}=(.+)$`).exec(f)).find(Boolean)?.[1] ?? null;
+  const unknown = flags.filter((f) => !/^--(gate-change-review|by)=.+$/.test(f));
+  if (!repo || !prNumberArg || unknown.length) {
+    console.error('Usage: node operations/devops/enqueue-pr.mjs <owner>/<repo> <prNumber> [--gate-change-review=<review id> --by=<collaborator id>]');
     process.exit(1);
   }
-  enqueuePR(repo, Number(prNumberArg)).then(
+  enqueuePR(repo, Number(prNumberArg), { gateChangeReviewId: flag('gate-change-review'), by: flag('by') }).then(
     (result) => { console.log(JSON.stringify(result)); },
     (err) => { console.error(err.message ?? err); process.exit(1); },
   );

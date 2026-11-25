@@ -63,7 +63,7 @@ function makeSession(
     created_at: '2026-10-19T00:00:00Z',
     updated_at: '2026-10-19T00:00:00Z',
     phase: 'closed',
-    topic: { original: 'test', refined: null, final: 'test topic' },
+    topic: { original: 'test', refined: null, final: 'What are the risks?' },
     source_type: 'topic',
     source_ref: '',
     source_content: '',
@@ -97,8 +97,9 @@ function makeSession(
   return base;
 }
 
-function makeConfig(): DebateConfig {
-  return { topic: 'test', rounds: 4 } as unknown as DebateConfig;
+// Mirrors deriveDebateConfig: topic is the request question, and the inquiry turns the reframe off (t/284).
+function makeConfig(question = 'What are the risks?'): DebateConfig {
+  return { topic: question, rounds: 4, wisdomAutoReframe: false } as unknown as DebateConfig;
 }
 
 function makeGrounding() {
@@ -143,10 +144,10 @@ function makeDeps(
 beforeEach(() => {
   vi.clearAllMocks();
 
-  vi.mocked(deriveDebateConfig).mockReturnValue({
-    config: makeConfig(),
+  vi.mocked(deriveDebateConfig).mockImplementation((req: InquiryRequest) => ({
+    config: makeConfig(req.question),
     derivation: { fidelity: 'standard', models: { debaters: 'model-a' }, rounds: 4, callBudget: 60 },
-  });
+  }));
   vi.mocked(buildGroundingEnvelope).mockResolvedValue({ envelope: makeGrounding() });
   vi.mocked(getRawMetrics).mockReturnValue([{ metric: 'convergence_score', value: 0.7 }]);
   vi.mocked(projectTrust).mockReturnValue(makeCalibration());

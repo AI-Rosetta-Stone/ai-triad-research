@@ -739,17 +739,9 @@ jobs:
             Write-Host "::error::test-powershell: Pester returned no result object — failing safe."
             exit 1
           }
-          # t/436 (TL p/9#322): a KNOWN FLAKE runs and reports red, but does not fail this job or any PR
-          # until its removal condition on t/436 is met (flake fixed and 50 consecutive green runs on the
-          # runner). Only the exact test names listed here are non-blocking; every other failure is blocking.
-          $nonBlocking = @('THREE CONCURRENT PUSHES: all pass, and their vitest runs never overlap (serialized by the lock)')
-          $nbFailed = @($r.Tests | Where-Object { $_.Result -eq 'Failed' -and $nonBlocking -contains $_.ExpandedName })
-          foreach ($t in $nbFailed) { Write-Host "::warning::NON-BLOCKING (t/436, known flake): $($t.ExpandedName) FAILED. It does not fail this job until t/436 closes." }
-          $blockingFailed = @($r.Tests | Where-Object { $_.Result -eq 'Failed' -and -not ($nonBlocking -contains $_.ExpandedName) })
-          if ($r.Result -ne 'Passed' -and $r.FailedContainersCount -eq 0 -and $nbFailed.Count -gt 0 -and $blockingFailed.Count -eq 0) {
-            Write-Host "test-powershell: the only failure is the non-blocking t/436 flake; the job passes. It stays red in the output above."
-            exit 0
-          }
+          # t/436: the #5277 non-blocking exemption for THREE CONCURRENT PUSHES is removed. Its condition
+          # was met: the lock fixed (#5270) and 107 consecutive green runs on the runner (t/436#33). No
+          # test is exempt; every failure goes through the verdict below.
           if ($r.Result -eq 'Passed') { exit 0 }
           # Container/discovery error (syntax error, throwing BeforeAll): FailedContainersCount>0,
           # often with FailedCount=0. Nothing to rerun — fail immediately (R1/R3).
@@ -766,7 +758,7 @@ jobs:
             exit 1
           }
           # Pure test failure(s) — eligible for ONE flake rerun of only those tests (R3), no coverage.
-          $failedTests = $blockingFailed
+          $failedTests = @($r.Tests | Where-Object { $_.Result -eq 'Failed' })
           $failedNames = @($failedTests | ForEach-Object { $_.ExpandedPath })
           # t/4080: rerun the failing test FILES, not a Filter.FullName name filter. A name filter cannot
           # match data-driven `It '... <Name>' -ForEach` tests (it matched NOTHING -> every test NotRun ->
@@ -2163,6 +2155,16 @@ jobs:
           GH_TOKEN: ''
           GITHUB_TOKEN: ''
         run: node --test operations/devops/*.test.mjs
+
+      # t/420: brace balance in every tracked .css file (nothing else in the gate parses CSS).
+      # WARN-ONLY: the script exits 0 on every verdict and the step is continue-on-error, so it
+      # cannot fail this job or ci-gate. The verdict (PASS, FAIL or GATE-UNREADABLE) is in the step
+      # outputs, the step summary, and a ::warning:: for anything but PASS. Making it blocking
+      # (adding --strict) is a separate T2 change after a clean run on main (gate-signal-integrity §3).
+      - name: CSS brace check (warn-only, t/420)
+        id: css-brace-check
+        continue-on-error: true
+        run: node operations/devops/css-brace-check.mjs
 
   # ── Doc accuracy gates: claims-lint + REPO_MAP freshness (t/1324, B-403) ──
   # Warning-only until 2026-07-17. To enforce: remove continue-on-error.
@@ -3669,7 +3671,7 @@ jobs:
         # the next sweep failing. Running them here checks the change before merge. WARN-FIRST:
         # flip by removing continue-on-error after >=1 green cycle (SO + TL GV), like its neighbors.
         continue-on-error: true
-        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/ejected-batch.test.mjs operations/devops/live-pr-state.test.mjs operations/devops/pr-contexts.test.mjs
 
       - name: Vitest shard-blob count check arms (WARN-FIRST)
         # test-electron-coverage refuses to merge unless all 3 shard blobs arrived. That refusal
@@ -4534,6 +4536,7 @@ jobs:
             loadFromBase('operations/devops/role-review-verdicts.mjs');
             const { evaluateT1ApprovalGuard } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-predicate.mjs')).href);
             const { classifyMergeGroupApprovals } = await import(pathToFileURL(loadFromBase('operations/devops/t1-approval-guard-merge-group-predicate.mjs')).href);
+            const { withGitHubRetry } = await import(pathToFileURL(loadFromBase('operations/devops/github-retry.mjs')).href);
             const enumeratorPath = loadFromBase('operations/devops/get-merge-group-prs.sh');
 
             execSync(`chmod +x ${JSON.stringify(enumeratorPath)}`, { cwd: process.env.GITHUB_WORKSPACE });
@@ -4544,17 +4547,15 @@ jobs:
             const group = JSON.parse(groupJson);
             core.info(`t1-approval-guard (merge_group): batch is ${group.map((p) => '#' + p.number).join(', ')}`);
 
-            async function withRetry(label, fn) {
-              let lastErr;
-              for (let attempt = 1; attempt <= 3; attempt++) {
-                try { return await fn(); } catch (err) {
-                  lastErr = err;
-                  core.warning(`t1-approval-guard (merge_group): ${label} attempt ${attempt}/3 failed -- ${err.message} -- retrying`);
-                  await new Promise((r) => setTimeout(r, attempt * 3000));
-                }
-              }
-              throw lastErr;
-            }
+            // t/238: the inline retry above retried EVERY error indiscriminately, including
+            // permission 403s that are real denials, not transient -- delaying the same failure
+            // instead of fixing it. withGitHubRetry (same shared, tested module
+            // t1-approval-guard.yml already uses) distinguishes a rate-limit 403 (waits for
+            // the reset) from a 5xx/429 (exponential backoff) from a permission 403 (fails fast).
+            const withRetry = async (label, fn) => withGitHubRetry(label, fn, {
+              warn: (m) => core.warning(m),
+              prefix: 't1-approval-guard (merge_group)',
+            });
 
             const perPrResults = [];
             for (const entry of group) {

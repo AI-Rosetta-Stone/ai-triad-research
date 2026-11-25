@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseWorkProduct, normalizeAnticipatedItem, stripLeadingVerb } from './claimMap';
+import { parseWorkProduct, parseLenses, normalizeAnticipatedItem, stripLeadingVerb, type SteelmanContext } from './claimMap';
 
 const claims = [
   { point: 'Labs self-regulate', evidence: 'Ev 1', taxonomy_anchor: 'acc-saf-001' },
@@ -8,7 +8,7 @@ const claims = [
 
 describe('parseWorkProduct', () => {
   it('returns empty data for an empty work product', () => {
-    expect(parseWorkProduct({})).toEqual({ claims: [], unmappedAttacks: [], assumptions: [] });
+    expect(parseWorkProduct({})).toEqual({ claims: [], unmappedAttacks: [], assumptions: [], verifiedAttacks: 0 });
   });
 
   it('numbers claims from 1 and keeps their evidence and anchors', () => {
@@ -84,6 +84,37 @@ describe('parseWorkProduct', () => {
 
 });
 
+describe('parseLenses', () => {
+  it('returns no lenses for an absent framing_choices, without a WARN', () => {
+    const warn = vi.fn();
+    expect(parseLenses(undefined, warn)).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a plain string as one lens', () => {
+    expect(parseLenses('Market incentives')).toEqual([{ title: 'Market incentives' }]);
+  });
+
+  it('skips and WARNs on a lens with no frame, keeping the valid ones', () => {
+    const warn = vi.fn();
+    const lenses = parseLenses([{ why: 'orphan reason' }, { frame: 'Governance', why: 'Regulators shape norms' }], warn);
+    expect(lenses).toEqual([{ title: 'Governance', why: 'Regulators shape norms' }]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips and WARNs on null and non-object entries', () => {
+    const warn = vi.fn();
+    expect(parseLenses([null, 'text', { frame: 'Kept' }], warn)).toEqual([{ title: 'Kept', why: undefined }]);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('WARNs and returns nothing for a null framing_choices', () => {
+    const warn = vi.fn();
+    expect(parseLenses(null, warn)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('named target wins', () => {
   const twoClaims = [
     { point: 'One', taxonomy_anchor: 'acc-B-001' },
@@ -152,5 +183,67 @@ describe('stripLeadingVerb', () => {
   it('strips a leading "Establish that " only at the start', () => {
     expect(stripLeadingVerb('Establish that labs fail')).toBe('labs fail');
     expect(stripLeadingVerb('Labs should establish that')).toBe('Labs should establish that');
+  });
+});
+
+describe('tagged steelman links (t/388)', () => {
+  const claims = [{ point: 'Labs self-regulate', taxonomy_anchor: 'acc-B-001' }];
+  const prior = (over: Record<string, unknown> = {}) => ({
+    id: 'AN-7', text: 'Labs will keep their pledges', steelman_of: 'safetyist',
+    steelman_check: { verdict: 'faithful' }, source_entry_id: 'entry-1', ...over,
+  });
+  const ctx = (nodes: unknown[], entryId = 'entry-2', speaker = 'skeptic'): SteelmanContext =>
+    ({ nodes, entryId, speaker }) as SteelmanContext;
+  const wp = (offered: unknown, challenge: string) => ({
+    argument_structure: claims,
+    steelman_refs_offered: offered,
+    anticipated_challenges: [challenge],
+  });
+
+  it('links a tagged attack to a prior-entry steelman and counts it as verified', () => {
+    const parsed = parseWorkProduct(wp(['AN-7'], 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), undefined, ctx([prior()]));
+    expect(parsed.claims[0].attack?.steelman).toEqual({ text: 'Labs will keep their pledges', camp: 'safetyist', verdict: 'faithful' });
+    expect(parsed.claims[0].attack?.text).toBe('Pledges erode');
+    expect(parsed.verifiedAttacks).toBe(1);
+  });
+
+  it('does not link a tag that is not in steelman_refs_offered, and warns', () => {
+    const warn = vi.fn();
+    const parsed = parseWorkProduct(wp(['AN-9'], 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), warn, ctx([prior()]));
+    expect(parsed.claims[0].attack?.steelman).toBeUndefined();
+    expect(parsed.verifiedAttacks).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not in steelman_refs_offered'));
+  });
+
+  it('does not link when no offered list was written', () => {
+    const parsed = parseWorkProduct(wp(undefined, 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), undefined, ctx([prior()]));
+    expect(parsed.claims[0].attack?.steelman).toBeUndefined();
+  });
+
+  it('does not link a steelman from this same entry', () => {
+    const parsed = parseWorkProduct(wp(['AN-7'], 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), undefined, ctx([prior({ source_entry_id: 'entry-2' })]));
+    expect(parsed.claims[0].attack?.steelman).toBeUndefined();
+  });
+
+  it("does not link a steelman of the speaker's own camp", () => {
+    const parsed = parseWorkProduct(wp(['AN-7'], 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), undefined, ctx([prior({ steelman_of: 'skeptic' })]));
+    expect(parsed.claims[0].attack?.steelman).toBeUndefined();
+  });
+
+  it('does not link a node that is not a steelman', () => {
+    const parsed = parseWorkProduct(wp(['AN-7'], 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), undefined, ctx([prior({ steelman_of: null })]));
+    expect(parsed.claims[0].attack?.steelman).toBeUndefined();
+  });
+
+  it('keeps an unchecked steelman on the card but does not count it as verified', () => {
+    const parsed = parseWorkProduct(wp(['AN-7'], 'ATTACK [AN-7]: Pledges erode targeting node acc-B-001'), undefined, ctx([prior({ steelman_check: { verdict: 'unchecked' } })]));
+    expect(parsed.claims[0].attack?.steelman?.verdict).toBe('unchecked');
+    expect(parsed.verifiedAttacks).toBe(0);
+  });
+
+  it('still parses a plain ATTACK: with no tag as before', () => {
+    const parsed = parseWorkProduct(wp(['AN-7'], 'ATTACK: Pledges erode targeting node acc-B-001'), undefined, ctx([prior()]));
+    expect(parsed.claims[0].attack?.text).toBe('Pledges erode');
+    expect(parsed.claims[0].attack?.steelman).toBeUndefined();
   });
 });

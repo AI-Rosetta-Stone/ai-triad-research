@@ -62,6 +62,23 @@ export interface TopicPipelineContext {
 // session.topic.clause_embeddings — embedResolutionAnchors
 // session.phase               — runClarification
 
+/**
+ * Deterministic named-entity heuristic for a question (t/284 item 4): quoted phrases, plus
+ * capitalised tokens that are not the first word of a sentence. Order kept, duplicates dropped.
+ */
+export function extractQuestionEntities(question: string): string[] {
+  const found: string[] = [];
+  for (const m of question.matchAll(/"([^"]{2,80})"/g)) found.push(m[1].trim());
+  for (const sentence of question.split(/[.!?]\s+/)) {
+    const words = sentence.trim().split(/\s+/);
+    for (const word of words.slice(1)) {
+      const token = word.replace(/[^A-Za-z0-9-]+$/g, '').replace(/^[^A-Za-z0-9]+/g, '');
+      if (/^[A-Z][A-Za-z0-9-]+$/.test(token)) found.push(token);
+    }
+  }
+  return [...new Set(found)];
+}
+
 export class TopicPipeline {
   constructor(private readonly ctx: TopicPipelineContext) {}
 
@@ -428,8 +445,27 @@ export class TopicPipeline {
       taxonomy_refs: [],
     });
 
+    await this.runResolutionAnchoring();
+  }
+
+  /** ArCo anchoring (t/284 item 2): clause decomposition, then anchor embeddings, on topic.final. */
+  async runResolutionAnchoring(): Promise<void> {
     await this.decomposeResolutionIntoClauses();
     await this.embedResolutionAnchors();
+    if (this.ctx.config.anchorToResolution) this.carryEntitiesIntoScope();
+  }
+
+  // t/284 item 4: named entities in the question (e.g. "China") become scope qualifiers, so the
+  // alignment gate's TOPIC_ALIGNED check sees them. Deterministic heuristic, no extra LLM call.
+  private carryEntitiesIntoScope(): void {
+    const question = this.ctx.session.topic.final;
+    if (!question) return;
+    const entities = extractQuestionEntities(question);
+    this.ctx.session.topic.entities = entities;
+    const scope = this.ctx.session.topic.scope;
+    if (!scope || entities.length === 0) return;
+    const merged = new Set([...scope.explicit_qualifiers, ...entities]);
+    scope.explicit_qualifiers = [...merged];
   }
 
   private async decomposeResolutionIntoClauses(): Promise<void> {

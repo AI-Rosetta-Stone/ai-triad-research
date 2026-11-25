@@ -61,6 +61,7 @@ import { resolvePoverInfo } from '../../../../lib/debate/soulDocLoader.js';
 import type { TagSelection } from '../../../../lib/debate/types/session.js';
 import type { SpeakerId } from '../../../../lib/debate/types/phase.js';
 import { computeEmbeddings, computeQueryEmbedding } from '../embeddings.js';
+import { assertPoolSize } from './poolSizing.js';
 import { chatSyntheticStatements, groupCorpusStatements, SYNTHETIC_POV_PREFIX, type ChatSyntheticPov } from '../chatSyntheticStatements.js';
 import { computeClaimTaxonomyAttribution } from '../../../../lib/debate/argumentNetwork/attribution.js';
 import type { ArgumentNetworkNode, ClaimTaxonomyAttribution } from '../../../../lib/debate/types.js';
@@ -755,6 +756,9 @@ export function registerTaxonomyHandlers(): void {
       topic: string;
       recentTranscript: string;
       threshold?: number;
+      // t/424: optional pool sizing (chat requests the full pool). Absent = lib defaults (3 / 35).
+      minPerCategory?: number;
+      maxTotal?: number;
       session?: {
         anClaimEmbeddings?: ANClaimInput[];
         lineageFrame?: { cluster_id: string; label?: string }[];
@@ -765,6 +769,9 @@ export function registerTaxonomyHandlers(): void {
       tagSelection?: TagSelection;
     };
     const { pov, topic, recentTranscript } = b;
+    // t/424: a provided pool size must be a positive integer; absent keeps the lib defaults (3 / 35).
+    assertPoolSize("minPerCategory", b.minPerCategory);
+    assertPoolSize("maxTotal", b.maxTotal);
     if (!POV_FILE_KEYS.has(pov)) throw new Error(`Invalid or missing pov (expected accelerationist|safetyist|skeptic), got: ${String(pov)}`);
     if (typeof topic !== 'string' || typeof recentTranscript !== 'string') throw new Error('Missing topic/recentTranscript');
 
@@ -813,7 +820,7 @@ export function registerTaxonomyHandlers(): void {
     const result = await selectRelevantTaxonomy({
       povNodes, situationNodes, policyRegistry, nodeEmbeddings, lineageMapping, doctrinalBoundaries,
       session,
-      params: { pov, topic, recentTranscript, threshold: b.threshold, tagSelection: b.tagSelection },
+      params: { pov, topic, recentTranscript, threshold: b.threshold, tagSelection: b.tagSelection, minPerCategory: b.minPerCategory, maxTotal: b.maxTotal },
       embed: queryEmbed,
     });
     warnOnLabelDedup(result.injectionManifest);

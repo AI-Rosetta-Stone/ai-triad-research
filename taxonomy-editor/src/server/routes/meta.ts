@@ -50,6 +50,7 @@ import { getLastEventLoopSample } from '../eventLoopMonitor.js';
 import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
 import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 import { getNodeSourceIndexStatus } from '../storage/nodeSourceIndex.js';
+import { callerHasKey } from '../ai/keyPresenceForCaller.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
@@ -87,6 +88,12 @@ function logDataRootReadyzFailure(reason: string | undefined): void {
     type: 'system.error', component: 'readyz', level: 'error',
     message: 'Data root validation failed — /readyz not-ready', data: { reason },
   });
+}
+
+/** t/499: the public empty state and entry count of the node source index; both null before any build. */
+function nodeSourceIndexPublicFields(status: ReturnType<typeof getNodeSourceIndexStatus>): { nodeSourceIndexEmpty: boolean | null; nodeSourceIndexEntryCount: number | null } {
+  if (status === null) return { nodeSourceIndexEmpty: null, nodeSourceIndexEntryCount: null };
+  return { nodeSourceIndexEmpty: status.empty, nodeSourceIndexEntryCount: status.entryCount };
 }
 
 export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
@@ -192,7 +199,8 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // M5: liveness probes (unauthenticated) get a minimal OK. Operational detail
     // (versions, storage internals, GitHub rate limits, paths) only for admins.
     // AI key status is always included so deployment gates can verify readiness.
-    const geminiReady = await hasApiKey('gemini');
+    // t/516: for an anonymous caller (an unauthenticated probe is one) this is the free pool, never the owner's _local slot.
+    const geminiReady = await callerHasKey('gemini');
     const freeKeyPoolSize = proxyTiers.freeTierKeyCount();
     // t/3278 Arm-1: buildSha in the UNAUTH branch — the drift checker (Arm-2) hits /health anonymously
     // to compare the running image's SHA against origin/main HEAD. Public repo → the commit SHA is not
@@ -209,6 +217,8 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // admin-only below, since those are operational detail, not a liveness signal.
     const nodeSourceIndexStatus = getNodeSourceIndexStatus();
     const nodeSourceIndexComplete = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.complete;
+    // t/499 (t/498): an index can be complete and still empty. Both fields are null before any build, like the one above.
+    const { nodeSourceIndexEmpty, nodeSourceIndexEntryCount } = nodeSourceIndexPublicFields(nodeSourceIndexStatus);
     // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): the
     // installation's shared rate limit is the signal that would have caught
     // this before it became a user-visible outage — public (not admin-gated,
@@ -236,7 +246,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       json(res, {
         status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
         ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
-        eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
+        eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete, nodeSourceIndexEmpty, nodeSourceIndexEntryCount,
         githubRateLimitRemaining, githubRateLimitResetsAt, githubRateLimitObservedAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
         blobBackend: blobBackendHealth(),

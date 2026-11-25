@@ -1,0 +1,107 @@
+name: Actions cache prune
+
+# t/4971: clears alert #4966 (actions-cache-budget.yml's own 8 GB alarm, t/4931). That alarm is
+# ALERT ONLY by design; this is its deletion counterpart, kept as its own narrowly-scoped
+# workflow rather than widening ci.yml's permissions (which stays contents: read for every job
+# there) -- the only thing this workflow can do beyond read is delete a cache entry.
+#
+# Policy (operations/devops/actions-cache-prune.mjs): only families on its SUPERSEDING_FAMILIES
+# allowlist, only on refs/heads/main: keep the most-recently-created entry per key prefix and
+# delete the rest. Content-addressed families (BuildKit layer blobs and indexes) and any family not
+# on the allowlist are never touched (#5281 review, t/539). Never touches a non-main ref.
+#
+# MODES (TL p/9#510). Every run writes its plan to the job summary first.
+#   schedule                       -> ALWAYS dry run. Nothing is deleted on a schedule until a
+#                                     later reviewed PR changes this, after the Lead has read a
+#                                     dispatched dry run's plan.
+#   workflow_dispatch, mode=dry-run (default) -> dry run.
+#   workflow_dispatch, mode=delete -> deletes the plan. A delete that fails with anything but 404
+#                                     (already gone: a race with GitHub's eviction) FAILS the job.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'  # once a day, off round-minute marks (t/4501 convention)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run lists the plan only; delete removes it'
+        type: choice
+        options: [dry-run, delete]
+        default: dry-run
+
+permissions:
+  contents: read   # actions/checkout, to load operations/devops/actions-cache-prune.mjs
+  actions: write   # list + delete Actions caches
+
+concurrency:
+  group: actions-cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Self-health — unit suite
+        run: node --test operations/devops/actions-cache-prune.test.mjs operations/devops/actions-cache-prune-workflow.test.mjs
+
+      - name: Plan (and, on a dispatched delete, remove) superseded caches on main
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          # Only a manual dispatch with mode=delete deletes. A schedule run is always a dry run.
+          PRUNE_DELETE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'delete' && 'true' || 'false' }}
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const ws = process.env.GITHUB_WORKSPACE;
+            const budget = await import(pathToFileURL(`${ws}/operations/devops/actions-cache-budget.mjs`).href);
+            const prune = await import(pathToFileURL(`${ws}/operations/devops/actions-cache-prune.mjs`).href);
+            const { owner, repo } = context.repo;
+
+            let caches;
+            try {
+              ({ caches } = await budget.fetchCacheData(github, owner, repo));
+            } catch (err) {
+              core.setFailed(`Could not read the Actions cache list: ${err && err.message}`);
+              return;
+            }
+
+            const dryRun = process.env.PRUNE_DELETE !== 'true';
+            const toDelete = prune.planPrune(caches);
+            await core.summary.addRaw(prune.formatPlanSummary(toDelete, { dryRun })).write();
+            if (toDelete.length === 0) {
+              core.info('Nothing to prune: no allowlisted refs/heads/main key prefix has more than one entry.');
+              return;
+            }
+            if (dryRun) {
+              core.info(`DRY RUN: ${toDelete.length} entr${toDelete.length === 1 ? 'y' : 'ies'} would be deleted (see the job summary). Nothing deleted.`);
+              for (const c of toDelete) core.info(`  would delete '${c.key}' (id ${c.id}, created ${c.created_at})`);
+              return;
+            }
+
+            core.info(`Pruning ${toDelete.length} stale cache entr${toDelete.length === 1 ? 'y' : 'ies'}:`);
+            let freedBytes = 0;
+            const failed = [];
+            for (const c of toDelete) {
+              core.info(`  deleting '${c.key}' (id ${c.id}, created ${c.created_at}, ${(c.size_in_bytes / 1e9).toFixed(2)} GB)`);
+              try {
+                await github.rest.actions.deleteActionsCacheById({ owner, repo, cache_id: c.id });
+                freedBytes += c.size_in_bytes;
+              } catch (err) {
+                if (err && err.status === 404) {
+                  // Already gone (GitHub's own eviction or a race): the goal is met, not a failure.
+                  core.info(`  '${c.key}' (id ${c.id}) was already gone (404).`);
+                  continue;
+                }
+                // Anything else FAILS the job (TL p/9#510, Quality t/539): keep going through the
+                // plan, then fail, so a broken delete is never a green run.
+                failed.push(c);
+                core.error(`actions-cache-prune: could not delete '${c.key}' (id ${c.id}): ${err && err.status} ${err && err.message}`);
+              }
+            }
+            core.info(`Freed approximately ${(freedBytes / 1e9).toFixed(2)} GB.`);
+            if (failed.length) {
+              core.setFailed(`actions-cache-prune: ${failed.length} of ${toDelete.length} deletes failed (see the errors above). Next steps: check the token's actions: write permission and the cache ids, then re-dispatch with mode=delete.`);
+            }

@@ -19,34 +19,6 @@
   margin-top: 8px;
 }
 
-.debate-taxonomy-pill {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-2xs);
-  font-family: monospace;
-  background: var(--chip-bg);
-  color: var(--text-secondary);
-  transition: background 0.15s;
-}
-
-.debate-taxonomy-pill-clickable {
-  cursor: pointer;
-  border: 1px solid currentColor;
-  background: transparent;
-}
-
-.debate-taxonomy-pill-clickable:hover {
-  background: var(--focus-ring);
-  color: var(--text-on-focus-ring, #fff);
-  border-color: var(--focus-ring);
-}
-
-.debate-taxonomy-pill-primary {
-  font-weight: 600;
-  border-width: 2px;
-}
-
 .debate-taxonomy-refs-section {
   margin-top: 8px;
 }
@@ -90,7 +62,7 @@
 .debate-reasoning-node {
   font-family: monospace;
   font-size: var(--text-2xs);
-  font-weight: 600;
+  font-weight: 500; /* t/472 (Design p/14#80): one weight, open or closed; the caret and rule carry the state */
   background: none;
   border: none;
   padding: 0;
@@ -99,6 +71,49 @@
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
+}
+
+/* t/472: the primary marker and the id share one line. */
+.debate-reasoning-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* A long id breaks inside its own button and the star keeps its place on its first line.
+   flex-wrap would instead drop the id onto a line of its own (tried, t/472). */
+.debate-reasoning-head .debate-reasoning-node {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.debate-reasoning-primary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* t/472: the open entry. The caret is the non-colour cue; the rule takes the entry's POV colour inline. */
+.debate-reasoning-caret {
+  display: inline-block;
+  width: 1em;
+  font-size: var(--text-xs); /* Design p/14#82: the only non-colour cue, so one step up from the 2xs id */
+  text-decoration: none;
+}
+
+.debate-reasoning-item--open {
+  border-left: 2px solid var(--text-secondary);
+  padding-left: 6px;
+}
+
+.taxrefs-item-sit {
+  border-left-color: var(--color-sit);
+}
+
+.debate-reasoning-primary {
+  font-family: monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
 }
 
 .debate-reasoning-node:hover {
@@ -117,23 +132,14 @@
   white-space: nowrap;
   line-height: 1.4;
 }
-.coverage-badge-green { background: rgba(34,197,94,0.15); color: #16a34a; }
-.coverage-badge-yellow { background: rgba(234,179,8,0.15); color: #a16207; }
-.coverage-badge-red { background: rgba(239,68,68,0.15); color: #dc2626; }
+.coverage-badge-green { background: var(--success-bg); color: var(--success-text); }
+.coverage-badge-yellow { background: var(--warning-bg); color: var(--warning-text); }
+.coverage-badge-red { background: var(--error-bg); color: var(--error-text); }
 
 
 /* ─── Monolith-extracted styles (Phase 3 co-location, t/2989) ─── */
 
 /* TaxonomyRefs — mechanical CSS migration of static inline styles (t/1866) */
-
-/* Selected BDI ref chip — persistent "active" look while its inline detail is open.
-   !important overrides the dynamic inline POV color the pill carries, matching the
-   existing .debate-taxonomy-pill-clickable:hover treatment. */
-.debate-taxonomy-pill-selected {
-  background: var(--focus-ring);
-  color: #fff !important;
-  border-color: var(--focus-ring) !important;
-}
 
 .taxrefs-caveats-btn {
   color: #d97706;
@@ -236,8 +242,8 @@
 .taxrefs-directive-badge {
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(245, 158, 11, 0.2);
-  color: #d97706;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-weight: 600;
   font-size: var(--text-2xs);
 }
@@ -305,8 +311,8 @@
   display: inline-block;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(168, 85, 247, 0.2);
-  color: #a855f7;
+  background: var(--violet-bg);
+  color: var(--violet-text);
   font-size: var(--text-2xs);
   font-weight: 600;
 }
@@ -381,15 +387,6 @@
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   margin-bottom: 4px;
-}
-
-.taxrefs-refs-mb {
-  margin-bottom: 6px;
-}
-
-.taxrefs-pol-pill {
-  border-color: var(--color-sit);
-  color: var(--color-sit);
 }
 
 .taxrefs-node-sit {
@@ -524,7 +521,7 @@
 }
 
 .claim-map-arg-header h3 {
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -544,7 +541,7 @@
 }
 
 .claim-map-dot {
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
 }
 
 .claim-map-dot-info {
@@ -696,6 +693,7 @@
 
 .claim-map-attack-footer {
   display: flex;
+  align-items: center;
   gap: 8px;
   font-size: var(--text-2xs);
   margin-top: 8px;

@@ -38,6 +38,9 @@ export interface DebateConfig {
   rounds: number;
   responseLength: 'brief' | 'medium' | 'detailed';
   enableClarification?: boolean;
+  /** t/284 item 2 (ArCo): run resolution clause decomposition and anchor embedding after scope
+   *  extraction even when clarification is off. Inquiry sets it true. Off by default. */
+  anchorToResolution?: boolean;
   enableProbing?: boolean;
   probingInterval?: number;
   temperature?: number;
@@ -115,6 +118,8 @@ export interface DebateConfig {
   useDebateGrounding?: boolean;
   /** t/412 experiment arm B: each node's prompt text is its best-matching synthetic statement against the debate query, with skip-and-backfill for nodes without one. Never description or plain_description (TL p/140#24). Takes precedence over useDebateGrounding. Off by default. */
   useSyntheticStatementGrounding?: boolean;
+  /** t/388: the opening plan prompt asks each ATTACK to end with "targeting node <taxonomy_anchor>", naming the speaker's own claim it hits, so the claim-map card can place the attack. Changes every opening plan prompt, so it is off by default; default-on needs the PI's go (Comp-Linguist ruling t/388#47). When on, the engine also checks each anchor against the plan's own claims. When off, anchors are not looked at and no plan is changed (TL condition p/32#134). */
+  planAttackAnchors?: boolean;
   /** Rank situation selection by weighted breadth score (relevance + freshness + bdi_entropy via PRE_DEBATE_WEIGHTS) instead of pure relevance (t/3411 experiment). Off by default. */
   breadthAwareSituationSelection?: boolean;
   /** Enable over-generate/select/rewrite pipeline: N=3 drafts, dedup, greedy top-K, rewrite, coherence gate (t/1581). */
@@ -159,6 +164,8 @@ export interface DebateConfig {
    * Shared lib/debate code must not import either loader directly.
    */
   soulResolver?: import('../soulDocSchema.js').SoulResolverFn;
+  /** t/492: document titles for evidence citations (doc_id → title, link, provenance label), supplied by a host that has no sources directory on disk, such as the hosted server, which builds it from sources-index.json with `docMetaMapFromSourcesIndex`. When present the engine uses it and does not read the filesystem. When absent the engine reads the sources directory, as before. */
+  docTitles?: import('../evidenceFromSummaries.js').DocMetaMap;
 }
 
 export interface DebateProgress {

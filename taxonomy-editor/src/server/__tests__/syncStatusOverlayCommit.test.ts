@@ -13,7 +13,7 @@ const { getOverlayCommitStatusMock, isAdminMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('../storage/overlayCommitScheduler.js', () => ({ getOverlayCommitStatus: getOverlayCommitStatusMock }));
-vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'tester', isAnonymousUser: () => false }));
+vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'tester', isAnonymousUser: () => false, isHostedAnonymousRequest: () => false })); // t/548: a signed-in caller
 vi.mock('../community/community.js', () => ({ isAdmin: isAdminMock }));
 vi.mock('../community/admin/reviewRegistry.js', () => ({ requireAdmin: vi.fn(() => true) }));
 vi.mock('../community/nodeConflicts.js', () => ({ computeNodeConflicts: vi.fn() }));

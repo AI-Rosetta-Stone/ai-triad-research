@@ -5,6 +5,12 @@ end-to-end on `app-scratch` across the full t/4567 live-fire cycle (automatic re
 removed entirely per the `GITHUB_TOKEN` root-cause finding; replaced by the D1 dequeue
 alert and the C5 liveness poll). DevOps does not apply this -- that's the PI's step.
 
+> **Historical runbook (t/535).** The `gh pr merge … --auto --squash --match-head-commit` commands
+> in step 4 below are no longer allowed. They skip `enqueue-pr.mjs` and its gate-file check, and
+> the rule is now never to use `gh pr merge` in any form. To arm or enqueue a PR, run
+> `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` from a checkout at `origin/main`
+> instead. See `docs/pr-landing.md`.
+
 ## Apply
 
 From the repo root, with a token that has `admin:org`/repo-admin rights on
@@ -98,6 +104,7 @@ git show "${ClearedSha}:operations/devops/classic-required-status-checks.json" |
 # 4. Re-arm the batch that was stuck under the old context, pinned to its current head. Step 3's
 #    close/reopen already dequeued the stale entries -- this just re-enqueues them under the
 #    fixed ruleset.
+#    HISTORICAL (t/535): do not run `gh pr merge` today; use enqueue-pr.mjs (see the note at the top).
 foreach ($pr in 4036, 4037, 4038, 4039) {
     $headSha = gh pr view $pr --json headRefOid -q .headRefOid
     gh pr merge $pr --auto --squash --match-head-commit $headSha
@@ -109,6 +116,7 @@ foreach ($pr in 4036, 4037, 4038, 4039) {
 # cleared it, the cleared version isn't what would merge, so this should stop rather than merge
 # something nobody reviewed. The TL's T1 approval comment must also be posted against
 # $ClearedSha before this is armed -- confirm that on the PR before running it.
+# HISTORICAL (t/535): do not run `gh pr merge` today; use enqueue-pr.mjs (see the note at the top).
 gh pr merge 4040 --auto --squash --match-head-commit $ClearedSha
 ```
 

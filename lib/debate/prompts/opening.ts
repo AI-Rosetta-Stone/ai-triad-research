@@ -41,6 +41,25 @@ export interface OpeningStagePromptInput {
   soul: PovInfo;
   /** Resolved souls for the other speakers (t/3988). Keys are SpeakerId. */
   opponentSouls?: Partial<Record<SpeakerId, PovInfo>>;
+  /** t/284 item 3: the user's literal question. Set for inquiry only (anchorToResolution); the opening must answer it. */
+  anchorQuestion?: string;
+  /** t/388: steelman AN nodes offered as attack references. Empty or absent = the prompt is unchanged. */
+  steelmanRefsOffered?: { id: string; steelman_of: string; text: string }[];
+  /** t/388: ask each ATTACK to name the speaker's own claim it hits. Off or absent = the prompt is unchanged. */
+  attackAnchors?: boolean;
+}
+
+/** t/388: the attack-anchor instruction for the plan prompt. Returns '' when the flag is off. */
+function attackAnchorsBlock(on: boolean | undefined): string {
+  if (!on) return '';
+  return `=== ATTACK ANCHORS ===\nWhen an ATTACK hits one of YOUR OWN argument_structure claims, end it with "targeting node <taxonomy_anchor>", where <taxonomy_anchor> is that claim's taxonomy_anchor, written exactly, as the last thing in the item. Example: "ATTACK: <objection> targeting node <taxonomy_anchor>". Use only an anchor that appears in your own argument_structure. If the attack hits none of your claims, omit the phrase. An ASSUMPTION takes no anchor.\n\n`;
+}
+
+/** t/388: the steelman references block for the plan prompt. Returns '' when none are offered. */
+function steelmanRefsBlock(refs: OpeningStagePromptInput['steelmanRefsOffered']): string {
+  if (!refs || refs.length === 0) return '';
+  const lines = refs.map(r => `  [${r.id}] (steelman of ${r.steelman_of}): ${r.text}`).join('\n');
+  return `=== STEELMAN REFERENCES ===\n${lines}\nWhen an ATTACK answers one of these steelmen, write it as "ATTACK [<id>]: ..." using an id from this list. Never invent an id. If none fits, write a plain "ATTACK: ...".\n\n`;
 }
 
 export function briefOpeningStagePrompt(input: OpeningStagePromptInput): string {
@@ -154,7 +173,7 @@ ANTICIPATED CHALLENGES - forecast where you are actually vulnerable, not where y
   that objection rather than inventing a weaker one. It is the strongest known attack on the
   node; anticipate it, don't dodge it.
 
-Respond ONLY with a JSON object (no markdown, no code fences):
+${steelmanRefsBlock(input.steelmanRefsOffered)}${attackAnchorsBlock(input.attackAnchors)}Respond ONLY with a JSON object (no markdown, no code fences):
 {
   "strategic_goal": "1-2 sentences: what your opening should accomplish",
   "core_thesis": "1 sentence: your central claim in this debate",
@@ -168,6 +187,12 @@ Respond ONLY with a JSON object (no markdown, no code fences):
   ],
   "anticipated_challenges": ["ATTACK: <strongest specific objection an opponent will raise, naming the node/claim/assumption it targets>", "ASSUMPTION: <a load-bearing premise of your position you are exposing, and why it is contestable>"]
 }`;
+}
+
+// t/284 item 3: inquiry openings state their answer to the user's literal question first.
+function anchorQuestionBlock(question: string | undefined): string {
+  if (!question) return '';
+  return `=== THE QUESTION ===\nThe user asked: "${question}"\nThe first sentence of your statement must state your answer to that question. Every later paragraph must tie back to it.\n\n`;
 }
 
 export function draftOpeningStagePrompt(input: OpeningStagePromptInput, brief: string, plan: string): string {
@@ -197,7 +222,7 @@ ${brief}
 === YOUR ARGUMENT PLAN ===
 ${plan}
 ${input.narrativeVoicing ? `${input.narrativeVoicing}\n` : ''}
-${input.userSeedClaims && input.userSeedClaims.length > 0 ? `=== USER-STATED POSITIONS ===\nThe user framed this debate with the following positions. Engage with these directly — state which you agree with, which you challenge, and why. Reference their IDs in your claim_sketches targets.\n${input.userSeedClaims.map(c => `- [${c.id}] ${c.text}`).join('\n')}\n\n` : ''}=== YOUR ASSIGNMENT ===
+${input.userSeedClaims && input.userSeedClaims.length > 0 ? `=== USER-STATED POSITIONS ===\nThe user framed this debate with the following positions. Engage with these directly — state which you agree with, which you challenge, and why. Reference their IDs in your claim_sketches targets.\n${input.userSeedClaims.map(c => `- [${c.id}] ${c.text}`).join('\n')}\n\n` : ''}${anchorQuestionBlock(input.anchorQuestion)}=== YOUR ASSIGNMENT ===
 Deliver your opening statement as ${input.label} — stay in character. Frame the issue from your perspective and establish your core argument. Be specific, substantive, and persuasive.
 ${hasDocument ? documentInstructions : ''}
 ${input.isFirst ? 'You are delivering the first opening statement.' : `You have read the prior opening statements. Before introducing your own position, show that you understand the strongest version of each prior speaker's argument — not just acknowledge it, but articulate why it's compelling. Then identify where your evidence leads in a different direction. Name the specific tension: what would have to be true for both positions to hold? Strong openings surface the real disagreement, not just assert the opposite.

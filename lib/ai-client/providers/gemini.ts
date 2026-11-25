@@ -75,6 +75,24 @@ function parseUrlContextMetadata(candidate: Record<string, unknown>): UrlContext
   };
 }
 
+/** Gemini's usageMetadata as the API sends it (camelCase). Both the streaming and non-streaming paths read it. */
+interface GeminiUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  cachedContentTokenCount?: number;
+  totalTokenCount?: number;
+}
+
+/** Maps Gemini's usageMetadata to the ProviderResult usage shape (t/494: shared by the streaming path). */
+function toUsage(um: GeminiUsageMetadata | undefined): ProviderResult['usage'] {
+  return um ? {
+    promptTokens: um.promptTokenCount,
+    completionTokens: um.candidatesTokenCount,
+    cachedTokens: um.cachedContentTokenCount,
+    totalTokens: um.totalTokenCount,
+  } : undefined;
+}
+
 export async function generateViaGemini(
   fetchFn: FetchFn,
   prompt: string,
@@ -160,13 +178,7 @@ export async function generateViaGemini(
         id: `gemini-tc-${i}`,
       }))
     : undefined;
-  const um = json.usageMetadata;
-  const usage = um ? {
-    promptTokens: um.promptTokenCount,
-    completionTokens: um.candidatesTokenCount,
-    cachedTokens: um.cachedContentTokenCount,
-    totalTokens: um.totalTokenCount,
-  } : undefined;
+  const usage = toUsage(json.usageMetadata);
   const urlContextMetadata = parseUrlContextMetadata(candidate);
   // finishReason lives on the candidate (e.g. "STOP", "MAX_TOKENS", "SAFETY"); typed unknown here.
   const rawStopReason = typeof candidate.finishReason === 'string' ? candidate.finishReason : undefined;
@@ -231,6 +243,7 @@ export async function generateViaGeminiStream(
   }
 
   const chunks: string[] = [];
+  let usageMeta: GeminiUsageMetadata | undefined;
   let urlContextMetadata: UrlContextMetadata | undefined;
   // The finishReason arrives on the FINAL SSE chunk (and Gemini can emit MAX_TOKENS with empty
   // parts), so track the last non-empty value seen across chunks rather than any single chunk's.
@@ -240,12 +253,17 @@ export async function generateViaGeminiStream(
 
   const processPayload = (payload: string): void => {
     if (!payload || payload === '[DONE]') return;
-    let parsed: { candidates?: (Record<string, unknown> & { content?: { parts?: { text?: string }[] } })[] };
+    let parsed: {
+      candidates?: (Record<string, unknown> & { content?: { parts?: { text?: string }[] } })[];
+      usageMetadata?: GeminiUsageMetadata;
+    };
     try {
       parsed = JSON.parse(payload);
     } catch {
       return;
     }
+    // t/494: Gemini reports cumulative usageMetadata; the last one seen (the final chunk) is the call's usage.
+    if (parsed.usageMetadata) usageMeta = parsed.usageMetadata;
     const candidate = parsed.candidates?.[0];
     if (!candidate) return;
     const text = candidate.content?.parts
@@ -280,7 +298,13 @@ export async function generateViaGeminiStream(
     reader.releaseLock();
   }
 
-  return { text: chunks.join(''), urlContextMetadata, stopReason: normalizeStopReason(rawStopReason), rawStopReason };
+  return {
+    text: chunks.join(''),
+    usage: toUsage(usageMeta),
+    urlContextMetadata,
+    stopReason: normalizeStopReason(rawStopReason),
+    rawStopReason,
+  };
 }
 
 export function mapGeminiError(status: number, bodyText: string): ActionableError {

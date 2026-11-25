@@ -94,7 +94,29 @@ jobs:
                   const policies = await github.paginate(github.rest.repos.listDeploymentBranchPolicies, { owner, repo, environment_name: name });
                   policyCount = policies.length;
                 }
-                envs.push({ name, deploymentBranchPolicy, policyCount });
+                const envEntry = { name, deploymentBranchPolicy, policyCount };
+
+                // t/4958: a policy-less environment might mint no credential at all (0 secrets,
+                // 0 variables) -- a branch policy would restrict nothing there, so it's reported
+                // as informational, not a failing gap. Only looked up here, not for every
+                // environment, since it's only ever consulted when there's no effective policy.
+                const hasNoEffectivePolicy =
+                  deploymentBranchPolicy == null ||
+                  (deploymentBranchPolicy.custom_branch_policies && policyCount === 0) ||
+                  (!deploymentBranchPolicy.custom_branch_policies && !deploymentBranchPolicy.protected_branches);
+                if (hasNoEffectivePolicy) {
+                  try {
+                    const [secretsResp, variablesResp] = await Promise.all([
+                      github.request('GET /repos/{owner}/{repo}/environments/{environment_name}/secrets', { owner, repo, environment_name: name }),
+                      github.request('GET /repos/{owner}/{repo}/environments/{environment_name}/variables', { owner, repo, environment_name: name }),
+                    ]);
+                    envEntry.secretsCount = secretsResp.data.total_count;
+                    envEntry.variablesCount = variablesResp.data.total_count;
+                  } catch (err) {
+                    envEntry.countsError = String(err && err.message ? err.message : err);
+                  }
+                }
+                envs.push(envEntry);
               }
 
               const result = evaluateAll(envs);

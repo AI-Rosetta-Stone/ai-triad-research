@@ -126,6 +126,12 @@ export interface FormatContextConfig {
    */
   debateGroundingOverrides?: Map<string, string>;
   /**
+   * Per-node statement text (t/348 chat cap). When it returns a string for a node, that text replaces
+   * the node's description in the prompt line. Absent or undefined = unchanged default. Takes precedence over
+   * debateGroundingOverrides for that node. Never description or plain_description (TL p/140#24).
+   */
+  statementFor?: (nodeId: string) => string | undefined;
+  /**
    * Tagged node IDs with their selection mode (t/3996, chat Prioritize path).
    * When mode is 'prioritize': tagged nodes sort first within each BDI category
    * (secondary to nodeScores when both are present) and receive a ▲ prefix —
@@ -215,6 +221,29 @@ function nodeWeightLabel(node: PovNode, category: string): string {
 }
 
 /** Format taxonomy nodes into a BDI-structured context block for the LLM prompt */
+/**
+ * t/348: when statementFor is set, a node is rendered with its statement or not at all. An unresolved
+ * node is omitted and WARNed, so description and debate_grounding never leak through the hook.
+ */
+function statementOrOmit(n: PovNode, cfg: FormatContextConfig): string | undefined {
+  const text = cfg.statementFor?.(n.id);
+  if (text === undefined) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'warn', message: `statementFor returned no statement for ${n.id}; node omitted from the prompt (t/348)` });
+  }
+  return text;
+}
+
+/** RETRIEVED line text (t/348): with statementFor set, the same statement-or-omit rule; otherwise description, unchanged. */
+function retrievedLineText(n: PovNode, cfg: FormatContextConfig): string | undefined {
+  return cfg.statementFor ? statementOrOmit(n, cfg) : n.description;
+}
+
+/** POV line text (t/348, t/3366). Without statementFor: debate_grounding, else description (unchanged default). */
+function nodePromptText(n: PovNode, cfg: FormatContextConfig): string | undefined {
+  if (cfg.statementFor) return statementOrOmit(n, cfg);
+  return cfg.debateGroundingOverrides?.get(n.id) ?? n.description;
+}
+
 export function formatTaxonomyContext(ctx: TaxonomyContext, pov: string, maxNodes?: number, config?: FormatContextConfig): string {
   const cfg = config ?? {};
   const limit = cfg.maxNodes ?? maxNodes ?? 50;
@@ -328,9 +357,11 @@ export function formatTaxonomyContext(ctx: TaxonomyContext, pov: string, maxNode
       const prefix = isTagged ? '▲ ' : (hasScores && i < PRIMARY_COUNT ? '★ ' : '  ');
 
       if (isPrimary) {
+        const text = nodePromptText(n, cfg);
+        if (text === undefined) continue;
         const weightLabel = nodeWeightLabel(n, cat);
         lines.push(`${prefix}[${n.id}]${weightLabel}`);
-        lines.push(`  "${n.label}" — ${stripExcludes(cfg.debateGroundingOverrides?.get(n.id) ?? n.description)}`);
+        lines.push(`  "${n.label}" — ${stripExcludes(text)}`);
         const sv = n.graph_attributes?.steelman_vulnerability;
         if (sv) {
           const svText = typeof sv === 'string' ? sv : Object.values(sv).filter(Boolean).join(' | ');
@@ -376,10 +407,12 @@ export function formatTaxonomyContext(ctx: TaxonomyContext, pov: string, maxNode
     lines.push('They are candidate evidence — evaluate them critically; do not treat as personal grounding.');
     lines.push('');
     for (const n of retrievedNodes) {
+      const text = retrievedLineText(n, cfg);
+      if (text === undefined) continue;
       const vs = n.graph_attributes?.verification_status ?? 'unverified';
       const weightLabel = nodeWeightLabel(n, n.category || 'Beliefs');
       lines.push(`  [${n.id}]${weightLabel} (${vs})`);
-      lines.push(`  "${n.label}" — ${stripExcludes(n.description)}`);
+      lines.push(`  "${n.label}" — ${stripExcludes(text)}`);
     }
     lines.push('');
   }

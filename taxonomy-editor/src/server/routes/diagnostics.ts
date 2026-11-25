@@ -20,7 +20,7 @@ import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { getStateRoot, getProjectRoot, STORAGE_MODE } from '../config.js';
+import { getStateRoot, getProjectRoot, STORAGE_MODE, isEmbeddingWorkerOffloadEnabled } from '../config.js';
 import { writeDump, isValidDumpId, readMergedDump } from '../flightRecorderDumps.js';
 import { escapeForInlineScript } from '../flightRecorderViewer.js';
 import { clientSafeMessage } from '../security/accessControl.js';
@@ -30,6 +30,7 @@ import { getRequestId } from '../logger.js';
 import { log } from '../logger.js';
 import * as fileIO from '../storage/fileIO.js';
 import { getWarmupStatus, computeEmbedding } from '../../../../lib/embeddings/onnxEmbedding.js';
+import { computeEmbeddingsOffThread } from '../../../../lib/embeddings/offThreadEmbedding.js';
 import { tagSoulFileName } from '../../../../lib/schema/povTags.js';
 
 /**
@@ -392,14 +393,20 @@ document.addEventListener('DOMContentLoaded', function() {
   // No-auth endpoint: fast-fails on cached warmup status, then runs a 1-vector
   // self-test (compute one embedding, assert 384-dim non-empty). Does NOT gate
   // /healthz — embedding failure is degraded-but-non-fatal.
+  // t/520: with the offload on, the worker owns the only ONNX session, so the self-test runs there; the
+  // main-thread warmup status does not apply (boot no longer warms the main thread), and computing on the main
+  // thread would load a second session. Same response shape either way.
   get('/api/health/embeddings', async (_req, res) => {
+    const offload = isEmbeddingWorkerOffloadEnabled();
     const status = getWarmupStatus();
-    if (!status.ready) {
+    if (!offload && !status.ready) {
       json(res, { ok: false, error: status.error ?? 'not ready' }, 503);
       return;
     }
     try {
-      const vector = await computeEmbedding('health check');
+      const vector = offload
+        ? Array.from((await computeEmbeddingsOffThread(['health check'], { requester: 'health' }))[0] ?? [])
+        : await computeEmbedding('health check');
       const dims = vector.length;
       if (dims !== 384) {
         json(res, { ok: false, error: `unexpected embedding dims: ${dims}` }, 503);

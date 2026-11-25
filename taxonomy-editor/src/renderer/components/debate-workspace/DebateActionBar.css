@@ -12,10 +12,10 @@
   align-items: center;
   gap: 8px;
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: var(--error-text);
   margin-bottom: 8px;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  background: var(--error-bg);
   border-radius: var(--radius-md);
 }
 .debate-error-text {
@@ -56,10 +56,10 @@
   align-items: center;
   gap: 8px;
   font-size: var(--text-xs);
-  color: var(--warning, #e6a700);
+  color: var(--warning-text);
   margin-bottom: 8px;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--warning, #e6a700) 8%, transparent);
+  background: var(--warning-bg);
   border-radius: var(--radius-md);
 }
 .debate-daily-limit-text {
@@ -430,9 +430,10 @@
   color: var(--text-on-focus-ring, #fff);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring, #3b82f6) 20%, transparent);
 }
+/* t/190 (Design, S13 green): a fixed fill that carries the white check in every theme (5.02). */
 .session-step.completed .session-step-dot {
-  border-color: #10b981;
-  background: #10b981;
+  border-color: #15803d;
+  background: #15803d;
   color: #fff;
 }
 .session-step-label {
@@ -469,16 +470,16 @@
   border-left: 4px solid;
 }
 .phase-transition-synthesis {
-  border-left-color: #10b981;
-  background: rgba(16, 185, 129, 0.06);
+  border-left-color: var(--success-text);
+  background: var(--success-bg);
 }
 .phase-transition-regression {
-  border-left-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.06);
+  border-left-color: var(--warning-border);
+  background: var(--warning-bg);
 }
 .phase-transition-commit {
-  border-left-color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.06);
+  border-left-color: var(--violet-text);
+  background: var(--violet-bg);
 }
 .phase-transition-header {
   display: flex;
@@ -491,18 +492,18 @@
   font-size: var(--text-sm);
   letter-spacing: 2px;
 }
-.phase-transition-synthesis .phase-transition-icon { color: #10b981; }
-.phase-transition-regression .phase-transition-icon { color: #f59e0b; }
-.phase-transition-commit .phase-transition-icon { color: #8b5cf6; }
+.phase-transition-synthesis .phase-transition-icon { color: var(--success-text); }
+.phase-transition-regression .phase-transition-icon { color: var(--warning-text); }
+.phase-transition-commit .phase-transition-icon { color: var(--violet-text); }
 .phase-transition-label {
   font-size: var(--text-sm);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.phase-transition-synthesis .phase-transition-label { color: #10b981; }
-.phase-transition-regression .phase-transition-label { color: #f59e0b; }
-.phase-transition-commit .phase-transition-label { color: #8b5cf6; }
+.phase-transition-synthesis .phase-transition-label { color: var(--success-text); }
+.phase-transition-regression .phase-transition-label { color: var(--warning-text); }
+.phase-transition-commit .phase-transition-label { color: var(--violet-text); }
 .phase-transition-content {
   font-size: var(--text-sm);
   line-height: 1.5;
@@ -572,22 +573,11 @@
   color: var(--bg-primary);
 }
 
+/* t/190 (Design, S13 green): fixed in every theme, so bkc no longer needs its dark-glyph override. */
 .unified-phase-step.completed .unified-phase-dot {
-  border-color: var(--success);
-  background: var(--success);
+  border-color: #15803d;
+  background: #15803d;
   color: #fff;
-}
-
-/*
- * bkc's `--success` is neon (#00ff4c, luminance 0.72), so the white checkmark
- * above lands at ~1.4:1 — effectively invisible. Dark-on-neon instead gives
- * ~12:1. The other three themes keep the white glyph, which their darker greens
- * carry. Caught auditing the flag-on path before DEBATE_CHAT_REDESIGN defaults
- * ON (t/2257); the theme-aware token is otherwise an improvement over the
- * hardcoded #10b981 this replaced — it is only bkc that inverts.
- */
-[data-theme="bkc"] .unified-phase-step.completed .unified-phase-dot {
-  color: #1f1f1f;
 }
 
 .unified-phase-label {

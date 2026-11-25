@@ -66,6 +66,11 @@ const FIELD_EXEMPTIONS: Record<string, { engineRequired: boolean; rendererRequir
     rendererRequired: true,
     note: 'BUG t/4007: engine wiring pending. Renderer side landed (t/3975). Remove this exemption when t/4007 lands',
   },
+  attackAnchors: {
+    engineRequired: true,
+    rendererRequired: false,
+    note: 'intentional for now: default-off experiment flag (config.planAttackAnchors, t/388#47). The renderer sets it only if the flag is turned on for the desktop path; remove this exemption then',
+  },
   opponentSouls: {
     engineRequired: false,
     rendererRequired: true,

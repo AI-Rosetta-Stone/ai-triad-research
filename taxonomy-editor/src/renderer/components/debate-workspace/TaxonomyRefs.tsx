@@ -8,14 +8,14 @@ import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import { humanizeSpeakerIds } from '../../utils/humanizeSpeakers';
 import {
-  nodeIdToTab, getNodeLabel, focusMainWindowNode,
+  nodeIdToTab, getNodeLabel,
   buildExplainPrompt, buildSelectionExplainPrompt, fixMarkdownLinks, resolvePolRef, getPolicyAction,
 } from './utils';
 import type { PolicyRefEntry } from './utils';
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
-import { normalizeAnticipatedItem, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type WarnFn } from './claimMap';
+import { normalizeAnticipatedItem, parseLenses, parseWorkProduct, stripLeadingVerb, type ParsedAssumption, type ParsedAttack, type ParsedClaim, type ParsedLens, type SteelmanContext, type WarnFn } from './claimMap';
 import { ExplainPanel } from './ExplainPanel';
 import { registerExplainTarget } from './explainRequestBus';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -60,41 +60,6 @@ export function CoverageBadge({ coverageMap, strengthWeighted }: { coverageMap: 
     </span>
   );
 }
-
-export function TaxonomyPill({ taxRef, onSelect, selected }: {
-  taxRef: TaxonomyRef;
-  /** When provided, a click toggles inline selection instead of navigating to the main window (t/1724 pattern). */
-  onSelect?: (nodeId: string) => void;
-  selected?: boolean;
-}) {
-  const { colorVar } = nodeIdToTab(taxRef.node_id);
-  const label = getNodeLabel(taxRef.node_id);
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onSelect) onSelect(taxRef.node_id);
-    else focusMainWindowNode(taxRef.node_id);
-  };
-
-  const scoreLabel = taxRef.relevance_score != null
-    ? ` (${taxRef.relevance_score.toFixed(2)})`
-    : '';
-  const primaryMarker = taxRef.primary ? '★ ' : '';
-
-  return (
-    <span
-      className={`debate-taxonomy-pill debate-taxonomy-pill-clickable${taxRef.primary ? ' debate-taxonomy-pill-primary' : ''}${selected ? ' debate-taxonomy-pill-selected' : ''}`}
-      // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-      style={{ borderColor: colorVar, color: colorVar }}
-      title={`${primaryMarker}${label}${scoreLabel}\n${taxRef.relevance}`}
-      aria-pressed={onSelect ? selected === true : undefined}
-      onClick={handleClick}
-    >
-      {primaryMarker}{taxRef.node_id}{scoreLabel}
-    </span>
-  );
-}
-
 
 function CaveatsBox({ caveats }: { caveats: string[] }) {
   const qualityCaveats = caveats.filter(c => !c.startsWith('[Ungrounded]'));
@@ -322,13 +287,37 @@ interface ClaimMapLayoutProps {
   stage?: string;
   camp?: string; // the speaker's camp, e.g. SKEPTIC
   motion?: string; // the session motion; the line is omitted when absent
+  steelmanCtx?: SteelmanContext; // the debate's steelman nodes, for tagged attacks (t/388)
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-/** NLI verdict when a check has run; otherwise the attack is not yet verified. */
+/** t/388: a linked steelman shows its own text and verdict on the attack card. Without one the
+ *  attack reads as Unverified and shows its own challenge text. */
+function attackText(attack: ParsedAttack): string {
+  return attack.steelman ? attack.steelman.text : attack.text;
+}
+
 function attackStatus(attack: ParsedAttack): string {
-  return attack.verificationStatus && attack.verificationStatus !== 'not yet checked' ? attack.verificationStatus : 'Unverified';
+  const verdict = attack.steelman?.verdict;
+  if (verdict === 'faithful') return 'Faithful to target';
+  if (verdict === 'diverges') return 'Misrepresents target';
+  return 'Unverified';
+}
+
+/** The verdict pill, plus the steelman's node id once the tag has resolved to a real node (Design p/14#91).
+ *  A tag that resolves to nothing shows no id (TL p/11#53). */
+function AttackFooter({ attack }: { attack: ParsedAttack }) {
+  return (
+    <div className="claim-map-attack-footer">
+      <span className="claim-map-attack-status">{attackStatus(attack)}</span>
+      {attack.steelman && attack.steelmanId && <span className="claim-map-attack-id">{attack.steelmanId}</span>}
+    </div>
+  );
+}
+
+function attackEyebrowSuffix(attack: ParsedAttack): string {
+  return attack.steelman ? ` · STEELMAN OF THE ${attack.steelman.camp.toUpperCase()}` : '';
 }
 
 // Every item the claim map skips is logged, so the fallback is never silent.
@@ -367,13 +356,7 @@ function ClaimMapHeader({ eyebrow, counts, coreThesis, strategicGoal, motion }: 
   );
 }
 
-function ClaimMapLenses({ framingChoices }: { framingChoices: unknown }) {
-  const lenses = Array.isArray(framingChoices)
-    ? (framingChoices as { frame?: unknown; why?: unknown }[]).map(fc => ({
-      title: fc.frame ? String(fc.frame) : '',
-      why: fc.why ? String(fc.why) : undefined,
-    }))
-    : [{ title: String(framingChoices), why: undefined }];
+function ClaimMapLenses({ lenses }: { lenses: ParsedLens[] }) {
   return (
     <ul className="claim-map-lenses">
       {lenses.map((lens, i) => (
@@ -414,11 +397,9 @@ function ClaimMapRow({ claim, selectedPlanNodeId, setSelectedPlanNodeId }: {
       <div className="claim-map-attack-col" role="group" aria-label={claim.attack ? `Attack on C${claim.index}` : `No attack mapped to C${claim.index}`}>
         {claim.attack ? (
           <div className="claim-map-attack-card">
-            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}</div>
-            <p className="claim-map-attack-text">{claim.attack.text}</p>
-            <div className="claim-map-attack-footer">
-              <span className="claim-map-attack-status">{attackStatus(claim.attack)}</span>
-            </div>
+            <div className="claim-map-attack-eyebrow">← ATTACK ON C{claim.index}{attackEyebrowSuffix(claim.attack)}</div>
+            <p className="claim-map-attack-text">{attackText(claim.attack)}</p>
+            <AttackFooter attack={claim.attack} />
           </div>
         ) : (
           <div className="claim-map-no-attack">
@@ -461,10 +442,10 @@ function ClaimMapArgument({ claims, unmappedAttacks, selectedPlanNodeId, setSele
             <div key={i} className="claim-map-unmapped-row">
               <div className="claim-map-unmapped-label">Unmapped attack</div>
               <div className="claim-map-attack-card">
-                <p className="claim-map-attack-text">{attack.text}</p>
-                <div className="claim-map-attack-footer">
-                  <span className="claim-map-attack-status">{attackStatus(attack)}</span>
-                </div>
+                {/* t/388: an unmapped attack names no claim, so its eyebrow is only the steelman label. Without it the steelman's text would read as the attack. */}
+                {attack.steelman && <div className="claim-map-attack-eyebrow">STEELMAN OF THE {attack.steelman.camp.toUpperCase()}</div>}
+                <p className="claim-map-attack-text">{attackText(attack)}</p>
+                <AttackFooter attack={attack} />
               </div>
             </div>
           ))}
@@ -536,27 +517,29 @@ function LegacyPlanView({ wp, selectedPlanNodeId, setSelectedPlanNodeId }: {
 }
 
 // Zero terms are left out. No "verified" term until verification is wired (t/388).
-function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number): string {
+// Zero terms are left out, verified included: only a steelman with a verdict counts (t/388).
+function claimMapCounts(claimCount: number, attackCount: number, assumptionCount: number, verifiedCount: number): string {
   return [
     claimCount > 0 && plural(claimCount, 'claim'),
     attackCount > 0 && plural(attackCount, 'attack'),
     assumptionCount > 0 && plural(assumptionCount, 'assumption'),
+    verifiedCount > 0 && `${verifiedCount} verified`,
   ].filter(Boolean).join(' · ');
 }
 
-function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
-  const { claims, unmappedAttacks, assumptions } = useMemo(() => parseWorkProduct(wp, warnClaimMap), [wp]);
+function ClaimMapLayout({ wp, stage = '', camp, motion, steelmanCtx, selectedPlanNodeId, setSelectedPlanNodeId }: ClaimMapLayoutProps) {
+  const { claims, unmappedAttacks, assumptions, verifiedAttacks } = useMemo(() => parseWorkProduct(wp, warnClaimMap, steelmanCtx), [wp, steelmanCtx]);
 
   const coreThesis = wp.core_thesis ? String(wp.core_thesis) : '';
   const strategicGoal = wp.strategic_goal ? String(wp.strategic_goal) : '';
-  const framingChoices = wp.framing_choices;
+  const lenses = useMemo(() => parseLenses(wp.framing_choices, warnClaimMap), [wp]);
 
   if (!coreThesis && !strategicGoal) {
     return <LegacyPlanView wp={wp} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />;
   }
 
   const totalAttacks = claims.filter(c => c.attack).length + unmappedAttacks.length;
-  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length);
+  const counts = claimMapCounts(claims.length, totalAttacks, assumptions.length, verifiedAttacks);
 
   return (
     <div className="claim-map-layout">
@@ -569,8 +552,8 @@ function ClaimMapLayout({ wp, stage = '', camp, motion, selectedPlanNodeId, setS
           motion={motion}
         />
       </SectionErrorBoundary>
-      {!!framingChoices && (
-        <SectionErrorBoundary section="Lenses"><ClaimMapLenses framingChoices={framingChoices} /></SectionErrorBoundary>
+      {lenses.length > 0 && (
+        <SectionErrorBoundary section="Lenses"><ClaimMapLenses lenses={lenses} /></SectionErrorBoundary>
       )}
       {claims.length > 0 && (
         <SectionErrorBoundary section="Argument">
@@ -605,6 +588,12 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry 
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
   const motion = useDebateStore(s => motionForEntry(s.activeDebate, entry?.id));
+  // t/388: the debate's argument-network nodes, so a tagged attack can resolve its steelman.
+  const networkNodes = useDebateStore(s => s.activeDebate?.argument_network?.nodes);
+  const steelmanCtx = useMemo<SteelmanContext>(
+    () => ({ nodes: networkNodes ?? [], entryId: entry?.id, speaker: entry?.speaker ?? '' }),
+    [networkNodes, entry?.id, entry?.speaker],
+  );
   const wp = planStage.work_product as Record<string, unknown>;
   if (!wp || Object.keys(wp).length === 0) {
     return <Markdown remarkPlugins={[remarkGfm]}>{fixMarkdownLinks(planStage.raw_response)}</Markdown>;
@@ -621,6 +610,7 @@ function PlanBody({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, entry 
           stage={entry?.type === 'opening' ? 'opening plan' : planStage.stage}
           camp={entry?.speaker}
           motion={motion}
+          steelmanCtx={steelmanCtx}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
         />
@@ -653,13 +643,18 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId, ent
   );
 }
 
+/** t/472: disclosure caret in front of an entry id. Decoration only; the button's aria-expanded carries the state. */
+function EntryCaret({ open }: { open: boolean }) {
+  return <span className="debate-reasoning-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>;
+}
+
 function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   taxRef: TaxonomyRef;
   selectedBdiNodeId: string | null;
   toggleBdiNode: (nodeId: string) => void;
 }) {
   // A ref may carry its own label (Chat's read-time backfill, t/282); otherwise resolve from the
-  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the pill already
+  // taxonomy. getNodeLabel() returns the bare id when the node doesn't resolve, and the row's button already
   // shows that id, so a missing label is rendered as text rather than repeating the id (Design).
   const resolved = getNodeLabel(taxRef.node_id);
   const isMissing = !taxRef.label && resolved === taxRef.node_id;
@@ -667,17 +662,24 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   // Only claim a node is gone once the taxonomy has loaded; while loading, show no label.
   const taxonomyLoaded = useTaxonomyStore(s => s.accelerationist !== null && s.safetyist !== null && s.skeptic !== null && s.situations !== null);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
+  const open = selectedBdiNodeId === taxRef.node_id;
   return (
-    <div className="debate-reasoning-item">
-      <button
-        className="debate-reasoning-node"
-        // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
-        style={{ color: colorVar }}
-        aria-expanded={selectedBdiNodeId === taxRef.node_id}
-        onClick={() => toggleBdiNode(taxRef.node_id)}
-      >
-        {taxRef.node_id}
-      </button>
+    // t/472 (Design p/14#76): the open entry is marked by a caret and a left rule in its POV colour, not by colour alone.
+    // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
+    <div className={`debate-reasoning-item${open ? ' debate-reasoning-item--open' : ''}`} style={open ? { borderLeftColor: colorVar } : undefined}>
+      {/* t/472: the chip row above each group is gone. Its primary marker sits beside the id; its relevance score is not shown (PI decision, p/6#150). Entries stay sorted by it. */}
+      <div className="debate-reasoning-head">
+        {taxRef.primary && <span className="debate-reasoning-primary" title="Primary reference" aria-label="Primary reference">★</span>}
+        <button
+          className="debate-reasoning-node"
+          // eslint-disable-next-line local/no-inline-style -- dynamic POV color from nodeIdToTab
+          style={{ color: colorVar }}
+          aria-expanded={open}
+          onClick={() => toggleBdiNode(taxRef.node_id)}
+        >
+          <EntryCaret open={open} />{taxRef.node_id}
+        </button>
+      </div>
       {isMissing
         ? taxonomyLoaded && <span className="debate-reasoning-label debate-reasoning-label--missing">No longer in the taxonomy</span>
         : <span className="debate-reasoning-label">{label}</span>}
@@ -728,11 +730,6 @@ function BdiGroup({ label, refs, selectedBdiNodeId, toggleBdiNode }: {
   return (
     <div className="taxrefs-bdi-group" role="group" aria-label={`${label}, ${refs.length} node${refs.length === 1 ? '' : 's'}`}>
       <div className="taxrefs-bdi-group-label">{label} ({refs.length})</div>
-      <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {refs.map((taxRef) => (
-          <TaxonomyPill key={taxRef.node_id} taxRef={taxRef} onSelect={toggleBdiNode} selected={selectedBdiNodeId === taxRef.node_id} />
-        ))}
-      </div>
       {refs.map((taxRef) => (
         <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
       ))}
@@ -748,32 +745,16 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
   return (
     <div className="taxrefs-policy-refs" role="group" aria-label={`Policy actions, ${polRefs.length} ${polRefs.length === 1 ? 'action' : 'actions'}`}>
       <div className="taxrefs-bdi-group-label">Policy actions ({polRefs.length})</div>
-      <div className="debate-taxonomy-refs taxrefs-refs-mb">
-        {polRefs.map((polRef, i) => {
-          const { id } = resolvePolRef(polRef);
-          return (
-            <span
-              key={`${id}-${i}`}
-              className={`debate-taxonomy-pill debate-taxonomy-pill-clickable taxrefs-pol-pill${selectedBdiNodeId === id ? ' debate-taxonomy-pill-selected' : ''}`}
-              title={getPolicyAction(id)}
-              aria-pressed={selectedBdiNodeId === id}
-              onClick={(e) => { e.stopPropagation(); toggleBdiNode(id); }}
-            >
-              {id}
-            </span>
-          );
-        })}
-      </div>
       {polRefs.map((polRef, i) => {
         const { id, relevance } = resolvePolRef(polRef);
         return (
-          <div key={`${id}-${i}`} className="debate-reasoning-item">
+          <div key={`${id}-${i}`} className={`debate-reasoning-item${selectedBdiNodeId === id ? ' debate-reasoning-item--open taxrefs-item-sit' : ''}`}>
             <button
               className="debate-reasoning-node taxrefs-node-sit"
               aria-expanded={selectedBdiNodeId === id}
               onClick={() => toggleBdiNode(id)}
             >
-              {id}
+              <EntryCaret open={selectedBdiNodeId === id} />{id}
             </button>
             <span className="debate-reasoning-label">{getPolicyAction(id)}</span>
             <span className="debate-reasoning-text">{relevance ?? "Policy action referenced by this debater's argument"}</span>
@@ -785,7 +766,7 @@ function PolicyRefsBlock({ polRefs, selectedBdiNodeId, toggleBdiNode }: {
 }
 
 /**
- * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
+ * The BDI grounding content: per-node entries, and the inline POV detail when a ref is
  * clicked. t/187: grouped Desires → Intentions → Beliefs (→ Situations), policy refs last. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
  * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
  * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).

@@ -467,6 +467,16 @@ async function streamGeminiChat(
 
   let fullText = '';
   let urlContextMetadata: UrlContextMetadata | undefined;
+  // t/491: the provider's stop reason, normalized ('stop' is the only finished answer), and Gemini's raw token.
+  let stopReason: string | undefined;
+  let rawStopReason: string | undefined;
+
+  // t/491 (TL t/491#7): ask Gemini for JSON output, so the reply parses (a raw newline inside the JSON string broke
+  // JSON.parse on hosted, t/167#30). Not with urlContext: a tool plus a JSON mime type may be refused, and checking
+  // that combination live is spend, so those requests keep today's behaviour, with a WARN. Takes effect once the
+  // lib's stream path honours jsonMode (t/542).
+  const jsonMode = !urlContext;
+  if (!jsonMode) log.server.warn({ urlContext }, 'chat-stream: JSON mode skipped because urlContext is on; the reply shape depends on the prompt (t/491)');
 
   try {
     const result = await generateViaGeminiStream(
@@ -477,6 +487,7 @@ async function streamGeminiChat(
       {
         timeoutMs: 120_000,
         temperature,
+        jsonMode,
         urlContext,
         geminiContents,
         systemMessage: systemInstruction || undefined,
@@ -487,6 +498,8 @@ async function streamGeminiChat(
       },
     );
     urlContextMetadata = result.urlContextMetadata;
+    stopReason = result.stopReason;
+    rawStopReason = result.rawStopReason;
   } catch (streamErr) {
     log.server.warn({ err: streamErr }, 'chat-stream: generateViaGeminiStream threw');
     writeSse(res, {
@@ -501,8 +514,42 @@ async function streamGeminiChat(
   if (urlContextMetadata) {
     writeSse(res, { type: 'chat-stream-url-metadata', urlContextMetadata });
   }
+  // t/491 (TL t/491#5): only a normal stop is a finished answer. Any other finish (max_tokens, a safety or
+  // recitation stop, an unrecognized reason) or none at all (the stream ended without a finish reason) is sent as
+  // an error, never as done, so no client saves a cut-off reply as an answer (t/167#29). No automatic retry: it
+  // costs a second call and a safety stop repeats; the user retries through the client's error path.
+  if (stopReason !== 'stop') {
+    writeReplyIncomplete(res, { stopReason, rawStopReason, partialText: fullText });
+    return;
+  }
   // t/4848: emit raw_prompt and raw_response for How panel
-  writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText });
+  writeSse(res, { type: 'done', fullText, raw_prompt: rawPrompt, raw_response: fullText, stop_reason: stopReason });
+}
+
+/** t/491: the SSE event for a reply that did not finish normally, in place of done. `message` is what the client
+ *  shows (bridge/chatStream.ts reads problem, then message); code, stop_reason and partialText are for later use.
+ *  Logged as a WARN and a flight-recorder event every time, with the raw finish reason and the length. */
+function writeReplyIncomplete(
+  res: http.ServerResponse,
+  { stopReason, rawStopReason, partialText }: { stopReason: string | undefined; rawStopReason: string | undefined; partialText: string },
+): void {
+  const reason = stopReason ?? 'none';
+  const chars = partialText.length;
+  log.server.warn({ stopReason: reason, rawStopReason: rawStopReason ?? null, chars }, `chat-stream: reply did not finish normally (finish reason ${rawStopReason ?? 'none'}); sent as REPLY_INCOMPLETE (t/491)`);
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'chat-stream', level: 'warn',
+    message: `chat-stream reply incomplete: finish reason ${rawStopReason ?? 'none'} (t/491)`,
+    data: { stop_reason: reason, raw_stop_reason: rawStopReason ?? null, chars },
+  });
+  writeSse(res, {
+    type: 'error',
+    code: 'REPLY_INCOMPLETE',
+    stop_reason: stopReason ?? null,
+    chars,
+    // Design (p/75#4): one plain message for every case; the raw reason stays in the log, not in front of the user.
+    message: 'The reply was cut off before it finished. Try again, or ask for a shorter answer.',
+    partialText,
+  });
 }
 
 /** Non-Gemini chat (t/2457 fallback + t/2483 app-fetch): optionally fetch-and-inject

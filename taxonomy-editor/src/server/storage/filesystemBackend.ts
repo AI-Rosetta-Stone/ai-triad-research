@@ -8,6 +8,7 @@ import type { StorageBackend, WriteIfAbsentResult } from './storageBackend.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { gitBlobSha } from './gitBlobSha.js';
+import { log } from '../logger.js';
 
 /** t/117: tail of the in-flight conditional-write chain per absolute path. Module-level so
  *  every FilesystemBackend instance in this process shares it. */
@@ -237,9 +238,8 @@ export class FilesystemBackend implements StorageBackend {
   }
 
   private async createExclusive(filePath: string, content: string): Promise<WriteIfAbsentResult> {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = `${filePath}.${randomUUID()}.create-tmp`;
-    await fs.writeFile(tmpPath, content, 'utf-8');
+    await this.prepareCreateTemp(filePath, tmpPath, content);
     try {
       await fs.link(tmpPath, filePath);
       return 'created';
@@ -252,7 +252,9 @@ export class FilesystemBackend implements StorageBackend {
           message: `writeFileIfAbsent: hard links unsupported (${code}), falling back to an exclusive 'wx' write: ${filePath}`,
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
-        return this.createWithExclusiveFlag(filePath, content);
+        // await here: a bare return hands back the promise while the finally below is still awaiting the
+        // temp-file unlink, and a rejection in that window is reported as unhandled (t/268).
+        return await this.createWithExclusiveFlag(filePath, content);
       }
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'filesystem-backend', level: 'error',
@@ -277,12 +279,63 @@ export class FilesystemBackend implements StorageBackend {
     }
   }
 
-  private async createWithExclusiveFlag(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+  /** t/268 item 2: the directory and temp-file steps of a conditional create. Their errno errors used to
+   *  escape raw, with no ActionableError and no recorder event. A temp file left half-written is removed. */
+  private async prepareCreateTemp(filePath: string, tmpPath: string, content: string): Promise<void> {
+    let step = 'mkdir';
     try {
-      await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      step = 'temp-file write';
+      await fs.writeFile(tmpPath, content, 'utf-8');
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'filesystem-backend', level: 'error',
+        message: `writeFileIfAbsent (${step}) failed: ${filePath}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      if (step !== 'mkdir') await this.removePartial(tmpPath, 'temp file');
+      throw new ActionableError({
+        goal: `Create ${filePath} only if absent`,
+        problem: `${step} failed with ${(err as NodeJS.ErrnoException).code ?? 'an unknown error'}: ${String(err)}`,
+        location: `FilesystemBackend.writeFileIfAbsent(${filePath})`,
+        nextSteps: ['Check the data directory exists, is writable and has free space', 'Retry the operation'],
+        innerError: err,
+      });
+    }
+  }
+
+  /** Best-effort removal of a file this call created and could not finish. A failure is logged, not thrown:
+   *  the caller is already reporting the original error. */
+  private async removePartial(target: string, what: string): Promise<void> {
+    await fs.unlink(target).catch((err) => {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      log.storage.warn({ target, err: String(err) }, `writeFileIfAbsent: could not remove a partial ${what}; a later create may report 'exists' for it (t/268)`);
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'filesystem-backend', level: 'warn',
+        message: `writeFileIfAbsent: could not remove a partial ${what}: ${target}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+    });
+  }
+
+  /** The exclusive-create fallback where hard links are unsupported. t/268 item 1: open and write are
+   *  separate steps, so we know whether this call created the file. If the open succeeds and the write
+   *  fails partway (ENOSPC), the truncated file is removed; left behind, every later call would report
+   *  'exists' for it. If the open itself fails, nothing was created and nothing is removed. */
+  private async createWithExclusiveFlag(filePath: string, content: string): Promise<WriteIfAbsentResult> {
+    let created = false;
+    try {
+      const handle = await fs.open(filePath, 'wx');
+      created = true;
+      try {
+        await handle.writeFile(content, 'utf-8');
+      } finally {
+        await handle.close();
+      }
       return 'created';
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return 'exists';
+      if (!created && (err as NodeJS.ErrnoException).code === 'EEXIST') return 'exists';
+      if (created) await this.removePartial(filePath, 'file');
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'filesystem-backend', level: 'error',
         message: `writeFileIfAbsent ('wx' fallback) failed: ${filePath}`,

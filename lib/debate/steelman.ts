@@ -15,6 +15,7 @@
 // the verdict shape persisted on the claim node so the UI can show it. Pure; no IO.
 
 import type { SpeakerId } from './types/phase.js';
+import type { ArgumentNetworkNode } from './types/argumentNetwork.js';
 
 export type CampId = Exclude<SpeakerId, 'user'>;
 
@@ -88,4 +89,24 @@ export function steelmanTargetLabel(raw: string | undefined, labelOf: (camp: Cam
   if (!raw) return null;
   const { target } = normalizeSteelmanTarget(raw, '');
   return target ? labelOf(target) : null;
+}
+
+/** A steelman AN node offered to a plan as an attack reference (t/388). */
+export interface SteelmanRefOffer { id: string; steelman_of: string; text: string }
+
+/**
+ * Steelman AN nodes from earlier entries that target a camp other than the speaker's (t/388).
+ * At plan time the current entry has no id and none of its nodes are minted, so every node with a
+ * source entry is from an earlier entry.
+ * Most recent first, capped at max.
+ */
+export function offeredSteelmanRefs(nodes: ArgumentNetworkNode[], speakerCamp: string, max = 6): SteelmanRefOffer[] {
+  const out: SteelmanRefOffer[] = [];
+  for (let i = nodes.length - 1; i >= 0 && out.length < max; i--) {
+    const n = nodes[i];
+    if (!n.steelman_of || n.steelman_of === speakerCamp) continue;
+    if (!n.source_entry_id) continue;
+    out.push({ id: n.id, steelman_of: n.steelman_of, text: n.text });
+  }
+  return out;
 }

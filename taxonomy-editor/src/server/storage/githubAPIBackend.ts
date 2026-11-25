@@ -100,6 +100,18 @@ export interface GitHubAPIBackendConfig {
   sharedOverlayState?: {
     store: SharedOverlayStore;
     forceActiveForTesting?: boolean;
+    /** t/549 (t/503 PR 1, interface only; used from t/550): the per-user commit lease, in the same
+     *  container as the store (one grant scope, t/503#5 ruling 4). `maxHoldMs` caps how long one
+     *  commit may keep renewing, so a hung GitHub call lets the lease lapse instead of starving the
+     *  user under 'busy' (SO t/503#8 condition 3). */
+    commitLock?: {
+      accountUrl: string;
+      container: string;
+      leaseSeconds?: number; // default 60 (the Azure maximum)
+      renewEveryMs?: number; // default 20_000
+      maxHoldMs?: number; // default 300_000
+      serviceClient?: BlobServiceClient; // test seam (Azurite)
+    };
   };
 }
 
@@ -111,7 +123,7 @@ interface PollState {
   /** Capped-length history of per-generation changed paths, oldest first —
    *  lets a non-holder catch up without replaying every tick, and lets it
    *  detect a gap (its last-seen generation predates the oldest entry here). */
-  changedSinceGeneration: Array<{ generation: number; paths: string[] }>;
+  changedSinceGeneration: Array<{ generation: number; paths: string[] | null }>; // t/547: null = unknown, invalidate all
   publishedAt: string; // ISO timestamp — staleness detection
 }
 
@@ -135,11 +147,21 @@ function isBlobNotFoundForPoll(err: unknown): boolean {
 const DEFAULT_MAX_OVERLAY_BYTES_PER_USER = 20 * 1024 * 1024; // 20 MB
 
 const POLL_INTERVAL_MS = 60_000;
+
+/** t/505: the ref callers pass to mean "the shared base data, not a session branch". It is the literal
+ *  'main' for historical reasons: callers across the server pin reads with `{ ref: 'main' }`. It is NOT
+ *  a branch name. The backend maps it to its base branch (GITHUB_BRANCH, default 'main'), so on a
+ *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
+ *  this mapping such a read went to the repository's default branch, a different branch from the tree,
+ *  the listings and the strict reads. */
+export const BASE_BRANCH_REF = 'main';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
 const POLL_STATE_BLOB = 'poll-state.json';
 const POLL_STATE_HISTORY_CAP = 50;
+// t/547: GitHub's compare API lists at most 300 files; a list that long may have been cut.
+const COMPARE_FILES_CAP = 300;
 // A non-holder falls back to direct polling once the published state is
 // older than this multiple of the poll interval — fails toward coherence,
 // never toward silent staleness (TL t/4179#2 §2 point 2).
@@ -162,6 +184,10 @@ const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED ==
 // discarded or already-committed content keep serving as "staged" to
 // other replicas forever. Flips to true in that later PR, never by env var.
 const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+
+/** t/549 (SO t/503#10): a reader re-lists a user's shared overlay entries at least this often even when
+ *  `_gen` has not moved, because a stage whose `_gen` bump failed is still acknowledged. */
+export const SHARED_OVERLAY_RELIST_MS = 10_000;
 
 /** t/4499: bounded concurrency for readFilesBatch's GraphQL chunks — same
  *  shape as nodeSourceIndex.ts's mapWithConcurrencyLimit, duplicated rather
@@ -197,7 +223,7 @@ type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds'
  *  is the rawDisabled early-return's own reason (t/4615 — previously
  *  reused `status=503`, conflating with genuine 503 fallbacks in the
  *  stats). */
-type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path';
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled' | 'invalid_path' | 'private_repo';
 
 /** t/372 (CodeQL #6229, #6230): join a repo-relative path under `base` and refuse, before any
  *  write, anything that resolves outside `base`. toRepoPath's `..` check does not reach these
@@ -315,7 +341,8 @@ export class GitHubAPIBackend implements StorageBackend {
   // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
   private readonly sharedOverlayStore: SharedOverlayStore | null = null;
   private readonly sharedOverlayStateActive: boolean = false;
-  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry> }> = new Map();
+  // t/549: `listedAt` is when the entries were last listed from the store (0 = never); see SHARED_OVERLAY_RELIST_MS.
+  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry>; listedAt: number }> = new Map();
 
   // t/4312: per-path base blob sha, recorded once when a path first enters a
   // clean overlay slot (never reset by a later same-path rewrite — see
@@ -378,11 +405,15 @@ export class GitHubAPIBackend implements StorageBackend {
   private readonly blobLeaseContainerClient: ContainerClient | null = null;
   private readonly pollLeaseDurationSeconds: number = 0;
   private leaseRenewTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly holderId = crypto.randomUUID();
+  /** t/547: per tenure, not per process: a new id each time this replica acquires the lease, since its
+   *  history restarts then and another holder may have published in between. */
+  private holderId = crypto.randomUUID();
   private pollStateGeneration = 0;
-  private pollStateHistory: Array<{ generation: number; paths: string[] }> = [];
+  private pollStateHistory: PollState['changedSinceGeneration'] = [];
   private pollLastSeenGeneration = 0;
   private pollLastSeenHolderId: string | null = null;
+  /** t/547: the commit this non-holder's manifest was brought to by its last applied poll state. */
+  private pollLastSeenCommitSha = '';
   private repoTreeRefillInFlight: Promise<void> | null = null;
 
   // Coherency probe stats
@@ -401,6 +432,15 @@ export class GitHubAPIBackend implements StorageBackend {
   // lifetime once tripped — avoids paying a raw miss on every single read
   // if raw starts misbehaving broadly (repo turns private, CDN outage).
   private rawDisabled = false;
+  // t/497: the data repo's visibility, from GET /repos/{repo}. null = not known (never read, or the last
+  // read failed), which means "try raw as today". Anything other than an explicit 'public' skips raw:
+  // the raw fetch is unauthenticated by design, so a private repo answers 404 to every request.
+  private repoVisibility: { isPublic: boolean; visibility: string; checkedAt: number } | null = null;
+  private repoVisibilityInFlight: Promise<void> | null = null;
+  private repoVisibilityLastAttemptAt = 0;
+  private rawSkipLogged = false;
+  private static readonly REPO_VISIBILITY_TTL_MS = 60 * 60_000;
+  private static readonly REPO_VISIBILITY_MIN_RECHECK_MS = 60_000;
   private rawFallbackWindowStart = 0;
   private rawFallbackWindowCount = 0;
   private static readonly RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE = 20;
@@ -425,6 +465,12 @@ export class GitHubAPIBackend implements StorageBackend {
   // Data-load state — exposed via getDataLoadStatus() for /healthz (t/2053, t/2059)
   private _dataLoadStatus: 'loading' | 'ready' | 'failed' = 'loading';
   private _dataLoadError: string | null = null;
+  // t/482: why the load failed, and when. 'known' is a classified failed load (GitHub unreachable, a
+  // zero-blob or wrong-shaped tree): a later poll may recover it. 'unknown' is a throw (t/480): it never
+  // recovers without a restart, because the state is unknown and no polling runs.
+  private _dataLoadFailure: 'known' | 'unknown' | null = null;
+  private _dataLoadFailedAt: number | null = null;
+  private recoveryInFlight = false;
 
   constructor(config: GitHubAPIBackendConfig) {
     this.cacheDir = config.cacheDir;
@@ -488,7 +534,124 @@ export class GitHubAPIBackend implements StorageBackend {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
+  /** t/480 (Second Opinion t/470#4, TL t/470#5): an unknown throw during start-up is recorded as a
+   *  failed load with its real cause, then re-thrown. Rejecting alone was the quiet option: server.ts
+   *  catches the rejection and the process keeps running, while the status stayed 'loading', which
+   *  readiness shows as a warm-up and then as a timeout with no cause. The public reason names the error
+   *  (name and code); the message stays in the log. Never 'ready' on this path, and
+   *  no polling: the state is unknown. The event is system.error, not github.api.error, so a code bug
+   *  is not counted as a GitHub outage by the alert. */
   async initialize(): Promise<void> {
+    try {
+      await this.runInitialize();
+    } catch (err: unknown) {
+      const name = (err as Error)?.name ?? 'Error';
+      const message = (err as Error)?.message ?? String(err);
+      this._dataLoadStatus = 'failed';
+      this._dataLoadFailure = 'unknown';
+      this._dataLoadFailedAt = Date.now();
+      // The load error is returned by /readyz, which is anonymous. It carries the error's name and code
+      // only: a message can hold a server path (an fs error does). The message and stack go to the log
+      // and the recorder below.
+      const code = typeof (err as NodeJS.ErrnoException)?.code === 'string' ? ` (${(err as NodeJS.ErrnoException).code})` : '';
+      this._dataLoadError = `GitHubAPIBackend.initialize threw ${name}${code}; see the server log for storage.init.error`;
+      this.stopPollingTimers();
+      this.recordEvent({
+        type: 'system.error',
+        component: 'storage',
+        level: 'error',
+        message: 'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started',
+        error: normalizeErrorForEvent(err),
+      });
+      log.storage.error({ errName: name, errMessage: message, stack: (err as Error)?.stack },
+        'storage.init.error: GitHubAPIBackend.initialize threw; data load recorded as failed, polling not started (t/480)');
+      throw err;
+    }
+  }
+
+  /** The full load from the head commit, for a start that is not a cache hit and for recovery (t/482).
+   *  t/463: decide the re-seed first, apply it only after the tree loads. A failed load (fetchRepoTree
+   *  false: GitHub unreachable, zero blobs, a wrong-shaped response) leaves the manifest exactly as it
+   *  was, in memory and on disk, and returns false. Never reports success on less than the full tree. */
+  private async loadFromHead(mainSha: string): Promise<boolean> {
+    const cachedSha = this.manifest?.lastCommitSha ?? '';
+    const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
+    const loaded = await this.fetchRepoTree(mainSha);
+    if (!loaded) return false;
+
+    if (reseed) this.reseedManifestInMemory();
+    // A failed invalidation or manifest write must not undo a loaded tree (t/463).
+    if (this.manifest?.lastCommitSha) {
+      try {
+        await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
+      } catch (err: unknown) {
+        log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
+      }
+    }
+    try {
+      await this.updateManifestSha(mainSha);
+    } catch (err: unknown) {
+      log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
+    }
+    return true;
+  }
+
+  /** t/482: one attempt to recover a replica whose initial load failed for a known reason. It runs the
+   *  same load a clean start runs. Success sets ready and logs how long the replica was failed. Anything
+   *  less leaves it failed, to try again on the next poll tick. The in-flight flag keeps a load that
+   *  outlasts the poll interval from overlapping a second one. */
+  private async attemptLoadRecovery(): Promise<void> {
+    if (this.recoveryInFlight) return;
+    this.recoveryInFlight = true;
+    try {
+      const mainSha = await this.getLatestCommitSha();
+      if (!mainSha || !(await this.loadFromHead(mainSha))) {
+        log.storage.debug({ sha: mainSha }, 'storage.init.recovery: load still failing; will retry on the next poll (t/482)');
+        return;
+      }
+      // Only a known failure that is still current may become ready (shutdown or a later throw wins).
+      if (this._dataLoadStatus !== 'failed' || this._dataLoadFailure !== 'known') return;
+      const failedForMs = this._dataLoadFailedAt === null ? null : Date.now() - this._dataLoadFailedAt;
+      this._dataLoadStatus = 'ready';
+      this._dataLoadError = null;
+      this._dataLoadFailure = null;
+      this._dataLoadFailedAt = null;
+      this.recordEvent({
+        type: 'storage.mode',
+        component: 'storage',
+        level: 'info',
+        message: 'storage.init.recovered: data load succeeded on a poll after a failed start',
+        data: { sha: mainSha, failedForMs, treeSize: this.repoTree.size },
+      });
+      log.storage.warn({ sha: mainSha, failedForMs, treeSize: this.repoTree.size },
+        'storage.init.recovered: data load succeeded on a poll after a failed start; the replica is ready (t/482)');
+    } catch (err: unknown) {
+      log.storage.warn({ errName: (err as Error)?.name ?? 'Error', errMessage: (err as Error)?.message ?? String(err) },
+        'storage.init.recovery: attempt threw; the replica stays failed and will retry on the next poll (t/482)');
+    } finally {
+      this.recoveryInFlight = false;
+    }
+  }
+
+  /** Clear the poll and lease timers if a failed start-up got as far as creating them. */
+  private stopPollingTimers(): void {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.leaseRenewTimer) { clearInterval(this.leaseRenewTimer); this.leaseRenewTimer = null; }
+  }
+
+  /** t/505: map the base-branch alias to this deployment's base branch. Any other ref (a real session
+   *  branch, a commit SHA) passes through unchanged, and undefined stays undefined so the caller's
+   *  own default applies. */
+  private resolveReadRef(ref: string | undefined): string | undefined {
+    return ref === BASE_BRANCH_REF ? this.baseBranch : ref;
+  }
+
+  private async runInitialize(): Promise<void> {
+    if (this.baseBranch !== BASE_BRANCH_REF) {
+      // t/505: say once, at start-up, that pinned reads do not go to a branch called 'main' here.
+      log.storage.info({ baseBranch: this.baseBranch },
+        `base branch is '${this.baseBranch}': reads pinned with ref '${BASE_BRANCH_REF}' are mapped to it (t/505)`);
+    }
     this.recordEvent({
       type: 'storage.mode',
       component: 'storage',
@@ -514,6 +677,9 @@ export class GitHubAPIBackend implements StorageBackend {
       return;
     }
 
+    // t/497: one call per start; the answer is refreshed on a TTL and after an in-tree raw 404.
+    await this.refreshRepoVisibility('startup');
+
     const mainSha = await this.getLatestCommitSha();
     if (this.manifest && this.manifest.lastCommitSha === mainSha) {
       const treeSource = await this.loadTreeOnCacheHit(mainSha);
@@ -526,29 +692,14 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       this._dataLoadStatus = 'ready';
     } else {
-      // t/463: decide now, apply only after the tree loads. A failed load leaves the manifest exactly as it
-      // was (memory and disk), so the next start tries again instead of reporting ready on an empty corpus.
-      const cachedSha = this.manifest?.lastCommitSha ?? '';
-      const reseed = !!cachedSha && !!mainSha && !(await this.isCommitInHistory(cachedSha));
-      const loaded = await this.fetchRepoTree(mainSha);
-      if (loaded) {
+      // t/482: the load itself is loadFromHead, shared with the recovery step in pollTick, so a recovered
+      // replica has passed exactly the checks a clean start passes.
+      if (await this.loadFromHead(mainSha)) {
         this._dataLoadStatus = 'ready';
-        if (reseed) this.reseedManifestInMemory();
-        // A failed invalidation or manifest write must not abort start-up before polling starts (t/463).
-        if (this.manifest?.lastCommitSha) {
-          try {
-            await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
-          } catch (err: unknown) {
-            log.storage.warn({ err: String(err) }, 'initialize: cache invalidation could not persist; serving from memory (t/463)');
-          }
-        }
-        try {
-          await this.updateManifestSha(mainSha);
-        } catch (err: unknown) {
-          log.storage.warn({ err: String(err) }, 'initialize: manifest could not be persisted; serving from memory (t/463)');
-        }
       } else {
         this._dataLoadStatus = 'failed';
+        this._dataLoadFailure = 'known';
+        this._dataLoadFailedAt = Date.now();
         this._dataLoadError = 'GitHub API data load failed during initialization — check credentials and network';
         this.recordEvent({
           type: 'github.api.error',
@@ -729,10 +880,12 @@ export class GitHubAPIBackend implements StorageBackend {
     const cached = this.sharedOverlayReadCache.get(userId);
     try {
       const currentGen = await this.sharedOverlayStore.getGeneration(userId);
-      if (cached && cached.gen === currentGen) return cached.entries;
+      // t/549: an unchanged `_gen` is trusted only for SHARED_OVERLAY_RELIST_MS, the backstop for a
+      // stage whose `_gen` bump failed after its entry landed (it is acknowledged, but bumps nothing).
+      if (cached && cached.gen === currentGen && Date.now() - cached.listedAt < SHARED_OVERLAY_RELIST_MS) return cached.entries;
       const listed = await this.sharedOverlayStore.listEntries(userId);
       const entries = new Map(listed.map(e => [e.repoPath, e.entry]));
-      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries });
+      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries, listedAt: Date.now() });
       return entries;
     } catch (err) {
       const message = `Shared overlay sync failed; falling back to the local overlay for this read: ${userId}`;
@@ -848,25 +1001,17 @@ export class GitHubAPIBackend implements StorageBackend {
    * WARN-logged, never thrown, so the returned promise never rejects.
    * No-op when the flag is inactive.
    *
-   * KNOWN GAP (flagged, not fixed, here — t/4311#29/#31): `SharedOverlayEntry.baseSha`
-   * is typed `string | 'unknown'`, with no slot for the local model's
-   * `null` ("file was absent when staged" — t/4312). The `?? 'unknown'`
-   * below collapses that distinction. It's inert today: this PR's read
-   * path only ever consults `content`, never `baseSha`, and the commit
-   * path (the only consumer t/4312's fencing matters to) is a separate,
-   * not-yet-wired follow-up. That follow-up must widen
-   * `SharedOverlayEntry.baseSha`'s type before relying on it, or it will
-   * silently treat every staged-absent path as "unknown" (fail-closed per
-   * t/4312, so not unsafe, just not what it meant to record).
+   * t/549: `SharedOverlayEntry.baseSha` now carries `null` (the file was absent when staged), closing
+   * the t/4311#29/#31 known gap. This stays a fire-and-forget `latestWins` stage, inert behind the
+   * flag; t/550 (t/503 PR 2) replaces it with the awaited, conditional stage of option 2.
    */
   private async writeThroughSharedOverlay(userId: string, repoPath: string, content: string | null, baseSha: string | null | 'unknown'): Promise<void> {
     if (!this.sharedOverlayStateActive || !this.sharedOverlayStore) return;
     try {
-      const result = await this.sharedOverlayStore.stage(userId, repoPath, {
-        content,
-        baseSha: baseSha ?? 'unknown',
-        stagedAt: new Date().toISOString(),
-      });
+      const entry = { content, baseSha, stagedAt: new Date().toISOString(), stageId: crypto.randomUUID() };
+      const result = await this.sharedOverlayStore.stage(userId, repoPath, entry, { latestWins: true });
+      // t/549: a later save already holds the path; ours is ordered before it, nothing to cache.
+      if (!result.ok && result.reason === 'newer_exists') return;
       if (!result.ok) {
         this.recordEvent({
           type: 'system.error', component: 'github-api', level: 'warn',
@@ -879,10 +1024,11 @@ export class GitHubAPIBackend implements StorageBackend {
       // for a future getGeneration() round trip to notice our own `_gen`
       // bump — avoids a self-inflicted sync on a replica's own
       // write-then-immediate-read (t/4311#30 R1).
+      // t/549: a failed `_gen` bump leaves gen null, so the next read re-lists.
       const cached = this.sharedOverlayReadCache.get(userId);
       const entries = cached ? new Map(cached.entries) : new Map<string, SharedOverlayEntry>();
-      entries.set(repoPath, { content, baseSha: baseSha ?? 'unknown', stagedAt: new Date().toISOString() });
-      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries });
+      entries.set(repoPath, entry);
+      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries, listedAt: cached?.listedAt ?? 0 });
     } catch (err) {
       const message = `Shared overlay write-through threw (local write already succeeded): ${repoPath}`;
       this.recordEvent({
@@ -941,7 +1087,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
     // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // t/4510: skip the overlay only when genuinely pinned away from the
     // session's own ref, unless the caller explicitly opts back in (see the
@@ -1059,9 +1205,16 @@ export class GitHubAPIBackend implements StorageBackend {
         this.logNullReadReason(repoPath, 'not_found', optional);
         return null;
       }
-      this.recordRawFallback(rawResult.reason);
-      log.github.warn({ path: repoPath, reason: rawResult.reason },
-        `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+      if (rawResult.reason === 'private_repo') {
+        // t/497: a decision, not a failure. Count it, but keep it out of the disable window and out of
+        // the per-read WARN; noteRawSkippedForPrivateRepo logs it once.
+        this.rawFallbackCounts.private_repo = (this.rawFallbackCounts.private_repo ?? 0) + 1;
+        this.noteRawSkippedForPrivateRepo();
+      } else {
+        this.recordRawFallback(rawResult.reason);
+        log.github.warn({ path: repoPath, reason: rawResult.reason },
+          `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+      }
     }
 
     if (this.rest.isTripped()) {
@@ -1253,7 +1406,7 @@ export class GitHubAPIBackend implements StorageBackend {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     // t/4224 (TL design, p/538#40/#43): an edit-load on a session branch with
     // no pending overlay entry must read the branch's own current content and
@@ -1317,7 +1470,7 @@ export class GitHubAPIBackend implements StorageBackend {
   // serve or pollute the main cache from a non-main session branch.
   async readBinaryFile(filePath: string, opts?: { ref?: string }): Promise<Buffer | null> {
     const repoPath = this.toRepoPath(filePath);
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
 
     if (ref === this.baseBranch) {
       const cached = await this.readBinaryFromDiskCache(repoPath);
@@ -1335,7 +1488,8 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
-  async readFileAtRef(repoPath: string, ref: string): Promise<string | null> {
+  async readFileAtRef(repoPath: string, requestedRef: string): Promise<string | null> {
+    const ref = this.resolveReadRef(requestedRef) ?? requestedRef;
     if (ref === this.baseBranch) {
       const cached = await this.readFromDiskCache(repoPath);
       if (cached !== null) return cached;
@@ -1638,7 +1792,9 @@ export class GitHubAPIBackend implements StorageBackend {
     if (resp.status === 409) {
       return this.handleCreateConflict(repoPath, content, ref, creds, callId);
     }
-    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) return 'exists';
+    if (resp.status === 422 && /\bsha\b/i.test(resp.error ?? '')) {
+      return this.confirmExistsAfter422(repoPath, ref, resp.error ?? '', callId);
+    }
     if (!resp.ok) {
       throw new ActionableError({
         goal: `Create ${repoPath} on GitHub only if absent`,
@@ -1650,6 +1806,35 @@ export class GitHubAPIBackend implements StorageBackend {
     const newSha = (resp.data as { content?: { sha?: string } })?.content?.sha ?? '';
     await this.writeToDiskCache(repoPath, content, newSha, '');
     return 'created';
+  }
+
+  /** t/268 (item 3): GitHub's 422 text mentioning "sha" is a hint that the file exists, not proof: the
+   *  wording is not a contract, and another validation error could mention sha. Confirm with a read, the
+   *  way the 409 path does. Present → 'exists'. Absent → the 422 was a real validation failure: WARN with
+   *  the raw message and throw. Unavailable → cannot verify, so fail closed with a 503. */
+  private async confirmExistsAfter422(repoPath: string, ref: string, rawError: string, callId: string): Promise<WriteIfAbsentResult> {
+    const status = await this.getSessionBranchFileStatus(repoPath, ref);
+    if (status.kind === 'present') return 'exists';
+    if (status.kind === 'unavailable') {
+      log.github.warn({ callId, repoPath, ref, githubMessage: rawError },
+        'writeFileIfAbsent: 422 mentions sha but the file could not be read to confirm it exists; failing closed (t/268)');
+      throw new ActionableError({
+        goal: `Verify whether ${repoPath} exists after GitHub refused the create`,
+        problem: 'GitHub API returned 422 for a create without sha, but the file could not be read to confirm it exists.',
+        location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+        nextSteps: ['Retry the operation', 'Check GitHub API status'],
+        httpStatus: 503,
+        code: 'GITHUB_EXISTS_UNVERIFIED',
+      });
+    }
+    log.github.warn({ callId, repoPath, ref, githubMessage: rawError },
+      'writeFileIfAbsent: 422 mentions sha but the file is absent; treating it as a validation failure, not as exists (t/268)');
+    throw new ActionableError({
+      goal: `Create ${repoPath} on GitHub only if absent`,
+      problem: `GitHub API returned 422: ${rawError}`,
+      location: `GitHubAPIBackend.writeFileIfAbsent(${repoPath})`,
+      nextSteps: ['Check the path and content are valid for the GitHub contents API', 'Retry the operation'],
+    });
   }
 
   private async handleCreateConflict(
@@ -1678,7 +1863,9 @@ export class GitHubAPIBackend implements StorageBackend {
       content: Buffer.from(content, 'utf-8').toString('base64'),
       branch: ref,
     }, callId);
-    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) return 'exists';
+    if (retryResp.status === 422 && /\bsha\b/i.test(retryResp.error ?? '')) {
+      return this.confirmExistsAfter422(repoPath, ref, retryResp.error ?? '', callId);
+    }
     if (retryResp.ok) {
       const newSha = (retryResp.data as { content?: { sha?: string } })?.content?.sha ?? '';
       await this.writeToDiskCache(repoPath, content, newSha, '');
@@ -1835,7 +2022,7 @@ export class GitHubAPIBackend implements StorageBackend {
         ],
       });
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${this.toRepoPath(dirPath)}${qRef}`);
@@ -1861,7 +2048,7 @@ export class GitHubAPIBackend implements StorageBackend {
       log.server.warn({ dir: repoPath, cause: 'no-credentials' }, 'listDirectory returning [] — no GitHub credentials available, may be false-empty (t/3300)');
       return 'no-credentials';
     }
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
@@ -1952,7 +2139,7 @@ export class GitHubAPIBackend implements StorageBackend {
   async fileExists(filePath: string, opts?: { ref?: string }): Promise<boolean> {
     const repoPath = this.toRepoPath(filePath);
     const effectiveRef = this.getEffectiveRef();
-    const ref = opts?.ref ?? effectiveRef;
+    const ref = this.resolveReadRef(opts?.ref) ?? effectiveRef;
 
     // Check session overlay — only when this call isn't pinned away from the
     // session's own ref (t/4428#2 condition 1). An explicit opts.ref that
@@ -2057,17 +2244,25 @@ export class GitHubAPIBackend implements StorageBackend {
 
     if (!resp.ok) return [];
 
-    const data = resp.data as { tree: TreeEntry[]; truncated?: boolean };
+    // t/470: an OK response with no body, or without a tree array, is a failed load, not a throw.
+    // Callers already treat [] as "no tree" (the same answer as !resp.ok).
+    const data = resp.data as { tree?: unknown; truncated?: boolean } | null | undefined;
+    if (!data || !Array.isArray(data.tree)) {
+      log.github.warn({ sha, status: resp.status, bodyType: data === null ? 'null' : typeof data },
+        'getTree: OK response without a tree array; treating it as a failed load (t/470)');
+      return [];
+    }
+    const tree = data.tree as TreeEntry[];
     if (data.truncated) {
       this.recordEvent({
         type: 'system.scaling_warning',
         component: 'github-api',
         level: 'warn',
         message: 'Git Trees API returned truncated result (>100,000 entries)',
-        data: { sha, entryCount: data.tree.length },
+        data: { sha, entryCount: tree.length },
       });
     }
-    return data.tree;
+    return tree;
   }
 
   // ── Batched blob reads (t/4499, TL design t/4499#18) ────────────────────
@@ -2107,7 +2302,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const creds = await this.getCredsCached();
     if (!creds) return { contents, fallbackCount: filePaths.length, graphqlCost: 0 };
 
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = this.resolveReadRef(opts?.ref) ?? this.getEffectiveRef();
     const [owner, name] = creds.repo.split('/');
     // repoPath (the GraphQL expression's path) <-> the caller's original
     // absolute filePath, so the result map is keyed the same way callers
@@ -2558,8 +2753,12 @@ export class GitHubAPIBackend implements StorageBackend {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
     }
 
+    // t/505: callers pass the base-branch alias ('main') for either side. Compare against this
+    // deployment's base branch, not a branch that happens to be called 'main'.
+    const baseRef = this.resolveReadRef(base) ?? base;
+    const headRef = this.resolveReadRef(head) ?? head;
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/compare/${base}...${head}`);
+      `/repos/${creds.repo}/compare/${baseRef}...${headRef}`);
 
     if (!resp.ok) {
       return { ahead_by: 0, behind_by: 0, status: 'identical', files: [], total_commits: 0, merge_base_sha: null };
@@ -3079,6 +3278,62 @@ export class GitHubAPIBackend implements StorageBackend {
     if (next) next();
   }
 
+  /** t/497: read the data repo's visibility with the installation token (api.github.com only). Never
+   *  throws. A failed or unreadable answer leaves the visibility unknown, which means "try raw as
+   *  today": skipping raw is only ever a quota saving, so it needs a positive answer. Single flight. */
+  private refreshRepoVisibility(trigger: 'startup' | 'ttl' | 'raw-404'): Promise<void> {
+    if (this.repoVisibilityInFlight) return this.repoVisibilityInFlight;
+    this.repoVisibilityLastAttemptAt = Date.now();
+    this.repoVisibilityInFlight = (async () => {
+      try {
+        const creds = await this.getCredsCached();
+        if (!creds) { this.repoVisibility = null; return; }
+        // optional: a 404 here (a token without metadata access, or a test double) is not an API error.
+        const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}`, undefined, undefined, { optional: true });
+        const data = resp.ok ? resp.data as { visibility?: unknown; private?: unknown } | null : null;
+        const visibility = typeof data?.visibility === 'string' ? data.visibility
+          : data?.private === false ? 'public' : data?.private === true ? 'private' : null;
+        if (visibility === null) {
+          this.repoVisibility = null;
+          log.storage.info({ trigger, status: resp.status }, 'repo visibility: could not be read; raw fetch stays as it was (t/497)');
+          return;
+        }
+        this.repoVisibility = { isPublic: visibility === 'public', visibility, checkedAt: Date.now() };
+        if (this.repoVisibility.isPublic) this.rawSkipLogged = false;
+        log.storage.info({ trigger, visibility }, 'repo visibility read (t/497)');
+      } catch (err: unknown) {
+        this.repoVisibility = null;
+        // INFO, not WARN: nothing degrades. Unknown visibility is the behaviour before t/497 (try raw).
+        log.storage.info({ trigger, errName: (err as Error)?.name ?? 'Error' }, 'repo visibility: read threw; raw fetch stays as it was (t/497)');
+      } finally {
+        this.repoVisibilityInFlight = null;
+      }
+    })();
+    return this.repoVisibilityInFlight;
+  }
+
+  /** t/497: true only when the repo is known, from a read no older than the TTL, not to be public. */
+  private async shouldSkipRawForPrivateRepo(): Promise<boolean> {
+    const known = this.repoVisibility;
+    if (!known) return false;
+    if (Date.now() - known.checkedAt > GitHubAPIBackend.REPO_VISIBILITY_TTL_MS) await this.refreshRepoVisibility('ttl');
+    return this.repoVisibility !== null && !this.repoVisibility.isPublic;
+  }
+
+  /** t/497: after a raw 404 for a path in the tree, re-read the visibility, at most once a minute. */
+  private recheckRepoVisibilityAfterRaw404(): void {
+    if (Date.now() - this.repoVisibilityLastAttemptAt < GitHubAPIBackend.REPO_VISIBILITY_MIN_RECHECK_MS) return;
+    void this.refreshRepoVisibility('raw-404');
+  }
+
+  /** t/497: one WARN per process (and again after the repo is seen public and turns private). */
+  private noteRawSkippedForPrivateRepo(): void {
+    if (this.rawSkipLogged) return;
+    this.rawSkipLogged = true;
+    log.github.warn({ visibility: this.repoVisibility?.visibility ?? null },
+      'fetchFileFromRaw: the data repo is not public, so the unauthenticated raw fetch is skipped; reads use the REST API (t/497)');
+  }
+
   /** TL condition 1's disable guard: a fixed one-minute window counting
    *  every raw-fallback event, regardless of reason. Crossing the threshold
    *  trips `rawDisabled` for the rest of the process's lifetime (never
@@ -3124,6 +3379,8 @@ export class GitHubAPIBackend implements StorageBackend {
    *  any failure becomes `fallback` for the caller to retry via REST. */
   private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
     if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
+    // t/497: a repo known not to be public would 404 here every time. Skip the request.
+    if (await this.shouldSkipRawForPrivateRepo()) return { kind: 'fallback', reason: 'private_repo' };
     // t/372 (CodeQL #6275): encodeURIComponent leaves '.' and '..', and the URL parser
     // normalises them, so refuse dot-segments before the URL is built.
     if (repoPath.split('/').some(seg => seg === '.' || seg === '..')) {
@@ -3153,6 +3410,9 @@ export class GitHubAPIBackend implements StorageBackend {
         // as a genuine absence — could be a renamed/moved CDN edge case, a
         // repo-visibility change, or raw misbehaving.
         if (this.isPathKnownInTree(repoPath)) {
+          // t/497 (Security): an in-tree path that 404s on raw may mean the repo is no longer public.
+          // Re-read the visibility in the background; this read falls back to REST either way.
+          this.recheckRepoVisibilityAfterRaw404();
           return { kind: 'fallback', reason: 'raw_404_but_in_tree' };
         }
         // t/4615: an unknown path still isn't trustworthy as genuinely
@@ -3181,6 +3441,38 @@ export class GitHubAPIBackend implements StorageBackend {
     }
   }
 
+  /** t/478: the contents GET for a caller that needs the body. A conditional request is only valid when
+   *  the caller has a body to serve on a 304, and no caller of fetchFileFromGitHub has one (each arrives
+   *  after a cache miss, or on a strict read that skips the disk cache, t/4778). So a strict read sends
+   *  no If-None-Match, and any 304 is repeated once without the ETag instead of being read as "absent".
+   *  Before this, a manifest ETag made GitHub answer 304 and the file read as absent on every attempt.
+   *  Returns null only when the 304 persists on a non-strict read; a strict read throws transient. */
+  private async requestContentsBody(
+    creds: SyncCredentials, endpoint: string, repoPath: string, ref: string,
+    optional: boolean | undefined, strict: boolean,
+  ): Promise<ApiResult | null> {
+    if (strict) {
+      log.github.info({ path: repoPath, ref, manifestEtagPresent: !!this.manifest?.files[repoPath]?.etag },
+        'fetchFileFromGitHub: strict read goes to REST without If-None-Match (t/478)');
+    }
+    const first = await this.rest.request(creds, 'GET', endpoint,
+      undefined, undefined, { optional: !!optional, unconditional: strict });
+    if (first.status !== 304) return first;
+
+    log.github.warn({ path: repoPath, ref, strict },
+      'fetchFileFromGitHub: 304 with no cached body to serve; retrying once without If-None-Match (t/478)');
+    const second = await this.rest.request(creds, 'GET', endpoint,
+      undefined, undefined, { optional: !!optional, unconditional: true });
+    if (second.status !== 304) return second;
+
+    log.github.warn({ path: repoPath, ref, strict },
+      'fetchFileFromGitHub: 304 again on an unconditional retry; the file could not be read (t/478)');
+    if (strict) {
+      throw Object.assign(new Error(`GitHub answered 304 to an unconditional read — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'status=304' as const });
+    }
+    return null;
+  }
+
   private async fetchFileFromGitHub(
     repoPath: string,
     ref: string,
@@ -3191,16 +3483,11 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!creds) { this.handleMissingCreds(repoPath, optional, strict); return null; }
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-    const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
-      undefined, undefined, optional ? { optional: true } : undefined);
-
-    // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
-    // from a cached etag — getCachedEtag() no longer sends one for a non-main
-    // ref, but treat it as a miss defensively rather than crash on null data.
-    if (resp.status === 304) return null;
+    const endpoint = `/repos/${creds.repo}/contents/${repoPath}${qRef}`;
+    const resp = await this.requestContentsBody(creds, endpoint, repoPath, ref, optional, strict);
+    if (resp === null) return null;
     if (!resp.ok) {
-      this.logContents404Detail(resp, repoPath, `/repos/${creds.repo}/contents/${repoPath}${qRef}`, ref, creds.mode);
+      this.logContents404Detail(resp, repoPath, endpoint, ref, creds.mode);
       this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
       return null;
     }
@@ -3254,11 +3541,22 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!creds) return null;
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
-    const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
+    const endpoint = `/repos/${creds.repo}/contents/${repoPath}${qRef}`;
+    let resp = await this.rest.request(creds, 'GET', endpoint);
 
-    // t/4258/t/4295: see fetchFileFromGitHub — a 304 carries no data.
-    if (!resp.ok || resp.status === 304) return null;
+    // t/478 guard: this runs after a binary cache miss, so a 304 has no body to serve. Repeat once
+    // without the ETag instead of returning null as "absent".
+    if (resp.status === 304) {
+      log.github.warn({ path: repoPath, ref },
+        'fetchBinaryFileFromGitHub: 304 with no cached body to serve; retrying once without If-None-Match (t/478)');
+      resp = await this.rest.request(creds, 'GET', endpoint, undefined, undefined, { unconditional: true });
+    }
+    if (resp.status === 304) {
+      log.github.warn({ path: repoPath, ref },
+        'fetchBinaryFileFromGitHub: 304 again on an unconditional retry; the file could not be read (t/478)');
+      return null;
+    }
+    if (!resp.ok) return null;
 
     const data = resp.data as {
       content?: string;
@@ -3299,9 +3597,10 @@ export class GitHubAPIBackend implements StorageBackend {
     etag: string,
   ): Promise<{ content: Buffer; sha: string; etag: string } | null> {
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true });
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true, unconditional: true });
 
-    if (!resp.ok) return null;
+    // t/478: a 304 is ok with null data; never return that as the file's bytes.
+    if (!resp.ok || resp.status === 304) return null;
 
     return { content: resp.data as Buffer, sha, etag: resp.etag ?? etag };
   }
@@ -3367,14 +3666,21 @@ export class GitHubAPIBackend implements StorageBackend {
       `/repos/${creds.repo}/git/commits/${commitSha}`);
     if (!commitResp.ok) return false;
 
-    const treeSha = (commitResp.data as { tree: { sha: string } }).tree.sha;
+    // t/470: an OK commit response with no body, or without tree.sha, is a failed load, not a throw.
+    const treeSha = (commitResp.data as { tree?: { sha?: unknown } } | null | undefined)?.tree?.sha;
+    if (typeof treeSha !== 'string' || treeSha.length === 0) {
+      log.github.warn({ commitSha, status: commitResp.status },
+        'fetchRepoTree: OK commit response without tree.sha; treating it as a failed load (t/470)');
+      return false;
+    }
     const entries = await this.getTree(treeSha, true);
 
     // t/463 (Second Opinion): build the tree locally and assign it only on success. A zero-blob or failed
     // load must not empty or replace the live tree.
     const loadedTree = new Map<string, TreeEntry>();
     for (const entry of entries) {
-      if (entry.type === 'blob') {
+      // t/470: skip an entry that is not an object with a path, instead of throwing on it.
+      if (entry?.type === 'blob' && typeof entry.path === 'string') {
         loadedTree.set(entry.path, entry);
       }
     }
@@ -3463,6 +3769,13 @@ export class GitHubAPIBackend implements StorageBackend {
       });
       return;
     }
+    // t/547 (for the t/504 staging proof): a healthy hand-over logged nothing, so the log could not show
+    // which replica held the lease.
+    if (isHolder && !wasHolder) this.holderId = crypto.randomUUID();
+    if (isHolder !== wasHolder) {
+      log.storage.info({ holderId: this.holderId, container: this.pollLeaseContainer },
+        isHolder ? 'poll lease acquired: this replica is now the poll holder' : 'poll lease lost: this replica is now a non-holder');
+    }
     if (isHolder && !wasHolder) await this.seedGenerationAfterAcquiring();
   }
 
@@ -3500,9 +3813,75 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   private async pollTick(): Promise<void> {
+    // t/482: a replica that is not ready does no ordinary polling. If its load failed for a known reason
+    // it tries the full load again, whatever its lease role: each replica has its own in-memory tree, so
+    // a non-holder cannot be recovered by the holder's poll state.
+    if (this._dataLoadStatus === 'failed') {
+      if (this._dataLoadFailure === 'known') await this.attemptLoadRecovery();
+      return;
+    }
     if (!this.blobLease) return this.pollDirect();
     if (this.blobLease.isHolder()) return this.pollAsHolder();
     return this.pollAsNonHolder();
+  }
+
+  /** t/483: apply a new head commit seen by a poll. The tree is loaded first, and nothing else happens
+   *  unless that load succeeds: fetchRepoTree returns false on a failed, zero-blob or wrong-shaped load
+   *  and leaves the live tree as it was. The callers used to ignore that result, drop the changed
+   *  entries from the manifest before the fetch, and advance the manifest commit after it, so a failed
+   *  fetch left the manifest naming a commit whose tree was never loaded, and the next poll saw
+   *  "nothing changed". #5309 (t/463) fixed the same thing in initialize().
+   *  Returns `{ changed }`, where `changed` is null when the changed paths are unknown (t/547), or null
+   *  overall when the tree load failed and nothing was applied. */
+  private async applyPolledCommit(currentSha: string): Promise<{ changed: string[] | null } | null> {
+    const previousSha = this.manifest?.lastCommitSha ?? '';
+    const changed = previousSha ? await this.compareChangedPaths(previousSha, currentSha) : null;
+
+    const loaded = await this.fetchRepoTree(currentSha);
+    if (!loaded) {
+      log.storage.warn({ previousSha, currentSha, changedCount: changed?.length ?? 'unknown' },
+        'poll: tree load failed for the new commit; manifest and live tree left unchanged, will retry on the next poll (t/483)');
+      return null;
+    }
+
+    if (changed === null) {
+      log.storage.warn({ previousSha, currentSha },
+        'poll: the changed paths for the new commit are unknown; falling back to invalidating every cached file (t/547)');
+    }
+    this.recordEvent({
+      type: 'cache.invalidate',
+      component: 'cache',
+      level: changed === null ? 'warn' : 'info',
+      message: changed === null ? 'Poll: changed paths unknown, all cached files invalidated' : `Poll: ${changed.length} files changed`,
+      data: { paths: (changed ?? []).slice(0, 20), trigger: 'poll', sha: currentSha, full: changed === null },
+    });
+    await this.withManifestLock(async () => {
+      if (!this.manifest) return;
+      if (changed === null) this.manifest.files = {};
+      else for (const filePath of changed) delete this.manifest.files[filePath];
+    });
+
+    await this.updateManifestSha(currentSha);
+    return { changed };
+  }
+
+  /** t/547: the paths that changed between two commits, or null when the compare cannot vouch for the whole
+   *  set. getChangedFiles answers [] for a failed compare (including a force-push, where the old commit is
+   *  no longer in history) and for a list cut at GitHub's cap, and a moved commit with no changed file is
+   *  not trusted as "nothing changed" either. Unlike getChangedFiles, this does not invalidate the cache
+   *  itself on a force-push: the caller does that after the new tree has loaded (t/483 ordering). */
+  private async compareChangedPaths(fromSha: string, toSha: string): Promise<string[] | null> {
+    const creds = await this.getCredsCached();
+    if (!creds) return null;
+    const resp = await this.rest.request(creds, 'GET', `/repos/${creds.repo}/compare/${fromSha}...${toSha}`);
+    if (!resp.ok) {
+      log.storage.warn({ fromSha, toSha, status: resp.status, forcePush: resp.status === 404 || resp.status === 422 },
+        'poll: compare failed; the changed paths are unknown (t/547)');
+      return null;
+    }
+    const files = (resp.data as { files?: Array<{ filename: string }> } | null | undefined)?.files;
+    if (!Array.isArray(files) || files.length === 0 || files.length >= COMPARE_FILES_CAP) return null;
+    return files.map(f => f.filename);
   }
 
   /** The pre-t/4179 poll body, unchanged — used when no pollLease is
@@ -3514,27 +3893,7 @@ export class GitHubAPIBackend implements StorageBackend {
       const currentSha = await this.getLatestCommitSha();
       if (!currentSha || currentSha === this.manifest?.lastCommitSha) return;
 
-      const changed = this.manifest?.lastCommitSha
-        ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
-        : [];
-
-      if (changed.length > 0) {
-        this.recordEvent({
-          type: 'cache.invalidate',
-          component: 'cache',
-          level: 'info',
-          message: `Poll: ${changed.length} files changed`,
-          data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-        });
-        await this.withManifestLock(async () => {
-          for (const filePath of changed) {
-            if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-          }
-        });
-      }
-
-      await this.fetchRepoTree(currentSha);
-      await this.updateManifestSha(currentSha);
+      await this.applyPolledCommit(currentSha);
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -3558,31 +3917,14 @@ export class GitHubAPIBackend implements StorageBackend {
    *  pollDirect), then publishes the result for non-holders to consume. */
   private async pollAsHolder(): Promise<void> {
     let currentSha = '';
-    let changed: string[] = [];
+    let changed: string[] | null = [];
     try {
       currentSha = await this.getLatestCommitSha();
       if (currentSha && currentSha !== this.manifest?.lastCommitSha) {
-        changed = this.manifest?.lastCommitSha
-          ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
-          : [];
-
-        if (changed.length > 0) {
-          this.recordEvent({
-            type: 'cache.invalidate',
-            component: 'cache',
-            level: 'info',
-            message: `Poll: ${changed.length} files changed`,
-            data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
-          });
-          await this.withManifestLock(async () => {
-            for (const filePath of changed) {
-              if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
-            }
-          });
-        }
-
-        await this.fetchRepoTree(currentSha);
-        await this.updateManifestSha(currentSha);
+        const applied = await this.applyPolledCommit(currentSha);
+        // t/483: a failed tree load applied nothing, so there is nothing to publish to non-holders.
+        if (applied === null) return;
+        changed = applied.changed;
       }
     } catch (err: unknown) {
       getGlobalRecorder()?.record({
@@ -3609,13 +3951,14 @@ export class GitHubAPIBackend implements StorageBackend {
    *  that renewed too late (another replica already took over) gets a 412
    *  here and just skips the publish, instead of silently writing stale
    *  state under a lease it no longer holds. */
-  private async publishPollState(lastCommitSha: string, changedPaths: string[]): Promise<void> {
+  private async publishPollState(lastCommitSha: string, changedPaths: string[] | null): Promise<void> {
     if (!this.blobLease) return;
     const leaseId = this.blobLease.getLeaseId();
     if (!leaseId) return; // lost holder status — next tick re-evaluates via isHolder()
 
     this.pollStateGeneration++;
-    if (changedPaths.length > 0) {
+    // t/547: null (paths unknown) is published as its own entry, so a non-holder invalidates everything.
+    if (changedPaths === null || changedPaths.length > 0) {
       this.pollStateHistory.push({ generation: this.pollStateGeneration, paths: changedPaths });
       if (this.pollStateHistory.length > POLL_STATE_HISTORY_CAP) this.pollStateHistory.shift();
     }
@@ -3699,62 +4042,82 @@ export class GitHubAPIBackend implements StorageBackend {
       return this.pollDirect();
     }
 
-    await this.applyPollState(state);
+    // t/547: a catch-up that could not load the new commit's tree applied nothing, so the bookkeeping
+    // stays where it was and the next tick tries the same catch-up again.
+    if (!(await this.applyPollState(state))) return;
 
     this.pollLastSeenGeneration = state.generation;
     this.pollLastSeenHolderId = state.holderId;
+    this.pollLastSeenCommitSha = state.lastCommitSha;
   }
 
-  /** Extracted from pollAsNonHolder() to keep its own complexity under
-   *  budget. Decides gap vs. incremental catch-up and applies it to the
-   *  local manifest/tree caches; does not touch pollLastSeen* bookkeeping. */
-  private async applyPollState(state: PollState): Promise<void> {
-    // t/4179 R2: a generation that goes backwards, or stays the same/lower
-    // while the holderId changed, is a gap — never trust it as "no change".
-    const generationWentBackwards = state.generation < this.pollLastSeenGeneration;
-    const suspiciousHolderChange = this.pollLastSeenHolderId !== null
-      && state.holderId !== this.pollLastSeenHolderId
-      && state.generation <= this.pollLastSeenGeneration;
+  /** Extracted from pollAsNonHolder() to keep its own complexity under budget. Brings the local manifest
+   *  and tree to the holder's published commit; does not touch pollLastSeen* bookkeeping.
+   *
+   *  t/547: the invariant is that the manifest's file entries and the live tree both describe
+   *  `manifest.lastCommitSha`. So there is nothing to do unless the published commit differs from ours,
+   *  whatever the generation says (a heartbeat with an empty history used to count as a gap and wipe the
+   *  whole cache on every tick). When it differs, the new commit's tree is loaded FIRST, and nothing else
+   *  changes unless that load succeeds (the old code reloaded the tree at the previous commit and then
+   *  advanced the manifest, so changed files kept serving their old blob). Then either only the published
+   *  changed paths are dropped, when they are known to cover the whole step from our commit, or every
+   *  file entry is.
+   *  Returns false when the tree load failed and nothing was applied. */
+  private async applyPollState(state: PollState): Promise<boolean> {
+    const targetSha = state.lastCommitSha;
+    const ourSha = this.manifest?.lastCommitSha ?? '';
+    if (!targetSha || targetSha === ourSha) return true;
 
-    if (this.pollLastSeenGeneration === 0 || generationWentBackwards || suspiciousHolderChange) {
-      await this.fullCacheInvalidation();
-      await this.ensureRepoTreeFilled();
-    } else if (state.generation > this.pollLastSeenGeneration) {
-      await this.applyIncrementalPollChanges(state);
+    const loaded = await this.fetchRepoTree(targetSha);
+    if (!loaded) {
+      log.storage.warn({ ourSha, targetSha, generation: state.generation },
+        'poll (non-holder): tree load failed for the published commit; manifest and live tree left unchanged, will retry on the next poll (t/547)');
+      return false;
     }
 
-    if (state.lastCommitSha && state.lastCommitSha !== this.manifest?.lastCommitSha) {
-      await this.updateManifestSha(state.lastCommitSha);
+    const paths = this.knownChangedPathsSince(state, ourSha);
+    if (paths === null) {
+      log.storage.warn({ ourSha, targetSha, generation: state.generation, lastSeenGeneration: this.pollLastSeenGeneration },
+        'poll (non-holder): the poll state cannot vouch for the changed paths since our commit; falling back to invalidating every cached file (t/547)');
     }
-  }
-
-  /** Extracted from applyPollState(): the "generation moved forward, no gap
-   *  detected yet" branch — still checks the history-list gap case. */
-  private async applyIncrementalPollChanges(state: PollState): Promise<void> {
-    const oldestTracked = state.changedSinceGeneration[0]?.generation;
-    const hasHistoryGap = oldestTracked === undefined || oldestTracked > this.pollLastSeenGeneration + 1;
-    if (hasHistoryGap) {
-      await this.fullCacheInvalidation();
-      await this.ensureRepoTreeFilled();
-      return;
-    }
-
-    const toApply = state.changedSinceGeneration.filter(e => e.generation > this.pollLastSeenGeneration);
-    const paths = new Set<string>();
-    for (const entry of toApply) for (const p of entry.paths) paths.add(p);
-    if (paths.size === 0) return;
-
     await this.withManifestLock(async () => {
-      for (const p of paths) if (this.manifest?.files[p]) delete this.manifest.files[p];
+      if (!this.manifest) return;
+      if (paths === null) this.manifest.files = {};
+      else for (const p of paths) delete this.manifest.files[p];
     });
-    this.repoTree.clear();
-    this.treeSha = null;
-    await this.ensureRepoTreeFilled();
+    await this.updateManifestSha(targetSha);
     this.recordEvent({
       type: 'cache.invalidate', component: 'cache', level: 'info',
-      message: `Poll (non-holder): ${paths.size} files changed`,
-      data: { paths: [...paths].slice(0, 20), trigger: 'poll-shared-state' },
+      message: paths === null
+        ? 'Poll (non-holder): changed paths unknown, all cached files invalidated'
+        : `Poll (non-holder): ${paths.size} files changed`,
+      data: { paths: paths === null ? [] : [...paths].slice(0, 20), trigger: 'poll-shared-state', sha: targetSha, full: paths === null },
     });
+    return true;
+  }
+
+  /** t/547: the paths that changed between our commit and the published one, or null when the poll state
+   *  cannot vouch for that whole step. It can only when: we applied this same holder's state before
+   *  (t/4179 R2: a new holder restarts its history), our manifest is still at the commit we applied then
+   *  (a direct-poll fallback in between moves it), the generation moved forward, and the history list was
+   *  not cut at its cap past our last generation, and no entry since then says its paths are unknown. The
+   *  holder adds an entry for every commit it moves to (null paths when its compare could not vouch for
+   *  them), and its id is per tenure, so within one id the list is complete up to the cap. It holds only
+   *  generations that moved the commit, so gaps between its entries are normal and are not a cut. */
+  private knownChangedPathsSince(state: PollState, ourSha: string): Set<string> | null {
+    const lastSeen = this.pollLastSeenGeneration;
+    if (lastSeen === 0 || state.holderId !== this.pollLastSeenHolderId) return null;
+    if (ourSha !== this.pollLastSeenCommitSha || state.generation <= lastSeen) return null;
+    const history = state.changedSinceGeneration;
+    const oldest = history[0]?.generation;
+    if (history.length >= POLL_STATE_HISTORY_CAP && oldest !== undefined && oldest > lastSeen + 1) return null;
+    const paths = new Set<string>();
+    for (const entry of history) {
+      if (entry.generation <= lastSeen) continue;
+      if (entry.paths === null) return null;
+      for (const p of entry.paths) paths.add(p);
+    }
+    return paths;
   }
 
   /**
@@ -4003,7 +4366,9 @@ export class GitHubAPIBackend implements StorageBackend {
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
-      undefined, undefined, { optional: true });
+      // t/268 (item 4): unconditional. This read always needs the body, and on the base branch a cached
+      // ETag turned it into a 304, which read as 'unavailable' and surfaced a spurious 503.
+      undefined, undefined, { optional: true, unconditional: true });
 
     if (resp.status === 404) return { kind: 'absent' };
     // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged

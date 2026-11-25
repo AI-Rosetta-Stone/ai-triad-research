@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 
 const { mockIsAdmin, mockGetNodeSourceIndexStatus } = vi.hoisted(() => ({
   mockIsAdmin: vi.fn(() => false),
-  mockGetNodeSourceIndexStatus: vi.fn(() => null as { built: boolean; complete: boolean; indexVersion: number; summaryReadFailures: number } | null),
+  mockGetNodeSourceIndexStatus: vi.fn(() => null as { built: boolean; complete: boolean; indexVersion: number; summaryReadFailures: number; empty: boolean; entryCount: number; canonicalDocCount: number } | null),
 }));
 vi.mock('../community/community.js', () => ({ isAdmin: mockIsAdmin, getAdminUsers: vi.fn(() => []) }));
 vi.mock('../storage/nodeSourceIndex.js', () => ({ getNodeSourceIndexStatus: mockGetNodeSourceIndexStatus }));
@@ -95,6 +95,47 @@ describe('GET /health (unauth): nodeSourceIndexComplete', () => {
     const res = fakeRes();
     await health({} as IncomingMessage, res);
     expect(res._body.nodeSourceIndex).toBeUndefined();
+  });
+});
+
+describe('GET /health (unauth): nodeSourceIndexEmpty and nodeSourceIndexEntryCount (t/499)', () => {
+  beforeEach(() => { mockIsAdmin.mockReturnValue(false); });
+
+  it('both are null before any build', async () => {
+    mockGetNodeSourceIndexStatus.mockReturnValue(null);
+    const health = registerAndGetHealthHandler();
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.nodeSourceIndexEmpty).toBeNull();
+    expect(res._body.nodeSourceIndexEntryCount).toBeNull();
+  });
+
+  it('built and empty: complete stays true, empty is true, entryCount 0 (the staging case)', async () => {
+    mockGetNodeSourceIndexStatus.mockReturnValue({ built: true, complete: true, indexVersion: 4, summaryReadFailures: 0, empty: true, entryCount: 0, canonicalDocCount: 0 });
+    const health = registerAndGetHealthHandler();
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.nodeSourceIndexComplete).toBe(true);
+    expect(res._body.nodeSourceIndexEmpty).toBe(true);
+    expect(res._body.nodeSourceIndexEntryCount).toBe(0);
+  });
+
+  it('built and not empty: empty is false and the count is exposed', async () => {
+    mockGetNodeSourceIndexStatus.mockReturnValue({ built: true, complete: true, indexVersion: 4, summaryReadFailures: 0, empty: false, entryCount: 1234, canonicalDocCount: 50 });
+    const health = registerAndGetHealthHandler();
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.nodeSourceIndexEmpty).toBe(false);
+    expect(res._body.nodeSourceIndexEntryCount).toBe(1234);
+  });
+
+  it('the public body never carries canonicalDocCount or the full status', async () => {
+    mockGetNodeSourceIndexStatus.mockReturnValue({ built: true, complete: true, indexVersion: 4, summaryReadFailures: 0, empty: false, entryCount: 9, canonicalDocCount: 3 });
+    const health = registerAndGetHealthHandler();
+    const res = fakeRes();
+    await health({} as IncomingMessage, res);
+    expect(res._body.nodeSourceIndex).toBeUndefined();
+    expect(res._body.canonicalDocCount).toBeUndefined();
   });
 });
 

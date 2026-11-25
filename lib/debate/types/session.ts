@@ -76,6 +76,8 @@ export interface TaxonomyRef {
   primary?: boolean;
 }
 
+import type { RelevanceResult } from '../inquiryRelevance.js';
+
 export interface TranscriptEntry {
   id: string;
   timestamp: string;
@@ -326,6 +328,8 @@ export type TagSelection = { tag: string; mode: TagMode };
 
 export interface DebateSession {
   id: string;
+  /** Inquiry gross-drift signal: per-turn similarity to the question (t/284 item 5). Internal. On the evidence so far, for off-field turns, it shows a debate leaving the question's field. It does not show whether the debate answers the question (t/496). Absent for non-inquiry debates. */
+  relevance?: RelevanceResult;
   /** Execution run — regenerated each time the debate loop starts or resumes. */
   run_id?: string;
   title: string;
@@ -373,6 +377,8 @@ export interface DebateSession {
     suggested_critique?: import('../topicCritique.js').TopicCritique;
     /** Structured scope extracted from topic string for alignment enforcement (t/336). */
     scope?: TopicScope;
+    /** Named entities in the question (t/284 item 4), carried into scope.explicit_qualifiers for inquiry. */
+    entities?: string[];
   };
   source_type: DebateSourceType;
   /** For document: file path; for url: the URL; for topic: empty */

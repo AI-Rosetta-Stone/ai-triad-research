@@ -81,6 +81,94 @@ def test_union_cases_match_the_shared_fixture():
         assert got == c["expected"], c["name"]
 
 
+# ── Shared fixture v3: summary-only chunks (t/355) ────────────────────────────
+
+def _v3(docs):
+    """Fixture docs -> (marks, has_source). A mark is valid when it names another doc (6.1)."""
+    marks = {d: v["mark"] for d, v in docs.items() if v.get("mark") and v["mark"] != d and v["mark"] in docs}
+    return marks, {d for d, v in docs.items() if v.get("has_source")}
+
+
+def _v3_union(case):
+    docs, canonical = case["docs"], case["canonical"]
+    marks, has_source = _v3(docs)
+    order = bei.group_members(canonical, list(docs), marks, has_source)
+    for m in order:
+        for f in bei.N2_FIELDS:
+            if docs[m["id"]].get(f):
+                m[f] = docs[m["id"]][f]
+    members = {d: bei.summary_links(v["summary"]) for d, v in docs.items() if "summary" in v}
+    got = bei.union_group(canonical, members, order)
+    return {n: [{k: v for k, v in l.items() if k != "record"} for l in ls] for n, ls in got.items()}
+
+
+def test_resolve_cases_match_the_shared_fixture():
+    assert _FIXTURE["resolve_cases"]
+    for c in _FIXTURE["resolve_cases"]:
+        marks, has_source = _v3(c["docs"])
+        assert bei.resolve_doc(c["id"], marks, has_source) == c["expected"], c["name"]
+
+
+def test_chunk_union_cases_match_the_shared_fixture():
+    assert _FIXTURE["chunk_union_cases"]
+    for c in _FIXTURE["chunk_union_cases"]:
+        assert _v3_union(c) == c["expected"], c["name"]
+        # 7.6 as amended (t/373): extraction reads every kept fact, so the two sets are equal.
+        assert _v3_union(c) == c["expected_extracted"], c["name"]
+
+
+def test_each_chunk_case_is_one_document():
+    for c in _FIXTURE["chunk_union_cases"]:
+        marks, has_source = _v3(c["docs"])
+        assert len({bei.resolve_doc(d, marks, has_source) for d in c["docs"]}) == c["expected_documents"], c["name"]
+
+
+def test_group_order_is_copies_then_own_chunks_then_copy_chunks_by_n():
+    has_source = {"d-2026", "b-2026", "a-2026"}
+    marks = {"b-2026": "d-2026", "a-2026": "d-2026"}
+    docs = ["b-2026-1", "d-2026-10", "a-2026-2", "d-2026-2", "b-2026", "a-2026", "d-2026", "a-2026-1", "other-2026"]
+    got = [(m["id"], m["kind"], m["via"]) for m in bei.group_members("d-2026", docs, marks, has_source)]
+    assert got == [("a-2026", "copy", None), ("b-2026", "copy", None),
+                   ("d-2026-2", "chunk_D", None), ("d-2026-10", "chunk_D", None),
+                   ("a-2026-1", "chunk_copy", "a-2026"), ("a-2026-2", "chunk_copy", "a-2026"),
+                   ("b-2026-1", "chunk_copy", "b-2026")]
+
+
+def test_a_mark_loop_is_refused():
+    try:
+        bei.resolve_doc("a", {"a": "b", "b": "a"}, set())
+    except SystemExit as exc:
+        assert "loops back" in str(exc) and "Next Steps:" in str(exc)
+        return
+    raise AssertionError("expected SystemExit for a mark loop")
+
+
+def test_cli_folds_a_summary_only_chunk_into_its_base_as_one_document():
+    """t/355: before the fold, d-2026-1 was indexed as its own doc_id."""
+    canon = _summary(kps=[_kp("n1", "The model refused the request.")])
+    chunk = dict(_summary(kps=[_kp("n1", "The model refused the request!"), _kp("n1", "A passage only the chunk cited.")],
+                          fcs=[_fc(["n2"], "A fact only the chunk found.")]),
+                 generated_at="2026-03-26T10:00:00Z", ai_model="gemini-3.5-flash-lite")
+    orphan = _summary(kps=[_kp("n3", "An orphan passage.")])
+    with tempfile.TemporaryDirectory() as tmp:
+        data, src = _corpus(tmp, {"d-2026": canon, "d-2026-1": chunk, "x-2026-1": orphan}, {"d-2026": {}})
+        out = Path(tmp) / "out" / "sei.json"
+        rc, err = _run("--data-root", str(data), "--sources-root", str(src), "--out", str(out))
+        idx = json.loads(out.read_text(encoding="utf-8"))
+    assert rc == 0
+    kps = idx["n1"]["keyPoints"]
+    assert [k["verbatim"] for k in kps] == ["The model refused the request.", "A passage only the chunk cited."]
+    assert {k["doc_id"] for k in kps} == {"d-2026"} and "chunk_of" not in kps[0]
+    assert kps[1]["chunk_of"] == "d-2026-1" and "via" not in kps[1]
+    assert kps[1]["chunk_generated_at"] == "2026-03-26T10:00:00Z" and kps[1]["chunk_model"] == "gemini-3.5-flash-lite"
+    fact = idx["n2"]["facts"][0]
+    assert fact["doc_id"] == "d-2026" and fact["chunk_of"] == "d-2026-1"
+    # No base with a source dir: the orphan stays its own document and is reported (t/355#9).
+    assert idx["n3"]["keyPoints"][0]["doc_id"] == "x-2026-1"
+    assert "WARN: source_missing: 1 summaries" in err and "x-2026-1" in err
+    assert "1 summary-only chunks folded, 2 chunk_of-tagged entries" in err
+
+
 # ── Index records ─────────────────────────────────────────────────────────────
 
 def test_records_have_the_reader_contract_shape_and_truncation():

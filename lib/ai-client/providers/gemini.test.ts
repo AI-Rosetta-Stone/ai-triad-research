@@ -180,6 +180,26 @@ describe('generateViaGeminiStream — urlContext', () => {
     expect(result.urlContextMetadata).toEqual({ urlMetadata: [{ retrievedUrl: 'https://example.com', urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_SUCCESS' }] });
   });
 
+  // t/494: the stream returns the call's usage, from the final chunk's cumulative usageMetadata.
+  it('returns usage from the final stream chunk (cumulative usageMetadata)', async () => {
+    const early = { ...streamChunk('hel'), usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 1 } };
+    const last = {
+      ...streamChunk('lo'),
+      usageMetadata: { promptTokenCount: 150000, candidatesTokenCount: 42, cachedContentTokenCount: 0, totalTokenCount: 150042 },
+    };
+    const fetchFn = makeStreamFetch([early, last]);
+    const result = await generateViaGeminiStream(fetchFn, 'p', 'gemini-pro', 'key', { timeoutMs: 5000 });
+    expect(result.usage).toEqual({
+      promptTokens: 150000, completionTokens: 42, cachedTokens: 0, totalTokens: 150042,
+    });
+  });
+
+  it('leaves usage undefined when the stream carries no usageMetadata', async () => {
+    const fetchFn = makeStreamFetch([streamChunk('ok')]);
+    const result = await generateViaGeminiStream(fetchFn, 'p', 'gemini-pro', 'key', { timeoutMs: 5000 });
+    expect(result.usage).toBeUndefined();
+  });
+
   it('tolerates absent urlContextMetadata in streaming response', async () => {
     const fetchFn = makeStreamFetch([streamChunk('ok')]);
     const result = await generateViaGeminiStream(fetchFn, 'p', 'gemini-pro', 'key', { timeoutMs: 5000, urlContext: true });

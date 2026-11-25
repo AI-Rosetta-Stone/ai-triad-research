@@ -53,8 +53,15 @@ Describe 'staging-only Gemini free-tier key (t/4732)' {
         $script:Staging | Should -Match '(?m)^\s+secrets: stagingSecrets\s*$'
         $script:Staging | Should -Match '(?m)^\s+env: stagingContainerEnv\s*$'
         $def = [regex]::Match($script:Bicep, '(?s)var stagingSecrets = concat\((.*?)\)\r?\n').Groups[1].Value
-        $def | Should -Match '^oauthSecrets,'
-        $def | Should -Match 'freeTierStagingKeyProvided \? \[ \{ name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging \} \] : \[\]'
+        $def | Should -Match '^sharedOauthSecrets,'
+        $def | Should -Match 'freeTierStagingKeyProvided \? \[ \{ name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging \} \] : stagingFallbackFreeTier'
+    }
+
+    It 't/269: staging drops the shared key once its own key is set; the shared key stays only on the fallback arm' {
+        $shared = [regex]::Match($script:Bicep, '(?s)var sharedOauthSecrets = concat\((.*?)\r?\n\)').Groups[1].Value
+        $shared | Should -Not -BeNullOrEmpty
+        $shared | Should -Not -Match 'freeTierSecretName|freeTierEnabled|freeTierGeminiKey'
+        Get-VarLine 'stagingFallbackFreeTier' | Should -Be 'freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []'
     }
 
     It 'staging FREE_TIER_GEMINI_KEY points at the staging secret when provided, else falls back to the shared one' {

@@ -136,6 +136,97 @@ function Get-SummaryEvidenceLink {
     }
 }
 
+function Get-EvidenceChunkBase {
+    <#
+    .SYNOPSIS
+        Spec 6.2 (t/355, R1): the base X when $Id is a summary-only chunk <X>-N of X, else $null.
+    .PARAMETER Docs
+        id -> [pscustomobject] { HasSource = [bool]; Mark = <target id or $null> }.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs)
+    Set-StrictMode -Version Latest
+    $m = [regex]::Match($Id, '^(.+)-(\d+)$')
+    if (-not $m.Success) { return $null }
+    if ($Docs.ContainsKey($Id) -and $Docs[$Id].HasSource) { return $null }
+    $base = $m.Groups[1].Value
+    if ($Docs.ContainsKey($base) -and $Docs[$base].HasSource) { return $base }
+    $null
+}
+
+function Get-EvidenceValidMark {
+    <#
+    .SYNOPSIS
+        The target of $Id's mark when it names another document in $Docs, else $null (spec 6.1).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs)
+    Set-StrictMode -Version Latest
+    if (-not $Docs.ContainsKey($Id)) { return $null }
+    $target = $Docs[$Id].Mark
+    if ($target -is [string] -and $target.Length -gt 0 -and $target -cne $Id -and $Docs.ContainsKey($target)) { return $target }
+    $null
+}
+
+function Resolve-EvidenceDocId {
+    <#
+    .SYNOPSIS
+        Spec 6.2 (t/355, R1, transitive): the document a summary id resolves to. A valid mark, or a chunk's
+        base, is followed to the end. A cycle is an error.
+    .PARAMETER Docs
+        id -> [pscustomobject] { HasSource = [bool]; Mark = <target id or $null> }.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][hashtable]$Docs, [string[]]$Seen = @())
+    Set-StrictMode -Version Latest
+    if ($Seen -contains $Id) {
+        New-ActionableError -Goal 'Resolve the evidence document for a summary id' `
+            -Problem "The mark or chunk chain loops back to '$Id'." `
+            -Location 'EvidenceUnion.ps1: Resolve-EvidenceDocId' `
+            -NextSteps @('Remove or correct one mark in the loop (spec 6.1)', 'Check that no chunk names its own copy as its base')
+    }
+    $target = Get-EvidenceValidMark -Id $Id -Docs $Docs
+    if ($target) { return (Resolve-EvidenceDocId -Id $target -Docs $Docs -Seen (@($Seen) + $Id)) }
+    $base = Get-EvidenceChunkBase -Id $Id -Docs $Docs
+    if ($base) { return (Resolve-EvidenceDocId -Id $base -Docs $Docs -Seen (@($Seen) + $Id)) }
+    $Id
+}
+
+function Get-EvidenceGroupMembers {
+    <#
+    .SYNOPSIS
+        Spec 7.1 (t/355, R2): the group of a canonical as ordered members { Id; Kind; Via }.
+        Order: marked copies by ordinal id, then D's own chunks, then each copy's chunks, each by N ascending.
+        Kind is 'copy', 'chunk_D' (a chunk of the canonical) or 'chunk_copy' (a chunk of a marked copy; Via = that copy).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param([Parameter(Mandatory)][string]$Canonical, [Parameter(Mandatory)][hashtable]$Docs)
+    Set-StrictMode -Version Latest
+    $ids = [string[]]@($Docs.Keys | Where-Object { $_ -cne $Canonical })
+    [Array]::Sort($ids, [StringComparer]::Ordinal)
+    $copies = [string[]]@($ids | Where-Object {
+            $null -eq (Get-EvidenceChunkBase -Id $_ -Docs $Docs) -and
+            (Get-EvidenceValidMark -Id $_ -Docs $Docs) -and
+            (Resolve-EvidenceDocId -Id $_ -Docs $Docs) -ceq $Canonical })
+    $byN = {
+        param($list)
+        @($list | Sort-Object -Property @{ Expression = { [int64]([regex]::Match($_, '(\d+)$').Groups[1].Value) } }, @{ Expression = { $_ } })
+    }
+    $out = [System.Collections.Generic.List[pscustomobject]]::new()
+    foreach ($c in $copies) { $out.Add([pscustomobject]@{ Id = $c; Kind = 'copy'; Via = $null }) }
+    $own = [string[]]@($ids | Where-Object { (Get-EvidenceChunkBase -Id $_ -Docs $Docs) -ceq $Canonical })
+    foreach ($k in (& $byN $own)) { $out.Add([pscustomobject]@{ Id = $k; Kind = 'chunk_D'; Via = $null }) }
+    foreach ($c in $copies) {
+        $kids = [string[]]@($ids | Where-Object { (Get-EvidenceChunkBase -Id $_ -Docs $Docs) -ceq $c })
+        foreach ($k in (& $byN $kids)) { $out.Add([pscustomobject]@{ Id = $k; Kind = 'chunk_copy'; Via = $c }) }
+    }
+    $out.ToArray()
+}
+
 function Merge-GroupEvidence {
     <#
     .SYNOPSIS
@@ -158,14 +249,21 @@ function Merge-GroupEvidence {
     )
     Set-StrictMode -Version Latest
     $canonicalMembers = @($Members | Where-Object { $_.Id -ceq $CanonicalId })
-    $marked = [object[]]@($Members | Where-Object { $_.Id -cne $CanonicalId })
-    $ids = [string[]]@(foreach ($m in $marked) { [string]$m.Id })
+    $others = [object[]]@($Members | Where-Object { $_.Id -cne $CanonicalId })
+    # Spec 7.1 (t/355 R2): a member with no Kind is a marked copy. Copies sort by ordinal id; chunks keep the
+    # order the caller gives them, which Get-EvidenceGroupMembers builds (D's own chunks, then each copy's, N ascending).
+    $kindOf = { param($m) if ($m.PSObject.Properties['Kind'] -and $m.Kind) { [string]$m.Kind } else { 'copy' } }
+    $copies = [object[]]@($others | Where-Object { (& $kindOf $_) -eq 'copy' })
+    $chunks = [object[]]@($others | Where-Object { (& $kindOf $_) -ne 'copy' })
+    $ids = [string[]]@(foreach ($m in $copies) { [string]$m.Id })
     # The casts select the non-generic Array.Sort(Array, Array, IComparer). Without them PowerShell
-    # binds Sort<TKey,TValue>, converts $marked into a copy, and sorts only the keys.
-    [Array]::Sort([Array]$ids, [Array]$marked, [System.Collections.IComparer][StringComparer]::Ordinal)
+    # binds Sort<TKey,TValue>, converts $copies into a copy, and sorts only the keys.
+    [Array]::Sort([Array]$ids, [Array]$copies, [System.Collections.IComparer][StringComparer]::Ordinal)
+    $marked = [object[]]@($copies + $chunks)
     $out = [ordered]@{}; $keys = @{}
     foreach ($m in $canonicalMembers + $marked) {
         $own = $m.Id -ceq $CanonicalId
+        $kind = & $kindOf $m
         foreach ($l in @($m.Links)) {
             if ($null -eq $l) { continue }
             $n = [string]$l.node; $k = ConvertTo-EvidenceKey -Quote ([string]$l.quote)
@@ -176,7 +274,16 @@ function Merge-GroupEvidence {
                 if ($dup) { continue }
             }
             $entry = [ordered]@{ node = $n; field = [string]$l.field; quote = [string]$l.quote; doc = $CanonicalId }
-            if (-not $own) { $entry['via'] = [string]$m.Id }
+            # Attribution (t/355 R3): a copy's link is via the copy; a chunk of the canonical is chunk_of the chunk;
+            # a chunk of a marked copy is via that copy, never chunk_of.
+            if ($kind -eq 'copy' -and -not $own) { $entry['via'] = [string]$m.Id }
+            elseif ($kind -eq 'chunk_D') { $entry['chunk_of'] = [string]$m.Id }
+            elseif ($kind -eq 'chunk_copy') { $entry['via'] = [string]$m.Via }
+            # N2 (t/355, 7.6a): a kept chunk item carries the chunk summary's own provenance when it is known.
+            if ($kind -like 'chunk_*') {
+                if ($m.PSObject.Properties['ChunkGeneratedAt'] -and $m.ChunkGeneratedAt) { $entry['chunk_generated_at'] = [string]$m.ChunkGeneratedAt }
+                if ($m.PSObject.Properties['ChunkModel'] -and $m.ChunkModel) { $entry['chunk_model'] = [string]$m.ChunkModel }
+            }
             # A caller's own record for the link (e.g. a source-index entry), carried through untouched.
             if ($l.PSObject.Properties['payload']) { $entry['payload'] = $l.payload }
             $out[$n].Add([pscustomobject]$entry); $keys[$n].Add($k)

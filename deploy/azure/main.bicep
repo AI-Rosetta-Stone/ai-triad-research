@@ -114,6 +114,26 @@ param freePoolDailyCallsCapStaging string = '300'
 // live incident instead of a code review.
 @description('AZURE_USER_CONTENT_CONTAINER override for staging only (t/4738). Isolates staging chats/debates from prod.')
 param azureUserContentContainerStaging string = 'staging-user-content'
+// ── Anonymous op-ed retention backstop (t/500, TL p/12#148/#149) ──
+// Deletes anonymous op-ed blobs older than the age below, independent of app code. The sweep and
+// lazy expiry are the mechanism; this rule is the backstop for the 24-hour promise.
+// Azure lifecycle rules match a literal prefix only, so the prefix must be a dedicated top-level
+// prefix that no signed-in storage id can produce (TaxonomyServer decides it; TL ruling t/500#15).
+// NOT SET: the default '' adds no rule. Every flag defaults off, so merging this changes nothing.
+// Order: staging first (anonOpEdLifecycleStagingEnabled), then prod before the prod deploy that
+// carries the t/500 code (anonOpEdLifecycleProdEnabled). Each needs SO clearance and the dry listing.
+@description('Blob name prefix (inside the container) for anonymous op-ed storage. Must be a top-level prefix no signed-in storage id can produce. Set to anon-oped/ (TaxonomyServer, t/500). Empty adds no rule.')
+@allowed([
+  'anon-oped/'
+])
+param anonOpEdLifecyclePrefix string = 'anon-oped/'
+@description('Apply the anonymous op-ed delete rule to staging-user-content. Staging first.')
+param anonOpEdLifecycleStagingEnabled bool = false
+@description('Apply the anonymous op-ed delete rule to user-content (prod). Only after staging has run clean and the PI is told.')
+param anonOpEdLifecycleProdEnabled bool = false
+@description('Age in days after last modification before an anonymous op-ed blob is deleted. Two days: the stamp rewrites at most hourly, and the policy runs daily.')
+param anonOpEdLifecycleAgeDays int = 2
+
 @description('AZURE_COMMUNITY_CONTAINER override for staging only (t/4738). Isolates staging community submissions from prod — without this, a staging test item could be approved and published on the public prod site.')
 param azureCommunityContainerStaging string = 'staging-community'
 @description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
@@ -265,6 +285,13 @@ param githubRunnerWebhookSecret string = ''
 var prodCpu = '1.5'
 var prodMemory = '3Gi'
 
+// Staging's ordinary size, used whenever stagingLoadTestSize is off. Raised from 0.25 vCPU /
+// 0.5Gi to 0.5 / 1Gi (t/520, PI-approved spend 2026-11-24): at 0.5Gi one anonymous request
+// that loads a second embedding model pushed the working set past the limit, and the
+// container was killed. Container Apps pairs 1Gi with 0.5 vCPU only.
+var stagingCpu = '0.5'
+var stagingMemory = '1Gi'
+
 var googleEnabled = !empty(googleClientId) && !empty(googleClientSecret)
 var githubEnabled = !empty(githubClientId) && !empty(githubClientSecret)
 var aadEnabled = !empty(aadClientId) && !empty(aadClientSecret)
@@ -283,20 +310,25 @@ var freeTierStagingSecretName = 'free-tier-gemini-key-staging'
 var stagingFreePoolCap = freeTierStagingKeyProvided ? freePoolDailyCallsCapStaging : '200'
 var paidTierEnabled = !empty(geminiPaidKey)
 var paidTierSecretName = 'gemini-paid-key'
-var oauthSecrets = concat(
+var sharedOauthSecrets = concat(
   googleEnabled ? [ { name: googleClientSecretName, value: googleClientSecret } ] : [],
   githubEnabled ? [ { name: githubClientSecretName, value: githubClientSecret } ] : [],
   aadEnabled ? [ { name: aadClientSecretName, value: aadClientSecret } ] : [],
   githubTokenProvided ? [ { name: githubTokenSecretName, value: githubToken } ] : [],
-  githubWebhookSecretProvided ? [ { name: githubWebhookSecretName, value: githubWebhookSecret } ] : [],
+  githubWebhookSecretProvided ? [ { name: githubWebhookSecretName, value: githubWebhookSecret } ] : []
+)
+var oauthSecrets = concat(sharedOauthSecrets,
   freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : [],
   paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : []
 )
-// t/4732: the staging app's secrets are prod's plus its own free-tier key. Prod's `secrets:` stays
-// oauthSecrets, so prod can never reference free-tier-gemini-key-staging
-// (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
-var stagingSecrets = concat(oauthSecrets,
-  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : [])
+// t/269: the staging app gets its own free-tier key and no longer holds the shared one. Only when
+// the staging key is empty does staging fall back to the shared key, because its FREE_TIER_GEMINI_KEY
+// then still references it. Prod's `secrets:` stays oauthSecrets, so prod can never reference
+// free-tier-gemini-key-staging (tests/BicepStagingFreeTierKey.Tests.ps1 asserts this).
+var stagingFallbackFreeTier = freeTierEnabled ? [ { name: freeTierSecretName, value: freeTierGeminiKey } ] : []
+var stagingSecrets = concat(sharedOauthSecrets,
+  paidTierEnabled ? [ { name: paidTierSecretName, value: geminiPaidKey } ] : [],
+  freeTierStagingKeyProvided ? [ { name: freeTierStagingSecretName, value: freeTierGeminiKeyStaging } ] : stagingFallbackFreeTier)
 
 // ── Log Analytics ──
 
@@ -534,12 +566,59 @@ resource stagingBriefExportsContainer 'Microsoft.Storage/storageAccounts/blobSer
 // 30-day flat delete on brief-exports and staging-brief-exports.
 // Zero runtime cost; runs even when the app is scaled to 0.
 // Count-quota (t/2831) handles live hygiene; this rule handles stale cleanup.
+// Anonymous op-ed rules (t/500). Included only when a prefix is set AND the flag is on.
+// Fail-safe: a prefix under users/ (signed-in storage ids) is never a rule target, and an unset
+// prefix adds nothing. A silent skip here deletes nothing, which is the safe direction.
+// The prefix must end in '/' (t/500#43): Azure matches a literal prefix, so 'anon-oped' without
+// the slash would also match anon-oped-spend/ and delete the spend ledger.
+var anonOpEdPrefixSafe = !empty(anonOpEdLifecyclePrefix) && !startsWith(anonOpEdLifecyclePrefix, 'users/') && endsWith(anonOpEdLifecyclePrefix, '/')
+var anonOpEdLifecycleRules = concat(
+  (anonOpEdLifecycleStagingEnabled && anonOpEdPrefixSafe)
+    ? [
+        {
+          name: 'delete-anon-oped-staging'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonOpEdLifecycleAgeDays } }
+            }
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['${azureUserContentContainerStaging}/${anonOpEdLifecyclePrefix}']
+            }
+          }
+        }
+      ]
+    : [],
+  (anonOpEdLifecycleProdEnabled && anonOpEdPrefixSafe)
+    ? [
+        {
+          name: 'delete-anon-oped-prod'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            actions: {
+              baseBlob: { delete: { daysAfterModificationGreaterThan: anonOpEdLifecycleAgeDays } }
+              version: { delete: { daysAfterCreationGreaterThan: anonOpEdLifecycleAgeDays } }
+            }
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['user-content/${anonOpEdLifecyclePrefix}']
+            }
+          }
+        }
+      ]
+    : []
+)
+
 resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
   parent: storageAccount
   name: 'default'
   properties: {
     policy: {
-      rules: [
+      rules: concat([
         {
           name: 'delete-stale-brief-exports'
           enabled: true
@@ -561,7 +640,7 @@ resource briefExportsLifecyclePolicy 'Microsoft.Storage/storageAccounts/manageme
             }
           }
         }
-      ]
+      ], anonOpEdLifecycleRules)
     }
   }
 }
@@ -1032,7 +1111,7 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
           // size — if prod's own resources change (e.g. t/4263), this follows automatically.
           resources: stagingLoadTestSize
             ? { cpu: json(prodCpu), memory: prodMemory }
-            : { cpu: json('0.25'), memory: '0.5Gi' }
+            : { cpu: json(stagingCpu), memory: stagingMemory }
           env: stagingContainerEnv
           probes: [
             {

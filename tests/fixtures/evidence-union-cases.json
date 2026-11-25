@@ -1,6 +1,6 @@
 {
   "spec": "docs/specs/source-identity.md section 7",
-  "version": 2,
+  "version": 3,
   "generator": "scripts/new_evidence_union_fixture.py",
   "key_cases": [
     {
@@ -967,6 +967,291 @@
     {
       "key": "summary:a-2026#acc-kp-0-via-b",
       "derived": false
+    }
+  ],
+  "resolve_cases": [
+    {
+      "name": "(d) a chunk whose base has no source dir resolves to itself",
+      "docs": {
+        "x-2026": {
+          "has_source": false
+        },
+        "x-2026-1": {
+          "has_source": false
+        }
+      },
+      "id": "x-2026-1",
+      "expected": "x-2026-1"
+    },
+    {
+      "name": "a chunk of a base with a source resolves to the base",
+      "docs": {
+        "d-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The US will double down on exporting its tech stack."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "d-2026-1": {
+          "has_source": false,
+          "chunk_generated_at": "2026-03-26T10:00:00Z",
+          "chunk_model": "gemini-3.5-flash-lite",
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "the US will double-down on exporting its tech stack"
+                  },
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "Countries think they must control AI before it controls them."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "id": "d-2026-1",
+      "expected": "d-2026"
+    },
+    {
+      "name": "transitive: a chunk of a marked copy resolves to the copy's canonical (TL change 1)",
+      "docs": {
+        "d-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The US will double down on exporting its tech stack."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "c-2026": {
+          "has_source": true,
+          "mark": "d-2026",
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The US will double down on exporting its tech stack."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "c-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n2",
+                    "verbatim": "Only the chunk of the copy found this."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "id": "c-2026-1",
+      "expected": "d-2026"
+    }
+  ],
+  "chunk_union_cases": [
+    {
+      "name": "(a) chunk of the canonical: the near link is dropped, the distinct one is kept with chunk_of and N2",
+      "canonical": "d-2026",
+      "docs": {
+        "d-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The US will double down on exporting its tech stack."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "d-2026-1": {
+          "has_source": false,
+          "chunk_generated_at": "2026-03-26T10:00:00Z",
+          "chunk_model": "gemini-3.5-flash-lite",
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "the US will double-down on exporting its tech stack"
+                  },
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "Countries think they must control AI before it controls them."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The US will double down on exporting its tech stack.",
+            "doc": "d-2026"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Countries think they must control AI before it controls them.",
+            "doc": "d-2026",
+            "chunk_of": "d-2026-1",
+            "chunk_generated_at": "2026-03-26T10:00:00Z",
+            "chunk_model": "gemini-3.5-flash-lite"
+          }
+        ]
+      },
+      "expected_documents": 1,
+      "expected_extracted": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The US will double down on exporting its tech stack.",
+            "doc": "d-2026"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Countries think they must control AI before it controls them.",
+            "doc": "d-2026",
+            "chunk_of": "d-2026-1",
+            "chunk_generated_at": "2026-03-26T10:00:00Z",
+            "chunk_model": "gemini-3.5-flash-lite"
+          }
+        ]
+      }
+    },
+    {
+      "name": "(e) chunk of a marked copy: kept with via the copy, never chunk_of",
+      "canonical": "d-2026",
+      "docs": {
+        "d-2026": {
+          "has_source": true,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The US will double down on exporting its tech stack."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "c-2026": {
+          "has_source": true,
+          "mark": "d-2026",
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n1",
+                    "verbatim": "The US will double down on exporting its tech stack."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "c-2026-1": {
+          "has_source": false,
+          "summary": {
+            "pov_summaries": {
+              "accelerationist": {
+                "key_points": [
+                  {
+                    "taxonomy_node_id": "n2",
+                    "verbatim": "Only the chunk of the copy found this."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The US will double down on exporting its tech stack.",
+            "doc": "d-2026"
+          }
+        ],
+        "n2": [
+          {
+            "node": "n2",
+            "field": "key_point",
+            "quote": "Only the chunk of the copy found this.",
+            "doc": "d-2026",
+            "via": "c-2026"
+          }
+        ]
+      },
+      "expected_documents": 1,
+      "expected_extracted": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The US will double down on exporting its tech stack.",
+            "doc": "d-2026"
+          }
+        ],
+        "n2": [
+          {
+            "node": "n2",
+            "field": "key_point",
+            "quote": "Only the chunk of the copy found this.",
+            "doc": "d-2026",
+            "via": "c-2026"
+          }
+        ]
+      }
     }
   ]
 }

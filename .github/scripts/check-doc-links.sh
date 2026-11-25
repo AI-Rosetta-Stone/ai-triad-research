@@ -3,7 +3,7 @@
 # against `git ls-files` (main-repo presence), NOT the on-disk working tree.
 #
 # Why: the fleet shares a combined working tree where the Orca overlay
-# (orca-support/, .orca/, nested AGENTS.md, …) is present on disk but is NOT
+# (overlay-only/, .orca/, nested AGENTS.md, …) is present on disk but is NOT
 # tracked in the public main repo. A relative link from a public doc (e.g. root
 # AGENTS.md) to an overlay-only path resolves locally for fleet agents yet 404s
 # for anyone viewing the public repo (t/2089). Filesystem existence !=
@@ -20,7 +20,7 @@
 # continue-on-error in ci.yml to promote it to a hard gate.
 #
 # Self-test: `check-doc-links.sh --self-test` builds a synthetic repo that
-# reproduces the t/2089 case (root AGENTS.md -> orca-support/docs/…) and asserts
+# reproduces the t/2089 case (root AGENTS.md -> overlay-only/docs/…) and asserts
 # it is caught while an overlay-only doc linking the same path is not (AC #4).
 set -euo pipefail
 
@@ -124,28 +124,28 @@ run_self_test() {
     git config user.name t
     # public, TRACKED doc that links into an overlay-only path (the t/2089 bug)
     mkdir -p docs
-    printf '# Public\nSee [x](orca-support/docs/token-efficiency.md).\nAlso [ok](docs/real.md).\n' > AGENTS.md
+    printf '# Public\nSee [x](overlay-only/docs/token-efficiency.md).\nAlso [ok](docs/real.md).\n' > AGENTS.md
     printf '# Real\n' > docs/real.md
     git add AGENTS.md docs/real.md
     git commit -qm init
     # overlay-only file: present on disk, NOT tracked (exempt, AC #3)
-    mkdir -p orca-support/docs
-    printf '# tok\n' > orca-support/docs/token-efficiency.md
-    printf '# Overlay\nLink to [tok](docs/token-efficiency.md) is fine here.\n' > orca-support/AGENTS.md
+    mkdir -p overlay-only/docs
+    printf '# tok\n' > overlay-only/docs/token-efficiency.md
+    printf '# Overlay\nLink to [tok](docs/token-efficiency.md) is fine here.\n' > overlay-only/AGENTS.md
   )
   local out
   out="$(find_dead_links "$tmp")"
   local pass=1
-  # 1. root AGENTS.md -> orca-support/... MUST be flagged
-  if ! grep -q $'^AGENTS.md\torca-support/docs/token-efficiency.md' <<< "$out"; then
-    echo "FAIL: root AGENTS.md -> orca-support/… was not flagged"; pass=0
+  # 1. root AGENTS.md -> overlay-only/... MUST be flagged
+  if ! grep -q $'^AGENTS.md\toverlay-only/docs/token-efficiency.md' <<< "$out"; then
+    echo "FAIL: root AGENTS.md -> overlay-only/… was not flagged"; pass=0
   fi
   # 2. tracked -> tracked (docs/real.md) must NOT be flagged
   if grep -q 'docs/real.md' <<< "$out"; then
     echo "FAIL: tracked link docs/real.md was wrongly flagged"; pass=0
   fi
   # 3. overlay-only doc (untracked) must be exempt entirely
-  if grep -q '^orca-support/AGENTS.md' <<< "$out"; then
+  if grep -q '^overlay-only/AGENTS.md' <<< "$out"; then
     echo "FAIL: overlay-only doc was not exempt"; pass=0
   fi
   if [ "$pass" -eq 1 ]; then

@@ -4,6 +4,7 @@
 import type { StageDiagnostics, BriefWorkProduct, PlanWorkProduct, DraftWorkProduct, CiteWorkProduct, TurnPipelineResult, PromptComponentChars, DraftQualityGateResult, EditingMeta } from '../types.js';
 import { ActionableError } from '../errors.js';
 import { getGlobalRecorder } from '../../flight-recorder/index.js';
+
 import { validateDraftStage, validateCiteStage, validatePlanStage, isFillerRelevance, parseDraftQualityResult, resolveMoveName } from '../turnValidator.js';
 import { wordOverlap, getMoveName } from '../helpers.js';
 import type { MoveAnnotation } from '../helpers.js';
@@ -24,6 +25,13 @@ import { extractDraftMeta } from './assemble.js';
 import { DEFAULT_STAGE_TEMPERATURES } from './types.js';
 import type { TurnPipelineInput, StageGenerateFn, StageProgressFn, EnvelopeGenerateFn } from './types.js';
 import { runReadabilityEditPass } from './readabilityEditPass.js';
+
+/** Key-point text as a string: strings pass through, string arrays are joined, anything else is empty. */
+export function keyPointText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string').join(' ');
+  return undefined;
+}
 
 export async function runTurnPipeline(
   input: TurnPipelineInput,
@@ -939,7 +947,8 @@ export async function runTurnPipeline(
       }
     }
     for (const kp of evidenceKPs) {
-      for (const text of [kp.point, kp.verbatim]) {
+      // verbatim is a string or, in some evidence-index entries, a string array (t/296 live index).
+      for (const text of [keyPointText(kp.point), keyPointText(kp.verbatim)]) {
         if (!text) continue;
         const words = text.toLowerCase().split(/\s+/);
         for (let w = 0; w <= words.length - 4; w++) {
