@@ -52,7 +52,7 @@ function httpError(status) {
  * (params) => data, or an array of steps consumed in order (a number = throw that HTTP status,
  * anything else = return it as data; the last step repeats).
  */
-async function runWorkflow(workflowFile, api, { helperOnBase = true, step = null, env = {} } = {}) {
+async function runWorkflow(workflowFile, api, { helperOnBase = true, step = null, env = {}, ctx = {} } = {}) {
   const calls = {};
   const args = {}; // endpoint name -> params of every call, in order
   const log = { info: [], warning: [], error: [], failed: [] };
@@ -74,7 +74,8 @@ async function runWorkflow(workflowFile, api, { helperOnBase = true, step = null
   }
   const rest = {};
   for (const name of ['pulls.get', 'pulls.listFiles', 'pulls.listReviews', 'pulls.listCommits', 'repos.getContent',
-    'issues.listComments', 'issues.createComment', 'issues.updateComment', 'checks.create']) {
+    'issues.listComments', 'issues.createComment', 'issues.updateComment', 'checks.create',
+    'repos.listPullRequestsAssociatedWithCommit']) {
     const [ns, m] = name.split('.');
     rest[ns] ??= {};
     rest[ns][m] = endpoint(name);
@@ -99,6 +100,7 @@ async function runWorkflow(workflowFile, api, { helperOnBase = true, step = null
   const context = {
     repo: { owner: 'o', repo: 'r' }, serverUrl: 'https://github.com', runId: 1,
     payload: { pull_request: { number: 7, base: { ref: 'main' } }, repository: { default_branch: 'main' } },
+    ...ctx, // t/544: e.g. a relay run (eventName workflow_run, a workflow_run payload)
   };
   const fakeSetTimeout = (fn, ms) => { sleeps.push(ms); fn(); return 0; };
 
@@ -293,6 +295,74 @@ test('tier-check posts no explicit check run: CANNOT EVALUATE is the job\'s own 
   assert.equal(calls['checks.create'] ?? 0, 0);
   assert.equal(log.failed.length, 1);
   assert.match(log.failed[0], /^CANNOT EVALUATE: /);
+});
+
+// t/544 (Lead p/233#207): a relay (workflow_run) run's job row lands on the DEFAULT BRANCH's head, so it
+// must never fail the job over a verdict: the result goes to an explicit `tier-check` check run on the PR head.
+const RELAY = {
+  eventName: 'workflow_run',
+  payload: {
+    repository: { default_branch: 'main', full_name: 'o/r' },
+    workflow_run: {
+      event: 'pull_request_review', head_sha: 'headsha',
+      head_repository: { full_name: 'o/r' }, pull_requests: [{ number: 7 }],
+    },
+  },
+};
+/** tier-check's healthy API plus the check-run endpoint a relay run writes to. */
+const relayApi = (overrides = {}) => tierCheckApi({ 'checks.create': [{}], ...overrides });
+const GATE_FILE = [{ filename: '.github/workflows/tier-check.yml', status: 'modified', patch: '@@ -1 +1 @@\n-a\n+b' }];
+
+test('t/544 relay: a verdict (even a T0 disagreement) never calls setFailed; success check run on the PR head', async () => {
+  const { args, log } = await runWorkflow('tier-check.yml', relayApi({ 'pulls.listFiles': [GATE_FILE] }), { ctx: RELAY });
+  assert.deepEqual(log.failed, [], `a relay run failed its job (that reds main's head): ${log.failed}`);
+  const runs = args['checks.create'] || [];
+  assert.equal(runs.length, 1, 'exactly one explicit check run');
+  assert.equal(runs[0].head_sha, 'headsha', 'pinned to the PR head, not the default branch');
+  assert.equal(runs[0].name, 'tier-check');
+  assert.equal(runs[0].conclusion, 'success');
+  assert.ok(log.info.some((m) => /^tier-check verdict: pass=false tier=T0 .*R1: touches \.github\/workflows\/tier-check\.yml/.test(m)),
+    'the fixture really is a failing verdict (R1 disagrees with the declared T0)');
+  assert.equal((args['issues.createComment'] || []).length, 1, 'the verdict still goes to the PR comment');
+});
+
+test('t/544 relay: a crash after the head is known posts a `failure` check on the PR head, and the job stays green', async () => {
+  const { args, log } = await runWorkflow('tier-check.yml', relayApi({ 'pulls.listFiles': [404] }), { ctx: RELAY });
+  assert.deepEqual(log.failed, []);
+  const runs = args['checks.create'] || [];
+  assert.deepEqual(runs.map((r) => [r.head_sha, r.conclusion]), [['headsha', 'failure']]);
+  assert.match(runs[0].output.title, /CANNOT EVALUATE/);
+  assert.match(runs[0].output.summary, /HTTP 404/);
+});
+
+test('t/544 relay: if the failure check cannot be posted either, the job fails (a crash is never silent)', async () => {
+  const { log } = await runWorkflow('tier-check.yml', relayApi({ 'pulls.listFiles': [404], 'checks.create': [404] }), { ctx: RELAY });
+  assert.equal(log.failed.length, 1);
+  assert.match(log.failed[0], /^CANNOT EVALUATE: HTTP 404/);
+});
+
+test('t/544 relay: a crash before the PR head is known fails the job (nowhere else to report it)', async () => {
+  const { calls, log } = await runWorkflow('tier-check.yml', relayApi({ 'pulls.get': [404] }), { ctx: RELAY });
+  assert.equal(calls['checks.create'] ?? 0, 0);
+  assert.equal(log.failed.length, 1);
+  assert.match(log.failed[0], /^CANNOT EVALUATE: HTTP 404/);
+});
+
+test('t/544 relay: a stale run (the PR moved) posts nothing and does not fail', async () => {
+  const moved = { ...PR, head: { ...PR.head, sha: 'newer' } };
+  const { calls, log } = await runWorkflow('tier-check.yml', relayApi({ 'pulls.get': [moved] }), { ctx: RELAY });
+  assert.deepEqual(log.failed, []);
+  assert.equal(calls['checks.create'] ?? 0, 0);
+  assert.equal(calls['issues.createComment'] ?? 0, 0);
+  assert.ok(log.info.some((m) => /stale workflow_run/.test(m)));
+});
+
+test('t/544 relay: a non-review relay run is a no-op', async () => {
+  const ctx = { ...RELAY, payload: { ...RELAY.payload, workflow_run: { ...RELAY.payload.workflow_run, event: 'push' } } };
+  const { calls, log } = await runWorkflow('tier-check.yml', relayApi(), { ctx });
+  assert.deepEqual(log.failed, []);
+  assert.equal(calls['pulls.get'] ?? 0, 0);
+  assert.equal(calls['checks.create'] ?? 0, 0);
 });
 
 // t/562 (Lead p/233#71): the merge-group guard paths pass the 15-min, one-wait rate-limit option, and
