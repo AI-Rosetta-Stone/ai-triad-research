@@ -900,6 +900,16 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             (& $script:Decide74 $Src3 'Regulators have begun to ask for evaluation results, and developers answer that the tests were never designed for it.').Decision | Should -Be 'exact'
         }
 
+        It 'a thin space read as three letters is white space, in the source and in a quote that copied it (t/389#84)' {
+            $Thin = [string][char]0x393 + [char]0xC7 + [char]0xEB
+            $Dash = [string][char]0x393 + [char]0xC7 + [char]0xF6
+            $Src = "Modern informatics systems are neat, on the verge of providing a form of immortality, and pure or at least clean$Thin$Dash${Thin}all unobtainable in the biosphere.`n"
+            $R = & $script:Decide74 $Src 'Modern informatics systems are neat, on the verge of providing a form of immortality, and pure or at least clean - all unobtainable in the biosphere.'
+            $R.Decision | Should -Not -Be 'dropped'
+            $Copied = & $script:Decide74 $Src "Modern informatics systems are neat, on the verge of providing a form of immortality, and pure or at least clean$Thin$Dash${Thin}all unobtainable in the biosphere."
+            $Copied.Decision | Should -Not -Be 'dropped'
+        }
+
         It 'a letter the source has in brackets is a marked change; a case drop at a later segment''s start is counted apart' {
             $Src = "The court held that `"[i]ndividual citizens may have a hard time finding out who they should turn to`" in such cases. Later text follows here for the second part.`n"
             $R = & $script:Decide74 $Src 'The court held that Individual citizens may have a hard time finding out who they should turn to'

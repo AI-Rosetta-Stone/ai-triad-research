@@ -85,6 +85,11 @@ $script:VerbatimCaseRule = $true
 $script:VerbatimAlignExtras = $true          # a piece's letters are aligned to the quote's, so extra lines and the model's own digits are told apart
 $script:VerbatimSplitAtGluedSidebar = $true  # a sidebar word glued to the end of a line ("couldLaw") splits the piece there
 # CL t/389#76.
+# The Unicode spaces U+2000..U+200B and U+202F (thin space, hair space, narrow no-break space ...) as their
+# UTF-8 bytes E2 80 80..8B / AF read in code page 437: three characters that read as letters ("clean" + thin
+# space + dash + thin space + "all", t/389#84). They are white space, in the source and in a quote that copied them.
+$script:VerbatimFoldSpaceMojibake = $true
+$script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
 $script:VerbatimSymbolRefPattern = '(?<=\p{L})[' + [char]0xBA + [char]0xE7 + '](?=[\s,.;:)\]]|$)'
 $script:VerbatimListJoinMin = 2              # commas of the model's own at this many line breaks of the source make a list join
@@ -134,6 +139,7 @@ function Get-VerbatimSource {
     # "significant"; t/389#45, H06). Without this the word does not match the model's quote, and the stored
     # piece starts after it. Same length, like the repairs above; only the matching copy changes.
     foreach ($P in $script:VerbatimLigatureMojibake) { $W = $W.Replace($P[0], $P[1].PadRight(3)) }
+    if ($script:VerbatimFoldSpaceMojibake) { $W = [regex]::Replace($W, $script:VerbatimSpaceMojibakePattern, '   ') }
     # Same-length blanking of what is not text (t/389#20): HTML tags, and two mojibake forms of a
     # no-break space and an ellipsis that read as letters ("N.<a-acute>Li", "Ma, <a-grave> D. Hendrycks").
     $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
@@ -926,6 +932,7 @@ function Remove-VerbatimQuoteNoise {
         # ligatures, and the no-break space that reads as a-acute.
         foreach ($P in $script:VerbatimQuoteMojibakeMore) { $Q = $Q.Replace($P[0], $P[1]) }
         foreach ($P in $script:VerbatimLigatureMojibake) { $Q = $Q.Replace($P[0], $P[1]) }
+        if ($script:VerbatimFoldSpaceMojibake) { $Q = [regex]::Replace($Q, $script:VerbatimSpaceMojibakePattern, ' ') }
         $Q = [regex]::Replace($Q, '(?<!\p{Ll})á(?!\p{Ll})', ' ')
         $Q = [regex]::Replace($Q, 'á(?=[^\p{L}\p{Nd}\s])', ' ')
     }
