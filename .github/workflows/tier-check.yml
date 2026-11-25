@@ -80,9 +80,13 @@ jobs:
       # The filter is repeated in the group, so a run this filter skips gets a group of its own
       # (its run id). If it shared the PR's group, a chatter comment arriving while a clearing
       # comment's run was in progress could cancel that run and then skip, losing the verdict.
+      # t/237 (SO t/237#3 cond 3): github.event_name is in the key, so an issue_comment run never
+      # cancels a pull_request_target run on the same PR. tier-check posts no head-pinned check run,
+      # so a cancelled PR-event run would leave the head's tier-check CANCELLED once t/4103 makes it
+      # required. Runs of the SAME event type still supersede each other.
       # BEGIN comment-filter (group copy)
       group: >-
-        ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}-${{
+        ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.merge_group.head_sha || github.run_id }}-${{
         (
         (github.event.issue.pull_request || !github.event.issue)
         && (
