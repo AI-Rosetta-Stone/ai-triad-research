@@ -11,6 +11,7 @@ BeforeDiscovery {
     $fx = Get-Content -Raw -Path (Join-Path $PSScriptRoot 'fixtures' 'evidence-union-cases.json') | ConvertFrom-Json -AsHashtable
     $script:MentionCases = @($fx.mention_key_cases)
     $script:DerivedCases = @($fx.derived_key_cases)
+    $script:ChunkMentionCases = @($fx.chunk_mention_key_cases)
 }
 
 BeforeAll {
@@ -35,6 +36,42 @@ Describe 'Mention-container union (spec 7.7, fixture v2)' -Tag 'evidence-union' 
             }
             $before = @($containers.Keys)
             Add-EmiUnionContainers -Copies $copies.ToArray() -Containers $containers
+            $added = [ordered]@{}
+            foreach ($k in $containers.Keys) { if ($k -notin $before) { $added[$k] = $containers[$k] } }
+            $added
+        }
+        @($got.Keys | Sort-Object) | Should -Be @($expected_containers.Keys | Sort-Object)
+        foreach ($k in $expected_containers.Keys) { $got[$k] | Should -BeExactly $expected_containers[$k] }
+    }
+
+    It 'with chunks: <name>' -ForEach $script:ChunkMentionCases {
+        # Spec 7.7 with listed chunks in the group (fixture v5, t/596). The members are handed over unsorted and
+        # with the role the resolver gives them: a copy, a chunk of the canonical, or a chunk of a marked copy.
+        $case = @($script:FxObj.chunk_mention_key_cases) | Where-Object name -eq $name
+        $got = InModuleScope AITriad -Parameters @{ C = $case } {
+            param($C)
+            $containers = [ordered]@{}
+            $members = [System.Collections.Generic.List[object]]::new()
+            $manifest = @{}
+            foreach ($p in $C.manifest.PSObject.Properties) { $manifest[$p.Name] = [string]$p.Value }
+            $marked = @{}
+            foreach ($p in $C.docs.PSObject.Properties) { if ($p.Value.PSObject.Properties['mark'] -and $p.Value.mark) { $marked[$p.Name] = [string]$p.Value.mark } }
+            foreach ($p in @($C.docs.PSObject.Properties | Sort-Object Name -Descending)) {
+                $id = $p.Name; $summary = $p.Value.summary
+                if ($id -ceq $C.canonical) {
+                    Add-EmiKeyPointContainers -Summary $summary -DocId $id -Containers $containers
+                    Add-EmiFactualClaimContainers -Summary $summary -DocId $id -Containers $containers
+                } elseif ($marked.ContainsKey($id)) {
+                    $members.Add([pscustomobject]@{ CopyId = $id; CanonicalId = $C.canonical; Summary = $summary; Kind = 'copy'; Via = $null })
+                } elseif ($manifest.ContainsKey($id) -and $manifest[$id] -ceq $C.canonical) {
+                    $members.Add([pscustomobject]@{ CopyId = $id; CanonicalId = $C.canonical; Summary = $summary; Kind = 'chunk_D'; Via = $null })
+                } elseif ($manifest.ContainsKey($id) -and $marked.ContainsKey($manifest[$id])) {
+                    $members.Add([pscustomobject]@{ CopyId = $id; CanonicalId = $C.canonical; Summary = $summary; Kind = 'chunk_copy'; Via = $manifest[$id] })
+                }
+                # an id that is neither marked nor listed is its own document: not a member
+            }
+            $before = @($containers.Keys)
+            Add-EmiUnionContainers -Copies $members.ToArray() -Containers $containers
             $added = [ordered]@{}
             foreach ($k in $containers.Keys) { if ($k -notin $before) { $added[$k] = $containers[$k] } }
             $added
@@ -90,6 +127,26 @@ Describe 'Update-EntityMentionIndex with a duplicate group (spec 7.7)' -Tag 'evi
         $keys = @((& $script:Run).PSObject.Properties.Name)
         @($keys | Where-Object { $_ -like '*#via-*' }).Count | Should -Be 0
         $keys | Should -Contain 'summary:report-2026-1#fc-1' -Because 'unmarked, the copy is its own doc again'
+    }
+
+    It 'a listed chunk gets no summary:<chunk> key; its distinct claim sits under the base with a chunk- key (t/596)' {
+        # report-2026-2 is a legacy chunk of report-2026: a summary with no source folder, named by the manifest.
+        [IO.File]::WriteAllText((Join-Path $script:Sum 'report-2026-2.json'), (@{ doc_id = 'report-2026-2'; pov_summaries = @{ safetyist = @{ key_points = @() } }
+                factual_claims = @(@{ claim = 'Apollo Project funding rose!' }, @{ claim = 'The chunk says the Manhattan Project ended in 1947.' }) } | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+        & (Get-Module AITriad) {
+            $m = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+            $m['report-2026-2'] = 'report-2026'
+            $script:EvidenceLegacyChunkManifest = $m; $script:SourceResolutionCache = @{}
+        }
+        try {
+            $keys = @((& $script:Run).PSObject.Properties.Name)
+            $keys | Should -Contain 'summary:report-2026#chunk-report-2026-2-fc-1'
+            @($keys | Where-Object { $_ -like 'summary:report-2026-2#*' }).Count | Should -Be 0 -Because 'a chunk is part of its base, not a document'
+            @($keys | Where-Object { $_ -like '*#chunk-report-2026-2-fc-0' }).Count | Should -Be 0 -Because 'near-equal to the base''s claim'
+            $keys | Should -Contain 'summary:report-2026#via-report-2026-1-fc-1' -Because 'the copy''s distinct claim is still there'
+        } finally {
+            & (Get-Module AITriad) { $script:EvidenceLegacyChunkManifest = $null; $script:SourceResolutionCache = @{} }
+        }
     }
 
     It 'drops a human mention on a derived key with a WARN, never silently' {
