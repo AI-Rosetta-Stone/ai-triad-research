@@ -7,10 +7,10 @@
 #        2. T0 PRs (body starts `Tier: T0`, base main, not draft, no consult-hold / joint-gv /
 #           no-auto-enqueue label) with all required checks green and NOTHING PUSHED FOR 15
 #           MINUTES, since pushing to a queued PR is refused (operations/devops/t0-enqueue-sweep.mjs).
-#        3. T1 PRs (t/73, Orca t/4820): REPORT-ONLY AS MERGED. The step ships with
-#           `T1_ENQUEUE: 'off'` (see the step below for what must be true before it is turned
-#           on), so it neither enqueues nor comments: it only logs the PRs it would enqueue
-#           (guard nudges are retired, t/534 part A). Once on, it enqueues, and
+#        3. T1 PRs (t/73, Orca t/4820): ENQUEUE IS ON (`T1_ENQUEUE: 'on'`, TL p/12#274; it shipped
+#           report-only first). Every enqueue goes through enqueuePR with the landing-vehicle,
+#           approval-at-head and gate-file checks (see the step below; guard nudges are retired,
+#           t/534 part A). It enqueues, and
 #           it runs BEFORE the T0 step so its idle-window wait never delays T1 PRs. Selection is
 #           the same filters as T0 (labels, draft, queue, dequeue hold, conflict,
 #           review blocks, all required checks green), plus the SAME approval-at-head check
