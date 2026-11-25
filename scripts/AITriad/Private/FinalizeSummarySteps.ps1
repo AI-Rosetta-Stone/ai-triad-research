@@ -162,7 +162,26 @@ function Get-NumericGroundingKeys {
     # With a flag on, a number that the flag's rule does not touch must key exactly as the merged guard
     # keys it (t/384#10): no word-boundary test before a number (PDF text glues "across1,000"), ".5" is
     # "5" unless LeadingDot is on, and "10^26" is "10" and "26" unless Superscript is on.
-    $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:(%)|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
+    # Percent, source side only (CL t/384#14): how a snapshot prints a percent figure. A claim is read as written.
+    #   - a percent sign or a dash the converter damaged: "108 ù in legal" is 108%, "54û67%" and the three-
+    #     character form of an en or em dash between two numbers are a range. Only next to a digit, because
+    #     ù and û are also letters;
+    #   - the sign up to three white-space characters after its number, a line break included ("5" / "%");
+    #   - a range gives both ends the percent form: "9 to 14%", "54-67%".
+    $SourcePercent = $F.Percent -and -not $AsClaim
+    if ($SourcePercent) {
+        $Text = [regex]::Replace($Text, '(?<=\d)[ \t]?ù(?!\p{L})', '%')
+        $Text = [regex]::Replace($Text, '(?<=\d)(?:û|ΓÇ[ôö])(?=\d)', '-')
+    }
+    $PercentSign = if ($SourcePercent) { '(\s{0,3}%)' } else { '(%)' }
+    $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:' + $PercentSign + '|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
+    if ($SourcePercent) {
+        $Number = '\d+(?:,\d{3})*(?:\.\d+)?'
+        foreach ($m in [regex]::Matches($Text, "(?<![\d.])($Number)\s?(?:[-–—]|to\b)\s?$Number(?:\s{0,3}%|\s?(?:percent|per\s?cent)\b)", 'IgnoreCase')) {
+            $First = ConvertTo-NumericGroundingKey -Token $m.Groups[1].Value
+            if ($null -ne $First) { [void]$keys.Add("$First%") }
+        }
+    }
     foreach ($m in [regex]::Matches($Text, $Pattern, 'IgnoreCase')) {
         $Num = $m.Groups[1].Value
         $Base = ConvertTo-NumericGroundingKey -Token $(if (-not $Num.StartsWith('.')) { $Num } elseif ($F.LeadingDot) { '0' + $Num } else { $Num.Substring(1) })
