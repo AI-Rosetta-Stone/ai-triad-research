@@ -62,6 +62,13 @@ describe('embedTexts routing', () => {
     const computeEmbeddings = vi.fn(async (t: string[]) => t.map(() => [7]));
     expect(await adapterEmbedder({ ...base, computeEmbeddings } as AIAdapter)(['q'])).toEqual([[7]]);
   });
+
+  it('throws when the embedder returns a different number of vectors than texts (t/570)', async () => {
+    const short = { ...base, computeEmbeddings: vi.fn(async () => [[1]]) } as AIAdapter;
+    await expect(embedTexts(short, ['a', 'b'])).rejects.toThrow(/route adapter-batch.*1 vectors for 2 texts/);
+    const notArray = { ...base, computeEmbeddings: vi.fn(async () => undefined as unknown as number[][]) } as AIAdapter;
+    await expect(embedTexts(notArray, ['a'])).rejects.toThrow(/undefined vectors for 1 texts/);
+  });
 });
 
 describe('engine phases embed through the adapter (one session per process)', () => {

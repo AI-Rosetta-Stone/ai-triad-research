@@ -19,6 +19,7 @@
 
 import type { AIAdapter } from '../aiAdapter.js';
 import { getGlobalRecorder } from '../../flight-recorder/index.js';
+import { ActionableError } from '../errors.js';
 
 export type EmbedRoute = 'adapter-batch' | 'adapter-query' | 'direct-onnx';
 
@@ -29,10 +30,31 @@ export function embedRoute(adapter: AIAdapter | undefined): EmbedRoute {
   return 'direct-onnx';
 }
 
-/** Embed `texts` through the host adapter. Returns one vector per text, in input order. */
+/**
+ * Embed `texts` through the host adapter. Returns one vector per text, in input order.
+ * Throws if the embedder returns a different number of vectors (t/570): a short or long result
+ * would silently pair texts with the wrong vectors. Callers catch and skip the metric.
+ */
 export async function embedTexts(adapter: AIAdapter | undefined, texts: string[], debateId?: string): Promise<number[][]> {
   if (texts.length === 0) return [];
-  switch (embedRoute(adapter)) {
+  const route = embedRoute(adapter);
+  const vectors = await embedByRoute(route, adapter, texts, debateId);
+  if (!Array.isArray(vectors) || vectors.length !== texts.length) {
+    throw new ActionableError({
+      goal: 'Embed debate text for frame and narrative similarity metrics',
+      problem: `Embedder (route ${route}) returned ${Array.isArray(vectors) ? vectors.length : typeof vectors} vectors for ${texts.length} texts`,
+      location: 'lib/debate/debateEngine/embedTexts.ts:embedTexts',
+      nextSteps: [
+        "Check the host adapter's computeEmbeddings returns exactly one vector per input text, in order",
+        'The calling metric is skipped for this turn; the debate continues',
+      ],
+    });
+  }
+  return vectors;
+}
+
+async function embedByRoute(route: EmbedRoute, adapter: AIAdapter | undefined, texts: string[], debateId?: string): Promise<number[][]> {
+  switch (route) {
     case 'adapter-batch':
       return adapter!.computeEmbeddings!(texts);
     case 'adapter-query': {

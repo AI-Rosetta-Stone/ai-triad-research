@@ -62,7 +62,7 @@ describe('waitForTaxonomy (t/490 item 3)', () => {
   it('gives up after the timeout, so a send never waits forever', async () => {
     setParts(false);
     const waiting = waitForTaxonomy(1000);
-    const expectation = expect(waiting).rejects.toMatchObject({ problem: 'The taxonomy is still loading, so the chat cannot start. Try again in a moment.' });
+    const expectation = expect(waiting).rejects.toMatchObject({ problem: "The taxonomy is still loading, so the chat can't start. Try again in a moment." });
     await vi.advanceTimersByTimeAsync(1000);
     await expectation;
   });
@@ -70,8 +70,8 @@ describe('waitForTaxonomy (t/490 item 3)', () => {
 
 describe('chatErrorText (t/490 item 3)', () => {
   it('shows a taxonomy wait error as written, with no prefix', () => {
-    const err = new ActionableError({ goal: 'Chat: start a conversation', problem: 'The taxonomy is still loading, so the chat cannot start. Try again in a moment.', location: 'x', nextSteps: [] });
-    expect(chatErrorText(err, 'Response failed')).toBe('The taxonomy is still loading, so the chat cannot start. Try again in a moment.');
+    const err = new ActionableError({ goal: 'Chat: start a conversation', problem: "The taxonomy is still loading, so the chat can't start. Try again in a moment.", location: 'x', nextSteps: [] });
+    expect(chatErrorText(err, 'Response failed')).toBe("The taxonomy is still loading, so the chat can't start. Try again in a moment.");
   });
 
   it('keeps the prefix for any other failure', () => {
