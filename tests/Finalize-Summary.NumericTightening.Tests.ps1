@@ -90,4 +90,28 @@ Describe 'Numeric-grounding tightenings (t/384)' -Tag 'summarization' {
             Invoke-NumericDrop 'Rose 5% to 75K.' 'Rose 5 to 75.' @{} | Should -Be 0
         }
     }
+
+    Context 'A flag changes only what its own rule covers (t/384#10)' {
+        It 'with <Flag> alone, numbers the flag does not touch are judged as the merged guard judges them' -ForEach @(
+            @{ Flag = 'Percent' }, @{ Flag = 'Scale' }, @{ Flag = 'LeadingDot' }, @{ Flag = 'Superscript' }
+        ) {
+            # PDF glue before a number, a number after a letter, and a count: none is a percent, a scale
+            # suffix, a leading dot or an exponent.
+            $Src = 'The attack succeeded across1,000 trials on model v2 with 37 probes.'
+            foreach ($Claim in 'There were 1,000 trials.', 'Model 2 was used.', 'It used 37 probes.', 'There were 999 trials.') {
+                $Off = Invoke-NumericDrop $Claim $Src @{}
+                Invoke-NumericDrop $Claim $Src @{ $Flag = $true } | Should -Be $Off -Because "$Flag on, claim: $Claim"
+            }
+        }
+
+        It 'with leading-dot off and another flag on, .5 is still read as 5' {
+            Invoke-NumericDrop 'The rate was .5 per day.' 'A total of 5 per day.' @{ Scale = $true } | Should -Be (Invoke-NumericDrop 'The rate was .5 per day.' 'A total of 5 per day.' @{})
+        }
+
+        It 'with superscript off and another flag on, 10^26 is still 10 and 26' {
+            $Src = 'Runs reach 10 units in 26 cases.'
+            Invoke-NumericDrop 'Runs exceed 10^26 operations.' $Src @{ Percent = $true } | Should -Be (Invoke-NumericDrop 'Runs exceed 10^26 operations.' $Src @{})
+            Invoke-NumericDrop 'Runs exceed 10^26 operations.' 'Runs reach 10 units.' @{ Percent = $true } | Should -Be (Invoke-NumericDrop 'Runs exceed 10^26 operations.' 'Runs reach 10 units.' @{})
+        }
+    }
 }

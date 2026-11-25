@@ -159,10 +159,13 @@ function Get-NumericGroundingKeys {
         }
         return , $keys
     }
-    $Pattern = '(?<![\p{L}\d])(\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)(?:(%)|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
+    # With a flag on, a number that the flag's rule does not touch must key exactly as the merged guard
+    # keys it (t/384#10): no word-boundary test before a number (PDF text glues "across1,000"), ".5" is
+    # "5" unless LeadingDot is on, and "10^26" is "10" and "26" unless Superscript is on.
+    $Pattern = '(\d+(?:,\d{3})*(?:\.\d+)?|(?<!\d)\.\d+)(?:(%)|\s?(percent|per\s?cent)\b|(?<=\d)(k|m|bn|b|tn)\b|\s(thousand|million|billion|trillion)\b|\^(\d+))?'
     foreach ($m in [regex]::Matches($Text, $Pattern, 'IgnoreCase')) {
         $Num = $m.Groups[1].Value
-        $Base = ConvertTo-NumericGroundingKey -Token $(if ($F.LeadingDot -and $Num.StartsWith('.')) { '0' + $Num } else { $Num })
+        $Base = ConvertTo-NumericGroundingKey -Token $(if (-not $Num.StartsWith('.')) { $Num } elseif ($F.LeadingDot) { '0' + $Num } else { $Num.Substring(1) })
         if ($null -eq $Base) { continue }
         $Pct = $m.Groups[2].Success -or $m.Groups[3].Success
         $Suffix = if ($m.Groups[4].Success) { $m.Groups[4].Value } elseif ($m.Groups[5].Success) { $m.Groups[5].Value } else { $null }
@@ -196,6 +199,11 @@ function Get-NumericGroundingKeys {
             continue
         }
         [void]$keys.Add($Base)
+        if ($Exp) {
+            # Superscript off: the exponent is a number of its own, as in the merged guard.
+            $ExpKey = ConvertTo-NumericGroundingKey -Token $Exp
+            if ($null -ne $ExpKey) { [void]$keys.Add($ExpKey) }
+        }
     }
     , $keys
 }
