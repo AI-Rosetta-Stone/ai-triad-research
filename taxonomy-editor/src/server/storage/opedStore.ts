@@ -47,10 +47,10 @@ const DEFAULT_ANON_OPED_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const STAMP_FIELD = 'last_accessed_at';
 
 /** How long an anonymous set lives after its owner last opened it: runtime config `sessions.anonOpEdRetentionMs`
- *  (t/500#12, #49), default 24 h. The field is added to RuntimeConfig by TaxonomyServer (t/666); until then, and for
- *  any non-positive value, the default applies, with a WARN for a bad value. */
+ *  (t/500#12, #49; in RuntimeConfig since c975c2cd1), default 24 h. A missing or non-positive value uses the default,
+ *  with a WARN for a bad value. */
 export function getAnonOpEdRetentionMs(): number {
-  const raw = (getConfig().sessions as { anonOpEdRetentionMs?: unknown }).anonOpEdRetentionMs;
+  const raw: unknown = getConfig().sessions?.anonOpEdRetentionMs;
   if (raw === undefined) return DEFAULT_ANON_OPED_RETENTION_MS;
   if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
   log.server.warn({ value: raw }, 'runtime config sessions.anonOpEdRetentionMs is not a positive number; using the 24 h default (t/665)');
