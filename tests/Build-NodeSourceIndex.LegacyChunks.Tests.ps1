@@ -232,4 +232,20 @@ Describe 'Build-NodeSourceIndex: legacy chunks (spec 6.2 and 7, t/355)' -Tag 'co
             Select-String -SimpleMatch 'source-identity-legacy-chunks.json' -List)
         $ts.Count | Should -BeGreaterThan 0 -Because 'the TypeScript reader must load docs/specs/source-identity-legacy-chunks.json, not a list of its own'
     }
+
+    It 'the committed citation-link fixtures carry the manifest''s hash (the citation-link-ci-fixture job reads them)' {
+        # tests/fixtures/citation-link-integrity/*/taxonomy/source_index.json are committed indexes. Their header
+        # must name the hash of the manifest in this repo, or leg (c) reports every fixture as stale-chunks and
+        # the job's fresh arms fail (run 45541102472). When the manifest changes, put the new hash in the six
+        # headers in the same commit.
+        $repo = Resolve-Path (Join-Path $PSScriptRoot '..')
+        $now = InModuleScope AITriad { Get-SourceChunksHash -Resolution (New-IdentitySourceResolution) }
+        $fixtures = @(Get-ChildItem -LiteralPath (Join-Path $repo 'tests/fixtures/citation-link-integrity') -Directory)
+        $fixtures.Count | Should -BeGreaterThan 0
+        foreach ($f in $fixtures) {
+            $ix = Get-Content -Raw -LiteralPath (Join-Path $f.FullName 'taxonomy/source_index.json') | ConvertFrom-Json
+            $ix.PSObject.Properties['chunksHash'] | Should -Not -BeNullOrEmpty -Because "fixture '$($f.Name)' must carry chunksHash"
+            $ix.chunksHash | Should -Be $now -Because "fixture '$($f.Name)' must name the current manifest's hash"
+        }
+    }
 }
