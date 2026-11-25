@@ -14,6 +14,22 @@ import { log } from './logger.js';
 export const LIFECYCLE_DUMP_MAX_COUNT = 200;
 export const LIFECYCLE_DUMP_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
+/** t/613 (TL p/16#368): the prune never touches a dump written before this cutoff, so the ~4,000-file backlog stays
+ *  until the PI decides on it (after Security's scan). One config value: env LIFECYCLE_DUMP_PRUNE_SINCE, an ISO date or
+ *  epoch ms, default 2026-11-25T00:00:00Z. Set it to 'none' to remove the floor: then the cap also clears the backlog. */
+export const LIFECYCLE_DUMP_PRUNE_SINCE_DEFAULT = Date.UTC(2026, 10, 25);
+
+/** The prune floor in epoch ms, or null for none. An unparsable value falls back to the default with a WARN. */
+export function lifecycleDumpPruneSince(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.LIFECYCLE_DUMP_PRUNE_SINCE?.trim();
+  if (!raw) return LIFECYCLE_DUMP_PRUNE_SINCE_DEFAULT;
+  if (raw.toLowerCase() === 'none') return null;
+  const n = /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw);
+  if (Number.isFinite(n)) return n;
+  log.server.warn({ component: 'flight-recorder', value: raw }, 'LIFECYCLE_DUMP_PRUNE_SINCE unparsable; using the default floor (t/613)');
+  return LIFECYCLE_DUMP_PRUNE_SINCE_DEFAULT;
+}
+
 /** The only files this module writes and prunes. Other dumps in the folder are left alone. */
 const LIFECYCLE_DUMP = /^server-(shutdown|crash)-(\d+)\.jsonl$/;
 
@@ -21,6 +37,8 @@ export interface LifecycleDumpOptions {
   now?: number;
   maxCount?: number;
   maxAgeMs?: number;
+  /** Prune floor in epoch ms (null for none); defaults to lifecycleDumpPruneSince(). */
+  pruneSince?: number | null;
   /** Test seam for the delete; defaults to fs.unlinkSync. */
   unlink?: (file: string) => void;
 }
@@ -48,6 +66,7 @@ export function pruneLifecycleDumps(dumpDir: string, opts: LifecycleDumpOptions 
   const maxCount = opts.maxCount ?? LIFECYCLE_DUMP_MAX_COUNT;
   const maxAgeMs = opts.maxAgeMs ?? LIFECYCLE_DUMP_MAX_AGE_MS;
   const unlink = opts.unlink ?? ((f: string) => fs.unlinkSync(f));
+  const since = opts.pruneSince !== undefined ? opts.pruneSince : lifecycleDumpPruneSince();
   let names: string[];
   try {
     names = fs.readdirSync(dumpDir);
@@ -59,7 +78,8 @@ export function pruneLifecycleDumps(dumpDir: string, opts: LifecycleDumpOptions 
     .map(name => ({ name, ts: Number(LIFECYCLE_DUMP.exec(name)?.[2]) }))
     .filter(d => Number.isFinite(d.ts))
     .sort((a, b) => b.ts - a.ts); // newest first
-  const doomed = dumps.filter((d, i) => i >= maxCount || now - d.ts > maxAgeMs);
+  // The cap counts every lifecycle dump, but only dumps at or after the floor are ever deleted (the backlog stays).
+  const doomed = dumps.filter((d, i) => (i >= maxCount || now - d.ts > maxAgeMs) && (since === null || d.ts >= since));
   let pruned = 0;
   let pruneFailures = 0;
   for (const d of doomed) {

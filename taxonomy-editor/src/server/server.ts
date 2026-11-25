@@ -44,7 +44,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool, computeEmbeddingsOffThread } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { pollLeaseConfigFromEnv } from './pollLeaseConfig.js';
-import { writeLifecycleDump } from './lifecycleDumps.js';
+import { writeLifecycleDump, lifecycleDumpPruneSince, LIFECYCLE_DUMP_MAX_COUNT, LIFECYCLE_DUMP_MAX_AGE_MS } from './lifecycleDumps.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { initAzureBlobBackends } from './storage/blobBackendInit.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
@@ -261,6 +261,8 @@ if (STORAGE_MODE === 'github-api') {
 
   // t/509 (t/504): pass the poll lease. Inert at one replica (the backend arms it only when maxReplicas > 1).
   const pollLease = pollLeaseConfigFromEnv(process.env, getMaxReplicas());
+  // t/613: the shutdown/crash dump cap and its prune floor, so the live retention rule is visible in the boot log.
+  { const since = lifecycleDumpPruneSince(); log.server.info({ maxCount: LIFECYCLE_DUMP_MAX_COUNT, maxAgeDays: LIFECYCLE_DUMP_MAX_AGE_MS / 86_400_000, pruneSince: since === null ? 'none' : new Date(since).toISOString() }, 'lifecycle dump retention at boot (t/613)'); }
   log.server.info({ pollLease: pollLease ? { maxReplicas: pollLease.maxReplicas, armed: pollLease.maxReplicas > 1 } : null }, 'GitHub poll lease config at boot (t/509)');
   githubBackend = new GitHubAPIBackend({
     cacheDir: CACHE_DIR,
