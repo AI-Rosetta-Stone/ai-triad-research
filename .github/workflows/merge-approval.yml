@@ -73,7 +73,7 @@ jobs:
     # and must not look like the App's context.
     name: merge-approval (compute)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25  # t/562: the retry below may wait up to 15 min for one rate-limit reset; was 10
     environment: merge-approval
     permissions:
       contents: read
@@ -156,7 +156,12 @@ jobs:
             const dir = path.join(root, 'operations', 'devops');
             const { runMergeApproval } = await import(pathToFileURL(path.join(dir, 'merge-approval-run.mjs')).href);
             const { withGitHubRetry } = await import(pathToFileURL(path.join(dir, 'github-retry.mjs')).href);
-            const retry = (label, fn) => withGitHubRetry(label, fn, { warn: (m) => core.warning(m), prefix: 'merge-approval' });
+            // t/562 (Lead p/233#71, a t/566 precondition): a required merge-approval that fails on a rate
+            // limit stalls the queue, so wait up to 15 min for ONE reset (the job's 25-min timeout covers
+            // it); a second limit fails closed. github-retry's 30 s default (t/236) stays for other callers.
+            const retry = (label, fn) => withGitHubRetry(label, fn, {
+              warn: (m) => core.warning(m), prefix: 'merge-approval', maxRateWaitMs: 15 * 60 * 1000, maxRateWaits: 1,
+            });
             // An unreadable tier config is not a crash: rule C fails with that reason, on the SHA.
             let tierConfig = null;
             try {

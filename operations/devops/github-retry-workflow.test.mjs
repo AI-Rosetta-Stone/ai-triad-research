@@ -286,3 +286,16 @@ test('tier-check posts no explicit check run: CANNOT EVALUATE is the job\'s own 
   assert.equal(log.failed.length, 1);
   assert.match(log.failed[0], /^CANNOT EVALUATE: /);
 });
+
+// t/562 (Lead p/233#71): the merge-group guard paths pass the 15-min, one-wait rate-limit option, and
+// their jobs' timeout-minutes cover it. A later edit that drops the option, or shrinks the timeout below
+// the wait, fails here.
+test('t/562: merge-approval and the ci.yml merge-group t1 guard pass maxRateWaitMs 15 min, maxRateWaits 1, with a 25-min job', () => {
+  const wf = (f) => readFileSync(path.join(root, '.github', 'workflows', f), 'utf8').replace(/\r\n/g, '\n');
+  const ma = wf('merge-approval.yml');
+  assert.match(ma, /prefix: 'merge-approval', maxRateWaitMs: 15 \* 60 \* 1000, maxRateWaits: 1/);
+  assert.match(ma, /name: merge-approval \(compute\)\n\s+runs-on: ubuntu-latest\n\s+timeout-minutes: 25\b/);
+  const ci = wf('ci.yml');
+  assert.match(ci, /prefix: 't1-approval-guard \(merge_group\)',[\s\S]{0,400}?maxRateWaitMs: 15 \* 60 \* 1000,\s*\n\s*maxRateWaits: 1,/);
+  assert.match(ci, /timeout-minutes: 25 {2}# same budget as consult-hold-guard\/joint-gv-guard above \(t\/562/);
+});
