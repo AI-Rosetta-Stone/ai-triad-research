@@ -409,6 +409,10 @@ export function registerOpedRoutes(r: Router, _ctx: ServerCtx): void {
     // Shared store (was opedRuns.get). getOpedRun scopes to the caller's user dir, so another user's
     // run resolves to null → 404; the explicit userId check is defence-in-depth. A cross-replica
     // reconnect that finds no run falls back to GET /api/oped-sets/:setId (client contract, t/2610#3).
+    // t/616 (Security p/93#69): an anonymous caller never reads the run store. Anonymous run records are never written
+    // (opedRunStore.upsertOpedRun returns early), so there is nothing of theirs to read, and an anonymous caller with no
+    // anon_session_id has the storage id '_local', which would otherwise read the local owner's run directory.
+    if (isAnonymousUser()) { error(res, 'Run not found', 404); return; }
     const run = await getOpedRun(runId);
     if (!run || run.userId !== getStorageUserId()) { error(res, 'Run not found', 404); return; }
     json(res, { runId: run.runId, setId: run.setId, status: run.status, perVoice: run.perVoice });
