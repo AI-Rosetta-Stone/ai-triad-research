@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import {
   evidenceKey, evidenceNearEqual, extractSummaryEvidenceLinks, mergeGroupEvidence,
   deriveEntityMentionContainers, isDerivedMentionContainerKey,
-  resolveDocId, groupMembers,
+  resolveDocId, groupMembers, loadLegacyChunkManifest,
   type EvidenceLink, type EvidenceUnionMember, type EvidenceDoc,
 } from './evidenceUnion.js';
 
@@ -146,5 +146,20 @@ describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => 
         expect(new RegExp(fixture.derived_key_regex).test(c.key)).toBe(c.derived);
       });
     }
+  });
+});
+
+// t/572: the TypeScript reader loads the one shared manifest file, and it lists the 16 legacy chunks.
+describe('legacy-chunk manifest (t/572)', () => {
+  it('loads docs/specs/source-identity-legacy-chunks.json into the same chunk list', () => {
+    const specPath = path.resolve(here, '../../docs/specs/source-identity-legacy-chunks.json');
+    const json = JSON.parse(readFileSync(specPath, 'utf-8')) as { chunks: Record<string, string> };
+    const loaded = loadLegacyChunkManifest(json);
+    expect(loaded).toEqual(json.chunks);
+    expect(Object.keys(loaded)).toHaveLength(16);
+  });
+
+  it('refuses a file that is not a chunks map', () => {
+    expect(() => loadLegacyChunkManifest({ chunks: ['x'] })).toThrow();
   });
 });

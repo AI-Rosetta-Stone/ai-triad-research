@@ -240,6 +240,26 @@ export interface EvidenceDoc {
 /** The legacy-chunk manifest (spec 6.2): chunk id to base id. Loaded from docs/specs/source-identity-legacy-chunks.json. */
 export type LegacyChunkManifest = Readonly<Record<string, string>>;
 
+/**
+ * t/572: load the legacy-chunk manifest from its one shared file (plain JSON, `{ version, spec, chunks }`, where
+ * `chunks` maps chunk id to base id). Throws an ActionableError if the file is not that shape. The PowerShell and
+ * Python readers load the same file; a test asserts the TypeScript load matches the file.
+ */
+export function loadLegacyChunkManifest(json: unknown): LegacyChunkManifest {
+  const chunks = (json as { chunks?: unknown } | null)?.chunks;
+  const ok = chunks !== null && typeof chunks === 'object' && !Array.isArray(chunks)
+    && Object.values(chunks as Record<string, unknown>).every(v => typeof v === 'string' && v.length > 0);
+  if (!ok) {
+    throw new ActionableError({
+      goal: 'Load the legacy-chunk manifest',
+      problem: 'The manifest must be an object with a `chunks` map of chunk id to base id (non-empty strings).',
+      location: 'lib/sourceIndex/evidenceUnion.ts: loadLegacyChunkManifest',
+      nextSteps: ['Check docs/specs/source-identity-legacy-chunks.json against spec 6.2'],
+    });
+  }
+  return { ...(chunks as Record<string, string>) };
+}
+
 export type GroupMemberKind = 'copy' | 'chunk_D' | 'chunk_copy';
 
 function docOf(docs: Readonly<Record<string, EvidenceDoc>>, id: string): EvidenceDoc | undefined {
