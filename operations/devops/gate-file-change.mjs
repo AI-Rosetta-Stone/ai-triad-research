@@ -97,6 +97,7 @@ export const WORKFLOW_RUN_SCRIPTS = [
   'operations/devops/run-merge-guard-tests.sh',
   'operations/devops/run-schema-drift.ts',
   'operations/devops/scheduled-workflows.json',
+  'operations/devops/staging-keyvault-whatif-guard.mjs', // t/92: run by staging-keyvault.yml
   'operations/devops/test-check-merge-queue-liveness-headgreen.sh',
   'operations/devops/test-check-merge-queue-liveness-lookup-failure.sh',
   'operations/devops/test-check-vitest-shard-blobs.sh',
