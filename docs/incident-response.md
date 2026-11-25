@@ -6,6 +6,7 @@ The full rules behind root `AGENTS.md` → "Incident Response". This text moved 
 - **Every diagnosis files two follow-ups:** **Observability** (make it diagnosable next time) and **Prevention** (an automated check, test or platform fix, mapped to a failure class in `docs/CodeReview/failure-classes.md`). Gate-touching prevention goes to TL Gate Verification.
 - **When a failure class recurs, validate the baseline against design intent.**
 - **Before closing a prevention,** name one way the class could still occur through ordinary use with the mechanism intact. If you can name one, you closed a *vector*, not the class: say so and file the remainder. Ref §7.
+- **Suspected staging compromise:** rotate the GitHub, Google and Entra OAuth client secrets (staging shares prod's, by PI accepted risk t/92, review 2027-02-25) as an immediate step.
 
 ## Prod hotfix path (t/610, t/609)
 
