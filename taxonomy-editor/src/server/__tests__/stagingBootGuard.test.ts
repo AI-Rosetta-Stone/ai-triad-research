@@ -29,6 +29,7 @@ function setStagingEnv(): void {
   process.env.STAGING_REPO = STAGING_REPO;
   process.env.GITHUB_BRANCH = 'staging';
   process.env.SESSION_BRANCH_PREFIX = 'staging-session';
+  process.env.AZURE_KEYVAULT_URL = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/';
 }
 
 describe('stagingBootGuard', () => {
@@ -126,6 +127,53 @@ describe('stagingBootGuard', () => {
       process.env.GITHUB_BRANCH = 'main';
 
       expect(() => validateStagingBootGuard()).toThrow(/prod main/);
+    });
+  });
+
+  // t/92, t/626: staging must use the staging-only Key Vault, never the shared vault holding prod's secrets.
+  describe('validateStagingBootGuard, staging Key Vault', () => {
+    it('boots with the staging vault URL, in any harmless spelling', () => {
+      for (const url of [
+        'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/',
+        'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net',
+        'https://KV-AIT-STG-KVWL3NYWGE4IW.vault.azure.net/',
+        'kv-ait-stg-kvwl3nywge4iw.vault.azure.net',
+      ]) {
+        setStagingEnv();
+        process.env.AZURE_KEYVAULT_URL = url;
+        expect(() => validateStagingBootGuard(), url).not.toThrow();
+      }
+    });
+
+    for (const url of [
+      'https://kv-ait-kvwl3nywge4iw.vault.azure.net/',
+      'https://KV-AIT-KVWL3NYWGE4IW.vault.azure.net',
+      'kv-ait-kvwl3nywge4iw.vault.azure.net',
+      'https://kv-ait-kvwl3nywge4iw.vault.azure.net./',
+    ]) {
+      it(`refuses the shared vault (${url})`, () => {
+        setStagingEnv();
+        process.env.AZURE_KEYVAULT_URL = url;
+        expect(() => validateStagingBootGuard()).toThrow(ActionableError);
+        expect(() => validateStagingBootGuard()).toThrow(/shared vault/);
+      });
+    }
+
+    for (const url of [undefined, '', '   ', 'not a url ::', 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net.evil.example/', 'https://other-vault.vault.azure.net/']) {
+      it(`refuses an unset, unparseable or other vault URL (${JSON.stringify(url)})`, () => {
+        setStagingEnv();
+        if (url === undefined) delete process.env.AZURE_KEYVAULT_URL; else process.env.AZURE_KEYVAULT_URL = url;
+        expect(() => validateStagingBootGuard()).toThrow(/not the staging vault/);
+      });
+    }
+
+    it('prod is unaffected: the shared vault is prod\'s own', () => {
+      process.env.CONTAINER_APP_NAME = 'taxonomy-editor';
+      process.env.GITHUB_APP_ID = 'prod-app-id';
+      process.env.GITHUB_REPO = PROD_REPO;
+      process.env.STAGING_REPO = STAGING_REPO;
+      process.env.AZURE_KEYVAULT_URL = 'https://kv-ait-kvwl3nywge4iw.vault.azure.net/';
+      expect(() => validateStagingBootGuard()).not.toThrow();
     });
   });
 
