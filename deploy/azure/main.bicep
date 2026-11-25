@@ -242,20 +242,8 @@ param githubAppIdStaging string = ''
 @description('t/4587: staging-only GitHub App installation ID. Empty = staging falls back to githubAppInstallationId.')
 param githubAppInstallationIdStaging string = ''
 
-@description('t/4587, t/92: Key Vault secret name holding the staging GitHub App private key (PEM), in the STAGING vault. Required: there is no fallback to the prod key name any more (t/92, Security t/626). deploy-azure.yml passes vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING. Upload separately -- DevOps never handles the key value.')
-@minLength(1)
-param githubAppPrivateKeySecretNameStaging string = 'github-app-private-key-staging'
-
-// t/92 (PI decisions 2026-11-25; SO design view p/44#99): staging reads ITS OWN vault, created by
-// deploy/azure/staging-keyvault.bicep (dispatch-only, never part of this template). A literal, not a
-// reference to that vault, so (a) prod deploys never depend on the staging vault existing, and
-// (b) Get-BicepBaseEnv.ps1 resolves it, so deploy-staging's env sync enforces it. @allowed pins it to
-// the one staging vault: it can never be pointed at the shared vault kv-ait-kvwl3nywge4iw.
-@description('t/92: the staging Key Vault URL (deploy/azure/staging-keyvault.bicep). Pinned by @allowed.')
-@allowed([
-  'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/'
-])
-param stagingKeyVaultUrl string = 'https://kv-ait-stg-kvwl3nywge4iw.vault.azure.net/'
+@description('t/4587: Key Vault secret name holding the staging GitHub App private key (PEM). Empty = staging falls back to githubAppPrivateKeySecretName. Upload separately via az keyvault secret set -- DevOps never handles the key value.')
+param githubAppPrivateKeySecretNameStaging string = ''
 
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
@@ -846,9 +834,7 @@ var containerEnv = concat(baseEnv, extraGithubToken, extraGithubWebhook, extraFr
 // (empty param -- the pre-t/4587 shared-quota behavior, e.g. before the PI uploads the key).
 var stagingGithubAppId = empty(githubAppIdStaging) ? githubAppId : githubAppIdStaging
 var stagingGithubAppInstallationId = empty(githubAppInstallationIdStaging) ? githubAppInstallationId : githubAppInstallationIdStaging
-// t/92 (Security t/626): no fallback to githubAppPrivateKeySecretName. An empty staging name used to point
-// staging at the PROD App key; the param is now @minLength(1), and the key lives in the staging vault.
-var stagingGithubAppPrivateKeySecretName = githubAppPrivateKeySecretNameStaging
+var stagingGithubAppPrivateKeySecretName = empty(githubAppPrivateKeySecretNameStaging) ? githubAppPrivateKeySecretName : githubAppPrivateKeySecretNameStaging
 
 var stagingEnvOverrides = [
   // Force off: staging must not sync to prod's git backend (t/2643 git-worktree hazard)
@@ -859,8 +845,6 @@ var stagingEnvOverrides = [
   { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
-  // t/92: staging's own vault (staging-keyvault.bicep), never the shared one. Literal param, @allowed-pinned.
-  { name: 'AZURE_KEYVAULT_URL', value: stagingKeyVaultUrl }
   // t/77 / t/406: staging writes only to its own data repo, never prod's. Staging starts empty
   // (PI-confirmed, option B). Prod's baseEnv keeps GITHUB_REPO = prod.
   { name: 'GITHUB_REPO', value: 'AI-Rosetta-Stone/ai-triad-data-staging' }
