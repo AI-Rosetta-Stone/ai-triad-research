@@ -303,15 +303,28 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         (& $script:Run $Src3 'The meteoric emergence of the data-center rebellion is a response to the speed and scale of building work' 'doc-mid-word-corrupt').R.Dropped | Should -Be 1
     }
 
-    It 'ignores a page header and a URL that the model copied into the quote' {
+    It 'a page header or a URL that the model wrote into the quote is a word of the quote: stored where the source has it, else dropped (CL t/389#88)' {
         $Header = 'Journal of Applied Policy 14(2)'
         $Body = 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
         $Src = "$Header`nRegulators have begun to ask for results.`n$([char]12)$Header`n$Body`n$([char]12)$Header`nAuditors want access to the weights.`n"
         $Quote = "Developers answer that the evaluations they run today $Header https://example.org/vol14/issue2 were never designed to support a licensing decision."
+        # The header line and the URL are not in the passage, so what would be stored lacks words the model wrote.
         $Out = & $script:Run $Src $Quote 'doc-header-url'
-        $Out.R.Snapped | Should -Be 1
-        $Out.R.Dropped | Should -Be 0
-        $Out.Stored | Should -Be 'Developers answer that the evaluations they run today were never designed to support a licensing decision.'
+        $Out.R.Dropped | Should -Be 1
+        $Out.Stored | Should -BeNullOrEmpty
+        # A URL the source has in the passage is quoted with it and kept as written.
+        $WithUrl = "The report is at https://example.org/vol14/issue2 and regulators have begun to ask for the evaluation results of each lab.`n"
+        $Kept = & $script:Run $WithUrl 'The report is at https://example.org/vol14/issue2 and regulators have begun to ask for the evaluation results of each lab.' 'doc-url-in-source'
+        $Kept.R.Dropped | Should -Be 0
+        "$($Kept.Stored)" | Should -Match 'https://example\.org/vol14/issue2'
+        # The same quote without the URL: the source has other text between the quote's two parts, so it is
+        # stored as two pieces, each the model's words (the interleaved class), never as one passage.
+        $Skipped = & $script:Run $WithUrl 'The report is at and regulators have begun to ask for the evaluation results of each lab.' 'doc-url-left-out'
+        $Skipped.R.Interleaved | Should -Be 1
+        @($Skipped.Stored).Count | Should -Be 2
+        # A header the source has between two lines of the passage, and the model did not write, is stepped over.
+        $Clean = & $script:Run $Src $Body 'doc-header-source-only'
+        $Clean.R.Dropped | Should -Be 0
     }
 
     It 'counts the quotes it examined' {

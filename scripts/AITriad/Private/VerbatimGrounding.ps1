@@ -98,6 +98,10 @@ $script:VerbatimRejectUnstoredWord = $true
 # stored as the model's words), and a piece whose words cannot be cut from the model's quote fails the quote:
 # the source's text is never stored in their place (CL t/389#64 (3): where the match does not hold, it drops).
 $script:VerbatimPlaceHeaderParts = $true
+# CL t/389#88 (2): a URL or a running-header line that the model wrote in its quote is a word of the quote. It
+# is no longer taken out before matching: the quote is stored with it, where the source has it there, or it
+# drops. Text only the source has around a passage (a blanked header, a reference) is still stepped over.
+$script:VerbatimKeepQuoteWords = $true
 $script:VerbatimRejectUncutPiece = $true
 $script:VerbatimSpaceMojibakePattern = ([string][char]0x393 + [char]0xC7) + '[' + (-join [char[]](0xC7, 0xFC, 0xE9, 0xE2, 0xE4, 0xE0, 0xE5, 0xE7, 0xEA, 0xEB, 0xE8, 0xEF, 0xBB)) + ']'
 $script:VerbatimSymbolRef = $true            # a footnote symbol read as a letter, glued to a word's end ("Mishra" + the section sign's mojibake)
@@ -959,7 +963,7 @@ function Remove-VerbatimQuoteNoise {
     # The quote without a URL, without a copy of a blanked page footer or header line (t/389#8 c), and
     # without the brackets of a one-letter alteration (t/389#20).
     param([object]$Source, [string]$Quote)
-    $Q = [regex]::Replace($Quote, $script:VerbatimUrlPattern, ' ')
+    $Q = if ($script:VerbatimKeepQuoteWords) { $Quote } else { [regex]::Replace($Quote, $script:VerbatimUrlPattern, ' ') }
     # A quote mark the model copied from a damaged snapshot and that was damaged once more on the way: the
     # snapshot's "o-diaeresis" for a closing quote arrives as "A-tilde, pilcrow" (t/389#50, i406). They are
     # quote marks, not letters of a word.
@@ -980,6 +984,7 @@ function Remove-VerbatimQuoteNoise {
     $Letters = { param($T) ([regex]::Replace($T, '[^\p{L}\p{Nd}]', '')).Length }
     $Before = & $Letters $Q
     foreach ($F in $Source.Footers) {
+        if ($script:VerbatimKeepQuoteWords) { break }
         if ($F.Length -ge 8 -and $Q.Length -gt $F.Length -and $Q.Contains($F, [System.StringComparison]::Ordinal)) {
             $Without = $Q.Replace($F, ' ')
             $Left = & $Letters $Without
@@ -1083,6 +1088,15 @@ function Resolve-VerbatimSegment {
         if ($V.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
         if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
         $false
+    }
+    # For audits: the model wrote a URL or a copy of a running-header line in this segment (t/389#88 (2)).
+    if ($script:VerbatimKeepQuoteWords) {
+        if ($Segment -match $script:VerbatimUrlPattern) { $script:VerbatimDiag.Add('quote has a URL the model wrote') }
+        foreach ($F in $Source.Footers) {
+            if ($F.Length -ge 8 -and $Segment.Length -gt $F.Length -and $Segment.Contains($F, [System.StringComparison]::Ordinal)) {
+                $script:VerbatimDiag.Add('quote has a header line the model wrote'); break
+            }
+        }
     }
     # The same for a segment stored as written across marker lines or a footnote: the passage holds other text.
     $LooseCaseFails = {
