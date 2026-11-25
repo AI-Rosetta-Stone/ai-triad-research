@@ -53,7 +53,10 @@ $script:VerbatimLigatureMojibake = @(
 # author with initials ("Heiding, F." / "F. Heiding,").
 $script:VerbatimEntryStartPattern = '^(?:\(?\p{Nd}{1,4}[.)*]?(?:\s+\S|(?=\p{Lu}))|\[[^\]\r\n]{1,40}\]|\p{Lu}[\p{L}\u2019''\-]+,\s+(?:\p{Lu}\.[ \u00A0]?)+|(?:\p{Lu}\.[ \u00A0]?)+\p{Lu}[\p{L}\u2019''\-]+,)'
 $script:VerbatimFootnoteMaxGap = 500      # letters of footnote text that may sit between two words of a quote (CL t/389#52 (1), stipulated)
-$script:VerbatimRejectPieceDeletion = $true   # an interleaved piece may not hold source words the quote lacks (CL t/389#52 (4))
+$script:VerbatimRejectPieceDeletion = 'all'   # which stored classes may not hold source words the quote lacks: 'all', 'interleaved', 'none' (CL t/389#52 (4), #54 (2))
+# A footnote reference glued to a word or to the punctuation after it: one to three digits (and more of them
+# after commas, "5,21") that follow a letter or a closing mark and are followed by a space, a mark or the end.
+$script:VerbatimGluedRefPattern = '(?<=[\p{L}.,;:!?"''\)\]' + [char]0x201D + [char]0x2019 + '])\p{Nd}{1,3}(?:,\p{Nd}{1,3})*(?=[\s.,;:!?\)\]]|$)'
 $script:VerbatimRequireEndWords = $true  # a snapped segment must begin and end on the source's own words (CL t/389#47 (3))
 $script:VerbatimListMarkerPattern = '^\(?\p{Nd}{1,3}[.)]$'   # "1." or "2)" on a line of its own: a list numeral, never a figure (CL t/389#42)
 # UTF-8 bytes of the snapshot's own mojibake quote marks (U+00F4, U+00F6, U+00C6, U+00E6) read as Latin-1.
@@ -90,6 +93,9 @@ function Get-VerbatimSource {
     $W = [regex]::Replace($W, $script:VerbatimHtmlTagPattern, { param($M) ' ' * $M.Length })
     $W = [regex]::Replace($W, '(?<!\p{Ll})\u00E1(?!\p{Ll})', ' ')
     $W = [regex]::Replace($W, '(?<=\s)\u00E0(?=\s)', ' ')
+    # The same no-break space glued between a word and a mark ("are" + it + an opening quote; t/389#50, J08):
+    # followed by a mark, it is not the last letter of a word.
+    $W = [regex]::Replace($W, '\u00E1(?=[^\p{L}\p{Nd}\s])', ' ')
     $Lines = $W -split "(\r?\n)"
     # A page header or footer (CL rulings t/389#20, #24, p/70#83, t/389#30): a line of at most
     # VerbatimFooterMaxChars characters and at least VerbatimFooterMinWords words that occurs
@@ -680,6 +686,21 @@ function Resolve-VerbatimSegment {
         }
         return (& $Result 'snapped' @($Clean) 1.0 $Snap)
     }
+    # The quote exactly as the model wrote it, URL and all, with only marker lines between its lines (F01: a
+    # citation with its URL, a page number in the middle). The noise-free copy below would not match a
+    # source that does have the URL, so the model's own text is tried first.
+    if ($Clean -cne $Segment) {
+        $Whole = Find-VerbatimSnap -Source $Source -Quote $Segment
+        if ($Whole -and $Whole.Contiguous -and $Whole.Coverage -ge 1.0) {
+            $WholeFigure = Get-VerbatimFigureVerdict -Source $Source -Snap $Whole -Quote $Segment
+            if ($WholeFigure.Verdict -ne 'drop' -and $WholeFigure.Markers -gt 0) {
+                $WholeLetters = ((ConvertTo-EvidenceKey -Quote $Source.Text.Substring($Whole.Start, $Whole.End - $Whole.Start)) -replace ' ', '').Length
+                if ($WholeLetters - $WholeFigure.MarkerLetters -eq $Whole.QuoteLetters) {
+                    return (& $Result 'snapped' @($Segment) 1.0 $Whole)
+                }
+            }
+        }
+    }
     $Snap = Find-VerbatimSnap -Source $Source -Quote $Clean
     $Coverage = if ($Snap) { $Snap.Coverage } else { 0.0 }
     # The quote's last words printed after a footnote in mid-sentence (t/389#52 (1)): one piece from the
@@ -712,27 +733,43 @@ function Resolve-VerbatimSegment {
         $Texts = [System.Collections.Generic.List[string]]::new()
         $StoredPieces = [System.Collections.Generic.List[object]]::new()
         $StoredLetters = 0
-        # An interleaved piece is the source's text. If it has more letters than the part of the quote it
-        # stands for, the source has words there that the model left out without marking it ("Meta CEO Mark
-        # Zuckerberg" for the quote's "Mark Zuckerberg"), and storing the piece would put them back into the
-        # model's mouth (CL t/389#52 (4)). The segment fails. Counted on the repaired copy, by the same key
-        # as the quote.
-        if ($script:VerbatimRejectPieceDeletion -and -not $Snap.Contiguous) {
+        # A stored piece is the source's text, and it must match the model's words in order (CL t/389#52 (4),
+        # t/389#54 (2)): the only omissions allowed are the ones the model marked with an elision. If a piece
+        # has more letters than the part of the quote it stands for, the source has something there that the
+        # quote does not:
+        #   - footnote references glued to a word or its punctuation ("curve5,21." / "harms.12 Developers"):
+        #     not words. They are taken out of the stored piece, and the piece stands if that accounts for
+        #     every extra letter;
+        #   - anything else is a word the model left out with no mark ("Meta CEO Mark Zuckerberg" for the
+        #     quote's "Mark Zuckerberg"): the segment fails rather than put the word back into the quote.
+        # Letters are counted on the repaired copy with the quote's own key (mojibake, ligatures and hyphen
+        # breaks folded). VerbatimRejectPieceDeletion: 'all' (every stored class), 'interleaved', or 'none'.
+        $CleanedPiece = @{}
+        $CheckPieces = $script:VerbatimRejectPieceDeletion -eq 'all' -or ($script:VerbatimRejectPieceDeletion -eq 'interleaved' -and -not $Snap.Contiguous)
+        if ($CheckPieces) {
             $KeyText = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
             foreach ($P in $Snap.Pieces) {
                 if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
-                $PieceLetters = ((ConvertTo-EvidenceKey -Quote $KeyText.Substring($P.Start, $P.End - $P.Start)) -replace ' ', '').Length
-                if ($PieceLetters -gt $P.QuoteLetters) {
+                $PieceWork = $KeyText.Substring($P.Start, $P.End - $P.Start)
+                $PieceLetters = ((ConvertTo-EvidenceKey -Quote $PieceWork) -replace ' ', '').Length
+                if ($PieceLetters -le $P.QuoteLetters) { continue }
+                $Refs = [regex]::Matches($PieceWork, $script:VerbatimGluedRefPattern)
+                $RefLetters = 0; foreach ($M in $Refs) { $RefLetters += ([regex]::Replace($M.Value, '[^\p{Nd}]', '')).Length }
+                if ($Refs.Count -eq 0 -or $PieceLetters - $RefLetters -gt $P.QuoteLetters) {
                     $Deletion = & $Result 'dropped' @() $Coverage $null
                     Add-Member -InputObject $Deletion -NotePropertyName Rejected -NotePropertyValue $true
                     return $Deletion
                 }
+                # The same character ranges come out of the source's own text (the two copies share offsets).
+                $Raw = [System.Text.StringBuilder]::new($Source.Text.Substring($P.Start, $P.End - $P.Start))
+                for ($I = $Refs.Count - 1; $I -ge 0; $I--) { [void]$Raw.Remove($Refs[$I].Index, $Refs[$I].Length) }
+                $CleanedPiece[$P.Start] = $Raw.ToString()
             }
         }
         foreach ($P in $Snap.Pieces) {
             # A piece too short to have been placed by itself is not stored as a quote.
             if ($P.QuoteLetters -lt $script:VerbatimMinRun) { continue }
-            $T = $Source.Text.Substring($P.Start, $P.End - $P.Start).Trim()
+            $T = if ($CleanedPiece.ContainsKey($P.Start)) { $CleanedPiece[$P.Start].Trim() } else { $Source.Text.Substring($P.Start, $P.End - $P.Start).Trim() }
             # Markdown table cells are source text but not prose; a piece that runs across them is not
             # stored (CL, t/389#24).
             if ($T -match '\|\s[^|\r\n]*\|' -or $T -match '(?m)^\s*\|') { continue }

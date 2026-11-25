@@ -538,6 +538,21 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         (& $script:Run "$Body`r`n`r`nSome other paragraph of the text.`r`n`r`nlives.26 Thus.`r`n" "$Body lives." 'doc-not-footnote').R.Dropped | Should -Be 1
     }
 
+    It 'a one-piece snapped quote with a word the model left out fails too; a glued footnote reference is taken out (t/389#54 (2))' {
+        $Src = "Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be bilt by AI in 2025, as reported.`r`n"
+        # The model left out "Meta CEO" and marked nothing.
+        (& $script:Run $Src 'Taking note of this trend, Mark Zuckerberg expects that a lot of the code in apps will be built by AI in 2025' 'doc-snap-deletion').R.Dropped | Should -Be 1
+        # The model's words are the source's (one misspelt in the source): snapped to the source's text.
+        $Same = & $script:Run $Src 'Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be built by AI in 2025' 'doc-snap-same-words'
+        $Same.R.Snapped | Should -Be 1
+        $Same.Stored | Should -Be 'Taking note of this trend, Meta CEO Mark Zuckerberg expects that a lot of the code in apps will be bilt by AI in 2025'
+        # Footnote references glued inside the passage are not words: the piece is stored without them.
+        $Src2 = "Developers warn of serious harms.12 Regulators have begun to ask for the evaluation resuts,7 and auditors want access to the weights.`r`n"
+        $Refs = & $script:Run $Src2 'Developers warn of serious harms. Regulators have begun to ask for the evaluation results, and auditors want access to the weights.' 'doc-snap-glued-refs'
+        $Refs.R.Dropped | Should -Be 0
+        $Refs.Stored | Should -Be 'Developers warn of serious harms. Regulators have begun to ask for the evaluation resuts, and auditors want access to the weights'
+    }
+
     It 'an interleaved piece with a word the model left out, with no elision mark, fails the quote (t/389#52 (4), i37)' {
         # Two-column layout: a line of the other column sits between the quote's two halves, and the source
         # has "Meta CEO" where the model wrote only the name.
