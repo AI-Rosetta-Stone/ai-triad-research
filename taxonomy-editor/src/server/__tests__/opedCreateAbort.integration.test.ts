@@ -49,7 +49,7 @@ vi.mock('../storage/opedStore.js', () => ({
 }));
 vi.mock('../ai/opedAdapter.js', () => ({ createWebOpEdAdapter: () => ({ generateText: vi.fn() }) }));
 vi.mock('../security/userContext.js', () => ({
-  isAnonymousUser: () => false, getStorageUserId: () => 'user-1',
+  isAnonymousUser: () => false, isHostedAnonymousRequest: () => false, getStorageUserId: () => 'user-1',
   getCurrentUser: () => ({ principalName: 'u', idp: 'aad', isAnonymous: false }),
 }));
 vi.mock('../ai/proxyTiers.js', () => ({
