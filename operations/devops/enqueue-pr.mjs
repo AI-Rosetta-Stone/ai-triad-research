@@ -52,8 +52,8 @@
 // `t1-approval-guard` check run, which a PR-side workflow can forge. enqueuePR reads the PR's
 // commits, comments and reviews from the API at the head and runs the guard's predicate on them
 // (t1-approval-at-head.mjs: fetchApprovalInputs, approvalFromApiVerdict). An approval counts only
-// from a reviewer-App review bound to the head or an allowlisted commenter, never the shared login;
-// every read fails closed.
+// from a reviewer-App REVIEW bound to the head (commit_id); no comment ever approves, and the
+// `t1-approval-guard` row is never read (Security t/534#16). Every read fails closed.
 
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';

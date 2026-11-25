@@ -28,9 +28,11 @@ name: t1-approval-guard
 # Promotion to required is a separate T2 PR (branch-protection-adjacent).
 #
 # STATES (t/534, PI decision t/531 items 1 and 4). Two rows show on a PR: the job row `evaluate`
-# and the API check run `t1-approval-guard` (the one enqueue-pr.mjs reads).
+# and the API check run `t1-approval-guard`. BOTH ARE DISPLAY ONLY: since t/534 part A,
+# enqueue-pr.mjs and the sweeps decide from the reviews read from the API at the head and never read
+# this row (Security condition 3). Do not make the row an input again: a PR-side run can forge it.
 #   T1, no approval at the head, no changes-request -> `t1-approval-guard` PENDING (in_progress,
-#       "awaiting review"); `evaluate` success. Not a pass: enqueue-pr.mjs refuses guard_in_progress.
+#       "awaiting review"); `evaluate` success.
 #   approved after the latest push   -> `t1-approval-guard` success; `evaluate` success.
 #   outstanding changes-request      -> `t1-approval-guard` failure; `evaluate` failure.
 #   cannot evaluate (crash, no head) -> `t1-approval-guard` failure; `evaluate` failure (t/4819).
@@ -71,7 +73,7 @@ name: t1-approval-guard
 # REMOVED APPROVALS (Second Opinion condition on #5176): `issue_comment: [deleted]` and a review
 # `dismissed` (through the relay, t/534) are triggers, so deleting an approval comment or dismissing an
 # approving review re-evaluates at once. Without them the last `success` check run stayed on the
-# head, and enqueue-pr.mjs reads that check run. The run lists comments and reviews afresh: a
+# head (a stale display row; enqueue no longer reads it since t/534 part A). The run lists comments and reviews afresh: a
 # deleted comment is no longer in the list, and a dismissed review comes back with state DISMISSED,
 # which the predicate never counts as an approval. EVERY deleted PR comment runs the job, whatever
 # its text: filtering a deletion would depend on the event carrying the deleted comment's body,
@@ -242,7 +244,7 @@ jobs:
             // later evaluation CREATES a new run instead (Lead t/534#9 point 2): GitHub is not
             // shown to move a completed run back to in_progress or change its conclusion, so a
             // dismissal or a new changes-request must never rely on rewriting a green run.
-            // enqueue-pr.mjs reads the LATEST non-skipped run at the head, so the new one decides.
+            // The newest run at the head is the one GitHub shows (display only: enqueue never reads it).
             // If the lookup or the update fails, a new run is created too (WARN). ci.yml's
             // merge_group job shares the name but never sets this external_id, so it is never
             // picked up here.
@@ -297,6 +299,9 @@ jobs:
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
               const wr = context.payload.workflow_run;
               if (wr) {
+                // Security (t/534#16 a): only the review relay's own event may re-evaluate. A same-named
+                // workflow on another event could otherwise trigger extra re-evaluations of the row.
+                if (wr.event !== 'pull_request_review') return null;
                 // Security (t/537#18): trust pull_requests[0] only when the relay ran on a branch of
                 // THIS repository; a fork's run has none, and the API lookup below decides instead.
                 const sameRepo = wr.head_repository && wr.head_repository.full_name === `${owner}/${repo}`;
@@ -443,8 +448,8 @@ jobs:
 
             // t/534: no approval at the head yet, and no changes-request, is AWAITING REVIEW. The
             // check run is left pending (in_progress) and this job ends success, so no red row is
-            // left behind; the approval later settles the same run (postCheckRun). Pending is not
-            // a pass: enqueue-pr.mjs reads an in_progress run as `guard_in_progress` and refuses.
+            // left behind; the approval later settles the same run (postCheckRun). The row is display
+            // only: enqueue decides from the API-read reviews and refuses without an approval (t/534 A).
             if (result.reason === 'no-post-push-approval') {
               const why = result.summary ? `\n\n${result.summary}` : '';
               await postVerdictComment(prNumber, [

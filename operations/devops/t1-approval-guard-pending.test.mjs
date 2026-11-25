@@ -374,3 +374,20 @@ test('t/534 B (Security t/537#18): a stale relay run (PR head has moved) is skip
   assert.equal(gh.state.checkRuns.length, 0);
   assert.ok(log.info.some((m) => /stale workflow_run/.test(m)), log.info.join(' | '));
 });
+
+test('t/534#16 (Security a): a same-named workflow_run on any event other than pull_request_review re-evaluates nothing', async () => {
+  for (const event of ['push', 'pull_request', 'workflow_dispatch', 'issue_comment']) {
+    const gh = makeGitHub();
+    gh.state.comments.push(comment('Approved (Quality): looks right.', AFTER));
+    const payload = relayRun([{ number: 7, head: { sha: HEAD } }]);
+    payload.workflow_run.event = event;
+    const log = await runGuard(gh, { payload });
+    assert.deepEqual(log.failed, [], event);
+    assert.equal(ours(gh).length, 0, `${event}: no row posted`);
+  }
+  // Control: the relay's own event still settles the row.
+  const gh = makeGitHub();
+  gh.state.comments.push(comment('Approved (Quality): looks right.', AFTER));
+  await runGuard(gh, { payload: relayRun([{ number: 7, head: { sha: HEAD } }]) });
+  assert.equal(ours(gh).length, 1);
+});
