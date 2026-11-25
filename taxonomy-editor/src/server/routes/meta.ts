@@ -53,7 +53,7 @@ import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
 import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 import { getNodeSourceIndexStatus } from '../storage/nodeSourceIndex.js';
 import { callerHasKey } from '../ai/keyPresenceForCaller.js';
-import { sharedOverlayDrainHealth } from '../sharedOverlayWiring.js';
+import { sharedOverlayDrainHealthField } from '../sharedOverlayWiring.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
@@ -259,8 +259,8 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     const githubCircuitOpen = githubBackendForHealth ? githubBackendForHealth.getCircuitState() === 'open' : null;
     const entityRegistryDegraded = fileIO.getEntityRegistryStatus().degraded;
     const organizationsRegistryDegraded = fileIO.getOrganizationsReadStatus().degraded;
-    // t/553: while DRAINING (t/552), what is left to drain: counts only, never user ids; null otherwise.
-    const sharedOverlayDrain = await sharedOverlayDrainHealth(githubBackendForHealth, process.env);
+    // t/553: while DRAINING (t/552), what is left to drain: counts only, never user ids; omitted otherwise.
+    const sharedOverlayDrainField = await sharedOverlayDrainHealthField(githubBackendForHealth, process.env); // t/503#22: {} when null
     if (!community.isAdmin()) {
       json(res, {
         status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
@@ -269,7 +269,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         githubRateLimitRemaining, githubRateLimitResetsAt, githubRateLimitObservedAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
         freePoolBudget: freePoolBudgetHealth(),
         blobBackend: blobBackendHealth(),
-        sharedOverlayDrain,
+        ...sharedOverlayDrainField,
       });
       return;
     }
@@ -302,7 +302,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
 
     base.freePoolBudget = freePoolBudgetHealth();
     base.blobBackend = blobBackendHealth();
-    base.sharedOverlayDrain = sharedOverlayDrain;
+    Object.assign(base, sharedOverlayDrainField);
 
     // t/3086: embeddings cache probe result — surfaces t/3085 condition in /health without FR access.
     const embeddingsStatus = getEmbeddingsCacheStatus();

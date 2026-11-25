@@ -76,3 +76,13 @@ export async function sharedOverlayDrainHealth(
     if (timer) clearTimeout(timer);
   }
 }
+
+/** t/503#22 (TL #5566 review): the /health field, as an object to spread: `{ sharedOverlayDrain }` while draining,
+ *  `{}` when shared state is off or not draining, so /health then carries no such key. */
+export async function sharedOverlayDrainHealthField(
+  backend: DrainStatusSource | null,
+  env: NodeJS.ProcessEnv,
+): Promise<{ sharedOverlayDrain?: NonNullable<SharedOverlayDrainHealth> }> {
+  const sharedOverlayDrain = await sharedOverlayDrainHealth(backend, env);
+  return sharedOverlayDrain ? { sharedOverlayDrain } : {};
+}
