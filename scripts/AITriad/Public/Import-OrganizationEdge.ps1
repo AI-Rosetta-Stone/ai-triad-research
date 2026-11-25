@@ -35,7 +35,7 @@ function Import-OrganizationEdge {
         YYYY-MM-DD. Defaults to today.
     .PARAMETER InputObject
         Alternative: supply a full pre-built hashtable / PSCustomObject with fields
-        source, target, type, and optional rationale, source_refs, status, discovered_at.
+        source, target, type, and optional rationale, source_refs, status, discovered_at, match_meta.
     .OUTPUTS
         [OrganizationEdge]
     .EXAMPLE
@@ -102,6 +102,7 @@ function Import-OrganizationEdge {
         $refsIn = if ($InputObject.PSObject.Properties['source_refs']) { @($InputObject.source_refs | ForEach-Object { [string]$_ }) } else { @() }
         $statIn = if ($InputObject.PSObject.Properties['status'])      { [string]$InputObject.status }     else { 'approved' }
         $daIn   = if ($InputObject.PSObject.Properties['discovered_at']) { [string]$InputObject.discovered_at } else { (Get-Date).ToString('yyyy-MM-dd') }
+        $metaIn = if ($InputObject.PSObject.Properties['match_meta']) { $InputObject.match_meta } else { $null }
     } else {
         $srcIn  = $Source
         $tgtIn  = $Target
@@ -110,6 +111,7 @@ function Import-OrganizationEdge {
         $refsIn = @($SourceRefs)
         $statIn = $Status
         $daIn   = if ($DiscoveredAt) { $DiscoveredAt } else { (Get-Date).ToString('yyyy-MM-dd') }
+        $metaIn = $null
     }
 
     # Validate + normalize the type BEFORE writing. Unknown types are rejected outright —
@@ -165,6 +167,14 @@ function Import-OrganizationEdge {
         if ($es -eq $srcIn -and $et -eq $tgtIn -and $ey.ToUpperInvariant() -eq $typeIn) {
             $index = $i; break
         }
+    }
+    # match_meta (t/584): how a pipeline found the edge. Optional and provenance only; no reader branches
+    # on it. An update that brings none keeps the one already stored: it still says how the edge was found.
+    if ($null -eq $metaIn -and $index -ge 0 -and $existing[$index].PSObject.Properties['match_meta']) {
+        $metaIn = $existing[$index].match_meta
+    }
+    if ($null -ne $metaIn) {
+        Add-Member -InputObject $incoming -MemberType NoteProperty -Name 'match_meta' -Value $metaIn
     }
     if ($index -ge 0) {
         $existing[$index] = $incoming
