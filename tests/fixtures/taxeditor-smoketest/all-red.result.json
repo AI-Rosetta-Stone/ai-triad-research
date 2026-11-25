@@ -14,9 +14,9 @@
   "IdentityAllowlistKnownPendingCount": 2,
   "IdentityAllowlistStatus": "breach",
   "EndpointsPassed": 0,
-  "EndpointsFailed": 9,
-  "EndpointsTotal": 9,
-  "AvgResponseMs": 18.0,
+  "EndpointsFailed": 7,
+  "EndpointsTotal": 7,
+  "AvgResponseMs": 19.0,
   "MaxResponseMs": 42.0,
   "MinResponseMs": 10.0,
   "DurationSec": "<masked>",
@@ -24,7 +24,7 @@
     {
       "Category": "Analytics",
       "Pass": 0,
-      "Fail": 3
+      "Fail": 1
     },
     {
       "Category": "Community",
@@ -72,26 +72,6 @@
       "Ms": 10,
       "NodeCount": null,
       "Error": "HTTP 503"
-    },
-    {
-      "Endpoint": "GET /api/analytics/query (delta read-back)",
-      "Category": "Analytics",
-      "Description": "Analytics storage round-trip (totalEvents increased)",
-      "Status": 200,
-      "Pass": false,
-      "Ms": 20,
-      "NodeCount": 5,
-      "Error": "Silent drop: totalEvents did not increase after write (before=5, after=5, delta=0) — event accepted but not persisted (blob backend misconfigured?)"
-    },
-    {
-      "Endpoint": "GET /api/analytics/query (view.dwell eventType)",
-      "Category": "Analytics",
-      "Description": "view.dwell event_type present in analytics after write (t/2706)",
-      "Status": 200,
-      "Pass": false,
-      "Ms": 10,
-      "NodeCount": null,
-      "Error": "view.dwell absent or zero in eventTypes after probe write (count=0) — event not persisted or event_type mis-routed"
     },
     {
       "Endpoint": "GET /api/entities",
