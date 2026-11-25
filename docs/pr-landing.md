@@ -8,35 +8,37 @@ The full procedure behind root `AGENTS.md` → "Landing Code". This text moved o
 - **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. **Enqueue pinned with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`** (t/4740) — the bare `gh pr merge --auto --squash --match-head-commit <headRefOid>` CLI form has twice (t/4731#1, t/4740#1) reported success while leaving the PR unenqueued, with no confirmed trigger; the wrapper verifies `isInMergeQueue` and falls back to the GraphQL mutation on a miss. **Never push to a queued PR:** GitHub may reject it (`GH006`), and `--disable-auto` doesn't dequeue. Use a separate PR, or dequeue, push and re-enqueue pinned. Never a bare manual merge. Ref §3.
 - **Incident hotfix (jump the queue):** only the TL, or DevOps Lead with the TL's recorded go, for a PR fixing an active incident with an anchor ticket. Enqueue with `jump`, head pinned; every required check still runs. Never for `consult-hold` or `joint-gv` PRs; a T2 fix still needs its SO clearance and approval. Log each jump on the incident ticket. Bypassing branch protection stays PI-only.
 
-## PR Budget and Batching (t/397, PI-approved 2026-11-11)
+## PR Budget and Batching: land in a vehicle (t/397; t/567, t/655 and t/657, PI-approved 2026-11-25)
 
-Target: **≤20 new PRs a day** team-wide (7-day average). PRs are few and big (t/567, PI-approved 2026-11-25); see the landing vehicles below and `docs/tl-decomposition-rules.md` § One PR per feature.
+Every change lands in one of three vehicles. The PR count is **monitored, not gated**: the TL watches PRs per day (target **≤20**, 7-day average) and tickets per PR (target **≥3**). The count is not a gate: the change that removes the refusal is t/656, and until it lands the t/564 refusal still applies (see Monitor, not gate). Batching is the point: fewer, bigger PRs.
 
-**Landing vehicles (t/567).** Every ticket names its vehicle in a `Lands in:` line when it's created. No ticket gets its own PR unless the TL says so.
+**The vehicles.** Every ticket names its vehicle in a `Lands in:` line when it's created. Use the first that applies:
 
-- **Feature PR:** one per feature, on branch `feat/t<N>-<slug>` (t/N is the feature's parent ticket). Child tickets commit to that branch, each owner in its own commits. The PR gets one review pass (Quality; SO and TL for T2).
-- **Area train:** a rolling branch per area for small changes outside a feature, landed once a day by its owner with whatever is green. A failing commit is dropped back to its author; it never holds the train.
+1. **Incident PR:** only for an active incident with an open INCIDENT ticket, anchored to that ticket. Needs the TL's recorded go (or the hotfix path above).
+2. **Feature PR:** branch `feat/t<N>-<slug>` (t/N is the feature's parent ticket). Only for a change spanning **2+ owners or 3+ tickets**. Child tickets commit to that branch, each owner in its own commits. One review pass (Quality; SO and TL for T2).
+3. **Area train:** everything else, including security fixes. Each area has one rolling train, and its owner merges finished tickets onto it continuously. **Trains close at 06:00Z and 18:00Z.** At close the owner opens one PR, or updates the open one, with a per-ticket table. A ticket not ready at close waits for the next train, about 12 hours.
+  - Security fixes, whatever area they touch, ride `train/security-YYYYMMDD` (t/658, owner Security). They don't get their own PR.
   - `train/devops-YYYYMMDD`: `operations/devops`, `.github`, CI and gate scripts. Owner: DevOps Lead.
   - `train/server-YYYYMMDD`: `taxonomy-editor/src/server`. Owner: TaxonomyServer.
   - `train/renderer-YYYYMMDD`: `taxonomy-editor/src/renderer` and the web build. Owner: Rosetta Stone.
   - `train/debate-YYYYMMDD`: `lib/debate` and `lib/ai-client`. Owner: Debate Engine.
   - `docs/weekly-YYYY-WW`: docs, AGENTS.md and guidance (the weekly docs train). Owners: Documentation and AI Rosetta Stone.
   - Other areas use the nearest train. When it's unclear, ask the TL.
-- **Own PR only** for broken `main`, an incident, a security fix, or a PI request, with the TL's recorded go. These still count against the budget.
+- **No own PR.** A change that fits none of the three vehicles goes to the nearest area train; if it's unclear, ask the TL. Broken `main` is the TL's call, and the TL decides any exception in writing.
 - **Experiment and throwaway PRs** don't go on this repo. They go to the sandbox repo (t/569, needs the PI).
-- **Backstop:** the t/564 budget counts each `feat/` or `train/` PR as one, however many tickets it carries.
+- **Counting:** each `feat/` or `train/` PR counts as one PR, however many tickets it carries.
 - **Moving commits onto a train (t/608, TL p/7#225).** Moving commits from a PR onto a train (or another PR) carries that PR's CI result. A commit from a PR with a red required check is not clean until the failure is fixed or shown to be unrelated, and that is said in the move comment. The train owner runs the full suite for the train's area before the train PR opens.
 
-**Budget numbers (unchanged):**
+**Monitor, not gate (t/655, PI correction 2026-11-25):**
 
-- **Per agent: at most 1 new PR a day, and at most 2 open PRs.**
-  - Exempt, with the TL's ok: a fix for broken `main`, an incident, a security fix, or a PI request.
+- **The budget report** measures PRs per day and tickets per PR. It alerts the TL when PRs exceed 20 in a UTC day, or tickets per PR fall below 3. The alert is a prompt to look at why, not a refusal.
+- **`enqueue-pr.mjs` no longer refuses on the count once t/656 lands.** Until then the t/564 daily refusal still applies, and this section is the target, not the rule that is enforced. DevOps Lead's metric job posts the day's count at 12:00Z and 18:00Z.
+- **Per-agent limit (t/397, still on the books):** at most 1 new PR a day and 2 open PRs per agent, exempt for the vehicles above. The TL is to confirm whether it survives t/655; until then, treat it as a guideline.
 - **Add to an open PR before opening a new one.** If you already have an open PR in the same area that isn't queued, the change goes there.
 - **Minimum size:** a non-urgent change under ~50 lines waits to be combined with your next change in the same area, or goes into the feature PR or the area train. Exempt as above.
 - **No separate PRs for review nits or small follow-ups.** Fix review findings in the same PR; the reviewer re-stamps the delta only (`docs/review-routing.md` § Delta re-stamp). A follow-up that really needs its own change goes into your next substantive PR or the area train, never a standalone PR.
 - **Docs edits go on the weekly docs train** (`docs/weekly-YYYY-WW`), as listed above. An urgent rule change, such as an incident, can still go alone with a TL go.
   - Overlay-only guidance (role AGENTS.md, playbooks, Interweave apps) never needs a main-repo PR: commit it with `ogit`.
-- **Team daily budget (t/564, PI directive 2026-11-25):** `enqueue-pr.mjs` refuses non-exempt PRs past 20 new PRs in a UTC day (`feat/` and `train/` branches count once). At 15 the TL and that day's authors are warned. Over-budget PRs wait, oldest first, for a later day's free slots (t/564). DevOps Lead's metric job still posts the day's count at 12:00Z and 18:00Z.
 
 ## Data repo PRs (ai-triad-data, TL p/7#221)
 
