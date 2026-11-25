@@ -297,6 +297,7 @@ export const CODE_UNDER_TEST = [
   'operations/devops/role-review-verdicts.test.mjs', // test of role-review-verdicts.mjs
   'operations/devops/scheduled-workflow-health.test.mjs', // test of scheduled-workflow-health.mjs
   'operations/devops/staging-data-account-whatif-guard.test.mjs', // test of staging-data-account-whatif-guard (t/627)
+  'operations/devops/sweep-landed-worktrees.test.mjs', // test of sweep-landed-worktrees.sh (t/9)
   'operations/devops/stuck-pr-classifier.test.mjs', // test of stuck-pr-classifier
   'operations/devops/t0-enqueue-sweep.test.mjs', // test of t0-enqueue-sweep.mjs
   'operations/devops/t0-rule-order.test.mjs', // rule-order test of t0-enqueue-sweep.mjs
