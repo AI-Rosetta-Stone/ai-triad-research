@@ -142,7 +142,8 @@ const POLL_INTERVAL_MS = 60_000;
  *  deployment whose base branch is something else (staging) a pinned read reads that branch. Before
  *  this mapping such a read went to the repository's default branch, a different branch from the tree,
  *  the listings and the strict reads. */
-export const BASE_BRANCH_REF = 'main';
+export { BASE_BRANCH_REF } from './baseBranchRef.js';
+import { BASE_BRANCH_REF } from './baseBranchRef.js';
 const ERROR_BUFFER_CAPACITY = 100;
 
 // t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
