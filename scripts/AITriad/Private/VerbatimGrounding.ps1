@@ -29,15 +29,35 @@
 #   - a word of the model's that would not be stored: every letter of a segment must be in a stored piece
 #     (t/389#86). The 0.9 threshold says how much of an ELIDED quote must survive, not which words;
 #   - its first or last word not standing where the passage begins or ends (t/389#47 (3));
-#   - a letter whose case differs, except the quote's first letter, a source word in capitals, or a
-#     letter the model or the source put in brackets (t/389#70, #72, #74). A capital at the start of a
-#     later segment is not excepted, and the guard never adds brackets itself (PI, p/37#242);
+#   - a letter whose case differs, except the quote's first letter, a source word in capitals (two
+#     letters or more), or a letter that the SOURCE has in brackets ("[i]ndividual" in the source's own
+#     quotation) and that is the same letter ignoring case (t/389#70, #72, #74 (1), #97). A bracket the
+#     model added does not excuse a changed capital. A capital at the start of a later segment is not
+#     excepted, and the guard never adds brackets itself (PI, p/37#242);
 #   - a source space inside a word of the quote (t/389#64 (2)); source words printed with no space
 #     between them are accepted, since only spaces are missing (t/389#69);
-#   - a label followed by chart or table values on lines of their own (p/70#93, t/389#40), and list
-#     items on lines of their own joined with commas of the model's (t/389#76, #78);
+#   - a label followed by chart or table values on lines of their own (p/70#93, t/389#40);
+#   - list items joined into a sentence: two or more commas or semicolons of the model's, each at a line
+#     break of the source where the next line is an item line (a blank line or a bullet in the break, or
+#     a line that begins with a capital or a digit). One such comma is not a list (t/389#76, #78);
 #   - a URL or a running-header line the model wrote that is not in the passage (t/389#88).
 # A ligature the converter dropped ("e ective") is not restored, so such a quote fails (t/389#63).
+#
+# A WHOLE SEGMENT THAT IS NOT STORED (t/389#42 (3), #50, #88 (1)). Segments exist only where the model
+# wrote its own elision mark, so a segment is only ever left out at a mark of the model's. A segment may
+# be left out when it is not in the source as written (not found, or failing a rule above), when it is
+# shorter than 12 letters and so cannot be placed, or when it does not stand with the others as one
+# passage. What is stored must then still hold 0.9 of the whole quote's letters; if it does not, the
+# quote is dropped. Nothing is left out silently inside a segment: that is the unstored-word rule.
+# Two segments stand as one passage only in source order, within 1,000 letters, with running prose
+# between them: no table row, no paragraph that starts a list or bibliography entry, at most one page
+# boundary (t/389#45, #47 (1)).
+#
+# A FOOTNOTE IN MID-SENTENCE (t/389#52 (1)). When a segment is one piece from its first letter that
+# stops short, and the rest of the segment follows in the source after a footnote block, the block is
+# stepped over and the segment is stored as the model wrote it. The block must: start at the start of a
+# line with a footnote number; hold at most 500 letters (VerbatimFootnoteMaxGap); not be in the quote;
+# and the piece before it must not end a sentence, so the quote resumes mid-sentence after it.
 #
 # HOW THE SOURCE IS READ. Matching runs on a working copy of the snapshot with mojibake repaired, HTML
 # tags blanked and repeated page footers and headers blanked. It has the same length as the snapshot, so
@@ -104,6 +124,9 @@ $script:VerbatimNbspWordEdge = $true        # t/389#67 (1): the a-acute no-break
 # case alone. That is allowed only at the quote's first letter, or where the source word is all capitals (two
 # letters or more; the model may write it in any capitalisation, t/389#72). Anywhere else the quote fails.
 $script:VerbatimCaseRule = $true
+# CL t/389#97: a bracketed letter excuses a case change only when the SOURCE has the bracket. A bracket the model
+# added ("[F]uture" for the source's "future") does not. Audit scripts can set this to count the difference.
+$script:VerbatimModelBracketMarksCase = $false
 # CL t/389#74. Each can be switched off by an audit script.
 $script:VerbatimAlignExtras = $true          # a piece's letters are aligned to the quote's, so extra lines and the model's own digits are told apart
 $script:VerbatimSplitAtGluedSidebar = $true  # a sidebar word glued to the end of a line ("couldLaw") splits the piece there
@@ -373,8 +396,8 @@ function Get-VerbatimCaseVerdict {
     # lower-cased (CL t/389#70). $WordStart[i] says a source word begins at letter i.
     # Returns @{ Fail; First; Caps; At }: Fail when a difference is not permitted (At names the two words),
     # First when the quote's first letter differs, Caps when an all-capitals source word is in lower case.
-    # $Declared: places in the quote's letters where the model marked the changed capital itself, as "[F]uture"
-    # (read as the letter since t/389#20). A marked change is permitted and counted.
+    # $Declared: places in the quote's letters where the letter stands in square brackets in the source
+    # ("[i]ndividual"), an editorial change the source itself marks (CL t/389#74 (1), #97). Permitted and counted.
     param([string]$SourceCased, [bool[]]$WordStart, [string]$QuoteCased, [bool]$FirstAllowed, [int[]]$Declared = @())
     $R = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; AtStart = $false; Unchecked = $false }
     if ($SourceCased -ceq $QuoteCased) { return $R }
@@ -443,7 +466,7 @@ function Get-VerbatimLooseCaseVerdict {
     $Cased = [System.Text.StringBuilder]::new($QG.Letters.Length)
     $WordStart = [bool[]]::new($QG.Letters.Length)
     $Declared = [System.Collections.Generic.List[int]]::new()
-    foreach ($D in @(Get-VerbatimDeclaredCase -Text $DeclaredFrom)) { $Declared.Add($D) }
+    if ($script:VerbatimModelBracketMarksCase) { foreach ($D in @(Get-VerbatimDeclaredCase -Text $DeclaredFrom)) { $Declared.Add($D) } }
     $SourceDeclared = @(Get-VerbatimDeclaredCase -Text $SourceText)
     for ($I = 0; $I -lt $M.Length; $I++) {
         if ($M[$I] -lt 0) { continue }
@@ -512,7 +535,7 @@ function Get-VerbatimExactCaseVerdict {
     param([object]$Source, [string]$Quote, [bool]$FirstAllowed, [string]$DeclaredFrom = $Quote)
     $Q = Get-VerbatimWordGap -Text $Quote
     $None = @{ Fail = $false; First = $false; Caps = $false; Title = $false; Bracket = $false; At = ''; AtStart = $false; Unchecked = $false }
-    $Declared = @(Get-VerbatimDeclaredCase -Text $DeclaredFrom)
+    $Declared = if ($script:VerbatimModelBracketMarksCase) { @(Get-VerbatimDeclaredCase -Text $DeclaredFrom) } else { @() }
     $KeyText = if ($Source.PSObject.Properties['Work'] -and $Source.Work.Length -eq $Source.Text.Length) { $Source.Work } else { $Source.Text }
     if ($Q.Letters.Length -eq 0 -or -not $Source.PSObject.Properties['CharsCased']) { $None.Unchecked = $true; return $None }
     if ($Source.CharsCased.Contains($Q.Cased, [System.StringComparison]::Ordinal)) { return $None }
@@ -1133,7 +1156,7 @@ function Resolve-VerbatimSegment {
         if ($V.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
         if ($V.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
         if ($V.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
-        if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
+        if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the source has in brackets, permitted') }
         $false
     }
     # For audits: the model wrote a URL or a copy of a running-header line in this segment (t/389#88 (2)).
@@ -1160,7 +1183,7 @@ function Resolve-VerbatimSegment {
         if ($V.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
         if ($V.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
         if ($V.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
-        if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
+        if ($V.Bracket) { $script:VerbatimDiag.Add('case: letter the source has in brackets, permitted') }
         $false
     }
     $CaseDrop = {
@@ -1516,7 +1539,7 @@ function Resolve-VerbatimSegment {
                             $WordStart = [bool[]]$SGap.Any.Clone(); $WordStart[0] = $true
                             $CaseSeen = Get-VerbatimCaseVerdict -SourceCased $SGap.Cased -WordStart $WordStart `
                                 -QuoteCased $QGap.Cased.Substring($P.QStart, $Want.Length) -FirstAllowed ($QuoteStart -and $P.QStart -eq 0) `
-                                -Declared (@(Get-VerbatimDeclaredCase -Text $Segment | ForEach-Object { $_ - $P.QStart }) + @(Get-VerbatimDeclaredCase -Text $Shown.ToString()))
+                                -Declared (@(if ($script:VerbatimModelBracketMarksCase) { Get-VerbatimDeclaredCase -Text $Segment | ForEach-Object { $_ - $P.QStart } }) + @(Get-VerbatimDeclaredCase -Text $Shown.ToString()))
                         }
                         $Split = 0
                         for ($K = 1; $K -lt $Want.Length; $K++) {
@@ -1545,7 +1568,7 @@ function Resolve-VerbatimSegment {
                                 if ($CaseSeen.First) { $script:VerbatimDiag.Add('case: first letter of the quote, permitted') }
                                 if ($CaseSeen.Caps) { $script:VerbatimDiag.Add('case: capitals in the source, lower case in the quote, permitted') }
                                 if ($CaseSeen.Title) { $script:VerbatimDiag.Add('case: capitals in the source, other capitalisation in the quote, permitted') }
-                                if ($CaseSeen.Bracket) { $script:VerbatimDiag.Add('case: letter the model put in brackets, permitted') }
+                                if ($CaseSeen.Bracket) { $script:VerbatimDiag.Add('case: letter the source has in brackets, permitted') }
                             }
                         }
                     }
@@ -1740,8 +1763,6 @@ function Resolve-VerbatimQuote {
     $Kept = [System.Collections.Generic.List[object]]::new()
     $BestCoverage = 0.0
     $AllLetters = 0
-    $AnyRejected = $false   # a segment the source has, rejected at its edge (t/389#47 (3))
-    $RunCut = $false        # a link between two kept segments failed (t/389#45)
     foreach ($Part in $Parts) {
         $PartLetters = ((ConvertTo-EvidenceKey -Quote $Part) -replace ' ', '').Length
         $AllLetters += $PartLetters
@@ -1749,10 +1770,8 @@ function Resolve-VerbatimQuote {
         if ($PartLetters -lt $script:VerbatimMinRun) { continue }
         $R = Resolve-VerbatimSegment -Source $Source -Segment $Part -QuoteStart ([object]::ReferenceEquals($Part, $Parts[0]))
         if ($R.Coverage -gt $BestCoverage) { $BestCoverage = $R.Coverage }
-        if ($R.Decision -eq 'dropped') {
-            if ($R.PSObject.Properties['Rejected'] -and $R.Rejected) { $AnyRejected = $true }
-            continue
-        }
+        # A segment that is not in the source as written is left out; the 0.9 share below decides the quote.
+        if ($R.Decision -eq 'dropped') { continue }
         # Where the segment is, for the elision rule below. A segment accepted as written was not placed yet.
         if ($null -eq $R.Start) {
             $At = Find-VerbatimSnap -Source $Source -Quote $R.Texts[0]
@@ -1793,7 +1812,6 @@ function Resolve-VerbatimQuote {
                 if ($L -gt $BestLetters) { $BestLetters = $L; $BestRun = $Candidate }
             }
             $Kept = $BestRun
-            $RunCut = $true
         }
     }
     # What is stored must hold VerbatimSnapThreshold of the whole quote, whichever way the rest was lost: a

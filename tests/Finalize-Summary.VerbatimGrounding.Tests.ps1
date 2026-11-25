@@ -430,14 +430,20 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
         @($Out.Stored).Count | Should -Be 2
     }
 
-    It 'matches across HTML tags and a spaced ellipsis, and reads a bracketed letter as the letter (t/389#20)' {
+    It 'matches across HTML tags and a spaced ellipsis; a bracket the model adds does not excuse a changed capital (t/389#20, #97)' {
         $Src = 'As the report says, <figcaption><b>AI Danger:</b> Lazy overreliance on AI. Go hybrid instead.</figcaption> However, more capable models may come with greater risk. Other text here. In short, future models may pose catastrophic risks as capabilities improve.'
         $Out = & $script:Run $Src 'AI Danger: Lazy overreliance on AI. Go hybrid instead.' 'doc-html'
         $Out.R.Dropped | Should -Be 0
-        $Out2 = & $script:Run $Src 'However, more capable models may come with greater risk. . . . [F]uture models may pose catastrophic risks as capabilities improve.' 'doc-spaced'
+        # A spaced ellipsis is an elision mark: the quote is two segments, and the mark is not stored. A bracketed
+        # letter is read as the letter, so "[f]uture" is the source's "future".
+        $Out2 = & $script:Run $Src 'However, more capable models may come with greater risk. . . . [f]uture models may pose catastrophic risks as capabilities improve.' 'doc-spaced'
         $Out2.R.Dropped | Should -Be 0
         @($Out2.Stored).Count | Should -Be 2
         ($Out2.Stored -join '|') | Should -Not -Match '\. \. \.'
+        # The model writes "[F]uture" where the source has "future": the capital is the model's change, and its own
+        # bracket does not excuse it (CL t/389#97). The second segment fails, and the first alone is not 0.9 of the quote.
+        $Out3 = & $script:Run $Src 'However, more capable models may come with greater risk. . . . [F]uture models may pose catastrophic risks as capabilities improve.' 'doc-spaced-capital'
+        $Out3.R.Dropped | Should -Be 1
     }
 
     It 'a label and the chart values printed on their own lines after it are not a passage (p/70#93, sample 5 D18)' {
@@ -801,12 +807,14 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             @($R.Diag | Where-Object { $_ -match '^case' }).Count | Should -Be 0
         }
 
-        It 'only the first segment of an elided quote begins the quote; a capital the model put in brackets is a marked change' {
+        It 'only the first segment of an elided quote begins the quote; the model''s own bracket does not excuse a changed capital' {
             $R = & $script:Decide $script:CaseSrc 'Our internal leak rate was measured by the lab [...] A Model is tested twice.'
             $R.Decision | Should -Be 'dropped' -Because 'the second segment has a capital the source lacks'
             $B = & $script:Decide $script:CaseSrc 'Our internal leak rate was measured by the lab [...] [t]he method rests on three assumptions about the evaluation.'
-            $B.Decision | Should -Not -Be 'dropped'
-            $B.Diag | Should -Contain 'case: letter the model put in brackets, permitted'
+            $B.Decision | Should -Be 'dropped' -Because 'the source has "The"; a bracket the model added does not excuse the lower case (CL t/389#97)'
+            $B.Diag | Should -Contain 'case differs at the start of a later segment or piece'
+            # The same segment with the source's capital is kept.
+            (& $script:Decide $script:CaseSrc 'Our internal leak rate was measured by the lab [...] The method rests on three assumptions about the evaluation.').Decision | Should -Not -Be 'dropped'
         }
 
         It 'the rule holds for a stored snap: a line break mends, a changed capital fails' {
@@ -970,7 +978,7 @@ Describe 'Repair-SummaryKeyPointVerbatim: elided, interleaved and noisy quotes (
             $Src = "The court held that `"[i]ndividual citizens may have a hard time finding out who they should turn to`" in such cases. Later text follows here for the second part.`n"
             $R = & $script:Decide74 $Src 'The court held that Individual citizens may have a hard time finding out who they should turn to'
             $R.Decision | Should -Not -Be 'dropped'
-            $R.Diag | Should -Contain 'case: letter the model put in brackets, permitted'
+            $R.Diag | Should -Contain 'case: letter the source has in brackets, permitted'
             $L = & $script:Decide74 $Src 'The court held that [...] Later Text follows here for the second part.'
             $L.Decision | Should -Be 'dropped'
             $L2 = & $script:Decide74 $Src 'The court held that [...] Citizens may have a hard time finding out who they should turn to'
