@@ -22,6 +22,7 @@ Orca config lives in the overlay repo `.orca-git/`, so it stays private while th
 
 ## Shared Checkout and Git Hygiene
 
+- **Remove your worktree when its PR merges** (PI decision, t/9; `docs/pr-landing.md`).
 - **The shared checkout stays on `main`.** `checkout`, `reset`, `rebase`, `merge`, `pull --rebase` and `stash` happen only in a worktree.
 - **Mode** is line 1 of `.orca/workflow-mode` (`worktree` is strict, and the default). Change it only deliberately, recording who, when and why in the file. In `worktree` mode, work on a branch in `.worktrees/` (or use `/land-from-worktree`), and `cd` into it in the same command. Ref §2.
 - **Commit with a pathspec** (`git commit -m "…" -- <paths>`). Never `-a` or `add -A`. Scan `git status --short` before you commit and `git show --stat HEAD` after. Commits that set the executable bit go through a worktree. Ref §6.

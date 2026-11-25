@@ -45,6 +45,7 @@ The data repo has no merge queue or branch protection, so `enqueue-pr.mjs` does 
 ## PR-Flow Practice Rules
 
 - **Merge promptly on green,** or record why not.
+- **Remove your worktree when its PR merges** (TL p/4#32, PI decision, t/9): `git worktree remove` for the worktree you made, with no `--force`; commit or discard its changes first. Only remove a worktree once its branch is merged or its work is pushed.
 - **Arm auto-merge at PR creation** (`node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`, t/4740) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247). Arming means "done", so disarm (and dequeue, if queued) before pushing more.
   - **To re-run `t1-approval-guard` and `tier-check` by hand, post a PR comment containing `/recheck-guards`.** Any other new or edited comment re-runs them only if it carries a verdict (`Approved (<role>)`, `Changes requested`, `Design-exempt`, an SO clearing note), or carried one before the edit; status comments no longer do. Deleting any PR comment and dismissing a review always re-run them, so a withdrawn approval stops counting at once (a dismissal needs the PR branch to include that trigger: rebase onto `main` if it predates #5176).
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
