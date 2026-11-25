@@ -160,26 +160,30 @@ jobs:
       # Runs even if the Dependabot step failed. Before the T0 step, whose idle-window wait can
       # take 16 minutes. No wait here: the approval must already be bound to the head.
       #
-      # SHIPS REPORT-ONLY: T1_ENQUEUE is 'off' (Second Opinion's conditions on #4795, 2026-11-15).
-      # As merged this step enqueues nothing and comments on nothing. It selects, logs each skip
-      # reason, and logs `[enqueue off] would enqueue #N` for the PRs it would act on. The switch
-      # is a literal here, not a repo variable, so that turning it on is a reviewed commit, and it
-      # passes its flag only when it is exactly 'on'.
+      # Shipped report-only (T1_ENQUEUE 'off', Second Opinion's conditions on #4795, 2026-11-15), and
+      # turned ON by t/73 (see below). With 'off' it enqueues nothing: it selects, logs each skip reason,
+      # and logs `[enqueue off] would enqueue #N`. The switch is a literal here, not a repo variable, so
+      # changing it is a reviewed commit, and it passes its flag only when it is exactly 'on'.
       #
       # Guard nudges (T1_NUDGE, `nudge_pr`) are removed: t/534 part A retired them, since the
       # sweep no longer reads the guard run (t/438 cancelled). t1-enqueue-sweep.mjs still accepts
       # and ignores --nudge / --nudge-pr, so an old caller cannot break it.
       #
-      # T1_ENQUEUE gates the enqueue. Before flipping it to 'on': #5150 is on main.
+      # T1_ENQUEUE gates the enqueue. FLIPPED to 'on' (t/73; TL p/12#274, after t/655): an approved, green
+      # T1 PR should not sit un-enqueued. Every enqueue still goes through enqueue-pr.mjs's enqueuePR, unchanged:
+      # the landing-vehicle check (t/656), the approval at the head, and the gate-file refusal (no review id is
+      # passed, so a PR touching a gate file is refused). Only `Tier: T1` PRs are selected (never T2), and
+      # consult-hold / joint-gv / no-auto-enqueue PRs are skipped (t1-enqueue-sweep.mjs selectT1Candidates).
+      # To turn it off again, set the literal back to 'off' in a reviewed commit.
       #
       # The flip is its own T2 commit, and must change t1-enqueue-sweep.test.mjs's
       # "SHIPS REPORT-ONLY" test in the same commit.
-      - name: T1 sweep (report-only unless T1_ENQUEUE is 'on')
+      - name: T1 sweep (enqueues only when T1_ENQUEUE is 'on')
         if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-          T1_ENQUEUE: 'off'
+          T1_ENQUEUE: 'on'
         run: |
           ENQUEUE_FLAG=''
           if [ "$T1_ENQUEUE" = "on" ]; then ENQUEUE_FLAG='--enqueue'; fi
