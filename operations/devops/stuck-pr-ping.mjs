@@ -103,12 +103,16 @@ export const isDependabot = (pr) => /dependabot/i.test(pr.author ?? '') || Strin
 // t/535#24 (2), Lead p/233#180: an area train or the weekly docs train belongs to its train OWNER (t/567's
 // rule, t/567#1), not to whichever ticket one of its commits cites. An area not listed here falls back to
 // ticket routing with a WARN; it is never guessed.
+// The owners are the TL's list (p/9#626, Lead p/233#201). Every landing-vehicle.mjs TRAIN_AREAS entry
+// must be here: a pin test fails otherwise, so a new area can never fall back to ticket routing silently.
 export const TRAIN_OWNERS = Object.freeze({
   devops: DEVOPS_LEAD,
   server: '637d8eab-f350-4d00-afc2-7ca1ca122cc6', // TaxonomyServer
   renderer: '7261987e-c2fa-4526-9cc3-066b136bc9df', // Rosetta Stone
   debate: '0529ba14-3572-4349-b481-faaa3c8eba2d', // Debate Engine
-  'docs-weekly': 'c1c3639b-1e86-46cb-bb29-3f22fa683170', // Documentation (lands docs/weekly-*, t/567#4)
+  powershell: '73fad27e-2c27-4559-be5e-8f2757bd4c58', // PowerShell
+  security: 'f76282c8-cab4-442b-8e99-cc75b188af2e', // Security
+  'docs-weekly': 'bc7da50b-e160-41ae-979e-299be1e700c7', // AI Rosetta Stone (docs/weekly-*)
 });
 /** PURE. The train area of a branch ('devops', 'docs-weekly', ...), or null if it is not a train branch. */
 export function trainArea(branch) {

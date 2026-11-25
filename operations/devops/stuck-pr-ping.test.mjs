@@ -309,9 +309,9 @@ test('resolveOwner: a train PR goes to its train owner, ahead of any ticket its 
 
 test('resolveOwner: an unlisted train area, or a train owner who is not live, falls back to ticket routing with a WARN (never guessed)', () => {
   const warns = [];
-  const r = resolveOwner(pr(1, { branch: 'train/powershell-20261126', title: 'ps train t/501' }), { ticketAssignee: (n) => (n === 501 ? { id: A, kind: 'agent' } : null), fileOwners: null, known, warn: (w) => warns.push(w) });
+  const r = resolveOwner(pr(1, { branch: 'train/infra-20261126', title: 'infra train t/501' }), { ticketAssignee: (n) => (n === 501 ? { id: A, kind: 'agent' } : null), fileOwners: null, known, warn: (w) => warns.push(w) });
   assert.equal(r.to, A, 'routed by its ticket');
-  assert.match(warns[0], /unlisted area 'powershell'/);
+  assert.match(warns[0], /unlisted area 'infra'/);
   const warns2 = [];
   const r2 = resolveOwner(pr(2, { branch: 'train/server-20261126' }), { ticketAssignee: () => null, fileOwners: null, known, warn: (w) => warns2.push(w) }); // TaxonomyServer not in `known`
   assert.equal(r2.to, DEVOPS_LEAD);
@@ -389,4 +389,14 @@ test('run (Quality p/119#108): a refusal reason outside the route reasons and th
   }
   const thrown = await vehicleRun(new Map([ana(32, 'feat/t502-g')]), { 32: new Error('daemon down') });
   assert.deepEqual(thrown.r.vehicle.map((x) => x.vehicleHold), ['vehicle_read_failed'], 'a thrown check is a read failure: listed, not pinged');
+});
+
+test('pin (Lead p/233#201): every landing-vehicle TRAIN_AREAS entry, and docs/weekly, has a train owner here (a new area cannot fall back silently)', async () => {
+  const { TRAIN_AREAS } = await import('./landing-vehicle.mjs');
+  for (const area of TRAIN_AREAS) {
+    assert.match(String(TRAIN_OWNERS[area] ?? ''), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `train area '${area}' has no owner in TRAIN_OWNERS`);
+    assert.equal(trainArea(`train/${area}-20261126`), area, `trainArea reads train/${area}-YYYYMMDD`);
+  }
+  assert.ok(TRAIN_OWNERS['docs-weekly'], 'docs/weekly has an owner');
+  assert.deepEqual(Object.keys(TRAIN_OWNERS).filter((k) => k !== 'docs-weekly').sort(), [...TRAIN_AREAS].sort(), 'no owner for an area landing-vehicle does not accept');
 });
