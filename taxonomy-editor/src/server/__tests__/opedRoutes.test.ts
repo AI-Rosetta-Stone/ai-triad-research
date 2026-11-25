@@ -301,6 +301,7 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     isAnonymousUser.mockReset().mockReturnValue(false);
     getStorageUserId.mockReset().mockReturnValue('user-1');
     getOpedSetsQuotaStatus.mockReset().mockResolvedValue({ allowed: true, resource: 'opeds', current: 0, limit: 15 });
+    listOpedSets.mockReset().mockResolvedValue([]); // t/500: an anonymous visitor's live sets (none by default)
     finalizeOpedSet.mockReset();
     getCurrentUser.mockReset().mockReturnValue({ principalName: 'u', idp: 'aad', isAnonymous: false });
     resolveTier.mockReset().mockReturnValue({ level: 'platform', allowedBackends: ['gemini', 'claude', 'groq'], pinnedModel: undefined });
@@ -614,6 +615,51 @@ describe('POST /api/oped-sets create pre-start gate (t/2610)', () => {
     const complete = frames.map(f => JSON.parse(f.slice(6))).find(f => f.event?.type === 'complete');
     expect(complete.event.set.opeds[0].stages).toEqual(stages);
     expect(finalizeOpedSet.mock.calls[0][0].opeds[0].stages).toEqual(stages);
+  });
+
+  // t/500 (t/666): the limits on a stored anonymous op-ed, all before any spend, through the real create route.
+  describe('t/500: anonymous create limits', () => {
+    const anon = () => { isAnonymousUser.mockReturnValue(true); getStorageUserId.mockReturnValue('anon-0f8fad5b-d9cb-469f-a165-8c7c0e2c1a11'); };
+    const create = async (body: unknown) => { const res = fakeRes(); await handlers['POST /api/oped-sets'](fakeReq('/api/oped-sets'), res, body); return res; };
+
+    it('more than 3 voices is 400, nothing generated', async () => {
+      anon();
+      const res = await create({ ...validBody, povs: ['accelerationist', 'safetyist', 'skeptic', 'cross-cutting'] });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('more than 1,500 words per voice is 400, nothing generated', async () => {
+      anon();
+      const res = await create({ ...validBody, params: { ...validBody.params, wordCount: 1501 } });
+      expect(res._status).toBe(400);
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+    });
+
+    it('the 11th live set is 429 anon_oped_limit, nothing written or generated', async () => {
+      anon();
+      listOpedSets.mockResolvedValue(Array.from({ length: 10 }, (_, i) => ({ set_id: `s${i}` })));
+      const res = await create(validBody);
+      expect(res._status).toBe(429);
+      expect(JSON.parse(String(res._body))).toMatchObject({ error: 'anon_oped_limit', limit: 10, used: 10 });
+      expect(generateOpEdSet).not.toHaveBeenCalled();
+      expect(finalizeOpedSet).not.toHaveBeenCalled();
+    });
+
+    it('a signed-in caller is not held to the anonymous limits', async () => {
+      listOpedSets.mockResolvedValue(Array.from({ length: 12 }, (_, i) => ({ set_id: `s${i}` })));
+      generateOpEdSet.mockImplementation(async function* () { yield* []; });
+      const res = await create({ ...validBody, params: { ...validBody.params, wordCount: 1800 } });
+      expect(res._status).toBe(200);
+    });
+
+    it('quota-status reports { limit, used, remaining } for an anonymous visitor', async () => {
+      anon();
+      listOpedSets.mockResolvedValue([{ set_id: 'a' }, { set_id: 'b' }, { set_id: 'c' }]);
+      const res = fakeRes();
+      await handlers['GET /api/oped-sets/quota-status'](fakeReq('/api/oped-sets/quota-status'), res);
+      expect(JSON.parse(String(res._body))).toMatchObject({ limit: 10, used: 3, remaining: 7 });
+    });
   });
 
   // t/2807 MUST: a fetch failure returns a clean HTTP error and NEVER proceeds with

@@ -6,8 +6,10 @@
  * L6 (terminal WebSocket admin gate).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import path from 'path';
+import crypto from 'crypto';
+import { setAnonSessionSecret, signAnonSessionId, verifyAnonSessionCookie } from '../security/anonSessionSigning.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, callerTierIdentity, clientSafeMessage, stripStackFrames, missingApiKeyError, expiredAuthCookies, anonymousSessionCookies, isValidAnonSessionId, resolveAnonSessionId, hasEasyAuthSessionCookie, resolveTestPersonaOverride } from '../security/accessControl.js';
 import { deriveStorageUserId } from '../security/userContext.js';
 import { resolveTier } from '../ai/proxyTiers.js';
@@ -63,27 +65,35 @@ describe('isValidAnonSessionId (t/2464)', () => {
   });
 });
 
-describe('resolveAnonSessionId (t/2464)', () => {
-  it('reuses a valid existing cookie value', () => {
-    const id = '550e8400-e29b-41d4-a716-446655440000';
+describe('resolveAnonSessionId (t/2464, t/664 signed)', () => {
+  beforeAll(() => setAnonSessionSecret(crypto.randomBytes(32)));
+  const isSigned = (v: string) => verifyAnonSessionCookie(v) !== undefined;
+
+  it('reuses a valid existing (signed) cookie value', () => {
+    const id = signAnonSessionId('550e8400-e29b-41d4-a716-446655440000');
     expect(resolveAnonSessionId(id)).toBe(id);
   });
 
-  it('mints a fresh UUID when existing is undefined', () => {
-    const result = resolveAnonSessionId(undefined);
-    expect(isValidAnonSessionId(result)).toBe(true);
+  it('replaces a bare uuid (pre-t/664 cookie) with a fresh signed one, silently', () => {
+    const bare = '550e8400-e29b-41d4-a716-446655440000';
+    const result = resolveAnonSessionId(bare);
+    expect(result).not.toBe(bare);
+    expect(isSigned(result)).toBe(true);
   });
 
-  it('mints a fresh UUID when existing is malformed — never echoes unvalidated input', () => {
+  it('mints a fresh signed id when existing is undefined', () => {
+    expect(isSigned(resolveAnonSessionId(undefined))).toBe(true);
+  });
+
+  it('mints a fresh signed id when existing is malformed — never echoes unvalidated input', () => {
     const malformed = '../evil';
     const result = resolveAnonSessionId(malformed);
     expect(result).not.toBe(malformed);
-    expect(isValidAnonSessionId(result)).toBe(true);
+    expect(isSigned(result)).toBe(true);
   });
 
-  it('mints a fresh UUID when existing is an empty string', () => {
-    const result = resolveAnonSessionId('');
-    expect(isValidAnonSessionId(result)).toBe(true);
+  it('mints a fresh signed id when existing is an empty string', () => {
+    expect(isSigned(resolveAnonSessionId(''))).toBe(true);
   });
 });
 

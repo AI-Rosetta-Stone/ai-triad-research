@@ -199,7 +199,12 @@ A single pass that checks `conflict` before the canonical is chosen gives order-
 `resolve(id)` is the mark's target when `id` has a valid mark, and `id` otherwise. It never takes more than one hop, because a valid target carries no mark.
 
 - **The resolver uses the mark only, not grouping.** An unmarked member of a group resolves to itself, even when the group's canonical is another document. Only a signed-off mark redirects evidence; grouping never does.
-- **Summary-only chunks (t/355).** A summary `<X>-N` (decimal `N` after the `-YYYY` of `X`; the t/3598 chunk→base rule) with **no source dir**, while `X` has one, is a *chunk* of `X`, and **`resolve(<X>-N) = resolve(X)`**. So a chunk of a marked copy `C` of `D` resolves to `D`. A chunk carries no `duplicate_of` mark and isn't a copy. A summary matching neither rule resolves to itself.
+- **Legacy chunks are named, not inferred (t/355, TL t/355#43).** A summary `<X>-N` (decimal `N` after the `-YYYY` of `X`) is a *chunk* of `X` only if the legacy-chunk manifest `docs/specs/source-identity-legacy-chunks.json` lists it in `chunks` against base `X`. Then **`resolve(<X>-N) = resolve(X)`**, transitively as above, so a chunk of a marked copy `C` of `D` resolves to `D`. A chunk carries no `duplicate_of` mark and isn't a copy.
+  - A listed chunk whose base does not exist is an error, and the response depends on the reader:
+    - **Build-time readers refuse**, naming the id, so a bad manifest cannot land: PowerShell `Build-NodeSourceIndex` and `Resolve-EvidenceDocId`, Python, and the lib `resolveDocId`.
+    - **The live TypeScript node-source builders degrade loudly** instead: they log at error level naming the id, write a flight-recorder entry, and leave that summary as its own source (server `nodeSourceIndex.ts`, t/586; desktop `fileIO.ts`, t/585). That kept source is not counted as a second document in evidence or calibration: it is still the same document as its base for counting (CL, t/571). A bad entry must not take the whole index down at serving time.
+  - Any other `<X>-N` with no source dir is **not** folded: it resolves to itself, and the reader logs a WARN.
+  - Adding to the manifest is a reviewed change (Comp-Linguist), never automatic. Every reader (PowerShell, Python, TypeScript) loads the same file, which is plain JSON, UTF-8, no comments.
 - **Every by-id lookup still finds a marked document,** so historical records (debates, analyses) that cite it keep working.
 
 ### 6.3 Selection and evidence

@@ -237,6 +237,8 @@ jobs:
                              # tree alone. Safe because the only history reads in this job are that
                              # guard's `git rev-parse` + `git merge-base`, which need no blobs. A step
                              # that reads an OLD commit's file contents would lazily fetch it per blob.
+                             # t/670: the one exception is the guard's containment check, run only when
+                             # the requested SHA is not a descendant; it reads a handful of blobs.
 
       - name: Wait for a concurrent staging deploy to finish (t/4194 SO C1)
         shell: pwsh
@@ -432,17 +434,28 @@ jobs:
           $ProdRev = $env:PROD_REV
           $Requested = $env:INPUT_SHA
           $ExitCode = $null
+          $Containment = $null
           if ($ProdRev -match '--deploy-([0-9a-f]{7,40})-') {
             $RunningFull = git rev-parse "$($Matches[1])^{commit}" 2>$null
             if ($RunningFull) {
               git merge-base --is-ancestor $RunningFull $Requested
               $ExitCode = $LASTEXITCODE
+              # t/670 (t/579): not a descendant. A hotfix built off a side branch reaches main as
+              # separately squashed PRs, so it is never an ancestor. Proceed only if every change the
+              # running commit made since the merge-base is already in the requested tree.
+              if ($ExitCode -eq 1) {
+                $Containment = Test-DeployChangesContained -Running $RunningFull -Requested $Requested
+                Write-Host "t/670 containment: running=$RunningFull requested=$Requested merge-base=$($Containment.MergeBase) contained=$($Containment.Contained)"
+                foreach ($c in @($Containment.UniqueCommits)) { Write-Host "  unique to running: $c" }
+              }
             }
           }
-          $Verdict = Get-DeployAgeVerdict -ProdRevisionName $ProdRev -MergeBaseExitCode $ExitCode
+          $Verdict = Get-DeployAgeVerdict -ProdRevisionName $ProdRev -MergeBaseExitCode $ExitCode -Containment $Containment
           switch ($Verdict.Action) {
             'refuse' {
-              Write-Host "::error::t/4194 guard: refusing to deploy $Requested — it is NOT a descendant of the commit already running in prod (revision '$ProdRev', short SHA $($Verdict.RunningShort)). Deploying it would roll prod backward. If this is a deliberate rollback, use the rollback procedure (docs/runbooks), not a forward deploy."
+              $files = if ($Containment -and @($Containment.Files).Count) { " Changes not present in the requested commit: $(@($Containment.Files) -join ', ')." } else { '' }
+              $detail = if ($Verdict.Detail) { " ($($Verdict.Detail))" } else { '' }
+              Write-Host "::error::t/4194 guard: refusing to deploy $Requested — it is NOT a descendant of the commit already running in prod (revision '$ProdRev', short SHA $($Verdict.RunningShort)), and the running commit's changes are not all contained in it$detail.$files Deploying it would roll prod backward. If this is a deliberate rollback, use the rollback procedure (docs/runbooks), not a forward deploy."
               exit 1
             }
             'warn-proceed' {
