@@ -119,6 +119,17 @@ function createNextSteps(status: number, problem: string): string[] {
   return ['Sign in with GitHub or Google to create op-eds'];
 }
 
+/** A refused create that is not a rate limit (400, 403, other). Split out of buildHttpError to keep it
+ *  inside the complexity budget. */
+function refusedCreateError(goal: string, data: Record<string, unknown>, status: number, isDocument: boolean): ActionableError {
+  const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${status}`;
+  // t/276: a document-source 400 gets Design's plain-language copy; anything else keeps the server's text.
+  const problem = (isDocument && status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
+  // t/475: the auth gate's refusal carries its own user text in `detail`; show it instead of the bare error.
+  const detail = data.reason === 'anon_route_blocked' && typeof data.detail === 'string' ? data.detail : undefined;
+  return new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: detail ? [detail] : createNextSteps(status, problem) });
+}
+
 /** Build a user-readable ActionableError from a non-200 create response (JSON error emitted
  *  before the SSE headers: 403 anon, 400 bad request, 403 entitlement, 429 quota/concurrency).
  *  `isDocument` is set for a document-source create, so its 400s get the plain-language copy. */
@@ -138,12 +149,7 @@ async function buildHttpError(res: Response, isDocument: boolean): Promise<Actio
       nextSteps: concurrency ? ['Wait for the current op-ed to finish, then try again'] : ['Delete an existing op-ed to free a slot', 'Try again later'],
     });
   } else {
-    const serverProblem = (typeof data.error === 'string' && data.error) || (typeof data.message === 'string' && data.message) || `Create failed with HTTP ${res.status}`;
-    // t/276: a document-source 400 gets Design's plain-language copy; anything else keeps the server's text.
-    const problem = (isDocument && res.status === 400 && documentSourceProblem(serverProblem)) || serverProblem;
-    // t/475: the auth gate's refusal carries its own user text in `detail`; show it instead of the bare error.
-    const detail = data.reason === 'anon_route_blocked' && typeof data.detail === 'string' ? data.detail : undefined;
-    err = new ActionableError({ goal, problem, location: 'opedStream.runOpEdCreate', nextSteps: detail ? [detail] : createNextSteps(res.status, problem) });
+    err = refusedCreateError(goal, data, res.status, isDocument);
   }
   (err as ActionableError & { httpStatus: number }).httpStatus = res.status;
   return err;
