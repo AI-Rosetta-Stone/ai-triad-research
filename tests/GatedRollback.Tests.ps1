@@ -103,4 +103,74 @@ Describe 'Invoke-GatedRollbackCore (t/266 b, SO condition 1)' -Tag 'devops' {
         $r.ActivateToProvisionedSec | Should -Not -BeNullOrEmpty
         $r.ActivateToWarmSec | Should -Not -BeNullOrEmpty
     }
+
+    # ── t/513 (Lead t/513#4): an already-active target skips activate; every gate still runs ──
+    Context 'already-active target (t/513)' {
+        BeforeEach {
+            $script:Activated = 0
+            # Real-az behaviour on an already-active revision: activate refuses (RevisionAlreadyInRequestedState).
+            $script:RefusingActivate = { $script:Activated++; throw 'az containerapp revision activate exited 1 (RevisionAlreadyInRequestedState)' }
+        }
+
+        It 'active at weight 0 (staging shape): activate is skipped, the gates run, then it shifts once and verifies' {
+            $a = New-Args @{ Activate = $script:RefusingActivate; GetActive = { @{ Active = $true; Weight = 0 } } }
+            $r = Invoke-GatedRollbackCore @a
+            $r.Action | Should -Be 'shifted'
+            $r.Verified | Should -BeTrue
+            $r.AlreadyActive | Should -BeTrue
+            $script:Activated | Should -Be 0
+            $script:Shifted | Should -Be 1
+            $r.ActivateToWarmSec | Should -Not -BeNullOrEmpty
+        }
+
+        It 'already at 100%: success with no shift, after the health and readyz gates pass' {
+            $script:Probed = 0
+            $a = New-Args @{
+                Activate = $script:RefusingActivate; GetActive = { @{ Active = $true; Weight = 100 } }
+                ProbeHealth = { param($u) $script:Probed++; $true }
+            }
+            $r = Invoke-GatedRollbackCore @a
+            $r.Action | Should -Be 'already-serving'
+            $r.Verified | Should -BeTrue
+            $r.Reason | Should -Match 'already serving 100%; nothing shifted'
+            $script:Shifted | Should -Be 0
+            $script:Activated | Should -Be 0
+            $script:Probed | Should -BeGreaterThan 0
+        }
+
+        It 'already active but unhealthy: still refuses and never shifts, at 0% or at 100% (<Weight>)' -ForEach @(@{ Weight = 0 }, @{ Weight = 100 }) {
+            $w = $Weight
+            $a = New-Args @{ Activate = $script:RefusingActivate; GetActive = { @{ Active = $true; Weight = $w } }.GetNewClosure(); ProbeHealth = { param($u) $false } }
+            $r = Invoke-GatedRollbackCore @a
+            $r.Action | Should -Be 'refused'
+            $r.Reason | Should -Match 'not healthy\+warm'
+            $script:Shifted | Should -Be 0
+        }
+
+        It 'prod shape: an INACTIVE target runs activate exactly once, as before, then shifts' {
+            $script:Calls = 0
+            $a = New-Args @{ Activate = { $script:Calls++ }; GetActive = { @{ Active = $false; Weight = 0 } } }
+            $r = Invoke-GatedRollbackCore @a
+            $script:Calls | Should -Be 1
+            $r.AlreadyActive | Should -BeFalse
+            $r.Action | Should -Be 'shifted'
+        }
+
+        It 'an unreadable active state (GetActive throws or returns nothing) falls back to activating, as before' {
+            foreach ($ga in @({ throw 'az failed' }, { $null })) {
+                $script:Calls = 0
+                $a = New-Args @{ Activate = { $script:Calls++ }; GetActive = $ga }
+                $r = Invoke-GatedRollbackCore @a
+                $script:Calls | Should -Be 1
+                $r.Action | Should -Be 'shifted'
+            }
+        }
+
+        It 'no -GetActive at all (older callers): activate runs as before' {
+            $script:Calls = 0
+            $a = New-Args @{ Activate = { $script:Calls++ } }
+            $r = Invoke-GatedRollbackCore @a
+            $script:Calls | Should -Be 1
+        }
+    }
 }

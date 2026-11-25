@@ -26,8 +26,16 @@
     state (tests/GatedRollback.Tests.ps1). Invoke-GatedRollback.ps1 is the CLI wrapper that wires the
     real az/HTTP calls.
 
-    Returns [pscustomobject]@{ Action = 'shifted' | 'refused' | 'measured'; Reason; Verified;
-    ActivateToProvisionedSec; ActivateToWarmSec; Fqdn }.
+    t/513: a target that is ALREADY ACTIVE (staging keeps its rollback target active at weight 0, so
+    `az containerapp revision activate` refuses with RevisionAlreadyInRequestedState) skips step 1 and
+    runs every other gate unchanged. The optional -GetActive scriptblock reads the revision's active
+    flag and weight; if it fails or returns nothing, step 1 runs as before (prod shape: the target was
+    deactivated by retire-previous-revision, so it is activated). A target already at 100% traffic is
+    'already-serving' (nothing shifted) only after the same health and readyz gates pass, with
+    VerifyServing deciding Verified; an unhealthy target still refuses.
+
+    Returns [pscustomobject]@{ Action = 'shifted' | 'refused' | 'measured' | 'already-serving'; Reason;
+    Verified; AlreadyActive; ActivateToProvisionedSec; ActivateToWarmSec; Fqdn }.
 #>
 
 . (Join-Path $PSScriptRoot 'ReadyzWarmGatePredicate.ps1')
@@ -47,6 +55,7 @@ function Invoke-GatedRollbackCore {
         [Parameter(Mandatory)][scriptblock] $ProbeReadyz,    # param($BaseUrl) -> @{ StatusCode; Body }
         [Parameter(Mandatory)][scriptblock] $ShiftTraffic,   # shifts 100% to the revision (throws on failure)
         [Parameter(Mandatory)][scriptblock] $VerifyServing,  # -> $true/$false after the shift
+        [scriptblock] $GetActive,                            # t/513, optional: -> @{ Active = bool; Weight = int } or $null
         [switch] $MeasureOnly,
         [ValidateRange(1, 3600)][int] $ProvisionTimeoutSec = 300,
         [ValidateRange(1, 3600)][int] $WarmTimeoutSec = 420,
@@ -54,13 +63,20 @@ function Invoke-GatedRollbackCore {
     )
 
     $result = [pscustomobject]@{
-        Action = 'refused'; Reason = ''; Verified = $false
+        Action = 'refused'; Reason = ''; Verified = $false; AlreadyActive = $false
         ActivateToProvisionedSec = $null; ActivateToWarmSec = $null; Fqdn = $null
     }
     function Refuse([string]$why) { $result.Action = 'refused'; $result.Reason = $why; $result }
 
     $start = [DateTime]::UtcNow
-    try { & $Activate } catch { return Refuse "activate failed: $($_.Exception.Message)" }
+    # 1. Activate, unless it is already active (t/513). An unreadable state falls back to activating.
+    $current = $null
+    if ($GetActive) { $current = try { & $GetActive } catch { $null } }
+    if ($current -and $current.Active -eq $true) {
+        $result.AlreadyActive = $true
+    } else {
+        try { & $Activate } catch { return Refuse "activate failed: $($_.Exception.Message)" }
+    }
 
     # 2. Provisioned (and not in a failed state), with an FQDN to probe.
     $deadline = $start.AddSeconds($ProvisionTimeoutSec)
@@ -104,6 +120,15 @@ function Invoke-GatedRollbackCore {
     if ($MeasureOnly) {
         $result.Action = 'measured'
         $result.Reason = "ready: provisioned at $($result.ActivateToProvisionedSec)s, healthy+warm at $($result.ActivateToWarmSec)s; -MeasureOnly, traffic NOT shifted"
+        return $result
+    }
+
+    # t/513 (Lead t/513#4 a): already at 100% and the gates above passed -> nothing to shift. Success
+    # only if it also verifies as serving; an unhealthy target never reaches here (it refused above).
+    if ($result.AlreadyActive -and $null -ne $current.Weight -and [int]$current.Weight -eq 100) {
+        $result.Action = 'already-serving'
+        $result.Verified = try { [bool](& $VerifyServing) } catch { $false }
+        $result.Reason = if ($result.Verified) { "already serving 100%; nothing shifted ('$RevisionName' passed the health and readyz gates)" } else { "already at 100% but verification FAILED; check weight and /health now" }
         return $result
     }
 
