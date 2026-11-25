@@ -26,6 +26,7 @@ const TIER_LABELS: Record<PovAlignmentTier, string> = {
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useOrganizationStore } from '../../hooks/useOrganizationStore';
+import { groupVisibleEdges } from './organizationEdgeGroups';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 
 const INITIALS_PALETTE = [
@@ -174,7 +175,7 @@ const EDGE_GROUP_LABELS: Partial<Record<OrganizationEdgeType, string>> = {
   PUBLISHED: 'Published',
 };
 
-function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onSelectOrg?: (id: string) => void }) {
+export function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onSelectOrg?: (id: string) => void }) {
   const [edges, setEdges] = useState<OrganizationEdge[]>([]);
   const [loading, setLoading] = useState(true);
   const allOrgs = useOrganizationStore((s) => s.organizations);
@@ -201,15 +202,9 @@ function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onSelectOr
   }, [orgId]);
 
   if (loading) return <span className="od-muted-075">Loading relationships...</span>;
-  if (edges.length === 0) return null;
-
-  const grouped = new Map<OrganizationEdgeType, { id: string; rationale?: string }[]>();
-  for (const edge of edges) {
-    const peer = edge.source === orgId ? edge.target : edge.source;
-    const list = grouped.get(edge.type) ?? [];
-    list.push({ id: peer, rationale: edge.rationale });
-    grouped.set(edge.type, list);
-  }
+  // t/298: rejected edges are dropped and proposed ones marked Unreviewed (Design p/25#140).
+  const grouped = groupVisibleEdges(edges, orgId);
+  if (grouped.size === 0) return null;
 
   return (
     <div className="od-flex-col-8">
@@ -219,8 +214,9 @@ function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onSelectOr
             {EDGE_GROUP_LABELS[type] ?? type} ({peers.length})
           </div>
           <div className="od-flex-col-4">
-            {peers.map((peer) => (
-              <div key={peer.id} className="od-text-078">
+            {peers.map((peer, i) => (
+              // Index in the key: an org can hold two edges of one type to the same peer.
+              <div key={`${peer.id}-${i}`} className="od-text-078">
                 <div className="od-row-baseline-6">
                   <button
                     className="btn-xs btn-ghost od-rel-link-btn"
@@ -229,7 +225,10 @@ function RelationshipSection({ orgId, onSelectOrg }: { orgId: string; onSelectOr
                     disabled={!onSelectOrg}
                     title={peer.id}
                   >
-                    {orgNameMap.get(peer.id) ?? peer.id}
+                    {/* Only the name is underlined, so the space and the tag are not (Design p/25#142); the
+                        accessible name reads "<name> Unreviewed". */}
+                    <span className="od-rel-link-name">{orgNameMap.get(peer.id) ?? peer.id}</span>
+                    {peer.unreviewed && <>{' '}<span className="od-status od-edge-unreviewed">Unreviewed</span></>}
                   </button>
                 </div>
                 {peer.rationale && (

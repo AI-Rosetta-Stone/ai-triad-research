@@ -45,7 +45,7 @@ function speakerLabel(speaker: string): string {
 }
 
 // t/4824: links to the Chat tool's methods docs (t/4825 — placeholder content, PR #4461, merged).
-const CHAT_HOW_METHODS_LINKS = [
+export const CHAT_HOW_METHODS_LINKS = [
   { label: 'Theory of Success', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-success.md' },
   { label: 'Theory of Operations', url: 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/ux/chat-tool-theory-of-operations.md' },
 ];

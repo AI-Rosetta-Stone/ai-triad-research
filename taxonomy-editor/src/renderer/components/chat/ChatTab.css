@@ -131,3 +131,42 @@
 .chat-bulk-delete-note { font-size: var(--text-xs); color: var(--text-secondary); margin: 8px 0; font-style: italic; }
 /* t/4896 (Design): partial-failure message — --error-text is the AA-paired token for "the red". */
 .chat-bulk-delete-error { font-size: var(--text-xs); color: var(--error-text); margin: 8px 0; }
+
+/* t/595 — Why and How under an answer in the read-only community view (Design, p/53#61).
+   Both toggles sit on one row, Why first; an opened body takes the full row below them.
+   The shared HowPanel is used unchanged: `display: contents` lifts its toggle and body into
+   this row so the How toggle can sit beside the Why toggle.
+   Width: the body column shrinks to the answer's own width (its prose max-width), and this row
+   fills that width without adding to it (`width: 0; min-width: 100%`), so Why and How are exactly
+   as wide as the answer whatever font each uses. */
+.community-chat-transcript .chat-message-body {
+  flex: 0 1 auto;
+}
+
+.community-answer-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--sp-4);
+  width: 0;
+  min-width: 100%;
+  margin-top: 8px;
+}
+
+.community-answer-provenance .how-panel {
+  display: contents;
+}
+
+.community-answer-provenance .chat-why,
+.community-answer-provenance .how-body {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
+.community-answer-provenance .chat-why {
+  order: 1;
+}
+
+.community-answer-provenance .how-body {
+  order: 2;
+}
